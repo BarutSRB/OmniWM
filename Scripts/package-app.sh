@@ -11,6 +11,7 @@ APP_DIR="$ROOT_DIR/dist/OmniWM.app"
 # Signing identity and notarization profile
 SIGNING_IDENTITY="Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
 NOTARIZE_PROFILE="OmniWM-Notarize"
+ENTITLEMENTS="$ROOT_DIR/OmniWM.entitlements"
 
 echo "Building OmniWM ($CONFIG)..."
 swift build -c "$CONFIG"
@@ -30,8 +31,8 @@ fi
 
 if [ "$SIGN_AND_NOTARIZE" = "true" ]; then
   echo "Signing $APP_DIR with hardened runtime..."
-  codesign --force --options runtime --sign "$SIGNING_IDENTITY" --timestamp "$APP_DIR/Contents/MacOS/OmniWM"
-  codesign --force --options runtime --sign "$SIGNING_IDENTITY" --timestamp "$APP_DIR"
+  codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGNING_IDENTITY" --timestamp "$APP_DIR/Contents/MacOS/OmniWM"
+  codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGNING_IDENTITY" --timestamp "$APP_DIR"
 
   echo "Verifying signature..."
   codesign --verify --verbose "$APP_DIR"

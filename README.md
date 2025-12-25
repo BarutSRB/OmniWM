@@ -32,6 +32,13 @@ A powerful tiling window manager for macOS.
 
 The app is developer signed and notarized by Apple.
 
+### Homebrew
+
+```bash
+brew tap BarutSRB/tap
+brew install omniwm
+```
+
 ### GitHub Releases
 
 1. Download the latest `OmniWM.zip` from [Releases](https://github.com/BarutSRB/OmniWM/releases)
