@@ -1,0 +1,18 @@
+# SwiftFormat configuration for OmniWM
+# Swift 6.2 with strict concurrency
+
+--swiftversion 6.2
+--indent 4
+--maxwidth 120
+--wraparguments before-first
+--wrapcollections before-first
+--wrapparameters before-first
+--importgrouping alpha
+--commas inline
+--trimwhitespace always
+--semicolons never
+--header strip
+
+# Rules
+--enable isEmpty
+--enable sortSwitchCases

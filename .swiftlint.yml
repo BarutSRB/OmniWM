@@ -1,0 +1,58 @@
+# SwiftLint configuration for OmniWM
+# Swift 6.2 with strict concurrency
+
+included:
+  - Sources
+
+excluded:
+  - .build
+  - Package.swift
+
+# Disable rules that conflict with SwiftFormat
+disabled_rules:
+  - trailing_comma
+  - opening_brace
+
+# Swift 6 / Concurrency-aware opt-in rules (verified to exist)
+opt_in_rules:
+  - async_without_await
+  - incompatible_concurrency_annotation
+  - strict_fileprivate
+  - no_extension_access_modifier
+  - empty_count
+  - empty_string
+  - fatal_error_message
+  - first_where
+  - last_where
+  - modifier_order
+  - overridden_super_call
+  - sorted_first_last
+  - unavailable_function
+  - unowned_variable_capture
+
+line_length:
+  warning: 120
+  error: 150
+  ignores_comments: true
+
+type_body_length:
+  warning: 300
+  error: 500
+
+file_length:
+  warning: 500
+  error: 1000
+
+function_body_length:
+  warning: 50
+  error: 100
+
+identifier_name:
+  min_length: 2
+  max_length: 60
+  excluded:
+    - id
+    - x
+    - y
+    - i
+    - j
