@@ -2598,7 +2598,7 @@ final class WMController {
         if let bundleId = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
            let rule = appRulesByBundleId[bundleId],
            let wsName = rule.assignToWorkspace,
-           let wsId = workspaceManager.workspaceId(for: wsName, createIfMissing: false)
+           let wsId = workspaceManager.workspaceId(for: wsName, createIfMissing: true)
         {
             return wsId
         }
