@@ -164,6 +164,18 @@ final class SettingsStore {
         didSet { defaults.set(preventSleepEnabled, forKey: Keys.preventSleepEnabled) }
     }
 
+    var scrollGestureEnabled: Bool {
+        didSet { defaults.set(scrollGestureEnabled, forKey: Keys.scrollGestureEnabled) }
+    }
+
+    var scrollSensitivity: Double {
+        didSet { defaults.set(scrollSensitivity, forKey: Keys.scrollSensitivity) }
+    }
+
+    var scrollModifierKey: ScrollModifierKey {
+        didSet { defaults.set(scrollModifierKey.rawValue, forKey: Keys.scrollModifierKey) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -217,6 +229,10 @@ final class SettingsStore {
         monitorBarSettings = Self.loadMonitorBarSettings(from: defaults)
         appRules = Self.loadAppRules(from: defaults)
         preventSleepEnabled = defaults.object(forKey: Keys.preventSleepEnabled) as? Bool ?? false
+        scrollGestureEnabled = defaults.object(forKey: Keys.scrollGestureEnabled) as? Bool ?? true
+        scrollSensitivity = defaults.object(forKey: Keys.scrollSensitivity) as? Double ?? 1.0
+        scrollModifierKey = ScrollModifierKey(rawValue: defaults.string(forKey: Keys.scrollModifierKey) ?? "") ??
+            .option
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -537,4 +553,21 @@ private enum Keys {
 
     static let appRules = "settings.appRules"
     static let preventSleepEnabled = "settings.preventSleepEnabled"
+    static let scrollGestureEnabled = "settings.scrollGestureEnabled"
+    static let scrollSensitivity = "settings.scrollSensitivity"
+    static let scrollModifierKey = "settings.scrollModifierKey"
+}
+
+enum ScrollModifierKey: String, CaseIterable, Codable {
+    case option
+    case control
+    case command
+
+    var displayName: String {
+        switch self {
+        case .option: "Option (⌥)"
+        case .control: "Control (⌃)"
+        case .command: "Command (⌘)"
+        }
+    }
 }

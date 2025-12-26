@@ -14,6 +14,16 @@ enum Direction: String, Codable {
     }
 }
 
+extension ScrollModifierKey {
+    var eventModifierFlag: NSEvent.ModifierFlags {
+        switch self {
+        case .option: .option
+        case .control: .control
+        case .command: .command
+        }
+    }
+}
+
 enum HotkeyCommand: Codable, Equatable, Hashable {
     case focus(Direction)
     case focusPrevious
@@ -227,6 +237,8 @@ final class WMController {
     private var mouseDownMonitor: Any?
     private var mouseDraggedMonitor: Any?
     private var mouseUpMonitor: Any?
+    private var scrollWheelMonitor: Any?
+    private var isScrollGestureActive: Bool = false
     private var currentHoveredEdges: ResizeEdge = []
     private var isResizing: Bool = false
     private var isMoving: Bool = false
@@ -882,6 +894,12 @@ final class WMController {
                 self?.handleMouseUp()
             }
         }
+
+        scrollWheelMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            Task { @MainActor in
+                self?.handleScrollWheel(event)
+            }
+        }
     }
 
     private func cleanupMouseEventMonitors() {
@@ -905,8 +923,13 @@ final class WMController {
             NSEvent.removeMonitor(monitor)
             mouseUpMonitor = nil
         }
+        if let monitor = scrollWheelMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollWheelMonitor = nil
+        }
         currentHoveredEdges = []
         isResizing = false
+        isScrollGestureActive = false
     }
 
     private func handleMouseMoved() {
@@ -1101,6 +1124,69 @@ final class WMController {
         } else {
             NSCursor.arrow.set()
             currentHoveredEdges = []
+        }
+    }
+
+    private func handleScrollWheel(_ event: NSEvent) {
+        guard isEnabled, settings.scrollGestureEnabled else { return }
+        guard !isResizing, !isMoving else { return }
+        guard let engine = niriEngine, let wsId = activeWorkspace()?.id else { return }
+
+        let deltaX: CGFloat
+        let isTrackpad = event.momentumPhase != [] || event.phase != []
+
+        if isTrackpad {
+            deltaX = event.scrollingDeltaX
+        } else if event.modifierFlags.contains(settings.scrollModifierKey.eventModifierFlag) {
+            deltaX = -event.scrollingDeltaY
+        } else {
+            return
+        }
+
+        guard abs(deltaX) > 0.5 else { return }
+
+        let gestureEnding = event.phase == .ended || event.momentumPhase == .ended
+
+        if !isScrollGestureActive {
+            isScrollGestureActive = true
+            var state = workspaceManager.niriViewportState(for: wsId)
+            engine.dndScrollBegin(in: wsId, state: &state)
+            workspaceManager.updateNiriViewportState(state, for: wsId)
+        }
+
+        let columnWidth: CGFloat = 400.0
+        let sensitivity = CGFloat(settings.scrollSensitivity)
+        let viewportDelta = (deltaX / columnWidth) * sensitivity
+
+        var state = workspaceManager.niriViewportState(for: wsId)
+
+        if let steps = engine.dndScrollUpdate(viewportDelta, in: wsId, state: &state) {
+            if let currentId = state.selectedNodeId,
+               let currentNode = engine.findNode(by: currentId),
+               let newNode = engine.moveSelectionByColumns(
+                   steps: steps,
+                   currentSelection: currentNode,
+                   in: wsId
+               )
+            {
+                state.selectedNodeId = newNode.id
+
+                if let windowNode = newNode as? NiriWindow {
+                    focusedHandle = windowNode.handle
+                    engine.updateFocusTimestamp(for: windowNode.id)
+                    focusWindow(windowNode.handle)
+                }
+            }
+        }
+        workspaceManager.updateNiriViewportState(state, for: wsId)
+        executeLayoutRefreshImmediate()
+
+        if gestureEnding, isScrollGestureActive {
+            isScrollGestureActive = false
+            var endState = workspaceManager.niriViewportState(for: wsId)
+            engine.dndScrollEnd(in: wsId, state: &endState)
+            workspaceManager.updateNiriViewportState(endState, for: wsId)
+            executeLayoutRefreshImmediate()
         }
     }
 
@@ -2670,7 +2756,8 @@ final class WMController {
 
     private func updateBorderIfAllowed(handle: WindowHandle, frame: CGRect, windowId: Int) {
         guard let activeWs = activeWorkspace(),
-              workspaceManager.workspace(for: handle) == activeWs.id else {
+              workspaceManager.workspace(for: handle) == activeWs.id
+        else {
             borderManager.hideBorder()
             return
         }
@@ -2867,21 +2954,16 @@ final class WMController {
             for window in windows {
                 let axRef = AXWindowRef(id: UUID(), element: window)
 
-                // Filter to current monitor
                 guard let windowFrame = try? AXWindowService.frame(axRef) else { continue }
                 let windowCenter = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
                 guard monitor.visibleFrame.contains(windowCenter) else { continue }
 
-                // Check if app has alwaysFloat rule
                 let hasAlwaysFloatRule = app.bundleIdentifier.flatMap { appRulesByBundleId[$0]?.alwaysFloat } == true
 
-                // Raise windows that are either:
-                // 1. Inherently floating (dialogs, panels, etc.)
-                // 2. From apps with alwaysFloat app rule
                 let windowType = AXWindowService.windowType(axRef, appPolicy: app.activationPolicy)
                 guard windowType == .floating || hasAlwaysFloatRule else { continue }
 
-                let _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
 
                 if app.processIdentifier == ownPid {
                     ownAppHasFloatingWindows = true
@@ -2892,14 +2974,12 @@ final class WMController {
             }
         }
 
-        // Focus the topmost raised window
         if let app = lastRaisedApp, let window = lastRaisedWindow {
             app.activate()
             let axApp = AXUIElementCreateApplication(app.processIdentifier)
-            let _ = AXUIElementSetAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, window)
+            _ = AXUIElementSetAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, window)
         }
 
-        // Handle OmniWM's own floating windows
         if ownAppHasFloatingWindows {
             NSApp.activate(ignoringOtherApps: true)
         }

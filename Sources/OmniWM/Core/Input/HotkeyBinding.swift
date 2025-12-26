@@ -44,8 +44,8 @@ struct HotkeyBinding: Codable, Identifiable {
         case .focusMonitor, .focusMonitorLast, .focusMonitorNext, .focusMonitorPrevious, .moveColumnToMonitor,
              .moveToMonitor, .moveWorkspaceToMonitor:
             .monitor
-        case .balanceSizes, .decreaseGaps, .increaseGaps, .toggleFullscreen, .toggleMaximized, .toggleNativeFullscreen,
-             .raiseAllFloatingWindows:
+        case .balanceSizes, .decreaseGaps, .increaseGaps, .raiseAllFloatingWindows, .toggleFullscreen, .toggleMaximized,
+             .toggleNativeFullscreen:
             .layout
         case .cycleWindowHeightBackward, .cycleWindowHeightForward, .decreaseWindowSize,
              .increaseWindowSize, .resetWindowSize:

@@ -106,6 +106,30 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.outerGapBottom) { _, _ in
                     syncOuterGaps()
                 }
+
+                Divider()
+                Text("Scroll Gestures").font(.subheadline).foregroundColor(.secondary)
+
+                Toggle("Enable Scroll Gestures", isOn: $settings.scrollGestureEnabled)
+
+                HStack {
+                    Text("Scroll Sensitivity")
+                    Slider(value: $settings.scrollSensitivity, in: 0.1 ... 10.0, step: 0.1)
+                    Text(String(format: "%.1f", settings.scrollSensitivity) + "x")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .frame(width: 48, alignment: .trailing)
+                }
+
+                Picker("Mouse Scroll Modifier", selection: $settings.scrollModifierKey) {
+                    ForEach(ScrollModifierKey.allCases, id: \.self) { key in
+                        Text(key.displayName).tag(key)
+                    }
+                }
+                .disabled(!settings.scrollGestureEnabled)
+
+                Text("Hold this key + scroll wheel to navigate workspaces")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .padding()
