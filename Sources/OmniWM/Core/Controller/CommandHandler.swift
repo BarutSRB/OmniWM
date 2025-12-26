@@ -182,13 +182,14 @@ final class CommandHandler {
 
                 if let windowNode = newNode as? NiriWindow {
                     controller.internalFocusedHandle = windowNode.handle
-
                     engine.updateFocusTimestamp(for: windowNode.id)
-
-                    controller.focusWindow(windowNode.handle)
                 }
 
                 controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+
+                if let windowNode = newNode as? NiriWindow {
+                    controller.focusWindow(windowNode.handle)
+                }
             }
         }
     }
@@ -219,9 +220,8 @@ final class CommandHandler {
 
             controller.internalFocusedHandle = previousWindow.handle
 
-            controller.focusWindow(previousWindow.handle)
-
             controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+            controller.focusWindow(previousWindow.handle)
         }
     }
 

@@ -326,6 +326,7 @@ final class MouseEventHandler {
 
         var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
 
+        var targetWindowHandle: WindowHandle?
         if let steps = engine.dndScrollUpdate(viewportDelta, in: wsId, state: &state) {
             if let currentId = state.selectedNodeId,
                let currentNode = engine.findNode(by: currentId),
@@ -340,12 +341,16 @@ final class MouseEventHandler {
                 if let windowNode = newNode as? NiriWindow {
                     controller.internalFocusedHandle = windowNode.handle
                     engine.updateFocusTimestamp(for: windowNode.id)
-                    controller.focusWindow(windowNode.handle)
+                    targetWindowHandle = windowNode.handle
                 }
             }
         }
         controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
         controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+
+        if let handle = targetWindowHandle {
+            controller.focusWindow(handle)
+        }
 
         if gestureEnding, isScrollGestureActive {
             isScrollGestureActive = false
