@@ -10,8 +10,57 @@ final class LayoutRefreshController {
     private var isImmediateLayoutInProgress: Bool = false
     private var refreshTimer: Timer?
 
+    private var scrollAnimationDisplayLink: CVDisplayLink?
+    private var scrollAnimationWorkspaceId: WorkspaceDescriptor.ID?
+    private var isScrollAnimationRunning: Bool = false
+
     init(controller: WMController) {
         self.controller = controller
+    }
+
+    func startScrollAnimation(for workspaceId: WorkspaceDescriptor.ID) {
+        scrollAnimationWorkspaceId = workspaceId
+        if isScrollAnimationRunning { return }
+        isScrollAnimationRunning = true
+        tickScrollAnimation()
+    }
+
+    func stopScrollAnimation() {
+        isScrollAnimationRunning = false
+        scrollAnimationWorkspaceId = nil
+    }
+
+    private func tickScrollAnimation() {
+        guard isScrollAnimationRunning else { return }
+        guard let controller, let wsId = scrollAnimationWorkspaceId else {
+            stopScrollAnimation()
+            return
+        }
+        guard let engine = controller.internalNiriEngine else {
+            stopScrollAnimation()
+            return
+        }
+
+        var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+        let total = engine.columns(in: wsId).count
+        let visibleCap = min(engine.maxVisibleColumns, total)
+
+        let shouldContinue = state.tickAnimation(
+            totalColumns: total,
+            visibleCap: visibleCap,
+            infiniteLoop: engine.infiniteLoop
+        )
+
+        controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+        executeLayoutRefreshImmediate()
+
+        if shouldContinue {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { [weak self] in
+                self?.tickScrollAnimation()
+            }
+        } else {
+            stopScrollAnimation()
+        }
     }
 
     func refreshWindowsAndLayout() {
@@ -74,6 +123,7 @@ final class LayoutRefreshController {
         activeRefreshTask?.cancel()
         activeRefreshTask = nil
         isInLightSession = false
+        stopScrollAnimation()
     }
 
     private func executeLayoutRefresh() async throws {
@@ -230,7 +280,7 @@ final class LayoutRefreshController {
                 workingArea: area
             )
 
-            let hiddenHandles = engine.hiddenWindowHandles(in: wsId, state: state)
+            let hiddenHandles = engine.hiddenWindowHandles(in: wsId, state: state, workingFrame: insetFrame)
             let corner = cornersByMonitor[monitor.id] ?? .bottomRightCorner
 
             for entry in workspaceManager.entries(in: wsId) {

@@ -60,7 +60,6 @@ extension NiriLayoutEngine {
         let spanEnd = startPos + CGFloat(visibleCap)
 
         var visibleIndices: [Int] = []
-        var overlaps: [CGFloat] = []
 
         var idx = Int(startPos.rounded(.down))
         while CGFloat(idx) < spanEnd + CGFloat.ulpOfOne, visibleIndices.count < total + 1 {
@@ -72,7 +71,6 @@ extension NiriLayoutEngine {
 
             if overlap > CGFloat.ulpOfOne {
                 visibleIndices.append(wrappedIdx)
-                overlaps.append(min(overlap, 1.0))
             }
 
             idx += 1
@@ -92,7 +90,8 @@ extension NiriLayoutEngine {
             return workingFrame.height * ratio
         }()
 
-        let columnInputs: [NiriColumnWidthSolver.ColumnInput] = zip(visibleIndices, overlaps).map { idx, overlap in
+        let columnsForWidthCalc = Array(visibleIndices.prefix(visibleCap))
+        let columnInputs: [NiriColumnWidthSolver.ColumnInput] = columnsForWidthCalc.map { idx in
             let column = cols[idx]
 
             let minWidthConstraint = column.windowNodes.map(\.constraints.minSize.width).max()
@@ -110,9 +109,9 @@ extension NiriLayoutEngine {
 
             let effectiveWidth: ColumnWidth = switch column.width {
             case let .proportion(p):
-                .proportion(max(0.1, p) * overlap)
+                .proportion(max(0.1, p))
             case let .fixed(f):
-                .fixed(max(1, f * overlap))
+                .fixed(max(1, f))
             }
 
             return NiriColumnWidthSolver.ColumnInput(
@@ -131,18 +130,23 @@ extension NiriLayoutEngine {
         guard !widthOutputs.isEmpty else { return result }
 
         let centeringOffset = computeCenteringOffset(
-            visibleIndices: visibleIndices,
+            visibleIndices: columnsForWidthCalc,
             widths: widthOutputs.map(\.width),
             horizontalGap: horizontalGap,
             workingFrame: workingFrame,
             totalColumns: total
         )
 
-        var x = workingFrame.origin.x + centeringOffset
+        let fractionalOffset = startPos - floor(startPos)
+        let firstColWidth = widthOutputs.first?.width ?? 0
+        let viewportShift = fractionalOffset * (firstColWidth + horizontalGap)
+
+        var x = workingFrame.origin.x + centeringOffset - viewportShift
         var usedIndices = Set<Int>()
 
-        for (colIdx, output) in zip(visibleIndices, widthOutputs) {
-            let width = output.width.roundedToPhysicalPixel(scale: effectiveScale)
+        for (i, colIdx) in visibleIndices.enumerated() {
+            let widthIndex = i % widthOutputs.count
+            let width = widthOutputs[widthIndex].width.roundedToPhysicalPixel(scale: effectiveScale)
             guard width > CGFloat.ulpOfOne else { continue }
 
             usedIndices.insert(colIdx)

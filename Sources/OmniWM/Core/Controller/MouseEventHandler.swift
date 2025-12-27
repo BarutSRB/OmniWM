@@ -309,25 +309,44 @@ final class MouseEventHandler {
             return
         }
 
-        guard abs(deltaX) > 0.5 else { return }
-
-        let gestureEnding = event.phase == .ended || event.momentumPhase == .ended
-
-        if !isScrollGestureActive {
-            isScrollGestureActive = true
-            var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-            engine.dndScrollBegin(in: wsId, state: &state)
-            controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+        if event.momentumPhase == .began || event.momentumPhase == .changed {
+            return
         }
 
-        let columnWidth: CGFloat = 400.0
-        let sensitivity = CGFloat(controller.internalSettings.scrollSensitivity)
-        let viewportDelta = (deltaX / columnWidth) * sensitivity
+        guard abs(deltaX) > 0.5 else { return }
+
+        let gestureEnding = event.phase == .ended
+        let timestamp = CACurrentMediaTime()
 
         var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
 
+        if state.viewportOffset.isAnimating {
+            state.cancelAnimation()
+        }
+
+        if !isScrollGestureActive {
+            isScrollGestureActive = true
+            state.beginGesture(isTrackpad: isTrackpad)
+        }
+
+        guard let monitor = controller.monitorForInteraction() else { return }
+        let insetFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        let workingAreaWidth = insetFrame.width
+
+        let total = engine.columns(in: wsId).count
+        let visibleCap = min(engine.maxVisibleColumns, total)
+        let sensitivity = CGFloat(controller.internalSettings.scrollSensitivity)
+        let adjustedDelta = deltaX * sensitivity
+
         var targetWindowHandle: WindowHandle?
-        if let steps = engine.dndScrollUpdate(viewportDelta, in: wsId, state: &state) {
+        if let steps = state.updateGesture(
+            delta: adjustedDelta,
+            timestamp: timestamp,
+            totalColumns: total,
+            visibleCap: visibleCap,
+            infiniteLoop: engine.infiniteLoop,
+            workingAreaWidth: workingAreaWidth
+        ) {
             if let currentId = state.selectedNodeId,
                let currentNode = engine.findNode(by: currentId),
                let newNode = engine.moveSelectionByColumns(
@@ -345,6 +364,7 @@ final class MouseEventHandler {
                 }
             }
         }
+
         controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
         controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
 
@@ -355,9 +375,13 @@ final class MouseEventHandler {
         if gestureEnding, isScrollGestureActive {
             isScrollGestureActive = false
             var endState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-            engine.dndScrollEnd(in: wsId, state: &endState)
+            endState.endGesture(
+                totalColumns: total,
+                visibleCap: visibleCap,
+                infiniteLoop: engine.infiniteLoop
+            )
             controller.internalWorkspaceManager.updateNiriViewportState(endState, for: wsId)
-            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+            controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
         }
     }
 }

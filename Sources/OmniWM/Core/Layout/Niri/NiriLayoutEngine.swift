@@ -230,7 +230,8 @@ final class NiriLayoutEngine {
 
     func hiddenWindowHandles(
         in workspaceId: WorkspaceDescriptor.ID,
-        state: ViewportState
+        state: ViewportState,
+        workingFrame: CGRect? = nil
     ) -> Set<WindowHandle> {
         let cols = columns(in: workspaceId)
         guard !cols.isEmpty else { return [] }
@@ -260,6 +261,15 @@ final class NiriLayoutEngine {
             if !visibleIndices.contains(colIdx) {
                 for window in column.windowNodes {
                     hiddenHandles.insert(window.handle)
+                }
+            } else if let workingFrame {
+                for window in column.windowNodes {
+                    if let windowFrame = window.frame {
+                        let visibleWidth = min(windowFrame.maxX, workingFrame.maxX) - max(windowFrame.minX, workingFrame.minX)
+                        if visibleWidth < 1.0 {
+                            hiddenHandles.insert(window.handle)
+                        }
+                    }
                 }
             }
         }
