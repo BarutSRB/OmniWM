@@ -80,7 +80,8 @@ struct WorkspaceBarView: View {
     }
 
     private var workspaceItems: [WorkspaceBarItem] {
-        controller.workspaceBarItems(
+        _ = controller.workspaceBarVersion
+        return controller.workspaceBarItems(
             for: monitor,
             deduplicate: resolvedSettings.deduplicateAppIcons,
             hideEmpty: resolvedSettings.hideEmptyWorkspaces

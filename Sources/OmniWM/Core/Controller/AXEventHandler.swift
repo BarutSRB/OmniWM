@@ -43,6 +43,7 @@ final class AXEventHandler {
             fallbackWorkspaceId: controller.activeWorkspace()?.id
         )
         _ = controller.internalWorkspaceManager.addWindow(ref, pid: pid, windowId: winId, to: workspaceId)
+        controller.updateWorkspaceBar()
 
         controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
     }
