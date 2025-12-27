@@ -31,6 +31,11 @@ struct SettingsView: View {
                     Label("Bar", systemImage: "menubar.rectangle")
                 }
 
+            AnimationsSettingsTab(settings: settings, controller: controller)
+                .tabItem {
+                    Label("Animations", systemImage: "sparkles")
+                }
+
             HotkeySettingsView(settings: settings, controller: controller)
                 .padding()
                 .tabItem {

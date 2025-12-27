@@ -176,6 +176,58 @@ final class SettingsStore {
         didSet { defaults.set(scrollModifierKey.rawValue, forKey: Keys.scrollModifierKey) }
     }
 
+    var animationsEnabled: Bool {
+        didSet { defaults.set(animationsEnabled, forKey: Keys.animationsEnabled) }
+    }
+
+    var focusChangeSpringPreset: AnimationSpringPreset {
+        didSet { defaults.set(focusChangeSpringPreset.rawValue, forKey: Keys.focusChangeSpringPreset) }
+    }
+
+    var focusChangeUseCustom: Bool {
+        didSet { defaults.set(focusChangeUseCustom, forKey: Keys.focusChangeUseCustom) }
+    }
+
+    var focusChangeCustomStiffness: Double {
+        didSet { defaults.set(focusChangeCustomStiffness, forKey: Keys.focusChangeCustomStiffness) }
+    }
+
+    var focusChangeCustomDamping: Double {
+        didSet { defaults.set(focusChangeCustomDamping, forKey: Keys.focusChangeCustomDamping) }
+    }
+
+    var gestureSpringPreset: AnimationSpringPreset {
+        didSet { defaults.set(gestureSpringPreset.rawValue, forKey: Keys.gestureSpringPreset) }
+    }
+
+    var gestureUseCustom: Bool {
+        didSet { defaults.set(gestureUseCustom, forKey: Keys.gestureUseCustom) }
+    }
+
+    var gestureCustomStiffness: Double {
+        didSet { defaults.set(gestureCustomStiffness, forKey: Keys.gestureCustomStiffness) }
+    }
+
+    var gestureCustomDamping: Double {
+        didSet { defaults.set(gestureCustomDamping, forKey: Keys.gestureCustomDamping) }
+    }
+
+    var columnRevealSpringPreset: AnimationSpringPreset {
+        didSet { defaults.set(columnRevealSpringPreset.rawValue, forKey: Keys.columnRevealSpringPreset) }
+    }
+
+    var columnRevealUseCustom: Bool {
+        didSet { defaults.set(columnRevealUseCustom, forKey: Keys.columnRevealUseCustom) }
+    }
+
+    var columnRevealCustomStiffness: Double {
+        didSet { defaults.set(columnRevealCustomStiffness, forKey: Keys.columnRevealCustomStiffness) }
+    }
+
+    var columnRevealCustomDamping: Double {
+        didSet { defaults.set(columnRevealCustomDamping, forKey: Keys.columnRevealCustomDamping) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -233,6 +285,29 @@ final class SettingsStore {
         scrollSensitivity = defaults.object(forKey: Keys.scrollSensitivity) as? Double ?? 1.0
         scrollModifierKey = ScrollModifierKey(rawValue: defaults.string(forKey: Keys.scrollModifierKey) ?? "") ??
             .option
+
+        animationsEnabled = defaults.object(forKey: Keys.animationsEnabled) as? Bool ?? true
+
+        focusChangeSpringPreset = AnimationSpringPreset(
+            rawValue: defaults.string(forKey: Keys.focusChangeSpringPreset) ?? ""
+        ) ?? .snappy
+        focusChangeUseCustom = defaults.object(forKey: Keys.focusChangeUseCustom) as? Bool ?? false
+        focusChangeCustomStiffness = defaults.object(forKey: Keys.focusChangeCustomStiffness) as? Double ?? 1000
+        focusChangeCustomDamping = defaults.object(forKey: Keys.focusChangeCustomDamping) as? Double ?? 1.0
+
+        gestureSpringPreset = AnimationSpringPreset(
+            rawValue: defaults.string(forKey: Keys.gestureSpringPreset) ?? ""
+        ) ?? .snappy
+        gestureUseCustom = defaults.object(forKey: Keys.gestureUseCustom) as? Bool ?? false
+        gestureCustomStiffness = defaults.object(forKey: Keys.gestureCustomStiffness) as? Double ?? 1000
+        gestureCustomDamping = defaults.object(forKey: Keys.gestureCustomDamping) as? Double ?? 1.0
+
+        columnRevealSpringPreset = AnimationSpringPreset(
+            rawValue: defaults.string(forKey: Keys.columnRevealSpringPreset) ?? ""
+        ) ?? .snappy
+        columnRevealUseCustom = defaults.object(forKey: Keys.columnRevealUseCustom) as? Bool ?? false
+        columnRevealCustomStiffness = defaults.object(forKey: Keys.columnRevealCustomStiffness) as? Double ?? 1000
+        columnRevealCustomDamping = defaults.object(forKey: Keys.columnRevealCustomDamping) as? Double ?? 1.0
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -560,6 +635,20 @@ private enum Keys {
     static let scrollGestureEnabled = "settings.scrollGestureEnabled"
     static let scrollSensitivity = "settings.scrollSensitivity"
     static let scrollModifierKey = "settings.scrollModifierKey"
+
+    static let animationsEnabled = "settings.animationsEnabled"
+    static let focusChangeSpringPreset = "settings.focusChangeSpringPreset"
+    static let focusChangeUseCustom = "settings.focusChangeUseCustom"
+    static let focusChangeCustomStiffness = "settings.focusChangeCustomStiffness"
+    static let focusChangeCustomDamping = "settings.focusChangeCustomDamping"
+    static let gestureSpringPreset = "settings.gestureSpringPreset"
+    static let gestureUseCustom = "settings.gestureUseCustom"
+    static let gestureCustomStiffness = "settings.gestureCustomStiffness"
+    static let gestureCustomDamping = "settings.gestureCustomDamping"
+    static let columnRevealSpringPreset = "settings.columnRevealSpringPreset"
+    static let columnRevealUseCustom = "settings.columnRevealUseCustom"
+    static let columnRevealCustomStiffness = "settings.columnRevealCustomStiffness"
+    static let columnRevealCustomDamping = "settings.columnRevealCustomDamping"
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {
@@ -572,6 +661,28 @@ enum ScrollModifierKey: String, CaseIterable, Codable {
         case .option: "Option (⌥)"
         case .control: "Control (⌃)"
         case .command: "Command (⌘)"
+        }
+    }
+}
+
+enum AnimationSpringPreset: String, CaseIterable, Codable {
+    case snappy
+    case smooth
+    case bouncy
+
+    var displayName: String {
+        switch self {
+        case .snappy: "Snappy"
+        case .smooth: "Smooth"
+        case .bouncy: "Bouncy"
+        }
+    }
+
+    var config: SpringConfig {
+        switch self {
+        case .snappy: .snappy
+        case .smooth: .smooth
+        case .bouncy: .bouncy
         }
     }
 }

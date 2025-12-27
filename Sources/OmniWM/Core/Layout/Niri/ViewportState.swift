@@ -22,6 +22,7 @@ enum ViewOffset {
     case gesture(ViewGesture)
     case animating(ViewAnimation)
     case decelerating(DecelerationAnimation)
+    case spring(SpringAnimation)
 
     func current() -> CGFloat {
         switch self {
@@ -33,12 +34,14 @@ enum ViewOffset {
             CGFloat(anim.value(at: CACurrentMediaTime()))
         case let .decelerating(anim):
             CGFloat(anim.value(at: CACurrentMediaTime()))
+        case let .spring(anim):
+            CGFloat(anim.value(at: CACurrentMediaTime()))
         }
     }
 
     var isAnimating: Bool {
         switch self {
-        case .animating, .decelerating:
+        case .animating, .decelerating, .spring:
             true
         default:
             false
@@ -66,6 +69,11 @@ struct ViewportState {
     var selectedNodeId: NodeId?
 
     var viewOffsetToRestore: CGFloat?
+
+    var animationsEnabled: Bool = true
+    var focusChangeSpringConfig: SpringConfig = .snappy
+    var gestureSpringConfig: SpringConfig = .snappy
+    var columnRevealSpringConfig: SpringConfig = .snappy
 
     func columnX(at index: Int, columns: [NiriContainer], gap: CGFloat) -> CGFloat {
         var x: CGFloat = 0
@@ -127,17 +135,16 @@ struct ViewportState {
             viewportWidth: viewportWidth
         )
 
-        if animate {
+        if animate && animationsEnabled {
             let now = CACurrentMediaTime()
-            let animation = ViewAnimation(
+            let animation = SpringAnimation(
                 from: newOffset,
                 to: targetOffset,
-                duration: 0.3,
-                curve: .easeOutCubic,
+                initialVelocity: 0,
                 startTime: now,
-                initialVelocity: 0
+                config: focusChangeSpringConfig
             )
-            viewOffsetPixels = .animating(animation)
+            viewOffsetPixels = .spring(animation)
         } else {
             viewOffsetPixels = .static(targetOffset)
         }
@@ -278,28 +285,18 @@ struct ViewportState {
             targetOffset = 0
         }
 
-        let now = CACurrentMediaTime()
-
-        if abs(velocity) > 50 {
-            let animation = ViewAnimation(
+        if animationsEnabled {
+            let now = CACurrentMediaTime()
+            let animation = SpringAnimation(
                 from: currentOffset,
                 to: targetOffset,
-                duration: 0.35,
-                curve: .easeOutCubic,
+                initialVelocity: velocity,
                 startTime: now,
-                initialVelocity: velocity
+                config: gestureSpringConfig
             )
-            viewOffsetPixels = .animating(animation)
+            viewOffsetPixels = .spring(animation)
         } else {
-            let animation = ViewAnimation(
-                from: currentOffset,
-                to: targetOffset,
-                duration: 0.25,
-                curve: .easeOutCubic,
-                startTime: now,
-                initialVelocity: 0
-            )
-            viewOffsetPixels = .animating(animation)
+            viewOffsetPixels = .static(CGFloat(targetOffset))
         }
 
         selectionProgress = 0.0
@@ -318,6 +315,14 @@ struct ViewportState {
             return true
 
         case let .decelerating(anim):
+            if anim.isComplete(at: now) {
+                let finalOffset = CGFloat(anim.targetValue)
+                viewOffsetPixels = .static(finalOffset)
+                return false
+            }
+            return true
+
+        case let .spring(anim):
             if anim.isComplete(at: now) {
                 let finalOffset = CGFloat(anim.targetValue)
                 viewOffsetPixels = .static(finalOffset)
@@ -381,17 +386,16 @@ struct ViewportState {
             return
         }
 
-        if animate {
+        if animate && animationsEnabled {
             let now = CACurrentMediaTime()
-            let animation = ViewAnimation(
+            let animation = SpringAnimation(
                 from: Double(currentOffset),
                 to: Double(targetOffset),
-                duration: 0.25,
-                curve: .easeOutCubic,
+                initialVelocity: 0,
                 startTime: now,
-                initialVelocity: 0
+                config: columnRevealSpringConfig
             )
-            viewOffsetPixels = .animating(animation)
+            viewOffsetPixels = .spring(animation)
         } else {
             viewOffsetPixels = .static(targetOffset)
         }

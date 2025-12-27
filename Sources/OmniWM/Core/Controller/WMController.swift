@@ -671,7 +671,11 @@ final class WMController {
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
-        singleWindowAspectRatio: SingleWindowAspectRatio? = nil
+        singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
+        animationsEnabled: Bool? = nil,
+        focusChangeSpringConfig: SpringConfig? = nil,
+        gestureSpringConfig: SpringConfig? = nil,
+        columnRevealSpringConfig: SpringConfig? = nil
     ) {
         niriEngine?.updateConfiguration(
             maxWindowsPerColumn: maxWindowsPerColumn,
@@ -679,7 +683,11 @@ final class WMController {
             infiniteLoop: infiniteLoop,
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
-            singleWindowAspectRatio: singleWindowAspectRatio
+            singleWindowAspectRatio: singleWindowAspectRatio,
+            animationsEnabled: animationsEnabled,
+            focusChangeSpringConfig: focusChangeSpringConfig,
+            gestureSpringConfig: gestureSpringConfig,
+            columnRevealSpringConfig: columnRevealSpringConfig
         )
         layoutRefreshController?.refreshWindowsAndLayout()
     }

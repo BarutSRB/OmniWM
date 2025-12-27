@@ -494,7 +494,11 @@ final class NiriLayoutEngine {
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
-        singleWindowAspectRatio: SingleWindowAspectRatio? = nil
+        singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
+        animationsEnabled: Bool? = nil,
+        focusChangeSpringConfig: SpringConfig? = nil,
+        gestureSpringConfig: SpringConfig? = nil,
+        columnRevealSpringConfig: SpringConfig? = nil
     ) {
         if let max = maxWindowsPerColumn {
             self.maxWindowsPerColumn = max.clamped(to: 1 ... 10)
@@ -513,6 +517,30 @@ final class NiriLayoutEngine {
         }
         if let aspectRatio = singleWindowAspectRatio {
             self.singleWindowAspectRatio = aspectRatio
+        }
+
+        let hasAnimationChanges = animationsEnabled != nil ||
+            focusChangeSpringConfig != nil ||
+            gestureSpringConfig != nil ||
+            columnRevealSpringConfig != nil
+
+        if hasAnimationChanges {
+            for monitor in monitors.values {
+                for workspaceId in monitor.viewportStates.keys {
+                    if let enabled = animationsEnabled {
+                        monitor.viewportStates[workspaceId]?.animationsEnabled = enabled
+                    }
+                    if let config = focusChangeSpringConfig {
+                        monitor.viewportStates[workspaceId]?.focusChangeSpringConfig = config
+                    }
+                    if let config = gestureSpringConfig {
+                        monitor.viewportStates[workspaceId]?.gestureSpringConfig = config
+                    }
+                    if let config = columnRevealSpringConfig {
+                        monitor.viewportStates[workspaceId]?.columnRevealSpringConfig = config
+                    }
+                }
+            }
         }
     }
 
