@@ -347,6 +347,10 @@ final class SettingsStore {
         return defaultLayoutType
     }
 
+    func displayName(for workspaceName: String) -> String {
+        workspaceConfigurations.first(where: { $0.name == workspaceName })?.effectiveDisplayName ?? workspaceName
+    }
+
     private static func loadWorkspaceConfigurations(from defaults: UserDefaults) -> [WorkspaceConfiguration] {
         if let data = defaults.data(forKey: Keys.workspaceConfigurations),
            let configs = try? JSONDecoder().decode([WorkspaceConfiguration].self, from: data)

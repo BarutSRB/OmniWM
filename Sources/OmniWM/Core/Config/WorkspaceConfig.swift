@@ -106,19 +106,26 @@ extension MonitorAssignment: Codable {
 struct WorkspaceConfiguration: Codable, Identifiable, Equatable {
     let id: UUID
     var name: String
+    var displayName: String?
     var monitorAssignment: MonitorAssignment
     var layoutType: LayoutType
     var isPersistent: Bool
 
+    var effectiveDisplayName: String {
+        displayName?.isEmpty == false ? displayName! : name
+    }
+
     init(
         id: UUID = UUID(),
         name: String,
+        displayName: String? = nil,
         monitorAssignment: MonitorAssignment = .any,
         layoutType: LayoutType = .defaultLayout,
         isPersistent: Bool = false
     ) {
         self.id = id
         self.name = name
+        self.displayName = displayName
         self.monitorAssignment = monitorAssignment
         self.layoutType = layoutType
         self.isPersistent = isPersistent

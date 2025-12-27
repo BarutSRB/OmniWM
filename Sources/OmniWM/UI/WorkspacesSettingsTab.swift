@@ -114,8 +114,13 @@ struct WorkspaceConfigurationRow: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(configuration.name)
+                Text(configuration.effectiveDisplayName)
                     .font(.body.weight(.medium))
+                if configuration.displayName != nil && !configuration.displayName!.isEmpty {
+                    Text("(\(configuration.name))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 if configuration.isPersistent {
                     Text("Persistent")
                         .font(.caption2)
@@ -218,7 +223,7 @@ struct WorkspaceEditSheet: View {
                 .font(.headline)
 
             Form {
-                TextField("Workspace Name", text: $configuration.name)
+                TextField("Workspace ID", text: $configuration.name)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: configuration.name) { _, newValue in
                         validateName(newValue)
@@ -228,6 +233,12 @@ struct WorkspaceEditSheet: View {
                         .font(.caption)
                         .foregroundColor(.red)
                 }
+
+                TextField("Display Name (optional)", text: Binding(
+                    get: { configuration.displayName ?? "" },
+                    set: { configuration.displayName = $0.isEmpty ? nil : $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
 
                 Picker("Monitor", selection: monitorSelectionBinding) {
                     Text("Any").tag(MonitorAssignment.any)

@@ -138,7 +138,7 @@ final class WMController {
 
             return WorkspaceBarItem(
                 id: workspace.id,
-                name: workspace.name,
+                name: settings.displayName(for: workspace.name),
                 isFocused: workspace.id == activeWorkspaceId,
                 windows: windows
             )
@@ -401,6 +401,7 @@ final class WMController {
         workspaceManager.applySettings()
         syncMonitorsToNiriEngine()
         layoutRefreshController?.refreshWindowsAndLayout()
+        updateWorkspaceBar()
     }
 
     func rebuildAppRulesCache() {
