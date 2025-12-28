@@ -230,7 +230,7 @@ private struct SpringOptionsView: View {
     @ViewBuilder
     private func springPresetDescription(for preset: AnimationSpringPreset) -> some View {
         let (desc, details): (String, String) = switch preset {
-        case .snappy: ("Fast and responsive, no bounce", "Stiffness: 1000 · Damping: 1.0")
+        case .snappy: ("Fast and responsive, no bounce", "Stiffness: 800 · Damping: 1.0")
         case .smooth: ("Slower, more relaxed motion", "Stiffness: 400 · Damping: 1.0")
         case .bouncy: ("Slight overshoot before settling", "Stiffness: 600 · Damping: 0.7")
         }

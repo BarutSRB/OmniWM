@@ -328,21 +328,21 @@ final class SettingsStore {
             rawValue: defaults.string(forKey: Keys.focusChangeSpringPreset) ?? ""
         ) ?? .snappy
         focusChangeUseCustom = defaults.object(forKey: Keys.focusChangeUseCustom) as? Bool ?? false
-        focusChangeCustomStiffness = defaults.object(forKey: Keys.focusChangeCustomStiffness) as? Double ?? 1000
+        focusChangeCustomStiffness = defaults.object(forKey: Keys.focusChangeCustomStiffness) as? Double ?? 800
         focusChangeCustomDamping = defaults.object(forKey: Keys.focusChangeCustomDamping) as? Double ?? 1.0
 
         gestureSpringPreset = AnimationSpringPreset(
             rawValue: defaults.string(forKey: Keys.gestureSpringPreset) ?? ""
         ) ?? .snappy
         gestureUseCustom = defaults.object(forKey: Keys.gestureUseCustom) as? Bool ?? false
-        gestureCustomStiffness = defaults.object(forKey: Keys.gestureCustomStiffness) as? Double ?? 1000
+        gestureCustomStiffness = defaults.object(forKey: Keys.gestureCustomStiffness) as? Double ?? 800
         gestureCustomDamping = defaults.object(forKey: Keys.gestureCustomDamping) as? Double ?? 1.0
 
         columnRevealSpringPreset = AnimationSpringPreset(
             rawValue: defaults.string(forKey: Keys.columnRevealSpringPreset) ?? ""
         ) ?? .snappy
         columnRevealUseCustom = defaults.object(forKey: Keys.columnRevealUseCustom) as? Bool ?? false
-        columnRevealCustomStiffness = defaults.object(forKey: Keys.columnRevealCustomStiffness) as? Double ?? 1000
+        columnRevealCustomStiffness = defaults.object(forKey: Keys.columnRevealCustomStiffness) as? Double ?? 800
         columnRevealCustomDamping = defaults.object(forKey: Keys.columnRevealCustomDamping) as? Double ?? 1.0
 
         focusChangeAnimationType = AnimationType(

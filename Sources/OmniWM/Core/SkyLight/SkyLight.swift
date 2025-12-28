@@ -21,6 +21,8 @@ final class SkyLight {
     private typealias TransactionOrderWindowFunc = @convention(c) (CFTypeRef, UInt32, Int32, UInt32) -> Void
     private typealias DisableUpdateFunc = @convention(c) (Int32) -> Void
     private typealias ReenableUpdateFunc = @convention(c) (Int32) -> Void
+    private typealias MoveWindowFunc = @convention(c) (Int32, UInt32, UnsafePointer<CGPoint>) -> CGError
+    private typealias GetWindowBoundsFunc = @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGRect>) -> CGError
 
     private let mainConnectionID: MainConnectionIDFunc
     private let windowQueryWindows: WindowQueryWindowsFunc
@@ -33,6 +35,8 @@ final class SkyLight {
     private let transactionOrderWindow: TransactionOrderWindowFunc
     private let disableUpdate: DisableUpdateFunc
     private let reenableUpdate: ReenableUpdateFunc
+    private let moveWindow: MoveWindowFunc?
+    private let getWindowBounds: GetWindowBoundsFunc?
 
     private init() {
         guard let lib = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY) else {
@@ -89,6 +93,9 @@ final class SkyLight {
         self.transactionOrderWindow = transactionOrderWindow
         self.disableUpdate = disableUpdate
         self.reenableUpdate = reenableUpdate
+
+        self.moveWindow = unsafeBitCast(dlsym(lib, "SLSMoveWindow"), to: MoveWindowFunc?.self)
+        self.getWindowBounds = unsafeBitCast(dlsym(lib, "SLSGetWindowBounds"), to: GetWindowBoundsFunc?.self)
     }
 
     func getMainConnectionID() -> Int32 {
@@ -140,5 +147,24 @@ final class SkyLight {
         }
         transactionOrderWindow(transaction, wid, order.rawValue, targetWid)
         _ = transactionCommit(transaction, 0)
+    }
+
+    func moveWindow(_ wid: UInt32, to point: CGPoint) -> Bool {
+        guard let moveWindow else { return false }
+        let cid = getMainConnectionID()
+        guard cid != 0 else { return false }
+        var pt = point
+        let result = moveWindow(cid, wid, &pt)
+        return result == .success
+    }
+
+    func getWindowBounds(_ wid: UInt32) -> CGRect? {
+        guard let getWindowBounds else { return nil }
+        let cid = getMainConnectionID()
+        guard cid != 0 else { return nil }
+        var rect = CGRect.zero
+        let result = getWindowBounds(cid, wid, &rect)
+        guard result == .success else { return nil }
+        return rect
     }
 }

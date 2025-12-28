@@ -339,12 +339,10 @@ struct ViewportState {
         selectionProgress = 0.0
     }
 
-    mutating func tickAnimation() -> Bool {
-        let now = CACurrentMediaTime()
-
+    mutating func tickAnimation(at time: CFTimeInterval = CACurrentMediaTime()) -> Bool {
         switch viewOffsetPixels {
         case let .animating(anim):
-            if anim.isComplete(at: now) {
+            if anim.isComplete(at: time) {
                 let finalOffset = CGFloat(anim.targetValue)
                 viewOffsetPixels = .static(finalOffset)
                 return false
@@ -352,7 +350,7 @@ struct ViewportState {
             return true
 
         case let .decelerating(anim):
-            if anim.isComplete(at: now) {
+            if anim.isComplete(at: time) {
                 let finalOffset = CGFloat(anim.targetValue)
                 viewOffsetPixels = .static(finalOffset)
                 return false
@@ -360,8 +358,8 @@ struct ViewportState {
             return true
 
         case let .spring(anim):
-            if anim.isComplete(at: now) {
-                let finalOffset = CGFloat(anim.targetValue)
+            if anim.isComplete(at: time) {
+                let finalOffset = CGFloat(anim.target)
                 viewOffsetPixels = .static(finalOffset)
                 return false
             }

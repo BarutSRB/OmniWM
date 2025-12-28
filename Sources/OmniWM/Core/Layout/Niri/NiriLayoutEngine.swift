@@ -934,7 +934,6 @@ final class NiriLayoutEngine {
     ) {
         guard column.children.isEmpty else { return }
 
-        let totalBeforeRemoval = roots[workspaceId]?.columns.count ?? 0
         column.remove()
 
         if let restore = column.activatePrevRestoreStart {

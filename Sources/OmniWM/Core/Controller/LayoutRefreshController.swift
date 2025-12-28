@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import QuartzCore
 
 @MainActor
 final class LayoutRefreshController {
@@ -10,49 +11,61 @@ final class LayoutRefreshController {
     private var isImmediateLayoutInProgress: Bool = false
     private var refreshTimer: Timer?
 
-    private var scrollAnimationDisplayLink: CVDisplayLink?
+    private var scrollAnimationDisplayLink: CADisplayLink?
     private var scrollAnimationWorkspaceId: WorkspaceDescriptor.ID?
     private var isScrollAnimationRunning: Bool = false
+    private var cachedWindowSizes: [Int: CGSize] = [:]
 
     init(controller: WMController) {
         self.controller = controller
+        setupDisplayLink()
+    }
+
+    private func setupDisplayLink() {
+        guard let screen = NSScreen.main else { return }
+        let displayLink = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
+        scrollAnimationDisplayLink = displayLink
+    }
+
+    @objc private func displayLinkFired(_ displayLink: CADisplayLink) {
+        tickScrollAnimation(targetTime: displayLink.targetTimestamp)
     }
 
     func startScrollAnimation(for workspaceId: WorkspaceDescriptor.ID) {
         scrollAnimationWorkspaceId = workspaceId
         if isScrollAnimationRunning { return }
         isScrollAnimationRunning = true
-        tickScrollAnimation()
+
+        scrollAnimationDisplayLink?.add(to: .main, forMode: .common)
     }
 
     func stopScrollAnimation() {
+        scrollAnimationDisplayLink?.invalidate()
+        scrollAnimationDisplayLink = nil
+        setupDisplayLink()
         isScrollAnimationRunning = false
         scrollAnimationWorkspaceId = nil
     }
 
-    private func tickScrollAnimation() {
+    private func tickScrollAnimation(targetTime: CFTimeInterval) {
         guard isScrollAnimationRunning else { return }
         guard let controller, let wsId = scrollAnimationWorkspaceId else {
             stopScrollAnimation()
             return
         }
-        guard let engine = controller.internalNiriEngine else {
+        guard controller.internalNiriEngine != nil else {
             stopScrollAnimation()
             return
         }
 
         var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
 
-        let shouldContinue = state.tickAnimation()
+        let shouldContinue = state.tickAnimation(at: targetTime)
 
         controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
         executeLayoutRefreshImmediate()
 
-        if shouldContinue {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { [weak self] in
-                self?.tickScrollAnimation()
-            }
-        } else {
+        if !shouldContinue {
             stopScrollAnimation()
         }
     }
@@ -93,7 +106,7 @@ final class LayoutRefreshController {
             }
         }
 
-        layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds)
+        layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: isScrollAnimationRunning)
     }
 
     func startRefreshTimer() {
@@ -176,14 +189,14 @@ final class LayoutRefreshController {
             }
         }
 
-        layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds)
+        layoutWithNiriEngine(activeWorkspaces: activeWorkspaceIds, useScrollAnimationPath: false)
 
         if let focusedWorkspaceId {
             controller.ensureFocusedHandleValid(in: focusedWorkspaceId)
         }
     }
 
-    func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) {
+    func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false) {
         guard let controller else { return }
         guard let engine = controller.internalNiriEngine else { return }
         let workspaceManager = controller.internalWorkspaceManager
@@ -283,13 +296,33 @@ final class LayoutRefreshController {
             }
 
             var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+            var positionOnlyUpdates: [(windowId: Int, origin: CGPoint)] = []
+            var needsFullUpdate = false
+
             for (handle, frame) in frames {
                 if hiddenHandles.contains(handle) { continue }
                 if let entry = workspaceManager.entry(for: handle) {
                     frameUpdates.append((handle.pid, entry.windowId, frame))
+
+                    if useScrollAnimationPath {
+                        if let cachedSize = cachedWindowSizes[entry.windowId],
+                           abs(cachedSize.width - frame.size.width) < 1 &&
+                           abs(cachedSize.height - frame.size.height) < 1
+                        {
+                            positionOnlyUpdates.append((entry.windowId, frame.origin))
+                        } else {
+                            needsFullUpdate = true
+                        }
+                    }
+                    cachedWindowSizes[entry.windowId] = frame.size
                 }
             }
-            controller.internalAXManager.applyFramesParallel(frameUpdates)
+
+            if useScrollAnimationPath && !needsFullUpdate && !positionOnlyUpdates.isEmpty {
+                controller.internalAXManager.applyPositionsViaSkyLight(positionOnlyUpdates)
+            } else {
+                controller.internalAXManager.applyFramesParallel(frameUpdates)
+            }
 
             if let focusedHandle = controller.internalFocusedHandle {
                 if hiddenHandles.contains(focusedHandle) {

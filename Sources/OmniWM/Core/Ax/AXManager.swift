@@ -101,9 +101,24 @@ final class AXManager {
             framesByPid[pid, default: []].append((windowId, frame))
         }
 
+        SkyLight.shared.disableUpdates()
+        defer { SkyLight.shared.reenableUpdates() }
+
         for (pid, appFrames) in framesByPid {
             guard let context = AppAXContext.contexts[pid] else { continue }
             context.setFramesBatch(appFrames)
+        }
+    }
+
+    func applyPositionsViaSkyLight(_ positions: [(windowId: Int, origin: CGPoint)]) {
+        let interval = signpostInterval("applyPositionsViaSkyLight", "positions: \(positions.count)")
+        defer { interval.end() }
+
+        SkyLight.shared.disableUpdates()
+        defer { SkyLight.shared.reenableUpdates() }
+
+        for (windowId, origin) in positions {
+            _ = SkyLight.shared.moveWindow(UInt32(windowId), to: origin)
         }
     }
 
