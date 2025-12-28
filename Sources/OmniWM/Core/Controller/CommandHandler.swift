@@ -173,13 +173,14 @@ final class CommandHandler {
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
             let gap = CGFloat(controller.internalWorkspaceManager.gaps)
+            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
 
             if let newNode = engine.focusTarget(
                 direction: direction,
                 currentSelection: currentNode,
                 in: wsId,
                 state: &state,
-                workingFrame: monitor.visibleFrame,
+                workingFrame: workingFrame,
                 gaps: gap
             ) {
                 state.selectedNodeId = newNode.id
@@ -213,12 +214,13 @@ final class CommandHandler {
 
             guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else { return }
             let gap = CGFloat(controller.internalWorkspaceManager.gaps)
+            let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
 
             guard let previousWindow = engine.focusPrevious(
                 currentNodeId: state.selectedNodeId,
                 in: wsId,
                 state: &state,
-                workingFrame: monitor.visibleFrame,
+                workingFrame: workingFrame,
                 gaps: gap,
                 limitToWorkspace: true
             ) else {
@@ -352,7 +354,8 @@ final class CommandHandler {
         }
 
         let gap = CGFloat(controller.internalWorkspaceManager.gaps)
-        guard let newNode = navigationAction(engine, currentNode, wsId, &state, monitor.visibleFrame, gap) else {
+        let workingFrame = controller.insetWorkingFrame(from: monitor.visibleFrame)
+        guard let newNode = navigationAction(engine, currentNode, wsId, &state, workingFrame, gap) else {
             return
         }
 
