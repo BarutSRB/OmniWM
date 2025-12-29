@@ -15,16 +15,45 @@ final class LayoutRefreshController {
     private var scrollAnimationWorkspaceId: WorkspaceDescriptor.ID?
     private var isScrollAnimationRunning: Bool = false
     private var cachedWindowSizes: [Int: CGSize] = [:]
+    private var refreshRateByDisplay: [CGDirectDisplayID: Double] = [:]
+    private var screenChangeObserver: NSObjectProtocol?
 
     init(controller: WMController) {
         self.controller = controller
         setupDisplayLink()
+        detectRefreshRates()
+        screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.detectRefreshRates()
+            }
+        }
     }
 
     private func setupDisplayLink() {
         guard let screen = NSScreen.main else { return }
         let displayLink = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
         scrollAnimationDisplayLink = displayLink
+    }
+
+    private func detectRefreshRates() {
+        refreshRateByDisplay.removeAll()
+        for screen in NSScreen.screens {
+            guard let displayId = screen.displayId else { continue }
+            if let mode = CGDisplayCopyDisplayMode(displayId) {
+                let rate = mode.refreshRate > 0 ? mode.refreshRate : 60.0
+                refreshRateByDisplay[displayId] = rate
+            } else {
+                refreshRateByDisplay[displayId] = 60.0
+            }
+        }
+    }
+
+    func refreshRate(for displayId: CGDirectDisplayID) -> Double {
+        refreshRateByDisplay[displayId] ?? 60.0
     }
 
     @objc private func displayLinkFired(_ displayLink: CADisplayLink) {
@@ -164,6 +193,10 @@ final class LayoutRefreshController {
         activeRefreshTask = nil
         isInLightSession = false
         stopScrollAnimation()
+        if let observer = screenChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            screenChangeObserver = nil
+        }
     }
 
     private func executeFullRefresh() async throws {
