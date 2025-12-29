@@ -6,6 +6,12 @@ private let perAppTimeout: TimeInterval = 0.5
 
 @MainActor
 final class AXManager {
+    private static let systemUIBundleIds: Set<String> = [
+        "com.apple.notificationcenterui",
+        "com.apple.controlcenter",
+        "com.apple.Spotlight"
+    ]
+
     private var appTerminationObserver: NSObjectProtocol?
     private var appLaunchObserver: NSObjectProtocol?
     var onWindowEvent: ((AXEvent) -> Void)?
@@ -185,7 +191,13 @@ final class AXManager {
     }
 
     private func shouldTrack(_ app: NSRunningApplication) -> Bool {
-        !app.isTerminated && app.activationPolicy != .prohibited
+        guard !app.isTerminated, app.activationPolicy != .prohibited else { return false }
+
+        if let bundleId = app.bundleIdentifier, Self.systemUIBundleIds.contains(bundleId) {
+            return false
+        }
+
+        return true
     }
 }
 

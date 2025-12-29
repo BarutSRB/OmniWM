@@ -111,12 +111,47 @@ enum AXWindowService {
         return result == .success && value != nil
     }
 
+    static func isButtonEnabled(_ window: AXWindowRef, button: CFString) -> Bool {
+        var buttonValue: CFTypeRef?
+        let buttonResult = AXUIElementCopyAttributeValue(window.element, button, &buttonValue)
+        guard buttonResult == .success, let buttonElement = buttonValue else { return false }
+
+        var enabledValue: CFTypeRef?
+        let enabledResult = AXUIElementCopyAttributeValue(
+            buttonElement as! AXUIElement,
+            kAXEnabledAttribute as CFString,
+            &enabledValue
+        )
+        guard enabledResult == .success, let enabled = enabledValue as? Bool else { return false }
+        return enabled
+    }
+
     static func hasFullscreenButton(_ window: AXWindowRef) -> Bool {
-        hasButton(window, button: kAXFullScreenButtonAttribute as CFString)
+        isButtonEnabled(window, button: kAXFullScreenButtonAttribute as CFString)
     }
 
     static func hasCloseButton(_ window: AXWindowRef) -> Bool {
         hasButton(window, button: kAXCloseButtonAttribute as CFString)
+    }
+
+    static func isPopup(_ window: AXWindowRef, appPolicy: NSApplication.ActivationPolicy?) -> Bool {
+        if appPolicy == .accessory && !hasButton(window, button: kAXCloseButtonAttribute as CFString) {
+            return true
+        }
+
+        let hasAnyButton = hasButton(window, button: kAXCloseButtonAttribute as CFString) ||
+                           hasButton(window, button: kAXFullScreenButtonAttribute as CFString) ||
+                           hasButton(window, button: kAXZoomButtonAttribute as CFString) ||
+                           hasButton(window, button: kAXMinimizeButtonAttribute as CFString)
+
+        if !hasAnyButton {
+            let sub = subrole(window)
+            if sub != kAXStandardWindowSubrole as String {
+                return true
+            }
+        }
+
+        return false
     }
 
     static func isFullscreen(_ window: AXWindowRef) -> Bool {
@@ -188,17 +223,16 @@ enum AXWindowService {
     }
 
     static func windowType(_ window: AXWindowRef, appPolicy: NSApplication.ActivationPolicy?) -> AXWindowType {
-        let subrole = subrole(window)
+        if isPopup(window, appPolicy: appPolicy) {
+            return .floating
+        }
 
+        let subrole = subrole(window)
         if let subrole, subrole != (kAXStandardWindowSubrole as String) {
             return .floating
         }
 
         if !hasFullscreenButton(window) {
-            if appPolicy == .accessory, !hasCloseButton(window) {
-                return .floating
-            }
-
             return .floating
         }
 

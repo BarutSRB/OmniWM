@@ -31,6 +31,11 @@ final class AXEventHandler {
 
     private func handleCreated(ref: AXWindowRef, pid: pid_t, winId: Int) {
         guard let controller else { return }
+
+        let appPolicy = controller.internalAppInfoCache.activationPolicy(for: pid)
+        let windowType = AXWindowService.windowType(ref, appPolicy: appPolicy)
+        guard windowType == .tiling else { return }
+
         if let bundleId = controller.internalAppInfoCache.bundleId(for: pid),
            controller.internalAppRulesByBundleId[bundleId]?.alwaysFloat == true
         {
