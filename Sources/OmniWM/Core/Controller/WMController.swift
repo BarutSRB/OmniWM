@@ -926,8 +926,26 @@ final class WMController {
     }
 
     func moveMouseToWindow(_ handle: WindowHandle) {
-        guard let entry = workspaceManager.entry(for: handle),
-              let frame = try? AXWindowService.frame(entry.axRef) else { return }
+        guard let entry = workspaceManager.entry(for: handle) else { return }
+
+        let frame: CGRect
+        let wsId = entry.workspaceId
+
+        if let engine = niriEngine,
+           let monitor = workspaceManager.monitor(for: wsId)
+        {
+            let state = workspaceManager.niriViewportState(for: wsId)
+            let workingFrame = insetWorkingFrame(from: monitor.visibleFrame)
+            let gaps = CGFloat(workspaceManager.gaps)
+            guard let targetFrame = engine.targetFrameForWindow(handle, in: wsId, state: state, workingFrame: workingFrame, gaps: gaps) else {
+                return
+            }
+            frame = targetFrame
+        } else if let axFrame = try? AXWindowService.frame(entry.axRef) {
+            frame = axFrame
+        } else {
+            return
+        }
 
         let center = CGPoint(x: frame.midX, y: frame.midY)
 

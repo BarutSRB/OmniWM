@@ -1934,6 +1934,84 @@ extension NiriLayoutEngine {
         return frames
     }
 
+    func targetFrameForWindow(
+        _ handle: WindowHandle,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: ViewportState,
+        workingFrame: CGRect,
+        gaps: CGFloat
+    ) -> CGRect? {
+        guard let windowNode = findNode(for: handle),
+              let column = windowNode.parent as? NiriContainer,
+              let colIdx = columnIndex(of: column, in: workspaceId)
+        else { return nil }
+
+        let cols = columns(in: workspaceId)
+        guard !cols.isEmpty else { return nil }
+
+        for col in cols {
+            if col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
+            }
+        }
+
+        func columnX(at index: Int) -> CGFloat {
+            var x: CGFloat = 0
+            for i in 0..<index {
+                x += cols[i].cachedWidth + gaps
+            }
+            return x
+        }
+
+        let totalColumnsWidth = cols.reduce(0) { $0 + $1.cachedWidth } + CGFloat(max(0, cols.count - 1)) * gaps
+
+        let targetViewOffset = state.viewOffsetPixels.target()
+
+        let centeringOffset: CGFloat
+        if totalColumnsWidth < workingFrame.width {
+            if alwaysCenterSingleColumn || cols.count == 1 {
+                centeringOffset = (workingFrame.width - totalColumnsWidth) / 2
+            } else {
+                centeringOffset = 0
+            }
+        } else {
+            centeringOffset = 0
+        }
+
+        let colX = columnX(at: colIdx)
+        let screenX = workingFrame.origin.x + colX + targetViewOffset + centeringOffset
+
+        let tabOffset = column.isTabbed ? renderStyle.tabIndicatorHeight : 0
+        let contentY = workingFrame.origin.y
+        let availableHeight = workingFrame.height - tabOffset
+
+        let windowNodes = column.windowNodes
+        guard let windowIndex = windowNodes.firstIndex(where: { $0.handle == handle }) else { return nil }
+
+        let targetY: CGFloat
+        let targetHeight: CGFloat
+
+        if windowNodes.count == 1 || column.isTabbed {
+            targetY = contentY
+            targetHeight = availableHeight
+        } else {
+            var y = contentY
+            for i in 0..<windowIndex {
+                let h = windowNodes[i].resolvedHeight ?? (availableHeight / CGFloat(windowNodes.count))
+                y += h + gaps
+            }
+            targetY = y
+            targetHeight = windowNodes[windowIndex].resolvedHeight ?? (availableHeight / CGFloat(windowNodes.count))
+        }
+
+        return CGRect(
+            x: screenX,
+            y: targetY,
+            width: column.cachedWidth,
+            height: targetHeight
+        )
+    }
+
     func triggerMoveAnimations(
         in workspaceId: WorkspaceDescriptor.ID,
         oldFrames: [WindowHandle: CGRect],

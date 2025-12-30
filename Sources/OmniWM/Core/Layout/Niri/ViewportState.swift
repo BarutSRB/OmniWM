@@ -33,6 +33,17 @@ enum ViewOffset {
         }
     }
 
+    func target() -> CGFloat {
+        switch self {
+        case let .static(offset):
+            offset
+        case let .gesture(g):
+            CGFloat(g.currentOffsetPixels)
+        case let .spring(anim):
+            CGFloat(anim.target)
+        }
+    }
+
     var isAnimating: Bool {
         if case .spring = self { return true }
         return false
