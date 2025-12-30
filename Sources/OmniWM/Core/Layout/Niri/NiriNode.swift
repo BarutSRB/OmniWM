@@ -10,8 +10,6 @@ enum ColumnDisplay: Equatable {
 enum SizingMode: Equatable {
     case normal
 
-    case maximized
-
     case fullscreen
 }
 
@@ -442,14 +440,6 @@ class NiriWindow: NiriNode {
 
     var isFullscreen: Bool {
         sizingMode == .fullscreen
-    }
-
-    var isMaximized: Bool {
-        sizingMode == .maximized
-    }
-
-    var isFullscreenOrMaximized: Bool {
-        sizingMode != .normal
     }
 
     var windowId: UUID {

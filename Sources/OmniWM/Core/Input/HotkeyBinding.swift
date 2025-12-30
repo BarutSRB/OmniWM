@@ -44,12 +44,8 @@ struct HotkeyBinding: Codable, Identifiable {
         case .focusMonitor, .focusMonitorLast, .focusMonitorNext, .focusMonitorPrevious, .moveColumnToMonitor,
              .moveToMonitor, .moveWorkspaceToMonitor:
             .monitor
-        case .balanceSizes, .decreaseGaps, .increaseGaps, .raiseAllFloatingWindows, .toggleFullscreen, .toggleMaximized,
-             .toggleNativeFullscreen:
+        case .balanceSizes, .raiseAllFloatingWindows, .toggleFullscreen, .toggleNativeFullscreen:
             .layout
-        case .cycleWindowHeightBackward, .cycleWindowHeightForward, .decreaseWindowSize,
-             .increaseWindowSize, .resetWindowSize:
-            .resize
         case .consumeWindow, .cycleColumnWidthBackward, .cycleColumnWidthForward, .expelWindow,
              .moveColumn, .toggleColumnFullWidth, .toggleColumnTabbed:
             .column
@@ -63,6 +59,5 @@ enum HotkeyCategory: String, CaseIterable {
     case move = "Move Window"
     case monitor = "Monitor"
     case layout = "Layout"
-    case resize = "Resize"
     case column = "Column"
 }

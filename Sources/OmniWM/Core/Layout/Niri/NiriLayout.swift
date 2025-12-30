@@ -183,8 +183,6 @@ extension NiriLayoutEngine {
             let frame: CGRect = switch row.sizingMode {
             case .fullscreen:
                 screenRect.roundedToPhysicalPixels(scale: scale)
-            case .maximized:
-                columnRect
             case .normal:
                 CGRect(
                     x: contentRect.origin.x,

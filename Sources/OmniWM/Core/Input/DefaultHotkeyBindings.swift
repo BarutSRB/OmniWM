@@ -126,16 +126,6 @@ enum DefaultHotkeyBindings {
                 id: "swap.right",
                 command: .swap(.right),
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "swap.up",
-                command: .swap(.up),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "swap.down",
-                command: .swap(.down),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey | controlKey))
             )
         ])
 
@@ -249,52 +239,9 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_Return), modifiers: UInt32(optionKey))
             ),
             HotkeyBinding(
-                id: "toggleMaximized",
-                command: .toggleMaximized,
-                binding: KeyBinding(keyCode: UInt32(kVK_Return), modifiers: UInt32(optionKey | shiftKey))
-            ),
-            HotkeyBinding(
                 id: "toggleNativeFullscreen",
                 command: .toggleNativeFullscreen,
                 binding: .unassigned
-            ),
-            HotkeyBinding(
-                id: "increaseGaps",
-                command: .increaseGaps,
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Equal), modifiers: UInt32(optionKey))
-            ),
-            HotkeyBinding(
-                id: "decreaseGaps",
-                command: .decreaseGaps,
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey))
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
-                id: "increaseWindowSize.right",
-                command: .increaseWindowSize(.right),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Equal), modifiers: UInt32(optionKey | shiftKey))
-            ),
-            HotkeyBinding(
-                id: "decreaseWindowSize.right",
-                command: .decreaseWindowSize(.right),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey | shiftKey))
-            ),
-            HotkeyBinding(
-                id: "increaseWindowSize.down",
-                command: .increaseWindowSize(.down),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Equal), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "decreaseWindowSize.down",
-                command: .decreaseWindowSize(.down),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "resetWindowSize",
-                command: .resetWindowSize,
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_0), modifiers: UInt32(optionKey | shiftKey))
             )
         ])
 
@@ -401,19 +348,6 @@ enum DefaultHotkeyBindings {
                 id: "toggleColumnFullWidth",
                 command: .toggleColumnFullWidth,
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(optionKey | shiftKey))
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
-                id: "cycleWindowHeightForward",
-                command: .cycleWindowHeightForward,
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Period), modifiers: UInt32(optionKey | shiftKey))
-            ),
-            HotkeyBinding(
-                id: "cycleWindowHeightBackward",
-                command: .cycleWindowHeightBackward,
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Comma), modifiers: UInt32(optionKey | shiftKey))
             )
         ])
 

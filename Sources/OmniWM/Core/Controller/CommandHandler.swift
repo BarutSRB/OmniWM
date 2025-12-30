@@ -61,20 +61,8 @@ final class CommandHandler {
             controller.internalWorkspaceNavigationHandler?.moveColumnToMonitorInDirection(direction)
         case .toggleFullscreen:
             toggleNiriFullscreen()
-        case .toggleMaximized:
-            toggleNiriMaximized()
         case .toggleNativeFullscreen:
             toggleNativeFullscreenForFocused()
-        case .increaseGaps:
-            controller.internalWorkspaceManager.bumpGaps(by: 1)
-        case .decreaseGaps:
-            controller.internalWorkspaceManager.bumpGaps(by: -1)
-        case let .increaseWindowSize(direction):
-            resizeWindowInNiri(factor: 1.1, direction: direction)
-        case let .decreaseWindowSize(direction):
-            resizeWindowInNiri(factor: 0.9, direction: direction)
-        case .resetWindowSize:
-            resetWindowSizeInNiri()
         case let .moveColumn(direction):
             moveColumnInNiri(direction: direction)
         case let .consumeWindow(direction):
@@ -103,10 +91,6 @@ final class CommandHandler {
             cycleColumnWidthInNiri(forwards: false)
         case .toggleColumnFullWidth:
             toggleColumnFullWidthInNiri()
-        case .cycleWindowHeightForward:
-            cycleWindowHeightInNiri(forwards: true)
-        case .cycleWindowHeightBackward:
-            cycleWindowHeightInNiri(forwards: false)
         case let .moveWorkspaceToMonitor(direction):
             controller.internalWorkspaceNavigationHandler?.moveCurrentWorkspaceToMonitor(direction: direction)
         case .balanceSizes:
@@ -345,25 +329,6 @@ final class CommandHandler {
         }
     }
 
-    private func cycleWindowHeightInNiri(forwards: Bool) {
-        guard let controller else { return }
-
-        controller.internalLayoutRefreshController?.runLightSession {
-            guard let engine = controller.internalNiriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
-            let state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-
-            guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
-            else {
-                return
-            }
-
-            engine.toggleWindowHeight(windowNode, forwards: forwards)
-            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-        }
-    }
-
     private func executeCombinedNavigation(
         _ navigationAction: (NiriLayoutEngine, NiriNode, WorkspaceDescriptor.ID, inout ViewportState, CGRect, CGFloat) -> NiriNode?
     ) {
@@ -519,36 +484,6 @@ final class CommandHandler {
         }
     }
 
-    private func toggleNiriMaximized() {
-        guard let controller else { return }
-
-        controller.internalLayoutRefreshController?.runLightSession {
-            guard let engine = controller.internalNiriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
-            let state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-
-            guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId),
-                  let windowNode = currentNode as? NiriWindow
-            else {
-                return
-            }
-
-            if windowNode.sizingMode == .maximized {
-                windowNode.sizingMode = .normal
-
-                if let savedHeight = windowNode.savedHeight {
-                    windowNode.height = savedHeight
-                    windowNode.savedHeight = nil
-                }
-            } else {
-                windowNode.savedHeight = windowNode.height
-                windowNode.sizingMode = .maximized
-            }
-            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-        }
-    }
-
     private func toggleNativeFullscreenForFocused() {
         guard let controller else { return }
         guard let handle = controller.internalFocusedHandle else { return }
@@ -561,64 +496,6 @@ final class CommandHandler {
 
         if newState {
             controller.internalBorderManager.hideBorder()
-        }
-    }
-
-    private func resizeWindowInNiri(factor: CGFloat, direction: Direction) {
-        guard let controller else { return }
-
-        controller.internalLayoutRefreshController?.runLightSession {
-            guard let engine = controller.internalNiriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
-            let state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-
-            guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId),
-                  let windowNode = currentNode as? NiriWindow
-            else {
-                return
-            }
-
-            if direction == .left || direction == .right {
-                if let column = engine.findColumn(containing: windowNode, in: wsId) {
-                    column.size *= factor
-
-                    engine.normalizeColumnSizes(in: wsId)
-                }
-            } else {
-                windowNode.size *= factor
-
-                if let column = engine.findColumn(containing: windowNode, in: wsId) {
-                    engine.normalizeWindowSizes(in: column)
-                }
-            }
-
-            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-        }
-    }
-
-    private func resetWindowSizeInNiri() {
-        guard let controller else { return }
-
-        controller.internalLayoutRefreshController?.runLightSession {
-            guard let engine = controller.internalNiriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
-            let state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-
-            guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId),
-                  let windowNode = currentNode as? NiriWindow
-            else {
-                return
-            }
-
-            windowNode.size = 1.0
-
-            if let column = engine.findColumn(containing: windowNode, in: wsId) {
-                column.size = 1.0
-            }
-
-            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
         }
     }
 

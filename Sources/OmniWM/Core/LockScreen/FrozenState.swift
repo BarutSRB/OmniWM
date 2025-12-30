@@ -56,13 +56,11 @@ enum FrozenWindowHeight: Sendable {
 
 enum FrozenSizingMode: Sendable {
     case normal
-    case maximized
     case fullscreen
 
     init(from sizingMode: SizingMode) {
         switch sizingMode {
         case .normal: self = .normal
-        case .maximized: self = .maximized
         case .fullscreen: self = .fullscreen
         }
     }
@@ -70,7 +68,6 @@ enum FrozenSizingMode: Sendable {
     var toSizingMode: SizingMode {
         switch self {
         case .normal: .normal
-        case .maximized: .maximized
         case .fullscreen: .fullscreen
         }
     }

@@ -279,14 +279,26 @@ final class SettingsStore {
             return DefaultHotkeyBindings.all()
         }
 
-        return mergeWithDefaults(stored: bindings)
+        let merged = mergeWithDefaults(stored: bindings)
+
+        let storedIds = Set(bindings.map(\.id))
+        let mergedIds = Set(merged.map(\.id))
+        if storedIds != mergedIds {
+            if let cleanedData = try? JSONEncoder().encode(merged) {
+                defaults.set(cleanedData, forKey: Keys.hotkeyBindings)
+            }
+        }
+
+        return merged
     }
 
     private static func mergeWithDefaults(stored: [HotkeyBinding]) -> [HotkeyBinding] {
-        let storedIds = Set(stored.map(\.id))
         let defaults = DefaultHotkeyBindings.all()
-        var result = stored
+        let defaultIds = Set(defaults.map(\.id))
 
+        var result = stored.filter { defaultIds.contains($0.id) }
+
+        let storedIds = Set(result.map(\.id))
         for defaultBinding in defaults where !storedIds.contains(defaultBinding.id) {
             result.append(defaultBinding)
         }

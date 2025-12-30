@@ -131,10 +131,6 @@ final class WorkspaceManager {
         onGapsChanged?()
     }
 
-    func bumpGaps(by delta: Double) {
-        setGaps(to: gaps + delta)
-    }
-
     func setOuterGaps(left: Double, right: Double, top: Double, bottom: Double) {
         let newGaps = LayoutGaps.OuterGaps(
             left: max(0, CGFloat(left)),

@@ -1267,7 +1267,7 @@ final class NiriLayoutEngine {
                 guard let window = child as? NiriWindow,
                       let frame = window.frame else { continue }
 
-                if window.isFullscreenOrMaximized {
+                if window.isFullscreen {
                     continue
                 }
 
@@ -1349,7 +1349,7 @@ final class NiriLayoutEngine {
         guard let column = findColumn(containing: windowNode, in: workspaceId) else { return false }
         guard let colIdx = columnIndex(of: column, in: workspaceId) else { return false }
 
-        if windowNode.isFullscreenOrMaximized {
+        if windowNode.isFullscreen {
             return false
         }
 
@@ -1467,7 +1467,7 @@ final class NiriLayoutEngine {
         guard let column = findColumn(containing: windowNode, in: workspaceId) else { return false }
         guard let colIdx = columnIndex(of: column, in: workspaceId) else { return false }
 
-        if windowNode.isFullscreenOrMaximized {
+        if windowNode.isFullscreen {
             return false
         }
 
@@ -1691,30 +1691,19 @@ final class NiriLayoutEngine {
             return
         }
 
-        if previousMode != .normal, mode == .normal {
+        if previousMode == .fullscreen, mode == .normal {
             if let savedHeight = window.savedHeight {
                 window.height = savedHeight
                 window.savedHeight = nil
             }
 
-            if previousMode == .fullscreen, let savedOffset = state.viewOffsetToRestore {
-                state.restoreViewOffset(savedOffset)
-            }
-        }
-
-        if previousMode == .normal, mode != .normal {
-            window.savedHeight = window.height
-
-            if mode == .fullscreen {
-                state.saveViewOffsetForFullscreen()
-            }
-        }
-
-        if previousMode == .fullscreen, mode == .maximized {
             if let savedOffset = state.viewOffsetToRestore {
                 state.restoreViewOffset(savedOffset)
             }
-        } else if previousMode == .maximized, mode == .fullscreen {
+        }
+
+        if previousMode == .normal, mode == .fullscreen {
+            window.savedHeight = window.height
             state.saveViewOffsetForFullscreen()
         }
 
@@ -1727,15 +1716,6 @@ final class NiriLayoutEngine {
         state: inout ViewportState
     ) {
         let newMode: SizingMode = window.sizingMode == .fullscreen ? .normal : .fullscreen
-        setWindowSizingMode(window, mode: newMode, in: workspaceId, state: &state)
-    }
-
-    func toggleMaximized(
-        _ window: NiriWindow,
-        in workspaceId: WorkspaceDescriptor.ID,
-        state: inout ViewportState
-    ) {
-        let newMode: SizingMode = window.sizingMode == .maximized ? .normal : .maximized
         setWindowSizingMode(window, mode: newMode, in: workspaceId, state: &state)
     }
 
@@ -1801,41 +1781,6 @@ final class NiriLayoutEngine {
     func setWindowHeight(_ window: NiriWindow, height: WindowHeight) {
         window.height = height
         window.presetHeightIdx = nil
-    }
-
-    func toggleWindowHeight(_ window: NiriWindow, forwards: Bool) {
-        guard !presetWindowHeights.isEmpty else { return }
-
-        let presetCount = presetWindowHeights.count
-
-        let nextIdx: Int
-        if let currentIdx = window.presetHeightIdx {
-            if forwards {
-                nextIdx = (currentIdx + 1) % presetCount
-            } else {
-                nextIdx = (currentIdx - 1 + presetCount) % presetCount
-            }
-        } else {
-            let currentWeight = window.heightWeight
-            var nearestIdx = 0
-            var nearestDist = CGFloat.infinity
-            for (i, preset) in presetWindowHeights.enumerated() {
-                let dist = abs(preset.kind.value - currentWeight)
-                if dist < nearestDist {
-                    nearestDist = dist
-                    nearestIdx = i
-                }
-            }
-
-            if forwards {
-                nextIdx = (nearestIdx + 1) % presetCount
-            } else {
-                nextIdx = nearestIdx
-            }
-        }
-
-        window.height = presetWindowHeights[nextIdx].asWindowHeight
-        window.presetHeightIdx = nextIdx
     }
 
     @discardableResult
