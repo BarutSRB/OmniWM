@@ -5,7 +5,8 @@ extension NiriLayoutEngine {
     func moveSelectionByColumns(
         steps: Int,
         currentSelection: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID
+        in workspaceId: WorkspaceDescriptor.ID,
+        targetRowIndex: Int? = nil
     ) -> NiriNode? {
         guard steps != 0 else { return currentSelection }
 
@@ -36,7 +37,7 @@ extension NiriLayoutEngine {
         let targetRows = targetColumn.windowNodes
         guard !targetRows.isEmpty else { return targetColumn.firstChild() }
 
-        let clampedRowIndex = min(currentRowIndex, targetRows.count - 1)
+        let clampedRowIndex = min(targetRowIndex ?? currentRowIndex, targetRows.count - 1)
         return targetRows[clampedRowIndex]
     }
 
@@ -46,13 +47,15 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         state: inout ViewportState,
         workingFrame: CGRect,
-        gaps: CGFloat
+        gaps: CGFloat,
+        targetRowIndex: Int? = nil
     ) -> NiriNode? {
         let step = (direction == .right) ? 1 : -1
         guard let newSelection = moveSelectionByColumns(
             steps: step,
             currentSelection: currentSelection,
-            in: workspaceId
+            in: workspaceId,
+            targetRowIndex: targetRowIndex
         ) else {
             return nil
         }
@@ -230,7 +233,8 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            targetRowIndex: Int.max
         )
     }
 

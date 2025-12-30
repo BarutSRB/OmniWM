@@ -931,8 +931,13 @@ final class NiriLayoutEngine {
         let cols = columns(in: workspaceId)
         guard !cols.isEmpty else { return }
 
+        let balancedWidth = 1.0 / CGFloat(maxVisibleColumns)
+
         for column in cols {
-            column.size = 1.0
+            column.width = .proportion(balancedWidth)
+            column.isFullWidth = false
+            column.presetWidthIdx = nil
+            column.cachedWidth = 0
 
             for window in column.windowNodes {
                 window.size = 1.0
