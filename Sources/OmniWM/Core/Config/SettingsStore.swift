@@ -156,6 +156,14 @@ final class SettingsStore {
         didSet { saveAppRules() }
     }
 
+    var monitorOrientationSettings: [MonitorOrientationSettings] {
+        didSet { saveMonitorOrientationSettings() }
+    }
+
+    var monitorNiriSettings: [MonitorNiriSettings] {
+        didSet { saveMonitorNiriSettings() }
+    }
+
     var preventSleepEnabled: Bool {
         didSet { defaults.set(preventSleepEnabled, forKey: Keys.preventSleepEnabled) }
     }
@@ -251,6 +259,8 @@ final class SettingsStore {
         workspaceBarYOffset = defaults.object(forKey: Keys.workspaceBarYOffset) as? Double ?? 0.0
         monitorBarSettings = Self.loadMonitorBarSettings(from: defaults)
         appRules = Self.loadAppRules(from: defaults)
+        monitorOrientationSettings = Self.loadMonitorOrientationSettings(from: defaults)
+        monitorNiriSettings = Self.loadMonitorNiriSettings(from: defaults)
         preventSleepEnabled = defaults.object(forKey: Keys.preventSleepEnabled) as? Bool ?? false
         scrollGestureEnabled = defaults.object(forKey: Keys.scrollGestureEnabled) as? Bool ?? true
         scrollSensitivity = defaults.object(forKey: Keys.scrollSensitivity) as? Double ?? 1.0
@@ -550,6 +560,87 @@ final class SettingsStore {
     func appRule(for bundleId: String) -> AppRule? {
         appRules.first { $0.bundleId == bundleId }
     }
+
+    private static func loadMonitorOrientationSettings(from defaults: UserDefaults) -> [MonitorOrientationSettings] {
+        guard let data = defaults.data(forKey: Keys.monitorOrientationSettings),
+              let settings = try? JSONDecoder().decode([MonitorOrientationSettings].self, from: data)
+        else {
+            return []
+        }
+        return settings
+    }
+
+    private func saveMonitorOrientationSettings() {
+        guard let data = try? JSONEncoder().encode(monitorOrientationSettings) else { return }
+        defaults.set(data, forKey: Keys.monitorOrientationSettings)
+    }
+
+    func orientationSettings(for monitorName: String) -> MonitorOrientationSettings? {
+        monitorOrientationSettings.first { $0.monitorName == monitorName }
+    }
+
+    func effectiveOrientation(for monitor: Monitor) -> Monitor.Orientation {
+        if let override = orientationSettings(for: monitor.name),
+           let orientation = override.orientation {
+            return orientation
+        }
+        return monitor.autoOrientation
+    }
+
+    func updateOrientationSettings(_ settings: MonitorOrientationSettings) {
+        if let index = monitorOrientationSettings.firstIndex(where: { $0.monitorName == settings.monitorName }) {
+            monitorOrientationSettings[index] = settings
+        } else {
+            monitorOrientationSettings.append(settings)
+        }
+    }
+
+    func removeOrientationSettings(for monitorName: String) {
+        monitorOrientationSettings.removeAll { $0.monitorName == monitorName }
+    }
+
+    private static func loadMonitorNiriSettings(from defaults: UserDefaults) -> [MonitorNiriSettings] {
+        guard let data = defaults.data(forKey: Keys.monitorNiriSettings),
+              let settings = try? JSONDecoder().decode([MonitorNiriSettings].self, from: data)
+        else {
+            return []
+        }
+        return settings
+    }
+
+    private func saveMonitorNiriSettings() {
+        guard let data = try? JSONEncoder().encode(monitorNiriSettings) else { return }
+        defaults.set(data, forKey: Keys.monitorNiriSettings)
+    }
+
+    func niriSettings(for monitorName: String) -> MonitorNiriSettings? {
+        monitorNiriSettings.first { $0.monitorName == monitorName }
+    }
+
+    func updateNiriSettings(_ settings: MonitorNiriSettings) {
+        if let index = monitorNiriSettings.firstIndex(where: { $0.monitorName == settings.monitorName }) {
+            monitorNiriSettings[index] = settings
+        } else {
+            monitorNiriSettings.append(settings)
+        }
+    }
+
+    func removeNiriSettings(for monitorName: String) {
+        monitorNiriSettings.removeAll { $0.monitorName == monitorName }
+    }
+
+    func resolvedNiriSettings(for monitorName: String) -> ResolvedNiriSettings {
+        let override = niriSettings(for: monitorName)
+
+        return ResolvedNiriSettings(
+            maxVisibleColumns: override?.maxVisibleColumns ?? niriMaxVisibleColumns,
+            maxWindowsPerColumn: override?.maxWindowsPerColumn ?? niriMaxWindowsPerColumn,
+            centerFocusedColumn: override?.centerFocusedColumn.flatMap { CenterFocusedColumn(rawValue: $0) } ?? niriCenterFocusedColumn,
+            alwaysCenterSingleColumn: override?.alwaysCenterSingleColumn ?? niriAlwaysCenterSingleColumn,
+            singleWindowAspectRatio: override?.singleWindowAspectRatio.flatMap { SingleWindowAspectRatio(rawValue: $0) } ?? niriSingleWindowAspectRatio,
+            infiniteLoop: override?.infiniteLoop ?? niriInfiniteLoop
+        )
+    }
 }
 
 private enum Keys {
@@ -569,6 +660,7 @@ private enum Keys {
     static let niriCenterFocusedColumn = "settings.niriCenterFocusedColumn"
     static let niriAlwaysCenterSingleColumn = "settings.niriAlwaysCenterSingleColumn"
     static let niriSingleWindowAspectRatio = "settings.niriSingleWindowAspectRatio"
+    static let monitorNiriSettings = "settings.monitorNiriSettings"
 
     static let persistentWorkspaces = "settings.persistentWorkspaces"
     static let workspaceAssignments = "settings.workspaceAssignments"
@@ -599,6 +691,7 @@ private enum Keys {
     static let monitorBarSettings = "settings.workspaceBar.monitorSettings"
 
     static let appRules = "settings.appRules"
+    static let monitorOrientationSettings = "settings.monitorOrientationSettings"
     static let preventSleepEnabled = "settings.preventSleepEnabled"
     static let scrollGestureEnabled = "settings.scrollGestureEnabled"
     static let scrollSensitivity = "settings.scrollSensitivity"
@@ -638,5 +731,10 @@ enum GestureFingerCount: Int, CaseIterable, Codable {
         case .four: "4 Fingers"
         }
     }
+}
+
+struct MonitorOrientationSettings: Codable, Equatable {
+    let monitorName: String
+    var orientation: Monitor.Orientation?
 }
 

@@ -110,6 +110,17 @@ struct WindowSizeConstraints: Equatable {
         }
         return result
     }
+
+    func clampWidth(_ width: CGFloat) -> CGFloat {
+        var result = width
+        if hasMinWidth {
+            result = max(result, minSize.width)
+        }
+        if hasMaxWidth {
+            result = min(result, maxSize.width)
+        }
+        return result
+    }
 }
 
 struct PresetSize: Equatable {
@@ -277,6 +288,56 @@ class NiriNode {
     }
 }
 
+enum ContainerHeight: Equatable {
+    case proportion(CGFloat)
+
+    case fixed(CGFloat)
+
+    var value: CGFloat {
+        switch self {
+        case let .proportion(p): p
+        case let .fixed(f): f
+        }
+    }
+
+    var isProportion: Bool {
+        if case .proportion = self { return true }
+        return false
+    }
+
+    var isFixed: Bool {
+        if case .fixed = self { return true }
+        return false
+    }
+
+    static let `default` = ContainerHeight.proportion(1.0)
+}
+
+enum WindowWidth: Equatable {
+    case auto(weight: CGFloat)
+
+    case fixed(CGFloat)
+
+    var weight: CGFloat {
+        switch self {
+        case let .auto(w): w
+        case .fixed: 0
+        }
+    }
+
+    var isAuto: Bool {
+        if case .auto = self { return true }
+        return false
+    }
+
+    var isFixed: Bool {
+        if case .fixed = self { return true }
+        return false
+    }
+
+    static let `default` = WindowWidth.auto(weight: 1.0)
+}
+
 class NiriContainer: NiriNode {
     var displayMode: ColumnDisplay = .normal
 
@@ -291,6 +352,16 @@ class NiriContainer: NiriNode {
     var isFullWidth: Bool = false
 
     var savedWidth: ColumnWidth?
+
+    var height: ContainerHeight = .default
+
+    var cachedHeight: CGFloat = 0
+
+    var presetHeightIdx: Int?
+
+    var isFullHeight: Bool = false
+
+    var savedHeight: ContainerHeight?
 
     var activatePrevRestoreStart: CGFloat?
 
@@ -313,6 +384,23 @@ class NiriContainer: NiriNode {
         let maxW = windowNodes.compactMap { $0.constraints.hasMaxWidth ? $0.constraints.maxSize.width : nil }.min()
         if cachedWidth < minW { cachedWidth = minW }
         if let maxW, cachedWidth > maxW { cachedWidth = maxW }
+    }
+
+    func resolveAndCacheHeight(workingAreaHeight: CGFloat, gaps: CGFloat) {
+        if isFullHeight {
+            cachedHeight = workingAreaHeight
+            return
+        }
+        switch height {
+        case let .proportion(p):
+            cachedHeight = (workingAreaHeight - gaps) * p
+        case let .fixed(f):
+            cachedHeight = f
+        }
+        let minH = windowNodes.map(\.constraints.minSize.height).max() ?? 0
+        let maxH = windowNodes.compactMap { $0.constraints.hasMaxHeight ? $0.constraints.maxSize.height : nil }.min()
+        if cachedHeight < minH { cachedHeight = minH }
+        if let maxH, cachedHeight > maxH { cachedHeight = maxH }
     }
 
     override var size: CGFloat {
@@ -391,11 +479,23 @@ class NiriWindow: NiriNode {
 
     var savedColumnWidth: ColumnWidth?
 
+    var windowWidth: WindowWidth = .default
+
+    var presetWidthIdx: Int?
+
+    var savedWindowWidth: WindowWidth?
+
+    var savedContainerHeight: ContainerHeight?
+
     var constraints: WindowSizeConstraints = .unconstrained
 
     var resolvedHeight: CGFloat?
 
+    var resolvedWidth: CGFloat?
+
     var heightFixedByConstraint: Bool = false
+
+    var widthFixedByConstraint: Bool = false
 
     var lastFocusedTime: Date?
 
@@ -428,6 +528,13 @@ class NiriWindow: NiriNode {
         }
     }
 
+    var widthWeight: CGFloat {
+        switch windowWidth {
+        case let .auto(weight): weight
+        case .fixed: 1.0
+        }
+    }
+
     func resolveHeight(availableHeight: CGFloat, totalWeight: CGFloat) -> CGFloat {
         switch height {
         case let .auto(weight):
@@ -435,6 +542,16 @@ class NiriWindow: NiriNode {
             return availableHeight * (weight / totalWeight)
         case let .fixed(f):
             return min(f, availableHeight)
+        }
+    }
+
+    func resolveWidth(availableWidth: CGFloat, totalWeight: CGFloat) -> CGFloat {
+        switch windowWidth {
+        case let .auto(weight):
+            guard totalWeight > 0 else { return availableWidth }
+            return availableWidth * (weight / totalWeight)
+        case let .fixed(f):
+            return min(f, availableWidth)
         }
     }
 

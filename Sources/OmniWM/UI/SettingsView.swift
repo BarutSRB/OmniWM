@@ -16,6 +16,11 @@ struct SettingsView: View {
                     Label("Niri", systemImage: "scroll")
                 }
 
+            MonitorSettingsTab(settings: settings, controller: controller)
+                .tabItem {
+                    Label("Monitors", systemImage: "display")
+                }
+
             WorkspacesSettingsTab(settings: settings, controller: controller)
                 .tabItem {
                     Label("Workspaces", systemImage: "rectangle.3.group")
@@ -177,9 +182,84 @@ struct NiriSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
 
+    @State private var selectedMonitor: String?
+    @State private var connectedMonitors: [Monitor] = Monitor.current()
+
     var body: some View {
-        Form {
-            Section("Niri Layout") {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader("Configuration Scope")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Picker("Configure settings for:", selection: $selectedMonitor) {
+                        Text("Global Defaults").tag(nil as String?)
+                        if !connectedMonitors.isEmpty {
+                            Divider()
+                            ForEach(connectedMonitors, id: \.name) { monitor in
+                                HStack {
+                                    Text(monitor.name)
+                                    if monitor.isMain {
+                                        Text("(Main)")
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .tag(monitor.name as String?)
+                            }
+                        }
+                    }
+
+                    if let monitorName = selectedMonitor {
+                        HStack {
+                            if settings.niriSettings(for: monitorName) != nil {
+                                Text("Has custom overrides")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("Using global defaults")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button("Reset to Global") {
+                                settings.removeNiriSettings(for: monitorName)
+                                controller.updateMonitorNiriSettings()
+                            }
+                            .disabled(settings.niriSettings(for: monitorName) == nil)
+                        }
+                    }
+                }
+
+                Divider()
+
+                if let monitorName = selectedMonitor {
+                    MonitorNiriSettingsSection(
+                        settings: settings,
+                        controller: controller,
+                        monitorName: monitorName
+                    )
+                } else {
+                    GlobalNiriSettingsSection(
+                        settings: settings,
+                        controller: controller
+                    )
+                }
+            }
+        }
+        .padding()
+        .onAppear {
+            connectedMonitors = Monitor.current()
+        }
+    }
+}
+
+private struct GlobalNiriSettingsSection: View {
+    @Bindable var settings: SettingsStore
+    @Bindable var controller: WMController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeader("Niri Layout")
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Windows per Column")
                     Slider(value: .init(
@@ -193,6 +273,7 @@ struct NiriSettingsTab: View {
                 .onChange(of: settings.niriMaxWindowsPerColumn) { _, newValue in
                     controller.updateNiriConfig(maxWindowsPerColumn: newValue)
                 }
+
                 HStack {
                     Text("Visible Columns")
                     Slider(value: .init(
@@ -206,10 +287,12 @@ struct NiriSettingsTab: View {
                 .onChange(of: settings.niriMaxVisibleColumns) { _, newValue in
                     controller.updateNiriConfig(maxVisibleColumns: newValue)
                 }
+
                 Toggle("Infinite Loop Navigation", isOn: $settings.niriInfiniteLoop)
                     .onChange(of: settings.niriInfiniteLoop) { _, newValue in
                         controller.updateNiriConfig(infiniteLoop: newValue)
                     }
+
                 Picker("Center Focused Column", selection: $settings.niriCenterFocusedColumn) {
                     ForEach(CenterFocusedColumn.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -218,10 +301,12 @@ struct NiriSettingsTab: View {
                 .onChange(of: settings.niriCenterFocusedColumn) { _, newValue in
                     controller.updateNiriConfig(centerFocusedColumn: newValue)
                 }
+
                 Toggle("Always Center Single Column", isOn: $settings.niriAlwaysCenterSingleColumn)
                     .onChange(of: settings.niriAlwaysCenterSingleColumn) { _, newValue in
                         controller.updateNiriConfig(alwaysCenterSingleColumn: newValue)
                     }
+
                 Picker("Single Window Ratio", selection: $settings.niriSingleWindowAspectRatio) {
                     ForEach(SingleWindowAspectRatio.allCases, id: \.self) { ratio in
                         Text(ratio.displayName).tag(ratio)
@@ -232,7 +317,90 @@ struct NiriSettingsTab: View {
                 }
             }
         }
-        .padding()
+    }
+}
+
+private struct MonitorNiriSettingsSection: View {
+    @Bindable var settings: SettingsStore
+    @Bindable var controller: WMController
+    let monitorName: String
+
+    private var monitorSettings: MonitorNiriSettings {
+        settings.niriSettings(for: monitorName) ?? MonitorNiriSettings(monitorName: monitorName)
+    }
+
+    private func updateSetting(_ update: (inout MonitorNiriSettings) -> Void) {
+        var ms = monitorSettings
+        update(&ms)
+        settings.updateNiriSettings(ms)
+        controller.updateMonitorNiriSettings()
+    }
+
+    var body: some View {
+        let ms = monitorSettings
+
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeader("Niri Layout")
+            VStack(alignment: .leading, spacing: 8) {
+                OverridableSlider(
+                    label: "Windows per Column",
+                    value: ms.maxWindowsPerColumn.map { Double($0) },
+                    globalValue: Double(settings.niriMaxWindowsPerColumn),
+                    range: 1 ... 10,
+                    step: 1,
+                    formatter: { "\(Int($0))" },
+                    onChange: { newValue in updateSetting { $0.maxWindowsPerColumn = Int(newValue) } },
+                    onReset: { updateSetting { $0.maxWindowsPerColumn = nil } }
+                )
+
+                OverridableSlider(
+                    label: "Visible Columns",
+                    value: ms.maxVisibleColumns.map { Double($0) },
+                    globalValue: Double(settings.niriMaxVisibleColumns),
+                    range: 1 ... 5,
+                    step: 1,
+                    formatter: { "\(Int($0))" },
+                    onChange: { newValue in updateSetting { $0.maxVisibleColumns = Int(newValue) } },
+                    onReset: { updateSetting { $0.maxVisibleColumns = nil } }
+                )
+
+                OverridableToggle(
+                    label: "Infinite Loop Navigation",
+                    value: ms.infiniteLoop,
+                    globalValue: settings.niriInfiniteLoop,
+                    onChange: { newValue in updateSetting { $0.infiniteLoop = newValue } },
+                    onReset: { updateSetting { $0.infiniteLoop = nil } }
+                )
+
+                OverridablePicker(
+                    label: "Center Focused Column",
+                    value: ms.centerFocusedColumn.flatMap { CenterFocusedColumn(rawValue: $0) },
+                    globalValue: settings.niriCenterFocusedColumn,
+                    options: CenterFocusedColumn.allCases,
+                    displayName: { $0.displayName },
+                    onChange: { newValue in updateSetting { $0.centerFocusedColumn = newValue.rawValue } },
+                    onReset: { updateSetting { $0.centerFocusedColumn = nil } }
+                )
+
+                OverridableToggle(
+                    label: "Always Center Single Column",
+                    value: ms.alwaysCenterSingleColumn,
+                    globalValue: settings.niriAlwaysCenterSingleColumn,
+                    onChange: { newValue in updateSetting { $0.alwaysCenterSingleColumn = newValue } },
+                    onReset: { updateSetting { $0.alwaysCenterSingleColumn = nil } }
+                )
+
+                OverridablePicker(
+                    label: "Single Window Ratio",
+                    value: ms.singleWindowAspectRatio.flatMap { SingleWindowAspectRatio(rawValue: $0) },
+                    globalValue: settings.niriSingleWindowAspectRatio,
+                    options: SingleWindowAspectRatio.allCases,
+                    displayName: { $0.displayName },
+                    onChange: { newValue in updateSetting { $0.singleWindowAspectRatio = newValue.rawValue } },
+                    onReset: { updateSetting { $0.singleWindowAspectRatio = nil } }
+                )
+            }
+        }
     }
 }
 

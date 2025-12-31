@@ -15,6 +15,8 @@ final class NiriMonitor {
 
     private(set) var scale: CGFloat
 
+    private(set) var orientation: Monitor.Orientation = .horizontal
+
     var workspaceRoots: [WorkspaceDescriptor.ID: NiriRoot] = [:]
 
     var workspaceOrder: [WorkspaceDescriptor.ID] = []
@@ -30,6 +32,8 @@ final class NiriMonitor {
     var animationClock: AnimationClock?
 
     var workspaceSwitchConfig: SpringConfig = SpringConfig(duration: 0.3, bounce: 0.0)
+
+    var resolvedSettings: ResolvedNiriSettings?
 
     var activeWorkspaceId: WorkspaceDescriptor.ID? {
         guard workspaceOrder.indices.contains(activeWorkspaceIdx) else { return nil }
@@ -60,12 +64,13 @@ final class NiriMonitor {
         !workspaceOrder.isEmpty
     }
 
-    init(monitor: Monitor) {
+    init(monitor: Monitor, orientation: Monitor.Orientation? = nil) {
         id = monitor.id
         displayId = monitor.id.displayId
         outputName = monitor.name
         frame = monitor.frame
         visibleFrame = monitor.visibleFrame
+        self.orientation = orientation ?? monitor.autoOrientation
 
         if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.id.displayId }) {
             scale = screen.backingScaleFactor
@@ -74,13 +79,18 @@ final class NiriMonitor {
         }
     }
 
-    func updateOutputSize(monitor: Monitor) {
+    func updateOutputSize(monitor: Monitor, orientation: Monitor.Orientation? = nil) {
         frame = monitor.frame
         visibleFrame = monitor.visibleFrame
+        self.orientation = orientation ?? monitor.autoOrientation
 
         if let screen = NSScreen.screens.first(where: { $0.frame == monitor.frame }) {
             scale = screen.backingScaleFactor
         }
+    }
+
+    func updateOrientation(_ orientation: Monitor.Orientation) {
+        self.orientation = orientation
     }
 }
 

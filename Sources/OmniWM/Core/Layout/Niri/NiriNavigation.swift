@@ -176,6 +176,37 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         state: inout ViewportState,
         workingFrame: CGRect,
+        gaps: CGFloat,
+        orientation: Monitor.Orientation = .horizontal
+    ) -> NiriNode? {
+        switch orientation {
+        case .horizontal:
+            return focusTargetHorizontal(
+                direction: direction,
+                currentSelection: currentSelection,
+                in: workspaceId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        case .vertical:
+            return focusTargetVertical(
+                direction: direction,
+                currentSelection: currentSelection,
+                in: workspaceId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        }
+    }
+
+    private func focusTargetHorizontal(
+        direction: Direction,
+        currentSelection: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
         switch direction {
@@ -206,6 +237,166 @@ extension NiriLayoutEngine {
             }
             return target
         }
+    }
+
+    private func focusTargetVertical(
+        direction: Direction,
+        currentSelection: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        workingFrame: CGRect,
+        gaps: CGFloat
+    ) -> NiriNode? {
+        switch direction {
+        case .up, .down:
+            let mappedDirection: Direction = (direction == .up) ? .left : .right
+            return moveSelectionVerticalOrientation(
+                direction: mappedDirection,
+                currentSelection: currentSelection,
+                in: workspaceId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        case .left, .right:
+            let target = moveSelectionWithinRow(
+                direction: direction,
+                currentSelection: currentSelection
+            )
+
+            if let target {
+                ensureSelectionVisibleVertical(
+                    node: target,
+                    in: workspaceId,
+                    state: &state,
+                    workingFrame: workingFrame,
+                    gaps: gaps
+                )
+            }
+            return target
+        }
+    }
+
+    private func moveSelectionVerticalOrientation(
+        direction: Direction,
+        currentSelection: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        workingFrame: CGRect,
+        gaps: CGFloat,
+        targetWindowIndex: Int? = nil
+    ) -> NiriNode? {
+        let step = (direction == .right) ? 1 : -1
+        guard let newSelection = moveSelectionByColumns(
+            steps: step,
+            currentSelection: currentSelection,
+            in: workspaceId,
+            targetRowIndex: targetWindowIndex
+        ) else {
+            return nil
+        }
+
+        ensureSelectionVisibleVertical(
+            node: newSelection,
+            in: workspaceId,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: gaps
+        )
+
+        return newSelection
+    }
+
+    private func moveSelectionWithinRow(
+        direction: Direction,
+        currentSelection: NiriNode
+    ) -> NiriNode? {
+        guard let currentRow = column(of: currentSelection) else {
+            switch direction {
+            case .left:
+                return currentSelection.prevSibling()
+            case .right:
+                return currentSelection.nextSibling()
+            default:
+                return nil
+            }
+        }
+
+        if currentRow.isTabbed {
+            return moveSelectionWithinRowTabbed(
+                direction: direction,
+                in: currentRow
+            )
+        }
+
+        switch direction {
+        case .left:
+            return currentSelection.prevSibling()
+        case .right:
+            return currentSelection.nextSibling()
+        default:
+            return nil
+        }
+    }
+
+    private func moveSelectionWithinRowTabbed(
+        direction: Direction,
+        in row: NiriContainer
+    ) -> NiriNode? {
+        let windows = row.windowNodes
+        guard !windows.isEmpty else { return nil }
+
+        let currentIdx = row.activeTileIdx
+        let newIdx: Int
+
+        switch direction {
+        case .right:
+            guard currentIdx < windows.count - 1 else { return nil }
+            newIdx = currentIdx + 1
+        case .left:
+            guard currentIdx > 0 else { return nil }
+            newIdx = currentIdx - 1
+        default:
+            return nil
+        }
+
+        row.setActiveTileIdx(newIdx)
+        updateTabbedColumnVisibility(column: row)
+
+        return windows[newIdx]
+    }
+
+    func ensureSelectionVisibleVertical(
+        node: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        workingFrame: CGRect,
+        gaps: CGFloat,
+        animationConfig: SpringConfig? = nil,
+        fromRowIndex: Int? = nil
+    ) {
+        let rows = columns(in: workspaceId)
+        guard !rows.isEmpty else { return }
+
+        guard let row = column(of: node),
+              let targetIdx = columnIndex(of: row, in: workspaceId)
+        else {
+            return
+        }
+
+        state.ensureRowVisible(
+            rowIndex: targetIdx,
+            rows: rows,
+            gap: gaps,
+            viewportHeight: workingFrame.height,
+            animate: true,
+            centerMode: centerFocusedColumn,
+            animationConfig: animationConfig,
+            fromRowIndex: fromRowIndex
+        )
+
+        state.activeColumnIndex = targetIdx
+        state.selectionProgress = 0.0
     }
 
     func focusDownOrLeft(

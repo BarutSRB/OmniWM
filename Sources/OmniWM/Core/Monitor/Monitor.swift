@@ -38,6 +38,15 @@ struct Monitor: Identifiable, Hashable {
 }
 
 extension Monitor {
+    enum Orientation: String, Codable, Equatable {
+        case horizontal
+        case vertical
+    }
+
+    var autoOrientation: Orientation {
+        frame.width >= frame.height ? .horizontal : .vertical
+    }
+
     var isMain: Bool {
         frame.minX == 0 && frame.minY == 0
     }

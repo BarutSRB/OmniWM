@@ -1,10 +1,12 @@
 import AppKit
 import Foundation
 
-enum CenterFocusedColumn: String, CaseIterable, Codable {
+enum CenterFocusedColumn: String, CaseIterable, Codable, Identifiable {
     case never
     case always
     case onOverflow
+
+    var id: String { rawValue }
 
     var displayName: String {
         switch self {
@@ -15,12 +17,14 @@ enum CenterFocusedColumn: String, CaseIterable, Codable {
     }
 }
 
-enum SingleWindowAspectRatio: String, CaseIterable, Codable {
+enum SingleWindowAspectRatio: String, CaseIterable, Codable, Identifiable {
     case none
     case ratio16x9 = "16:9"
     case ratio4x3 = "4:3"
     case ratio21x9 = "21:9"
     case square = "1:1"
+
+    var id: String { rawValue }
 
     var displayName: String {
         switch self {
@@ -114,11 +118,14 @@ final class NiriLayoutEngine {
         centerFocusedColumn = .onOverflow
     }
 
-    func ensureMonitor(for monitorId: Monitor.ID, monitor: Monitor) -> NiriMonitor {
+    func ensureMonitor(for monitorId: Monitor.ID, monitor: Monitor, orientation: Monitor.Orientation? = nil) -> NiriMonitor {
         if let existing = monitors[monitorId] {
+            if let orientation {
+                existing.updateOrientation(orientation)
+            }
             return existing
         }
-        let niriMonitor = NiriMonitor(monitor: monitor)
+        let niriMonitor = NiriMonitor(monitor: monitor, orientation: orientation)
         monitors[monitorId] = niriMonitor
         return niriMonitor
     }
@@ -127,15 +134,50 @@ final class NiriLayoutEngine {
         monitors[monitorId]
     }
 
-    func updateMonitors(_ newMonitors: [Monitor]) {
+    func updateMonitors(_ newMonitors: [Monitor], orientations: [Monitor.ID: Monitor.Orientation] = [:]) {
         for monitor in newMonitors {
             if let niriMonitor = monitors[monitor.id] {
-                niriMonitor.updateOutputSize(monitor: monitor)
+                let orientation = orientations[monitor.id]
+                niriMonitor.updateOutputSize(monitor: monitor, orientation: orientation)
             }
         }
 
         let newIds = Set(newMonitors.map(\.id))
         monitors = monitors.filter { newIds.contains($0.key) }
+    }
+
+    func updateMonitorOrientations(_ orientations: [Monitor.ID: Monitor.Orientation]) {
+        for (monitorId, orientation) in orientations {
+            monitors[monitorId]?.updateOrientation(orientation)
+        }
+    }
+
+    func updateMonitorSettings(_ settings: ResolvedNiriSettings, for monitorId: Monitor.ID) {
+        monitors[monitorId]?.resolvedSettings = settings
+    }
+
+    func effectiveMaxVisibleColumns(for monitorId: Monitor.ID) -> Int {
+        monitors[monitorId]?.resolvedSettings?.maxVisibleColumns ?? maxVisibleColumns
+    }
+
+    func effectiveMaxWindowsPerColumn(for monitorId: Monitor.ID) -> Int {
+        monitors[monitorId]?.resolvedSettings?.maxWindowsPerColumn ?? maxWindowsPerColumn
+    }
+
+    func effectiveCenterFocusedColumn(for monitorId: Monitor.ID) -> CenterFocusedColumn {
+        monitors[monitorId]?.resolvedSettings?.centerFocusedColumn ?? centerFocusedColumn
+    }
+
+    func effectiveAlwaysCenterSingleColumn(for monitorId: Monitor.ID) -> Bool {
+        monitors[monitorId]?.resolvedSettings?.alwaysCenterSingleColumn ?? alwaysCenterSingleColumn
+    }
+
+    func effectiveSingleWindowAspectRatio(for monitorId: Monitor.ID) -> SingleWindowAspectRatio {
+        monitors[monitorId]?.resolvedSettings?.singleWindowAspectRatio ?? singleWindowAspectRatio
+    }
+
+    func effectiveInfiniteLoop(for monitorId: Monitor.ID) -> Bool {
+        monitors[monitorId]?.resolvedSettings?.infiniteLoop ?? infiniteLoop
     }
 
     func moveWorkspace(

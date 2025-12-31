@@ -120,6 +120,24 @@ final class WMController {
         workspaceBarManager.updateSettings()
     }
 
+    func updateMonitorOrientations() {
+        let monitors = workspaceManager.monitors
+        for monitor in monitors {
+            let orientation = settings.effectiveOrientation(for: monitor)
+            niriEngine?.monitors[monitor.id]?.updateOrientation(orientation)
+        }
+        layoutRefreshController?.refreshWindowsAndLayout()
+    }
+
+    func updateMonitorNiriSettings() {
+        guard let engine = niriEngine else { return }
+        for monitor in workspaceManager.monitors {
+            let resolved = settings.resolvedNiriSettings(for: monitor.name)
+            engine.updateMonitorSettings(resolved, for: monitor.id)
+        }
+        layoutRefreshController?.refreshWindowsAndLayout()
+    }
+
     func workspaceBarItems(for monitor: Monitor, deduplicate: Bool, hideEmpty: Bool) -> [WorkspaceBarItem] {
         var workspaces = workspaceManager.workspaces(on: monitor.id)
 
@@ -680,6 +698,8 @@ final class WMController {
                     niriMonitor.activateWorkspace(activeWorkspace.id)
                 }
             }
+            let resolved = settings.resolvedNiriSettings(for: monitor.name)
+            engine.updateMonitorSettings(resolved, for: monitor.id)
         }
     }
 

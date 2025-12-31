@@ -43,6 +43,40 @@ extension NiriLayoutEngine {
         gaps: (horizontal: CGFloat, vertical: CGFloat),
         focusedColumnIndex _: Int? = nil,
         scale: CGFloat = 2.0,
+        workingArea: WorkingAreaContext? = nil,
+        orientation: Monitor.Orientation = .horizontal
+    ) -> [WindowHandle: CGRect] {
+        switch orientation {
+        case .horizontal:
+            return calculateHorizontalLayout(
+                state: state,
+                workspaceId: workspaceId,
+                monitorFrame: monitorFrame,
+                screenFrame: screenFrame,
+                gaps: gaps,
+                scale: scale,
+                workingArea: workingArea
+            )
+        case .vertical:
+            return calculateVerticalLayout(
+                state: state,
+                workspaceId: workspaceId,
+                monitorFrame: monitorFrame,
+                screenFrame: screenFrame,
+                gaps: gaps,
+                scale: scale,
+                workingArea: workingArea
+            )
+        }
+    }
+
+    private func calculateHorizontalLayout(
+        state: ViewportState,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitorFrame: CGRect,
+        screenFrame: CGRect? = nil,
+        gaps: (horizontal: CGFloat, vertical: CGFloat),
+        scale: CGFloat = 2.0,
         workingArea: WorkingAreaContext? = nil
     ) -> [WindowHandle: CGRect] {
         var result: [WindowHandle: CGRect] = [:]
@@ -143,6 +177,234 @@ extension NiriLayoutEngine {
         }
 
         return result
+    }
+
+    private func calculateVerticalLayout(
+        state: ViewportState,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitorFrame: CGRect,
+        screenFrame: CGRect? = nil,
+        gaps: (horizontal: CGFloat, vertical: CGFloat),
+        scale: CGFloat = 2.0,
+        workingArea: WorkingAreaContext? = nil
+    ) -> [WindowHandle: CGRect] {
+        var result: [WindowHandle: CGRect] = [:]
+
+        let rows = columns(in: workspaceId)
+        guard !rows.isEmpty else { return result }
+
+        let workingFrame = workingArea?.workingFrame ?? monitorFrame
+        let viewFrame = workingArea?.viewFrame ?? screenFrame ?? monitorFrame
+        let effectiveScale = workingArea?.scale ?? scale
+
+        let verticalGap = gaps.vertical
+
+        for row in rows {
+            if row.cachedHeight <= 0 {
+                row.resolveAndCacheHeight(workingAreaHeight: workingFrame.height, gaps: verticalGap)
+            }
+        }
+
+        func rowY(at index: Int) -> CGFloat {
+            var y: CGFloat = 0
+            for i in 0..<index {
+                y += rows[i].cachedHeight + verticalGap
+            }
+            return y
+        }
+
+        let totalRowsHeight = rows.reduce(0) { $0 + $1.cachedHeight } + CGFloat(max(0, rows.count - 1)) * verticalGap
+
+        let viewOffset = state.viewOffsetPixels.current()
+        let viewTop = -viewOffset
+        let viewBottom = viewTop + workingFrame.height
+
+        let centeringOffset: CGFloat
+        if totalRowsHeight < workingFrame.height {
+            if alwaysCenterSingleColumn || rows.count == 1 {
+                centeringOffset = (workingFrame.height - totalRowsHeight) / 2
+            } else {
+                centeringOffset = 0
+            }
+        } else {
+            centeringOffset = 0
+        }
+
+        var usedIndices = Set<Int>()
+
+        for (idx, row) in rows.enumerated() {
+            let rowYPos = rowY(at: idx)
+            let rowBottom = rowYPos + row.cachedHeight
+
+            let isVisible = rowBottom > viewTop && rowYPos < viewBottom
+
+            if isVisible {
+                usedIndices.insert(idx)
+
+                let screenY = workingFrame.origin.y + rowYPos + viewOffset + centeringOffset
+                let height = row.cachedHeight.roundedToPhysicalPixel(scale: effectiveScale)
+
+                let rowRect = CGRect(
+                    x: workingFrame.origin.x,
+                    y: screenY,
+                    width: workingFrame.width,
+                    height: height
+                ).roundedToPhysicalPixels(scale: effectiveScale)
+
+                layoutRow(
+                    row: row,
+                    rowRect: rowRect,
+                    screenRect: viewFrame,
+                    horizontalGap: gaps.horizontal,
+                    scale: effectiveScale,
+                    result: &result
+                )
+            }
+        }
+
+        if rows.count > usedIndices.count {
+            let avgHeight = totalRowsHeight / CGFloat(max(1, rows.count))
+            let hiddenHeight = max(1, avgHeight).roundedToPhysicalPixel(scale: effectiveScale)
+            for (idx, row) in rows.enumerated() {
+                if usedIndices.contains(idx) { continue }
+
+                let hiddenRect = hiddenRowRect(
+                    screenRect: viewFrame,
+                    width: workingFrame.width,
+                    height: hiddenHeight
+                ).roundedToPhysicalPixels(scale: effectiveScale)
+
+                layoutRow(
+                    row: row,
+                    rowRect: hiddenRect,
+                    screenRect: viewFrame,
+                    horizontalGap: gaps.horizontal,
+                    scale: effectiveScale,
+                    result: &result
+                )
+            }
+        }
+
+        return result
+    }
+
+    private func layoutRow(
+        row: NiriContainer,
+        rowRect: CGRect,
+        screenRect: CGRect,
+        horizontalGap: CGFloat,
+        scale: CGFloat,
+        result: inout [WindowHandle: CGRect]
+    ) {
+        row.frame = rowRect
+
+        let tabOffset = row.isTabbed ? renderStyle.tabIndicatorHeight : 0
+        let contentRect = CGRect(
+            x: rowRect.origin.x,
+            y: rowRect.origin.y,
+            width: max(0, rowRect.width - tabOffset),
+            height: rowRect.height
+        )
+
+        let windows = row.windowNodes
+        guard !windows.isEmpty else { return }
+
+        let isTabbed = row.isTabbed
+
+        let resolvedWidths = resolveWindowWidths(
+            windows: windows,
+            availableWidth: contentRect.width,
+            horizontalGap: horizontalGap,
+            isTabbed: isTabbed
+        )
+
+        var x = contentRect.origin.x
+
+        for (i, window) in windows.enumerated() {
+            let windowWidth = resolvedWidths[i]
+
+            let frame: CGRect = switch window.sizingMode {
+            case .fullscreen:
+                screenRect.roundedToPhysicalPixels(scale: scale)
+            case .normal:
+                CGRect(
+                    x: isTabbed ? contentRect.origin.x : x,
+                    y: contentRect.origin.y,
+                    width: windowWidth,
+                    height: contentRect.height
+                ).roundedToPhysicalPixels(scale: scale)
+            }
+
+            window.frame = frame
+            window.resolvedWidth = windowWidth
+
+            let offset = window.renderOffset()
+            let animatedFrame = frame.offsetBy(dx: offset.x, dy: offset.y)
+            result[window.handle] = animatedFrame
+
+            if !isTabbed {
+                x += windowWidth
+                if i < windows.count - 1 {
+                    x += horizontalGap
+                }
+            }
+        }
+    }
+
+    private func resolveWindowWidths(
+        windows: [NiriWindow],
+        availableWidth: CGFloat,
+        horizontalGap: CGFloat,
+        isTabbed: Bool = false
+    ) -> [CGFloat] {
+        guard !windows.isEmpty else { return [] }
+
+        let inputs: [NiriRowWidthSolver.WindowInput] = windows.map { window in
+            let weight = window.widthWeight
+
+            let isFixedWidth: Bool
+            let fixedWidth: CGFloat?
+            switch window.windowWidth {
+            case let .fixed(w):
+                isFixedWidth = true
+                fixedWidth = w
+            case .auto:
+                isFixedWidth = false
+                fixedWidth = nil
+            }
+
+            return NiriRowWidthSolver.WindowInput(
+                weight: max(0.1, weight),
+                constraints: window.constraints,
+                isFixedWidth: isFixedWidth,
+                fixedWidth: fixedWidth
+            )
+        }
+
+        let outputs = NiriRowWidthSolver.solve(
+            windows: inputs,
+            availableWidth: availableWidth,
+            gapSize: horizontalGap,
+            isTabbed: isTabbed
+        )
+
+        for (i, output) in outputs.enumerated() {
+            windows[i].widthFixedByConstraint = output.wasConstrained
+        }
+
+        return outputs.map(\.width)
+    }
+
+    private func hiddenRowRect(
+        screenRect: CGRect,
+        width: CGFloat,
+        height: CGFloat
+    ) -> CGRect {
+        let origin = CGPoint(
+            x: screenRect.maxX - 2,
+            y: screenRect.maxY - 2
+        )
+        return CGRect(origin: origin, size: CGSize(width: width, height: height))
     }
 
     private func layoutColumn(

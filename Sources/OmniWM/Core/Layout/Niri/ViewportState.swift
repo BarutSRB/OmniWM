@@ -506,3 +506,280 @@ extension ViewportState {
         selectionProgress = 0
     }
 }
+
+extension ViewportState {
+    func rowY(at index: Int, rows: [NiriContainer], gap: CGFloat) -> CGFloat {
+        var y: CGFloat = 0
+        for i in 0..<index {
+            guard i < rows.count else { break }
+            y += rows[i].cachedHeight + gap
+        }
+        return y
+    }
+
+    func totalHeight(rows: [NiriContainer], gap: CGFloat) -> CGFloat {
+        guard !rows.isEmpty else { return 0 }
+        let heightSum = rows.reduce(0) { $0 + $1.cachedHeight }
+        let gapSum = CGFloat(max(0, rows.count - 1)) * gap
+        return heightSum + gapSum
+    }
+
+    func viewPosPixelsVertical(rows: [NiriContainer], gap: CGFloat) -> CGFloat {
+        let activeRowY = rowY(at: activeColumnIndex, rows: rows, gap: gap)
+        return activeRowY + viewOffsetPixels.current()
+    }
+
+    func computeCenteredOffsetVertical(
+        rowIndex: Int,
+        rows: [NiriContainer],
+        gap: CGFloat,
+        viewportHeight: CGFloat
+    ) -> CGFloat {
+        guard !rows.isEmpty, rowIndex < rows.count else { return 0 }
+
+        let totalH = totalHeight(rows: rows, gap: gap)
+
+        if totalH <= viewportHeight {
+            let rowYPos = rowY(at: rowIndex, rows: rows, gap: gap)
+            return -rowYPos + (viewportHeight - totalH) / 2
+        }
+
+        let rowHeight = rows[rowIndex].cachedHeight
+        let rowYPos = rowY(at: rowIndex, rows: rows, gap: gap)
+        let centeredOffset = (viewportHeight - rowHeight) / 2 - rowYPos
+
+        let maxOffset: CGFloat = 0
+        let minOffset = viewportHeight - totalH
+
+        return centeredOffset.clamped(to: minOffset ... maxOffset)
+    }
+
+    mutating func setActiveRow(
+        _ index: Int,
+        rows: [NiriContainer],
+        gap: CGFloat,
+        viewportHeight: CGFloat,
+        animate: Bool = false
+    ) {
+        guard !rows.isEmpty else { return }
+        let clampedIndex = index.clamped(to: 0 ... (rows.count - 1))
+
+        let oldActiveRowY = rowY(at: activeColumnIndex, rows: rows, gap: gap)
+        let newActiveRowY = rowY(at: clampedIndex, rows: rows, gap: gap)
+
+        let offsetDelta = oldActiveRowY - newActiveRowY
+        let currentOffset = viewOffsetPixels.current()
+        let newOffset = currentOffset + offsetDelta
+        let currentVelocity = viewOffsetPixels.currentVelocity()
+
+        activeColumnIndex = clampedIndex
+
+        let targetOffset = computeCenteredOffsetVertical(
+            rowIndex: clampedIndex,
+            rows: rows,
+            gap: gap,
+            viewportHeight: viewportHeight
+        )
+
+        if animate && animationsEnabled {
+            let now = animationClock?.now() ?? CACurrentMediaTime()
+            let animation = SpringAnimation(
+                from: newOffset,
+                to: targetOffset,
+                initialVelocity: currentVelocity,
+                startTime: now,
+                config: springConfig,
+                clock: animationClock,
+                displayRefreshRate: displayRefreshRate
+            )
+            viewOffsetPixels = .spring(animation)
+        } else {
+            viewOffsetPixels = .static(targetOffset)
+        }
+    }
+
+    mutating func scrollByPixelsVertical(
+        _ deltaPixels: CGFloat,
+        rows: [NiriContainer],
+        gap: CGFloat,
+        viewportHeight: CGFloat,
+        changeSelection: Bool
+    ) -> Int? {
+        guard abs(deltaPixels) > CGFloat.ulpOfOne else { return nil }
+        guard !rows.isEmpty else { return nil }
+
+        let totalH = totalHeight(rows: rows, gap: gap)
+        guard totalH > 0 else { return nil }
+
+        let currentOffset = viewOffsetPixels.current()
+        var newOffset = currentOffset + deltaPixels
+
+        let maxOffset: CGFloat = 0
+        let minOffset = viewportHeight - totalH
+
+        if minOffset < maxOffset {
+            newOffset = newOffset.clamped(to: minOffset ... maxOffset)
+        } else {
+            newOffset = 0
+        }
+
+        viewOffsetPixels = .static(newOffset)
+
+        if changeSelection {
+            selectionProgress += deltaPixels
+            let avgRowHeight = totalH / CGFloat(rows.count)
+            let steps = Int((selectionProgress / avgRowHeight).rounded(.towardZero))
+            if steps != 0 {
+                selectionProgress -= CGFloat(steps) * avgRowHeight
+                return steps
+            }
+        }
+
+        return nil
+    }
+
+    mutating func ensureRowVisible(
+        rowIndex: Int,
+        rows: [NiriContainer],
+        gap: CGFloat,
+        viewportHeight: CGFloat,
+        animate: Bool = true,
+        centerMode: CenterFocusedColumn = .never,
+        animationConfig: SpringConfig? = nil,
+        fromRowIndex: Int? = nil
+    ) {
+        guard !rows.isEmpty, rowIndex >= 0, rowIndex < rows.count else { return }
+
+        let rowYPos = rowY(at: rowIndex, rows: rows, gap: gap)
+        let rowHeight = rows[rowIndex].cachedHeight
+        let currentOffset = viewOffsetPixels.current()
+
+        let viewTop = -currentOffset
+        let viewBottom = viewTop + viewportHeight
+
+        let rowTop = rowYPos
+        let rowBottom = rowYPos + rowHeight
+
+        var targetOffset = currentOffset
+
+        switch centerMode {
+        case .always:
+            targetOffset = computeCenteredOffsetVertical(
+                rowIndex: rowIndex,
+                rows: rows,
+                gap: gap,
+                viewportHeight: viewportHeight
+            )
+
+        case .onOverflow:
+            if rowHeight > viewportHeight {
+                targetOffset = computeCenteredOffsetVertical(
+                    rowIndex: rowIndex,
+                    rows: rows,
+                    gap: gap,
+                    viewportHeight: viewportHeight
+                )
+            } else if let fromIdx = fromRowIndex, fromIdx != rowIndex {
+                let sourceIdx = fromIdx > rowIndex
+                    ? min(rowIndex + 1, rows.count - 1)
+                    : max(rowIndex - 1, 0)
+
+                guard sourceIdx >= 0, sourceIdx < rows.count else {
+                    if rowTop < viewTop {
+                        targetOffset = -rowYPos
+                    } else if rowBottom > viewBottom {
+                        targetOffset = viewportHeight - rowBottom
+                    }
+                    break
+                }
+
+                let sourceRowY = rowY(at: sourceIdx, rows: rows, gap: gap)
+                let sourceRowHeight = rows[sourceIdx].cachedHeight
+
+                let totalHeightNeeded: CGFloat
+                if sourceRowY < rowYPos {
+                    totalHeightNeeded = rowYPos - sourceRowY + rowHeight + gap * 2
+                } else {
+                    totalHeightNeeded = sourceRowY - rowYPos + sourceRowHeight + gap * 2
+                }
+
+                if totalHeightNeeded <= viewportHeight {
+                    if rowTop < viewTop {
+                        targetOffset = -rowYPos
+                    } else if rowBottom > viewBottom {
+                        targetOffset = viewportHeight - rowBottom
+                    }
+                } else {
+                    targetOffset = computeCenteredOffsetVertical(
+                        rowIndex: rowIndex,
+                        rows: rows,
+                        gap: gap,
+                        viewportHeight: viewportHeight
+                    )
+                }
+            } else {
+                if rowTop < viewTop {
+                    targetOffset = -rowYPos
+                } else if rowBottom > viewBottom {
+                    targetOffset = viewportHeight - rowBottom
+                }
+            }
+
+        case .never:
+            if rowTop < viewTop {
+                targetOffset = -rowYPos
+            } else if rowBottom > viewBottom {
+                targetOffset = viewportHeight - rowBottom
+            }
+        }
+
+        let totalH = totalHeight(rows: rows, gap: gap)
+        let maxOffset: CGFloat = 0
+        let minOffset = viewportHeight - totalH
+        if minOffset < maxOffset {
+            targetOffset = targetOffset.clamped(to: minOffset ... maxOffset)
+        }
+
+        if abs(targetOffset - currentOffset) < 1 {
+            return
+        }
+
+        if animate && animationsEnabled {
+            let now = animationClock?.now() ?? CACurrentMediaTime()
+            let currentVelocity = viewOffsetPixels.currentVelocity()
+            let config = animationConfig ?? springConfig
+            let animation = SpringAnimation(
+                from: Double(currentOffset),
+                to: Double(targetOffset),
+                initialVelocity: currentVelocity,
+                startTime: now,
+                config: config,
+                clock: animationClock,
+                displayRefreshRate: displayRefreshRate
+            )
+            viewOffsetPixels = .spring(animation)
+        } else {
+            viewOffsetPixels = .static(targetOffset)
+        }
+    }
+
+    mutating func snapToRow(
+        _ rowIndex: Int,
+        rows: [NiriContainer],
+        gap: CGFloat,
+        viewportHeight: CGFloat
+    ) {
+        guard !rows.isEmpty else { return }
+        let clampedIndex = rowIndex.clamped(to: 0 ... (rows.count - 1))
+        activeColumnIndex = clampedIndex
+
+        let targetOffset = computeCenteredOffsetVertical(
+            rowIndex: clampedIndex,
+            rows: rows,
+            gap: gap,
+            viewportHeight: viewportHeight
+        )
+        viewOffsetPixels = .static(targetOffset)
+        selectionProgress = 0
+    }
+}
