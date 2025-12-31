@@ -217,6 +217,20 @@ final class LayoutRefreshController {
         layoutDirtyFlag = true
     }
 
+    func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
+        if scrollAnimationWorkspaceId == workspaceId || scrollAnimationWorkspaceId == nil {
+            stopScrollAnimation()
+        }
+        activeSnapshot = nil
+        layoutDirtyFlag = false
+        sizesAppliedForAnimation = false
+
+        guard let controller else { return }
+        var state = controller.internalWorkspaceManager.niriViewportState(for: workspaceId)
+        state.cancelAnimation()
+        controller.internalWorkspaceManager.updateNiriViewportState(state, for: workspaceId)
+    }
+
     func refreshWindowsAndLayout() {
         scheduleRefreshSession(.timerRefresh)
     }

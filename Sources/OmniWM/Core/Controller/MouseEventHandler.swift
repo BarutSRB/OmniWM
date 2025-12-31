@@ -211,15 +211,18 @@ final class MouseEventHandler {
                 in: wsId
             ) {
                 isResizing = true
-                controller.internalLayoutRefreshController?.invalidateLayout()
+                controller.internalLayoutRefreshController?.cancelActiveAnimations(for: wsId)
                 hitResult.edges.cursor.set()
             }
         }
     }
 
-    private func handleMouseDraggedFromTap(at location: CGPoint) {
+    private func handleMouseDraggedFromTap(at _: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
+        guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
+
+        let location = NSEvent.mouseLocation
 
         if isMoving {
             guard let engine = controller.internalNiriEngine,
