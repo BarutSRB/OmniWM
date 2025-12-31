@@ -318,7 +318,7 @@ final class MouseEventHandler {
 
         let scrollDeltaX: CGFloat
         if modifiers.contains(.maskShift) {
-            scrollDeltaX = deltaX
+            scrollDeltaX = deltaY
         } else {
             scrollDeltaX = -deltaY
         }
