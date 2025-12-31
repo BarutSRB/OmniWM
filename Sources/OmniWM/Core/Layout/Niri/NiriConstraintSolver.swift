@@ -17,6 +17,7 @@ enum NiriColumnHeightSolver {
         let wasConstrained: Bool
     }
 
+    @inlinable
     static func solve(
         windows: [WindowInput],
         availableHeight: CGFloat,
@@ -147,7 +148,8 @@ enum NiriColumnHeightSolver {
         return outputs
     }
 
-    private static func solveTabbed(
+    @inlinable
+    static func solveTabbed(
         windows: [WindowInput],
         availableHeight: CGFloat
     ) -> [WindowOutput] {
@@ -194,6 +196,7 @@ enum NiriRowWidthSolver {
         let wasConstrained: Bool
     }
 
+    @inlinable
     static func solve(
         windows: [WindowInput],
         availableWidth: CGFloat,
@@ -324,7 +327,8 @@ enum NiriRowWidthSolver {
         return outputs
     }
 
-    private static func solveTabbed(
+    @inlinable
+    static func solveTabbed(
         windows: [WindowInput],
         availableWidth: CGFloat
     ) -> [WindowOutput] {
@@ -370,6 +374,7 @@ enum NiriColumnWidthSolver {
         let wasConstrained: Bool
     }
 
+    @inlinable
     static func solve(
         columns: [ColumnInput],
         availableWidth: CGFloat,

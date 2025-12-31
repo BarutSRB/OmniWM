@@ -132,6 +132,7 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
     }
 
     private func populateSubmenuAsync(menu: NSMenu, axRoot: AXUIElement) {
+        nonisolated(unsafe) let menu = menu
         let extractor = self.menuExtractor
         axFetchQueue.async { [weak self] in
             guard let children = axRoot.getChildren() else {

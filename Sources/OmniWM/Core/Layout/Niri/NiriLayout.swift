@@ -96,15 +96,18 @@ extension NiriLayoutEngine {
             }
         }
 
-        func columnX(at index: Int) -> CGFloat {
-            var x: CGFloat = 0
-            for i in 0..<index {
-                x += cols[i].cachedWidth + horizontalGap
+        var columnXPositions = [CGFloat]()
+        columnXPositions.reserveCapacity(cols.count)
+        var runningX: CGFloat = 0
+        var totalColumnsWidth: CGFloat = 0
+        for (i, column) in cols.enumerated() {
+            columnXPositions.append(runningX)
+            runningX += column.cachedWidth + horizontalGap
+            totalColumnsWidth += column.cachedWidth
+            if i < cols.count - 1 {
+                totalColumnsWidth += horizontalGap
             }
-            return x
         }
-
-        let totalColumnsWidth = cols.reduce(0) { $0 + $1.cachedWidth } + CGFloat(max(0, cols.count - 1)) * horizontalGap
 
         let viewOffset = state.viewOffsetPixels.current()
         let viewLeft = -viewOffset
@@ -124,7 +127,7 @@ extension NiriLayoutEngine {
         var usedIndices = Set<Int>()
 
         for (idx, column) in cols.enumerated() {
-            let colX = columnX(at: idx)
+            let colX = columnXPositions[idx]
             let colRight = colX + column.cachedWidth
 
             let isVisible = colRight > viewLeft && colX < viewRight
@@ -205,15 +208,18 @@ extension NiriLayoutEngine {
             }
         }
 
-        func rowY(at index: Int) -> CGFloat {
-            var y: CGFloat = 0
-            for i in 0..<index {
-                y += rows[i].cachedHeight + verticalGap
+        var rowYPositions = [CGFloat]()
+        rowYPositions.reserveCapacity(rows.count)
+        var runningY: CGFloat = 0
+        var totalRowsHeight: CGFloat = 0
+        for (i, row) in rows.enumerated() {
+            rowYPositions.append(runningY)
+            runningY += row.cachedHeight + verticalGap
+            totalRowsHeight += row.cachedHeight
+            if i < rows.count - 1 {
+                totalRowsHeight += verticalGap
             }
-            return y
         }
-
-        let totalRowsHeight = rows.reduce(0) { $0 + $1.cachedHeight } + CGFloat(max(0, rows.count - 1)) * verticalGap
 
         let viewOffset = state.viewOffsetPixels.current()
         let viewTop = -viewOffset
@@ -233,7 +239,7 @@ extension NiriLayoutEngine {
         var usedIndices = Set<Int>()
 
         for (idx, row) in rows.enumerated() {
-            let rowYPos = rowY(at: idx)
+            let rowYPos = rowYPositions[idx]
             let rowBottom = rowYPos + row.cachedHeight
 
             let isVisible = rowBottom > viewTop && rowYPos < viewBottom

@@ -182,6 +182,17 @@ class NiriNode {
         id = NodeId()
     }
 
+    func findRoot() -> NiriRoot? {
+        var current: NiriNode? = self
+        while let node = current {
+            if let root = node as? NiriRoot {
+                return root
+            }
+            current = node.parent
+        }
+        return nil
+    }
+
     func firstChild() -> NiriNode? {
         children.first
     }
@@ -209,6 +220,7 @@ class NiriNode {
         child.detach()
         child.parent = self
         children.append(child)
+        findRoot()?.registerNode(child)
     }
 
     func insertBefore(_ child: NiriNode, reference: NiriNode) {
@@ -218,6 +230,7 @@ class NiriNode {
         child.detach()
         child.parent = self
         children.insert(child, at: index)
+        findRoot()?.registerNode(child)
     }
 
     func insertAfter(_ child: NiriNode, reference: NiriNode) {
@@ -227,20 +240,28 @@ class NiriNode {
         child.detach()
         child.parent = self
         children.insert(child, at: index + 1)
+        findRoot()?.registerNode(child)
     }
 
     func detach() {
         guard let parent else { return }
+        let root = findRoot()
         parent.children.removeAll { $0.id == self.id }
         self.parent = nil
+        root?.unregisterNode(self)
     }
 
     func remove() {
+        let root = findRoot()
         detach()
 
-        for child in children {
-            child.remove()
+        func unregisterAll(_ node: NiriNode) {
+            root?.unregisterNode(node)
+            for child in node.children {
+                unregisterAll(child)
+            }
         }
+        unregisterAll(self)
         children.removeAll()
     }
 
@@ -269,6 +290,7 @@ class NiriNode {
         child.parent = self
         let clampedIndex = max(0, min(index, children.count))
         children.insert(child, at: clampedIndex)
+        findRoot()?.registerNode(child)
     }
 
     func findNode(by id: NodeId) -> NiriNode? {
@@ -641,6 +663,8 @@ class NiriWindow: NiriNode {
 class NiriRoot: NiriContainer {
     let workspaceId: WorkspaceDescriptor.ID
 
+    private var nodeIndex: [NodeId: NiriNode]?
+
     init(workspaceId: WorkspaceDescriptor.ID) {
         self.workspaceId = workspaceId
         super.init()
@@ -652,6 +676,39 @@ class NiriRoot: NiriContainer {
 
     var allWindows: [NiriWindow] {
         columns.flatMap(\.windowNodes)
+    }
+
+    func invalidateNodeIndex() {
+        nodeIndex = nil
+    }
+
+    private func buildNodeIndex() -> [NodeId: NiriNode] {
+        var index: [NodeId: NiriNode] = [:]
+        func addToIndex(_ node: NiriNode) {
+            index[node.id] = node
+            for child in node.children {
+                addToIndex(child)
+            }
+        }
+        addToIndex(self)
+        return index
+    }
+
+    override func findNode(by id: NodeId) -> NiriNode? {
+        if nodeIndex == nil {
+            nodeIndex = buildNodeIndex()
+        }
+        return nodeIndex?[id]
+    }
+
+    func registerNode(_ node: NiriNode) {
+        if nodeIndex != nil {
+            nodeIndex?[node.id] = node
+        }
+    }
+
+    func unregisterNode(_ node: NiriNode) {
+        nodeIndex?.removeValue(forKey: node.id)
     }
 }
 
