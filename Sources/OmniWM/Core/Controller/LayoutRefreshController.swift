@@ -231,6 +231,10 @@ final class LayoutRefreshController {
            let frame = node.frame {
             controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
         }
+
+        if controller.internalMoveMouseToFocusedWindowEnabled {
+            controller.moveMouseToWindow(focusedHandle)
+        }
     }
 
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {

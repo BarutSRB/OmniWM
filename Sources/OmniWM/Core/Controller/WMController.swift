@@ -970,40 +970,13 @@ final class WMController {
 
     func moveMouseToWindow(_ handle: WindowHandle) {
         guard let entry = workspaceManager.entry(for: handle) else { return }
-
-        let frame: CGRect
-        let wsId = entry.workspaceId
-
-        if let engine = niriEngine,
-           let monitor = workspaceManager.monitor(for: wsId)
-        {
-            let state = workspaceManager.niriViewportState(for: wsId)
-            let workingFrame = insetWorkingFrame(from: monitor.visibleFrame)
-            let gaps = CGFloat(workspaceManager.gaps)
-            guard let targetFrame = engine.targetFrameForWindow(
-                handle,
-                in: wsId,
-                state: state,
-                workingFrame: workingFrame,
-                gaps: gaps
-            ) else {
-                return
-            }
-            frame = targetFrame
-        } else if let axFrame = AXWindowService.framePreferFast(entry.axRef) {
-            frame = axFrame
-        } else {
-            return
-        }
+        guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
 
         let center = CGPoint(x: frame.midX, y: frame.midY)
 
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) {
-            let flippedY = screen.frame.height - center.y + screen.frame.origin.y
-            CGWarpMouseCursorPosition(CGPoint(x: center.x, y: flippedY))
-        } else {
-            CGWarpMouseCursorPosition(center)
-        }
+        guard NSScreen.screens.contains(where: { $0.frame.contains(center) }) else { return }
+
+        CGWarpMouseCursorPosition(center)
     }
 
     func runningAppsWithWindows() -> [RunningAppInfo] {
