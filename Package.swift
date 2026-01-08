@@ -16,6 +16,9 @@ let package = Package(
         .executableTarget(
             name: "OmniWM",
             path: "Sources/OmniWM",
+            resources: [
+                .process("Resources")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ],

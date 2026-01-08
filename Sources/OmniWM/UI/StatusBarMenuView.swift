@@ -26,6 +26,9 @@ struct StatusBarMenuView: View {
             linksSection
             GlassMenuDivider()
 
+            sponsorsSection
+            GlassMenuDivider()
+
             quitSection
         }
         .padding(.vertical, 8)
@@ -153,6 +156,15 @@ struct StatusBarMenuView: View {
                 Text("Sponsor on PayPal")
                     .font(.system(size: 13))
             }
+        }
+    }
+
+    private var sponsorsSection: some View {
+        GlassMenuRow(icon: "sparkles", action: {
+            SponsorsWindowController.shared.show()
+        }) {
+            Text("Omni Sponsors")
+                .font(.system(size: 13))
         }
     }
 
