@@ -157,15 +157,17 @@ struct GlassMenuRow<Content: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .scaleEffect(isPressed ? 0.97 : 1.0)
-        .background {
-            if isHovered {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isDestructive ? AnyShapeStyle(Color.red.opacity(0.1)) : AnyShapeStyle(.quaternary))
+        .animation(animationsEnabled ? .spring(duration: 0.2) : nil) { content in
+            content.scaleEffect(isPressed ? 0.97 : 1.0)
+        }
+        .animation(animationsEnabled ? .easeOut(duration: 0.15) : nil) { content in
+            content.background {
+                if isHovered {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isDestructive ? AnyShapeStyle(Color.red.opacity(0.1)) : AnyShapeStyle(.quaternary))
+                }
             }
         }
-        .animation(animationsEnabled ? .easeOut(duration: 0.15) : nil, value: isHovered)
-        .animation(animationsEnabled ? .spring(duration: 0.2) : nil, value: isPressed)
         .onHover { hovering in
             isHovered = hovering
         }
@@ -210,13 +212,14 @@ struct GlassToggleRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background {
-            if isHovered {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.quaternary)
+        .animation(animationsEnabled ? .easeOut(duration: 0.15) : nil) { content in
+            content.background {
+                if isHovered {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.quaternary)
+                }
             }
         }
-        .animation(animationsEnabled ? .easeOut(duration: 0.15) : nil, value: isHovered)
         .onHover { hovering in
             isHovered = hovering
         }
