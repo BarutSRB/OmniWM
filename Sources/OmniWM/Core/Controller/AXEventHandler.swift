@@ -79,7 +79,7 @@ final class AXEventHandler: CGSEventDelegate {
               entry.windowId == Int(windowId)
         else { return }
 
-        if let frame = SkyLight.shared.getWindowBounds(windowId) {
+        if let frame = try? AXWindowService.frame(entry.axRef) {
             updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: Int(windowId))
         }
     }
@@ -199,7 +199,7 @@ final class AXEventHandler: CGSEventDelegate {
 
         if let focused = controller.internalFocusedHandle,
            let entry = controller.internalWorkspaceManager.entry(for: focused),
-           let frame = AXWindowService.framePreferFast(entry.axRef)
+           let frame = try? AXWindowService.frame(entry.axRef)
         {
             updateBorderIfAllowed(handle: focused, frame: frame, windowId: entry.windowId)
         } else {
@@ -248,7 +248,7 @@ final class AXEventHandler: CGSEventDelegate {
                let node = engine.findNode(for: entry.handle),
                let frame = node.frame {
                 updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-            } else if let frame = AXWindowService.framePreferFast(entry.axRef) {
+            } else if let frame = try? AXWindowService.frame(entry.axRef) {
                 updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
             }
             controller.internalLayoutRefreshController?.updateTabbedColumnOverlays()
@@ -331,7 +331,7 @@ final class AXEventHandler: CGSEventDelegate {
                    let node = engine.findNode(for: handle),
                    let frame = node.frame {
                     updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-                } else if let frame = AXWindowService.framePreferFast(entry.axRef) {
+                } else if let frame = try? AXWindowService.frame(entry.axRef) {
                     updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
                 }
             }
