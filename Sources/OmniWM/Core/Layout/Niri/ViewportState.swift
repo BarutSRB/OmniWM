@@ -477,12 +477,11 @@ struct ViewportState {
 
         if totalW <= viewportWidth {
             let colX = columnX(at: columnIndex, columns: columns, gap: gap)
-            return -colX + (viewportWidth - totalW) / 2
+            return -colX - (viewportWidth - totalW) / 2
         }
 
         let colWidth = columns[columnIndex].cachedWidth
-        let colX = columnX(at: columnIndex, columns: columns, gap: gap)
-        let centeredOffset = (viewportWidth - colWidth) / 2 - colX
+        let centeredOffset = -(viewportWidth - colWidth) / 2
 
         let maxOffset: CGFloat = 0
         let minOffset = viewportWidth - totalW
@@ -1013,12 +1012,11 @@ extension ViewportState {
 
         if totalH <= viewportHeight {
             let rowYPos = rowY(at: rowIndex, rows: rows, gap: gap)
-            return -rowYPos + (viewportHeight - totalH) / 2
+            return -rowYPos - (viewportHeight - totalH) / 2
         }
 
         let rowHeight = rows[rowIndex].cachedHeight
-        let rowYPos = rowY(at: rowIndex, rows: rows, gap: gap)
-        let centeredOffset = (viewportHeight - rowHeight) / 2 - rowYPos
+        let centeredOffset = -(viewportHeight - rowHeight) / 2
 
         let maxOffset: CGFloat = 0
         let minOffset = viewportHeight - totalH
