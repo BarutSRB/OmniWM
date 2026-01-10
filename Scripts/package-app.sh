@@ -4,7 +4,8 @@ set -euo pipefail
 CONFIG="${1:-release}"
 SIGN_AND_NOTARIZE="${2:-true}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="$ROOT_DIR/.build/$CONFIG"
+CONFIG_CAPITALIZED="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIG:0:1}")${CONFIG:1}"
+BUILD_DIR="$ROOT_DIR/.build/apple/Products/$CONFIG_CAPITALIZED"
 EXECUTABLE="$BUILD_DIR/OmniWM"
 APP_DIR="$ROOT_DIR/dist/OmniWM.app"
 
@@ -13,8 +14,11 @@ SIGNING_IDENTITY="Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
 NOTARIZE_PROFILE="OmniWM-Notarize"
 ENTITLEMENTS="$ROOT_DIR/OmniWM.entitlements"
 
-echo "Building OmniWM ($CONFIG)..."
-swift build -c "$CONFIG"
+echo "Building OmniWM universal binary ($CONFIG)..."
+swift build -c "$CONFIG" --arch arm64 --arch x86_64
+
+echo "Verifying universal binary..."
+lipo -info "$EXECUTABLE"
 
 echo "Packaging $APP_DIR"
 rm -rf "$APP_DIR"
