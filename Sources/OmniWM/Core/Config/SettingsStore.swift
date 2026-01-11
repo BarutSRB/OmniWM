@@ -236,6 +236,18 @@ final class SettingsStore {
         didSet { defaults.set(menuAnywhereShowShortcuts, forKey: Keys.menuAnywhereShowShortcuts) }
     }
 
+    var hiddenBarEnabled: Bool {
+        didSet { defaults.set(hiddenBarEnabled, forKey: Keys.hiddenBarEnabled) }
+    }
+
+    var hiddenBarIsCollapsed: Bool {
+        didSet { defaults.set(hiddenBarIsCollapsed, forKey: Keys.hiddenBarIsCollapsed) }
+    }
+
+    var hiddenBarAlwaysHiddenEnabled: Bool {
+        didSet { defaults.set(hiddenBarAlwaysHiddenEnabled, forKey: Keys.hiddenBarAlwaysHiddenEnabled) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -317,6 +329,10 @@ final class SettingsStore {
         ) ??
             .cursor
         menuAnywhereShowShortcuts = defaults.object(forKey: Keys.menuAnywhereShowShortcuts) as? Bool ?? true
+
+        hiddenBarEnabled = defaults.object(forKey: Keys.hiddenBarEnabled) as? Bool ?? false
+        hiddenBarIsCollapsed = defaults.object(forKey: Keys.hiddenBarIsCollapsed) as? Bool ?? false
+        hiddenBarAlwaysHiddenEnabled = defaults.object(forKey: Keys.hiddenBarAlwaysHiddenEnabled) as? Bool ?? false
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -807,6 +823,10 @@ private enum Keys {
     static let menuAnywherePaletteEnabled = "settings.menuAnywhere.paletteEnabled"
     static let menuAnywherePosition = "settings.menuAnywhere.position"
     static let menuAnywhereShowShortcuts = "settings.menuAnywhere.showShortcuts"
+
+    static let hiddenBarEnabled = "settings.hiddenBar.enabled"
+    static let hiddenBarIsCollapsed = "settings.hiddenBar.isCollapsed"
+    static let hiddenBarAlwaysHiddenEnabled = "settings.hiddenBar.alwaysHiddenEnabled"
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {

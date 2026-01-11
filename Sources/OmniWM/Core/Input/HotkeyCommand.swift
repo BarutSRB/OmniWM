@@ -51,6 +51,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case openMenuAnywhere
     case openMenuPalette
 
+    case toggleHiddenBar
+
     var id: String {
         switch self {
         case let .focus(dir): "focus.\(dir.rawValue)"
@@ -94,6 +96,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .raiseAllFloatingWindows: "raiseAllFloatingWindows"
         case .openMenuAnywhere: "openMenuAnywhere"
         case .openMenuPalette: "openMenuPalette"
+        case .toggleHiddenBar: "toggleHiddenBar"
         }
     }
 
@@ -140,6 +143,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .raiseAllFloatingWindows: "Raise All Floating Windows"
         case .openMenuAnywhere: "Open Menu Anywhere"
         case .openMenuPalette: "Open Menu Palette"
+        case .toggleHiddenBar: "Toggle Hidden Bar"
         }
     }
 }

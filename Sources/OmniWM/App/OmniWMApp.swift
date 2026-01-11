@@ -50,6 +50,7 @@ struct OmniWMApp: App {
 
         controller.setWorkspaceBarEnabled(settings.workspaceBarEnabled)
         controller.setPreventSleepEnabled(settings.preventSleepEnabled)
+        controller.setHiddenBarEnabled(settings.hiddenBarEnabled)
     }
 
     var body: some Scene {

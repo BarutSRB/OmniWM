@@ -156,6 +156,8 @@ final class CommandHandler {
             controller.openMenuAnywhere()
         case .openMenuPalette:
             controller.openMenuPalette()
+        case .toggleHiddenBar:
+            controller.toggleHiddenBar()
         }
     }
 

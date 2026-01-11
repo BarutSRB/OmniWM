@@ -395,6 +395,12 @@ enum DefaultHotkeyBindings {
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(controlKey | optionKey | shiftKey))
         ))
 
+        bindings.append(HotkeyBinding(
+            id: "toggleHiddenBar",
+            command: .toggleHiddenBar,
+            binding: .unassigned
+        ))
+
         return bindings
     }
 }

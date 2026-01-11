@@ -36,6 +36,8 @@ final class WMController {
     private lazy var borderManager: BorderManager = .init()
     @ObservationIgnored
     private lazy var workspaceBarManager: WorkspaceBarManager = .init()
+    @ObservationIgnored
+    private lazy var hiddenBarController: HiddenBarController = .init(settings: settings)
 
     private var appActivationObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
@@ -110,6 +112,19 @@ final class WMController {
         } else {
             SleepPreventionManager.shared.allowSleep()
         }
+    }
+
+    func setHiddenBarEnabled(_ enabled: Bool) {
+        if enabled {
+            hiddenBarController.setup()
+        } else {
+            hiddenBarController.cleanup()
+        }
+    }
+
+    func toggleHiddenBar() {
+        guard settings.hiddenBarEnabled else { return }
+        hiddenBarController.toggle()
     }
 
     func updateWorkspaceBar() {
@@ -660,6 +675,7 @@ final class WMController {
         tabbedOverlayManager.removeAll()
         borderManager.cleanup()
         workspaceBarManager.cleanup()
+        hiddenBarController.cleanup()
 
         axManager.cleanup()
 
@@ -1125,4 +1141,5 @@ extension WMController {
     var internalLayoutRefreshController: LayoutRefreshController? { layoutRefreshController }
     var internalWorkspaceNavigationHandler: WorkspaceNavigationHandler? { workspaceNavigationHandler }
     var internalAXEventHandler: AXEventHandler? { axEventHandler }
+    var internalHiddenBarController: HiddenBarController { hiddenBarController }
 }

@@ -32,6 +32,8 @@ struct SettingsDetailView: View {
             BorderSettingsTab(settings: settings, controller: controller)
         case .bar:
             WorkspaceBarSettingsTab(settings: settings, controller: controller)
+        case .hiddenBar:
+            HiddenBarSettingsTab(settings: settings, controller: controller)
         case .menu:
             MenuAnywhereSettingsTab(settings: settings)
         case .hotkeys:
