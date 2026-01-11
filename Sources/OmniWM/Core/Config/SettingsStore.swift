@@ -244,10 +244,6 @@ final class SettingsStore {
         didSet { defaults.set(hiddenBarIsCollapsed, forKey: Keys.hiddenBarIsCollapsed) }
     }
 
-    var hiddenBarAlwaysHiddenEnabled: Bool {
-        didSet { defaults.set(hiddenBarAlwaysHiddenEnabled, forKey: Keys.hiddenBarAlwaysHiddenEnabled) }
-    }
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -332,7 +328,6 @@ final class SettingsStore {
 
         hiddenBarEnabled = defaults.object(forKey: Keys.hiddenBarEnabled) as? Bool ?? false
         hiddenBarIsCollapsed = defaults.object(forKey: Keys.hiddenBarIsCollapsed) as? Bool ?? false
-        hiddenBarAlwaysHiddenEnabled = defaults.object(forKey: Keys.hiddenBarAlwaysHiddenEnabled) as? Bool ?? false
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -826,7 +821,6 @@ private enum Keys {
 
     static let hiddenBarEnabled = "settings.hiddenBar.enabled"
     static let hiddenBarIsCollapsed = "settings.hiddenBar.isCollapsed"
-    static let hiddenBarAlwaysHiddenEnabled = "settings.hiddenBar.alwaysHiddenEnabled"
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {

@@ -1141,5 +1141,4 @@ extension WMController {
     var internalLayoutRefreshController: LayoutRefreshController? { layoutRefreshController }
     var internalWorkspaceNavigationHandler: WorkspaceNavigationHandler? { workspaceNavigationHandler }
     var internalAXEventHandler: AXEventHandler? { axEventHandler }
-    var internalHiddenBarController: HiddenBarController { hiddenBarController }
 }

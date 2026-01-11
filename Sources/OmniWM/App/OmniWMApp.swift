@@ -51,14 +51,12 @@ struct OmniWMApp: App {
         controller.setWorkspaceBarEnabled(settings.workspaceBarEnabled)
         controller.setPreventSleepEnabled(settings.preventSleepEnabled)
         controller.setHiddenBarEnabled(settings.hiddenBarEnabled)
+
+        AppDelegate.sharedSettings = settings
+        AppDelegate.sharedController = controller
     }
 
     var body: some Scene {
-        MenuBarExtra("O", systemImage: "o.circle") {
-            StatusBarMenuView(settings: $settings, controller: controller)
-        }
-        .menuBarExtraStyle(.window)
-
         Settings {
             SettingsView(settings: settings, controller: controller)
                 .frame(minWidth: 480, minHeight: 500)
@@ -66,8 +64,21 @@ struct OmniWMApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    nonisolated(unsafe) static var sharedSettings: SettingsStore?
+    nonisolated(unsafe) static var sharedController: WMController?
+
+    private var statusBarController: StatusBarController?
+
     func applicationDidFinishLaunching(_: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
+
+        if let settings = AppDelegate.sharedSettings,
+           let controller = AppDelegate.sharedController
+        {
+            statusBarController = StatusBarController(settings: settings, controller: controller)
+            statusBarController?.setup()
+        }
     }
 }
