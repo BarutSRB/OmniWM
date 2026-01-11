@@ -442,11 +442,11 @@ final class WorkspaceManager {
 
     func adjacentMonitor(from monitorId: Monitor.ID, direction: Direction, wrapAround: Bool = false) -> Monitor? {
         guard let current = monitors.first(where: { $0.id == monitorId }) else { return nil }
-        let currentCenter = CGPoint(x: current.frame.midX, y: current.frame.midY)
+        let currentCenter = current.frame.center
         let currentFrame = current.frame
 
         func isCandidate(_ candidate: Monitor) -> Bool {
-            let center = CGPoint(x: candidate.frame.midX, y: candidate.frame.midY)
+            let center = candidate.frame.center
             let candidateFrame = candidate.frame
 
             let hasOverlap: Bool = switch direction {
@@ -467,7 +467,7 @@ final class WorkspaceManager {
         }
 
         func distanceSquared(_ candidate: Monitor) -> CGFloat {
-            let center = CGPoint(x: candidate.frame.midX, y: candidate.frame.midY)
+            let center = candidate.frame.center
             let dx = center.x - currentCenter.x
             let dy = center.y - currentCenter.y
             return dx * dx + dy * dy

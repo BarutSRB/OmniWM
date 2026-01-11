@@ -6,7 +6,7 @@ struct StatusBarMenuView: View {
     let controller: WMController
 
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.2"
+        Bundle.main.appVersion ?? "0.2.2"
     }
 
     var body: some View {

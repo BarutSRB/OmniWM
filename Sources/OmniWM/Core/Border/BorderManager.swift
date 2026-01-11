@@ -41,10 +41,7 @@ final class BorderManager {
         if let last = lastAppliedFrame,
            let lastWid = lastAppliedWindowId,
            lastWid == windowId,
-           abs(frame.origin.x - last.origin.x) < 0.5,
-           abs(frame.origin.y - last.origin.y) < 0.5,
-           abs(frame.width - last.width) < 0.5,
-           abs(frame.height - last.height) < 0.5 {
+           frame.approximatelyEqual(to: last, tolerance: 0.5) {
             return
         }
 

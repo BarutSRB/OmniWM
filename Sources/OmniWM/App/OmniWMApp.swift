@@ -8,6 +8,7 @@ struct OmniWMApp: App {
     @State private var controller: WMController
 
     init() {
+        SettingsMigration.run()
         let settings = SettingsStore()
         let controller = WMController(settings: settings)
         _settings = State(wrappedValue: settings)

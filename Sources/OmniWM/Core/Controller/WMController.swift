@@ -816,7 +816,7 @@ final class WMController {
         }
 
         if let frame = AXWindowService.framePreferFast(axRef) {
-            let center = CGPoint(x: frame.midX, y: frame.midY)
+            let center = frame.center
             if let monitor = workspaceManager.monitors.first(where: { $0.visibleFrame.contains(center) }),
                let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
             {
@@ -923,7 +923,7 @@ final class WMController {
         let allWindows = SkyLight.shared.queryAllVisibleWindows()
 
         let windowsOnMonitor = allWindows.filter { info in
-            let center = CGPoint(x: info.frame.midX, y: info.frame.midY)
+            let center = info.frame.center
             return monitor.visibleFrame.contains(center)
         }
 
@@ -1031,7 +1031,7 @@ final class WMController {
         guard let entry = workspaceManager.entry(for: handle) else { return }
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
 
-        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let center = frame.center
 
         guard NSScreen.screens.contains(where: { $0.frame.contains(center) }) else { return }
 

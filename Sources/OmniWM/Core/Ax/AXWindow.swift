@@ -255,18 +255,11 @@ enum AXWindowService {
     }
 
     private static func isFullscreenFrame(_ frame: CGRect) -> Bool {
-        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let center = frame.center
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) else {
             return false
         }
-
-        let tolerance: CGFloat = 2.0
-        let screenFrame = screen.frame
-
-        return abs(frame.origin.x - screenFrame.origin.x) <= tolerance &&
-            abs(frame.origin.y - screenFrame.origin.y) <= tolerance &&
-            abs(frame.size.width - screenFrame.size.width) <= tolerance &&
-            abs(frame.size.height - screenFrame.size.height) <= tolerance
+        return frame.approximatelyEqual(to: screen.frame, tolerance: 2.0)
     }
 
     static func windowType(

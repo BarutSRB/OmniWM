@@ -178,8 +178,8 @@ final class DwindleLayoutEngine {
             return (aspectOrientation(for: targetRect), false)
         }
 
-        let targetCenter = CGPoint(x: targetRect.midX, y: targetRect.midY)
-        let activeCenter = CGPoint(x: activeFrame.midX, y: activeFrame.midY)
+        let targetCenter = targetRect.center
+        let activeCenter = activeFrame.center
 
         let deltaX = activeCenter.x - targetCenter.x
         let deltaY = activeCenter.y - targetCenter.y

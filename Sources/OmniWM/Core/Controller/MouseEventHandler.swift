@@ -52,8 +52,7 @@ final class MouseEventHandler {
             }
 
             let location = event.location
-            let flippedY = NSScreen.screens.first.map { $0.frame.maxY - location.y } ?? location.y
-            let screenLocation = CGPoint(x: location.x, y: flippedY)
+            let screenLocation = NSScreen.screens.first.map { location.flipY(maxY: $0.frame.maxY) } ?? location
 
             switch type {
             case .mouseMoved:

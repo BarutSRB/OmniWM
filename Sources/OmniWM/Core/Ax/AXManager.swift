@@ -90,17 +90,17 @@ final class AXManager {
     }
 
     func ensurePermission() async -> Bool {
-        if AXIsProcessTrusted() { return true }
+        if AccessibilityPermissionMonitor.shared.isGranted { return true }
 
         let options: NSDictionary = [axTrustedCheckOptionPrompt as NSString: true]
         _ = AXIsProcessTrustedWithOptions(options)
 
         let deadline = Date().addingTimeInterval(pollTimeout)
-        while Date() < deadline {
-            if AXIsProcessTrusted() { return true }
-            try? await Task.sleep(nanoseconds: pollIntervalNanos)
+        for await granted in AccessibilityPermissionMonitor.shared.stream(initial: false) {
+            if granted { return true }
+            if Date() >= deadline { break }
         }
-        return AXIsProcessTrusted()
+        return AccessibilityPermissionMonitor.shared.isGranted
     }
 
     func currentWindowsAsync() async -> [(AXWindowRef, pid_t, Int)] {

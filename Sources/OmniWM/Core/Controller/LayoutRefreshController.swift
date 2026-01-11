@@ -928,7 +928,7 @@ final class LayoutRefreshController {
         guard let controller else { return }
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
         if !controller.internalWorkspaceManager.isHiddenInCorner(entry.handle) {
-            let center = CGPoint(x: frame.midX, y: frame.midY)
+            let center = frame.center
             let referenceFrame = center.monitorApproximation(in: controller.internalWorkspaceManager.monitors)?
                 .frame ?? monitor.frame
             let proportional = proportionalPosition(topLeft: frame.topLeftCorner, in: referenceFrame)
