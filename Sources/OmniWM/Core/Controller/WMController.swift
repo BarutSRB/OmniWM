@@ -53,6 +53,7 @@ final class WMController {
     private var axEventHandler: AXEventHandler?
     private var layoutRefreshController: LayoutRefreshController?
     private var hasStartedServices = false
+    private var permissionCheckerTask: Task<Void, Never>?
 
     let animationClock = AnimationClock()
 
@@ -470,16 +471,22 @@ final class WMController {
     }
 
     func start() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let granted = await axManager.ensurePermission()
-            guard granted else {
-                isEnabled = false
-                hotkeysEnabled = false
-                hotkeys.stop()
-                return
+        permissionCheckerTask?.cancel()
+        permissionCheckerTask = Task { @MainActor [weak self] in
+            for await granted in AccessibilityPermissionMonitor.shared.stream(initial: true) {
+                guard let self, !Task.isCancelled else { return }
+
+                if granted {
+                    if !hasStartedServices {
+                        startServices()
+                    }
+                } else {
+                    _ = axManager.requestPermission()
+                    isEnabled = false
+                    hotkeysEnabled = false
+                    hotkeys.stop()
+                }
             }
-            startServices()
         }
     }
 
@@ -685,6 +692,8 @@ final class WMController {
         SecureInputIndicatorController.shared.hide()
         lockScreenObserver.stop()
         hotkeys.stop()
+        permissionCheckerTask?.cancel()
+        permissionCheckerTask = nil
         if let observer = appActivationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             appActivationObserver = nil

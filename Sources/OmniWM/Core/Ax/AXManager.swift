@@ -16,8 +16,6 @@ final class AXManager {
     private var appLaunchObserver: NSObjectProtocol?
     var onAppLaunched: ((NSRunningApplication) -> Void)?
     var onAppTerminated: ((pid_t) -> Void)?
-    private let pollIntervalNanos: UInt64 = 250_000_000
-    private let pollTimeout: TimeInterval = 30
 
     private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect)]] = [:]
 
@@ -89,17 +87,12 @@ final class AXManager {
         return []
     }
 
-    func ensurePermission() async -> Bool {
+    func requestPermission() -> Bool {
         if AccessibilityPermissionMonitor.shared.isGranted { return true }
 
         let options: NSDictionary = [axTrustedCheckOptionPrompt as NSString: true]
         _ = AXIsProcessTrustedWithOptions(options)
 
-        let deadline = Date().addingTimeInterval(pollTimeout)
-        for await granted in AccessibilityPermissionMonitor.shared.stream(initial: false) {
-            if granted { return true }
-            if Date() >= deadline { break }
-        }
         return AccessibilityPermissionMonitor.shared.isGranted
     }
 
