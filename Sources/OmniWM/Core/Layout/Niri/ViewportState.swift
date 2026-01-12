@@ -315,6 +315,7 @@ struct ViewportState {
         viewportWidth: CGFloat,
         animate: Bool,
         centerMode: CenterFocusedColumn,
+        alwaysCenterSingleColumn: Bool = false,
         fromColumnIndex: Int? = nil,
         scale: CGFloat = 2.0
     ) {
@@ -338,6 +339,7 @@ struct ViewportState {
             viewportWidth: viewportWidth,
             currentOffset: viewOffsetPixels.target(),
             centerMode: centerMode,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             fromColumnIndex: fromColumnIndex ?? prevActiveColumn
         )
 
@@ -367,9 +369,12 @@ struct ViewportState {
         viewportWidth: CGFloat,
         currentOffset: CGFloat,
         centerMode: CenterFocusedColumn,
+        alwaysCenterSingleColumn: Bool = false,
         fromColumnIndex: Int? = nil
     ) -> CGFloat {
         guard !columns.isEmpty, columnIndex >= 0, columnIndex < columns.count else { return 0 }
+
+        let effectiveCenterMode = (columns.count == 1 && alwaysCenterSingleColumn) ? .always : centerMode
 
         let colX = columnX(at: columnIndex, columns: columns, gap: gap)
         let colWidth = columns[columnIndex].cachedWidth
@@ -377,7 +382,7 @@ struct ViewportState {
 
         var targetOffset = currentOffset
 
-        switch centerMode {
+        switch effectiveCenterMode {
         case .always:
             targetOffset = computeCenteredOffset(
                 columnIndex: columnIndex,
@@ -619,7 +624,8 @@ struct ViewportState {
         columns: [NiriContainer],
         gap: CGFloat,
         viewportWidth: CGFloat,
-        centerMode: CenterFocusedColumn = .never
+        centerMode: CenterFocusedColumn = .never,
+        alwaysCenterSingleColumn: Bool = false
     ) {
         guard case let .gesture(gesture) = viewOffsetPixels else {
             return
@@ -644,7 +650,8 @@ struct ViewportState {
             columns: columns,
             gap: gap,
             viewportWidth: viewportWidth,
-            centerMode: centerMode
+            centerMode: centerMode,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         let newColX = columnX(at: result.columnIndex, columns: columns, gap: gap)
@@ -691,15 +698,18 @@ struct ViewportState {
         columns: [NiriContainer],
         gap: CGFloat,
         viewportWidth: CGFloat,
-        centerMode: CenterFocusedColumn
+        centerMode: CenterFocusedColumn,
+        alwaysCenterSingleColumn: Bool = false
     ) -> SnapResult {
         guard !columns.isEmpty else { return SnapResult(viewPos: 0, columnIndex: 0) }
+
+        let effectiveCenterMode = (columns.count == 1 && alwaysCenterSingleColumn) ? .always : centerMode
 
         let vw = Double(viewportWidth)
         let gaps = Double(gap)
         var snapPoints: [(viewPos: Double, columnIndex: Int)] = []
 
-        if centerMode == .always {
+        if effectiveCenterMode == .always {
             for (idx, _) in columns.enumerated() {
                 let colX = Double(columnX(at: idx, columns: columns, gap: gap))
                 let offset = Double(computeCenteredOffset(
@@ -743,7 +753,7 @@ struct ViewportState {
 
         var newColIdx = closest.columnIndex
 
-        if centerMode != .always {
+        if effectiveCenterMode != .always {
             let scrollingRight = projectedViewPos >= currentViewPos
             if scrollingRight {
                 for idx in (newColIdx + 1) ..< columns.count {
@@ -823,10 +833,13 @@ struct ViewportState {
         preferredEdge: NiriRevealEdge? = nil,
         animate: Bool = true,
         centerMode: CenterFocusedColumn = .never,
+        alwaysCenterSingleColumn: Bool = false,
         animationConfig: SpringConfig? = nil,
         fromColumnIndex: Int? = nil
     ) {
         guard !columns.isEmpty, columnIndex >= 0, columnIndex < columns.count else { return }
+
+        let effectiveCenterMode = (columns.count == 1 && alwaysCenterSingleColumn) ? .always : centerMode
 
         let colX = columnX(at: columnIndex, columns: columns, gap: gap)
         let colWidth = columns[columnIndex].cachedWidth
@@ -836,7 +849,7 @@ struct ViewportState {
 
         var targetOffset = checkOffset
 
-        switch centerMode {
+        switch effectiveCenterMode {
         case .always:
             targetOffset = computeCenteredOffset(
                 columnIndex: columnIndex,
@@ -1060,10 +1073,13 @@ extension ViewportState {
         viewportHeight: CGFloat,
         animate: Bool = true,
         centerMode: CenterFocusedColumn = .never,
+        alwaysCenterSingleColumn: Bool = false,
         animationConfig: SpringConfig? = nil,
         fromRowIndex: Int? = nil
     ) {
         guard !rows.isEmpty, rowIndex >= 0, rowIndex < rows.count else { return }
+
+        let effectiveCenterMode = (rows.count == 1 && alwaysCenterSingleColumn) ? .always : centerMode
 
         let rowYPos = rowY(at: rowIndex, rows: rows, gap: gap)
         let rowHeight = rows[rowIndex].cachedHeight
@@ -1072,7 +1088,7 @@ extension ViewportState {
 
         var targetOffset = currentOffset
 
-        switch centerMode {
+        switch effectiveCenterMode {
         case .always:
             targetOffset = computeCenteredOffsetVertical(
                 rowIndex: rowIndex,

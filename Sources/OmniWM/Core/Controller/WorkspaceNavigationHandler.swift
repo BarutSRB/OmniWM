@@ -443,7 +443,8 @@ final class WorkspaceNavigationHandler {
                     state: &targetState,
                     edge: .left,
                     workingFrame: monitor.visibleFrame,
-                    gaps: gap
+                    gaps: gap,
+                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
                 )
                 controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: target.id)
             }

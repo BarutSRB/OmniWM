@@ -1034,7 +1034,8 @@ final class NiriLayoutEngine {
             state: &state,
             edge: direction == .right ? .right : .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return true
@@ -1176,7 +1177,8 @@ final class NiriLayoutEngine {
             state: &state,
             edge: edge,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return true
@@ -1548,7 +1550,8 @@ final class NiriLayoutEngine {
             state: &state,
             edge: direction == .right ? .right : .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return true
@@ -1653,7 +1656,8 @@ final class NiriLayoutEngine {
             state: &state,
             edge: direction == .right ? .right : .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return true
@@ -1677,6 +1681,7 @@ final class NiriLayoutEngine {
                 edge: edge,
                 workingFrame: workingFrame,
                 gaps: gaps,
+                alwaysCenterSingleColumn: alwaysCenterSingleColumn,
                 animationConfig: animationConfig,
                 fromColumnIndex: fromColumnIndex
             )
@@ -2193,7 +2198,8 @@ final class NiriLayoutEngine {
             state: &state,
             edge: .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return true

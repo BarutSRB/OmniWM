@@ -737,6 +737,7 @@ final class LayoutRefreshController {
                         edge: .left,
                         workingFrame: insetFrame,
                         gaps: gap,
+                        alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
                         fromColumnIndex: originalColumnIndex
                     )
                 }
@@ -807,6 +808,7 @@ final class LayoutRefreshController {
                         edge: .right,
                         workingFrame: insetFrame,
                         gaps: gap,
+                        alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
                         fromColumnIndex: state.activeColumnIndex
                     )
 
@@ -1116,7 +1118,8 @@ final class LayoutRefreshController {
                 state: &state,
                 edge: .left,
                 workingFrame: monitor.visibleFrame,
-                gaps: gap
+                gaps: gap,
+                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
             )
         }
         controller.internalWorkspaceManager.updateNiriViewportState(state, for: workspaceId)

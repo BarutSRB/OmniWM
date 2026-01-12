@@ -71,7 +71,8 @@ extension NiriLayoutEngine {
             state: &state,
             edge: edge,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return newSelection
@@ -146,6 +147,7 @@ extension NiriLayoutEngine {
         edge: NiriRevealEdge = .left,
         workingFrame: CGRect,
         gaps: CGFloat,
+        alwaysCenterSingleColumn: Bool,
         animationConfig: SpringConfig? = nil,
         fromColumnIndex: Int? = nil
     ) {
@@ -167,6 +169,7 @@ extension NiriLayoutEngine {
             viewportWidth: workingFrame.width,
             animate: true,
             centerMode: centerFocusedColumn,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             fromColumnIndex: prevIdx
         )
 
@@ -235,7 +238,8 @@ extension NiriLayoutEngine {
                     state: &state,
                     edge: .left,
                     workingFrame: workingFrame,
-                    gaps: gaps
+                    gaps: gaps,
+                    alwaysCenterSingleColumn: alwaysCenterSingleColumn
                 )
             }
             return target
@@ -273,7 +277,8 @@ extension NiriLayoutEngine {
                     in: workspaceId,
                     state: &state,
                     workingFrame: workingFrame,
-                    gaps: gaps
+                    gaps: gaps,
+                    alwaysCenterSingleColumn: alwaysCenterSingleColumn
                 )
             }
             return target
@@ -306,7 +311,8 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return newSelection
@@ -377,6 +383,7 @@ extension NiriLayoutEngine {
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
+        alwaysCenterSingleColumn: Bool,
         animationConfig: SpringConfig? = nil,
         fromRowIndex: Int? = nil
     ) {
@@ -400,6 +407,7 @@ extension NiriLayoutEngine {
             viewportHeight: workingFrame.height,
             animate: true,
             centerMode: centerFocusedColumn,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             animationConfig: animationConfig,
             fromRowIndex: fromRowIndex ?? prevIdx
         )
@@ -421,7 +429,8 @@ extension NiriLayoutEngine {
                 state: &state,
                 edge: .left,
                 workingFrame: workingFrame,
-                gaps: gaps
+                gaps: gaps,
+                alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
             return target
         }
@@ -451,7 +460,8 @@ extension NiriLayoutEngine {
                 state: &state,
                 edge: .left,
                 workingFrame: workingFrame,
-                gaps: gaps
+                gaps: gaps,
+                alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
             return target
         }
@@ -495,7 +505,8 @@ extension NiriLayoutEngine {
             state: &state,
             edge: .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
         return target
     }
@@ -529,7 +540,8 @@ extension NiriLayoutEngine {
             state: &state,
             edge: .right,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
         return target
     }
@@ -564,7 +576,8 @@ extension NiriLayoutEngine {
             state: &state,
             edge: .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
         return target
     }
@@ -594,7 +607,8 @@ extension NiriLayoutEngine {
             state: &state,
             edge: .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
         return target
     }
@@ -660,7 +674,8 @@ extension NiriLayoutEngine {
             state: &state,
             edge: .left,
             workingFrame: workingFrame,
-            gaps: gaps
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
         return previousWindow

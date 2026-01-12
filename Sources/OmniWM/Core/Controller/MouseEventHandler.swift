@@ -449,7 +449,9 @@ final class MouseEventHandler {
                 endState.endGesture(
                     columns: columns,
                     gap: gap,
-                    viewportWidth: insetFrame.width
+                    viewportWidth: insetFrame.width,
+                    centerMode: engine.centerFocusedColumn,
+                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
                 )
                 controller.internalWorkspaceManager.updateNiriViewportState(endState, for: wsId)
                 controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
