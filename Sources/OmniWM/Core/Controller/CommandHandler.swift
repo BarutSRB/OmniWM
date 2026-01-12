@@ -26,7 +26,12 @@ final class CommandHandler {
         case .focusPrevious:
             focusPreviousInNiri()
         case let .move(direction):
-            moveWindowInNiri(direction: direction)
+            switch layoutType {
+            case .dwindle:
+                moveWindowInDwindle(direction: direction)
+            case .niri, .defaultLayout:
+                moveWindowInNiri(direction: direction)
+            }
         case let .swap(direction):
             switch layoutType {
             case .dwindle:
@@ -122,11 +127,17 @@ final class CommandHandler {
                 focusWindowBottomInNiri()
             }
         case .cycleColumnWidthForward:
-            if layoutType != .dwindle {
+            switch layoutType {
+            case .dwindle:
+                cycleSplitRatioInDwindle(forward: true)
+            case .niri, .defaultLayout:
                 cycleColumnWidthInNiri(forwards: true)
             }
         case .cycleColumnWidthBackward:
-            if layoutType != .dwindle {
+            switch layoutType {
+            case .dwindle:
+                cycleSplitRatioInDwindle(forward: false)
+            case .niri, .defaultLayout:
                 cycleColumnWidthInNiri(forwards: false)
             }
         case .toggleColumnFullWidth:
@@ -145,6 +156,14 @@ final class CommandHandler {
         case .moveToRoot:
             if layoutType == .dwindle {
                 moveToRootInDwindle()
+            }
+        case .toggleSplit:
+            if layoutType == .dwindle {
+                toggleSplitInDwindle()
+            }
+        case .swapSplit:
+            if layoutType == .dwindle {
+                swapSplitInDwindle()
             }
         case let .summonWorkspace(index):
             controller.internalWorkspaceNavigationHandler?.summonWorkspace(index: index)
@@ -828,6 +847,43 @@ final class CommandHandler {
 
         let stable = controller.internalSettings.dwindleMoveToRootStable
         engine.moveSelectionToRoot(stable: stable, in: wsId)
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+    }
+
+    private func toggleSplitInDwindle() {
+        guard let controller else { return }
+        guard let engine = controller.internalDwindleEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
+        engine.toggleOrientation(in: wsId)
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+    }
+
+    private func swapSplitInDwindle() {
+        guard let controller else { return }
+        guard let engine = controller.internalDwindleEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
+        engine.swapSplit(in: wsId)
+        controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+    }
+
+    private func moveWindowInDwindle(direction: Direction) {
+        guard let controller else { return }
+        guard let engine = controller.internalDwindleEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
+        if engine.moveWindow(direction: direction, in: wsId) {
+            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+        }
+    }
+
+    private func cycleSplitRatioInDwindle(forward: Bool) {
+        guard let controller else { return }
+        guard let engine = controller.internalDwindleEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
+        engine.cycleSplitRatio(forward: forward, in: wsId)
         controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
     }
 }

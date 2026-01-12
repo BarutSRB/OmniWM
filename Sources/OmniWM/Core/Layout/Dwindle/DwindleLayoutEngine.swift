@@ -782,6 +782,106 @@ final class DwindleLayoutEngine {
         }
     }
 
+    func swapSplit(in workspaceId: WorkspaceDescriptor.ID) {
+        guard let selected = selectedNode(in: workspaceId),
+              let parent = selected.parent,
+              parent.children.count == 2 else { return }
+
+        let first = parent.children[0]
+        let second = parent.children[1]
+        parent.children = [second, first]
+    }
+
+    func moveWindow(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let selected = selectedNode(in: workspaceId),
+              case let .leaf(handle, fullscreen) = selected.kind,
+              let windowHandle = handle else { return false }
+
+        guard let neighbor = findGeometricNeighbor(
+            from: windowHandle,
+            direction: direction,
+            in: workspaceId
+        ) else { return false }
+
+        guard let neighborNode = findNode(for: neighbor) else { return false }
+
+        let targetNode: DwindleNode
+        if neighborNode.isLeaf {
+            targetNode = neighborNode
+        } else {
+            targetNode = neighborNode.descendToFirstLeaf()
+        }
+
+        removeWindow(handle: windowHandle, from: workspaceId)
+
+        guard case let .leaf(targetHandle, targetFullscreen) = targetNode.kind else {
+            addWindow(handle: windowHandle, to: workspaceId, activeWindowFrame: nil)
+            return true
+        }
+
+        let targetRect = targetNode.cachedFrame
+        let (orientation, newFirst) = determineSplitOrientation(
+            for: direction,
+            targetRect: targetRect
+        )
+
+        let existingLeaf = DwindleNode(kind: .leaf(handle: targetHandle, fullscreen: targetFullscreen))
+        let newLeaf = DwindleNode(kind: .leaf(handle: windowHandle, fullscreen: fullscreen))
+
+        targetNode.kind = .split(orientation: orientation, ratio: settings.defaultSplitRatio)
+
+        if newFirst {
+            targetNode.replaceChildren(first: newLeaf, second: existingLeaf)
+        } else {
+            targetNode.replaceChildren(first: existingLeaf, second: newLeaf)
+        }
+
+        if let targetHandle {
+            windowToNode[targetHandle] = existingLeaf
+        }
+        windowToNode[windowHandle] = newLeaf
+        selectedNodeId[workspaceId] = newLeaf.id
+
+        return true
+    }
+
+    private func determineSplitOrientation(
+        for direction: Direction,
+        targetRect: CGRect?
+    ) -> (orientation: DwindleOrientation, newFirst: Bool) {
+        switch direction {
+        case .left:
+            return (.horizontal, true)
+        case .right:
+            return (.horizontal, false)
+        case .up:
+            return (.vertical, true)
+        case .down:
+            return (.vertical, false)
+        }
+    }
+
+    func cycleSplitRatio(forward: Bool, in workspaceId: WorkspaceDescriptor.ID) {
+        guard let selected = selectedNode(in: workspaceId),
+              let parent = selected.parent,
+              case let .split(orientation, currentRatio) = parent.kind else { return }
+
+        let presets: [CGFloat] = [0.3, 0.5, 0.7]
+
+        let currentIndex = presets.enumerated().min(by: {
+            abs($0.element - currentRatio) < abs($1.element - currentRatio)
+        })?.offset ?? 1
+
+        let newIndex: Int
+        if forward {
+            newIndex = (currentIndex + 1) % presets.count
+        } else {
+            newIndex = (currentIndex - 1 + presets.count) % presets.count
+        }
+
+        parent.kind = .split(orientation: orientation, ratio: presets[newIndex])
+    }
+
     func tickAnimations(at time: TimeInterval, in workspaceId: WorkspaceDescriptor.ID) {
         guard let root = roots[workspaceId] else { return }
         tickAnimationsRecursive(root, at: time)

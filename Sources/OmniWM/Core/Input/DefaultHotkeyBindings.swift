@@ -363,6 +363,18 @@ enum DefaultHotkeyBindings {
             binding: .unassigned
         ))
 
+        bindings.append(HotkeyBinding(
+            id: "toggleSplit",
+            command: .toggleSplit,
+            binding: .unassigned
+        ))
+
+        bindings.append(HotkeyBinding(
+            id: "swapSplit",
+            command: .swapSplit,
+            binding: .unassigned
+        ))
+
         for (idx, code) in digitCodes.enumerated() {
             bindings.append(HotkeyBinding(
                 id: "summonWorkspace.\(idx)",
