@@ -74,7 +74,9 @@ struct HotkeySettingsView: View {
     private func bindingsForCategory(_ category: HotkeyCategory) -> [HotkeyBinding] {
         settings.hotkeyBindings.filter { binding in
             binding.category == category &&
-                (searchText.isEmpty || binding.command.displayName.localizedCaseInsensitiveContains(searchText))
+                (searchText.isEmpty ||
+                 binding.command.displayName.localizedCaseInsensitiveContains(searchText) ||
+                 binding.command.layoutCompatibility.rawValue.localizedCaseInsensitiveContains(searchText))
         }
     }
 
@@ -168,8 +170,20 @@ struct HotkeyBindingRow: View {
 
     var body: some View {
         HStack {
-            Text(binding.command.displayName)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                Text(binding.command.displayName)
+                if binding.command.layoutCompatibility != .shared {
+                    Text(binding.command.layoutCompatibility.rawValue)
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(binding.command.layoutCompatibility == .niri ? Color.blue.opacity(0.2) : Color.purple.opacity(0.2))
+                        .foregroundColor(binding.command.layoutCompatibility == .niri ? .blue : .purple)
+                        .cornerRadius(4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if hasFailed {
                 Image(systemName: "exclamationmark.triangle.fill")

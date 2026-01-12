@@ -1,5 +1,11 @@
 import Foundation
 
+enum LayoutCompatibility: String {
+    case shared = "Shared"
+    case niri = "Niri"
+    case dwindle = "Dwindle"
+}
+
 enum HotkeyCommand: Codable, Equatable, Hashable {
     case focus(Direction)
     case focusPrevious
@@ -150,6 +156,24 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .openMenuAnywhere: "Open Menu Anywhere"
         case .openMenuPalette: "Open Menu Palette"
         case .toggleHiddenBar: "Toggle Hidden Bar"
+        }
+    }
+
+    var layoutCompatibility: LayoutCompatibility {
+        switch self {
+        case .moveToRoot, .toggleSplit, .swapSplit:
+            .dwindle
+
+        case .moveColumn, .moveColumnToWorkspace, .moveColumnToWorkspaceUp, .moveColumnToWorkspaceDown,
+             .moveColumnToMonitor, .toggleColumnFullWidth, .toggleColumnTabbed,
+             .consumeWindow, .expelWindow,
+             .focusPrevious, .focusDownOrLeft, .focusUpOrRight,
+             .focusColumnFirst, .focusColumnLast, .focusColumn,
+             .focusWindowTop, .focusWindowBottom:
+            .niri
+
+        default:
+            .shared
         }
     }
 }
