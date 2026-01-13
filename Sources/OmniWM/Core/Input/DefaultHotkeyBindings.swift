@@ -442,6 +442,12 @@ enum DefaultHotkeyBindings {
             binding: .unassigned
         ))
 
+        bindings.append(HotkeyBinding(
+            id: "toggleQuakeTerminal",
+            command: .toggleQuakeTerminal,
+            binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(optionKey))
+        ))
+
         return bindings
     }
 }

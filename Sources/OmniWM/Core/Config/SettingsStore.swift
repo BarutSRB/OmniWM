@@ -244,6 +244,30 @@ final class SettingsStore {
         didSet { defaults.set(hiddenBarIsCollapsed, forKey: Keys.hiddenBarIsCollapsed) }
     }
 
+    var quakeTerminalEnabled: Bool {
+        didSet { defaults.set(quakeTerminalEnabled, forKey: Keys.quakeTerminalEnabled) }
+    }
+
+    var quakeTerminalPosition: QuakeTerminalPosition {
+        didSet { defaults.set(quakeTerminalPosition.rawValue, forKey: Keys.quakeTerminalPosition) }
+    }
+
+    var quakeTerminalWidthPercent: Double {
+        didSet { defaults.set(quakeTerminalWidthPercent, forKey: Keys.quakeTerminalWidthPercent) }
+    }
+
+    var quakeTerminalHeightPercent: Double {
+        didSet { defaults.set(quakeTerminalHeightPercent, forKey: Keys.quakeTerminalHeightPercent) }
+    }
+
+    var quakeTerminalAnimationDuration: Double {
+        didSet { defaults.set(quakeTerminalAnimationDuration, forKey: Keys.quakeTerminalAnimationDuration) }
+    }
+
+    var quakeTerminalAutoHide: Bool {
+        didSet { defaults.set(quakeTerminalAutoHide, forKey: Keys.quakeTerminalAutoHide) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -328,6 +352,15 @@ final class SettingsStore {
 
         hiddenBarEnabled = defaults.object(forKey: Keys.hiddenBarEnabled) as? Bool ?? false
         hiddenBarIsCollapsed = defaults.object(forKey: Keys.hiddenBarIsCollapsed) as? Bool ?? false
+
+        quakeTerminalEnabled = defaults.object(forKey: Keys.quakeTerminalEnabled) as? Bool ?? false
+        quakeTerminalPosition = QuakeTerminalPosition(
+            rawValue: defaults.string(forKey: Keys.quakeTerminalPosition) ?? ""
+        ) ?? .top
+        quakeTerminalWidthPercent = defaults.object(forKey: Keys.quakeTerminalWidthPercent) as? Double ?? 100.0
+        quakeTerminalHeightPercent = defaults.object(forKey: Keys.quakeTerminalHeightPercent) as? Double ?? 40.0
+        quakeTerminalAnimationDuration = defaults.object(forKey: Keys.quakeTerminalAnimationDuration) as? Double ?? 0.2
+        quakeTerminalAutoHide = defaults.object(forKey: Keys.quakeTerminalAutoHide) as? Bool ?? true
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -821,6 +854,13 @@ private enum Keys {
 
     static let hiddenBarEnabled = "settings.hiddenBar.enabled"
     static let hiddenBarIsCollapsed = "settings.hiddenBar.isCollapsed"
+
+    static let quakeTerminalEnabled = "settings.quakeTerminal.enabled"
+    static let quakeTerminalPosition = "settings.quakeTerminal.position"
+    static let quakeTerminalWidthPercent = "settings.quakeTerminal.widthPercent"
+    static let quakeTerminalHeightPercent = "settings.quakeTerminal.heightPercent"
+    static let quakeTerminalAnimationDuration = "settings.quakeTerminal.animationDuration"
+    static let quakeTerminalAutoHide = "settings.quakeTerminal.autoHide"
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {

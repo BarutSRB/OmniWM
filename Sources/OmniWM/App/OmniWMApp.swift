@@ -52,6 +52,7 @@ struct OmniWMApp: App {
         controller.setWorkspaceBarEnabled(settings.workspaceBarEnabled)
         controller.setPreventSleepEnabled(settings.preventSleepEnabled)
         controller.setHiddenBarEnabled(settings.hiddenBarEnabled)
+        controller.setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
 
         AppDelegate.sharedSettings = settings
         AppDelegate.sharedController = controller

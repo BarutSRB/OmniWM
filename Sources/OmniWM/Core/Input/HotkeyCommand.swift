@@ -63,6 +63,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case openMenuPalette
 
     case toggleHiddenBar
+    case toggleQuakeTerminal
 
     var id: String {
         switch self {
@@ -113,6 +114,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .openMenuAnywhere: "openMenuAnywhere"
         case .openMenuPalette: "openMenuPalette"
         case .toggleHiddenBar: "toggleHiddenBar"
+        case .toggleQuakeTerminal: "toggleQuakeTerminal"
         }
     }
 
@@ -165,6 +167,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .openMenuAnywhere: "Open Menu Anywhere"
         case .openMenuPalette: "Open Menu Palette"
         case .toggleHiddenBar: "Toggle Hidden Bar"
+        case .toggleQuakeTerminal: "Toggle Quake Terminal"
         }
     }
 

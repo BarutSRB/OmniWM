@@ -186,6 +186,8 @@ final class CommandHandler {
             controller.openMenuPalette()
         case .toggleHiddenBar:
             controller.toggleHiddenBar()
+        case .toggleQuakeTerminal:
+            controller.toggleQuakeTerminal()
         }
     }
 

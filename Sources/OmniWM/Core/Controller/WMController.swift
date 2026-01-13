@@ -38,6 +38,8 @@ final class WMController {
     private lazy var workspaceBarManager: WorkspaceBarManager = .init()
     @ObservationIgnored
     private lazy var hiddenBarController: HiddenBarController = .init(settings: settings)
+    @ObservationIgnored
+    private lazy var quakeTerminalController: QuakeTerminalController = .init(settings: settings)
 
     private var appActivationObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
@@ -126,6 +128,19 @@ final class WMController {
     func toggleHiddenBar() {
         guard settings.hiddenBarEnabled else { return }
         hiddenBarController.toggle()
+    }
+
+    func setQuakeTerminalEnabled(_ enabled: Bool) {
+        if enabled {
+            quakeTerminalController.setup()
+        } else {
+            quakeTerminalController.cleanup()
+        }
+    }
+
+    func toggleQuakeTerminal() {
+        guard settings.quakeTerminalEnabled else { return }
+        quakeTerminalController.toggle()
     }
 
     func updateWorkspaceBar() {

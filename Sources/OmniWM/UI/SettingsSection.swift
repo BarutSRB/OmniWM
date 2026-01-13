@@ -11,6 +11,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case hiddenBar
     case menu
     case hotkeys
+    case quakeTerminal
 
     var id: String { rawValue }
 
@@ -26,6 +27,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .hiddenBar: "Hidden Bar"
         case .menu: "Menu"
         case .hotkeys: "Hotkeys"
+        case .quakeTerminal: "Quake Terminal"
         }
     }
 
@@ -41,6 +43,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .hiddenBar: "menubar.arrow.up.rectangle"
         case .menu: "filemenu.and.selection"
         case .hotkeys: "keyboard"
+        case .quakeTerminal: "terminal"
         }
     }
 }

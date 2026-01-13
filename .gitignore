@@ -23,3 +23,6 @@ DerivedData/
 
 # Build output
 dist/
+
+# External frameworks (downloaded/built separately)
+Frameworks/

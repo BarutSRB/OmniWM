@@ -38,6 +38,8 @@ struct SettingsDetailView: View {
             MenuAnywhereSettingsTab(settings: settings)
         case .hotkeys:
             HotkeySettingsView(settings: settings, controller: controller)
+        case .quakeTerminal:
+            QuakeTerminalSettingsTab(settings: settings, controller: controller)
         }
     }
 }

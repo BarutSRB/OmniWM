@@ -13,19 +13,30 @@ let package = Package(
         )
     ],
     targets: [
+        .binaryTarget(
+            name: "GhosttyKit",
+            path: "Frameworks/GhosttyKit.xcframework"
+        ),
         .executableTarget(
             name: "OmniWM",
+            dependencies: ["GhosttyKit"],
             path: "Sources/OmniWM",
             resources: [
                 .process("Resources")
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.C)
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("QuartzCore"),
+                .linkedLibrary("z"),
+                .linkedLibrary("c++"),
                 .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
             ]
         )
