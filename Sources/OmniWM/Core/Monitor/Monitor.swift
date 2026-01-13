@@ -71,26 +71,8 @@ extension NSScreen {
 }
 
 extension CGRect {
-    var bottomLeftCorner: CGPoint {
-        CGPoint(x: minX, y: minY)
-    }
-
-    var bottomRightCorner: CGPoint {
-        CGPoint(x: maxX, y: minY)
-    }
-
     var topLeftCorner: CGPoint {
         CGPoint(x: minX, y: maxY)
-    }
-}
-
-extension CGPoint {
-    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
-    }
-
-    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
     }
 }
 

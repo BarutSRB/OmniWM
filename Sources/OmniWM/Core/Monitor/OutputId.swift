@@ -15,6 +15,4 @@ struct OutputId: Hashable, Codable {
         displayId = monitor.id.displayId
         name = monitor.name
     }
-
-    static let none = OutputId(displayId: 0, name: "")
 }

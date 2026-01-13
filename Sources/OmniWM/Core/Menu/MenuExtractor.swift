@@ -112,9 +112,7 @@ final class MenuExtractor: @unchecked Sendable {
                         title: title,
                         fullPath: fullPath,
                         keyboardShortcut: shortcut,
-                        isEnabled: isEnabled,
                         axElement: child,
-                        depth: depth,
                         parentTitles: parentPath
                     )
                     items.append(item)

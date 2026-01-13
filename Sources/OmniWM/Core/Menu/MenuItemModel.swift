@@ -6,27 +6,21 @@ struct MenuItemModel: Identifiable {
     let title: String
     let fullPath: String
     let keyboardShortcut: String?
-    let isEnabled: Bool
     let axElement: AXUIElement
-    let depth: Int
     let parentTitles: [String]
 
     init(
         title: String,
         fullPath: String,
         keyboardShortcut: String?,
-        isEnabled: Bool,
         axElement: AXUIElement,
-        depth: Int,
         parentTitles: [String]
     ) {
         id = UUID()
         self.title = title
         self.fullPath = fullPath
         self.keyboardShortcut = keyboardShortcut
-        self.isEnabled = isEnabled
         self.axElement = axElement
-        self.depth = depth
         self.parentTitles = parentTitles
     }
 }

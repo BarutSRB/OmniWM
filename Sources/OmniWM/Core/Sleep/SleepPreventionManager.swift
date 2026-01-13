@@ -32,11 +32,6 @@ final class SleepPreventionManager {
         releaseSleepAssertion()
     }
 
-    func cleanup() {
-        allowSleep()
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
-    }
-
     private func refreshSleepAssertion() {
         guard isUserSessionActive else { return }
 
