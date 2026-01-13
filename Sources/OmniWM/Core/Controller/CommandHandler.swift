@@ -26,10 +26,7 @@ final class CommandHandler {
         case .focusPrevious:
             focusPreviousInNiri()
         case let .move(direction):
-            switch layoutType {
-            case .dwindle:
-                moveWindowInDwindle(direction: direction)
-            case .niri, .defaultLayout:
+            if layoutType != .dwindle {
                 moveWindowInNiri(direction: direction)
             }
         case let .swap(direction):
@@ -878,16 +875,6 @@ final class CommandHandler {
 
         engine.swapSplit(in: wsId)
         controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-    }
-
-    private func moveWindowInDwindle(direction: Direction) {
-        guard let controller else { return }
-        guard let engine = controller.internalDwindleEngine else { return }
-        guard let wsId = controller.activeWorkspace()?.id else { return }
-
-        if engine.moveWindow(direction: direction, in: wsId) {
-            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
-        }
     }
 
     private func cycleSplitRatioInDwindle(forward: Bool) {

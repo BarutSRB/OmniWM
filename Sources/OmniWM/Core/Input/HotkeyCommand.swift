@@ -178,7 +178,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
              .consumeWindow, .expelWindow,
              .focusPrevious, .focusDownOrLeft, .focusUpOrRight,
              .focusColumnFirst, .focusColumnLast, .focusColumn,
-             .focusWindowTop, .focusWindowBottom:
+             .focusWindowTop, .focusWindowBottom,
+             .move:
             .niri
 
         default:
