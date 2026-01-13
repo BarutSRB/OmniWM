@@ -11,6 +11,7 @@ A powerful tiling window manager for macOS.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/BarutSRB/OmniWM/main/assets/semidemo.gif" alt="OmniWM demo">
+  <img src="https://raw.githubusercontent.com/BarutSRB/OmniWM/main/assets/semidemo1.gif" alt="OmniWM demo">
 </p>
 
 Small demo, not fully showing everything, gif recorded at 30fps due to size, features shown:
@@ -20,6 +21,8 @@ Small demo, not fully showing everything, gif recorded at 30fps due to size, fea
 - App menu anywhere
 - Niri tabs
 - Niri and Dwindle layout (some animations shown)
+- Hide/unhide status bar icons
+- Interactive workspace bar
 A lot more features not show in the gif.
 
 ## Known Limitations
