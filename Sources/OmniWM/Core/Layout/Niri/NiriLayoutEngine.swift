@@ -1347,16 +1347,12 @@ final class NiriLayoutEngine {
             column.isFullWidth = false
             column.presetWidthIdx = nil
 
-            if column.cachedWidth > 0 {
-                column.animateWidthTo(
-                    newWidth: targetPixels,
-                    clock: animationClock,
-                    config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate
-                )
-            } else {
-                column.cachedWidth = targetPixels
-            }
+            column.animateWidthTo(
+                newWidth: targetPixels,
+                clock: animationClock,
+                config: windowMovementAnimationConfig,
+                displayRefreshRate: displayRefreshRate
+            )
 
             for window in column.windowNodes {
                 window.size = 1.0
@@ -2359,16 +2355,12 @@ final class NiriLayoutEngine {
             targetPixels = f
         }
 
-        if column.cachedWidth > 0 {
-            column.animateWidthTo(
-                newWidth: targetPixels,
-                clock: animationClock,
-                config: windowMovementAnimationConfig,
-                displayRefreshRate: displayRefreshRate
-            )
-        } else {
-            column.cachedWidth = targetPixels
-        }
+        column.animateWidthTo(
+            newWidth: targetPixels,
+            clock: animationClock,
+            config: windowMovementAnimationConfig,
+            displayRefreshRate: displayRefreshRate
+        )
 
         if let window = column.windowNodes.first {
             ensureSelectionVisible(
@@ -2411,16 +2403,12 @@ final class NiriLayoutEngine {
             targetPixels = workingAreaWidth
         }
 
-        if column.cachedWidth > 0 {
-            column.animateWidthTo(
-                newWidth: targetPixels,
-                clock: animationClock,
-                config: windowMovementAnimationConfig,
-                displayRefreshRate: displayRefreshRate
-            )
-        } else {
-            column.cachedWidth = targetPixels
-        }
+        column.animateWidthTo(
+            newWidth: targetPixels,
+            clock: animationClock,
+            config: windowMovementAnimationConfig,
+            displayRefreshRate: displayRefreshRate
+        )
 
         if let window = column.windowNodes.first {
             ensureSelectionVisible(

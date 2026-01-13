@@ -170,7 +170,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
 
     var layoutCompatibility: LayoutCompatibility {
         switch self {
-        case .moveToRoot, .toggleSplit, .swapSplit, .preselect, .preselectClear:
+        case .moveToRoot, .toggleSplit, .swapSplit, .preselect, .preselectClear, .resizeInDirection:
             .dwindle
 
         case .moveColumn, .moveColumnToWorkspace, .moveColumnToWorkspaceUp, .moveColumnToWorkspaceDown,

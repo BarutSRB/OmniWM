@@ -682,6 +682,16 @@ final class DwindleLayoutEngine {
         current.cachedFrame = neighbor.cachedFrame
         neighbor.cachedFrame = currentCachedFrame
 
+        current.moveXAnimation = nil
+        current.moveYAnimation = nil
+        current.sizeWAnimation = nil
+        current.sizeHAnimation = nil
+
+        neighbor.moveXAnimation = nil
+        neighbor.moveYAnimation = nil
+        neighbor.sizeWAnimation = nil
+        neighbor.sizeHAnimation = nil
+
         windowToNode[ch] = neighbor
         if let nh {
             windowToNode[nh] = current
