@@ -27,6 +27,21 @@ struct GeneralSettingsTab: View {
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Picker("Theme", selection: $settings.appearanceMode) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .onChange(of: settings.appearanceMode) { _, newValue in
+                    newValue.apply()
+                }
+
+                Text("Controls the appearance of menus and workspace bar")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             Section("Layout") {
                 HStack {
                     Text("Inner Gaps")

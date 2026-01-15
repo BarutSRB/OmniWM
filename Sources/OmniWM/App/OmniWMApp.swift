@@ -55,6 +55,8 @@ struct OmniWMApp: App {
         controller.setHiddenBarEnabled(settings.hiddenBarEnabled)
         controller.setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
 
+        settings.appearanceMode.apply()
+
         AppDelegate.sharedSettings = settings
         AppDelegate.sharedController = controller
     }

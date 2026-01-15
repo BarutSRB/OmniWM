@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor @Observable
@@ -268,6 +269,10 @@ final class SettingsStore {
         didSet { defaults.set(quakeTerminalAutoHide, forKey: Keys.quakeTerminalAutoHide) }
     }
 
+    var appearanceMode: AppearanceMode {
+        didSet { defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -361,6 +366,7 @@ final class SettingsStore {
         quakeTerminalHeightPercent = defaults.object(forKey: Keys.quakeTerminalHeightPercent) as? Double ?? 40.0
         quakeTerminalAnimationDuration = defaults.object(forKey: Keys.quakeTerminalAnimationDuration) as? Double ?? 0.2
         quakeTerminalAutoHide = defaults.object(forKey: Keys.quakeTerminalAutoHide) as? Bool ?? true
+        appearanceMode = AppearanceMode(rawValue: defaults.string(forKey: Keys.appearanceMode) ?? "") ?? .automatic
     }
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
@@ -852,6 +858,8 @@ private enum Keys {
     static let quakeTerminalHeightPercent = "settings.quakeTerminal.heightPercent"
     static let quakeTerminalAnimationDuration = "settings.quakeTerminal.animationDuration"
     static let quakeTerminalAutoHide = "settings.quakeTerminal.autoHide"
+
+    static let appearanceMode = "settings.appearanceMode"
 }
 
 enum ScrollModifierKey: String, CaseIterable, Codable {
@@ -876,6 +884,32 @@ enum GestureFingerCount: Int, CaseIterable, Codable {
         case .two: "2 Fingers"
         case .three: "3 Fingers"
         case .four: "4 Fingers"
+        }
+    }
+}
+
+enum AppearanceMode: String, CaseIterable, Codable {
+    case automatic
+    case light
+    case dark
+
+    var displayName: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    @MainActor
+    func apply() {
+        switch self {
+        case .automatic:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
         }
     }
 }
@@ -959,6 +993,8 @@ struct SettingsExport: Codable {
 
     var hiddenBarEnabled: Bool
     var hiddenBarIsCollapsed: Bool
+
+    var appearanceMode: String
 }
 
 extension SettingsStore {
@@ -1032,7 +1068,8 @@ extension SettingsStore {
             menuAnywherePosition: menuAnywherePosition.rawValue,
             menuAnywhereShowShortcuts: menuAnywhereShowShortcuts,
             hiddenBarEnabled: hiddenBarEnabled,
-            hiddenBarIsCollapsed: hiddenBarIsCollapsed
+            hiddenBarIsCollapsed: hiddenBarIsCollapsed,
+            appearanceMode: appearanceMode.rawValue
         )
 
         let encoder = JSONEncoder()
@@ -1119,5 +1156,7 @@ extension SettingsStore {
 
         hiddenBarEnabled = export.hiddenBarEnabled
         hiddenBarIsCollapsed = export.hiddenBarIsCollapsed
+
+        appearanceMode = AppearanceMode(rawValue: export.appearanceMode) ?? .automatic
     }
 }
