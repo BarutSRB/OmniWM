@@ -13,7 +13,8 @@ final class MouseEventHandler {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var gestureMonitor: Any?
+    private var gestureTap: CFMachPort?
+    private var gestureRunLoopSource: CFRunLoopSource?
     private var currentHoveredEdges: ResizeEdge = []
     private var isResizing: Bool = false
     private var isMoving: Bool = false
@@ -111,10 +112,40 @@ final class MouseEventHandler {
             CGEvent.tapEnable(tap: tap, enable: true)
         }
 
-        gestureMonitor = NSEvent.addGlobalMonitorForEvents(matching: .gesture) { [weak self] event in
-            Task { @MainActor in
-                self?.handleGestureEvent(event)
+        let gestureMask: CGEventMask = UInt64(NSEvent.EventTypeMask.gesture.rawValue)
+
+        let gestureCallback: CGEventTapCallBack = { _, type, event, _ in
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let tap = MouseEventHandler.sharedHandler?.gestureTap {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
+                return Unmanaged.passUnretained(event)
             }
+
+            if type.rawValue == NSEvent.EventType.gesture.rawValue {
+                Task { @MainActor in
+                    MouseEventHandler.sharedHandler?.handleGestureEventFromTap(event)
+                }
+            }
+
+            return Unmanaged.passUnretained(event)
+        }
+
+        gestureTap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: gestureMask,
+            callback: gestureCallback,
+            userInfo: nil
+        )
+
+        if let tap = gestureTap {
+            gestureRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            if let source = gestureRunLoopSource {
+                CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+            }
+            CGEvent.tapEnable(tap: tap, enable: true)
         }
     }
 
@@ -127,9 +158,13 @@ final class MouseEventHandler {
             CGEvent.tapEnable(tap: tap, enable: false)
             eventTap = nil
         }
-        if let monitor = gestureMonitor {
-            NSEvent.removeMonitor(monitor)
-            gestureMonitor = nil
+        if let source = gestureRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            gestureRunLoopSource = nil
+        }
+        if let tap = gestureTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            gestureTap = nil
         }
         MouseEventHandler.sharedHandler = nil
         currentHoveredEdges = []
@@ -438,6 +473,11 @@ final class MouseEventHandler {
         }
     }
 
+    private func handleGestureEventFromTap(_ cgEvent: CGEvent) {
+        guard let nsEvent = NSEvent(cgEvent: cgEvent) else { return }
+        handleGestureEvent(nsEvent)
+    }
+
     private func handleGestureEvent(_ event: NSEvent) {
         guard let controller else { return }
         guard controller.isEnabled, controller.internalSettings.scrollGestureEnabled else { return }
@@ -491,7 +531,7 @@ final class MouseEventHandler {
 
         for touch in touches {
             let touchPhase = touch.phase
-            if touchPhase == .stationary {
+            if touchPhase == .ended || touchPhase == .cancelled {
                 continue
             }
 
@@ -501,13 +541,10 @@ final class MouseEventHandler {
                 break
             }
 
-            let isEnded = touchPhase == .ended || touchPhase == .cancelled
-            if !isEnded {
-                let pos = touch.normalizedPosition
-                sumX += pos.x
-                sumY += pos.y
-                activeCount += 1
-            }
+            let pos = touch.normalizedPosition
+            sumX += pos.x
+            sumY += pos.y
+            activeCount += 1
         }
 
         if tooManyTouches || touchCount != requiredFingers || activeCount == 0 {
