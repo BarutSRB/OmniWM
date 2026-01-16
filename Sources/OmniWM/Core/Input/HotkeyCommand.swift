@@ -48,6 +48,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case moveWorkspaceToMonitor(Direction)
     case moveWorkspaceToMonitorNext
     case moveWorkspaceToMonitorPrevious
+    case swapWorkspaceWithMonitor(Direction)
 
     case balanceSizes
     case moveToRoot
@@ -59,6 +60,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
 
     case summonWorkspace(Int)
     case workspaceBackAndForth
+    case focusWorkspaceAnywhere(Int)
+    case moveWindowToWorkspaceOnMonitor(workspaceIndex: Int, monitorDirection: Direction)
 
     case openWindowFinder
 
@@ -69,6 +72,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
 
     case toggleHiddenBar
     case toggleQuakeTerminal
+    case toggleWorkspaceLayout
 
     var displayName: String {
         switch self {
@@ -110,6 +114,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case let .moveWorkspaceToMonitor(dir): "Move Workspace to \(dir.displayName) Monitor"
         case .moveWorkspaceToMonitorNext: "Move Workspace to Next Monitor"
         case .moveWorkspaceToMonitorPrevious: "Move Workspace to Previous Monitor"
+        case let .swapWorkspaceWithMonitor(dir): "Swap Workspace with \(dir.displayName) Monitor"
         case .balanceSizes: "Balance Sizes"
         case .moveToRoot: "Move to Root"
         case .toggleSplit: "Toggle Split"
@@ -119,12 +124,15 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .preselectClear: "Clear Preselection"
         case let .summonWorkspace(idx): "Summon Workspace \(idx + 1)"
         case .workspaceBackAndForth: "Switch to Previous Workspace"
+        case let .focusWorkspaceAnywhere(idx): "Focus Workspace \(idx + 1) Anywhere"
+        case let .moveWindowToWorkspaceOnMonitor(wsIdx, monDir): "Move Window to Workspace \(wsIdx + 1) on \(monDir.displayName) Monitor"
         case .openWindowFinder: "Open Window Finder"
         case .raiseAllFloatingWindows: "Raise All Floating Windows"
         case .openMenuAnywhere: "Open Menu Anywhere"
         case .openMenuPalette: "Open Menu Palette"
         case .toggleHiddenBar: "Toggle Hidden Bar"
         case .toggleQuakeTerminal: "Toggle Quake Terminal"
+        case .toggleWorkspaceLayout: "Toggle Workspace Layout"
         }
     }
 

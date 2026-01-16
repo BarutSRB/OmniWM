@@ -60,6 +60,10 @@ final class WorkspaceManager {
         return createWorkspace(named: name)
     }
 
+    func workspaceId(named name: String) -> WorkspaceDescriptor.ID? {
+        workspaceIdByName[name]
+    }
+
     func workspaces(on monitorId: Monitor.ID) -> [WorkspaceDescriptor] {
         guard let monitor = monitors.first(where: { $0.id == monitorId }) else { return [] }
         let assigned = sortedWorkspaces().filter { workspace in
@@ -309,6 +313,46 @@ final class WorkspaceManager {
         let sourceScreen = sourceMonitor.workspaceAnchorPoint
         let stubId = getStubWorkspaceId(forPoint: sourceScreen)
         _ = setActiveWorkspace(stubId, onScreenPoint: sourceScreen)
+
+        return true
+    }
+
+    @discardableResult
+    func swapWorkspaces(
+        _ workspace1Id: WorkspaceDescriptor.ID,
+        on monitor1Id: Monitor.ID,
+        with workspace2Id: WorkspaceDescriptor.ID,
+        on monitor2Id: Monitor.ID
+    ) -> Bool {
+        guard let monitor1 = monitors.first(where: { $0.id == monitor1Id }),
+              let monitor2 = monitors.first(where: { $0.id == monitor2Id }),
+              monitor1Id != monitor2Id else { return false }
+
+        let point1 = monitor1.workspaceAnchorPoint
+        let point2 = monitor2.workspaceAnchorPoint
+
+        guard isValidAssignment(workspaceId: workspace1Id, screen: point2),
+              isValidAssignment(workspaceId: workspace2Id, screen: point1) else { return false }
+
+        screenPointToPrevVisibleWorkspace[point1] = screenPointToVisibleWorkspace[point1]
+        screenPointToPrevVisibleWorkspace[point2] = screenPointToVisibleWorkspace[point2]
+
+        visibleWorkspaceToScreenPoint.removeValue(forKey: workspace1Id)
+        visibleWorkspaceToScreenPoint.removeValue(forKey: workspace2Id)
+        screenPointToVisibleWorkspace.removeValue(forKey: point1)
+        screenPointToVisibleWorkspace.removeValue(forKey: point2)
+
+        visibleWorkspaceToScreenPoint[workspace2Id] = point1
+        screenPointToVisibleWorkspace[point1] = workspace2Id
+        updateWorkspace(workspace2Id) { workspace in
+            workspace.assignedMonitorPoint = point1
+        }
+
+        visibleWorkspaceToScreenPoint[workspace1Id] = point2
+        screenPointToVisibleWorkspace[point2] = workspace1Id
+        updateWorkspace(workspace1Id) { workspace in
+            workspace.assignedMonitorPoint = point2
+        }
 
         return true
     }

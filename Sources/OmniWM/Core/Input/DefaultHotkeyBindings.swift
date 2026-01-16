@@ -468,6 +468,12 @@ enum DefaultHotkeyBindings {
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(optionKey))
         ))
 
+        bindings.append(HotkeyBinding(
+            id: "toggleWorkspaceLayout",
+            command: .toggleWorkspaceLayout,
+            binding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey | shiftKey))
+        ))
+
         return bindings
     }
 }

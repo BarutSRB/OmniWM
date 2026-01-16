@@ -592,12 +592,9 @@ struct ViewportState {
         }
 
         let activeColX = Double(columnX(at: activeColumnIndex, columns: columns, gap: gap))
-        let lastColIdx = columns.count - 1
-        let lastColX = Double(columnX(at: lastColIdx, columns: columns, gap: gap))
-        let lastColW = Double(columns[lastColIdx].cachedWidth)
-
-        var leftmost = -Double(viewportWidth)
-        var rightmost = lastColX + lastColW
+        let totalW = Double(totalWidth(columns: columns, gap: gap))
+        var leftmost = 0.0
+        var rightmost = max(0, totalW - Double(viewportWidth))
         leftmost -= activeColX
         rightmost -= activeColX
 

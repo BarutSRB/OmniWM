@@ -115,6 +115,47 @@ final class WorkspaceNavigationHandler {
         controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
     }
 
+    func swapCurrentWorkspaceWithMonitor(direction: Direction) {
+        guard let controller else { return }
+        guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+        else { return }
+        guard let currentWsId = controller.activeWorkspace()?.id else { return }
+
+        guard let targetMonitor = controller.internalWorkspaceManager.adjacentMonitor(
+            from: currentMonitorId,
+            direction: direction
+        ) else { return }
+
+        guard let targetWsId = controller.internalWorkspaceManager.activeWorkspace(on: targetMonitor.id)?.id
+        else { return }
+
+        saveNiriViewportState(for: currentWsId)
+        if let engine = controller.internalNiriEngine {
+            var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWsId)
+            if let targetHandle = controller.internalLastFocusedByWorkspace[targetWsId],
+               let targetNode = engine.findNode(for: targetHandle)
+            {
+                targetState.selectedNodeId = targetNode.id
+                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWsId)
+            }
+        }
+
+        guard controller.internalWorkspaceManager.swapWorkspaces(
+            currentWsId, on: currentMonitorId,
+            with: targetWsId, on: targetMonitor.id
+        ) else { return }
+
+        controller.syncMonitorsToNiriEngine()
+
+        controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[targetWsId]
+            ?? controller.internalWorkspaceManager.entries(in: targetWsId).first?.handle
+
+        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        if let handle = controller.internalFocusedHandle {
+            controller.focusWindow(handle)
+        }
+    }
+
     func moveColumnToMonitorInDirection(_ direction: Direction) {
         guard let controller else { return }
         guard let engine = controller.internalNiriEngine else { return }
@@ -281,6 +322,45 @@ final class WorkspaceNavigationHandler {
         guard controller.internalWorkspaceManager.summonWorkspace(targetWsId, to: currentMonitorId) else { return }
 
         controller.syncMonitorsToNiriEngine()
+
+        controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[targetWsId]
+            ?? controller.internalWorkspaceManager.entries(in: targetWsId).first?.handle
+
+        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+        if let handle = controller.internalFocusedHandle {
+            controller.focusWindow(handle)
+        }
+    }
+
+    func focusWorkspaceAnywhere(index: Int) {
+        guard let controller else { return }
+        controller.internalBorderManager.hideBorder()
+
+        let targetName = String(max(0, index) + 1)
+
+        guard let targetWsId = controller.internalWorkspaceManager.workspaceId(named: targetName) else { return }
+        guard let targetMonitor = controller.internalWorkspaceManager.monitorForWorkspace(targetWsId) else { return }
+
+        if let currentWorkspace = controller.activeWorkspace() {
+            saveNiriViewportState(for: currentWorkspace.id)
+        }
+
+        let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+
+        if let currentMonitorId, currentMonitorId != targetMonitor.id {
+            if let currentTargetWs = controller.internalWorkspaceManager.activeWorkspace(on: targetMonitor.id) {
+                saveNiriViewportState(for: currentTargetWs.id)
+            }
+        }
+
+        guard controller.internalWorkspaceManager.setActiveWorkspace(targetWsId, on: targetMonitor.id) else { return }
+
+        controller.syncMonitorsToNiriEngine()
+
+        if let currentMonitorId, currentMonitorId != targetMonitor.id {
+            controller.internalPreviousMonitorId = currentMonitorId
+        }
+        controller.internalActiveMonitorId = targetMonitor.id
 
         controller.internalFocusedHandle = controller.internalLastFocusedByWorkspace[targetWsId]
             ?? controller.internalWorkspaceManager.entries(in: targetWsId).first?.handle
@@ -567,5 +647,94 @@ final class WorkspaceNavigationHandler {
         controller.internalFocusedHandle = handle
         controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
         controller.focusWindow(handle)
+    }
+
+    func moveWindowToWorkspaceOnMonitor(workspaceIndex: Int, monitorDirection: Direction) {
+        guard let controller else { return }
+        guard let handle = controller.internalFocusedHandle else { return }
+        guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+        else { return }
+        guard let currentWorkspaceId = controller.internalWorkspaceManager.workspace(for: handle) else { return }
+
+        guard let targetMonitor = controller.internalWorkspaceManager.adjacentMonitor(
+            from: currentMonitorId,
+            direction: monitorDirection
+        ) else { return }
+
+        let targetName = String(max(0, workspaceIndex) + 1)
+        guard let targetWsId = controller.internalWorkspaceManager.workspaceId(for: targetName, createIfMissing: true)
+        else { return }
+
+        if controller.internalWorkspaceManager.monitorId(for: targetWsId) != targetMonitor.id {
+            _ = controller.internalWorkspaceManager.moveWorkspaceToMonitor(targetWsId, to: targetMonitor.id)
+            controller.syncMonitorsToNiriEngine()
+        }
+
+        if let engine = controller.internalNiriEngine {
+            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: currentWorkspaceId)
+            if let currentNode = engine.findNode(for: handle), sourceState.selectedNodeId == currentNode.id {
+                sourceState.selectedNodeId = engine.fallbackSelectionOnRemoval(
+                    removing: currentNode.id,
+                    in: currentWorkspaceId
+                )
+                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: currentWorkspaceId)
+            }
+        }
+
+        controller.internalWorkspaceManager.setWorkspace(for: handle, to: targetWsId)
+
+        let shouldFollowFocus = controller.internalSettings.focusFollowsWindowToMonitor
+
+        if shouldFollowFocus {
+            controller.internalPreviousMonitorId = currentMonitorId
+            controller.internalActiveMonitorId = targetMonitor.id
+
+            if let monitor = controller.internalWorkspaceManager.monitorForWorkspace(targetWsId) {
+                _ = controller.internalWorkspaceManager.setActiveWorkspace(targetWsId, on: monitor.id)
+            }
+
+            controller.internalFocusedHandle = handle
+            controller.internalLastFocusedByWorkspace[targetWsId] = handle
+
+            controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+            controller.focusWindow(handle)
+
+            if let engine = controller.internalNiriEngine,
+               let movedNode = engine.findNode(for: handle),
+               let monitor = controller.internalWorkspaceManager.monitor(for: targetWsId)
+            {
+                var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWsId)
+                targetState.selectedNodeId = movedNode.id
+
+                let gap = CGFloat(controller.internalWorkspaceManager.gaps)
+                engine.ensureSelectionVisible(
+                    node: movedNode,
+                    in: targetWsId,
+                    state: &targetState,
+                    edge: .left,
+                    workingFrame: monitor.visibleFrame,
+                    gaps: gap,
+                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                )
+                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWsId)
+            }
+        } else {
+            if let engine = controller.internalNiriEngine {
+                let sourceState = controller.internalWorkspaceManager.niriViewportState(for: currentWorkspaceId)
+                if let newSelectedId = sourceState.selectedNodeId,
+                   let newSelectedNode = engine.findNode(by: newSelectedId) as? NiriWindow
+                {
+                    controller.internalFocusedHandle = newSelectedNode.handle
+                } else {
+                    controller.internalFocusedHandle = controller.internalWorkspaceManager
+                        .entries(in: currentWorkspaceId).first?.handle
+                }
+            }
+
+            controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+            if let newHandle = controller.internalFocusedHandle {
+                controller.focusWindow(newHandle)
+            }
+        }
     }
 }

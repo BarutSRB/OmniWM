@@ -564,9 +564,14 @@ final class LayoutRefreshController {
             unhideWorkspace(workspace.id, monitor: monitor)
         }
 
-        for monitor in workspaceManager.monitors {
-            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+        var processedWorkspaces: Set<WorkspaceDescriptor.ID> = []
+        for iterationMonitor in workspaceManager.monitors {
+            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: iterationMonitor.id) else { continue }
             let wsId = workspace.id
+            guard !processedWorkspaces.contains(wsId) else { continue }
+            processedWorkspaces.insert(wsId)
+
+            guard let monitor = workspaceManager.monitor(for: wsId) else { continue }
 
             let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
             let existingHandleIds = engine.root(for: wsId)?.windowIdSet ?? []

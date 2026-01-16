@@ -40,7 +40,8 @@ struct HotkeyBinding: Codable, Identifiable {
         switch command {
         case .moveColumnToWorkspace, .moveColumnToWorkspaceDown, .moveColumnToWorkspaceUp, .moveToWorkspace,
              .moveWindowToWorkspaceDown, .moveWindowToWorkspaceUp, .summonWorkspace,
-             .switchWorkspace, .switchWorkspaceNext, .switchWorkspacePrevious, .workspaceBackAndForth:
+             .switchWorkspace, .switchWorkspaceNext, .switchWorkspacePrevious, .workspaceBackAndForth,
+             .focusWorkspaceAnywhere:
             .workspace
         case .focus, .focusColumn, .focusColumnFirst, .focusColumnLast,
              .focusDownOrLeft, .focusPrevious, .focusUpOrRight, .focusWindowBottom, .focusWindowTop,
@@ -49,10 +50,11 @@ struct HotkeyBinding: Codable, Identifiable {
         case .move, .swap:
             .move
         case .focusMonitor, .focusMonitorLast, .focusMonitorNext, .focusMonitorPrevious, .moveColumnToMonitor,
-             .moveToMonitor, .moveWorkspaceToMonitor, .moveWorkspaceToMonitorNext, .moveWorkspaceToMonitorPrevious:
+             .moveToMonitor, .moveWorkspaceToMonitor, .moveWorkspaceToMonitorNext, .moveWorkspaceToMonitorPrevious,
+             .swapWorkspaceWithMonitor, .moveWindowToWorkspaceOnMonitor:
             .monitor
         case .balanceSizes, .moveToRoot, .raiseAllFloatingWindows, .toggleFullscreen, .toggleNativeFullscreen,
-             .toggleSplit, .swapSplit, .resizeInDirection, .preselect, .preselectClear:
+             .toggleSplit, .swapSplit, .resizeInDirection, .preselect, .preselectClear, .toggleWorkspaceLayout:
             .layout
         case .consumeWindow, .cycleColumnWidthBackward, .cycleColumnWidthForward, .expelWindow,
              .moveColumn, .toggleColumnFullWidth, .toggleColumnTabbed:

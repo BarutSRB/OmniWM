@@ -151,6 +151,8 @@ final class CommandHandler {
             controller.internalWorkspaceNavigationHandler?.moveCurrentWorkspaceToMonitorRelative(previous: false)
         case .moveWorkspaceToMonitorPrevious:
             controller.internalWorkspaceNavigationHandler?.moveCurrentWorkspaceToMonitorRelative(previous: true)
+        case let .swapWorkspaceWithMonitor(direction):
+            controller.internalWorkspaceNavigationHandler?.swapCurrentWorkspaceWithMonitor(direction: direction)
         case .balanceSizes:
             switch layoutType {
             case .dwindle:
@@ -186,6 +188,13 @@ final class CommandHandler {
             controller.internalWorkspaceNavigationHandler?.summonWorkspace(index: index)
         case .workspaceBackAndForth:
             controller.internalWorkspaceNavigationHandler?.workspaceBackAndForth()
+        case let .focusWorkspaceAnywhere(index):
+            controller.internalWorkspaceNavigationHandler?.focusWorkspaceAnywhere(index: index)
+        case let .moveWindowToWorkspaceOnMonitor(wsIdx, monDir):
+            controller.internalWorkspaceNavigationHandler?.moveWindowToWorkspaceOnMonitor(
+                workspaceIndex: wsIdx,
+                monitorDirection: monDir
+            )
         case .openWindowFinder:
             controller.openWindowFinder()
         case .raiseAllFloatingWindows:
@@ -198,6 +207,8 @@ final class CommandHandler {
             controller.toggleHiddenBar()
         case .toggleQuakeTerminal:
             controller.toggleQuakeTerminal()
+        case .toggleWorkspaceLayout:
+            toggleWorkspaceLayout()
         }
     }
 
@@ -920,5 +931,39 @@ final class CommandHandler {
         guard let engine = controller.internalDwindleEngine else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
         engine.setPreselection(nil, in: wsId)
+    }
+
+    private func toggleWorkspaceLayout() {
+        guard let controller else { return }
+        guard let workspace = controller.activeWorkspace() else { return }
+        let workspaceName = workspace.name
+
+        let settings = controller.internalSettings
+        let currentLayout = settings.layoutType(for: workspaceName)
+
+        let newLayout: LayoutType = switch currentLayout {
+        case .niri, .defaultLayout: .dwindle
+        case .dwindle: .niri
+        }
+
+        var configs = settings.workspaceConfigurations
+        if let index = configs.firstIndex(where: { $0.name == workspaceName }) {
+            configs[index] = WorkspaceConfiguration(
+                id: configs[index].id,
+                name: configs[index].name,
+                displayName: configs[index].displayName,
+                monitorAssignment: configs[index].monitorAssignment,
+                layoutType: newLayout,
+                isPersistent: configs[index].isPersistent
+            )
+        } else {
+            configs.append(WorkspaceConfiguration(
+                name: workspaceName,
+                layoutType: newLayout
+            ))
+        }
+
+        settings.workspaceConfigurations = configs
+        controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
     }
 }

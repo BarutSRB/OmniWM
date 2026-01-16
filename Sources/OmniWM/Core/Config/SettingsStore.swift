@@ -17,6 +17,10 @@ final class SettingsStore {
         didSet { defaults.set(moveMouseToFocusedWindow, forKey: Keys.moveMouseToFocusedWindow) }
     }
 
+    var focusFollowsWindowToMonitor: Bool {
+        didSet { defaults.set(focusFollowsWindowToMonitor, forKey: Keys.focusFollowsWindowToMonitor) }
+    }
+
     var mouseWarpEnabled: Bool {
         didSet { defaults.set(mouseWarpEnabled, forKey: Keys.mouseWarpEnabled) }
     }
@@ -290,6 +294,7 @@ final class SettingsStore {
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
         focusFollowsMouse = defaults.object(forKey: Keys.focusFollowsMouse) as? Bool ?? false
         moveMouseToFocusedWindow = defaults.object(forKey: Keys.moveMouseToFocusedWindow) as? Bool ?? false
+        focusFollowsWindowToMonitor = defaults.object(forKey: Keys.focusFollowsWindowToMonitor) as? Bool ?? false
         mouseWarpEnabled = defaults.object(forKey: Keys.mouseWarpEnabled) as? Bool ?? false
         mouseWarpMonitorOrder = Self.loadMouseWarpMonitorOrder(from: defaults)
         mouseWarpMargin = defaults.object(forKey: Keys.mouseWarpMargin) as? Int ?? 2
@@ -811,6 +816,7 @@ private enum Keys {
     static let hotkeysEnabled = "settings.hotkeysEnabled"
     static let focusFollowsMouse = "settings.focusFollowsMouse"
     static let moveMouseToFocusedWindow = "settings.moveMouseToFocusedWindow"
+    static let focusFollowsWindowToMonitor = "settings.focusFollowsWindowToMonitor"
     static let mouseWarpEnabled = "settings.mouseWarp.enabled"
     static let mouseWarpMonitorOrder = "settings.mouseWarp.monitorOrder"
     static let mouseWarpMargin = "settings.mouseWarp.margin"
