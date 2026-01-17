@@ -290,7 +290,7 @@ final class LayoutRefreshController {
             if let side = hiddenHandles[handle] {
                 let hiddenOrigin = hiddenOrigin(
                     for: frame.size,
-                    monitor: monitor,
+                    workingFrame: insetFrame,
                     side: side,
                     pid: handle.pid,
                     targetY: frame.origin.y
@@ -1068,7 +1068,8 @@ final class LayoutRefreshController {
             controller.internalWorkspaceManager.setHiddenProportionalPosition(proportional, for: entry.handle)
         }
         let yPos = targetY ?? frame.origin.y
-        let origin = hiddenOrigin(for: frame.size, monitor: monitor, side: side, pid: entry.handle.pid, targetY: yPos)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let origin = hiddenOrigin(for: frame.size, workingFrame: workingFrame, side: side, pid: entry.handle.pid, targetY: yPos)
         try? AXWindowService.setFrame(entry.axRef, frame: CGRect(origin: origin, size: frame.size))
     }
 
@@ -1087,18 +1088,17 @@ final class LayoutRefreshController {
 
     private func hiddenOrigin(
         for size: CGSize,
-        monitor: Monitor,
+        workingFrame: CGRect,
         side: HideSide,
         pid: pid_t,
         targetY: CGFloat
     ) -> CGPoint {
-        let visible = monitor.visibleFrame
         let offset: CGFloat = isZoomApp(pid) ? 0 : 1
         switch side {
         case .left:
-            return CGPoint(x: visible.minX - size.width + offset, y: targetY)
+            return CGPoint(x: workingFrame.minX - size.width + offset, y: targetY)
         case .right:
-            return CGPoint(x: visible.maxX - offset, y: targetY)
+            return CGPoint(x: workingFrame.maxX - offset, y: targetY)
         }
     }
 
