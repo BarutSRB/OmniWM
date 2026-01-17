@@ -49,7 +49,7 @@ enum WorkspaceBarPosition: String, CaseIterable, Identifiable {
 final class WorkspaceBarManager {
     private struct MonitorBarInstance {
         let monitorId: Monitor.ID
-        let panel: NSPanel
+        let panel: WorkspaceBarPanel
         let hostingView: NSHostingView<WorkspaceBarView>
     }
 
@@ -130,6 +130,11 @@ final class WorkspaceBarManager {
 
         let resolved = settings.resolvedBarSettings(for: monitor.name)
         let panel = createPanel()
+
+        if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
+            panel.targetScreen = screen
+        }
+
         let barHeight = max(menuBarHeight(for: monitor), resolved.height)
         let contentView = WorkspaceBarView(
             controller: controller,
@@ -156,6 +161,10 @@ final class WorkspaceBarManager {
 
     private func updateBarForMonitor(_ monitor: Monitor, instance: MonitorBarInstance) {
         guard let controller, let settings else { return }
+
+        if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
+            instance.panel.targetScreen = screen
+        }
 
         let resolved = settings.resolvedBarSettings(for: monitor.name)
         let barHeight = max(menuBarHeight(for: monitor), resolved.height)
@@ -186,7 +195,7 @@ final class WorkspaceBarManager {
         barsByMonitor.removeAll()
     }
 
-    private func createPanel() -> NSPanel {
+    private func createPanel() -> WorkspaceBarPanel {
         let panel = WorkspaceBarPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -211,16 +220,15 @@ final class WorkspaceBarManager {
 
     private func updateBarFrameAndPosition(for monitor: Monitor, instance: MonitorBarInstance) {
         guard let settings else { return }
-        guard let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) else { return }
 
         let resolved = settings.resolvedBarSettings(for: monitor.name)
         let fittingSize = instance.hostingView.fittingSize
-        let screenFrame = screen.frame
-        let visibleFrame = screen.visibleFrame
+        let screenFrame = monitor.frame
+        let visibleFrame = monitor.visibleFrame
         let barHeight = max(menuBarHeight(for: monitor), resolved.height)
 
         let notchAware = resolved.notchAware
-        let screenHasNotch = hasNotch(screen: screen)
+        let screenHasNotch = monitor.hasNotch
 
         let width: CGFloat
         var x: CGFloat
@@ -255,6 +263,7 @@ final class WorkspaceBarManager {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000)
                 self?.setupBars()
             }
         }
@@ -298,17 +307,7 @@ final class WorkspaceBarManager {
     }
 
     private func menuBarHeight(for monitor: Monitor) -> Double {
-        guard let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) else {
-            return 28
-        }
-        let h = screen.frame.maxY - screen.visibleFrame.maxY
+        let h = monitor.frame.maxY - monitor.visibleFrame.maxY
         return h > 0 ? h : 28
-    }
-
-    private func hasNotch(screen: NSScreen) -> Bool {
-        if #available(macOS 12.0, *) {
-            return screen.safeAreaInsets.top > 0
-        }
-        return false
     }
 }

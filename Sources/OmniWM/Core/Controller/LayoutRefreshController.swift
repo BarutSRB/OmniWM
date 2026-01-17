@@ -214,7 +214,7 @@ final class LayoutRefreshController {
         let windowAnimationsRunning = engine.tickAllWindowAnimations(in: wsId, at: targetTime)
         let columnAnimationsRunning = engine.tickAllColumnAnimations(in: wsId, at: targetTime)
 
-        guard let monitor = controller.internalWorkspaceManager.monitor(for: wsId) else {
+        guard let monitor = controller.internalWorkspaceManager.monitors.first(where: { $0.displayId == displayId }) else {
             controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
             stopScrollAnimation(for: displayId)
             return
@@ -571,7 +571,7 @@ final class LayoutRefreshController {
             guard !processedWorkspaces.contains(wsId) else { continue }
             processedWorkspaces.insert(wsId)
 
-            guard let monitor = workspaceManager.monitor(for: wsId) else { continue }
+            let monitor = iterationMonitor
 
             let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
             let existingHandleIds = engine.root(for: wsId)?.windowIdSet ?? []
@@ -1094,11 +1094,12 @@ final class LayoutRefreshController {
         targetY: CGFloat
     ) -> CGPoint {
         let offset: CGFloat = isZoomApp(pid) ? 0 : 1
+        let globalBounds = ScreenCoordinateSpace.globalFrame
         switch side {
         case .left:
-            return CGPoint(x: workingFrame.minX - size.width + offset, y: targetY)
+            return CGPoint(x: globalBounds.minX - size.width + offset, y: targetY)
         case .right:
-            return CGPoint(x: workingFrame.maxX - offset, y: targetY)
+            return CGPoint(x: globalBounds.maxX - offset, y: targetY)
         }
     }
 

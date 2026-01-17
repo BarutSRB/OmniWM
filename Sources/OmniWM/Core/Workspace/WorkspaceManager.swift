@@ -155,6 +155,7 @@ final class WorkspaceManager {
         ensurePersistentWorkspaces()
         applyForcedAssignments()
         ensureVisibleWorkspaces()
+        reconcileForcedVisibleWorkspaces()
         applyAnimationSettingsFromStore()
     }
 
@@ -165,10 +166,12 @@ final class WorkspaceManager {
     func updateMonitors(_ newMonitors: [Monitor]) {
         monitors = newMonitors.isEmpty ? [Monitor.fallback()] : newMonitors
         ensureVisibleWorkspaces()
+        reconcileForcedVisibleWorkspaces()
     }
 
     func reconcileAfterMonitorChange() {
         ensureVisibleWorkspaces()
+        reconcileForcedVisibleWorkspaces()
     }
 
     func setGaps(to size: Double) {

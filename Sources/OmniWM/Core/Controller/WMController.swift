@@ -940,13 +940,13 @@ final class WMController {
         if currentMonitorId != lastNotifiedMonitorId {
             var info: [AnyHashable: Any] = [:]
             if let oldMonitorId = lastNotifiedMonitorId {
-                info[OmniWMFocusNotificationKey.oldMonitorIndex] = oldMonitorId.screenIndex
+                info[OmniWMFocusNotificationKey.oldMonitorIndex] = oldMonitorId.displayId
                 if let oldName = workspaceManager.monitors.first(where: { $0.id == oldMonitorId })?.name {
                     info[OmniWMFocusNotificationKey.oldMonitorName] = oldName
                 }
             }
             if let newMonitorId = currentMonitorId {
-                info[OmniWMFocusNotificationKey.newMonitorIndex] = newMonitorId.screenIndex
+                info[OmniWMFocusNotificationKey.newMonitorIndex] = newMonitorId.displayId
                 if let newName = workspaceManager.monitors.first(where: { $0.id == newMonitorId })?.name {
                     info[OmniWMFocusNotificationKey.newMonitorName] = newName
                 }
@@ -1004,6 +1004,12 @@ final class WMController {
            let wsId = workspaceManager.workspaceId(for: wsName, createIfMissing: true)
         {
             return wsId
+        }
+
+        if let monitor = monitorForInteraction(),
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        {
+            return workspace.id
         }
 
         if let frame = AXWindowService.framePreferFast(axRef) {

@@ -6,7 +6,7 @@ struct WorkspacesSettingsTab: View {
 
     @State private var editingConfig: WorkspaceConfiguration?
     @State private var isAddingNew = false
-    @State private var connectedMonitors: [Monitor] = Monitor.current()
+    @State private var connectedMonitors: [Monitor] = Monitor.sortedMonitors(Monitor.current())
 
     var body: some View {
         Form {

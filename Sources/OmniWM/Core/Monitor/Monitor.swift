@@ -3,39 +3,59 @@ import CoreGraphics
 
 struct Monitor: Identifiable, Hashable {
     struct ID: Hashable {
-        let screenIndex: Int
+        let displayId: CGDirectDisplayID
 
-        static let fallback = ID(screenIndex: 0)
+        static let fallback = ID(displayId: CGMainDisplayID())
     }
 
     let id: ID
     let displayId: CGDirectDisplayID
     let frame: CGRect
     let visibleFrame: CGRect
+    let hasNotch: Bool
 
     let name: String
 
     static func current() -> [Monitor] {
-        NSScreen.screens.enumerated().compactMap { idx, screen -> Monitor? in
+        let monitors = NSScreen.screens.compactMap { screen -> Monitor? in
             guard let displayId = screen.displayId else { return nil }
+            var hasNotch = false
+            if #available(macOS 12.0, *) {
+                hasNotch = screen.safeAreaInsets.top > 0
+            }
             return Monitor(
-                id: ID(screenIndex: idx + 1),
+                id: ID(displayId: displayId),
                 displayId: displayId,
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame,
+                hasNotch: hasNotch,
                 name: screen.localizedName
             )
+        }
+        return monitors.sorted { first, second in
+            if first.isMain != second.isMain {
+                return first.isMain
+            }
+            if first.frame.minX != second.frame.minX {
+                return first.frame.minX < second.frame.minX
+            }
+            return first.frame.maxY > second.frame.maxY
         }
     }
 
     static func fallback() -> Monitor {
         let frame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let displayId = NSScreen.main?.displayId ?? CGMainDisplayID()
+        var hasNotch = false
+        if #available(macOS 12.0, *) {
+            hasNotch = NSScreen.main?.safeAreaInsets.top ?? 0 > 0
+        }
         return Monitor(
             id: .fallback,
             displayId: displayId,
             frame: frame,
             visibleFrame: frame,
+            hasNotch: hasNotch,
             name: "Fallback"
         )
     }
