@@ -21,6 +21,12 @@ struct QuakeTerminalSettingsTab: View {
                         }
                     }
 
+                    Picker("Show On", selection: $settings.quakeTerminalMonitorMode) {
+                        ForEach(QuakeTerminalMonitorMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
                     VStack(alignment: .leading) {
                         Text("Width: \(Int(settings.quakeTerminalWidthPercent))%")
                         Slider(value: $settings.quakeTerminalWidthPercent, in: 10...100, step: 5)
@@ -29,6 +35,16 @@ struct QuakeTerminalSettingsTab: View {
                     VStack(alignment: .leading) {
                         Text("Height: \(Int(settings.quakeTerminalHeightPercent))%")
                         Slider(value: $settings.quakeTerminalHeightPercent, in: 10...100, step: 5)
+                    }
+                }
+
+                Section("Appearance") {
+                    VStack(alignment: .leading) {
+                        Text("Background Opacity: \(Int(settings.quakeTerminalOpacity * 100))%")
+                        Slider(value: $settings.quakeTerminalOpacity, in: 0.1...1.0, step: 0.05)
+                            .onChange(of: settings.quakeTerminalOpacity) { _, _ in
+                                controller.reloadQuakeTerminalOpacity()
+                            }
                     }
                 }
 

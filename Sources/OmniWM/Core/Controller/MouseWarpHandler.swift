@@ -11,6 +11,7 @@ final class MouseWarpHandler {
     private var lastMonitorId: Monitor.ID?
 
     private static var sharedHandler: MouseWarpHandler?
+    private static let warpCooldownSeconds: TimeInterval = 0.05
 
     init(controller: WMController) {
         self.controller = controller
@@ -153,7 +154,7 @@ final class MouseWarpHandler {
         let warpPoint = ScreenCoordinateSpace.toWindowServer(point: CGPoint(x: clampedX, y: clampedY))
         CGWarpMouseCursorPosition(warpPoint)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.warpCooldownSeconds) { [weak self] in
             self?.isWarping = false
         }
     }
@@ -184,7 +185,7 @@ final class MouseWarpHandler {
             let warpPoint = ScreenCoordinateSpace.toWindowServer(point: CGPoint(x: location.x, y: clampedY))
             CGWarpMouseCursorPosition(warpPoint)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.warpCooldownSeconds) { [weak self] in
                 self?.isWarping = false
             }
         }
@@ -213,7 +214,7 @@ final class MouseWarpHandler {
             moveEvent.post(tap: .cghidEventTap)
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.warpCooldownSeconds) { [weak self] in
             self?.isWarping = false
         }
     }

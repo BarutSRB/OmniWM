@@ -190,6 +190,7 @@ extension NiriLayoutEngine {
         let viewRight = viewLeft + workingFrame.width
 
         var usedIndices = Set<Int>()
+        var columnSides: [Int: HideSide] = [:]
 
         for idx in 0 ..< cols.count {
             let colX = columnXPositions[idx]
@@ -224,6 +225,7 @@ extension NiriLayoutEngine {
                 )
             } else {
                 let hideSide: HideSide = colRight <= viewLeft ? .left : .right
+                columnSides[idx] = hideSide
                 for window in columnWindowNodes[idx] {
                     hiddenHandles[window.handle] = hideSide
                 }
@@ -236,10 +238,12 @@ extension NiriLayoutEngine {
             for (idx, column) in cols.enumerated() {
                 if usedIndices.contains(idx) { continue }
 
+                let side = columnSides[idx] ?? .right
                 let hiddenRect = hiddenColumnRect(
-                    screenRect: viewFrame,
+                    side: side,
                     width: hiddenWidth,
-                    height: workingFrame.height
+                    height: workingFrame.height,
+                    screenY: viewFrame.maxY - 2
                 ).roundedToPhysicalPixels(scale: effectiveScale)
 
                 layoutColumn(
@@ -630,14 +634,20 @@ extension NiriLayoutEngine {
     }
 
     private func hiddenColumnRect(
-        screenRect: CGRect,
+        side: HideSide,
         width: CGFloat,
-        height: CGFloat
+        height: CGFloat,
+        screenY: CGFloat
     ) -> CGRect {
-        let origin = CGPoint(
-            x: screenRect.maxX - 2,
-            y: screenRect.maxY - 2
-        )
+        let globalBounds = ScreenCoordinateSpace.globalFrame
+        let x: CGFloat
+        switch side {
+        case .left:
+            x = globalBounds.minX - width + 2
+        case .right:
+            x = globalBounds.maxX - 2
+        }
+        let origin = CGPoint(x: x, y: screenY)
         return CGRect(origin: origin, size: CGSize(width: width, height: height))
     }
 }

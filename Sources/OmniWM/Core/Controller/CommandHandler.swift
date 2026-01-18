@@ -948,14 +948,7 @@ final class CommandHandler {
 
         var configs = settings.workspaceConfigurations
         if let index = configs.firstIndex(where: { $0.name == workspaceName }) {
-            configs[index] = WorkspaceConfiguration(
-                id: configs[index].id,
-                name: configs[index].name,
-                displayName: configs[index].displayName,
-                monitorAssignment: configs[index].monitorAssignment,
-                layoutType: newLayout,
-                isPersistent: configs[index].isPersistent
-            )
+            configs[index] = configs[index].with(layoutType: newLayout)
         } else {
             configs.append(WorkspaceConfiguration(
                 name: workspaceName,

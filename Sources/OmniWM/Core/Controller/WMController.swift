@@ -158,6 +158,10 @@ final class WMController {
         quakeTerminalController.toggle()
     }
 
+    func reloadQuakeTerminalOpacity() {
+        quakeTerminalController.reloadOpacityConfig()
+    }
+
     func updateWorkspaceBar() {
         workspaceBarVersion += 1
         workspaceBarManager.update()
@@ -641,17 +645,14 @@ final class WMController {
         switch event {
         case let .disconnected(monitorId, outputId):
             handleMonitorDisconnect(monitorId: monitorId, outputId: outputId)
-        case let .connected(monitor):
-            handleMonitorConnect(monitor: monitor)
-        case .reconfigured:
+        case .connected, .reconfigured:
             break
         }
         handleMonitorConfigurationChanged()
     }
 
     private func handleMonitorDisconnect(monitorId: Monitor.ID, outputId: OutputId) {
-        layoutRefreshController?.stopScrollAnimation(for: outputId.displayId)
-        layoutRefreshController?.stopDwindleAnimation(for: outputId.displayId)
+        layoutRefreshController?.cleanupForMonitorDisconnect(displayId: outputId.displayId, migrateAnimations: false)
 
         if activeMonitorId == monitorId {
             activeMonitorId = workspaceManager.monitors.first?.id
@@ -662,10 +663,6 @@ final class WMController {
 
         niriEngine?.cleanupRemovedMonitor(monitorId)
         dwindleEngine?.cleanupRemovedMonitor(monitorId)
-    }
-
-    private func handleMonitorConnect(monitor: Monitor) {
-        _ = monitor
     }
 
     private func handleMonitorConfigurationChanged() {
@@ -877,6 +874,21 @@ final class WMController {
         layoutRefreshController?.refreshWindowsAndLayout()
     }
 
+    private func postNotificationIfChanged<T: Equatable>(
+        name: Notification.Name,
+        current: T?,
+        last: inout T?,
+        info: [AnyHashable: Any]
+    ) {
+        guard current != last else { return }
+        NotificationCenter.default.post(
+            name: name,
+            object: self,
+            userInfo: info.isEmpty ? nil : info
+        )
+        last = current
+    }
+
     private func notifyFocusChangesIfNeeded() {
         let currentWorkspaceId = focusedHandle
             .flatMap { workspaceManager.workspace(for: $0) }
@@ -886,80 +898,39 @@ final class WMController {
         let currentHandleId = focusedHandle?.id
         let currentWindowId = focusedHandle.flatMap { workspaceManager.entry(for: $0)?.windowId }
 
-        if currentHandleId != lastNotifiedFocusedHandleId ||
-            currentWindowId != lastNotifiedFocusedWindowId
-        {
+        if currentHandleId != lastNotifiedFocusedHandleId || currentWindowId != lastNotifiedFocusedWindowId {
             var info: [AnyHashable: Any] = [:]
-            if let oldHandleId = lastNotifiedFocusedHandleId {
-                info[OmniWMFocusNotificationKey.oldHandleId] = oldHandleId
-            }
-            if let newHandleId = currentHandleId {
-                info[OmniWMFocusNotificationKey.newHandleId] = newHandleId
-            }
-            if let oldWindowId = lastNotifiedFocusedWindowId {
-                info[OmniWMFocusNotificationKey.oldWindowId] = oldWindowId
-            }
-            if let newWindowId = currentWindowId {
-                info[OmniWMFocusNotificationKey.newWindowId] = newWindowId
-            }
+            if let oldHandleId = lastNotifiedFocusedHandleId { info[OmniWMFocusNotificationKey.oldHandleId] = oldHandleId }
+            if let newHandleId = currentHandleId { info[OmniWMFocusNotificationKey.newHandleId] = newHandleId }
+            if let oldWindowId = lastNotifiedFocusedWindowId { info[OmniWMFocusNotificationKey.oldWindowId] = oldWindowId }
+            if let newWindowId = currentWindowId { info[OmniWMFocusNotificationKey.newWindowId] = newWindowId }
 
-            NotificationCenter.default.post(
-                name: .omniwmFocusChanged,
-                object: self,
-                userInfo: info.isEmpty ? nil : info
-            )
-
+            NotificationCenter.default.post(name: .omniwmFocusChanged, object: self, userInfo: info.isEmpty ? nil : info)
             lastNotifiedFocusedHandleId = currentHandleId
             lastNotifiedFocusedWindowId = currentWindowId
         }
 
-        if currentWorkspaceId != lastNotifiedWorkspaceId {
-            var info: [AnyHashable: Any] = [:]
-            if let oldWorkspaceId = lastNotifiedWorkspaceId {
-                info[OmniWMFocusNotificationKey.oldWorkspaceId] = oldWorkspaceId
-                if let oldName = workspaceManager.descriptor(for: oldWorkspaceId)?.name {
-                    info[OmniWMFocusNotificationKey.oldWorkspaceName] = oldName
-                }
-            }
-            if let newWorkspaceId = currentWorkspaceId {
-                info[OmniWMFocusNotificationKey.newWorkspaceId] = newWorkspaceId
-                if let newName = workspaceManager.descriptor(for: newWorkspaceId)?.name {
-                    info[OmniWMFocusNotificationKey.newWorkspaceName] = newName
-                }
-            }
-
-            NotificationCenter.default.post(
-                name: .omniwmFocusedWorkspaceChanged,
-                object: self,
-                userInfo: info.isEmpty ? nil : info
-            )
-
-            lastNotifiedWorkspaceId = currentWorkspaceId
+        var workspaceInfo: [AnyHashable: Any] = [:]
+        if let oldId = lastNotifiedWorkspaceId {
+            workspaceInfo[OmniWMFocusNotificationKey.oldWorkspaceId] = oldId
+            if let name = workspaceManager.descriptor(for: oldId)?.name { workspaceInfo[OmniWMFocusNotificationKey.oldWorkspaceName] = name }
         }
-
-        if currentMonitorId != lastNotifiedMonitorId {
-            var info: [AnyHashable: Any] = [:]
-            if let oldMonitorId = lastNotifiedMonitorId {
-                info[OmniWMFocusNotificationKey.oldMonitorIndex] = oldMonitorId.displayId
-                if let oldName = workspaceManager.monitors.first(where: { $0.id == oldMonitorId })?.name {
-                    info[OmniWMFocusNotificationKey.oldMonitorName] = oldName
-                }
-            }
-            if let newMonitorId = currentMonitorId {
-                info[OmniWMFocusNotificationKey.newMonitorIndex] = newMonitorId.displayId
-                if let newName = workspaceManager.monitors.first(where: { $0.id == newMonitorId })?.name {
-                    info[OmniWMFocusNotificationKey.newMonitorName] = newName
-                }
-            }
-
-            NotificationCenter.default.post(
-                name: .omniwmFocusedMonitorChanged,
-                object: self,
-                userInfo: info.isEmpty ? nil : info
-            )
-
-            lastNotifiedMonitorId = currentMonitorId
+        if let newId = currentWorkspaceId {
+            workspaceInfo[OmniWMFocusNotificationKey.newWorkspaceId] = newId
+            if let name = workspaceManager.descriptor(for: newId)?.name { workspaceInfo[OmniWMFocusNotificationKey.newWorkspaceName] = name }
         }
+        postNotificationIfChanged(name: .omniwmFocusedWorkspaceChanged, current: currentWorkspaceId, last: &lastNotifiedWorkspaceId, info: workspaceInfo)
+
+        var monitorInfo: [AnyHashable: Any] = [:]
+        if let oldId = lastNotifiedMonitorId {
+            monitorInfo[OmniWMFocusNotificationKey.oldMonitorIndex] = oldId.displayId
+            if let name = workspaceManager.monitors.first(where: { $0.id == oldId })?.name { monitorInfo[OmniWMFocusNotificationKey.oldMonitorName] = name }
+        }
+        if let newId = currentMonitorId {
+            monitorInfo[OmniWMFocusNotificationKey.newMonitorIndex] = newId.displayId
+            if let name = workspaceManager.monitors.first(where: { $0.id == newId })?.name { monitorInfo[OmniWMFocusNotificationKey.newMonitorName] = name }
+        }
+        postNotificationIfChanged(name: .omniwmFocusedMonitorChanged, current: currentMonitorId, last: &lastNotifiedMonitorId, info: monitorInfo)
     }
 
     func monitorForInteraction() -> Monitor? {

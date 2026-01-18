@@ -469,7 +469,7 @@ final class WorkspaceManager {
         case .up, .down: .vertical
         }
 
-        let sorted = Monitor.sortedMonitors(monitors)
+        let sorted = Monitor.sortedByPosition(monitors)
         let candidates = sorted.filter { candidate in
             candidate.id == current.id || candidate.relation(to: current) == axis
         }
@@ -492,7 +492,7 @@ final class WorkspaceManager {
     func previousMonitor(from monitorId: Monitor.ID) -> Monitor? {
         guard monitors.count > 1 else { return nil }
 
-        let sorted = Monitor.sortedMonitors(monitors)
+        let sorted = Monitor.sortedByPosition(monitors)
         guard let currentIdx = sorted.firstIndex(where: { $0.id == monitorId }) else { return nil }
 
         let prevIdx = currentIdx > 0 ? currentIdx - 1 : sorted.count - 1
@@ -502,7 +502,7 @@ final class WorkspaceManager {
     func nextMonitor(from monitorId: Monitor.ID) -> Monitor? {
         guard monitors.count > 1 else { return nil }
 
-        let sorted = Monitor.sortedMonitors(monitors)
+        let sorted = Monitor.sortedByPosition(monitors)
         guard let currentIdx = sorted.firstIndex(where: { $0.id == monitorId }) else { return nil }
 
         let nextIdx = (currentIdx + 1) % sorted.count
@@ -535,7 +535,7 @@ final class WorkspaceManager {
         let assignments = settings.workspaceToMonitorAssignments()
         guard !assignments.isEmpty else { return }
 
-        let sortedMonitors = Monitor.sortedMonitors(monitors)
+        let sortedMonitors = Monitor.sortedByPosition(monitors)
         var forcedTargets: [WorkspaceDescriptor.ID: Monitor] = [:]
         for (name, descriptions) in assignments {
             guard let workspaceId = workspaceIdByName[name] else { continue }
@@ -565,7 +565,7 @@ final class WorkspaceManager {
 
     private func fillMissingVisibleWorkspaces() {
         let assignments = settings.workspaceToMonitorAssignments()
-        let sortedMonitors = Monitor.sortedMonitors(monitors)
+        let sortedMonitors = Monitor.sortedByPosition(monitors)
 
         let sortedNames = assignments.keys.sorted { a, b in
             a.toLogicalSegments() < b.toLogicalSegments()
@@ -699,7 +699,7 @@ final class WorkspaceManager {
     private func forceAssignedMonitor(for workspaceName: String) -> Monitor? {
         let assignments = settings.workspaceToMonitorAssignments()
         guard let descriptions = assignments[workspaceName], !descriptions.isEmpty else { return nil }
-        let sorted = Monitor.sortedMonitors(monitors)
+        let sorted = Monitor.sortedByPosition(monitors)
         return descriptions.compactMap { $0.resolveMonitor(sortedMonitors: sorted) }.first
     }
 

@@ -47,6 +47,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
             return
         }
 
+        updateGhosttyOpacityConfig()
         ghostty_config_load_default_files(ghosttyConfig)
         ghostty_config_finalize(ghosttyConfig)
 
@@ -111,6 +112,59 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         surfaceView = nil
     }
 
+    private func updateGhosttyOpacityConfig() {
+        let opacity = settings.quakeTerminalOpacity
+        let configDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/ghostty")
+        let configFile = configDir.appendingPathComponent("config")
+
+        do {
+            try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+
+            var lines: [String] = []
+            if FileManager.default.fileExists(atPath: configFile.path) {
+                let content = try String(contentsOf: configFile, encoding: .utf8)
+                lines = content.components(separatedBy: .newlines)
+            }
+
+            let opacityLine = String(format: "background-opacity = %.2f", opacity)
+            var found = false
+            for (index, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("background-opacity") {
+                    lines[index] = opacityLine
+                    found = true
+                    break
+                }
+            }
+
+            if !found {
+                if !lines.isEmpty && !lines.last!.isEmpty {
+                    lines.append("")
+                }
+                lines.append(opacityLine)
+            }
+
+            let newContent = lines.joined(separator: "\n")
+            try newContent.write(to: configFile, atomically: true, encoding: .utf8)
+        } catch {
+            print("QuakeTerminal: Failed to update ghostty config: \(error)")
+        }
+    }
+
+    func reloadOpacityConfig() {
+        guard let ghosttyApp else { return }
+
+        updateGhosttyOpacityConfig()
+
+        guard let newConfig = ghostty_config_new() else { return }
+        ghostty_config_load_default_files(newConfig)
+        ghostty_config_finalize(newConfig)
+
+        ghostty_app_update_config(ghosttyApp, newConfig)
+        ghostty_config_free(newConfig)
+    }
+
     private func tick() {
         guard let ghosttyApp else { return }
         ghostty_app_tick(ghosttyApp)
@@ -133,7 +187,8 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         surfaceView = view
         window?.contentView = view
 
-        if let window, let screen = NSScreen.main {
+        if let window {
+            let screen = targetScreen()
             let position = settings.quakeTerminalPosition
             position.setFinal(
                 in: window,
@@ -181,7 +236,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
     }
 
     private func animateWindowIn(window: NSWindow) {
-        guard let screen = NSScreen.main else { return }
+        let screen = targetScreen()
         let position = settings.quakeTerminalPosition
         let widthPercent = settings.quakeTerminalWidthPercent
         let heightPercent = settings.quakeTerminalHeightPercent
@@ -235,7 +290,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
     }
 
     private func animateWindowOut(window: NSWindow) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
+        let screen = window.screen ?? targetScreen()
         let position = settings.quakeTerminalPosition
         let widthPercent = settings.quakeTerminalWidthPercent
         let heightPercent = settings.quakeTerminalHeightPercent
@@ -308,6 +363,63 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate {
         if let data = content.pointee.data {
             pasteboard.setString(String(cString: data), forType: .string)
         }
+    }
+
+    private func targetScreen() -> NSScreen {
+        let monitors = Monitor.current()
+
+        switch settings.quakeTerminalMonitorMode {
+        case .mouseCursor:
+            let mouseLocation = NSEvent.mouseLocation
+            if let monitor = mouseLocation.monitorApproximation(in: monitors),
+               let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
+                return screen
+            }
+
+        case .focusedWindow:
+            if let screen = screenOfFocusedWindow(monitors: monitors) {
+                return screen
+            }
+
+        case .mainMonitor:
+            break
+        }
+
+        return NSScreen.main ?? NSScreen.screens.first!
+    }
+
+    private func screenOfFocusedWindow(monitors: [Monitor]) -> NSScreen? {
+        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+
+        for windowInfo in windowList {
+            guard let windowPID = windowInfo[kCGWindowOwnerPID as String] as? Int32,
+                  windowPID != ownPID,
+                  let layer = windowInfo[kCGWindowLayer as String] as? Int,
+                  layer == 0,
+                  let boundsDict = windowInfo[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = boundsDict["X"],
+                  let y = boundsDict["Y"],
+                  let width = boundsDict["Width"],
+                  let height = boundsDict["Height"],
+                  width > 50, height > 50
+            else {
+                continue
+            }
+
+            let windowCenter = CGPoint(x: x + width / 2, y: y + height / 2)
+            let flippedCenter = CGPoint(x: windowCenter.x, y: NSScreen.screens.first!.frame.height - windowCenter.y)
+
+            if let monitor = flippedCenter.monitorApproximation(in: monitors),
+               let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
+                return screen
+            }
+        }
+
+        return nil
     }
 
     private func surfaceClosed(processAlive: Bool) {

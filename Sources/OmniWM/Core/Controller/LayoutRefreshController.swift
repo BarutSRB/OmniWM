@@ -47,21 +47,21 @@ final class LayoutRefreshController {
 
     private func handleScreenParametersChanged() {
         detectRefreshRates()
+    }
 
-        let currentDisplayIds = Set(NSScreen.screens.compactMap(\.displayId))
+    func cleanupForMonitorDisconnect(displayId: CGDirectDisplayID, migrateAnimations: Bool) {
+        if let link = displayLinksByDisplay.removeValue(forKey: displayId) {
+            link.invalidate()
+        }
 
-        let removedDisplayIds = displayLinksByDisplay.keys.filter { !currentDisplayIds.contains($0) }
-
-        for displayId in removedDisplayIds {
-            if let link = displayLinksByDisplay.removeValue(forKey: displayId) {
-                link.invalidate()
-            }
-
+        if migrateAnimations {
             if let wsId = scrollAnimationByDisplay.removeValue(forKey: displayId) {
                 startScrollAnimation(for: wsId)
             }
-            dwindleAnimationByDisplay.removeValue(forKey: displayId)
+        } else {
+            scrollAnimationByDisplay.removeValue(forKey: displayId)
         }
+        dwindleAnimationByDisplay.removeValue(forKey: displayId)
     }
 
     private func detectRefreshRates() {
@@ -565,13 +565,11 @@ final class LayoutRefreshController {
         }
 
         var processedWorkspaces: Set<WorkspaceDescriptor.ID> = []
-        for iterationMonitor in workspaceManager.monitors {
-            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: iterationMonitor.id) else { continue }
+        for monitor in workspaceManager.monitors {
+            guard let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             let wsId = workspace.id
             guard !processedWorkspaces.contains(wsId) else { continue }
             processedWorkspaces.insert(wsId)
-
-            let monitor = iterationMonitor
 
             let windowHandles = workspaceManager.entries(in: wsId).map(\.handle)
             let existingHandleIds = engine.root(for: wsId)?.windowIdSet ?? []

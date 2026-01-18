@@ -285,6 +285,14 @@ final class SettingsStore {
         didSet { defaults.set(quakeTerminalAutoHide, forKey: Keys.quakeTerminalAutoHide) }
     }
 
+    var quakeTerminalOpacity: Double {
+        didSet { defaults.set(quakeTerminalOpacity, forKey: Keys.quakeTerminalOpacity) }
+    }
+
+    var quakeTerminalMonitorMode: QuakeTerminalMonitorMode {
+        didSet { defaults.set(quakeTerminalMonitorMode.rawValue, forKey: Keys.quakeTerminalMonitorMode) }
+    }
+
     var appearanceMode: AppearanceMode {
         didSet { defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode) }
     }
@@ -386,6 +394,10 @@ final class SettingsStore {
         quakeTerminalHeightPercent = defaults.object(forKey: Keys.quakeTerminalHeightPercent) as? Double ?? 40.0
         quakeTerminalAnimationDuration = defaults.object(forKey: Keys.quakeTerminalAnimationDuration) as? Double ?? 0.2
         quakeTerminalAutoHide = defaults.object(forKey: Keys.quakeTerminalAutoHide) as? Bool ?? true
+        quakeTerminalOpacity = defaults.object(forKey: Keys.quakeTerminalOpacity) as? Double ?? 1.0
+        quakeTerminalMonitorMode = QuakeTerminalMonitorMode(
+            rawValue: defaults.string(forKey: Keys.quakeTerminalMonitorMode) ?? ""
+        ) ?? .mouseCursor
         appearanceMode = AppearanceMode(rawValue: defaults.string(forKey: Keys.appearanceMode) ?? "") ?? .automatic
     }
 
@@ -896,6 +908,8 @@ private enum Keys {
     static let quakeTerminalHeightPercent = "settings.quakeTerminal.heightPercent"
     static let quakeTerminalAnimationDuration = "settings.quakeTerminal.animationDuration"
     static let quakeTerminalAutoHide = "settings.quakeTerminal.autoHide"
+    static let quakeTerminalOpacity = "settings.quakeTerminal.opacity"
+    static let quakeTerminalMonitorMode = "settings.quakeTerminal.monitorMode"
 
     static let appearanceMode = "settings.appearanceMode"
 }
@@ -948,6 +962,20 @@ enum AppearanceMode: String, CaseIterable, Codable {
             NSApp.appearance = NSAppearance(named: .aqua)
         case .dark:
             NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+enum QuakeTerminalMonitorMode: String, CaseIterable, Codable {
+    case mouseCursor
+    case focusedWindow
+    case mainMonitor
+
+    var displayName: String {
+        switch self {
+        case .mouseCursor: "Mouse Cursor's Monitor"
+        case .focusedWindow: "Focused Window's Monitor"
+        case .mainMonitor: "Main Monitor"
         }
     }
 }
@@ -1035,6 +1063,9 @@ struct SettingsExport: Codable {
     var hiddenBarEnabled: Bool
     var hiddenBarIsCollapsed: Bool
 
+    var quakeTerminalOpacity: Double?
+    var quakeTerminalMonitorMode: String?
+
     var appearanceMode: String
 }
 
@@ -1113,6 +1144,8 @@ extension SettingsStore {
             menuAnywhereShowShortcuts: menuAnywhereShowShortcuts,
             hiddenBarEnabled: hiddenBarEnabled,
             hiddenBarIsCollapsed: hiddenBarIsCollapsed,
+            quakeTerminalOpacity: quakeTerminalOpacity,
+            quakeTerminalMonitorMode: quakeTerminalMonitorMode.rawValue,
             appearanceMode: appearanceMode.rawValue
         )
 
@@ -1203,6 +1236,14 @@ extension SettingsStore {
 
         hiddenBarEnabled = export.hiddenBarEnabled
         hiddenBarIsCollapsed = export.hiddenBarIsCollapsed
+
+        if let opacity = export.quakeTerminalOpacity {
+            quakeTerminalOpacity = opacity
+        }
+        if let modeRaw = export.quakeTerminalMonitorMode,
+           let mode = QuakeTerminalMonitorMode(rawValue: modeRaw) {
+            quakeTerminalMonitorMode = mode
+        }
 
         appearanceMode = AppearanceMode(rawValue: export.appearanceMode) ?? .automatic
     }

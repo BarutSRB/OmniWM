@@ -17,7 +17,7 @@ struct Monitor: Identifiable, Hashable {
     let name: String
 
     static func current() -> [Monitor] {
-        let monitors = NSScreen.screens.compactMap { screen -> Monitor? in
+        NSScreen.screens.compactMap { screen -> Monitor? in
             guard let displayId = screen.displayId else { return nil }
             var hasNotch = false
             if #available(macOS 12.0, *) {
@@ -31,15 +31,6 @@ struct Monitor: Identifiable, Hashable {
                 hasNotch: hasNotch,
                 name: screen.localizedName
             )
-        }
-        return monitors.sorted { first, second in
-            if first.isMain != second.isMain {
-                return first.isMain
-            }
-            if first.frame.minX != second.frame.minX {
-                return first.frame.minX < second.frame.minX
-            }
-            return first.frame.maxY > second.frame.maxY
         }
     }
 
@@ -93,7 +84,7 @@ extension Monitor {
         return myYRange.overlaps(otherYRange) ? .horizontal : .vertical
     }
 
-    static func sortedMonitors(_ monitors: [Monitor]) -> [Monitor] {
+    static func sortedByPosition(_ monitors: [Monitor]) -> [Monitor] {
         monitors.sorted {
             if $0.frame.minX != $1.frame.minX {
                 return $0.frame.minX < $1.frame.minX

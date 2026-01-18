@@ -132,4 +132,10 @@ struct WorkspaceConfiguration: Codable, Identifiable, Equatable {
         self.layoutType = layoutType
         self.isPersistent = isPersistent
     }
+
+    func with(layoutType: LayoutType) -> WorkspaceConfiguration {
+        var copy = self
+        copy.layoutType = layoutType
+        return copy
+    }
 }
