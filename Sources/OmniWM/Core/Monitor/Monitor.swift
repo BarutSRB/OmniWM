@@ -79,8 +79,8 @@ extension Monitor {
     }
 
     func relation(to monitor: Monitor) -> Orientation {
-        let otherYRange = monitor.frame.minY ... monitor.frame.maxY
-        let myYRange = frame.minY ... frame.maxY
+        let otherYRange = monitor.frame.minY ..< monitor.frame.maxY
+        let myYRange = frame.minY ..< frame.maxY
         return myYRange.overlaps(otherYRange) ? .horizontal : .vertical
     }
 

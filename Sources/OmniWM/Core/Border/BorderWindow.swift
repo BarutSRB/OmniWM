@@ -39,10 +39,7 @@ final class BorderWindow {
         var frame = targetFrame.insetBy(dx: borderOffset, dy: borderOffset)
             .roundedToPhysicalPixels(scale: scale)
 
-        origin = frame.origin
-        if let screen = targetScreen {
-            origin.y = screen.frame.height - origin.y - frame.height
-        }
+        origin = ScreenCoordinateSpace.toWindowServer(rect: frame).origin
         frame.origin = .zero
 
         let drawingBounds = CGRect(
