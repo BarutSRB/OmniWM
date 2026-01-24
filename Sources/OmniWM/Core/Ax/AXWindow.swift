@@ -79,8 +79,8 @@ enum AXWindowService {
         var size = CGSize(width: axFrame.size.width, height: axFrame.size.height)
         guard let positionValue = AXValueCreate(.cgPoint, &position),
               let sizeValue = AXValueCreate(.cgSize, &size) else { throw .cannotSetFrame }
-        let err1 = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, positionValue)
-        let err2 = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
+        let err1 = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
+        let err2 = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, positionValue)
         guard err1 == .success, err2 == .success else { throw .cannotSetFrame }
     }
 
