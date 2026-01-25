@@ -45,7 +45,8 @@ struct HotkeyBinding: Codable, Identifiable {
             .workspace
         case .focus, .focusColumn, .focusColumnFirst, .focusColumnLast,
              .focusDownOrLeft, .focusPrevious, .focusUpOrRight, .focusWindowBottom, .focusWindowTop,
-             .openMenuAnywhere, .openMenuPalette, .openWindowFinder, .toggleHiddenBar, .toggleQuakeTerminal:
+             .openMenuAnywhere, .openMenuPalette, .openWindowFinder, .toggleHiddenBar, .toggleQuakeTerminal,
+             .toggleOverview:
             .focus
         case .move, .swap:
             .move

@@ -73,6 +73,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case toggleHiddenBar
     case toggleQuakeTerminal
     case toggleWorkspaceLayout
+    case toggleOverview
 
     var displayName: String {
         switch self {
@@ -133,6 +134,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .toggleHiddenBar: "Toggle Hidden Bar"
         case .toggleQuakeTerminal: "Toggle Quake Terminal"
         case .toggleWorkspaceLayout: "Toggle Workspace Layout"
+        case .toggleOverview: "Toggle Overview"
         }
     }
 

@@ -54,6 +54,17 @@ final class WMController {
     private lazy var hiddenBarController: HiddenBarController = .init(settings: settings)
     @ObservationIgnored
     private lazy var quakeTerminalController: QuakeTerminalController = .init(settings: settings)
+    @ObservationIgnored
+    private lazy var overviewController: OverviewController = {
+        let controller = OverviewController(wmController: self)
+        controller.onActivateWindow = { [weak self] handle, workspaceId in
+            self?.activateWindowFromOverview(handle: handle, workspaceId: workspaceId)
+        }
+        controller.onCloseWindow = { [weak self] handle in
+            self?.closeWindowFromOverview(handle: handle)
+        }
+        return controller
+    }()
 
     private var appActivationObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
@@ -1083,6 +1094,64 @@ final class WMController {
             targetApp: targetApp,
             targetWindow: targetWindow
         )
+    }
+
+    func toggleOverview() {
+        overviewController.toggle()
+    }
+
+    private func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
+        guard let engine = niriEngine else { return }
+        guard workspaceManager.entry(for: handle) != nil else { return }
+
+        let currentWsId = activeWorkspace()?.id
+
+        if workspaceId != currentWsId {
+            let wsName = workspaceManager.descriptor(for: workspaceId)?.name ?? ""
+            if let result = workspaceManager.focusWorkspace(named: wsName) {
+                activeMonitorId = result.monitor.id
+                syncMonitorsToNiriEngine()
+            }
+        }
+
+        if let niriWindow = engine.findNode(for: handle) {
+            var state = workspaceManager.niriViewportState(for: workspaceId)
+            state.selectedNodeId = niriWindow.id
+
+            if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
+               let colIdx = engine.columnIndex(of: column, in: workspaceId),
+               let monitor = workspaceManager.monitor(for: workspaceId)
+            {
+                let cols = engine.columns(in: workspaceId)
+                let gap = CGFloat(workspaceManager.gaps)
+                state.snapToColumn(
+                    colIdx,
+                    columns: cols,
+                    gap: gap,
+                    viewportWidth: monitor.visibleFrame.width
+                )
+            }
+
+            workspaceManager.updateNiriViewportState(state, for: workspaceId)
+        }
+
+        layoutRefreshController?.refreshWindowsAndLayout()
+
+        focusedHandle = handle
+        lastFocusedByWorkspace[workspaceId] = handle
+        focusWindow(handle)
+    }
+
+    private func closeWindowFromOverview(handle: WindowHandle) {
+        guard let entry = workspaceManager.entry(for: handle) else { return }
+
+        let element = entry.axRef.element
+        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+
+        var closeButton: AnyObject?
+        if AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton) == .success {
+            AXUIElementPerformAction(closeButton as! AXUIElement, kAXPressAction as CFString)
+        }
     }
 
     func raiseAllFloatingWindows() {

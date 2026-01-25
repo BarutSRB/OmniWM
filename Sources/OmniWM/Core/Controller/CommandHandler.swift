@@ -209,6 +209,8 @@ final class CommandHandler {
             controller.toggleQuakeTerminal()
         case .toggleWorkspaceLayout:
             toggleWorkspaceLayout()
+        case .toggleOverview:
+            controller.toggleOverview()
         }
     }
 
