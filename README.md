@@ -14,6 +14,19 @@ A powerful tiling window manager for macOS.
   <img src="https://raw.githubusercontent.com/BarutSRB/OmniWM/main/assets/semidemo1.gif" alt="OmniWM demo">
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/BarutSRB/OmniWM/main/assets/demo1.gif" alt="OmniWM demo" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/BarutSRB/OmniWM/main/assets/demo2.gif" alt="OmniWM demo" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/BarutSRB/OmniWM/main/assets/demo3.gif" alt="OmniWM demo" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/BarutSRB/OmniWM/main/assets/demo4.gif" alt="OmniWM demo" width="100%">
+</p>
+
 Small demo, not fully showing everything, gif recorded at 30fps due to size, features shown:
 - real quake-style temrinal using ghostty framework
 - window finder/jumper

@@ -18,8 +18,8 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         return tabs[activeTabIndex]
     }
 
-    private var surface: ghostty_surface_t? { activeTab?.surface }
-    private var surfaceView: GhosttySurfaceView? { activeTab?.surfaceView }
+    private var surface: ghostty_surface_t? { activeTab?.focusedSurface }
+    private var surfaceView: GhosttySurfaceView? { activeTab?.focusedSurfaceView }
 
     private(set) var visible: Bool = false
     private var previousApp: NSRunningApplication?
@@ -119,7 +119,9 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
     func cleanup() {
         for tab in tabs {
-            ghostty_surface_free(tab.surface)
+            for (surface, _) in tab.allSurfaces() {
+                ghostty_surface_free(surface)
+            }
         }
         tabs.removeAll()
         activeTabIndex = 0
@@ -217,30 +219,73 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         self.tabBar = bar
     }
 
-    @discardableResult
-    private func createTab() -> QuakeTerminalTab? {
+    private func createSurfaceView() -> GhosttySurfaceView? {
         guard let ghosttyApp else { return nil }
-
         let userdata = Unmanaged.passUnretained(self).toOpaque()
         let view = GhosttySurfaceView(ghosttyApp: ghosttyApp, userdata: userdata)
-        guard let newSurface = view.ghosttySurface else { return nil }
-
+        guard view.ghosttySurface != nil else { return nil }
         view.onFrameChanged = { [weak self] frame in
             self?.persistCustomFrame(frame)
         }
+        return view
+    }
 
-        let tab = QuakeTerminalTab(surface: newSurface, surfaceView: view)
+    @discardableResult
+    private func createTab() -> QuakeTerminalTab? {
+        guard let view = createSurfaceView() else { return nil }
+
+        let splitContainer = QuakeSplitContainer(initialView: view)
+        let tab = QuakeTerminalTab(splitContainer: splitContainer)
         tabs.append(tab)
         switchToTab(at: tabs.count - 1)
         return tab
+    }
+
+    func splitActivePane(direction: SplitDirection) {
+        guard let tab = activeTab,
+              let focused = tab.focusedSurfaceView,
+              let newView = createSurfaceView() else { return }
+        tab.splitContainer.split(view: focused, direction: direction, newView: newView)
+        window?.makeFirstResponder(newView)
+    }
+
+    func closeActivePane() {
+        guard let tab = activeTab,
+              let focused = tab.focusedSurfaceView,
+              let focusedSurface = focused.ghosttySurface else { return }
+
+        let leafCount = tab.splitContainer.root.leafCount()
+
+        if leafCount <= 1 {
+            closeTab(at: activeTabIndex)
+            return
+        }
+
+        let removed = tab.splitContainer.remove(view: focused)
+        if removed {
+            ghostty_surface_free(focusedSurface)
+            if let newFocus = tab.splitContainer.focusedView {
+                window?.makeFirstResponder(newFocus)
+            }
+        }
+    }
+
+    func navigatePane(direction: NavigationDirection) {
+        activeTab?.splitContainer.navigate(direction: direction)
+    }
+
+    func equalizeSplits() {
+        activeTab?.splitContainer.equalize()
     }
 
     func closeTab(at index: Int) {
         guard index >= 0, index < tabs.count else { return }
 
         let tab = tabs[index]
-        tab.surfaceView.removeFromSuperview()
-        ghostty_surface_free(tab.surface)
+        for (surface, _) in tab.allSurfaces() {
+            ghostty_surface_free(surface)
+        }
+        tab.splitContainer.removeFromSuperview()
         tabs.remove(at: index)
 
         if tabs.isEmpty {
@@ -267,7 +312,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         guard index >= 0, index < tabs.count else { return }
 
         if activeTabIndex < tabs.count {
-            tabs[activeTabIndex].surfaceView.removeFromSuperview()
+            tabs[activeTabIndex].splitContainer.removeFromSuperview()
         }
 
         activeTabIndex = index
@@ -281,19 +326,16 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             width: containerView.bounds.width,
             height: containerView.bounds.height - barHeight
         )
-        tab.surfaceView.frame = surfaceFrame
-        tab.surfaceView.autoresizingMask = [.width, .height]
-        containerView.addSubview(tab.surfaceView)
+        tab.splitContainer.frame = surfaceFrame
+        tab.splitContainer.autoresizingMask = [.width, .height]
+        containerView.addSubview(tab.splitContainer)
 
-        window?.makeFirstResponder(tab.surfaceView)
+        if let focused = tab.focusedSurfaceView {
+            window?.makeFirstResponder(focused)
+        }
 
         updateTabBarVisibility()
-
-        if let window {
-            let size = tab.surfaceView.frame.size
-            let scale = window.backingScaleFactor
-            ghostty_surface_set_size(tab.surface, UInt32(size.width * scale), UInt32(size.height * scale))
-        }
+        tab.splitContainer.relayout()
     }
 
     func selectNextTab() {
@@ -337,13 +379,14 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             )
         }
 
-        if let activeView = activeTab?.surfaceView {
+        if let activeContainer = activeTab?.splitContainer {
             let barHeight = showBar ? QuakeTerminalTabBar.barHeight : 0
-            activeView.frame = NSRect(
+            activeContainer.frame = NSRect(
                 x: 0, y: 0,
                 width: containerView.bounds.width,
                 height: containerView.bounds.height - barHeight
             )
+            activeContainer.relayout()
         }
     }
 
@@ -663,25 +706,42 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             return
         }
 
-        if let index = tabs.firstIndex(where: { $0.surfaceView == surfaceView }) {
-            let tab = tabs[index]
-            tab.surfaceView.removeFromSuperview()
-            tabs.remove(at: index)
+        guard let closedView = surfaceView else {
+            if visible { animateOut() }
+            return
+        }
 
-            if tabs.isEmpty {
-                activeTabIndex = 0
-                updateTabBarVisibility()
-                if visible { animateOut() }
+        for (tabIndex, tab) in tabs.enumerated() {
+            guard tab.splitContainer.contains(view: closedView) else { continue }
+
+            let leafCount = tab.splitContainer.root.leafCount()
+
+            if leafCount <= 1 {
+                tab.splitContainer.removeFromSuperview()
+                tabs.remove(at: tabIndex)
+
+                if tabs.isEmpty {
+                    activeTabIndex = 0
+                    updateTabBarVisibility()
+                    if visible { animateOut() }
+                    return
+                }
+
+                if activeTabIndex >= tabs.count {
+                    activeTabIndex = tabs.count - 1
+                }
+                switchToTab(at: activeTabIndex)
                 return
             }
 
-            if activeTabIndex >= tabs.count {
-                activeTabIndex = tabs.count - 1
+            let _ = tab.splitContainer.remove(view: closedView)
+            if let newFocus = tab.splitContainer.focusedView {
+                window?.makeFirstResponder(newFocus)
             }
-            switchToTab(at: activeTabIndex)
-        } else if visible {
-            animateOut()
+            return
         }
+
+        if visible { animateOut() }
     }
 
     nonisolated func windowDidResignKey(_ notification: Notification) {
@@ -724,12 +784,6 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             }
 
             updateTabBarVisibility()
-
-            if let surface, let surfaceView {
-                let size = surfaceView.frame.size
-                let scale = window.backingScaleFactor
-                ghostty_surface_set_size(surface, UInt32(size.width * scale), UInt32(size.height * scale))
-            }
         }
     }
 
