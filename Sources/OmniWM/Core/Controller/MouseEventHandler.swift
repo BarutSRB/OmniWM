@@ -23,6 +23,7 @@ final class MouseEventHandler {
     private var lastFocusFollowsMouseHandle: WindowHandle?
     private let focusFollowsMouseDebounce: TimeInterval = 0.1
     private var dragGhostController: DragGhostController?
+    private var moveIsInsertMode: Bool = false
 
     private static var sharedHandler: MouseEventHandler?
 
@@ -238,15 +239,18 @@ final class MouseEventHandler {
                 let workingFrame = controller.insetWorkingFrame(for: monitor)
                 let gaps = CGFloat(controller.internalWorkspaceManager.gaps)
 
+                let isInsertMode = modifiers.contains(.maskShift)
                 if engine.interactiveMoveBegin(
                     windowId: tiledWindow.id,
                     windowHandle: tiledWindow.handle,
                     startLocation: location,
+                    isInsertMode: isInsertMode,
                     in: wsId,
                     state: &state,
                     workingFrame: workingFrame,
                     gaps: gaps
                 ) {
+                    moveIsInsertMode = isInsertMode
                     controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
                     isMoving = true
                     NSCursor.closedHand.set()
@@ -303,11 +307,22 @@ final class MouseEventHandler {
 
             if let hoverTarget {
                 switch hoverTarget {
-                case let .window(_, handle, insertPosition) where insertPosition == .swap:
-                    if let entry = controller.internalWorkspaceManager.entry(for: handle),
-                       let frame = AXWindowService.framePreferFast(entry.axRef)
+                case let .window(nodeId, handle, insertPosition):
+                    if insertPosition == .swap {
+                        if let entry = controller.internalWorkspaceManager.entry(for: handle),
+                           let frame = AXWindowService.framePreferFast(entry.axRef)
+                        {
+                            dragGhostController?.showSwapTarget(frame: frame)
+                        }
+                    } else if let wsId = controller.activeWorkspace()?.id,
+                              let dropFrame = engine.insertionDropzoneFrame(
+                                  targetWindowId: nodeId,
+                                  position: insertPosition,
+                                  in: wsId,
+                                  gaps: CGFloat(controller.internalWorkspaceManager.gaps)
+                              )
                     {
-                        dragGhostController?.showSwapTarget(frame: frame)
+                        dragGhostController?.showSwapTarget(frame: dropFrame)
                     }
                 default:
                     dragGhostController?.hideSwapTarget()
@@ -367,6 +382,7 @@ final class MouseEventHandler {
 
             dragGhostController?.endDrag()
             isMoving = false
+            moveIsInsertMode = false
             NSCursor.arrow.set()
             return
         }
