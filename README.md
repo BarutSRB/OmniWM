@@ -74,12 +74,125 @@ brew install omniwm
 5. Click the menu bar icon to access Settings
 
 
+## User Guide
+
+### Layout Modes
+
+OmniWM offers two layout engines that you can switch between per-workspace:
+
+**Niri (Scrolling Columns)** - Windows arranged in vertical columns that scroll horizontally. Each column can have multiple stacked windows or be "tabbed" (multiple windows, one visible at a time). Best for wide monitors with many windows.
+
+**Dwindle (BSP)** - Binary space partition layout that recursively divides screen space. Each new window splits the space in half. Best for traditional tiling with predictable layouts.
+
+Switch layouts per-workspace with `Option + Shift + L`.
+
+### Keyboard Shortcuts
+
+All shortcuts are customizable in Settings > Hotkeys.
+
+#### Window Focus (Navigation)
+
+| Action | Shortcut |
+|--------|----------|
+| Focus Left / Right / Up / Down | `Option + Arrow Keys` |
+| Focus Previous Window | `Option + Tab` |
+| Focus First in Column | `Option + Home` |
+| Focus Last in Column | `Option + End` |
+
+#### Moving Windows
+
+| Action | Shortcut |
+|--------|----------|
+| Move Left / Right / Up / Down | `Option + Shift + Arrow Keys` |
+| Swap Left / Right | `Option + Ctrl + H` / `L` |
+| Move Column Left / Right | `Option + Ctrl + Shift + ← / →` |
+
+#### Workspaces
+
+| Action | Shortcut |
+|--------|----------|
+| Switch to Workspace 1-9 | `Option + 1-9` |
+| Move Window to Workspace 1-9 | `Option + Shift + 1-9` |
+| Toggle Back & Forth | `Option + Ctrl + Tab` |
+| Summon Workspace to Current Monitor | `Ctrl + Shift + 1-9` |
+
+#### Multi-Monitor
+
+| Action | Shortcut |
+|--------|----------|
+| Focus Monitor in Direction | `Ctrl + Cmd + Arrow Keys` |
+| Focus Next Monitor | `Ctrl + Cmd + Tab` |
+| Move Window to Monitor | `Option + Ctrl + Arrow Keys` |
+
+#### Layout Controls (Niri)
+
+| Action | Shortcut |
+|--------|----------|
+| Cycle Column Width | `Option + .` / `Option + ,` |
+| Toggle Full Width | `Option + Shift + F` |
+| Balance Sizes | `Option + Shift + B` |
+| Toggle Tabbed Column | `Option + T` |
+| Consume Window into Column | `Option + Ctrl + [` / `]` |
+| Expel Window from Column | `Option + Ctrl + Shift + [` / `]` |
+
+#### Special Features
+
+| Action | Shortcut |
+|--------|----------|
+| Toggle Fullscreen | `Option + Return` |
+| Window Finder | `Ctrl + Option + Space` |
+| Menu Anywhere | `Ctrl + Option + M` |
+| Menu Palette (searchable) | `Ctrl + Option + Shift + M` |
+| Quake Terminal | `` Option + ` `` |
+| Overview | `Option + Shift + O` |
+
+### Features
+
+#### Quake Terminal
+
+A drop-down terminal (powered by Ghostty) that slides in from the screen edge:
+- Toggle with `` Option + ` ``
+- Supports multiple tabs and splits within tabs
+- Configure position (top/bottom/left/right/center), size, and opacity in Settings
+- Auto-hides on focus loss (optional)
+
+#### Window Finder
+
+Quickly search and jump to any window:
+- Press `Ctrl + Option + Space`
+- Type to fuzzy-search by window title or app name
+- Use arrow keys to select, Enter to focus
+
+#### Menu Anywhere
+
+Access any application's menu from your keyboard:
+- `Ctrl + Option + M` - Shows native menu at cursor
+- `Ctrl + Option + Shift + M` - Searchable menu palette
+
+#### Overview Mode
+
+See all windows at once with thumbnails:
+- Press `Option + Shift + O`
+- Click a window to focus it
+- Search to filter windows
+
+#### Workspace Bar
+
+A visual indicator showing your workspaces:
+- Displays open apps per workspace
+- Click to switch workspaces
+- Configure position, height, and appearance in Settings
+
+### Tips
+
+- **Workspaces** - Create named workspaces in Settings to organize by project or context
+- **App Rules** - Exclude problematic apps from tiling or assign them to specific workspaces
+- **Mouse** - You can also drag windows to reposition them interactively
+- **Trackpad Gestures** - Use scroll gestures with modifier keys to adjust column width
+
 ## Configuration
 
 Access settings by clicking the **O** menu bar icon and selecting **Settings** or **App Rules**.
-
-There are huge amount of features and customizations and I'm really bad at doing guides but the GUI settings/customization should be fairly intuitive, some features have never before been available for macOS tiling WMs.
-If anyone is good at making video guides DM me on discord or through GitHub discussions I'd appreciate it.
 
 ## App Rules
 
