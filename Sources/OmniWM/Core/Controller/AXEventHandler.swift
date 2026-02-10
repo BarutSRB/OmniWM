@@ -287,6 +287,12 @@ final class AXEventHandler: CGSEventDelegate {
             {
                 var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
                 state.selectedNodeId = node.id
+                if let col = engine.column(of: node) {
+                    let windowNodes = col.windowNodes
+                    if let windowIdx = windowNodes.firstIndex(where: { $0.id == node.id }) {
+                        col.setActiveTileIdx(windowIdx)
+                    }
+                }
                 let gap = CGFloat(controller.internalWorkspaceManager.gaps)
                 let workingFrame = controller.insetWorkingFrame(for: monitor)
                 engine.ensureSelectionVisible(

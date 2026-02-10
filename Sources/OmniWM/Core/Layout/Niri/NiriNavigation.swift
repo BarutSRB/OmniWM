@@ -19,7 +19,9 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        let currentRowIndex = currentColumn.children.firstIndex { $0.id == currentSelection.id } ?? 0
+        let currentWindowNodes = currentColumn.windowNodes
+        let currentRowIndex = currentWindowNodes.firstIndex(where: { $0.id == currentSelection.id }) ?? 0
+        currentColumn.setActiveTileIdx(currentRowIndex)
 
         let len = cols.count
         let targetIdx: Int
@@ -39,7 +41,7 @@ extension NiriLayoutEngine {
         let targetRows = targetColumn.windowNodes
         guard !targetRows.isEmpty else { return targetColumn.firstChild() }
 
-        let clampedRowIndex = min(targetRowIndex ?? currentRowIndex, targetRows.count - 1)
+        let clampedRowIndex = min(targetRowIndex ?? targetColumn.activeTileIdx, targetRows.count - 1)
         return targetRows[clampedRowIndex]
     }
 
@@ -102,14 +104,24 @@ extension NiriLayoutEngine {
             )
         }
 
+        let target: NiriNode?
         switch direction {
         case .up:
-            return currentSelection.nextSibling()
+            target = currentSelection.nextSibling()
         case .down:
-            return currentSelection.prevSibling()
+            target = currentSelection.prevSibling()
         default:
-            return nil
+            target = nil
         }
+
+        if let target {
+            let windowNodes = currentColumn.windowNodes
+            if let idx = windowNodes.firstIndex(where: { $0.id == target.id }) {
+                currentColumn.setActiveTileIdx(idx)
+            }
+        }
+
+        return target
     }
 
     private func moveSelectionVerticalTabbed(
@@ -486,10 +498,10 @@ extension NiriLayoutEngine {
         let cols = columns(in: workspaceId)
         guard !cols.isEmpty else { return nil }
 
-        let currentRowIndex: Int = if let currentColumn = column(of: currentSelection) {
-            currentColumn.children.firstIndex { $0.id == currentSelection.id } ?? 0
-        } else {
-            0
+        if let currentColumn = column(of: currentSelection) {
+            let windowNodes = currentColumn.windowNodes
+            let idx = windowNodes.firstIndex(where: { $0.id == currentSelection.id }) ?? 0
+            currentColumn.setActiveTileIdx(idx)
         }
 
         state.activatePrevColumnOnRemoval = nil
@@ -498,7 +510,7 @@ extension NiriLayoutEngine {
         let windows = firstColumn.windowNodes
         guard !windows.isEmpty else { return firstColumn.firstChild() }
 
-        let target = windows[min(currentRowIndex, windows.count - 1)]
+        let target = windows[min(firstColumn.activeTileIdx, windows.count - 1)]
         ensureSelectionVisible(
             node: target,
             in: workspaceId,
@@ -521,10 +533,10 @@ extension NiriLayoutEngine {
         let cols = columns(in: workspaceId)
         guard !cols.isEmpty else { return nil }
 
-        let currentRowIndex: Int = if let currentColumn = column(of: currentSelection) {
-            currentColumn.children.firstIndex { $0.id == currentSelection.id } ?? 0
-        } else {
-            0
+        if let currentColumn = column(of: currentSelection) {
+            let windowNodes = currentColumn.windowNodes
+            let idx = windowNodes.firstIndex(where: { $0.id == currentSelection.id }) ?? 0
+            currentColumn.setActiveTileIdx(idx)
         }
 
         state.activatePrevColumnOnRemoval = nil
@@ -533,7 +545,7 @@ extension NiriLayoutEngine {
         let windows = lastColumn.windowNodes
         guard !windows.isEmpty else { return lastColumn.firstChild() }
 
-        let target = windows[min(currentRowIndex, windows.count - 1)]
+        let target = windows[min(lastColumn.activeTileIdx, windows.count - 1)]
         ensureSelectionVisible(
             node: target,
             in: workspaceId,
@@ -557,10 +569,10 @@ extension NiriLayoutEngine {
         let cols = columns(in: workspaceId)
         guard cols.indices.contains(columnIndex) else { return nil }
 
-        let currentRowIndex: Int = if let currentColumn = column(of: currentSelection) {
-            currentColumn.children.firstIndex { $0.id == currentSelection.id } ?? 0
-        } else {
-            0
+        if let currentColumn = column(of: currentSelection) {
+            let windowNodes = currentColumn.windowNodes
+            let idx = windowNodes.firstIndex(where: { $0.id == currentSelection.id }) ?? 0
+            currentColumn.setActiveTileIdx(idx)
         }
 
         state.activatePrevColumnOnRemoval = nil
@@ -569,7 +581,7 @@ extension NiriLayoutEngine {
         let windows = targetColumn.windowNodes
         guard !windows.isEmpty else { return targetColumn.firstChild() }
 
-        let target = windows[min(currentRowIndex, windows.count - 1)]
+        let target = windows[min(targetColumn.activeTileIdx, windows.count - 1)]
         ensureSelectionVisible(
             node: target,
             in: workspaceId,
@@ -595,8 +607,8 @@ extension NiriLayoutEngine {
         let windows = currentColumn.windowNodes
         guard windows.indices.contains(windowIndex) else { return nil }
 
+        currentColumn.setActiveTileIdx(windowIndex)
         if currentColumn.isTabbed {
-            currentColumn.setActiveTileIdx(windowIndex)
             updateTabbedColumnVisibility(column: currentColumn)
         }
 

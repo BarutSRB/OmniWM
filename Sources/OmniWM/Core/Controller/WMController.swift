@@ -445,6 +445,11 @@ final class WMController {
                let colIdx = engine.columnIndex(of: column, in: entry.workspaceId),
                let monitor = workspaceManager.monitor(for: entry.workspaceId)
             {
+                let windowNodes = column.windowNodes
+                if let windowIdx = windowNodes.firstIndex(where: { $0.id == niriWindow.id }) {
+                    column.setActiveTileIdx(windowIdx)
+                }
+
                 let cols = engine.columns(in: entry.workspaceId)
                 let gap = CGFloat(workspaceManager.gaps)
                 state.snapToColumn(
@@ -1122,6 +1127,11 @@ final class WMController {
                let colIdx = engine.columnIndex(of: column, in: workspaceId),
                let monitor = workspaceManager.monitor(for: workspaceId)
             {
+                let windowNodes = column.windowNodes
+                if let windowIdx = windowNodes.firstIndex(where: { $0.id == niriWindow.id }) {
+                    column.setActiveTileIdx(windowIdx)
+                }
+
                 let cols = engine.columns(in: workspaceId)
                 let gap = CGFloat(workspaceManager.gaps)
                 state.snapToColumn(
@@ -1244,6 +1254,11 @@ final class WMController {
                let colIdx = engine.columnIndex(of: column, in: entry.workspaceId),
                let monitor = workspaceManager.monitor(for: entry.workspaceId)
             {
+                let windowNodes = column.windowNodes
+                if let windowIdx = windowNodes.firstIndex(where: { $0.id == niriWindow.id }) {
+                    column.setActiveTileIdx(windowIdx)
+                }
+
                 let cols = engine.columns(in: entry.workspaceId)
                 let gap = CGFloat(workspaceManager.gaps)
                 state.snapToColumn(

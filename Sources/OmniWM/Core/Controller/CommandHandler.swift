@@ -299,6 +299,15 @@ final class CommandHandler {
             let gap = CGFloat(controller.internalWorkspaceManager.gaps)
             let workingFrame = controller.insetWorkingFrame(for: monitor)
 
+            if let currentId = state.selectedNodeId,
+               let currentNode = engine.findNode(by: currentId),
+               let currentColumn = engine.column(of: currentNode)
+            {
+                let windowNodes = currentColumn.windowNodes
+                let idx = windowNodes.firstIndex(where: { $0.id == currentId }) ?? 0
+                currentColumn.setActiveTileIdx(idx)
+            }
+
             guard let previousWindow = engine.focusPrevious(
                 currentNodeId: state.selectedNodeId,
                 in: wsId,
@@ -311,6 +320,12 @@ final class CommandHandler {
             }
 
             state.selectedNodeId = previousWindow.id
+            if let targetColumn = engine.column(of: previousWindow) {
+                let windowNodes = targetColumn.windowNodes
+                if let windowIdx = windowNodes.firstIndex(where: { $0.id == previousWindow.id }) {
+                    targetColumn.setActiveTileIdx(windowIdx)
+                }
+            }
             controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
 
             controller.internalFocusedHandle = previousWindow.handle

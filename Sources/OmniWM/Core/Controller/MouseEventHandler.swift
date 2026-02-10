@@ -528,6 +528,12 @@ final class MouseEventHandler {
                 lastFocusFollowsMouseHandle = handle
                 var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
                 state.selectedNodeId = tiledWindow.id
+                if let col = engine.column(of: tiledWindow) {
+                    let windowNodes = col.windowNodes
+                    if let windowIdx = windowNodes.firstIndex(where: { $0.id == tiledWindow.id }) {
+                        col.setActiveTileIdx(windowIdx)
+                    }
+                }
                 if let monitor = controller.internalWorkspaceManager.monitor(for: wsId) {
                     let gap = CGFloat(controller.internalWorkspaceManager.gaps)
                     let workingFrame = controller.insetWorkingFrame(for: monitor)
