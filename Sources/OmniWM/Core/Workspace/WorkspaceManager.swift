@@ -384,6 +384,11 @@ final class WorkspaceManager {
         return setActiveWorkspace(workspaceId, on: monitor)
     }
 
+    func assignWorkspaceToMonitor(_ workspaceId: WorkspaceDescriptor.ID, monitorId: Monitor.ID) {
+        guard let monitor = monitors.first(where: { $0.id == monitorId }) else { return }
+        updateWorkspace(workspaceId) { $0.assignedMonitorPoint = monitor.workspaceAnchorPoint }
+    }
+
     @discardableResult
     func move(
         handle: WindowHandle,

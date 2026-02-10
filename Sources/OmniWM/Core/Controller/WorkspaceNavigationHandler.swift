@@ -474,53 +474,132 @@ final class WorkspaceNavigationHandler {
         }
     }
 
+    private func resolveOrCreateAdjacentWorkspace(
+        from workspaceId: WorkspaceDescriptor.ID,
+        direction: Direction,
+        on monitorId: Monitor.ID
+    ) -> WorkspaceDescriptor? {
+        guard let controller else { return nil }
+        let wm = controller.internalWorkspaceManager
+
+        let existing: WorkspaceDescriptor? = if direction == .down {
+            wm.nextWorkspaceInOrder(on: monitorId, from: workspaceId, wrapAround: false)
+        } else {
+            wm.previousWorkspaceInOrder(on: monitorId, from: workspaceId, wrapAround: false)
+        }
+        if let existing { return existing }
+
+        guard let currentName = wm.descriptor(for: workspaceId)?.name,
+              let currentNumber = Int(currentName)
+        else { return nil }
+
+        let candidateNumber = direction == .down ? currentNumber + 1 : currentNumber - 1
+        guard candidateNumber > 0 else { return nil }
+
+        let candidateName = String(candidateNumber)
+        guard wm.workspaceId(named: candidateName) == nil else { return nil }
+
+        guard let targetId = wm.workspaceId(for: candidateName, createIfMissing: true) else { return nil }
+        wm.assignWorkspaceToMonitor(targetId, monitorId: monitorId)
+        return wm.descriptor(for: targetId)
+    }
+
     func moveWindowToAdjacentWorkspace(direction: Direction) {
         guard let controller else { return }
-        guard let engine = controller.internalNiriEngine else { return }
-        guard let monitor = controller.monitorForInteraction() else { return }
+        guard let handle = controller.internalFocusedHandle else { return }
+        guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+        else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
 
-        let workspaceIds = controller.internalWorkspaceManager.workspaces(on: monitor.id).map(\.id)
+        guard let targetWorkspace = resolveOrCreateAdjacentWorkspace(
+            from: wsId, direction: direction, on: currentMonitorId
+        ) else { return }
 
-        guard let targetWsId = engine.adjacentWorkspace(
-            from: wsId,
-            direction: direction,
-            workspaceIds: workspaceIds
-        ) else {
-            return
-        }
+        saveNiriViewportState(for: wsId)
 
-        var sourceState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-        var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWsId)
+        let sourceLayout = controller.internalWorkspaceManager.descriptor(for: wsId)
+            .map { controller.internalSettings.layoutType(for: $0.name) } ?? .defaultLayout
+        let targetLayout = controller.internalSettings.layoutType(for: targetWorkspace.name)
+        let sourceIsDwindle = sourceLayout == .dwindle
+        let targetIsDwindle = targetLayout == .dwindle
 
-        guard let currentId = sourceState.selectedNodeId,
-              let windowNode = engine.findNode(by: currentId) as? NiriWindow
-        else {
-            return
-        }
-
-        guard let result = engine.moveWindowToWorkspace(
-            windowNode,
-            from: wsId,
-            to: targetWsId,
-            sourceState: &sourceState,
-            targetState: &targetState
-        ) else {
-            return
-        }
-
-        controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: wsId)
-        controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWsId)
-
-        if let movedHandle = result.movedHandle {
-            controller.internalWorkspaceManager.setWorkspace(for: movedHandle, to: targetWsId)
-        }
-
-        if let newFocusId = result.newFocusNodeId,
-           let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
+        var movedWithNiri = false
+        if !sourceIsDwindle,
+           !targetIsDwindle,
+           let engine = controller.internalNiriEngine,
+           let windowNode = engine.findNode(for: handle)
         {
-            controller.internalFocusedHandle = newFocusNode.handle
-            controller.internalLastFocusedByWorkspace[wsId] = newFocusNode.handle
+            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+            var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWorkspace.id)
+            if let result = engine.moveWindowToWorkspace(
+                windowNode,
+                from: wsId,
+                to: targetWorkspace.id,
+                sourceState: &sourceState,
+                targetState: &targetState
+            ) {
+                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: wsId)
+                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWorkspace.id)
+                if let newFocusId = result.newFocusNodeId,
+                   let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
+                {
+                    controller.internalLastFocusedByWorkspace[wsId] = newFocusNode.handle
+                }
+                movedWithNiri = true
+            }
+        }
+
+        if !movedWithNiri,
+           !sourceIsDwindle,
+           let engine = controller.internalNiriEngine
+        {
+            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+
+            if let currentNode = engine.findNode(for: handle),
+               sourceState.selectedNodeId == currentNode.id
+            {
+                sourceState.selectedNodeId = engine.fallbackSelectionOnRemoval(
+                    removing: currentNode.id,
+                    in: wsId
+                )
+            }
+
+            if targetIsDwindle, engine.findNode(for: handle) != nil {
+                engine.removeWindow(handle: handle)
+            }
+
+            if let selectedId = sourceState.selectedNodeId,
+               engine.findNode(by: selectedId) == nil
+            {
+                sourceState.selectedNodeId = engine.validateSelection(selectedId, in: wsId)
+            }
+
+            if let selectedId = sourceState.selectedNodeId,
+               let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
+            {
+                controller.internalLastFocusedByWorkspace[wsId] = selectedNode.handle
+            }
+
+            controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: wsId)
+        } else if sourceIsDwindle,
+                  let dwindleEngine = controller.internalDwindleEngine
+        {
+            dwindleEngine.removeWindow(handle: handle, from: wsId)
+        }
+
+        controller.internalWorkspaceManager.setWorkspace(for: handle, to: targetWorkspace.id)
+        controller.internalLastFocusedByWorkspace[targetWorkspace.id] = handle
+
+        if let engine = controller.internalNiriEngine {
+            let sourceState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+            if let newSelectedId = sourceState.selectedNodeId,
+               let newSelectedNode = engine.findNode(by: newSelectedId) as? NiriWindow
+            {
+                controller.internalFocusedHandle = newSelectedNode.handle
+            } else {
+                controller.internalFocusedHandle = controller.internalWorkspaceManager
+                    .entries(in: wsId).first?.handle
+            }
         } else {
             controller.internalFocusedHandle = controller.internalWorkspaceManager.entries(in: wsId).first?.handle
         }
@@ -535,24 +614,21 @@ final class WorkspaceNavigationHandler {
     func moveColumnToAdjacentWorkspace(direction: Direction) {
         guard let controller else { return }
         guard let engine = controller.internalNiriEngine else { return }
-        guard let monitor = controller.monitorForInteraction() else { return }
+        guard let handle = controller.internalFocusedHandle else { return }
+        guard let currentMonitorId = controller.internalActiveMonitorId ?? controller.monitorForInteraction()?.id
+        else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
 
-        let workspaceIds = controller.internalWorkspaceManager.workspaces(on: monitor.id).map(\.id)
+        guard let targetWorkspace = resolveOrCreateAdjacentWorkspace(
+            from: wsId, direction: direction, on: currentMonitorId
+        ) else { return }
 
-        guard let targetWsId = engine.adjacentWorkspace(
-            from: wsId,
-            direction: direction,
-            workspaceIds: workspaceIds
-        ) else {
-            return
-        }
+        saveNiriViewportState(for: wsId)
 
         var sourceState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-        var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWsId)
+        var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWorkspace.id)
 
-        guard let currentId = sourceState.selectedNodeId,
-              let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+        guard let windowNode = engine.findNode(for: handle),
               let column = engine.findColumn(containing: windowNode, in: wsId)
         else {
             return
@@ -561,7 +637,7 @@ final class WorkspaceNavigationHandler {
         guard let result = engine.moveColumnToWorkspace(
             column,
             from: wsId,
-            to: targetWsId,
+            to: targetWorkspace.id,
             sourceState: &sourceState,
             targetState: &targetState
         ) else {
@@ -569,7 +645,13 @@ final class WorkspaceNavigationHandler {
         }
 
         controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: wsId)
-        controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWsId)
+        controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWorkspace.id)
+
+        for window in column.windowNodes {
+            controller.internalWorkspaceManager.setWorkspace(for: window.handle, to: targetWorkspace.id)
+        }
+
+        controller.internalLastFocusedByWorkspace[targetWorkspace.id] = handle
 
         if let newFocusId = result.newFocusNodeId,
            let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
