@@ -278,6 +278,24 @@ final class AXEventHandler: CGSEventDelegate {
             let wsId = entry.workspaceId
             controller.internalIsNonManagedFocusActive = false
 
+            let targetMonitor = controller.internalWorkspaceManager.monitor(for: wsId)
+            let isWorkspaceActive = targetMonitor.map { monitor in
+                controller.internalWorkspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
+            } ?? false
+
+            if !isWorkspaceActive {
+                let wsName = controller.internalWorkspaceManager.descriptor(for: wsId)?.name ?? ""
+                if let result = controller.internalWorkspaceManager.focusWorkspace(named: wsName) {
+                    let currentMonitorId = controller.internalActiveMonitorId
+                        ?? controller.monitorForInteraction()?.id
+                    if let currentMonitorId, currentMonitorId != result.monitor.id {
+                        controller.internalPreviousMonitorId = currentMonitorId
+                    }
+                    controller.internalActiveMonitorId = result.monitor.id
+                    controller.syncMonitorsToNiriEngine()
+                }
+            }
+
             controller.internalFocusedHandle = entry.handle
             controller.internalLastFocusedByWorkspace[wsId] = entry.handle
 
@@ -306,7 +324,9 @@ final class AXEventHandler: CGSEventDelegate {
                 controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
                 engine.updateFocusTimestamp(for: node.id)
 
-                controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+                if isWorkspaceActive {
+                    controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+                }
                 if state.viewOffsetPixels.isAnimating {
                     controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
                 }
@@ -320,6 +340,10 @@ final class AXEventHandler: CGSEventDelegate {
                 updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
             }
             controller.internalLayoutRefreshController?.updateTabbedColumnOverlays()
+            if !isWorkspaceActive {
+                controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+                focusWindow(entry.handle)
+            }
             return
         }
 
