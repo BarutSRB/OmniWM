@@ -1310,6 +1310,129 @@ extension WMController {
         }
     }
 
+    @MainActor struct NiriOperationContext {
+        let controller: WMController
+        let engine: NiriLayoutEngine
+        let wsId: WorkspaceDescriptor.ID
+        let windowNode: NiriWindow
+        let monitor: Monitor
+        let workingFrame: CGRect
+        let gaps: CGFloat
+
+        func commitWithPredictedAnimation(
+            state: ViewportState,
+            oldFrames: [WindowHandle: CGRect]
+        ) -> Bool {
+            controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+            let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
+                .backingScaleFactor ?? 2.0
+            let workingArea = WorkingAreaContext(
+                workingFrame: workingFrame,
+                viewFrame: monitor.frame,
+                scale: scale
+            )
+            let layoutGaps = LayoutGaps(
+                horizontal: gaps,
+                vertical: gaps,
+                outer: controller.internalWorkspaceManager.outerGaps
+            )
+            let animationTime = (engine.animationClock?.now() ?? CACurrentMediaTime()) + 2.0
+            let newFrames = engine.calculateCombinedLayoutUsingPools(
+                in: wsId,
+                monitor: monitor,
+                gaps: layoutGaps,
+                state: state,
+                workingArea: workingArea,
+                animationTime: animationTime
+            ).frames
+            _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
+            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+            let updatedState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+            return updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+        }
+
+        func commitWithCapturedAnimation(
+            state: ViewportState,
+            oldFrames: [WindowHandle: CGRect]
+        ) -> Bool {
+            controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+            let newFrames = engine.captureWindowFrames(in: wsId)
+            _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
+            let updatedState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+            return updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+        }
+
+        func commitSimple(state: ViewportState) -> Bool {
+            controller.internalWorkspaceManager.updateNiriViewportState(state, for: wsId)
+            controller.internalLayoutRefreshController?.executeLayoutRefreshImmediate()
+            let updatedState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
+            return updatedState.viewOffsetPixels.isAnimating
+        }
+    }
+
+    func withNiriOperationContext(
+        perform operation: (NiriOperationContext, inout ViewportState) -> Bool
+    ) {
+        var animatingWorkspaceId: WorkspaceDescriptor.ID?
+
+        layoutRefreshController?.runLightSession {
+            guard let engine = niriEngine else { return }
+            guard let wsId = activeWorkspace()?.id else { return }
+            var state = workspaceManager.niriViewportState(for: wsId)
+
+            guard let currentId = state.selectedNodeId,
+                  let currentNode = engine.findNode(by: currentId),
+                  let windowNode = currentNode as? NiriWindow
+            else { return }
+
+            guard let monitor = workspaceManager.monitor(for: wsId) else { return }
+            let workingFrame = insetWorkingFrame(for: monitor)
+            let gaps = CGFloat(workspaceManager.gaps)
+
+            let ctx = NiriOperationContext(
+                controller: self,
+                engine: engine,
+                wsId: wsId,
+                windowNode: windowNode,
+                monitor: monitor,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+
+            if operation(ctx, &state) {
+                animatingWorkspaceId = wsId
+            }
+        }
+
+        if let wsId = animatingWorkspaceId {
+            layoutRefreshController?.startScrollAnimation(for: wsId)
+        }
+    }
+
+    func withNiriWorkspaceContext(
+        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
+    ) {
+        layoutRefreshController?.runLightSession {
+            guard let engine = niriEngine else { return }
+            guard let wsId = activeWorkspace()?.id else { return }
+            var state = workspaceManager.niriViewportState(for: wsId)
+            guard let monitor = workspaceManager.monitor(for: wsId) else { return }
+            let workingFrame = insetWorkingFrame(for: monitor)
+            let gaps = CGFloat(workspaceManager.gaps)
+            perform(engine, wsId, &state, monitor, workingFrame, gaps)
+        }
+    }
+
+    func withDwindleContext(
+        perform: (DwindleLayoutEngine, WorkspaceDescriptor.ID) -> Void
+    ) {
+        guard let engine = dwindleEngine,
+              let wsId = activeWorkspace()?.id
+        else { return }
+        perform(engine, wsId)
+    }
+
     var internalNiriEngine: NiriLayoutEngine? { niriEngine }
     var internalDwindleEngine: DwindleLayoutEngine? { dwindleEngine }
     var internalWorkspaceManager: WorkspaceManager { workspaceManager }

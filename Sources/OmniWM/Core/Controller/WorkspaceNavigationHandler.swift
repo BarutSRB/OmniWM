@@ -556,6 +556,111 @@ final class WorkspaceNavigationHandler {
         return wm.descriptor(for: targetId)
     }
 
+    private struct WindowTransferResult {
+        let succeeded: Bool
+        let newSourceFocusHandle: WindowHandle?
+    }
+
+    private func transferWindowFromSourceEngine(
+        handle: WindowHandle,
+        from sourceWsId: WorkspaceDescriptor.ID?,
+        to targetWsId: WorkspaceDescriptor.ID
+    ) -> WindowTransferResult {
+        guard let controller else { return WindowTransferResult(succeeded: false, newSourceFocusHandle: nil) }
+
+        let sourceLayout: LayoutType = sourceWsId
+            .flatMap { controller.internalWorkspaceManager.descriptor(for: $0)?.name }
+            .map { controller.internalSettings.layoutType(for: $0) } ?? .defaultLayout
+        let targetLayout: LayoutType = controller.internalWorkspaceManager.descriptor(for: targetWsId)
+            .map { controller.internalSettings.layoutType(for: $0.name) } ?? .defaultLayout
+        let sourceIsDwindle = sourceLayout == .dwindle
+        let targetIsDwindle = targetLayout == .dwindle
+
+        var newSourceFocusHandle: WindowHandle?
+        var movedWithNiri = false
+
+        if !sourceIsDwindle,
+           !targetIsDwindle,
+           let sourceWsId,
+           let engine = controller.internalNiriEngine,
+           let windowNode = engine.findNode(for: handle)
+        {
+            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: sourceWsId)
+            var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWsId)
+            if let result = engine.moveWindowToWorkspace(
+                windowNode,
+                from: sourceWsId,
+                to: targetWsId,
+                sourceState: &sourceState,
+                targetState: &targetState
+            ) {
+                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: sourceWsId)
+                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWsId)
+                if let newFocusId = result.newFocusNodeId,
+                   let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
+                {
+                    controller.internalLastFocusedByWorkspace[sourceWsId] = newFocusNode.handle
+                    newSourceFocusHandle = newFocusNode.handle
+                }
+                movedWithNiri = true
+            }
+        }
+
+        if !movedWithNiri,
+           !sourceIsDwindle,
+           let sourceWsId,
+           let engine = controller.internalNiriEngine
+        {
+            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: sourceWsId)
+
+            if let currentNode = engine.findNode(for: handle),
+               sourceState.selectedNodeId == currentNode.id
+            {
+                sourceState.selectedNodeId = engine.fallbackSelectionOnRemoval(
+                    removing: currentNode.id,
+                    in: sourceWsId
+                )
+            }
+
+            if targetIsDwindle, engine.findNode(for: handle) != nil {
+                engine.removeWindow(handle: handle)
+            }
+
+            if let selectedId = sourceState.selectedNodeId,
+               engine.findNode(by: selectedId) == nil
+            {
+                sourceState.selectedNodeId = engine.validateSelection(selectedId, in: sourceWsId)
+            }
+
+            if let selectedId = sourceState.selectedNodeId,
+               let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
+            {
+                controller.internalLastFocusedByWorkspace[sourceWsId] = selectedNode.handle
+                newSourceFocusHandle = selectedNode.handle
+            }
+
+            controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: sourceWsId)
+        } else if sourceIsDwindle,
+                  let sourceWsId,
+                  let dwindleEngine = controller.internalDwindleEngine
+        {
+            dwindleEngine.removeWindow(handle: handle, from: sourceWsId)
+        }
+
+        let succeeded: Bool
+        if movedWithNiri {
+            succeeded = true
+        } else if sourceWsId == nil {
+            succeeded = true
+        } else if !sourceIsDwindle && !targetIsDwindle {
+            succeeded = false
+        } else {
+            succeeded = true
+        }
+
+        return WindowTransferResult(succeeded: succeeded, newSourceFocusHandle: newSourceFocusHandle)
+    }
+
     func moveWindowToAdjacentWorkspace(direction: Direction) {
         guard let controller else { return }
         guard let handle = controller.internalFocusedHandle else { return }
@@ -569,75 +674,8 @@ final class WorkspaceNavigationHandler {
 
         saveNiriViewportState(for: wsId)
 
-        let sourceLayout = controller.internalWorkspaceManager.descriptor(for: wsId)
-            .map { controller.internalSettings.layoutType(for: $0.name) } ?? .defaultLayout
-        let targetLayout = controller.internalSettings.layoutType(for: targetWorkspace.name)
-        let sourceIsDwindle = sourceLayout == .dwindle
-        let targetIsDwindle = targetLayout == .dwindle
-
-        var movedWithNiri = false
-        if !sourceIsDwindle,
-           !targetIsDwindle,
-           let engine = controller.internalNiriEngine,
-           let windowNode = engine.findNode(for: handle)
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-            var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWorkspace.id)
-            if let result = engine.moveWindowToWorkspace(
-                windowNode,
-                from: wsId,
-                to: targetWorkspace.id,
-                sourceState: &sourceState,
-                targetState: &targetState
-            ) {
-                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: wsId)
-                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWorkspace.id)
-                if let newFocusId = result.newFocusNodeId,
-                   let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
-                {
-                    controller.internalLastFocusedByWorkspace[wsId] = newFocusNode.handle
-                }
-                movedWithNiri = true
-            }
-        }
-
-        if !movedWithNiri,
-           !sourceIsDwindle,
-           let engine = controller.internalNiriEngine
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-
-            if let currentNode = engine.findNode(for: handle),
-               sourceState.selectedNodeId == currentNode.id
-            {
-                sourceState.selectedNodeId = engine.fallbackSelectionOnRemoval(
-                    removing: currentNode.id,
-                    in: wsId
-                )
-            }
-
-            if targetIsDwindle, engine.findNode(for: handle) != nil {
-                engine.removeWindow(handle: handle)
-            }
-
-            if let selectedId = sourceState.selectedNodeId,
-               engine.findNode(by: selectedId) == nil
-            {
-                sourceState.selectedNodeId = engine.validateSelection(selectedId, in: wsId)
-            }
-
-            if let selectedId = sourceState.selectedNodeId,
-               let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
-            {
-                controller.internalLastFocusedByWorkspace[wsId] = selectedNode.handle
-            }
-
-            controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: wsId)
-        } else if sourceIsDwindle,
-                  let dwindleEngine = controller.internalDwindleEngine
-        {
-            dwindleEngine.removeWindow(handle: handle, from: wsId)
-        }
+        let transferResult = transferWindowFromSourceEngine(handle: handle, from: wsId, to: targetWorkspace.id)
+        guard transferResult.succeeded else { return }
 
         controller.internalWorkspaceManager.setWorkspace(for: handle, to: targetWorkspace.id)
         controller.internalLastFocusedByWorkspace[targetWorkspace.id] = handle
@@ -780,79 +818,8 @@ final class WorkspaceNavigationHandler {
         }
         let currentWorkspaceId = controller.internalWorkspaceManager.workspace(for: handle)
 
-        let sourceLayout = currentWorkspaceId
-            .flatMap { controller.internalWorkspaceManager.descriptor(for: $0)?.name }
-            .map { controller.internalSettings.layoutType(for: $0) } ?? .defaultLayout
-        let targetLayout = controller.internalSettings.layoutType(for: target.name)
-        let sourceIsDwindle = sourceLayout == .dwindle
-        let targetIsDwindle = targetLayout == .dwindle
-
-        var movedWithNiri = false
-        if !sourceIsDwindle,
-           !targetIsDwindle,
-           let sourceWsId = currentWorkspaceId,
-           let engine = controller.internalNiriEngine,
-           let windowNode = engine.findNode(for: handle)
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: sourceWsId)
-            var targetState = controller.internalWorkspaceManager.niriViewportState(for: target.id)
-            if let result = engine.moveWindowToWorkspace(
-                windowNode,
-                from: sourceWsId,
-                to: target.id,
-                sourceState: &sourceState,
-                targetState: &targetState
-            ) {
-                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: sourceWsId)
-                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: target.id)
-                if let newFocusId = result.newFocusNodeId,
-                   let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
-                {
-                    controller.internalLastFocusedByWorkspace[sourceWsId] = newFocusNode.handle
-                }
-                movedWithNiri = true
-            }
-        }
-
-        if !movedWithNiri,
-           !sourceIsDwindle,
-           let engine = controller.internalNiriEngine,
-           let sourceWsId = currentWorkspaceId
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: sourceWsId)
-
-            if let currentNode = engine.findNode(for: handle),
-               sourceState.selectedNodeId == currentNode.id
-            {
-                sourceState.selectedNodeId = engine.fallbackSelectionOnRemoval(
-                    removing: currentNode.id,
-                    in: sourceWsId
-                )
-            }
-
-            if targetIsDwindle, engine.findNode(for: handle) != nil {
-                engine.removeWindow(handle: handle)
-            }
-
-            if let selectedId = sourceState.selectedNodeId,
-               engine.findNode(by: selectedId) == nil
-            {
-                sourceState.selectedNodeId = engine.validateSelection(selectedId, in: sourceWsId)
-            }
-
-            if let selectedId = sourceState.selectedNodeId,
-               let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
-            {
-                controller.internalLastFocusedByWorkspace[sourceWsId] = selectedNode.handle
-            }
-
-            controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: sourceWsId)
-        } else if sourceIsDwindle,
-                  let sourceWsId = currentWorkspaceId,
-                  let dwindleEngine = controller.internalDwindleEngine
-        {
-            dwindleEngine.removeWindow(handle: handle, from: sourceWsId)
-        }
+        let transferResult = transferWindowFromSourceEngine(handle: handle, from: currentWorkspaceId, to: target.id)
+        guard transferResult.succeeded else { return }
 
         controller.internalWorkspaceManager.setWorkspace(for: handle, to: target.id)
 
@@ -916,60 +883,10 @@ final class WorkspaceNavigationHandler {
         let targetWorkspace = target.workspace
         let targetMonitor = target.monitor
 
-        let sourceLayout = controller.internalWorkspaceManager.descriptor(for: currentWorkspaceId)
-            .map { controller.internalSettings.layoutType(for: $0.name) } ?? .defaultLayout
-        let targetLayout = controller.internalWorkspaceManager.descriptor(for: targetWorkspace.id)
-            .map { controller.internalSettings.layoutType(for: $0.name) } ?? .defaultLayout
-        let sourceIsDwindle = sourceLayout == .dwindle
-        let targetIsDwindle = targetLayout == .dwindle
-
-        if !sourceIsDwindle,
-           !targetIsDwindle,
-           let engine = controller.internalNiriEngine,
-           let windowNode = engine.findNode(for: handle)
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: currentWorkspaceId)
-            var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWorkspace.id)
-            if let result = engine.moveWindowToWorkspace(
-                windowNode,
-                from: currentWorkspaceId,
-                to: targetWorkspace.id,
-                sourceState: &sourceState,
-                targetState: &targetState
-            ) {
-                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: currentWorkspaceId)
-                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWorkspace.id)
-                if let newFocusId = result.newFocusNodeId,
-                   let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
-                {
-                    controller.internalLastFocusedByWorkspace[currentWorkspaceId] = newFocusNode.handle
-                }
-            }
-        } else if !sourceIsDwindle,
-                  targetIsDwindle,
-                  let engine = controller.internalNiriEngine
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: currentWorkspaceId)
-            if let currentNode = engine.findNode(for: handle) {
-                if sourceState.selectedNodeId == currentNode.id {
-                    sourceState.selectedNodeId = engine.fallbackSelectionOnRemoval(
-                        removing: currentNode.id,
-                        in: currentWorkspaceId
-                    )
-                }
-                engine.removeWindow(handle: handle)
-                if let selectedId = sourceState.selectedNodeId,
-                   engine.findNode(by: selectedId) == nil
-                {
-                    sourceState.selectedNodeId = engine.validateSelection(selectedId, in: currentWorkspaceId)
-                }
-                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: currentWorkspaceId)
-            }
-        } else if sourceIsDwindle,
-                  let dwindleEngine = controller.internalDwindleEngine
-        {
-            dwindleEngine.removeWindow(handle: handle, from: currentWorkspaceId)
-        }
+        let transferResult = transferWindowFromSourceEngine(
+            handle: handle, from: currentWorkspaceId, to: targetWorkspace.id
+        )
+        guard transferResult.succeeded else { return }
 
         controller.internalWorkspaceManager.setWorkspace(for: handle, to: targetWorkspace.id)
 
@@ -1029,73 +946,10 @@ final class WorkspaceNavigationHandler {
             controller.syncMonitorsToNiriEngine()
         }
 
-        let sourceLayout = controller.internalWorkspaceManager.descriptor(for: currentWorkspaceId)
-            .map { controller.internalSettings.layoutType(for: $0.name) } ?? .defaultLayout
-        let targetLayout = controller.internalWorkspaceManager.descriptor(for: targetWsId)
-            .map { controller.internalSettings.layoutType(for: $0.name) } ?? .defaultLayout
-        let sourceIsDwindle = sourceLayout == .dwindle
-        let targetIsDwindle = targetLayout == .dwindle
-
-        var movedWithNiri = false
-        if !sourceIsDwindle,
-           !targetIsDwindle,
-           let engine = controller.internalNiriEngine,
-           let windowNode = engine.findNode(for: handle)
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: currentWorkspaceId)
-            var targetState = controller.internalWorkspaceManager.niriViewportState(for: targetWsId)
-            if let result = engine.moveWindowToWorkspace(
-                windowNode,
-                from: currentWorkspaceId,
-                to: targetWsId,
-                sourceState: &sourceState,
-                targetState: &targetState
-            ) {
-                controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: currentWorkspaceId)
-                controller.internalWorkspaceManager.updateNiriViewportState(targetState, for: targetWsId)
-                if let newFocusId = result.newFocusNodeId,
-                   let newFocusNode = engine.findNode(by: newFocusId) as? NiriWindow
-                {
-                    controller.internalLastFocusedByWorkspace[currentWorkspaceId] = newFocusNode.handle
-                }
-                movedWithNiri = true
-            }
-        }
-
-        if !movedWithNiri,
-           !sourceIsDwindle,
-           let engine = controller.internalNiriEngine
-        {
-            var sourceState = controller.internalWorkspaceManager.niriViewportState(for: currentWorkspaceId)
-            if let currentNode = engine.findNode(for: handle), sourceState.selectedNodeId == currentNode.id {
-                sourceState.selectedNodeId = engine.fallbackSelectionOnRemoval(
-                    removing: currentNode.id,
-                    in: currentWorkspaceId
-                )
-            }
-
-            if targetIsDwindle, engine.findNode(for: handle) != nil {
-                engine.removeWindow(handle: handle)
-            }
-
-            if let selectedId = sourceState.selectedNodeId,
-               engine.findNode(by: selectedId) == nil
-            {
-                sourceState.selectedNodeId = engine.validateSelection(selectedId, in: currentWorkspaceId)
-            }
-
-            if let selectedId = sourceState.selectedNodeId,
-               let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
-            {
-                controller.internalLastFocusedByWorkspace[currentWorkspaceId] = selectedNode.handle
-            }
-
-            controller.internalWorkspaceManager.updateNiriViewportState(sourceState, for: currentWorkspaceId)
-        } else if sourceIsDwindle,
-                  let dwindleEngine = controller.internalDwindleEngine
-        {
-            dwindleEngine.removeWindow(handle: handle, from: currentWorkspaceId)
-        }
+        let transferResult = transferWindowFromSourceEngine(
+            handle: handle, from: currentWorkspaceId, to: targetWsId
+        )
+        guard transferResult.succeeded else { return }
 
         controller.internalWorkspaceManager.setWorkspace(for: handle, to: targetWsId)
 
