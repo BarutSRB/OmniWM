@@ -45,7 +45,7 @@ final class OverviewController {
         createWindows()
         startThumbnailCapture()
 
-        let monitor = wmController.internalWorkspaceManager.monitors.first
+        let monitor = wmController.workspaceManager.monitors.first
         let displayId = monitor?.displayId ?? CGMainDisplayID()
         let refreshRate = detectRefreshRate(for: displayId)
 
@@ -63,7 +63,7 @@ final class OverviewController {
         guard state.isOpen else { return }
 
         let targetWindow = layout.selectedWindow()?.handle
-        let monitor = wmController?.internalWorkspaceManager.monitors.first
+        let monitor = wmController?.workspaceManager.monitors.first
         let displayId = monitor?.displayId ?? CGMainDisplayID()
         let refreshRate = detectRefreshRate(for: displayId)
 
@@ -77,7 +77,7 @@ final class OverviewController {
 
     private func buildLayout() {
         guard let wmController else { return }
-        let workspaceManager = wmController.internalWorkspaceManager
+        let workspaceManager = wmController.workspaceManager
         let appInfoCache = wmController.appInfoCache
 
         var workspaces: [(id: WorkspaceDescriptor.ID, name: String, isActive: Bool)] = []
@@ -89,7 +89,7 @@ final class OverviewController {
             for ws in workspaceManager.workspaces(on: monitor.id) {
                 workspaces.append((
                     id: ws.id,
-                    name: wmController.internalSettings.displayName(for: ws.name),
+                    name: wmController.settings.displayName(for: ws.name),
                     isActive: ws.id == activeWs?.id
                 ))
 
@@ -130,7 +130,7 @@ final class OverviewController {
 
         guard let wmController else { return }
 
-        for monitor in wmController.internalWorkspaceManager.monitors {
+        for monitor in wmController.workspaceManager.monitors {
             let window = OverviewWindow(monitor: monitor)
 
             window.onWindowSelected = { [weak self] handle in
@@ -246,7 +246,7 @@ final class OverviewController {
 
     func focusTargetWindow(_ handle: WindowHandle) {
         guard let wmController else { return }
-        guard let entry = wmController.internalWorkspaceManager.entry(for: handle) else { return }
+        guard let entry = wmController.workspaceManager.entry(for: handle) else { return }
 
         onActivateWindow?(handle, entry.workspaceId)
     }

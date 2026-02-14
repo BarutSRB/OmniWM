@@ -1,28 +1,26 @@
 import AppKit
 import Foundation
 
-@MainActor
-final class AXEventHandler: CGSEventDelegate {
-    private weak var controller: WMController?
-
-    private var pendingFocusHandle: WindowHandle?
-    private var deferredFocusHandle: WindowHandle?
-    private var isFocusOperationPending = false
-    private var lastFocusTime: Date = .distantPast
-
-    init(controller: WMController) {
-        self.controller = controller
-        setupCGSEventObserver()
+extension WMController {
+    struct AXEventState {
+        var pendingFocusHandle: WindowHandle?
+        var deferredFocusHandle: WindowHandle?
+        var isFocusOperationPending = false
+        var lastFocusTime: Date = .distantPast
     }
 
-    private func setupCGSEventObserver() {
+    func axEventSetup() {
         CGSEventObserver.shared.delegate = self
         CGSEventObserver.shared.start()
     }
 
-    func cgsEventObserver(_: CGSEventObserver, didReceive event: CGSWindowEvent) {
-        guard let controller else { return }
+    func axEventCleanup() {
+        CGSEventObserver.shared.delegate = nil
+    }
+}
 
+extension WMController: CGSEventDelegate {
+    func cgsEventObserver(_: CGSEventObserver, didReceive event: CGSWindowEvent) {
         switch event {
         case let .created(windowId, _):
             handleCGSWindowCreated(windowId: windowId)
@@ -35,28 +33,26 @@ final class AXEventHandler: CGSEventDelegate {
 
         case let .moved(windowId):
             handleWindowMoveOrResize(windowId: windowId)
-            controller.internalLayoutRefreshController?.scheduleRefreshSession(.axWindowChanged)
+            scheduleRefreshSession(.axWindowChanged)
 
         case let .resized(windowId):
             handleWindowMoveOrResize(windowId: windowId)
-            controller.internalLayoutRefreshController?.scheduleRefreshSession(.axWindowChanged)
+            scheduleRefreshSession(.axWindowChanged)
 
         case let .frontAppChanged(pid):
             handleAppActivation(pid: pid)
 
         case .titleChanged:
-            controller.updateWorkspaceBar()
+            updateWorkspaceBar()
         }
     }
 
     private func handleCGSWindowCreated(windowId: UInt32) {
-        guard let controller else { return }
-
-        if controller.internalLayoutRefreshController?.isDiscoveryInProgress ?? false {
+        if isDiscoveryInProgress {
             return
         }
 
-        if controller.internalWorkspaceManager.entry(forWindowId: Int(windowId)) != nil {
+        if workspaceManager.entry(forWindowId: Int(windowId)) != nil {
             return
         }
 
@@ -73,9 +69,8 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func handleWindowMoveOrResize(windowId: UInt32) {
-        guard let controller else { return }
-        guard let focusedHandle = controller.internalFocusedHandle,
-              let entry = controller.internalWorkspaceManager.entry(for: focusedHandle),
+        guard let focusedHandle,
+              let entry = workspaceManager.entry(for: focusedHandle),
               entry.windowId == Int(windowId)
         else { return }
 
@@ -85,9 +80,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func handleCGSWindowDestroyed(windowId: UInt32) {
-        guard let controller else { return }
-
-        guard let entry = controller.internalWorkspaceManager.entry(
+        guard let entry = workspaceManager.entry(
             forWindowId: Int(windowId),
             inVisibleWorkspaces: true
         ) else {
@@ -98,77 +91,72 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     func subscribeToManagedWindows() {
-        guard let controller else { return }
-        let windowIds = controller.internalWorkspaceManager.allEntries().compactMap { entry -> UInt32? in
+        let windowIds = workspaceManager.allEntries().compactMap { entry -> UInt32? in
             UInt32(entry.windowId)
         }
         CGSEventObserver.shared.subscribeToWindows(windowIds)
     }
 
     private func handleCreated(ref: AXWindowRef, pid: pid_t, winId: Int) {
-        guard let controller else { return }
-
         let app = NSRunningApplication(processIdentifier: pid)
         let bundleId = app?.bundleIdentifier
         let appPolicy = app?.activationPolicy
         let windowType = AXWindowService.windowType(ref, appPolicy: appPolicy, bundleId: bundleId)
         guard windowType == .tiling else { return }
 
-        if let bundleId, controller.internalAppRulesByBundleId[bundleId]?.alwaysFloat == true {
+        if let bundleId, appRulesByBundleId[bundleId]?.alwaysFloat == true {
             return
         }
 
-        let workspaceId = controller.resolveWorkspaceForNewWindow(
+        let workspaceId = resolveWorkspaceForNewWindow(
             axRef: ref,
             pid: pid,
-            fallbackWorkspaceId: controller.activeWorkspace()?.id
+            fallbackWorkspaceId: activeWorkspace()?.id
         )
 
-        if workspaceId != controller.activeWorkspace()?.id {
-            if let monitor = controller.internalWorkspaceManager.monitor(for: workspaceId),
-               controller.internalWorkspaceManager.workspaces(on: monitor.id)
+        if workspaceId != activeWorkspace()?.id {
+            if let monitor = workspaceManager.monitor(for: workspaceId),
+               workspaceManager.workspaces(on: monitor.id)
                .contains(where: { $0.id == workspaceId })
             {
-                if let currentMonitorId = controller.internalActiveMonitorId ?? controller
-                    .monitorForInteraction()?.id,
+                if let currentMonitorId = activeMonitorId ?? monitorForInteraction()?.id,
                     currentMonitorId != monitor.id
                 {
-                    controller.internalPreviousMonitorId = currentMonitorId
+                    previousMonitorId = currentMonitorId
                 }
-                controller.internalActiveMonitorId = monitor.id
-                _ = controller.internalWorkspaceManager.setActiveWorkspace(workspaceId, on: monitor.id)
+                activeMonitorId = monitor.id
+                _ = workspaceManager.setActiveWorkspace(workspaceId, on: monitor.id)
             }
         }
 
-        _ = controller.internalWorkspaceManager.addWindow(ref, pid: pid, windowId: winId, to: workspaceId)
+        _ = workspaceManager.addWindow(ref, pid: pid, windowId: winId, to: workspaceId)
         CGSEventObserver.shared.subscribeToWindows([UInt32(winId)])
-        controller.updateWorkspaceBar()
+        updateWorkspaceBar()
 
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             if let app = NSRunningApplication(processIdentifier: pid) {
-                _ = await controller.internalAXManager.windowsForApp(app)
+                _ = await axManager.windowsForApp(app)
             }
         }
 
-        controller.internalLayoutRefreshController?.scheduleRefreshSession(.axWindowCreated)
+        scheduleRefreshSession(.axWindowCreated)
     }
 
     func handleRemoved(pid: pid_t, winId: Int) {
-        guard let controller else { return }
-
-        let entry = controller.internalWorkspaceManager.entry(forPid: pid, windowId: winId)
+        let entry = workspaceManager.entry(forPid: pid, windowId: winId)
         let affectedWorkspaceId = entry?.workspaceId
         let removedHandle = entry?.handle
 
         if let entry,
            let wsId = affectedWorkspaceId,
-           let monitor = controller.internalWorkspaceManager.monitor(for: wsId),
-           controller.internalWorkspaceManager.activeWorkspace(on: monitor.id)?.id == wsId,
-           controller.internalSettings.animationsEnabled,
-           let workspaceName = controller.internalWorkspaceManager.descriptor(for: wsId)?.name,
-           controller.internalSettings.layoutType(for: workspaceName) != .dwindle
+           let monitor = workspaceManager.monitor(for: wsId),
+           workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId,
+           settings.animationsEnabled,
+           let workspaceName = workspaceManager.descriptor(for: wsId)?.name,
+           settings.layoutType(for: workspaceName) != .dwindle
         {
-            let shouldAnimate = if let engine = controller.internalNiriEngine,
+            let shouldAnimate = if let engine = niriEngine,
                                     let windowNode = engine.findNode(for: entry.handle)
             {
                 !windowNode.isHiddenInTabbedMode
@@ -176,57 +164,57 @@ final class AXEventHandler: CGSEventDelegate {
                 true
             }
             if shouldAnimate {
-                controller.internalLayoutRefreshController?.startWindowCloseAnimation(
+                startWindowCloseAnimation(
                     entry: entry,
                     monitor: monitor
                 )
             }
         }
 
-        let needsFocusRecovery = removedHandle?.id == controller.internalFocusedHandle?.id
+        let needsFocusRecovery = removedHandle?.id == focusedHandle?.id
 
         if let removed = removedHandle {
-            if pendingFocusHandle?.id == removed.id {
-                pendingFocusHandle = nil
+            if axEventState.pendingFocusHandle?.id == removed.id {
+                axEventState.pendingFocusHandle = nil
             }
-            if deferredFocusHandle?.id == removed.id {
-                deferredFocusHandle = nil
+            if axEventState.deferredFocusHandle?.id == removed.id {
+                axEventState.deferredFocusHandle = nil
             }
-            if controller.internalFocusedHandle?.id == removed.id {
-                controller.internalFocusedHandle = nil
+            if focusedHandle?.id == removed.id {
+                focusedHandle = nil
             }
             if let wsId = affectedWorkspaceId,
-               controller.internalLastFocusedByWorkspace[wsId]?.id == removed.id {
-                controller.internalLastFocusedByWorkspace[wsId] = nil
+               lastFocusedByWorkspace[wsId]?.id == removed.id {
+                lastFocusedByWorkspace[wsId] = nil
             }
         }
 
         var oldFrames: [WindowHandle: CGRect] = [:]
         var removedNodeId: NodeId?
-        if let wsId = affectedWorkspaceId, let engine = controller.internalNiriEngine {
+        if let wsId = affectedWorkspaceId, let engine = niriEngine {
             oldFrames = engine.captureWindowFrames(in: wsId)
             if let handle = removedHandle {
                 removedNodeId = engine.findNode(for: handle)?.id
             }
         }
 
-        controller.internalWorkspaceManager.removeWindow(pid: pid, windowId: winId)
+        workspaceManager.removeWindow(pid: pid, windowId: winId)
 
         if needsFocusRecovery, let wsId = affectedWorkspaceId {
             ensureFocusedHandleValid(in: wsId)
         }
 
         if let wsId = affectedWorkspaceId {
-            Task { @MainActor [weak controller] in
-                guard let controller else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
 
-                await controller.internalLayoutRefreshController?.layoutWithNiriEngine(
+                await layoutWithNiriEngine(
                     activeWorkspaces: [wsId],
                     useScrollAnimationPath: true,
                     removedNodeId: removedNodeId
                 )
 
-                if let engine = controller.internalNiriEngine {
+                if let engine = niriEngine {
                     let newFrames = engine.captureWindowFrames(in: wsId)
                     let animationsTriggered = engine.triggerMoveAnimations(
                         in: wsId,
@@ -237,73 +225,73 @@ final class AXEventHandler: CGSEventDelegate {
                     let hasColumnAnimations = engine.hasAnyColumnAnimationsRunning(in: wsId)
 
                     if animationsTriggered || hasWindowAnimations || hasColumnAnimations {
-                        controller.internalLayoutRefreshController?.startScrollAnimation(for: wsId)
+                        startScrollAnimation(for: wsId)
                     }
                 }
             }
         }
 
-        if let focused = controller.internalFocusedHandle,
-           let entry = controller.internalWorkspaceManager.entry(for: focused),
+        if let focused = focusedHandle,
+           let entry = workspaceManager.entry(for: focused),
            let frame = try? AXWindowService.frame(entry.axRef)
         {
             updateBorderIfAllowed(handle: focused, frame: frame, windowId: entry.windowId)
         } else {
-            controller.internalBorderManager.hideBorder()
+            borderManager.hideBorder()
         }
     }
 
     func handleAppActivation(pid: pid_t) {
-        guard let controller else { return }
+        guard hasStartedServices else { return }
         let appElement = AXUIElementCreateApplication(pid)
         var focusedWindow: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
 
         guard result == .success, let windowElement = focusedWindow else {
-            controller.internalIsNonManagedFocusActive = true
-            controller.internalIsAppFullscreenActive = false
-            controller.internalBorderManager.hideBorder()
+            isNonManagedFocusActive = true
+            isAppFullscreenActive = false
+            borderManager.hideBorder()
             return
         }
 
         guard let axRef = try? AXWindowRef(element: windowElement as! AXUIElement) else {
-            controller.internalIsNonManagedFocusActive = true
-            controller.internalIsAppFullscreenActive = false
-            controller.internalBorderManager.hideBorder()
+            isNonManagedFocusActive = true
+            isAppFullscreenActive = false
+            borderManager.hideBorder()
             return
         }
         let winId = axRef.windowId
 
-        if let entry = controller.internalWorkspaceManager.entry(forPid: pid, windowId: winId) {
+        if let entry = workspaceManager.entry(forPid: pid, windowId: winId) {
             let wsId = entry.workspaceId
-            controller.internalIsNonManagedFocusActive = false
+            isNonManagedFocusActive = false
 
-            let targetMonitor = controller.internalWorkspaceManager.monitor(for: wsId)
+            let targetMonitor = workspaceManager.monitor(for: wsId)
             let isWorkspaceActive = targetMonitor.map { monitor in
-                controller.internalWorkspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
+                workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
             } ?? false
 
             if !isWorkspaceActive {
-                let wsName = controller.internalWorkspaceManager.descriptor(for: wsId)?.name ?? ""
-                if let result = controller.internalWorkspaceManager.focusWorkspace(named: wsName) {
-                    let currentMonitorId = controller.internalActiveMonitorId
-                        ?? controller.monitorForInteraction()?.id
+                let wsName = workspaceManager.descriptor(for: wsId)?.name ?? ""
+                if let result = workspaceManager.focusWorkspace(named: wsName) {
+                    let currentMonitorId = activeMonitorId
+                        ?? monitorForInteraction()?.id
                     if let currentMonitorId, currentMonitorId != result.monitor.id {
-                        controller.internalPreviousMonitorId = currentMonitorId
+                        previousMonitorId = currentMonitorId
                     }
-                    controller.internalActiveMonitorId = result.monitor.id
-                    controller.syncMonitorsToNiriEngine()
+                    activeMonitorId = result.monitor.id
+                    syncMonitorsToNiriEngine()
                 }
             }
 
-            controller.internalSetFocus(entry.handle, in: wsId)
+            setFocus(entry.handle, in: wsId)
 
-            if let engine = controller.internalNiriEngine,
+            if let engine = niriEngine,
                let node = engine.findNode(for: entry.handle),
-               let _ = controller.internalWorkspaceManager.monitor(for: wsId)
+               let _ = workspaceManager.monitor(for: wsId)
             {
-                var state = controller.internalWorkspaceManager.niriViewportState(for: wsId)
-                controller.activateNode(
+                var state = workspaceManager.niriViewportState(for: wsId)
+                activateNode(
                     node, in: wsId, state: &state,
                     options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
                 )
@@ -316,72 +304,69 @@ final class AXEventHandler: CGSEventDelegate {
             } else if let frame = try? AXWindowService.frame(entry.axRef) {
                 updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
             }
-            controller.internalLayoutRefreshController?.updateTabbedColumnOverlays()
+            updateTabbedColumnOverlays()
             if !isWorkspaceActive {
-                controller.internalLayoutRefreshController?.refreshWindowsAndLayout()
+                refreshWindowsAndLayout()
                 focusWindow(entry.handle)
             }
             return
         }
 
-        controller.internalIsNonManagedFocusActive = true
-        controller.internalIsAppFullscreenActive = false
-        controller.internalBorderManager.hideBorder()
+        isNonManagedFocusActive = true
+        isAppFullscreenActive = false
+        borderManager.hideBorder()
     }
 
     func handleAppHidden(pid: pid_t) {
-        guard let controller else { return }
-        controller.internalHiddenAppPIDs.insert(pid)
+        hiddenAppPIDs.insert(pid)
 
-        for entry in controller.internalWorkspaceManager.entries(forPid: pid) {
-            controller.internalWorkspaceManager.setLayoutReason(.macosHiddenApp, for: entry.handle)
+        for entry in workspaceManager.entries(forPid: pid) {
+            workspaceManager.setLayoutReason(.macosHiddenApp, for: entry.handle)
         }
-        controller.internalLayoutRefreshController?.scheduleRefreshSession(.appHidden)
+        scheduleRefreshSession(.appHidden)
     }
 
     func handleAppUnhidden(pid: pid_t) {
-        guard let controller else { return }
-        controller.internalHiddenAppPIDs.remove(pid)
+        hiddenAppPIDs.remove(pid)
 
-        for entry in controller.internalWorkspaceManager.entries(forPid: pid) {
-            if controller.internalWorkspaceManager.layoutReason(for: entry.handle) == .macosHiddenApp {
-                _ = controller.internalWorkspaceManager.restoreFromNativeState(for: entry.handle)
+        for entry in workspaceManager.entries(forPid: pid) {
+            if workspaceManager.layoutReason(for: entry.handle) == .macosHiddenApp {
+                _ = workspaceManager.restoreFromNativeState(for: entry.handle)
             }
         }
-        controller.internalLayoutRefreshController?.scheduleRefreshSession(.appUnhidden)
+        scheduleRefreshSession(.appUnhidden)
     }
 
     func focusWindow(_ handle: WindowHandle) {
-        guard let controller else { return }
-        guard let entry = controller.internalWorkspaceManager.entry(for: handle) else { return }
-        controller.internalIsNonManagedFocusActive = false
+        guard let entry = workspaceManager.entry(for: handle) else { return }
+        isNonManagedFocusActive = false
 
         let now = Date()
 
-        if pendingFocusHandle == handle {
-            let timeSinceFocus = now.timeIntervalSince(lastFocusTime)
+        if axEventState.pendingFocusHandle == handle {
+            let timeSinceFocus = now.timeIntervalSince(axEventState.lastFocusTime)
             if timeSinceFocus < 0.016 {
                 return
             }
         }
 
-        if isFocusOperationPending {
-            deferredFocusHandle = handle
+        if axEventState.isFocusOperationPending {
+            axEventState.deferredFocusHandle = handle
             return
         }
 
-        isFocusOperationPending = true
+        axEventState.isFocusOperationPending = true
 
-        pendingFocusHandle = handle
-        lastFocusTime = now
-        controller.internalLastFocusedByWorkspace[entry.workspaceId] = handle
+        axEventState.pendingFocusHandle = handle
+        axEventState.lastFocusTime = now
+        lastFocusedByWorkspace[entry.workspaceId] = handle
 
         let axRef = entry.axRef
         let pid = handle.pid
         let windowId = entry.windowId
-        let moveMouseEnabled = controller.internalMoveMouseToFocusedWindowEnabled
+        let moveMouseEnabled = moveMouseToFocusedWindowEnabled
 
-        Task { @MainActor [weak self, weak controller] in
+        Task { @MainActor [weak self] in
             OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
             AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
 
@@ -389,14 +374,14 @@ final class AXEventHandler: CGSEventDelegate {
                 runningApp.activate()
             }
 
-            guard let self, let controller else { return }
+            guard let self else { return }
 
             if moveMouseEnabled {
-                controller.moveMouseToWindow(handle)
+                moveMouseToWindow(handle)
             }
 
-            if let entry = controller.internalWorkspaceManager.entry(for: handle) {
-                if let engine = controller.internalNiriEngine,
+            if let entry = workspaceManager.entry(for: handle) {
+                if let engine = niriEngine,
                    let node = engine.findNode(for: handle),
                    let frame = node.frame {
                     updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
@@ -405,10 +390,10 @@ final class AXEventHandler: CGSEventDelegate {
                 }
             }
 
-            isFocusOperationPending = false
-            if let deferred = deferredFocusHandle, deferred != handle {
-                deferredFocusHandle = nil
-                if controller.internalWorkspaceManager.entry(for: deferred) != nil {
+            axEventState.isFocusOperationPending = false
+            if let deferred = axEventState.deferredFocusHandle, deferred != handle {
+                axEventState.deferredFocusHandle = nil
+                if workspaceManager.entry(for: deferred) != nil {
                     focusWindow(deferred)
                 }
             }
@@ -416,97 +401,92 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     func ensureFocusedHandleValid(in workspaceId: WorkspaceDescriptor.ID) {
-        guard let controller else { return }
-        if let focused = controller.internalFocusedHandle,
-           controller.internalWorkspaceManager.entry(for: focused)?.workspaceId == workspaceId
+        if let focused = focusedHandle,
+           workspaceManager.entry(for: focused)?.workspaceId == workspaceId
         {
-            controller.internalLastFocusedByWorkspace[workspaceId] = focused
-            if let engine = controller.internalNiriEngine,
+            lastFocusedByWorkspace[workspaceId] = focused
+            if let engine = niriEngine,
                let node = engine.findNode(for: focused)
             {
-                var state = controller.internalWorkspaceManager.niriViewportState(for: workspaceId)
+                var state = workspaceManager.niriViewportState(for: workspaceId)
                 if state.selectedNodeId != node.id {
                     state.selectedNodeId = node.id
-                    controller.internalWorkspaceManager.updateNiriViewportState(state, for: workspaceId)
+                    workspaceManager.updateNiriViewportState(state, for: workspaceId)
                 }
             }
             return
         }
-        if let remembered = controller.internalLastFocusedByWorkspace[workspaceId],
-           controller.internalWorkspaceManager.entry(for: remembered) != nil
+        if let remembered = lastFocusedByWorkspace[workspaceId],
+           workspaceManager.entry(for: remembered) != nil
         {
-            controller.internalFocusedHandle = remembered
-            if let engine = controller.internalNiriEngine,
+            focusedHandle = remembered
+            if let engine = niriEngine,
                let node = engine.findNode(for: remembered)
             {
-                var state = controller.internalWorkspaceManager.niriViewportState(for: workspaceId)
+                var state = workspaceManager.niriViewportState(for: workspaceId)
                 state.selectedNodeId = node.id
-                controller.internalWorkspaceManager.updateNiriViewportState(state, for: workspaceId)
+                workspaceManager.updateNiriViewportState(state, for: workspaceId)
             }
             focusWindow(remembered)
             return
         }
-        let newHandle = controller.internalWorkspaceManager.entries(in: workspaceId).first?.handle
-        controller.internalFocusedHandle = newHandle
+        let newHandle = workspaceManager.entries(in: workspaceId).first?.handle
+        focusedHandle = newHandle
         if let focusedHandle = newHandle {
-            controller.internalLastFocusedByWorkspace[workspaceId] = focusedHandle
-            if let engine = controller.internalNiriEngine,
+            lastFocusedByWorkspace[workspaceId] = focusedHandle
+            if let engine = niriEngine,
                let node = engine.findNode(for: focusedHandle)
             {
-                var state = controller.internalWorkspaceManager.niriViewportState(for: workspaceId)
+                var state = workspaceManager.niriViewportState(for: workspaceId)
                 state.selectedNodeId = node.id
-                controller.internalWorkspaceManager.updateNiriViewportState(state, for: workspaceId)
+                workspaceManager.updateNiriViewportState(state, for: workspaceId)
             }
             focusWindow(focusedHandle)
         }
     }
 
     func updateBorderIfAllowed(handle: WindowHandle, frame: CGRect, windowId: Int) {
-        guard let controller else { return }
-        guard let activeWs = controller.activeWorkspace(),
-              controller.internalWorkspaceManager.workspace(for: handle) == activeWs.id
+        guard let activeWs = activeWorkspace(),
+              workspaceManager.workspace(for: handle) == activeWs.id
         else {
-            controller.internalBorderManager.hideBorder()
+            borderManager.hideBorder()
             return
         }
 
-        if controller.internalIsNonManagedFocusActive {
-            controller.internalBorderManager.hideBorder()
+        if isNonManagedFocusActive {
+            borderManager.hideBorder()
             return
         }
 
         if shouldDeferBorderUpdates(for: activeWs.id) {
-            controller.internalBorderManager.hideBorder()
+            borderManager.hideBorder()
             return
         }
 
-        if let entry = controller.internalWorkspaceManager.entry(for: handle) {
-            controller.internalIsAppFullscreenActive = AXWindowService.isFullscreen(entry.axRef)
+        if let entry = workspaceManager.entry(for: handle) {
+            isAppFullscreenActive = AXWindowService.isFullscreen(entry.axRef)
         } else {
-            controller.internalIsAppFullscreenActive = false
+            isAppFullscreenActive = false
         }
 
-        if controller.internalIsAppFullscreenActive || isManagedWindowFullscreen(handle) {
-            controller.internalBorderManager.hideBorder()
+        if isAppFullscreenActive || isManagedWindowFullscreen(handle) {
+            borderManager.hideBorder()
             return
         }
-        controller.internalBorderManager.updateFocusedWindow(frame: frame, windowId: windowId)
+        borderManager.updateFocusedWindow(frame: frame, windowId: windowId)
     }
 
     private func shouldDeferBorderUpdates(for workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let controller else { return false }
-
-        let state = controller.internalWorkspaceManager.niriViewportState(for: workspaceId)
+        let state = workspaceManager.niriViewportState(for: workspaceId)
         if state.viewOffsetPixels.isAnimating {
             return true
         }
 
-        if let layoutRefreshController = controller.internalLayoutRefreshController,
-           layoutRefreshController.hasDwindleAnimationRunning(in: workspaceId) {
+        if hasDwindleAnimationRunning(in: workspaceId) {
             return true
         }
 
-        guard let engine = controller.internalNiriEngine else { return false }
+        guard let engine = niriEngine else { return false }
         if engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
             return true
         }
@@ -517,8 +497,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func isManagedWindowFullscreen(_ handle: WindowHandle) -> Bool {
-        guard let controller else { return false }
-        guard let engine = controller.internalNiriEngine,
+        guard let engine = niriEngine,
               let windowNode = engine.findNode(for: handle)
         else {
             return false
