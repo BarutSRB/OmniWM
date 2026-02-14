@@ -15,6 +15,13 @@ final class CommandHandler {
 
         let layoutType = currentLayoutType()
 
+        switch (command.layoutCompatibility, layoutType) {
+        case (.niri, .dwindle), (.dwindle, .niri), (.dwindle, .defaultLayout):
+            return
+        default:
+            break
+        }
+
         switch command {
         case let .focus(direction):
             switch layoutType {
@@ -26,9 +33,7 @@ final class CommandHandler {
         case .focusPrevious:
             focusPreviousInNiri()
         case let .move(direction):
-            if layoutType != .dwindle {
-                moveWindowInNiri(direction: direction)
-            }
+            moveWindowInNiri(direction: direction)
         case let .swap(direction):
             switch layoutType {
             case .dwindle:
@@ -43,17 +48,11 @@ final class CommandHandler {
         case .moveWindowToWorkspaceDown:
             controller.internalWorkspaceNavigationHandler?.moveWindowToAdjacentWorkspace(direction: .down)
         case let .moveColumnToWorkspace(index):
-            if layoutType != .dwindle {
-                controller.internalWorkspaceNavigationHandler?.moveColumnToWorkspaceByIndex(index: index)
-            }
+            controller.internalWorkspaceNavigationHandler?.moveColumnToWorkspaceByIndex(index: index)
         case .moveColumnToWorkspaceUp:
-            if layoutType != .dwindle {
-                controller.internalWorkspaceNavigationHandler?.moveColumnToAdjacentWorkspace(direction: .up)
-            }
+            controller.internalWorkspaceNavigationHandler?.moveColumnToAdjacentWorkspace(direction: .up)
         case .moveColumnToWorkspaceDown:
-            if layoutType != .dwindle {
-                controller.internalWorkspaceNavigationHandler?.moveColumnToAdjacentWorkspace(direction: .down)
-            }
+            controller.internalWorkspaceNavigationHandler?.moveColumnToAdjacentWorkspace(direction: .down)
         case let .switchWorkspace(index):
             controller.internalWorkspaceNavigationHandler?.switchWorkspace(index: index)
         case .switchWorkspaceNext:
@@ -71,9 +70,7 @@ final class CommandHandler {
         case .focusMonitorLast:
             controller.internalWorkspaceNavigationHandler?.focusLastMonitor()
         case let .moveColumnToMonitor(direction):
-            if layoutType != .dwindle {
-                controller.internalWorkspaceNavigationHandler?.moveColumnToMonitorInDirection(direction)
-            }
+            controller.internalWorkspaceNavigationHandler?.moveColumnToMonitorInDirection(direction)
         case .toggleFullscreen:
             switch layoutType {
             case .dwindle:
@@ -84,49 +81,27 @@ final class CommandHandler {
         case .toggleNativeFullscreen:
             toggleNativeFullscreenForFocused()
         case let .moveColumn(direction):
-            if layoutType != .dwindle {
-                moveColumnInNiri(direction: direction)
-            }
+            moveColumnInNiri(direction: direction)
         case let .consumeWindow(direction):
-            if layoutType != .dwindle {
-                consumeWindowInNiri(direction: direction)
-            }
+            consumeWindowInNiri(direction: direction)
         case let .expelWindow(direction):
-            if layoutType != .dwindle {
-                expelWindowInNiri(direction: direction)
-            }
+            expelWindowInNiri(direction: direction)
         case .toggleColumnTabbed:
-            if layoutType != .dwindle {
-                toggleColumnTabbedInNiri()
-            }
+            toggleColumnTabbedInNiri()
         case .focusDownOrLeft:
-            if layoutType != .dwindle {
-                focusDownOrLeftInNiri()
-            }
+            focusDownOrLeftInNiri()
         case .focusUpOrRight:
-            if layoutType != .dwindle {
-                focusUpOrRightInNiri()
-            }
+            focusUpOrRightInNiri()
         case .focusColumnFirst:
-            if layoutType != .dwindle {
-                focusColumnFirstInNiri()
-            }
+            focusColumnFirstInNiri()
         case .focusColumnLast:
-            if layoutType != .dwindle {
-                focusColumnLastInNiri()
-            }
+            focusColumnLastInNiri()
         case let .focusColumn(index):
-            if layoutType != .dwindle {
-                focusColumnInNiri(index: index)
-            }
+            focusColumnInNiri(index: index)
         case .focusWindowTop:
-            if layoutType != .dwindle {
-                focusWindowTopInNiri()
-            }
+            focusWindowTopInNiri()
         case .focusWindowBottom:
-            if layoutType != .dwindle {
-                focusWindowBottomInNiri()
-            }
+            focusWindowBottomInNiri()
         case .cycleColumnWidthForward:
             switch layoutType {
             case .dwindle:
@@ -142,9 +117,7 @@ final class CommandHandler {
                 cycleColumnWidthInNiri(forwards: false)
             }
         case .toggleColumnFullWidth:
-            if layoutType != .dwindle {
-                toggleColumnFullWidthInNiri()
-            }
+            toggleColumnFullWidthInNiri()
         case let .moveWorkspaceToMonitor(direction):
             controller.internalWorkspaceNavigationHandler?.moveCurrentWorkspaceToMonitor(direction: direction)
         case .moveWorkspaceToMonitorNext:
@@ -161,29 +134,17 @@ final class CommandHandler {
                 balanceSizesInNiri()
             }
         case .moveToRoot:
-            if layoutType == .dwindle {
-                moveToRootInDwindle()
-            }
+            moveToRootInDwindle()
         case .toggleSplit:
-            if layoutType == .dwindle {
-                toggleSplitInDwindle()
-            }
+            toggleSplitInDwindle()
         case .swapSplit:
-            if layoutType == .dwindle {
-                swapSplitInDwindle()
-            }
+            swapSplitInDwindle()
         case let .resizeInDirection(direction, grow):
-            if layoutType == .dwindle {
-                resizeInDirectionInDwindle(direction: direction, grow: grow)
-            }
+            resizeInDirectionInDwindle(direction: direction, grow: grow)
         case let .preselect(direction):
-            if layoutType == .dwindle {
-                preselectInDwindle(direction: direction)
-            }
+            preselectInDwindle(direction: direction)
         case .preselectClear:
-            if layoutType == .dwindle {
-                clearPreselectInDwindle()
-            }
+            clearPreselectInDwindle()
         case let .summonWorkspace(index):
             controller.internalWorkspaceNavigationHandler?.summonWorkspace(index: index)
         case .workspaceBackAndForth:

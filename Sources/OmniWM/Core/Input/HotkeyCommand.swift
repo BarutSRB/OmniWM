@@ -152,7 +152,19 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
              .move:
             .niri
 
-        default:
+        case .focus, .swap, .toggleFullscreen, .cycleColumnWidthForward, .cycleColumnWidthBackward,
+             .balanceSizes,
+             .moveToWorkspace, .moveWindowToWorkspaceUp, .moveWindowToWorkspaceDown,
+             .switchWorkspace, .switchWorkspaceNext, .switchWorkspacePrevious,
+             .moveToMonitor, .focusMonitor, .focusMonitorPrevious, .focusMonitorNext, .focusMonitorLast,
+             .toggleNativeFullscreen,
+             .moveWorkspaceToMonitor, .moveWorkspaceToMonitorNext, .moveWorkspaceToMonitorPrevious,
+             .swapWorkspaceWithMonitor,
+             .summonWorkspace, .workspaceBackAndForth, .focusWorkspaceAnywhere,
+             .moveWindowToWorkspaceOnMonitor,
+             .openWindowFinder, .raiseAllFloatingWindows,
+             .openMenuAnywhere, .openMenuPalette,
+             .toggleHiddenBar, .toggleQuakeTerminal, .toggleWorkspaceLayout, .toggleOverview:
             .shared
         }
     }
