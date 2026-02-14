@@ -77,6 +77,8 @@ final class WMController {
     private(set) lazy var mouseEventHandler = MouseEventHandler(controller: self)
     @ObservationIgnored
     private(set) lazy var mouseWarpHandler = MouseWarpHandler(controller: self)
+    @ObservationIgnored
+    private(set) lazy var axEventHandler = AXEventHandler(controller: self)
     @ObservationIgnored var layoutState = LayoutState()
     private(set) var hasStartedServices = false
     private var permissionCheckerTask: Task<Void, Never>?
@@ -505,7 +507,7 @@ final class WMController {
         }
         hasStartedServices = true
         layoutSetup()
-        axEventSetup()
+        axEventHandler.setup()
         if hotkeysEnabled {
             hotkeys.start()
         }
@@ -523,13 +525,13 @@ final class WMController {
         }
         AppAXContext.onWindowDestroyed = { [weak self] pid, windowId in
             guard let self else { return }
-            handleRemoved(pid: pid, winId: windowId)
+            axEventHandler.handleRemoved(pid: pid, winId: windowId)
         }
         AppAXContext.onWindowDestroyedUnknown = { [weak self] in
             self?.refreshWindowsAndLayout()
         }
         AppAXContext.onFocusedWindowChanged = { [weak self] pid in
-            self?.handleAppActivation(pid: pid)
+            self?.axEventHandler.handleAppActivation(pid: pid)
         }
         setupWorkspaceObservation()
         mouseEventHandler.setup()
@@ -665,7 +667,7 @@ final class WMController {
             }
             let pid = app.processIdentifier
             Task { @MainActor in
-                self?.handleAppActivation(pid: pid)
+                self?.axEventHandler.handleAppActivation(pid: pid)
             }
         }
     }
@@ -680,7 +682,7 @@ final class WMController {
                 return
             }
             Task { @MainActor in
-                self?.handleAppHidden(pid: app.processIdentifier)
+                self?.axEventHandler.handleAppHidden(pid: app.processIdentifier)
             }
         }
 
@@ -693,7 +695,7 @@ final class WMController {
                 return
             }
             Task { @MainActor in
-                self?.handleAppUnhidden(pid: app.processIdentifier)
+                self?.axEventHandler.handleAppUnhidden(pid: app.processIdentifier)
             }
         }
     }
@@ -711,7 +713,7 @@ final class WMController {
         layoutResetState()
         mouseEventHandler.cleanup()
         mouseWarpHandler.cleanup()
-        axEventCleanup()
+        axEventHandler.cleanup()
 
         tabbedOverlayManager.removeAll()
         borderManager.cleanup()
@@ -1438,5 +1440,109 @@ extension WMController {
         if AppRulesWindowController.shared.isPointInside(point) { return true }
         if SponsorsWindowController.shared.isPointInside(point) { return true }
         return false
+    }
+
+    func focusWindow(_ handle: WindowHandle) {
+        guard let entry = workspaceManager.entry(for: handle) else { return }
+        focusManager.setNonManagedFocus(active: false)
+
+        let axRef = entry.axRef
+        let pid = handle.pid
+        let windowId = entry.windowId
+        let moveMouseEnabled = moveMouseToFocusedWindowEnabled
+
+        focusManager.focusWindow(
+            handle,
+            workspaceId: entry.workspaceId,
+            performFocus: { [weak self] in
+                OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
+                AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
+
+                if let runningApp = NSRunningApplication(processIdentifier: pid) {
+                    runningApp.activate()
+                }
+
+                guard let self else { return }
+
+                if moveMouseEnabled {
+                    self.moveMouseToWindow(handle)
+                }
+
+                if let entry = self.workspaceManager.entry(for: handle) {
+                    if let engine = self.niriEngine,
+                       let node = engine.findNode(for: handle),
+                       let frame = node.frame
+                    {
+                        self.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                    } else if let frame = try? AXWindowService.frame(entry.axRef) {
+                        self.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                    }
+                }
+            },
+            onDeferredFocus: { [weak self] deferred in
+                guard let self, self.workspaceManager.entry(for: deferred) != nil else { return }
+                self.focusWindow(deferred)
+            }
+        )
+    }
+
+    func updateBorderIfAllowed(handle: WindowHandle, frame: CGRect, windowId: Int) {
+        guard let activeWs = activeWorkspace(),
+              workspaceManager.workspace(for: handle) == activeWs.id
+        else {
+            borderManager.hideBorder()
+            return
+        }
+
+        if focusManager.isNonManagedFocusActive {
+            borderManager.hideBorder()
+            return
+        }
+
+        if shouldDeferBorderUpdates(for: activeWs.id) {
+            borderManager.hideBorder()
+            return
+        }
+
+        if let entry = workspaceManager.entry(for: handle) {
+            focusManager.setAppFullscreen(active: AXWindowService.isFullscreen(entry.axRef))
+        } else {
+            focusManager.setAppFullscreen(active: false)
+        }
+
+        if focusManager.isAppFullscreenActive || isManagedWindowFullscreen(handle) {
+            borderManager.hideBorder()
+            return
+        }
+        borderManager.updateFocusedWindow(frame: frame, windowId: windowId)
+    }
+
+    private func shouldDeferBorderUpdates(for workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        let state = workspaceManager.niriViewportState(for: workspaceId)
+        if state.viewOffsetPixels.isAnimating {
+            return true
+        }
+
+        if hasDwindleAnimationRunning(in: workspaceId) {
+            return true
+        }
+
+        guard let engine = niriEngine else { return false }
+        if engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
+            return true
+        }
+        if engine.hasAnyColumnAnimationsRunning(in: workspaceId) {
+            return true
+        }
+        return false
+    }
+
+    private func isManagedWindowFullscreen(_ handle: WindowHandle) -> Bool {
+        guard let engine = niriEngine,
+              let windowNode = engine.findNode(for: handle)
+        else {
+            return false
+        }
+        return windowNode.isFullscreen
     }
 }

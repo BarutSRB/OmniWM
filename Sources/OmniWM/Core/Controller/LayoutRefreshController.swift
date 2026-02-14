@@ -695,7 +695,7 @@ extension WMController {
         }
 
         layoutState.hasCompletedInitialRefresh = true
-        subscribeToManagedWindows()
+        axEventHandler.subscribeToManagedWindows()
     }
 
     func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false, removedNodeId: NodeId? = nil) async {
