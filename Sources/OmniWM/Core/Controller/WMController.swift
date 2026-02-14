@@ -79,6 +79,8 @@ final class WMController {
     private(set) lazy var mouseWarpHandler = MouseWarpHandler(controller: self)
     @ObservationIgnored
     private(set) lazy var axEventHandler = AXEventHandler(controller: self)
+    @ObservationIgnored
+    private(set) lazy var commandHandler = CommandHandler(controller: self)
     @ObservationIgnored var layoutState = LayoutState()
     private(set) var hasStartedServices = false
     private var permissionCheckerTask: Task<Void, Never>?
@@ -90,7 +92,7 @@ final class WMController {
         workspaceManager = WorkspaceManager(settings: settings)
         workspaceManager.updateAnimationClock(animationClock)
         hotkeys.onCommand = { [weak self] command in
-            self?.handleCommand(command)
+            self?.commandHandler.handleCommand(command)
         }
         tabbedOverlayManager.onSelect = { [weak self] workspaceId, columnId, index in
             self?.selectTabInNiri(workspaceId: workspaceId, columnId: columnId, index: index)

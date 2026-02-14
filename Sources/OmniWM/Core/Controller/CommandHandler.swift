@@ -1,9 +1,17 @@
 import AppKit
 import Foundation
 
-extension WMController {
+@MainActor
+final class CommandHandler {
+    weak var controller: WMController?
+
+    init(controller: WMController) {
+        self.controller = controller
+    }
+
     func handleCommand(_ command: HotkeyCommand) {
-        guard isEnabled else { return }
+        guard let controller else { return }
+        guard controller.isEnabled else { return }
 
         let layoutType = currentLayoutType()
 
@@ -34,35 +42,35 @@ extension WMController {
                 swapWindowInNiri(direction: direction)
             }
         case let .moveToWorkspace(index):
-            moveFocusedWindow(toWorkspaceIndex: index)
+            controller.moveFocusedWindow(toWorkspaceIndex: index)
         case .moveWindowToWorkspaceUp:
-            moveWindowToAdjacentWorkspace(direction: .up)
+            controller.moveWindowToAdjacentWorkspace(direction: .up)
         case .moveWindowToWorkspaceDown:
-            moveWindowToAdjacentWorkspace(direction: .down)
+            controller.moveWindowToAdjacentWorkspace(direction: .down)
         case let .moveColumnToWorkspace(index):
-            moveColumnToWorkspaceByIndex(index: index)
+            controller.moveColumnToWorkspaceByIndex(index: index)
         case .moveColumnToWorkspaceUp:
-            moveColumnToAdjacentWorkspace(direction: .up)
+            controller.moveColumnToAdjacentWorkspace(direction: .up)
         case .moveColumnToWorkspaceDown:
-            moveColumnToAdjacentWorkspace(direction: .down)
+            controller.moveColumnToAdjacentWorkspace(direction: .down)
         case let .switchWorkspace(index):
-            switchWorkspace(index: index)
+            controller.switchWorkspace(index: index)
         case .switchWorkspaceNext:
-            switchWorkspaceRelative(isNext: true)
+            controller.switchWorkspaceRelative(isNext: true)
         case .switchWorkspacePrevious:
-            switchWorkspaceRelative(isNext: false)
+            controller.switchWorkspaceRelative(isNext: false)
         case let .moveToMonitor(direction):
-            moveFocusedWindowToMonitor(direction: direction)
+            controller.moveFocusedWindowToMonitor(direction: direction)
         case let .focusMonitor(direction):
-            focusMonitorInDirection(direction)
+            controller.focusMonitorInDirection(direction)
         case .focusMonitorPrevious:
-            focusMonitorCyclic(previous: true)
+            controller.focusMonitorCyclic(previous: true)
         case .focusMonitorNext:
-            focusMonitorCyclic(previous: false)
+            controller.focusMonitorCyclic(previous: false)
         case .focusMonitorLast:
-            focusLastMonitor()
+            controller.focusLastMonitor()
         case let .moveColumnToMonitor(direction):
-            moveColumnToMonitorInDirection(direction)
+            controller.moveColumnToMonitorInDirection(direction)
         case .toggleFullscreen:
             switch layoutType {
             case .dwindle:
@@ -111,13 +119,13 @@ extension WMController {
         case .toggleColumnFullWidth:
             toggleColumnFullWidthInNiri()
         case let .moveWorkspaceToMonitor(direction):
-            moveCurrentWorkspaceToMonitor(direction: direction)
+            controller.moveCurrentWorkspaceToMonitor(direction: direction)
         case .moveWorkspaceToMonitorNext:
-            moveCurrentWorkspaceToMonitorRelative(previous: false)
+            controller.moveCurrentWorkspaceToMonitorRelative(previous: false)
         case .moveWorkspaceToMonitorPrevious:
-            moveCurrentWorkspaceToMonitorRelative(previous: true)
+            controller.moveCurrentWorkspaceToMonitorRelative(previous: true)
         case let .swapWorkspaceWithMonitor(direction):
-            swapCurrentWorkspaceWithMonitor(direction: direction)
+            controller.swapCurrentWorkspaceWithMonitor(direction: direction)
         case .balanceSizes:
             switch layoutType {
             case .dwindle:
@@ -138,54 +146,55 @@ extension WMController {
         case .preselectClear:
             clearPreselectInDwindle()
         case let .summonWorkspace(index):
-            summonWorkspace(index: index)
+            controller.summonWorkspace(index: index)
         case .workspaceBackAndForth:
-            workspaceBackAndForth()
+            controller.workspaceBackAndForth()
         case let .focusWorkspaceAnywhere(index):
-            focusWorkspaceAnywhere(index: index)
+            controller.focusWorkspaceAnywhere(index: index)
         case let .moveWindowToWorkspaceOnMonitor(wsIdx, monDir):
-            moveWindowToWorkspaceOnMonitor(
+            controller.moveWindowToWorkspaceOnMonitor(
                 workspaceIndex: wsIdx,
                 monitorDirection: monDir
             )
         case .openWindowFinder:
-            openWindowFinder()
+            controller.openWindowFinder()
         case .raiseAllFloatingWindows:
-            raiseAllFloatingWindows()
+            controller.raiseAllFloatingWindows()
         case .openMenuAnywhere:
-            openMenuAnywhere()
+            controller.openMenuAnywhere()
         case .openMenuPalette:
-            openMenuPalette()
+            controller.openMenuPalette()
         case .toggleHiddenBar:
-            toggleHiddenBar()
+            controller.toggleHiddenBar()
         case .toggleQuakeTerminal:
-            toggleQuakeTerminal()
+            controller.toggleQuakeTerminal()
         case .toggleWorkspaceLayout:
             toggleWorkspaceLayout()
         case .toggleOverview:
-            toggleOverview()
+            controller.toggleOverview()
         }
     }
 
     private func focusNeighborInNiri(direction: Direction) {
-        guard let engine = niriEngine else { return }
-        guard let wsId = activeWorkspace()?.id else { return }
-        var state = workspaceManager.niriViewportState(for: wsId)
+        guard let controller else { return }
+        guard let engine = controller.niriEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+        var state = controller.workspaceManager.niriViewportState(for: wsId)
 
         guard let currentId = state.selectedNodeId,
               let currentNode = engine.findNode(by: currentId)
         else {
-            if let lastFocused = focusManager.lastFocusedByWorkspace[wsId],
+            if let lastFocused = controller.focusManager.lastFocusedByWorkspace[wsId],
                let lastNode = engine.findNode(for: lastFocused)
             {
-                activateNode(
+                controller.activateNode(
                     lastNode, in: wsId, state: &state,
                     options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
                 )
-            } else if let firstHandle = workspaceManager.entries(in: wsId).first?.handle,
+            } else if let firstHandle = controller.workspaceManager.entries(in: wsId).first?.handle,
                       let firstNode = engine.findNode(for: firstHandle)
             {
-                activateNode(
+                controller.activateNode(
                     firstNode, in: wsId, state: &state,
                     options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
                 )
@@ -193,9 +202,9 @@ extension WMController {
             return
         }
 
-        guard let monitor = workspaceManager.monitor(for: wsId) else { return }
-        let gap = CGFloat(workspaceManager.gaps)
-        let workingFrame = insetWorkingFrame(for: monitor)
+        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
 
         for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
             col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
@@ -209,7 +218,7 @@ extension WMController {
             workingFrame: workingFrame,
             gaps: gap
         ) {
-            activateNode(
+            controller.activateNode(
                 newNode, in: wsId, state: &state,
                 options: .init(activateWindow: false, ensureVisible: false)
             )
@@ -217,7 +226,8 @@ extension WMController {
     }
 
     private func focusPreviousInNiri() {
-        withNiriWorkspaceContext { engine, wsId, state, _, workingFrame, gaps in
+        guard let controller else { return }
+        controller.withNiriWorkspaceContext { engine, wsId, state, _, workingFrame, gaps in
             if let currentId = state.selectedNodeId {
                 engine.updateFocusTimestamp(for: currentId)
             }
@@ -237,14 +247,14 @@ extension WMController {
                 return
             }
 
-            activateNode(
+            controller.activateNode(
                 previousWindow, in: wsId, state: &state,
                 options: .init(ensureVisible: false, updateTimestamp: false, startAnimation: false)
             )
 
-            let updatedState = workspaceManager.niriViewportState(for: wsId)
+            let updatedState = controller.workspaceManager.niriViewportState(for: wsId)
             if updatedState.viewOffsetPixels.isAnimating {
-                startScrollAnimation(for: wsId)
+                controller.startScrollAnimation(for: wsId)
             }
         }
     }
@@ -335,7 +345,8 @@ extension WMController {
     }
 
     private func cycleColumnWidthInNiri(forwards: Bool) {
-        withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
+        guard let controller else { return }
+        controller.withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
                   let windowNode = engine.findNode(by: currentId) as? NiriWindow,
                   let column = engine.findColumn(containing: windowNode, in: wsId)
@@ -349,13 +360,14 @@ extension WMController {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
-            workspaceManager.updateNiriViewportState(state, for: wsId)
-            startScrollAnimation(for: wsId)
+            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
+            controller.startScrollAnimation(for: wsId)
         }
     }
 
     private func toggleColumnFullWidthInNiri() {
-        withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
+        guard let controller else { return }
+        controller.withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
                   let windowNode = engine.findNode(by: currentId) as? NiriWindow,
                   let column = engine.findColumn(containing: windowNode, in: wsId)
@@ -368,8 +380,8 @@ extension WMController {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
-            workspaceManager.updateNiriViewportState(state, for: wsId)
-            startScrollAnimation(for: wsId)
+            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
+            controller.startScrollAnimation(for: wsId)
         }
     }
 
@@ -377,10 +389,11 @@ extension WMController {
         _ navigationAction: (NiriLayoutEngine, NiriNode, WorkspaceDescriptor.ID, inout ViewportState, CGRect, CGFloat)
             -> NiriNode?
     ) {
-        guard let engine = niriEngine else { return }
-        guard let wsId = activeWorkspace()?.id else { return }
-        guard let monitor = workspaceManager.monitor(for: wsId) else { return }
-        var state = workspaceManager.niriViewportState(for: wsId)
+        guard let controller else { return }
+        guard let engine = controller.niriEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+        var state = controller.workspaceManager.niriViewportState(for: wsId)
 
         guard let currentId = state.selectedNodeId,
               let currentNode = engine.findNode(by: currentId)
@@ -388,20 +401,21 @@ extension WMController {
             return
         }
 
-        let gap = CGFloat(workspaceManager.gaps)
-        let workingFrame = insetWorkingFrame(for: monitor)
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
         guard let newNode = navigationAction(engine, currentNode, wsId, &state, workingFrame, gap) else {
             return
         }
 
-        activateNode(
+        controller.activateNode(
             newNode, in: wsId, state: &state,
             options: .init(activateWindow: false, ensureVisible: false)
         )
     }
 
     private func moveWindowInNiri(direction: Direction) {
-        withNiriOperationContext { ctx, state in
+        guard let controller else { return }
+        controller.withNiriOperationContext { ctx, state in
             let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
             guard ctx.engine.moveWindow(
                 ctx.windowNode, direction: direction, in: ctx.wsId,
@@ -412,7 +426,8 @@ extension WMController {
     }
 
     private func swapWindowInNiri(direction: Direction) {
-        withNiriOperationContext { ctx, state in
+        guard let controller else { return }
+        controller.withNiriOperationContext { ctx, state in
             let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
             guard ctx.engine.swapWindow(
                 ctx.windowNode, direction: direction, in: ctx.wsId,
@@ -423,7 +438,8 @@ extension WMController {
     }
 
     private func toggleNiriFullscreen() {
-        withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
+        guard let controller else { return }
+        controller.withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
             guard let currentId = state.selectedNodeId,
                   let currentNode = engine.findNode(by: currentId),
                   let windowNode = currentNode as? NiriWindow
@@ -431,17 +447,18 @@ extension WMController {
 
             engine.toggleFullscreen(windowNode, state: &state)
 
-            workspaceManager.updateNiriViewportState(state, for: wsId)
-            executeLayoutRefreshImmediate()
+            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
+            controller.executeLayoutRefreshImmediate()
             if state.viewOffsetPixels.isAnimating {
-                startScrollAnimation(for: wsId)
+                controller.startScrollAnimation(for: wsId)
             }
         }
     }
 
     private func toggleNativeFullscreenForFocused() {
-        guard let handle = focusedHandle else { return }
-        guard let entry = workspaceManager.entry(for: handle) else { return }
+        guard let controller else { return }
+        guard let handle = controller.focusedHandle else { return }
+        guard let entry = controller.workspaceManager.entry(for: handle) else { return }
 
         let currentState = AXWindowService.isFullscreen(entry.axRef)
         let newState = !currentState
@@ -449,12 +466,13 @@ extension WMController {
         _ = AXWindowService.setNativeFullscreen(entry.axRef, fullscreen: newState)
 
         if newState {
-            borderManager.hideBorder()
+            controller.borderManager.hideBorder()
         }
     }
 
     private func moveColumnInNiri(direction: Direction) {
-        withNiriOperationContext { ctx, state in
+        guard let controller else { return }
+        controller.withNiriOperationContext { ctx, state in
             guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else { return false }
             let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
             guard ctx.engine.moveColumn(
@@ -466,7 +484,8 @@ extension WMController {
     }
 
     private func consumeWindowInNiri(direction: Direction) {
-        withNiriOperationContext { ctx, state in
+        guard let controller else { return }
+        controller.withNiriOperationContext { ctx, state in
             guard ctx.engine.consumeWindow(
                 into: ctx.windowNode, from: direction, in: ctx.wsId,
                 state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
@@ -476,7 +495,8 @@ extension WMController {
     }
 
     private func expelWindowInNiri(direction: Direction) {
-        withNiriOperationContext { ctx, state in
+        guard let controller else { return }
+        controller.withNiriOperationContext { ctx, state in
             guard ctx.engine.expelWindow(
                 ctx.windowNode, to: direction, in: ctx.wsId,
                 state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
@@ -486,131 +506,146 @@ extension WMController {
     }
 
     private func toggleColumnTabbedInNiri() {
-        withNiriWorkspaceContext { engine, wsId, _, _, _, _ in
-            let state = workspaceManager.niriViewportState(for: wsId)
+        guard let controller else { return }
+        controller.withNiriWorkspaceContext { engine, wsId, _, _, _, _ in
+            let state = controller.workspaceManager.niriViewportState(for: wsId)
             if engine.toggleColumnTabbed(in: wsId, state: state) {
-                executeLayoutRefreshImmediate()
+                controller.executeLayoutRefreshImmediate()
                 if engine.hasAnyWindowAnimationsRunning(in: wsId) {
-                    startScrollAnimation(for: wsId)
+                    controller.startScrollAnimation(for: wsId)
                 }
             }
         }
     }
 
     private func balanceSizesInNiri() {
-        withNiriWorkspaceContext { engine, wsId, _, _, workingFrame, gaps in
+        guard let controller else { return }
+        controller.withNiriWorkspaceContext { engine, wsId, _, _, workingFrame, gaps in
             engine.balanceSizes(
                 in: wsId,
                 workingAreaWidth: workingFrame.width,
                 gaps: gaps
             )
-            executeLayoutRefreshImmediate()
+            controller.executeLayoutRefreshImmediate()
             if engine.hasAnyColumnAnimationsRunning(in: wsId) {
-                startScrollAnimation(for: wsId)
+                controller.startScrollAnimation(for: wsId)
             }
         }
     }
 
     private func currentLayoutType() -> LayoutType {
-        guard let ws = activeWorkspace() else { return .niri }
-        return settings.layoutType(for: ws.name)
+        guard let controller else { return .niri }
+        guard let ws = controller.activeWorkspace() else { return .niri }
+        return controller.settings.layoutType(for: ws.name)
     }
 
     private func focusNeighborInDwindle(direction: Direction) {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             if let handle = engine.moveFocus(direction: direction, in: wsId) {
-                focusManager.setFocus(handle, in: wsId)
-                executeLayoutRefreshImmediate()
-                focusWindow(handle)
+                controller.focusManager.setFocus(handle, in: wsId)
+                controller.executeLayoutRefreshImmediate()
+                controller.focusWindow(handle)
             }
         }
     }
 
     private func swapWindowInDwindle(direction: Direction) {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             if engine.swapWindows(direction: direction, in: wsId) {
-                executeLayoutRefreshImmediate()
+                controller.executeLayoutRefreshImmediate()
             }
         }
     }
 
     private func toggleDwindleFullscreen() {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             if let handle = engine.toggleFullscreen(in: wsId) {
-                focusManager.setFocus(handle, in: wsId)
-                executeLayoutRefreshImmediate()
+                controller.focusManager.setFocus(handle, in: wsId)
+                controller.executeLayoutRefreshImmediate()
             }
         }
     }
 
     private func balanceSizesInDwindle() {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             engine.balanceSizes(in: wsId)
-            executeLayoutRefreshImmediate()
+            controller.executeLayoutRefreshImmediate()
         }
     }
 
     private func moveToRootInDwindle() {
-        withDwindleContext { engine, wsId in
-            let stable = settings.dwindleMoveToRootStable
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
+            let stable = controller.settings.dwindleMoveToRootStable
             engine.moveSelectionToRoot(stable: stable, in: wsId)
-            executeLayoutRefreshImmediate()
+            controller.executeLayoutRefreshImmediate()
         }
     }
 
     private func toggleSplitInDwindle() {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             engine.toggleOrientation(in: wsId)
-            executeLayoutRefreshImmediate()
+            controller.executeLayoutRefreshImmediate()
         }
     }
 
     private func swapSplitInDwindle() {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             engine.swapSplit(in: wsId)
-            executeLayoutRefreshImmediate()
+            controller.executeLayoutRefreshImmediate()
         }
     }
 
     private func cycleSplitRatioInDwindle(forward: Bool) {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             engine.cycleSplitRatio(forward: forward, in: wsId)
-            executeLayoutRefreshImmediate()
+            controller.executeLayoutRefreshImmediate()
         }
     }
 
     private func resizeInDirectionInDwindle(direction: Direction, grow: Bool) {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             let delta = grow ? engine.settings.resizeStep : -engine.settings.resizeStep
             engine.resizeSelected(by: delta, direction: direction, in: wsId)
-            executeLayoutRefreshImmediate()
+            controller.executeLayoutRefreshImmediate()
         }
     }
 
     private func preselectInDwindle(direction: Direction) {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             engine.setPreselection(direction, in: wsId)
         }
     }
 
     private func clearPreselectInDwindle() {
-        withDwindleContext { engine, wsId in
+        guard let controller else { return }
+        controller.withDwindleContext { engine, wsId in
             engine.setPreselection(nil, in: wsId)
         }
     }
 
     private func toggleWorkspaceLayout() {
-        guard let workspace = activeWorkspace() else { return }
+        guard let controller else { return }
+        guard let workspace = controller.activeWorkspace() else { return }
         let workspaceName = workspace.name
 
-        let currentLayout = settings.layoutType(for: workspaceName)
+        let currentLayout = controller.settings.layoutType(for: workspaceName)
 
         let newLayout: LayoutType = switch currentLayout {
         case .niri, .defaultLayout: .dwindle
         case .dwindle: .niri
         }
 
-        var configs = settings.workspaceConfigurations
+        var configs = controller.settings.workspaceConfigurations
         if let index = configs.firstIndex(where: { $0.name == workspaceName }) {
             configs[index] = configs[index].with(layoutType: newLayout)
         } else {
@@ -620,7 +655,7 @@ extension WMController {
             ))
         }
 
-        settings.workspaceConfigurations = configs
-        refreshWindowsAndLayout()
+        controller.settings.workspaceConfigurations = configs
+        controller.refreshWindowsAndLayout()
     }
 }
