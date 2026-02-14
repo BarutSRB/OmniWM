@@ -74,7 +74,8 @@ final class WMController {
     private(set) var appRulesByBundleId: [String: AppRule] = [:]
 
     @ObservationIgnored var mouseEventState = MouseEventState()
-    @ObservationIgnored var mouseWarpState = MouseWarpState()
+    @ObservationIgnored
+    private(set) lazy var mouseWarpHandler = MouseWarpHandler(controller: self)
     @ObservationIgnored var layoutState = LayoutState()
     private(set) var hasStartedServices = false
     private var permissionCheckerTask: Task<Void, Never>?
@@ -424,9 +425,9 @@ final class WMController {
 
     func setMouseWarpEnabled(_ enabled: Bool) {
         if enabled {
-            mouseWarpSetup()
+            mouseWarpHandler.setup()
         } else {
-            mouseWarpCleanup()
+            mouseWarpHandler.cleanup()
         }
     }
 
@@ -532,7 +533,7 @@ final class WMController {
         setupWorkspaceObservation()
         mouseSetup()
         if settings.mouseWarpEnabled {
-            mouseWarpSetup()
+            mouseWarpHandler.setup()
         }
         setupDisplayObserver()
         setupAppActivationObserver()
@@ -708,7 +709,7 @@ final class WMController {
 
         layoutResetState()
         mouseCleanup()
-        mouseWarpCleanup()
+        mouseWarpHandler.cleanup()
         axEventCleanup()
 
         tabbedOverlayManager.removeAll()
