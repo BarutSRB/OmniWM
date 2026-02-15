@@ -437,11 +437,11 @@ private struct MonitorNiriSettingsSection: View {
 
                 OverridablePicker(
                     label: "Center Focused Column",
-                    value: ms.centerFocusedColumn.flatMap { CenterFocusedColumn(rawValue: $0) },
+                    value: ms.centerFocusedColumn,
                     globalValue: settings.niriCenterFocusedColumn,
                     options: CenterFocusedColumn.allCases,
                     displayName: { $0.displayName },
-                    onChange: { newValue in updateSetting { $0.centerFocusedColumn = newValue.rawValue } },
+                    onChange: { newValue in updateSetting { $0.centerFocusedColumn = newValue } },
                     onReset: { updateSetting { $0.centerFocusedColumn = nil } }
                 )
 
@@ -455,11 +455,11 @@ private struct MonitorNiriSettingsSection: View {
 
                 OverridablePicker(
                     label: "Single Window Ratio",
-                    value: ms.singleWindowAspectRatio.flatMap { SingleWindowAspectRatio(rawValue: $0) },
+                    value: ms.singleWindowAspectRatio,
                     globalValue: settings.niriSingleWindowAspectRatio,
                     options: SingleWindowAspectRatio.allCases,
                     displayName: { $0.displayName },
-                    onChange: { newValue in updateSetting { $0.singleWindowAspectRatio = newValue.rawValue } },
+                    onChange: { newValue in updateSetting { $0.singleWindowAspectRatio = newValue } },
                     onReset: { updateSetting { $0.singleWindowAspectRatio = nil } }
                 )
             }

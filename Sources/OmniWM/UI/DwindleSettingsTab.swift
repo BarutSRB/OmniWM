@@ -214,11 +214,11 @@ private struct MonitorDwindleSettingsSection: View {
 
                 OverridablePicker(
                     label: "Single Window Ratio",
-                    value: ms.singleWindowAspectRatio.flatMap { DwindleSingleWindowAspectRatio(rawValue: $0) },
+                    value: ms.singleWindowAspectRatio,
                     globalValue: settings.dwindleSingleWindowAspectRatio,
                     options: DwindleSingleWindowAspectRatio.allCases,
                     displayName: { $0.displayName },
-                    onChange: { newValue in updateSetting { $0.singleWindowAspectRatio = newValue.rawValue } },
+                    onChange: { newValue in updateSetting { $0.singleWindowAspectRatio = newValue } },
                     onReset: { updateSetting { $0.singleWindowAspectRatio = nil } }
                 )
 

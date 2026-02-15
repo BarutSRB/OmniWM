@@ -114,7 +114,7 @@ private struct GlobalBarSettingsSection: View {
 
                 SectionHeader("Position & Level")
                 VStack(alignment: .leading, spacing: 8) {
-                    Picker("Position", selection: positionBinding) {
+                    Picker("Position", selection: $settings.workspaceBarPosition) {
                         ForEach(WorkspaceBarPosition.allCases) { position in
                             Text(position.displayName).tag(position)
                         }
@@ -123,7 +123,7 @@ private struct GlobalBarSettingsSection: View {
                         controller.updateWorkspaceBarSettings()
                     }
 
-                    Picker("Window Level", selection: windowLevelBinding) {
+                    Picker("Window Level", selection: $settings.workspaceBarWindowLevel) {
                         ForEach(WorkspaceBarWindowLevel.allCases) { level in
                             Text(level.displayName).tag(level)
                         }
@@ -230,19 +230,6 @@ private struct GlobalBarSettingsSection: View {
         }
     }
 
-    private var positionBinding: Binding<WorkspaceBarPosition> {
-        Binding(
-            get: { WorkspaceBarPosition(rawValue: settings.workspaceBarPosition) ?? .overlappingMenuBar },
-            set: { settings.workspaceBarPosition = $0.rawValue }
-        )
-    }
-
-    private var windowLevelBinding: Binding<WorkspaceBarWindowLevel> {
-        Binding(
-            get: { WorkspaceBarWindowLevel(rawValue: settings.workspaceBarWindowLevel) ?? .popup },
-            set: { settings.workspaceBarWindowLevel = $0.rawValue }
-        )
-    }
 }
 
 private struct MonitorBarSettingsSection: View {
@@ -316,21 +303,21 @@ private struct MonitorBarSettingsSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 OverridablePicker(
                     label: "Position",
-                    value: ms.position.flatMap { WorkspaceBarPosition(rawValue: $0) },
-                    globalValue: WorkspaceBarPosition(rawValue: settings.workspaceBarPosition) ?? .overlappingMenuBar,
+                    value: ms.position,
+                    globalValue: settings.workspaceBarPosition,
                     options: WorkspaceBarPosition.allCases,
                     displayName: { $0.displayName },
-                    onChange: { newValue in updateSetting { $0.position = newValue.rawValue } },
+                    onChange: { newValue in updateSetting { $0.position = newValue } },
                     onReset: { updateSetting { $0.position = nil } }
                 )
 
                 OverridablePicker(
                     label: "Window Level",
-                    value: ms.windowLevel.flatMap { WorkspaceBarWindowLevel(rawValue: $0) },
-                    globalValue: WorkspaceBarWindowLevel(rawValue: settings.workspaceBarWindowLevel) ?? .popup,
+                    value: ms.windowLevel,
+                    globalValue: settings.workspaceBarWindowLevel,
                     options: WorkspaceBarWindowLevel.allCases,
                     displayName: { $0.displayName },
-                    onChange: { newValue in updateSetting { $0.windowLevel = newValue.rawValue } },
+                    onChange: { newValue in updateSetting { $0.windowLevel = newValue } },
                     onReset: { updateSetting { $0.windowLevel = nil } }
                 )
             }
