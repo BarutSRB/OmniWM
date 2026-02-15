@@ -9,7 +9,7 @@ let package = Package(
     products: [
         .executable(
             name: "OmniWM",
-            targets: ["OmniWM"]
+            targets: ["OmniWMApp"]
         )
     ],
     targets: [
@@ -17,7 +17,7 @@ let package = Package(
             name: "GhosttyKit",
             path: "Frameworks/GhosttyKit.xcframework"
         ),
-        .executableTarget(
+        .target(
             name: "OmniWM",
             dependencies: ["GhosttyKit"],
             path: "Sources/OmniWM",
@@ -38,6 +38,22 @@ let package = Package(
                 .linkedLibrary("z"),
                 .linkedLibrary("c++"),
                 .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
+            ]
+        ),
+        .executableTarget(
+            name: "OmniWMApp",
+            dependencies: ["OmniWM"],
+            path: "Sources/OmniWMApp",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "OmniWMTests",
+            dependencies: ["OmniWM"],
+            path: "Tests/OmniWMTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
             ]
         )
     ]

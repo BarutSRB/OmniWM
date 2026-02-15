@@ -49,6 +49,22 @@ import QuartzCore
         var hasCompletedInitialRefresh: Bool = false
     }
 
+    private struct NiriLayoutPass {
+        let wsId: WorkspaceDescriptor.ID
+        let engine: NiriLayoutEngine
+        let monitor: Monitor
+        let insetFrame: CGRect
+        let gap: CGFloat
+    }
+
+    private struct RemovalContext {
+        var existingHandleIds: Set<UUID>
+        var wasEmptyBeforeSync: Bool
+        var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
+        var precomputedFallback: NodeId?
+        var originalColumnIndex: Int?
+    }
+
     var layoutState = LayoutState()
 
     var isDiscoveryInProgress: Bool { layoutState.isFullEnumerationInProgress }
@@ -727,8 +743,6 @@ import QuartzCore
     func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false, removedNodeId: NodeId? = nil) async {
         guard let controller, let engine = controller.niriEngine else { return }
 
-        var hiddenHandlesByWorkspace = [WorkspaceDescriptor.ID: [WindowHandle: HideSide]]()
-
         for monitor in controller.workspaceManager.monitors {
             guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             unhideWorkspace(workspace.id, monitor: monitor)
@@ -742,372 +756,442 @@ import QuartzCore
             processedWorkspaces.insert(wsId)
 
             let layoutType = controller.settings.layoutType(for: workspace.name)
-            if layoutType == .dwindle {
-                continue
-            }
+            if layoutType == .dwindle { continue }
 
             let windowHandles = controller.workspaceManager.entries(in: wsId).map(\.handle)
-            let existingHandleIds = engine.root(for: wsId)?.windowIdSet ?? []
-            var currentHandleIds = Set<UUID>(minimumCapacity: windowHandles.count)
-            for handle in windowHandles {
-                currentHandleIds.insert(handle.id)
-            }
             let currentSelection = controller.workspaceManager.niriViewportState(for: wsId).selectedNodeId
-            let removedHandleIds = existingHandleIds.subtracting(currentHandleIds)
-
-            var precomputedFallback: NodeId?
-            var originalColumnIndex: Int?
-            var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
             var state = controller.workspaceManager.niriViewportState(for: wsId)
 
-            let wasEmptyBeforeSync = engine.columns(in: wsId).isEmpty
-
-            for removedHandleId in removedHandleIds {
-                guard let window = engine.root(for: wsId)?.allWindows.first(where: { $0.handle.id == removedHandleId }),
-                      let col = engine.column(of: window),
-                      let colIdx = engine.columnIndex(of: col, in: wsId) else { continue }
-
-                let allWindowsInColumnRemoved = col.windowNodes.allSatisfy { w in
-                    !currentHandleIds.contains(w.handle.id)
-                }
-
-                if allWindowsInColumnRemoved && columnRemovalResult == nil {
-                    originalColumnIndex = colIdx
-                    let gap = CGFloat(controller.workspaceManager.gaps)
-                    columnRemovalResult = engine.animateColumnsForRemoval(
-                        columnIndex: colIdx,
-                        in: wsId,
-                        state: &state,
-                        gaps: gap
-                    )
-                }
-
-                let nodeIdForFallback = removedNodeId ?? currentSelection
-                if window.id == nodeIdForFallback {
-                    precomputedFallback = engine.fallbackSelectionOnRemoval(
-                        removing: window.id,
-                        in: wsId
-                    )
-                }
-            }
-
-            _ = engine.syncWindows(
-                windowHandles,
-                in: wsId,
-                selectedNodeId: currentSelection,
-                focusedHandle: controller.focusedHandle
-            )
-            let newHandles = windowHandles.filter { !existingHandleIds.contains($0.id) }
-
-            let earlyGap = CGFloat(controller.workspaceManager.gaps)
-            let earlyInsetFrame = controller.insetWorkingFrame(for: monitor)
-            for col in engine.columns(in: wsId) {
-                if col.cachedWidth <= 0 {
-                    col.resolveAndCacheWidth(workingAreaWidth: earlyInsetFrame.width, gaps: earlyGap)
-                }
-            }
-
-            if !wasEmptyBeforeSync, !newHandles.isEmpty {
-                let gap = earlyGap
-                let workingWidth = earlyInsetFrame.width
-
-                var newColumnData: [(col: NiriContainer, colIdx: Int)] = []
-                for newHandle in newHandles {
-                    if let node = engine.findNode(for: newHandle),
-                       let col = engine.column(of: node),
-                       let colIdx = engine.columnIndex(of: col, in: wsId)
-                    {
-                        if !newColumnData.contains(where: { $0.col.id == col.id }) {
-                            newColumnData.append((col, colIdx))
-                        }
-                    }
-                }
-
-                let originalActiveIdx = state.activeColumnIndex
-                let insertedBeforeActive = newColumnData.filter { $0.colIdx <= originalActiveIdx }
-                if !insertedBeforeActive.isEmpty, columnRemovalResult == nil {
-                    let totalInsertedWidth = insertedBeforeActive.reduce(CGFloat(0)) { total, data in
-                        total + data.col.cachedWidth + gap
-                    }
-                    state.viewOffsetPixels.offset(delta: Double(-totalInsertedWidth))
-                    state.activeColumnIndex = originalActiveIdx + insertedBeforeActive.count
-                }
-
-                let sortedNewColumns = newColumnData.sorted { $0.colIdx < $1.colIdx }
-                for addedData in sortedNewColumns {
-                    engine.animateColumnsForAddition(
-                        columnIndex: addedData.colIdx,
-                        in: wsId,
-                        state: state,
-                        gaps: gap,
-                        workingAreaWidth: workingWidth
-                    )
-                }
-
-            }
-
-            for entry in controller.workspaceManager.entries(in: wsId) {
-                let currentSize = (AXWindowService.framePreferFast(entry.axRef))?.size
-                var constraints: WindowSizeConstraints
-                if let cached = controller.workspaceManager.cachedConstraints(for: entry.handle) {
-                    constraints = cached
-                } else {
-                    constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
-                    controller.workspaceManager.setCachedConstraints(constraints, for: entry.handle)
-                }
-
-                if let bundleId = controller.appInfoCache.bundleId(for: entry.handle.pid),
-                   let rule = controller.appRulesByBundleId[bundleId]
-                {
-                    if let minW = rule.minWidth {
-                        constraints.minSize.width = max(constraints.minSize.width, minW)
-                    }
-                    if let minH = rule.minHeight {
-                        constraints.minSize.height = max(constraints.minSize.height, minH)
-                    }
-                }
-
-                engine.updateWindowConstraints(for: entry.handle, constraints: constraints)
-            }
-
-            state.displayRefreshRate = layoutState.refreshRateByDisplay[monitor.displayId] ?? 60.0
-
-            if let result = columnRemovalResult {
-                if let prevOffset = state.activatePrevColumnOnRemoval {
-                    state.viewOffsetPixels = .static(prevOffset)
-                    state.activatePrevColumnOnRemoval = nil
-                }
-
-                if let fallback = result.fallbackSelectionId {
-                    state.selectedNodeId = fallback
-                } else if let selectedId = state.selectedNodeId, engine.findNode(by: selectedId) == nil {
-                    state.selectedNodeId = precomputedFallback
-                        ?? engine.validateSelection(selectedId, in: wsId)
-                }
-            } else {
-                if let selectedId = state.selectedNodeId {
-                    if engine.findNode(by: selectedId) == nil {
-                        state.selectedNodeId = precomputedFallback
-                            ?? engine.validateSelection(selectedId, in: wsId)
-                    }
-                }
-            }
-
-            if state.selectedNodeId == nil {
-                if let firstHandle = windowHandles.first,
-                   let firstNode = engine.findNode(for: firstHandle)
-                {
-                    state.selectedNodeId = firstNode.id
-                }
-            }
-
-            let offsetBefore = state.viewOffsetPixels.current()
-            var viewportNeedsRecalc = false
-
-            let isGestureOrAnimation = state.viewOffsetPixels.isGesture || state.viewOffsetPixels.isAnimating
-
-            let gap = CGFloat(controller.workspaceManager.gaps)
-            let insetFrame = controller.insetWorkingFrame(for: monitor)
-
-            for col in engine.columns(in: wsId) {
-                if col.cachedWidth <= 0 {
-                    col.resolveAndCacheWidth(workingAreaWidth: insetFrame.width, gaps: gap)
-                }
-            }
-
-            if !isGestureOrAnimation,
-               wsId == controller.activeWorkspace()?.id,
-               let selectedId = state.selectedNodeId,
-               let selectedNode = engine.findNode(by: selectedId)
-            {
-                if let restoreOffset = columnRemovalResult?.restorePreviousViewOffset {
-                    state.viewOffsetPixels = .static(restoreOffset)
-                } else {
-                    engine.ensureSelectionVisible(
-                        node: selectedNode,
-                        in: wsId,
-                        state: &state,
-                        workingFrame: insetFrame,
-                        gaps: gap,
-                        alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
-                        fromContainerIndex: originalColumnIndex
-                    )
-                }
-                if abs(state.viewOffsetPixels.current() - offsetBefore) > 1 {
-                    controller.workspaceManager.updateNiriViewportState(state, for: wsId)
-                    viewportNeedsRecalc = true
-                }
-            }
-
-            if let selectedId = state.selectedNodeId,
-               let selectedNode = engine.findNode(by: selectedId) as? NiriWindow
-            {
-                controller.focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: wsId)
-                if let currentFocused = controller.focusedHandle {
-                    if controller.workspaceManager.workspace(for: currentFocused) == wsId {
-                        controller.focusManager.setFocus(selectedNode.handle, in: wsId)
-                    }
-                } else {
-                    controller.focusManager.setFocus(selectedNode.handle, in: wsId)
-                }
-            }
-
-            let gaps = LayoutGaps(
-                horizontal: CGFloat(controller.workspaceManager.gaps),
-                vertical: CGFloat(controller.workspaceManager.gaps),
-                outer: controller.workspaceManager.outerGaps
-            )
-
-            let area = WorkingAreaContext(
-                workingFrame: insetFrame,
-                viewFrame: monitor.frame,
-                scale: backingScale(for: monitor)
-            )
-
-            let wasEmpty = existingHandleIds.isEmpty
-
-            var newWindowHandle: WindowHandle?
-            if layoutState.hasCompletedInitialRefresh,
-               let newHandle = newHandles.last,
-               let newNode = engine.findNode(for: newHandle),
-               wsId == controller.activeWorkspace()?.id
-            {
-                state.selectedNodeId = newNode.id
-
-                if wasEmpty {
-                    let cols = engine.columns(in: wsId)
-                    state.transitionToColumn(
-                        0,
-                        columns: cols,
-                        gap: gap,
-                        viewportWidth: insetFrame.width,
-                        animate: false,
-                        centerMode: engine.centerFocusedColumn
-                    )
-                } else if let newCol = engine.column(of: newNode),
-                          let newColIdx = engine.columnIndex(of: newCol, in: wsId) {
-                    if newCol.cachedWidth <= 0 {
-                        newCol.resolveAndCacheWidth(workingAreaWidth: insetFrame.width, gaps: gap)
-                    }
-
-                    let shouldRestorePrevOffset = newColIdx == state.activeColumnIndex + 1
-                    let offsetBeforeActivation = state.stationary()
-
-                    engine.ensureSelectionVisible(
-                        node: newNode,
-                        in: wsId,
-                        state: &state,
-                        workingFrame: insetFrame,
-                        gaps: gap,
-                        alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
-                        fromContainerIndex: state.activeColumnIndex
-                    )
-
-                    if shouldRestorePrevOffset {
-                        state.activatePrevColumnOnRemoval = offsetBeforeActivation
-                    }
-                }
-                controller.focusManager.setFocus(newHandle, in: wsId)
-                engine.updateFocusTimestamp(for: newNode.id)
-                controller.workspaceManager.updateNiriViewportState(state, for: wsId)
-                newWindowHandle = newHandle
-            }
-
-            if layoutState.hasCompletedInitialRefresh,
-               wsId == controller.activeWorkspace()?.id,
-               !newHandles.isEmpty
-            {
-                let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
-                let appearOffset = 16.0 * reduceMotionScale
-
-                for handle in newHandles {
-                    guard let window = engine.findNode(for: handle),
-                          !window.isHiddenInTabbedMode else { continue }
-
-                    window.animateAlpha(
-                        from: 0.0,
-                        to: 1.0,
-                        clock: engine.animationClock,
-                        config: engine.windowMovementAnimationConfig,
-                        displayRefreshRate: state.displayRefreshRate,
-                        animationsEnabled: engine.animationsEnabled
-                    )
-
-                    if abs(appearOffset) > 0.1 {
-                        window.animateMoveFrom(
-                            displacement: CGPoint(x: 0, y: -appearOffset),
-                            clock: engine.animationClock,
-                            config: engine.windowMovementAnimationConfig,
-                            displayRefreshRate: state.displayRefreshRate,
-                            animationsEnabled: engine.animationsEnabled
-                        )
-                    }
-                }
-            }
-
-            let (frames, hiddenHandles) = engine.calculateCombinedLayoutUsingPools(
-                in: wsId,
+            let pass = NiriLayoutPass(
+                wsId: wsId,
+                engine: engine,
                 monitor: monitor,
-                gaps: gaps,
-                state: state,
-                workingArea: area,
-                animationTime: nil
+                insetFrame: controller.insetWorkingFrame(for: monitor),
+                gap: CGFloat(controller.workspaceManager.gaps)
             )
 
-            let hasColumnAnimations = engine.hasAnyColumnAnimationsRunning(in: wsId)
+            let removal = processWindowRemovals(
+                pass: pass,
+                state: &state,
+                windowHandles: windowHandles,
+                currentSelection: currentSelection,
+                removedNodeId: removedNodeId
+            )
 
-            if !useScrollAnimationPath {
-                if viewportNeedsRecalc, newWindowHandle == nil {
-                    startScrollAnimation(for: wsId)
-                } else if hasColumnAnimations {
-                    startScrollAnimation(for: wsId)
-                }
-            }
+            let newHandles = syncAndInsert(
+                pass: pass,
+                state: &state,
+                windowHandles: windowHandles,
+                removal: removal
+            )
 
-            if let newHandle = newWindowHandle {
-                startScrollAnimation(for: wsId)
-                controller.focusWindow(newHandle)
-            }
+            updateWindowConstraints(in: wsId) { engine.updateWindowConstraints(for: $0, constraints: $1) }
 
-            hiddenHandlesByWorkspace[wsId] = hiddenHandles
+            let viewportNeedsRecalc = resolveSelection(
+                pass: pass,
+                state: &state,
+                windowHandles: windowHandles,
+                removal: removal
+            )
 
-            for entry in controller.workspaceManager.entries(in: wsId) {
-                if let side = hiddenHandles[entry.handle] {
-                    let targetY = frames[entry.handle]?.origin.y
-                    hideWindow(entry, monitor: monitor, side: side, targetY: targetY)
-                } else {
-                    unhideWindow(entry, monitor: monitor)
-                }
-            }
+            let newWindowHandle = handleNewWindowArrival(
+                pass: pass,
+                state: &state,
+                newHandles: newHandles,
+                existingHandleIds: removal.existingHandleIds
+            )
 
-            var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
-
-            for (handle, frame) in frames {
-                if hiddenHandles[handle] != nil { continue }
-                if let entry = controller.workspaceManager.entry(for: handle) {
-                    frameUpdates.append((handle.pid, entry.windowId, frame))
-                }
-            }
-
-            controller.axManager.applyFramesParallel(frameUpdates)
-
-            if !useScrollAnimationPath, let focusedHandle = controller.focusedHandle {
-                if hiddenHandles[focusedHandle] != nil {
-                    controller.borderManager.hideBorder()
-                } else if let frame = frames[focusedHandle],
-                          let entry = controller.workspaceManager.entry(for: focusedHandle)
-                {
-                    controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
-                }
-            }
-
-            controller.workspaceManager.updateNiriViewportState(state, for: wsId)
+            computeAndApplyLayout(
+                pass: pass,
+                state: state,
+                newWindowHandle: newWindowHandle,
+                viewportNeedsRecalc: viewportNeedsRecalc,
+                useScrollAnimationPath: useScrollAnimationPath
+            )
 
             await Task.yield()
         }
 
         updateTabbedColumnOverlays()
         controller.updateWorkspaceBar()
+    }
+
+    private func processWindowRemovals(
+        pass: NiriLayoutPass,
+        state: inout ViewportState,
+        windowHandles: [WindowHandle],
+        currentSelection: NodeId?,
+        removedNodeId: NodeId?
+    ) -> RemovalContext {
+        let existingHandleIds = pass.engine.root(for: pass.wsId)?.windowIdSet ?? []
+        var currentHandleIds = Set<UUID>(minimumCapacity: windowHandles.count)
+        for handle in windowHandles {
+            currentHandleIds.insert(handle.id)
+        }
+        let removedHandleIds = existingHandleIds.subtracting(currentHandleIds)
+
+        var precomputedFallback: NodeId?
+        var originalColumnIndex: Int?
+        var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
+
+        let wasEmptyBeforeSync = pass.engine.columns(in: pass.wsId).isEmpty
+
+        for removedHandleId in removedHandleIds {
+            guard let window = pass.engine.root(for: pass.wsId)?.allWindows.first(where: { $0.handle.id == removedHandleId }),
+                  let col = pass.engine.column(of: window),
+                  let colIdx = pass.engine.columnIndex(of: col, in: pass.wsId) else { continue }
+
+            let allWindowsInColumnRemoved = col.windowNodes.allSatisfy { w in
+                !currentHandleIds.contains(w.handle.id)
+            }
+
+            if allWindowsInColumnRemoved && columnRemovalResult == nil {
+                originalColumnIndex = colIdx
+                columnRemovalResult = pass.engine.animateColumnsForRemoval(
+                    columnIndex: colIdx,
+                    in: pass.wsId,
+                    state: &state,
+                    gaps: pass.gap
+                )
+            }
+
+            let nodeIdForFallback = removedNodeId ?? currentSelection
+            if window.id == nodeIdForFallback {
+                precomputedFallback = pass.engine.fallbackSelectionOnRemoval(
+                    removing: window.id,
+                    in: pass.wsId
+                )
+            }
+        }
+
+        return RemovalContext(
+            existingHandleIds: existingHandleIds,
+            wasEmptyBeforeSync: wasEmptyBeforeSync,
+            columnRemovalResult: columnRemovalResult,
+            precomputedFallback: precomputedFallback,
+            originalColumnIndex: originalColumnIndex
+        )
+    }
+
+    private func syncAndInsert(
+        pass: NiriLayoutPass,
+        state: inout ViewportState,
+        windowHandles: [WindowHandle],
+        removal: RemovalContext
+    ) -> [WindowHandle] {
+        guard let controller else { return [] }
+
+        let currentSelection = state.selectedNodeId
+        _ = pass.engine.syncWindows(
+            windowHandles,
+            in: pass.wsId,
+            selectedNodeId: currentSelection,
+            focusedHandle: controller.focusedHandle
+        )
+        let newHandles = windowHandles.filter { !removal.existingHandleIds.contains($0.id) }
+
+        for col in pass.engine.columns(in: pass.wsId) {
+            if col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
+            }
+        }
+
+        if !removal.wasEmptyBeforeSync, !newHandles.isEmpty {
+            var newColumnData: [(col: NiriContainer, colIdx: Int)] = []
+            for newHandle in newHandles {
+                if let node = pass.engine.findNode(for: newHandle),
+                   let col = pass.engine.column(of: node),
+                   let colIdx = pass.engine.columnIndex(of: col, in: pass.wsId)
+                {
+                    if !newColumnData.contains(where: { $0.col.id == col.id }) {
+                        newColumnData.append((col, colIdx))
+                    }
+                }
+            }
+
+            let originalActiveIdx = state.activeColumnIndex
+            let insertedBeforeActive = newColumnData.filter { $0.colIdx <= originalActiveIdx }
+            if !insertedBeforeActive.isEmpty, removal.columnRemovalResult == nil {
+                let totalInsertedWidth = insertedBeforeActive.reduce(CGFloat(0)) { total, data in
+                    total + data.col.cachedWidth + pass.gap
+                }
+                state.viewOffsetPixels.offset(delta: Double(-totalInsertedWidth))
+                state.activeColumnIndex = originalActiveIdx + insertedBeforeActive.count
+            }
+
+            let sortedNewColumns = newColumnData.sorted { $0.colIdx < $1.colIdx }
+            for addedData in sortedNewColumns {
+                pass.engine.animateColumnsForAddition(
+                    columnIndex: addedData.colIdx,
+                    in: pass.wsId,
+                    state: state,
+                    gaps: pass.gap,
+                    workingAreaWidth: pass.insetFrame.width
+                )
+            }
+        }
+
+        return newHandles
+    }
+
+    private func resolveSelection(
+        pass: NiriLayoutPass,
+        state: inout ViewportState,
+        windowHandles: [WindowHandle],
+        removal: RemovalContext
+    ) -> Bool {
+        guard let controller else { return false }
+
+        state.displayRefreshRate = layoutState.refreshRateByDisplay[pass.monitor.displayId] ?? 60.0
+
+        if let result = removal.columnRemovalResult {
+            if let prevOffset = state.activatePrevColumnOnRemoval {
+                state.viewOffsetPixels = .static(prevOffset)
+                state.activatePrevColumnOnRemoval = nil
+            }
+
+            if let fallback = result.fallbackSelectionId {
+                state.selectedNodeId = fallback
+            } else if let selectedId = state.selectedNodeId, pass.engine.findNode(by: selectedId) == nil {
+                state.selectedNodeId = removal.precomputedFallback
+                    ?? pass.engine.validateSelection(selectedId, in: pass.wsId)
+            }
+        } else {
+            if let selectedId = state.selectedNodeId {
+                if pass.engine.findNode(by: selectedId) == nil {
+                    state.selectedNodeId = removal.precomputedFallback
+                        ?? pass.engine.validateSelection(selectedId, in: pass.wsId)
+                }
+            }
+        }
+
+        if state.selectedNodeId == nil {
+            if let firstHandle = windowHandles.first,
+               let firstNode = pass.engine.findNode(for: firstHandle)
+            {
+                state.selectedNodeId = firstNode.id
+            }
+        }
+
+        let offsetBefore = state.viewOffsetPixels.current()
+        var viewportNeedsRecalc = false
+
+        let isGestureOrAnimation = state.viewOffsetPixels.isGesture || state.viewOffsetPixels.isAnimating
+
+        for col in pass.engine.columns(in: pass.wsId) {
+            if col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
+            }
+        }
+
+        if !isGestureOrAnimation,
+           pass.wsId == controller.activeWorkspace()?.id,
+           let selectedId = state.selectedNodeId,
+           let selectedNode = pass.engine.findNode(by: selectedId)
+        {
+            if let restoreOffset = removal.columnRemovalResult?.restorePreviousViewOffset {
+                state.viewOffsetPixels = .static(restoreOffset)
+            } else {
+                pass.engine.ensureSelectionVisible(
+                    node: selectedNode,
+                    in: pass.wsId,
+                    state: &state,
+                    workingFrame: pass.insetFrame,
+                    gaps: pass.gap,
+                    alwaysCenterSingleColumn: pass.engine.alwaysCenterSingleColumn,
+                    fromContainerIndex: removal.originalColumnIndex
+                )
+            }
+            if abs(state.viewOffsetPixels.current() - offsetBefore) > 1 {
+                controller.workspaceManager.updateNiriViewportState(state, for: pass.wsId)
+                viewportNeedsRecalc = true
+            }
+        }
+
+        if let selectedId = state.selectedNodeId,
+           let selectedNode = pass.engine.findNode(by: selectedId) as? NiriWindow
+        {
+            controller.focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: pass.wsId)
+            if let currentFocused = controller.focusedHandle {
+                if controller.workspaceManager.workspace(for: currentFocused) == pass.wsId {
+                    controller.focusManager.setFocus(selectedNode.handle, in: pass.wsId)
+                }
+            } else {
+                controller.focusManager.setFocus(selectedNode.handle, in: pass.wsId)
+            }
+        }
+
+        return viewportNeedsRecalc
+    }
+
+    private func handleNewWindowArrival(
+        pass: NiriLayoutPass,
+        state: inout ViewportState,
+        newHandles: [WindowHandle],
+        existingHandleIds: Set<UUID>
+    ) -> WindowHandle? {
+        guard let controller else { return nil }
+
+        let wasEmpty = existingHandleIds.isEmpty
+
+        var newWindowHandle: WindowHandle?
+        if layoutState.hasCompletedInitialRefresh,
+           let newHandle = newHandles.last,
+           let newNode = pass.engine.findNode(for: newHandle),
+           pass.wsId == controller.activeWorkspace()?.id
+        {
+            state.selectedNodeId = newNode.id
+
+            if wasEmpty {
+                let cols = pass.engine.columns(in: pass.wsId)
+                state.transitionToColumn(
+                    0,
+                    columns: cols,
+                    gap: pass.gap,
+                    viewportWidth: pass.insetFrame.width,
+                    animate: false,
+                    centerMode: pass.engine.centerFocusedColumn
+                )
+            } else if let newCol = pass.engine.column(of: newNode),
+                      let newColIdx = pass.engine.columnIndex(of: newCol, in: pass.wsId) {
+                if newCol.cachedWidth <= 0 {
+                    newCol.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
+                }
+
+                let shouldRestorePrevOffset = newColIdx == state.activeColumnIndex + 1
+                let offsetBeforeActivation = state.stationary()
+
+                pass.engine.ensureSelectionVisible(
+                    node: newNode,
+                    in: pass.wsId,
+                    state: &state,
+                    workingFrame: pass.insetFrame,
+                    gaps: pass.gap,
+                    alwaysCenterSingleColumn: pass.engine.alwaysCenterSingleColumn,
+                    fromContainerIndex: state.activeColumnIndex
+                )
+
+                if shouldRestorePrevOffset {
+                    state.activatePrevColumnOnRemoval = offsetBeforeActivation
+                }
+            }
+            controller.focusManager.setFocus(newHandle, in: pass.wsId)
+            pass.engine.updateFocusTimestamp(for: newNode.id)
+            controller.workspaceManager.updateNiriViewportState(state, for: pass.wsId)
+            newWindowHandle = newHandle
+        }
+
+        if layoutState.hasCompletedInitialRefresh,
+           pass.wsId == controller.activeWorkspace()?.id,
+           !newHandles.isEmpty
+        {
+            let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
+            let appearOffset = 16.0 * reduceMotionScale
+
+            for handle in newHandles {
+                guard let window = pass.engine.findNode(for: handle),
+                      !window.isHiddenInTabbedMode else { continue }
+
+                window.animateAlpha(
+                    from: 0.0,
+                    to: 1.0,
+                    clock: pass.engine.animationClock,
+                    config: pass.engine.windowMovementAnimationConfig,
+                    displayRefreshRate: state.displayRefreshRate,
+                    animationsEnabled: pass.engine.animationsEnabled
+                )
+
+                if abs(appearOffset) > 0.1 {
+                    window.animateMoveFrom(
+                        displacement: CGPoint(x: 0, y: -appearOffset),
+                        clock: pass.engine.animationClock,
+                        config: pass.engine.windowMovementAnimationConfig,
+                        displayRefreshRate: state.displayRefreshRate,
+                        animationsEnabled: pass.engine.animationsEnabled
+                    )
+                }
+            }
+        }
+
+        return newWindowHandle
+    }
+
+    private func computeAndApplyLayout(
+        pass: NiriLayoutPass,
+        state: ViewportState,
+        newWindowHandle: WindowHandle?,
+        viewportNeedsRecalc: Bool,
+        useScrollAnimationPath: Bool
+    ) {
+        guard let controller else { return }
+
+        let gaps = LayoutGaps(
+            horizontal: pass.gap,
+            vertical: pass.gap,
+            outer: controller.workspaceManager.outerGaps
+        )
+
+        let area = WorkingAreaContext(
+            workingFrame: pass.insetFrame,
+            viewFrame: pass.monitor.frame,
+            scale: backingScale(for: pass.monitor)
+        )
+
+        let (frames, hiddenHandles) = pass.engine.calculateCombinedLayoutUsingPools(
+            in: pass.wsId,
+            monitor: pass.monitor,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: nil
+        )
+
+        let hasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
+
+        if !useScrollAnimationPath {
+            if viewportNeedsRecalc, newWindowHandle == nil {
+                startScrollAnimation(for: pass.wsId)
+            } else if hasColumnAnimations {
+                startScrollAnimation(for: pass.wsId)
+            }
+        }
+
+        if let newHandle = newWindowHandle {
+            startScrollAnimation(for: pass.wsId)
+            controller.focusWindow(newHandle)
+        }
+
+        for entry in controller.workspaceManager.entries(in: pass.wsId) {
+            if let side = hiddenHandles[entry.handle] {
+                let targetY = frames[entry.handle]?.origin.y
+                hideWindow(entry, monitor: pass.monitor, side: side, targetY: targetY)
+            } else {
+                unhideWindow(entry, monitor: pass.monitor)
+            }
+        }
+
+        var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+
+        for (handle, frame) in frames {
+            if hiddenHandles[handle] != nil { continue }
+            if let entry = controller.workspaceManager.entry(for: handle) {
+                frameUpdates.append((handle.pid, entry.windowId, frame))
+            }
+        }
+
+        controller.axManager.applyFramesParallel(frameUpdates)
+
+        if !useScrollAnimationPath, let focusedHandle = controller.focusedHandle {
+            if hiddenHandles[focusedHandle] != nil {
+                controller.borderManager.hideBorder()
+            } else if let frame = frames[focusedHandle],
+                      let entry = controller.workspaceManager.entry(for: focusedHandle)
+            {
+                controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+            }
+        }
+
+        controller.workspaceManager.updateNiriViewportState(state, for: pass.wsId)
     }
 
     private func layoutWithDwindleEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) async {
@@ -1130,29 +1214,7 @@ import QuartzCore
 
             _ = engine.syncWindows(windowHandles, in: wsId, focusedHandle: currentFocusedHandle)
 
-            for entry in controller.workspaceManager.entries(in: wsId) {
-                let currentSize = (AXWindowService.framePreferFast(entry.axRef))?.size
-                var constraints: WindowSizeConstraints
-                if let cached = controller.workspaceManager.cachedConstraints(for: entry.handle) {
-                    constraints = cached
-                } else {
-                    constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
-                    controller.workspaceManager.setCachedConstraints(constraints, for: entry.handle)
-                }
-
-                if let bundleId = controller.appInfoCache.bundleId(for: entry.handle.pid),
-                   let rule = controller.appRulesByBundleId[bundleId]
-                {
-                    if let minW = rule.minWidth {
-                        constraints.minSize.width = max(constraints.minSize.width, minW)
-                    }
-                    if let minH = rule.minHeight {
-                        constraints.minSize.height = max(constraints.minSize.height, minH)
-                    }
-                }
-
-                engine.updateWindowConstraints(for: entry.handle, constraints: constraints)
-            }
+            updateWindowConstraints(in: wsId) { engine.updateWindowConstraints(for: $0, constraints: $1) }
 
             let insetFrame = controller.insetWorkingFrame(for: monitor)
 
@@ -1212,6 +1274,36 @@ import QuartzCore
         }
 
         controller.updateWorkspaceBar()
+    }
+
+    private func updateWindowConstraints(
+        in wsId: WorkspaceDescriptor.ID,
+        updateEngine: (WindowHandle, WindowSizeConstraints) -> Void
+    ) {
+        guard let controller else { return }
+        for entry in controller.workspaceManager.entries(in: wsId) {
+            let currentSize = (AXWindowService.framePreferFast(entry.axRef))?.size
+            var constraints: WindowSizeConstraints
+            if let cached = controller.workspaceManager.cachedConstraints(for: entry.handle) {
+                constraints = cached
+            } else {
+                constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
+                controller.workspaceManager.setCachedConstraints(constraints, for: entry.handle)
+            }
+
+            if let bundleId = controller.appInfoCache.bundleId(for: entry.handle.pid),
+               let rule = controller.appRulesByBundleId[bundleId]
+            {
+                if let minW = rule.minWidth {
+                    constraints.minSize.width = max(constraints.minSize.width, minW)
+                }
+                if let minH = rule.minHeight {
+                    constraints.minSize.height = max(constraints.minSize.height, minH)
+                }
+            }
+
+            updateEngine(entry.handle, constraints)
+        }
     }
 
     private func partitionWorkspacesByLayoutType(
