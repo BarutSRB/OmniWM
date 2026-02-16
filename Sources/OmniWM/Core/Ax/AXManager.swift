@@ -156,6 +156,12 @@ final class AXManager {
         }
     }
 
+    func cancelPendingFrameJobs(_ entries: [(pid: pid_t, windowId: Int)]) {
+        for (pid, windowId) in entries {
+            AppAXContext.contexts[pid]?.cancelFrameJob(for: windowId)
+        }
+    }
+
     func applyPositionsViaSkyLight(_ positions: [(windowId: Int, origin: CGPoint)]) {
         let batchPositions = positions.map {
             (windowId: UInt32($0.windowId), origin: ScreenCoordinateSpace.toWindowServer(point: $0.origin))

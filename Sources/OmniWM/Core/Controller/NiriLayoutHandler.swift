@@ -111,6 +111,7 @@ import QuartzCore
         var positionUpdates: [(windowId: Int, origin: CGPoint)] = []
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
         var alphaUpdates: [(windowId: UInt32, alpha: Float)] = []
+        var hiddenWindowJobs: [(pid: pid_t, windowId: Int)] = []
 
         let time = animationTime ?? CACurrentMediaTime()
 
@@ -138,12 +139,16 @@ import QuartzCore
                     monitors: monitors
                 )
                 positionUpdates.append((entry.windowId, hiddenOrigin))
+                hiddenWindowJobs.append((handle.pid, entry.windowId))
                 continue
             }
 
             frameUpdates.append((handle.pid, entry.windowId, frame))
         }
 
+        if !hiddenWindowJobs.isEmpty {
+            controller.axManager.cancelPendingFrameJobs(hiddenWindowJobs)
+        }
         if !positionUpdates.isEmpty {
             controller.axManager.applyPositionsViaSkyLight(positionUpdates)
         }
@@ -607,6 +612,16 @@ import QuartzCore
         if let newHandle = newWindowHandle {
             lrc.startScrollAnimation(for: pass.wsId)
             controller.focusWindow(newHandle)
+        }
+
+        var hiddenWindowJobs: [(pid: pid_t, windowId: Int)] = []
+        for entry in controller.workspaceManager.entries(in: pass.wsId) {
+            if hiddenHandles[entry.handle] != nil {
+                hiddenWindowJobs.append((entry.handle.pid, entry.windowId))
+            }
+        }
+        if !hiddenWindowJobs.isEmpty {
+            controller.axManager.cancelPendingFrameJobs(hiddenWindowJobs)
         }
 
         for entry in controller.workspaceManager.entries(in: pass.wsId) {

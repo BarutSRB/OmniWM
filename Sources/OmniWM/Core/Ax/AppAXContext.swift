@@ -228,6 +228,10 @@ final class AppAXContext: @unchecked Sendable {
         return results
     }
 
+    func cancelFrameJob(for windowId: Int) {
+        setFrameJobs.removeValue(forKey: windowId)?.cancel()
+    }
+
     func setFramesBatch(_ frames: [(windowId: Int, frame: CGRect)]) {
         guard let thread else { return }
 

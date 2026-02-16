@@ -611,6 +611,10 @@ import QuartzCore
             monitor: monitor,
             monitors: controller.workspaceManager.monitors
         )
+        let pixel = 1.0 / max(1.0, scale)
+        if abs(frame.origin.x - origin.x) < pixel && abs(frame.origin.y - origin.y) < pixel {
+            return
+        }
         try? AXWindowService.setFrame(entry.axRef, frame: CGRect(origin: origin, size: frame.size))
     }
 
