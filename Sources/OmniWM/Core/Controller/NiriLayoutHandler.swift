@@ -164,6 +164,8 @@ import QuartzCore
         for (windowId, alpha) in alphaUpdates {
             SkyLight.shared.setWindowAlpha(windowId, alpha: alpha)
         }
+
+        updateBorderDuringLayout(frames: frames, hiddenHandles: hiddenHandles, direct: true)
     }
 
     private func finalizeAnimation() {
@@ -180,6 +182,26 @@ import QuartzCore
 
         if controller.moveMouseToFocusedWindowEnabled {
             controller.moveMouseToWindow(focusedHandle)
+        }
+    }
+
+    private func updateBorderDuringLayout(
+        frames: [WindowHandle: CGRect],
+        hiddenHandles: [WindowHandle: HideSide],
+        direct: Bool
+    ) {
+        guard let controller,
+              let focusedHandle = controller.focusedHandle else { return }
+
+        if hiddenHandles[focusedHandle] != nil {
+            controller.borderManager.hideBorder()
+        } else if let frame = frames[focusedHandle],
+                  let entry = controller.workspaceManager.entry(for: focusedHandle) {
+            if direct {
+                controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
+            } else {
+                controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+            }
         }
     }
 
@@ -658,15 +680,11 @@ import QuartzCore
         }
         controller.axManager.applyFramesParallel(frameUpdates)
 
-        if !useScrollAnimationPath, let focusedHandle = controller.focusedHandle {
-            if hiddenHandles[focusedHandle] != nil {
-                controller.borderManager.hideBorder()
-            } else if let frame = frames[focusedHandle],
-                      let entry = controller.workspaceManager.entry(for: focusedHandle)
-            {
-                controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
-            }
-        }
+        updateBorderDuringLayout(
+            frames: frames,
+            hiddenHandles: hiddenHandles,
+            direct: useScrollAnimationPath
+        )
     }
 
     func updateTabbedColumnOverlays() {

@@ -1498,7 +1498,6 @@ extension WMController {
         }
 
         if shouldDeferBorderUpdates(for: activeWs.id) {
-            borderManager.hideBorder()
             return
         }
 
