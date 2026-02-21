@@ -22,11 +22,6 @@ import QuartzCore
                 animation.isComplete(at: time)
             }
 
-            func currentAlpha(at time: TimeInterval) -> CGFloat {
-                let clamped = min(max(progress(at: time), 0), 1)
-                return CGFloat(1.0 - clamped)
-            }
-
             func currentFrame(at time: TimeInterval) -> CGRect {
                 let clamped = min(max(progress(at: time), 0), 1)
                 let offset = CGPoint(
@@ -240,7 +235,6 @@ import QuartzCore
 
         for (windowId, animation) in animations {
             if animation.isComplete(at: targetTime) {
-                SkyLight.shared.setWindowAlpha(UInt32(windowId), alpha: 0)
                 continue
             }
 
@@ -248,8 +242,6 @@ import QuartzCore
             if (try? AXWindowService.setFrame(animation.axRef, frame: frame)) == nil {
                 continue
             }
-            let alpha = animation.currentAlpha(at: targetTime)
-            SkyLight.shared.setWindowAlpha(UInt32(windowId), alpha: Float(alpha))
             remaining[windowId] = animation
         }
 

@@ -62,23 +62,6 @@ extension NiriLayoutEngine {
             }
         }
 
-        for (idx, window) in windows.enumerated() {
-            if idx != column.activeTileIdx {
-                let (fromAlpha, toAlpha): (CGFloat, CGFloat) = mode == .tabbed ? (1, 0) : (0, 1)
-                window.animateAlpha(
-                    from: fromAlpha,
-                    to: toAlpha,
-                    clock: animationClock,
-                    config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate,
-                    animationsEnabled: animationsEnabled
-                )
-            } else {
-                window.baseAlpha = 1.0
-                window.alphaAnimation = nil
-            }
-        }
-
         column.displayMode = mode
         updateTabbedColumnVisibility(column: column)
 

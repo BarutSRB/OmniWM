@@ -43,7 +43,6 @@ final class SkyLight {
     private typealias SetWindowShapeFunc = @convention(c) (Int32, UInt32, Float, Float, CFTypeRef) -> CGError
     private typealias SetWindowResolutionFunc = @convention(c) (Int32, UInt32, Float) -> CGError
     private typealias SetWindowOpacityFunc = @convention(c) (Int32, UInt32, Int32) -> CGError
-    private typealias SetWindowAlphaFunc = @convention(c) (Int32, UInt32, Float) -> CGError
     private typealias SetWindowTagsFunc = @convention(c) (Int32, UInt32, UnsafePointer<UInt64>, Int32) -> CGError
     private typealias FlushWindowContentRegionFunc = @convention(c) (Int32, UInt32, CFTypeRef?) -> CGError
     private typealias NewRegionWithRectFunc = @convention(c) (UnsafePointer<CGRect>, UnsafeMutablePointer<CFTypeRef?>) -> CGError
@@ -116,7 +115,6 @@ final class SkyLight {
     private let setWindowShape: SetWindowShapeFunc?
     private let setWindowResolution: SetWindowResolutionFunc?
     private let setWindowOpacity: SetWindowOpacityFunc?
-    private let setWindowAlpha: SetWindowAlphaFunc?
     private let setWindowTags: SetWindowTagsFunc?
     private let flushWindowContentRegion: FlushWindowContentRegionFunc?
     private let newRegionWithRect: NewRegionWithRectFunc?
@@ -237,7 +235,6 @@ final class SkyLight {
         setWindowShape = unsafeBitCast(dlsym(lib, "SLSSetWindowShape"), to: SetWindowShapeFunc?.self)
         setWindowResolution = unsafeBitCast(dlsym(lib, "SLSSetWindowResolution"), to: SetWindowResolutionFunc?.self)
         setWindowOpacity = unsafeBitCast(dlsym(lib, "SLSSetWindowOpacity"), to: SetWindowOpacityFunc?.self)
-        setWindowAlpha = unsafeBitCast(dlsym(lib, "SLSSetWindowAlpha"), to: SetWindowAlphaFunc?.self)
         setWindowTags = unsafeBitCast(dlsym(lib, "SLSSetWindowTags"), to: SetWindowTagsFunc?.self)
         flushWindowContentRegion = unsafeBitCast(dlsym(lib, "SLSFlushWindowContentRegion"), to: FlushWindowContentRegionFunc?.self)
         newRegionWithRect = unsafeBitCast(dlsym(lib, "CGSNewRegionWithRect"), to: NewRegionWithRectFunc?.self)
@@ -547,12 +544,6 @@ final class SkyLight {
         _ = setWindowOpacity?(cid, wid, opaque ? 1 : 0)
     }
 
-    func setWindowAlpha(_ wid: UInt32, alpha: Float) {
-        guard let setWindowAlpha else { return }
-        let cid = getMainConnectionID()
-        guard cid != 0 else { return }
-        _ = setWindowAlpha(cid, wid, alpha)
-    }
 
     func setWindowTags(_ wid: UInt32, tags: UInt64) {
         guard let setWindowTags else { return }
@@ -614,4 +605,3 @@ struct WindowServerInfo {
     var parentId: UInt32 = 0
     var title: String?
 }
-

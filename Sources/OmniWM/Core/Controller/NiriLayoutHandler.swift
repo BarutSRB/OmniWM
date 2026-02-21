@@ -117,22 +117,11 @@ import QuartzCore
 
         var positionUpdates: [(windowId: Int, origin: CGPoint)] = []
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
-        var alphaUpdates: [(windowId: UInt32, alpha: Float)] = []
         var hiddenWindowJobs: [(pid: pid_t, windowId: Int)] = []
         var visibleWindowJobs: [(pid: pid_t, windowId: Int)] = []
 
-        let time = animationTime ?? CACurrentMediaTime()
-
         for (handle, frame) in frames {
             guard let entry = controller.workspaceManager.entry(for: handle) else { continue }
-
-            if let node = engine.findNode(for: handle) {
-                let alpha = node.renderAlpha(at: time)
-                let needsReset = node.consumeAlphaReset()
-                if alpha < 0.999 || node.hasAlphaAnimationRunning || needsReset {
-                    alphaUpdates.append((UInt32(entry.windowId), Float(alpha)))
-                }
-            }
 
             if let side = hiddenHandles[handle] {
                 let actualSize = AXWindowService.framePreferFast(entry.axRef)?.size ?? frame.size
@@ -168,10 +157,6 @@ import QuartzCore
         if !frameUpdates.isEmpty {
             controller.axManager.applyFramesParallel(frameUpdates)
         }
-        for (windowId, alpha) in alphaUpdates {
-            SkyLight.shared.setWindowAlpha(windowId, alpha: alpha)
-        }
-
         updateBorderDuringLayout(frames: frames, hiddenHandles: hiddenHandles, direct: true)
     }
 
@@ -579,15 +564,6 @@ import QuartzCore
             for handle in newHandles {
                 guard let window = pass.engine.findNode(for: handle),
                       !window.isHiddenInTabbedMode else { continue }
-
-                window.animateAlpha(
-                    from: 0.0,
-                    to: 1.0,
-                    clock: pass.engine.animationClock,
-                    config: pass.engine.windowMovementAnimationConfig,
-                    displayRefreshRate: state.displayRefreshRate,
-                    animationsEnabled: pass.engine.animationsEnabled
-                )
 
                 if abs(appearOffset) > 0.1 {
                     window.animateMoveFrom(

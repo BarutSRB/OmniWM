@@ -386,9 +386,6 @@ extension NiriLayoutEngine {
             if window.tickMoveAnimations(at: time) {
                 anyRunning = true
             }
-            if window.tickAlphaAnimation(at: time) {
-                anyRunning = true
-            }
         }
         return anyRunning
     }
