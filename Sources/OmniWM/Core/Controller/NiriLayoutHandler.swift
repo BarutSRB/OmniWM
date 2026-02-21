@@ -177,7 +177,7 @@ import QuartzCore
 
         if let node = engine.findNode(for: focusedHandle),
            let frame = node.frame {
-            controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
         }
 
         if controller.moveMouseToFocusedWindowEnabled {
@@ -200,7 +200,7 @@ import QuartzCore
             if direct {
                 controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
             } else {
-                controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+                controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
             }
         }
     }
@@ -752,7 +752,7 @@ import QuartzCore
                     alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
                 )
             }
-            controller.activateNode(
+            activateNode(
                 target, in: workspaceId, state: &state,
                 options: .init(activateWindow: false, ensureVisible: false, startAnimation: false)
             )
@@ -762,5 +762,247 @@ import QuartzCore
             controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
         updateTabbedColumnOverlays()
+    }
+
+    // MARK: - Layout Engine Configuration
+
+    func enableNiriLayout(
+        maxWindowsPerColumn: Int = 3,
+        centerFocusedColumn: CenterFocusedColumn = .never,
+        alwaysCenterSingleColumn: Bool = false
+    ) {
+        guard let controller else { return }
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: maxWindowsPerColumn)
+        engine.centerFocusedColumn = centerFocusedColumn
+        engine.alwaysCenterSingleColumn = alwaysCenterSingleColumn
+        engine.renderStyle.tabIndicatorWidth = TabbedColumnOverlayManager.tabIndicatorWidth
+        engine.animationClock = controller.animationClock
+        controller.niriEngine = engine
+
+        syncMonitorsToNiriEngine()
+
+        controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    func syncMonitorsToNiriEngine() {
+        guard let controller, let engine = controller.niriEngine else { return }
+
+        let currentMonitors = controller.workspaceManager.monitors
+        engine.updateMonitors(currentMonitors)
+
+        for workspace in controller.workspaceManager.workspaces {
+            guard let monitor = controller.workspaceManager.monitor(for: workspace.id) else { continue }
+            engine.moveWorkspace(workspace.id, to: monitor.id, monitor: monitor)
+        }
+
+        for monitor in currentMonitors {
+            let orderedWorkspaceIds = controller.workspaceManager.workspaces(on: monitor.id).map(\.id)
+            if let niriMonitor = engine.monitor(for: monitor.id) {
+                niriMonitor.workspaceOrder = orderedWorkspaceIds
+                niriMonitor.animationClock = controller.animationClock
+                if let activeWorkspace = controller.workspaceManager.activeWorkspace(on: monitor.id) {
+                    niriMonitor.activateWorkspace(activeWorkspace.id)
+                }
+            }
+            let resolved = controller.settings.resolvedNiriSettings(for: monitor.name)
+            engine.updateMonitorSettings(resolved, for: monitor.id)
+        }
+    }
+
+    func updateNiriConfig(
+        maxWindowsPerColumn: Int? = nil,
+        maxVisibleColumns: Int? = nil,
+        infiniteLoop: Bool? = nil,
+        centerFocusedColumn: CenterFocusedColumn? = nil,
+        alwaysCenterSingleColumn: Bool? = nil,
+        singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
+        animationsEnabled: Bool? = nil,
+        columnWidthPresets: [Double]? = nil
+    ) {
+        guard let controller else { return }
+        controller.niriEngine?.updateConfiguration(
+            maxWindowsPerColumn: maxWindowsPerColumn,
+            maxVisibleColumns: maxVisibleColumns,
+            infiniteLoop: infiniteLoop,
+            centerFocusedColumn: centerFocusedColumn,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            singleWindowAspectRatio: singleWindowAspectRatio,
+            animationsEnabled: animationsEnabled,
+            presetColumnWidths: columnWidthPresets?.map { .proportion($0) }
+        )
+        controller.workspaceManager.updateAnimationSettings(animationsEnabled: animationsEnabled)
+        controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    // MARK: - Node Activation & Operation Context
+
+    func activateNode(
+        _ node: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        options: NodeActivationOptions = NodeActivationOptions()
+    ) {
+        guard let controller, let engine = controller.niriEngine else { return }
+
+        state.selectedNodeId = node.id
+
+        if options.activateWindow {
+            engine.activateWindow(node.id)
+        }
+
+        if options.ensureVisible, let monitor = controller.workspaceManager.monitor(for: workspaceId) {
+            let gap = CGFloat(controller.workspaceManager.gaps)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+            engine.ensureSelectionVisible(
+                node: node,
+                in: workspaceId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gap,
+                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+            )
+        }
+
+        if let windowNode = node as? NiriWindow {
+            if options.updateTimestamp {
+                engine.updateFocusTimestamp(for: windowNode.id)
+            }
+            controller.focusManager.setFocus(windowNode.handle, in: workspaceId)
+        }
+
+        if options.layoutRefresh {
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        }
+
+        if options.axFocus, let windowNode = node as? NiriWindow {
+            controller.focusWindow(windowNode.handle)
+        }
+
+        if options.startAnimation {
+            if state.viewOffsetPixels.isAnimating {
+                controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+            }
+        }
+    }
+
+    func withNiriOperationContext(
+        perform operation: (NiriOperationContext, inout ViewportState) -> Bool
+    ) {
+        guard let controller else { return }
+        var animatingWorkspaceId: WorkspaceDescriptor.ID?
+
+        controller.layoutRefreshController.runLightSession {
+            guard let engine = controller.niriEngine else { return }
+            guard let wsId = controller.activeWorkspace()?.id else { return }
+
+            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+                guard let currentId = state.selectedNodeId,
+                      let currentNode = engine.findNode(by: currentId),
+                      let windowNode = currentNode as? NiriWindow
+                else { return }
+
+                guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+                let workingFrame = controller.insetWorkingFrame(for: monitor)
+                let gaps = CGFloat(controller.workspaceManager.gaps)
+
+                let ctx = NiriOperationContext(
+                    controller: controller,
+                    engine: engine,
+                    wsId: wsId,
+                    windowNode: windowNode,
+                    monitor: monitor,
+                    workingFrame: workingFrame,
+                    gaps: gaps
+                )
+
+                if operation(ctx, &state) {
+                    animatingWorkspaceId = wsId
+                }
+            }
+        }
+
+        if let wsId = animatingWorkspaceId {
+            controller.layoutRefreshController.startScrollAnimation(for: wsId)
+        }
+    }
+
+    func withNiriWorkspaceContext(
+        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
+    ) {
+        guard let controller else { return }
+        controller.layoutRefreshController.runLightSession {
+            guard let engine = controller.niriEngine else { return }
+            guard let wsId = controller.activeWorkspace()?.id else { return }
+            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+            let gaps = CGFloat(controller.workspaceManager.gaps)
+            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+                perform(engine, wsId, &state, monitor, workingFrame, gaps)
+            }
+        }
+    }
+}
+
+struct NodeActivationOptions {
+    var activateWindow: Bool = true
+    var ensureVisible: Bool = true
+    var updateTimestamp: Bool = true
+    var layoutRefresh: Bool = true
+    var axFocus: Bool = true
+    var startAnimation: Bool = true
+}
+
+@MainActor struct NiriOperationContext {
+    let controller: WMController
+    let engine: NiriLayoutEngine
+    let wsId: WorkspaceDescriptor.ID
+    let windowNode: NiriWindow
+    let monitor: Monitor
+    let workingFrame: CGRect
+    let gaps: CGFloat
+
+    func commitWithPredictedAnimation(
+        state: ViewportState,
+        oldFrames: [WindowHandle: CGRect]
+    ) -> Bool {
+        let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
+            .backingScaleFactor ?? 2.0
+        let workingArea = WorkingAreaContext(
+            workingFrame: workingFrame,
+            viewFrame: monitor.frame,
+            scale: scale
+        )
+        let layoutGaps = LayoutGaps(
+            horizontal: gaps,
+            vertical: gaps,
+            outer: controller.workspaceManager.outerGaps
+        )
+        let animationTime = (engine.animationClock?.now() ?? CACurrentMediaTime()) + 2.0
+        let newFrames = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: layoutGaps,
+            state: state,
+            workingArea: workingArea,
+            animationTime: animationTime
+        ).frames
+        _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
+        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+    }
+
+    func commitWithCapturedAnimation(
+        state: ViewportState,
+        oldFrames: [WindowHandle: CGRect]
+    ) -> Bool {
+        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        let newFrames = engine.captureWindowFrames(in: wsId)
+        _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
+        return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+    }
+
+    func commitSimple(state: ViewportState) -> Bool {
+        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        return state.viewOffsetPixels.isAnimating
     }
 }

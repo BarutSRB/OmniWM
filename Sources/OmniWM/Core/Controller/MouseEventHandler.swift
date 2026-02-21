@@ -299,7 +299,7 @@ final class MouseEventHandler {
                 in: wsId
             ) {
                 state.isResizing = true
-                controller.cancelActiveAnimations(for: wsId)
+                controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
                 hitResult.edges.cursor.set()
             }
         }
@@ -370,7 +370,7 @@ final class MouseEventHandler {
             monitorFrame: insetFrame,
             gaps: gaps
         ) {
-            controller.executeLayoutRefreshImmediate()
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
 
@@ -395,7 +395,7 @@ final class MouseEventHandler {
                     )
                 }
                 if didEnd {
-                    controller.executeLayoutRefreshImmediate()
+                    controller.layoutRefreshController.executeLayoutRefreshImmediate()
                 }
             }
 
@@ -422,7 +422,7 @@ final class MouseEventHandler {
                     gaps: gaps
                 )
             }
-            controller.startScrollAnimation(for: wsId)
+            controller.layoutRefreshController.startScrollAnimation(for: wsId)
         }
 
         state.isResizing = false
@@ -499,7 +499,7 @@ final class MouseEventHandler {
                 state.lastFocusFollowsMouseTime = now
                 state.lastFocusFollowsMouseHandle = handle
                 controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                    controller.activateNode(tiledWindow, in: wsId, state: &vstate)
+                    controller.niriLayoutHandler.activateNode(tiledWindow, in: wsId, state: &vstate)
                 }
             }
             return
@@ -542,7 +542,7 @@ final class MouseEventHandler {
                         alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
                     )
                 }
-                controller.startScrollAnimation(for: wsId)
+                controller.layoutRefreshController.startScrollAnimation(for: wsId)
             }
             resetGestureState()
             return
@@ -668,7 +668,7 @@ final class MouseEventHandler {
                 }
             }
         }
-        controller.executeLayoutRefreshImmediate()
+        controller.layoutRefreshController.executeLayoutRefreshImmediate()
 
         if let handle = targetWindowHandle {
             controller.focusWindow(handle)

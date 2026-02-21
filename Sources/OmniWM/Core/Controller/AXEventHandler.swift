@@ -33,11 +33,11 @@ final class AXEventHandler: CGSEventDelegate {
 
         case let .moved(windowId):
             handleWindowMoveOrResize(windowId: windowId)
-            controller.scheduleRefreshSession(.axWindowChanged)
+            controller.layoutRefreshController.scheduleRefreshSession(.axWindowChanged)
 
         case let .resized(windowId):
             handleWindowMoveOrResize(windowId: windowId)
-            controller.scheduleRefreshSession(.axWindowChanged)
+            controller.layoutRefreshController.scheduleRefreshSession(.axWindowChanged)
 
         case let .frontAppChanged(pid):
             handleAppActivation(pid: pid)
@@ -78,7 +78,7 @@ final class AXEventHandler: CGSEventDelegate {
         else { return }
 
         if let frame = try? AXWindowService.frame(entry.axRef) {
-            controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: Int(windowId))
+            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: Int(windowId))
         }
     }
 
@@ -146,7 +146,7 @@ final class AXEventHandler: CGSEventDelegate {
             }
         }
 
-        controller.scheduleRefreshSession(.axWindowCreated)
+        controller.layoutRefreshController.scheduleRefreshSession(.axWindowCreated)
     }
 
     func handleRemoved(pid: pid_t, winId: Int) {
@@ -171,7 +171,7 @@ final class AXEventHandler: CGSEventDelegate {
                 true
             }
             if shouldAnimate {
-                controller.startWindowCloseAnimation(
+                controller.layoutRefreshController.startWindowCloseAnimation(
                     entry: entry,
                     monitor: monitor
                 )
@@ -208,7 +208,7 @@ final class AXEventHandler: CGSEventDelegate {
             Task { @MainActor [weak controller] in
                 guard let controller else { return }
 
-                await controller.layoutWithNiriEngine(
+                await controller.layoutRefreshController.layoutWithNiriEngine(
                     activeWorkspaces: [wsId],
                     useScrollAnimationPath: true,
                     removedNodeId: removedNodeId
@@ -225,7 +225,7 @@ final class AXEventHandler: CGSEventDelegate {
                     let hasColumnAnimations = engine.hasAnyColumnAnimationsRunning(in: wsId)
 
                     if animationsTriggered || hasWindowAnimations || hasColumnAnimations {
-                        controller.startScrollAnimation(for: wsId)
+                        controller.layoutRefreshController.startScrollAnimation(for: wsId)
                     }
                 }
             }
@@ -235,7 +235,7 @@ final class AXEventHandler: CGSEventDelegate {
            let entry = controller.workspaceManager.entry(for: focused),
            let frame = try? AXWindowService.frame(entry.axRef)
         {
-            controller.updateBorderIfAllowed(handle: focused, frame: frame, windowId: entry.windowId)
+            controller.borderCoordinator.updateBorderIfAllowed(handle: focused, frame: frame, windowId: entry.windowId)
         } else {
             controller.borderManager.hideBorder()
         }
@@ -292,23 +292,23 @@ final class AXEventHandler: CGSEventDelegate {
                let _ = controller.workspaceManager.monitor(for: wsId)
             {
                 controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                    controller.activateNode(
+                    controller.niriLayoutHandler.activateNode(
                         node, in: wsId, state: &state,
                         options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
                     )
                 }
 
                 if let frame = node.frame {
-                    controller.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                    controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
                 } else if let frame = try? AXWindowService.frame(entry.axRef) {
-                    controller.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                    controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
                 }
             } else if let frame = try? AXWindowService.frame(entry.axRef) {
-                controller.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+                controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
             }
-            controller.updateTabbedColumnOverlays()
+            controller.niriLayoutHandler.updateTabbedColumnOverlays()
             if !isWorkspaceActive {
-                controller.refreshWindowsAndLayout()
+                controller.layoutRefreshController.refreshWindowsAndLayout()
                 controller.focusWindow(entry.handle)
             }
             return
@@ -326,7 +326,7 @@ final class AXEventHandler: CGSEventDelegate {
         for entry in controller.workspaceManager.entries(forPid: pid) {
             controller.workspaceManager.setLayoutReason(.macosHiddenApp, for: entry.handle)
         }
-        controller.scheduleRefreshSession(.appHidden)
+        controller.layoutRefreshController.scheduleRefreshSession(.appHidden)
     }
 
     func handleAppUnhidden(pid: pid_t) {
@@ -338,6 +338,6 @@ final class AXEventHandler: CGSEventDelegate {
                 _ = controller.workspaceManager.restoreFromNativeState(for: entry.handle)
             }
         }
-        controller.scheduleRefreshSession(.appUnhidden)
+        controller.layoutRefreshController.scheduleRefreshSession(.appUnhidden)
     }
 }

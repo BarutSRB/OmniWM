@@ -54,7 +54,7 @@ import QuartzCore
             if let focusedHandle = controller.focusedHandle,
                let frame = animatedFrames[focusedHandle],
                let entry = controller.workspaceManager.entry(for: focusedHandle) {
-                controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+                controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
             }
             controller.layoutRefreshController.stopDwindleAnimation(for: displayId)
         }
@@ -133,7 +133,7 @@ import QuartzCore
                 if let focusedHandle = controller.focusedHandle,
                    let frame = newFrames[focusedHandle],
                    let entry = controller.workspaceManager.entry(for: focusedHandle) {
-                    controller.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+                    controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
                 }
             }
 
@@ -141,5 +141,49 @@ import QuartzCore
         }
 
         controller.updateWorkspaceBar()
+    }
+
+    // MARK: - Layout Engine Configuration
+
+    func enableDwindleLayout() {
+        guard let controller else { return }
+        let engine = DwindleLayoutEngine()
+        engine.animationClock = controller.animationClock
+        controller.dwindleEngine = engine
+        controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    func updateDwindleConfig(
+        smartSplit: Bool? = nil,
+        defaultSplitRatio: CGFloat? = nil,
+        splitWidthMultiplier: CGFloat? = nil,
+        singleWindowAspectRatio: CGSize? = nil,
+        innerGap: CGFloat? = nil,
+        outerGapTop: CGFloat? = nil,
+        outerGapBottom: CGFloat? = nil,
+        outerGapLeft: CGFloat? = nil,
+        outerGapRight: CGFloat? = nil
+    ) {
+        guard let controller, let engine = controller.dwindleEngine else { return }
+        if let v = smartSplit { engine.settings.smartSplit = v }
+        if let v = defaultSplitRatio { engine.settings.defaultSplitRatio = v }
+        if let v = splitWidthMultiplier { engine.settings.splitWidthMultiplier = v }
+        if let v = singleWindowAspectRatio { engine.settings.singleWindowAspectRatio = v }
+        if let v = innerGap { engine.settings.innerGap = v }
+        if let v = outerGapTop { engine.settings.outerGapTop = v }
+        if let v = outerGapBottom { engine.settings.outerGapBottom = v }
+        if let v = outerGapLeft { engine.settings.outerGapLeft = v }
+        if let v = outerGapRight { engine.settings.outerGapRight = v }
+        controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    func withDwindleContext(
+        perform: (DwindleLayoutEngine, WorkspaceDescriptor.ID) -> Void
+    ) {
+        guard let controller,
+              let engine = controller.dwindleEngine,
+              let wsId = controller.activeWorkspace()?.id
+        else { return }
+        perform(engine, wsId)
     }
 }
