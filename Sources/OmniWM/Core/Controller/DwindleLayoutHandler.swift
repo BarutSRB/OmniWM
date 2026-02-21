@@ -89,6 +89,7 @@ import QuartzCore
 
             for entry in controller.workspaceManager.entries(in: wsId) {
                 if newFrames[entry.handle] != nil {
+                    print("[WS-DEBUG] dwindleLayout: unhiding window \(entry.handle) in workspace \(wsName)(\(wsId.uuidString.prefix(8)))")
                     lrc.unhideWindow(entry, monitor: monitor)
                 }
             }

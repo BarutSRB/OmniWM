@@ -33,11 +33,15 @@ final class AXEventHandler: CGSEventDelegate {
 
         case let .moved(windowId):
             handleWindowMoveOrResize(windowId: windowId)
-            controller.layoutRefreshController.scheduleRefreshSession(.axWindowChanged)
+            if !isWindowHidden(windowId: windowId) {
+                controller.layoutRefreshController.scheduleRefreshSession(.axWindowChanged)
+            }
 
         case let .resized(windowId):
             handleWindowMoveOrResize(windowId: windowId)
-            controller.layoutRefreshController.scheduleRefreshSession(.axWindowChanged)
+            if !isWindowHidden(windowId: windowId) {
+                controller.layoutRefreshController.scheduleRefreshSession(.axWindowChanged)
+            }
 
         case let .frontAppChanged(pid):
             handleAppActivation(pid: pid)
@@ -45,6 +49,14 @@ final class AXEventHandler: CGSEventDelegate {
         case .titleChanged:
             controller.updateWorkspaceBar()
         }
+    }
+
+    private func isWindowHidden(windowId: UInt32) -> Bool {
+        guard let controller else { return false }
+        guard let entry = controller.workspaceManager.entry(forWindowId: Int(windowId)) else {
+            return false
+        }
+        return controller.workspaceManager.isHiddenInCorner(entry.handle)
     }
 
     private func handleCGSWindowCreated(windowId: UInt32) {

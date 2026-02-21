@@ -414,6 +414,17 @@ import QuartzCore
         }
     }
 
+    func hideInactiveWorkspacesSync() {
+        guard let controller else { return }
+        var activeWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
+        for monitor in controller.workspaceManager.monitors {
+            if let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
+                activeWorkspaceIds.insert(workspace.id)
+            }
+        }
+        hideInactiveWorkspaces(activeWorkspaceIds: activeWorkspaceIds)
+    }
+
     private func executeLayoutRefreshImmediateCore() async {
         guard !layoutState.isImmediateLayoutInProgress else { return }
         layoutState.isImmediateLayoutInProgress = true
@@ -428,7 +439,19 @@ import QuartzCore
             }
         }
 
+        let activeIdsDump = activeWorkspaceIds.map { id in
+            "\(controller.workspaceManager.descriptor(for: id)?.name ?? "?")(\(id.uuidString.prefix(8)))"
+        }.joined(separator: ", ")
+        print("[WS-DEBUG] executeLayoutRefreshImmediate: activeWorkspaceIds=[\(activeIdsDump)]")
+
         let (niriWorkspaces, dwindleWorkspaces) = partitionWorkspacesByLayoutType(activeWorkspaceIds)
+        let niriDump = niriWorkspaces.map { id in
+            "\(controller.workspaceManager.descriptor(for: id)?.name ?? "?")(\(id.uuidString.prefix(8)))"
+        }.joined(separator: ", ")
+        let dwindleDump = dwindleWorkspaces.map { id in
+            "\(controller.workspaceManager.descriptor(for: id)?.name ?? "?")(\(id.uuidString.prefix(8)))"
+        }.joined(separator: ", ")
+        print("[WS-DEBUG]   niriWorkspaces=[\(niriDump)], dwindleWorkspaces=[\(dwindleDump)]")
 
         if !niriWorkspaces.isEmpty {
             await niriHandler.layoutWithNiriEngine(activeWorkspaces: niriWorkspaces, useScrollAnimationPath: !niriHandler.scrollAnimationByDisplay.isEmpty)
@@ -577,15 +600,28 @@ import QuartzCore
 
     func hideInactiveWorkspaces(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) {
         guard let controller else { return }
+        let activeIdsDump = activeWorkspaceIds.map { id in
+            "\(controller.workspaceManager.descriptor(for: id)?.name ?? "?")(\(id.uuidString.prefix(8)))"
+        }.joined(separator: ", ")
+        let allWsDump = controller.workspaceManager.workspaces.map { ws in
+            "\(ws.name)(\(ws.id.uuidString.prefix(8)))"
+        }.joined(separator: ", ")
+        print("[WS-DEBUG] hideInactiveWorkspaces: activeIds=[\(activeIdsDump)]")
+        print("[WS-DEBUG]   all workspaces=[\(allWsDump)]")
         for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
             guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
+            let windowCount = controller.workspaceManager.entries(in: ws.id).count
+            print("[WS-DEBUG]   hiding workspace \(ws.name)(\(ws.id.uuidString.prefix(8))), windowCount=\(windowCount)")
             hideWorkspace(ws.id, monitor: monitor)
         }
     }
 
     func unhideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
         guard let controller else { return }
-        for entry in controller.workspaceManager.entries(in: workspaceId) {
+        let entries = controller.workspaceManager.entries(in: workspaceId)
+        let wsName = controller.workspaceManager.descriptor(for: workspaceId)?.name ?? "?"
+        print("[WS-DEBUG] unhideWorkspace: \(wsName)(\(workspaceId.uuidString.prefix(8))), windowCount=\(entries.count)")
+        for entry in entries {
             unhideWindow(entry, monitor: monitor)
         }
     }
@@ -599,6 +635,8 @@ import QuartzCore
 
     func hideWindow(_ entry: WindowModel.Entry, monitor: Monitor, side: HideSide, targetY: CGFloat?) {
         guard let controller else { return }
+        let wsName = controller.workspaceManager.descriptor(for: entry.workspaceId)?.name ?? "?"
+        print("[WS-DEBUG]   hideWindow: handle=\(entry.handle) windowId=\(entry.windowId) in ws \(wsName), moving to side=\(side)")
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
         let frameEntry = (pid: entry.handle.pid, windowId: entry.windowId)
         if !controller.workspaceManager.isHiddenInCorner(entry.handle) {
@@ -624,8 +662,14 @@ import QuartzCore
         )
         let moveEpsilon: CGFloat = 0.01
         if abs(frame.origin.x - origin.x) < moveEpsilon && abs(frame.origin.y - origin.y) < moveEpsilon {
+#if DEBUG
+            print("[WS-DEBUG]   hideWindow: already hidden, skipping (pos=\(frame.origin))")
+#endif
             return
         }
+#if DEBUG
+        print("[WS-DEBUG]   hideWindow: MOVING windowId=\(entry.windowId) from=\(frame.origin) to=\(origin)")
+#endif
         controller.axManager.applyPositionsViaSkyLight([(entry.windowId, origin)])
     }
 

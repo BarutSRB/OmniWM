@@ -564,6 +564,7 @@ final class WorkspaceNavigationHandler {
             .map { controller.settings.layoutType(for: $0.name) } ?? .defaultLayout
         let sourceIsDwindle = sourceLayout == .dwindle
         let targetIsDwindle = targetLayout == .dwindle
+        print("[WS-DEBUG] transferWindow: sourceLayout=\(sourceLayout), targetLayout=\(targetLayout), sourceIsDwindle=\(sourceIsDwindle), targetIsDwindle=\(targetIsDwindle)")
 
         var newSourceFocusHandle: WindowHandle?
         var movedWithNiri = false
@@ -592,6 +593,7 @@ final class WorkspaceNavigationHandler {
                     newSourceFocusHandle = newFocusNode.handle
                 }
                 movedWithNiri = true
+                print("[WS-DEBUG] niri-to-niri move succeeded, newFocusNodeId=\(result.newFocusNodeId.map { "\($0)" } ?? "nil")")
             }
         }
 
@@ -611,6 +613,7 @@ final class WorkspaceNavigationHandler {
                 }
 
                 if targetIsDwindle, engine.findNode(for: handle) != nil {
+                    print("[WS-DEBUG] removing window from niri engine (target is dwindle)")
                     engine.removeWindow(handle: handle)
                 }
 
@@ -631,6 +634,7 @@ final class WorkspaceNavigationHandler {
                   let sourceWsId,
                   let dwindleEngine = controller.dwindleEngine
         {
+            print("[WS-DEBUG] removing window from dwindle engine")
             dwindleEngine.removeWindow(handle: handle, from: sourceWsId)
         }
 
@@ -645,6 +649,7 @@ final class WorkspaceNavigationHandler {
             succeeded = true
         }
 
+        print("[WS-DEBUG] transferWindow result: succeeded=\(succeeded), movedWithNiri=\(movedWithNiri)")
         return WindowTransferResult(succeeded: succeeded, newSourceFocusHandle: newSourceFocusHandle)
     }
 
@@ -790,31 +795,38 @@ final class WorkspaceNavigationHandler {
             return
         }
         let currentWorkspaceId = controller.workspaceManager.workspace(for: handle)
+        let sourceDesc = currentWorkspaceId.flatMap { controller.workspaceManager.descriptor(for: $0) }
+        print("[WS-DEBUG] moveFocusedWindow: handle=\(handle), sourceWs=\(sourceDesc?.name ?? "nil")(\(currentWorkspaceId?.uuidString.prefix(8) ?? "nil")), targetWs=\(target.name)(\(target.id.uuidString.prefix(8)))")
 
         let transferResult = transferWindowFromSourceEngine(handle: handle, from: currentWorkspaceId, to: target.id)
+        print("[WS-DEBUG] transferResult: succeeded=\(transferResult.succeeded), newSourceFocusHandle=\(transferResult.newSourceFocusHandle.map { String(describing: $0) } ?? "nil")")
         guard transferResult.succeeded else { return }
 
         controller.workspaceManager.setWorkspace(for: handle, to: target.id)
 
-        if let targetMonitor = controller.workspaceManager.monitorForWorkspace(target.id) {
-            _ = controller.workspaceManager.setActiveWorkspace(target.id, on: targetMonitor.id)
-        }
+        let shouldFollowFocus = controller.settings.focusFollowsWindowToMonitor
+        print("[WS-DEBUG] focusFollowsWindowToMonitor=\(shouldFollowFocus)")
 
-        if target.id != controller.activeWorkspace()?.id, let currentWorkspaceId {
-            let sourceState = controller.workspaceManager.niriViewportState(for: currentWorkspaceId)
-            controller.recoverSourceFocusAfterMove(in: currentWorkspaceId, preferredNodeId: sourceState.selectedNodeId)
-        }
+        if shouldFollowFocus {
+            let targetMonitor = controller.workspaceManager.monitorForWorkspace(target.id)
+            print("[WS-DEBUG] monitorForWorkspace(target)=\(targetMonitor.map { "\($0.name)(\($0.id))" } ?? "nil")")
+            if let targetMonitor {
+                let setResult = controller.workspaceManager.setActiveWorkspace(target.id, on: targetMonitor.id)
+                print("[WS-DEBUG] setActiveWorkspace result=\(setResult)")
+            }
 
-        controller.layoutRefreshController.refreshWindowsAndLayout()
+            controller.focusManager.setFocus(handle, in: target.id)
 
-        if target.id == controller.activeWorkspace()?.id {
+            print("[WS-DEBUG] calling executeLayoutRefreshImmediate (focus-follows path)")
+            controller.layoutRefreshController.hideInactiveWorkspacesSync()
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
+
             if let engine = controller.niriEngine,
                let movedNode = engine.findNode(for: handle),
                let monitor = controller.workspaceManager.monitor(for: target.id)
             {
                 controller.workspaceManager.withNiriViewportState(for: target.id) { targetState in
                     targetState.selectedNodeId = movedNode.id
-
                     let gap = CGFloat(controller.workspaceManager.gaps)
                     engine.ensureSelectionVisible(
                         node: movedNode,
@@ -827,6 +839,19 @@ final class WorkspaceNavigationHandler {
                 }
             }
             controller.focusWindow(handle)
+        } else {
+            if let currentWorkspaceId {
+                let sourceState = controller.workspaceManager.niriViewportState(for: currentWorkspaceId)
+                controller.recoverSourceFocusAfterMove(in: currentWorkspaceId, preferredNodeId: sourceState.selectedNodeId)
+            }
+
+            print("[WS-DEBUG] calling executeLayoutRefreshImmediate (stay-on-source path)")
+            controller.layoutRefreshController.hideInactiveWorkspacesSync()
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
+
+            if let focusHandle = controller.focusedHandle {
+                controller.focusWindow(focusHandle)
+            }
         }
     }
 
