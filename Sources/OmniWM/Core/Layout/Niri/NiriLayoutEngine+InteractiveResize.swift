@@ -89,7 +89,8 @@ extension NiriLayoutEngine {
         windowId: NodeId,
         edges: ResizeEdge,
         startLocation: CGPoint,
-        in workspaceId: WorkspaceDescriptor.ID
+        in workspaceId: WorkspaceDescriptor.ID,
+        viewOffset: CGFloat? = nil
     ) -> Bool {
         guard interactiveResize == nil else { return false }
 
@@ -115,7 +116,8 @@ extension NiriLayoutEngine {
             originalWindowHeight: originalWindowHeight,
             edges: edges,
             startMouseLocation: startLocation,
-            columnIndex: colIdx
+            columnIndex: colIdx,
+            originalViewOffset: edges.contains(.left) ? viewOffset : nil
         )
 
         return true
@@ -124,7 +126,8 @@ extension NiriLayoutEngine {
     func interactiveResizeUpdate(
         currentLocation: CGPoint,
         monitorFrame: CGRect,
-        gaps: LayoutGaps
+        gaps: LayoutGaps,
+        viewportState: ((inout ViewportState) -> Void) -> Void = { _ in }
     ) -> Bool {
         guard let resize = interactiveResize else { return false }
 
@@ -159,6 +162,13 @@ extension NiriLayoutEngine {
             column.cachedWidth = newWidth.clamped(to: minWidth ... maxWidth)
             column.width = .fixed(column.cachedWidth)
             changed = true
+
+            if resize.edges.contains(.left), let origOffset = resize.originalViewOffset {
+                let widthDelta = column.cachedWidth - originalWidth
+                viewportState { state in
+                    state.viewOffsetPixels = .static(origOffset - widthDelta)
+                }
+            }
         }
 
         if resize.edges.hasVertical, let originalHeight = resize.originalWindowHeight {

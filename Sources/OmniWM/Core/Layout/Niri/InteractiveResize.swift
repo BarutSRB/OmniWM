@@ -78,6 +78,8 @@ struct InteractiveResize {
     let startMouseLocation: CGPoint
 
     let columnIndex: Int
+
+    let originalViewOffset: CGFloat?
 }
 
 struct ResizeHitTestResult {

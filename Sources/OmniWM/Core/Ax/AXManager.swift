@@ -36,7 +36,7 @@ final class AXManager {
             Task { @MainActor in
                 self?.onAppTerminated?(pid)
                 if let context = AppAXContext.contexts[pid] {
-                    await context.destroy()
+                    context.destroy()
                 }
             }
         }
@@ -68,7 +68,7 @@ final class AXManager {
 
         Task { @MainActor in
             for (_, context) in AppAXContext.contexts {
-                await context.destroy()
+                context.destroy()
             }
         }
     }
@@ -97,7 +97,7 @@ final class AXManager {
     }
 
     func currentWindowsAsync() async -> [(AXWindowRef, pid_t, Int)] {
-        await AppAXContext.garbageCollect()
+        AppAXContext.garbageCollect()
 
         let visibleWindows = SkyLight.shared.queryAllVisibleWindows()
         let pidsWithWindows = Set(visibleWindows.map { $0.pid })

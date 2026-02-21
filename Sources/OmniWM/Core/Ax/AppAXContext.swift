@@ -2,15 +2,15 @@ import AppKit
 import ApplicationServices
 import Foundation
 
-final class AppAXContext: @unchecked Sendable {
+@MainActor
+final class AppAXContext {
     let pid: pid_t
     let nsApp: NSRunningApplication
 
     private let axApp: ThreadGuardedValue<AXUIElement>
     private let windows: ThreadGuardedValue<[Int: AXUIElement]>
-    private var thread: Thread?
+    nonisolated(unsafe) private var thread: Thread?
     private var setFrameJobs: [Int: RunLoopJob] = [:]
-    private let suppressedFrameWindowIdsLock = NSLock()
     private var suppressedFrameWindowIds: Set<Int> = []
     private let axObserver: ThreadGuardedValue<AXObserver?>
     private let subscribedWindowIds: ThreadGuardedValue<Set<Int>>
@@ -24,17 +24,17 @@ final class AppAXContext: @unchecked Sendable {
     @MainActor private static var pendingContinuations: [pid_t: [CheckedContinuation<AppAXContext?, Error>]] = [:]
     @MainActor private static var timeoutTasks: [pid_t: Task<Void, Never>] = [:]
 
-    private init(
+    nonisolated private init(
         _ nsApp: NSRunningApplication,
-        _ axApp: AXUIElement,
-        _ observer: AXObserver?,
+        _ axApp: ThreadGuardedValue<AXUIElement>,
+        _ observer: ThreadGuardedValue<AXObserver?>,
         _ thread: Thread
     ) {
         self.nsApp = nsApp
         pid = nsApp.processIdentifier
-        self.axApp = .init(axApp)
+        self.axApp = axApp
         windows = .init([:])
-        axObserver = .init(observer)
+        axObserver = observer
         subscribedWindowIds = .init([])
         self.thread = thread
     }
@@ -109,9 +109,12 @@ final class AppAXContext: @unchecked Sendable {
                     CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(focusObs), .defaultMode)
                 }
 
-                let context = AppAXContext(nsApp, axApp, observer, Thread.current)
+                let guardedAxApp = ThreadGuardedValue(axApp)
+                let guardedObserver = ThreadGuardedValue(observer)
+                let currentThread = Thread.current
 
                 Task { @MainActor in
+                    let context = AppAXContext(nsApp, guardedAxApp, guardedObserver, currentThread)
                     contextDidCreate(context, pid: pid)
                 }
 
@@ -141,11 +144,14 @@ final class AppAXContext: @unchecked Sendable {
 
     func getWindowsAsync() async throws -> [(AXWindowRef, Int)] {
         guard let thread else { return [] }
+        nonisolated(unsafe) let appThread = thread
 
-        let (results, deadWindowIds) = try await thread.runInLoop { [
+        let appPolicy = nsApp.activationPolicy
+        let bundleId = nsApp.bundleIdentifier
+
+        let (results, deadWindowIds) = try await appThread.runInLoop { [
             axApp,
             windows,
-            nsApp,
             axObserver,
             subscribedWindowIds
         ] job -> (
@@ -189,8 +195,8 @@ final class AppAXContext: @unchecked Sendable {
                 let axRef = AXWindowRef(element: element, windowId: windowId)
                 let windowType = AXWindowService.windowType(
                     axRef,
-                    appPolicy: nsApp.activationPolicy,
-                    bundleId: nsApp.bundleIdentifier
+                    appPolicy: appPolicy,
+                    bundleId: bundleId
                 )
                 guard windowType == .tiling else { continue }
 
@@ -237,30 +243,29 @@ final class AppAXContext: @unchecked Sendable {
 
     func suppressFrameWrites(for windowIds: [Int]) {
         guard !windowIds.isEmpty else { return }
-        suppressedFrameWindowIdsLock.lock()
         for windowId in windowIds {
             suppressedFrameWindowIds.insert(windowId)
         }
-        suppressedFrameWindowIdsLock.unlock()
     }
 
     func unsuppressFrameWrites(for windowIds: [Int]) {
         guard !windowIds.isEmpty else { return }
-        suppressedFrameWindowIdsLock.lock()
         for windowId in windowIds {
             suppressedFrameWindowIds.remove(windowId)
         }
-        suppressedFrameWindowIdsLock.unlock()
     }
 
     func setFramesBatch(_ frames: [(windowId: Int, frame: CGRect)]) {
         guard let thread else { return }
+        nonisolated(unsafe) let appThread = thread
 
         for (windowId, _) in frames {
             setFrameJobs[windowId]?.cancel()
         }
 
-        let batchJob = thread.runInLoopAsync { [self, axApp, windows] job in
+        let suppressedSnapshot = suppressedFrameWindowIds
+
+        let batchJob = appThread.runInLoopAsync { [axApp, windows] job in
             let enhancedUIKey = "AXEnhancedUserInterface" as CFString
             var wasEnabled = false
             var value: CFTypeRef?
@@ -282,7 +287,7 @@ final class AppAXContext: @unchecked Sendable {
 
             for (windowId, frame) in frames {
                 if job.isCancelled { break }
-                if isFrameWriteSuppressed(for: windowId) {
+                if suppressedSnapshot.contains(windowId) {
                     continue
                 }
                 guard let element = windows[windowId] else {
@@ -298,17 +303,16 @@ final class AppAXContext: @unchecked Sendable {
         }
     }
 
-    func destroy() async {
-        _ = await Task { @MainActor [pid] in
-            _ = AppAXContext.contexts.removeValue(forKey: pid)
-        }.result
+    func destroy() {
+        AppAXContext.contexts.removeValue(forKey: pid)
 
         for (_, job) in setFrameJobs {
             job.cancel()
         }
         setFrameJobs = [:]
 
-        thread?.runInLoopAsync { [windows, axApp, axObserver, subscribedWindowIds] _ in
+        nonisolated(unsafe) let appThread = thread
+        appThread?.runInLoopAsync { [windows, axApp, axObserver, subscribedWindowIds] _ in
             if let obs = axObserver.valueIfExists.flatMap({ $0 }) {
                 CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
             }
@@ -321,21 +325,14 @@ final class AppAXContext: @unchecked Sendable {
         thread = nil
     }
 
-    @MainActor
-    static func garbageCollect() async {
+    static func garbageCollect() {
         for (_, context) in contexts {
             if context.nsApp.isTerminated {
-                await context.destroy()
+                context.destroy()
             }
         }
     }
 
-    private func isFrameWriteSuppressed(for windowId: Int) -> Bool {
-        suppressedFrameWindowIdsLock.lock()
-        let isSuppressed = suppressedFrameWindowIds.contains(windowId)
-        suppressedFrameWindowIdsLock.unlock()
-        return isSuppressed
-    }
 }
 
 private func axWindowDestroyedCallback(
@@ -353,7 +350,7 @@ private func axWindowDestroyedCallback(
     _ = _AXUIElementGetWindow(element, &windowIdRaw)
     let windowId = Int(windowIdRaw)
 
-    DispatchQueue.main.async {
+    Task { @MainActor in
         if windowId != 0 {
             AppAXContext.onWindowDestroyed?(pid, windowId)
         } else {
@@ -373,7 +370,7 @@ private func axFocusedWindowChangedCallback(
     var pid: pid_t = 0
     guard AXUIElementGetPid(element, &pid) == .success else { return }
 
-    DispatchQueue.main.async {
+    Task { @MainActor in
         AppAXContext.onFocusedWindowChanged?(pid)
     }
 }

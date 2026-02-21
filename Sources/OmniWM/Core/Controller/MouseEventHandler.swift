@@ -292,11 +292,13 @@ final class MouseEventHandler {
         guard !state.currentHoveredEdges.isEmpty else { return }
 
         if let hitResult = engine.hitTestResize(point: location, in: wsId) {
+            let currentViewOffset = controller.workspaceManager.niriViewportState(for: wsId).viewOffsetPixels.current()
             if engine.interactiveResizeBegin(
                 windowId: hitResult.nodeId,
                 edges: hitResult.edges,
                 startLocation: location,
-                in: wsId
+                in: wsId,
+                viewOffset: currentViewOffset
             ) {
                 state.isResizing = true
                 controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
@@ -365,10 +367,15 @@ final class MouseEventHandler {
         )
         let insetFrame = controller.insetWorkingFrame(for: monitor)
 
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
         if engine.interactiveResizeUpdate(
             currentLocation: location,
             monitorFrame: insetFrame,
-            gaps: gaps
+            gaps: gaps,
+            viewportState: { mutate in
+                controller.workspaceManager.withNiriViewportState(for: wsId, mutate)
+            }
         ) {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }

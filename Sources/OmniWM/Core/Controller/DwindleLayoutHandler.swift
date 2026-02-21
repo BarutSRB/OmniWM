@@ -143,6 +143,54 @@ import QuartzCore
         controller.updateWorkspaceBar()
     }
 
+    // MARK: - Layout Capability Commands
+
+    func focusNeighbor(direction: Direction) {
+        guard let controller else { return }
+        withDwindleContext { engine, wsId in
+            if let handle = engine.moveFocus(direction: direction, in: wsId) {
+                controller.focusManager.setFocus(handle, in: wsId)
+                controller.layoutRefreshController.executeLayoutRefreshImmediate()
+                controller.focusWindow(handle)
+            }
+        }
+    }
+
+    func swapWindow(direction: Direction) {
+        guard let controller else { return }
+        withDwindleContext { engine, wsId in
+            if engine.swapWindows(direction: direction, in: wsId) {
+                controller.layoutRefreshController.executeLayoutRefreshImmediate()
+            }
+        }
+    }
+
+    func toggleFullscreen() {
+        guard let controller else { return }
+        withDwindleContext { engine, wsId in
+            if let handle = engine.toggleFullscreen(in: wsId) {
+                controller.focusManager.setFocus(handle, in: wsId)
+                controller.layoutRefreshController.executeLayoutRefreshImmediate()
+            }
+        }
+    }
+
+    func cycleSize(forward: Bool) {
+        guard let controller else { return }
+        withDwindleContext { engine, wsId in
+            engine.cycleSplitRatio(forward: forward, in: wsId)
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        }
+    }
+
+    func balanceSizes() {
+        guard let controller else { return }
+        withDwindleContext { engine, wsId in
+            engine.balanceSizes(in: wsId)
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        }
+    }
+
     // MARK: - Layout Engine Configuration
 
     func enableDwindleLayout() {
@@ -187,3 +235,5 @@ import QuartzCore
         perform(engine, wsId)
     }
 }
+
+extension DwindleLayoutHandler: LayoutFocusable, LayoutSwappable, LayoutSizable {}

@@ -364,10 +364,7 @@ import QuartzCore
             await dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
         }
 
-        for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
-            guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
-            hideWorkspace(ws.id, monitor: monitor)
-        }
+        hideInactiveWorkspaces(activeWorkspaceIds: activeWorkspaceIds)
 
         if let focusedWorkspaceId = controller.activeWorkspace()?.id {
             controller.focusManager.ensureFocusedHandleValid(
@@ -439,6 +436,8 @@ import QuartzCore
         if !dwindleWorkspaces.isEmpty {
             await dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
         }
+
+        hideInactiveWorkspaces(activeWorkspaceIds: activeWorkspaceIds)
     }
 
     func resetState() {
@@ -574,6 +573,14 @@ import QuartzCore
 
     func backingScale(for monitor: Monitor) -> CGFloat {
         NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?.backingScaleFactor ?? 2.0
+    }
+
+    func hideInactiveWorkspaces(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) {
+        guard let controller else { return }
+        for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
+            guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
+            hideWorkspace(ws.id, monitor: monitor)
+        }
     }
 
     func unhideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {

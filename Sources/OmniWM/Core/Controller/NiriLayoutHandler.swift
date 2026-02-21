@@ -69,6 +69,13 @@ import QuartzCore
 
             if !animationsOngoing {
                 self.finalizeAnimation()
+                var activeIds = Set<WorkspaceDescriptor.ID>()
+                for mon in controller.workspaceManager.monitors {
+                    if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: mon.id) {
+                        activeIds.insert(ws.id)
+                    }
+                }
+                controller.layoutRefreshController.hideInactiveWorkspaces(activeWorkspaceIds: activeIds)
                 controller.layoutRefreshController.stopScrollAnimation(for: displayId)
             }
         }
@@ -764,6 +771,123 @@ import QuartzCore
         updateTabbedColumnOverlays()
     }
 
+    // MARK: - Layout Capability Commands
+
+    func focusNeighbor(direction: Direction) {
+        guard let controller else { return }
+        guard let engine = controller.niriEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+
+        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+            guard let currentId = state.selectedNodeId,
+                  let currentNode = engine.findNode(by: currentId)
+            else {
+                if let lastFocused = controller.focusManager.lastFocusedByWorkspace[wsId],
+                   let lastNode = engine.findNode(for: lastFocused)
+                {
+                    self.activateNode(
+                        lastNode, in: wsId, state: &state,
+                        options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
+                    )
+                } else if let firstHandle = controller.workspaceManager.entries(in: wsId).first?.handle,
+                          let firstNode = engine.findNode(for: firstHandle)
+                {
+                    self.activateNode(
+                        firstNode, in: wsId, state: &state,
+                        options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
+                    )
+                }
+                return
+            }
+
+            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+            let gap = CGFloat(controller.workspaceManager.gaps)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+
+            for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
+            }
+
+            if let newNode = engine.focusTarget(
+                direction: direction,
+                currentSelection: currentNode,
+                in: wsId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gap
+            ) {
+                self.activateNode(
+                    newNode, in: wsId, state: &state,
+                    options: .init(activateWindow: false, ensureVisible: false)
+                )
+            }
+        }
+    }
+
+    func swapWindow(direction: Direction) {
+        guard controller != nil else { return }
+        withNiriOperationContext { ctx, state in
+            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
+            guard ctx.engine.swapWindow(
+                ctx.windowNode, direction: direction, in: ctx.wsId,
+                state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
+            ) else { return false }
+            return ctx.commitWithPredictedAnimation(state: state, oldFrames: oldFrames)
+        }
+    }
+
+    func toggleFullscreen() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
+            guard let currentId = state.selectedNodeId,
+                  let currentNode = engine.findNode(by: currentId),
+                  let windowNode = currentNode as? NiriWindow
+            else { return }
+
+            engine.toggleFullscreen(windowNode, state: &state)
+
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
+            if state.viewOffsetPixels.isAnimating {
+                controller.layoutRefreshController.startScrollAnimation(for: wsId)
+            }
+        }
+    }
+
+    func cycleSize(forward: Bool) {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let column = engine.findColumn(containing: windowNode, in: wsId)
+            else { return }
+
+            engine.toggleColumnWidth(
+                column,
+                forwards: forward,
+                in: wsId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.startScrollAnimation(for: wsId)
+        }
+    }
+
+    func balanceSizes() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, _, _, workingFrame, gaps in
+            engine.balanceSizes(
+                in: wsId,
+                workingAreaWidth: workingFrame.width,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.executeLayoutRefreshImmediate()
+            if engine.hasAnyColumnAnimationsRunning(in: wsId) {
+                controller.layoutRefreshController.startScrollAnimation(for: wsId)
+            }
+        }
+    }
+
     // MARK: - Layout Engine Configuration
 
     func enableNiriLayout(
@@ -1006,3 +1130,5 @@ struct NodeActivationOptions {
         return state.viewOffsetPixels.isAnimating
     }
 }
+
+extension NiriLayoutHandler: LayoutFocusable, LayoutSwappable, LayoutSizable {}
