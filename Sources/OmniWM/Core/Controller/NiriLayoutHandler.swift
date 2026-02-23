@@ -218,7 +218,6 @@ import QuartzCore
 
         for monitor in controller.workspaceManager.monitors {
             guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
-            print("[WS-DEBUG] niriLayout: unhiding workspace \(workspace.name)(\(workspace.id.uuidString.prefix(8))) on monitor \(monitor.name)")
             lrc.unhideWorkspace(workspace.id, monitor: monitor)
         }
 

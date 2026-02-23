@@ -790,12 +790,6 @@ final class WorkspaceManager {
     }
 
     private func setActiveWorkspace(_ workspaceId: WorkspaceDescriptor.ID, onScreenPoint screen: CGPoint) -> Bool {
-        let wsDesc = descriptor(for: workspaceId)
-        print("[WS-DEBUG] setActiveWorkspace: wsId=\(wsDesc?.name ?? "?")(\(workspaceId.uuidString.prefix(8))), screen=\(screen)")
-        let visibleDump = visibleWorkspaces.forward.map { (pt, wsId) in
-            "\(descriptor(for: wsId)?.name ?? "?")(\(wsId.uuidString.prefix(8)))@\(pt)"
-        }.joined(separator: ", ")
-        print("[WS-DEBUG]   current visible workspaces: [\(visibleDump)]")
         guard isValidAssignment(workspaceId: workspaceId, screen: screen) else { return false }
 
         if let prevMonitorPoint = visibleWorkspaces[reverse: workspaceId] {
@@ -812,10 +806,6 @@ final class WorkspaceManager {
         updateWorkspace(workspaceId) { workspace in
             workspace.assignedMonitorPoint = screen
         }
-        let afterDump = visibleWorkspaces.forward.map { (pt, wsId) in
-            "\(descriptor(for: wsId)?.name ?? "?")(\(wsId.uuidString.prefix(8)))@\(pt)"
-        }.joined(separator: ", ")
-        print("[WS-DEBUG]   after setActive visible workspaces: [\(afterDump)]")
         return true
     }
 
