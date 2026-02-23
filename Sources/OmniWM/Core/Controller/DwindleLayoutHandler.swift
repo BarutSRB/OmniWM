@@ -151,8 +151,9 @@ import QuartzCore
         withDwindleContext { engine, wsId in
             if let handle = engine.moveFocus(direction: direction, in: wsId) {
                 controller.focusManager.setFocus(handle, in: wsId)
-                controller.layoutRefreshController.executeLayoutRefreshImmediate()
-                controller.focusWindow(handle)
+                controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+                    controller?.focusWindow(handle)
+                }
             }
         }
     }

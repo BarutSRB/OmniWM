@@ -4,7 +4,7 @@ import QuartzCore
 
 @MainActor final class LayoutRefreshController: NSObject {
     weak var controller: WMController?
-    static let hiddenWindowEdgeRevealEpsilon: CGFloat = 0.001
+    static let hiddenWindowEdgeRevealEpsilon: CGFloat = 1.0
 
     struct LayoutState {
         struct ClosingAnimation {
@@ -35,6 +35,7 @@ import QuartzCore
         var activeRefreshTask: Task<Void, Never>?
         var isInLightSession: Bool = false
         var isImmediateLayoutInProgress: Bool = false
+        var isIncrementalRefreshInProgress: Bool = false
         var isFullEnumerationInProgress: Bool = false
         var displayLinksByDisplay: [CGDirectDisplayID: CADisplayLink] = [:]
         var refreshRateByDisplay: [CGDirectDisplayID: Double] = [:]
@@ -313,6 +314,15 @@ import QuartzCore
         if layoutState.isFullEnumerationInProgress {
             return
         }
+        if case .axWindowChanged = event {
+            if layoutState.isIncrementalRefreshInProgress || layoutState.isImmediateLayoutInProgress {
+                return
+            }
+            if !niriHandler.scrollAnimationByDisplay.isEmpty
+                || !dwindleHandler.dwindleAnimationByDisplay.isEmpty {
+                return
+            }
+        }
         layoutState.activeRefreshTask?.cancel()
         layoutState.activeRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -334,6 +344,11 @@ import QuartzCore
     }
 
     private func executeIncrementalRefresh() async {
+        guard !layoutState.isIncrementalRefreshInProgress else { return }
+        guard !layoutState.isImmediateLayoutInProgress else { return }
+        layoutState.isIncrementalRefreshInProgress = true
+        defer { layoutState.isIncrementalRefreshInProgress = false }
+
         guard let controller else { return }
 
         if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
@@ -400,9 +415,10 @@ import QuartzCore
         refreshWindowsAndLayout()
     }
 
-    func executeLayoutRefreshImmediate() {
+    func executeLayoutRefreshImmediate(postLayout: (@MainActor () -> Void)? = nil) {
         Task { @MainActor [weak self] in
             await self?.executeLayoutRefreshImmediateCore()
+            postLayout?()
         }
     }
 
@@ -468,6 +484,8 @@ import QuartzCore
         dwindleHandler.dwindleAnimationByDisplay.removeAll()
         layoutState.closingAnimationsByDisplay.removeAll()
 
+        controller?.axManager.clearInactiveWorkspaceWindows()
+
         if let observer = layoutState.screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             layoutState.screenChangeObserver = nil
@@ -530,6 +548,18 @@ import QuartzCore
         if !dwindleWorkspaces.isEmpty {
             await dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
         }
+        // Rebuild workspace-level frame suppression (executeFullRefresh has its own hide loop)
+        var allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)] = []
+        for ws in controller.workspaceManager.workspaces {
+            for entry in controller.workspaceManager.entries(in: ws.id) {
+                allEntries.append((ws.id, entry.windowId))
+            }
+        }
+        controller.axManager.updateInactiveWorkspaceWindows(
+            allEntries: allEntries,
+            activeWorkspaceIds: activeWorkspaceIds
+        )
+
         for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
             guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
             hideWorkspace(ws.id, monitor: monitor)
@@ -592,6 +622,19 @@ import QuartzCore
 
     func hideInactiveWorkspaces(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) {
         guard let controller else { return }
+
+        // Rebuild the workspace-level frame suppression set (live check in applyFramesParallel)
+        var allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)] = []
+        for ws in controller.workspaceManager.workspaces {
+            for entry in controller.workspaceManager.entries(in: ws.id) {
+                allEntries.append((ws.id, entry.windowId))
+            }
+        }
+        controller.axManager.updateInactiveWorkspaceWindows(
+            allEntries: allEntries,
+            activeWorkspaceIds: activeWorkspaceIds
+        )
+
         let activeIdsDump = activeWorkspaceIds.map { id in
             "\(controller.workspaceManager.descriptor(for: id)?.name ?? "?")(\(id.uuidString.prefix(8)))"
         }.joined(separator: ", ")
@@ -600,6 +643,19 @@ import QuartzCore
         }.joined(separator: ", ")
         print("[WS-DEBUG] hideInactiveWorkspaces: activeIds=[\(activeIdsDump)]")
         print("[WS-DEBUG]   all workspaces=[\(allWsDump)]")
+
+        // Bulk cancel in-flight frame jobs for all inactive workspace windows upfront,
+        // before the per-window hide loop, to prevent AX batch races with SkyLight moves.
+        var inactiveWindowJobs: [(pid: pid_t, windowId: Int)] = []
+        for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
+            for entry in controller.workspaceManager.entries(in: ws.id) {
+                inactiveWindowJobs.append((entry.handle.pid, entry.windowId))
+            }
+        }
+        if !inactiveWindowJobs.isEmpty {
+            controller.axManager.cancelPendingFrameJobs(inactiveWindowJobs)
+        }
+
         for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
             guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
             let windowCount = controller.workspaceManager.entries(in: ws.id).count
@@ -614,6 +670,7 @@ import QuartzCore
         let wsName = controller.workspaceManager.descriptor(for: workspaceId)?.name ?? "?"
         print("[WS-DEBUG] unhideWorkspace: \(wsName)(\(workspaceId.uuidString.prefix(8))), windowCount=\(entries.count)")
         for entry in entries {
+            controller.axManager.markWindowActive(entry.windowId)
             unhideWindow(entry, monitor: monitor)
         }
     }
@@ -621,6 +678,7 @@ import QuartzCore
     private func hideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
         guard let controller else { return }
         for entry in controller.workspaceManager.entries(in: workspaceId) {
+            controller.axManager.markWindowInactive(entry.windowId)
             hideWindow(entry, monitor: monitor, side: .right, targetY: nil)
         }
     }
@@ -653,7 +711,7 @@ import QuartzCore
             monitors: controller.workspaceManager.monitors
         )
         let moveEpsilon: CGFloat = 0.01
-        if abs(frame.origin.x - origin.x) < moveEpsilon && abs(frame.origin.y - origin.y) < moveEpsilon {
+        if abs(frame.origin.x - origin.x) < moveEpsilon {
 #if DEBUG
             print("[WS-DEBUG]   hideWindow: already hidden, skipping (pos=\(frame.origin))")
 #endif
@@ -662,7 +720,27 @@ import QuartzCore
 #if DEBUG
         print("[WS-DEBUG]   hideWindow: MOVING windowId=\(entry.windowId) from=\(frame.origin) to=\(origin)")
 #endif
-        controller.axManager.applyPositionsViaSkyLight([(entry.windowId, origin)])
+        controller.axManager.applyPositionsViaSkyLight([(entry.windowId, origin)], allowInactive: true)
+
+        let verifyEpsilon: CGFloat = 1.0
+        var observedOrigin: CGPoint?
+        if let wsRect = SkyLight.shared.getWindowBounds(UInt32(entry.windowId)) {
+            let appKitRect = ScreenCoordinateSpace.toAppKit(rect: wsRect)
+            observedOrigin = appKitRect.origin
+        } else if let axFrame = AXWindowService.framePreferFast(entry.axRef) {
+            observedOrigin = axFrame.origin
+        }
+
+        if let observedOrigin,
+           abs(observedOrigin.x - origin.x) > verifyEpsilon
+            || abs(observedOrigin.y - origin.y) > verifyEpsilon
+        {
+            let fallbackFrame = CGRect(origin: origin, size: frame.size)
+            try? AXWindowService.setFrame(entry.axRef, frame: fallbackFrame)
+#if DEBUG
+            print("[WS-DEBUG]   hideWindow: fallback AX setFrame windowId=\(entry.windowId) target=\(origin) got=\(observedOrigin)")
+#endif
+        }
     }
 
     func unhideWindow(_ entry: WindowModel.Entry, monitor: Monitor) {

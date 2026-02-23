@@ -316,12 +316,15 @@ final class WorkspaceNavigationHandler {
             to: result.workspace,
             monitor: result.monitor
         )
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        controller.layoutRefreshController.stopScrollAnimation(for: result.monitor.displayId)
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
+        controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+            if let handle = controller?.focusedHandle {
+                controller?.focusWindow(handle)
+            }
+        }
         if workspaceSwitchAnimated {
             controller.layoutRefreshController.startScrollAnimation(for: result.workspace.id)
-        }
-        if let handle = controller.focusedHandle {
-            controller.focusWindow(handle)
         }
     }
 
@@ -368,12 +371,17 @@ final class WorkspaceNavigationHandler {
                 monitor: monitor
             )
         } ?? false
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        if let monitor {
+            controller.layoutRefreshController.stopScrollAnimation(for: monitor.displayId)
+        }
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
+        controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+            if let handle = controller?.focusedHandle {
+                controller?.focusWindow(handle)
+            }
+        }
         if workspaceSwitchAnimated {
             controller.layoutRefreshController.startScrollAnimation(for: targetWorkspace.id)
-        }
-        if let handle = controller.focusedHandle {
-            controller.focusWindow(handle)
         }
     }
 
@@ -468,12 +476,15 @@ final class WorkspaceNavigationHandler {
                 monitor: targetMonitor
             )
         } ?? false
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        controller.layoutRefreshController.stopScrollAnimation(for: targetMonitor.displayId)
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
+        controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+            if let handle = controller?.focusedHandle {
+                controller?.focusWindow(handle)
+            }
+        }
         if workspaceSwitchAnimated {
             controller.layoutRefreshController.startScrollAnimation(for: targetWsId)
-        }
-        if let handle = controller.focusedHandle {
-            controller.focusWindow(handle)
         }
     }
 
@@ -510,12 +521,17 @@ final class WorkspaceNavigationHandler {
                 monitor: monitor
             )
         } ?? false
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        if let monitor {
+            controller.layoutRefreshController.stopScrollAnimation(for: monitor.displayId)
+        }
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
+        controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+            if let handle = controller?.focusedHandle {
+                controller?.focusWindow(handle)
+            }
+        }
         if workspaceSwitchAnimated {
             controller.layoutRefreshController.startScrollAnimation(for: prevWorkspace.id)
-        }
-        if let handle = controller.focusedHandle {
-            controller.focusWindow(handle)
         }
     }
 
@@ -675,6 +691,7 @@ final class WorkspaceNavigationHandler {
         let sourceState = controller.workspaceManager.niriViewportState(for: wsId)
         controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: sourceState.selectedNodeId)
 
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
         controller.layoutRefreshController.refreshWindowsAndLayout()
 
         if let handle = controller.focusedHandle {
@@ -726,6 +743,7 @@ final class WorkspaceNavigationHandler {
 
         controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
 
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
         controller.layoutRefreshController.refreshWindowsAndLayout()
 
         if let handle = controller.focusedHandle {
@@ -778,6 +796,7 @@ final class WorkspaceNavigationHandler {
 
         controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
 
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
         controller.layoutRefreshController.refreshWindowsAndLayout()
 
         if let handle = controller.focusedHandle {
@@ -808,6 +827,9 @@ final class WorkspaceNavigationHandler {
         print("[WS-DEBUG] focusFollowsWindowToMonitor=\(shouldFollowFocus)")
 
         if shouldFollowFocus {
+            controller.isTransferringWindow = true
+            defer { controller.isTransferringWindow = false }
+
             let targetMonitor = controller.workspaceManager.monitorForWorkspace(target.id)
             print("[WS-DEBUG] monitorForWorkspace(target)=\(targetMonitor.map { "\($0.name)(\($0.id))" } ?? "nil")")
             if let targetMonitor {
@@ -818,9 +840,11 @@ final class WorkspaceNavigationHandler {
             controller.focusManager.setFocus(handle, in: target.id)
 
             print("[WS-DEBUG] calling executeLayoutRefreshImmediate (focus-follows path)")
+            if let currentWorkspaceId,
+               let sourceMonitor = controller.workspaceManager.monitor(for: currentWorkspaceId) {
+                controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
+            }
             controller.layoutRefreshController.hideInactiveWorkspacesSync()
-            controller.layoutRefreshController.executeLayoutRefreshImmediate()
-
             if let engine = controller.niriEngine,
                let movedNode = engine.findNode(for: handle),
                let monitor = controller.workspaceManager.monitor(for: target.id)
@@ -838,7 +862,9 @@ final class WorkspaceNavigationHandler {
                     )
                 }
             }
-            controller.focusWindow(handle)
+            controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+                controller?.focusWindow(handle)
+            }
         } else {
             if let currentWorkspaceId {
                 let sourceState = controller.workspaceManager.niriViewportState(for: currentWorkspaceId)
@@ -846,11 +872,15 @@ final class WorkspaceNavigationHandler {
             }
 
             print("[WS-DEBUG] calling executeLayoutRefreshImmediate (stay-on-source path)")
+            if let currentWorkspaceId,
+               let sourceMonitor = controller.workspaceManager.monitor(for: currentWorkspaceId) {
+                controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
+            }
             controller.layoutRefreshController.hideInactiveWorkspacesSync()
-            controller.layoutRefreshController.executeLayoutRefreshImmediate()
-
-            if let focusHandle = controller.focusedHandle {
-                controller.focusWindow(focusHandle)
+            controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+                if let focusHandle = controller?.focusedHandle {
+                    controller?.focusWindow(focusHandle)
+                }
             }
         }
     }

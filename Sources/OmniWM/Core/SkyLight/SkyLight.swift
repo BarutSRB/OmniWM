@@ -315,7 +315,12 @@ final class SkyLight {
         }
 
         let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else { return }
+        guard let transaction = transactionCreate(cid) else {
+            for (windowId, origin) in positions {
+                _ = moveWindow(windowId, to: origin)
+            }
+            return
+        }
         defer { cfRelease(transaction) }
 
         for (windowId, origin) in positions {

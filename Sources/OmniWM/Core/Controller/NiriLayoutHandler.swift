@@ -149,10 +149,13 @@ import QuartzCore
             controller.axManager.cancelPendingFrameJobs(hiddenWindowJobs)
         }
         if !positionUpdates.isEmpty {
-            controller.axManager.applyPositionsViaSkyLight(positionUpdates)
+        controller.axManager.applyPositionsViaSkyLight(positionUpdates)
         }
         if !visibleWindowJobs.isEmpty {
-            controller.axManager.unsuppressFrameWrites(visibleWindowJobs)
+            let activeJobs = visibleWindowJobs.filter { !controller.axManager.inactiveWorkspaceWindowIds.contains($0.windowId) }
+            if !activeJobs.isEmpty {
+                controller.axManager.unsuppressFrameWrites(activeJobs)
+            }
         }
         if !frameUpdates.isEmpty {
             controller.axManager.applyFramesParallel(frameUpdates)
@@ -660,7 +663,10 @@ import QuartzCore
         }
 
         if !visibleWindowJobs.isEmpty {
-            controller.axManager.unsuppressFrameWrites(visibleWindowJobs)
+            let activeJobs = visibleWindowJobs.filter { !controller.axManager.inactiveWorkspaceWindowIds.contains($0.windowId) }
+            if !activeJobs.isEmpty {
+                controller.axManager.unsuppressFrameWrites(activeJobs)
+            }
         }
         controller.axManager.applyFramesParallel(frameUpdates)
 
@@ -972,15 +978,20 @@ import QuartzCore
         }
 
         if options.layoutRefresh {
-            controller.layoutRefreshController.executeLayoutRefreshImmediate()
-        }
-
-        if options.axFocus, let windowNode = node as? NiriWindow {
-            controller.focusWindow(windowNode.handle)
-        }
-
-        if options.startAnimation {
-            if state.viewOffsetPixels.isAnimating {
+            let focusHandle = options.axFocus ? (node as? NiriWindow)?.handle : nil
+            controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
+                if let handle = focusHandle {
+                    controller?.focusWindow(handle)
+                }
+            }
+            if options.startAnimation, state.viewOffsetPixels.isAnimating {
+                controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+            }
+        } else {
+            if options.axFocus, let windowNode = node as? NiriWindow {
+                controller.focusWindow(windowNode.handle)
+            }
+            if options.startAnimation, state.viewOffsetPixels.isAnimating {
                 controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
             }
         }

@@ -22,33 +22,43 @@ enum ScreenCoordinateSpace {
     private struct ScreenTransform {
         let appKitFrame: CGRect
         let quartzFrame: CGRect
+        let scaleX: CGFloat
+        let scaleY: CGFloat
 
         func toAppKit(point: CGPoint) -> CGPoint {
             let dx = point.x - quartzFrame.minX
             let dy = point.y - quartzFrame.minY
-            return CGPoint(x: appKitFrame.minX + dx, y: appKitFrame.maxY - dy)
+            let x = appKitFrame.minX + (dx / scaleX)
+            let y = appKitFrame.maxY - (dy / scaleY)
+            return CGPoint(x: x, y: y)
         }
 
         func toWindowServer(point: CGPoint) -> CGPoint {
             let dx = point.x - appKitFrame.minX
             let dy = appKitFrame.maxY - point.y
-            return CGPoint(x: quartzFrame.minX + dx, y: quartzFrame.minY + dy)
+            let x = quartzFrame.minX + (dx * scaleX)
+            let y = quartzFrame.minY + (dy * scaleY)
+            return CGPoint(x: x, y: y)
         }
 
         func toAppKit(rect: CGRect) -> CGRect {
             let dx = rect.origin.x - quartzFrame.minX
             let dy = rect.origin.y - quartzFrame.minY
-            let x = appKitFrame.minX + dx
-            let y = appKitFrame.maxY - dy - rect.size.height
-            return CGRect(origin: CGPoint(x: x, y: y), size: rect.size)
+            let x = appKitFrame.minX + (dx / scaleX)
+            let height = rect.size.height / scaleY
+            let width = rect.size.width / scaleX
+            let y = appKitFrame.maxY - (dy / scaleY) - height
+            return CGRect(origin: CGPoint(x: x, y: y), size: CGSize(width: width, height: height))
         }
 
         func toWindowServer(rect: CGRect) -> CGRect {
             let dx = rect.origin.x - appKitFrame.minX
             let dy = appKitFrame.maxY - rect.origin.y - rect.size.height
-            let x = quartzFrame.minX + dx
-            let y = quartzFrame.minY + dy
-            return CGRect(origin: CGPoint(x: x, y: y), size: rect.size)
+            let x = quartzFrame.minX + (dx * scaleX)
+            let y = quartzFrame.minY + (dy * scaleY)
+            let width = rect.size.width * scaleX
+            let height = rect.size.height * scaleY
+            return CGRect(origin: CGPoint(x: x, y: y), size: CGSize(width: width, height: height))
         }
     }
 
@@ -78,7 +88,15 @@ enum ScreenCoordinateSpace {
         let transforms = NSScreen.screens.compactMap { screen -> ScreenTransform? in
             guard let displayId = screen.displayId else { return nil }
             let quartzFrame = CGDisplayBounds(displayId)
-            return ScreenTransform(appKitFrame: screen.frame, quartzFrame: quartzFrame)
+            let appKitFrame = screen.frame
+            let scaleX = quartzFrame.width / max(1.0, appKitFrame.width)
+            let scaleY = quartzFrame.height / max(1.0, appKitFrame.height)
+            return ScreenTransform(
+                appKitFrame: appKitFrame,
+                quartzFrame: quartzFrame,
+                scaleX: scaleX,
+                scaleY: scaleY
+            )
         }
 
         cachedTransforms = transforms
@@ -108,8 +126,26 @@ enum ScreenCoordinateSpace {
         transforms().first { $0.appKitFrame.contains(point) }
     }
 
-    static func toAppKit(point: CGPoint) -> CGPoint {
+    private static func transformClosestToQuartz(point: CGPoint) -> ScreenTransform? {
         if let transform = transformForQuartz(point: point) {
+            return transform
+        }
+        return transforms().min { lhs, rhs in
+            lhs.quartzFrame.distanceSquared(to: point) < rhs.quartzFrame.distanceSquared(to: point)
+        }
+    }
+
+    private static func transformClosestToAppKit(point: CGPoint) -> ScreenTransform? {
+        if let transform = transformForAppKit(point: point) {
+            return transform
+        }
+        return transforms().min { lhs, rhs in
+            lhs.appKitFrame.distanceSquared(to: point) < rhs.appKitFrame.distanceSquared(to: point)
+        }
+    }
+
+    static func toAppKit(point: CGPoint) -> CGPoint {
+        if let transform = transformClosestToQuartz(point: point) {
             return transform.toAppKit(point: point)
         }
         let global = globalFrame
@@ -117,7 +153,7 @@ enum ScreenCoordinateSpace {
     }
 
     static func toAppKit(rect: CGRect) -> CGRect {
-        if let transform = transformForQuartz(point: rect.center) {
+        if let transform = transformClosestToQuartz(point: rect.center) {
             return transform.toAppKit(rect: rect)
         }
         let global = globalFrame
@@ -126,7 +162,7 @@ enum ScreenCoordinateSpace {
     }
 
     static func toWindowServer(point: CGPoint) -> CGPoint {
-        if let transform = transformForAppKit(point: point) {
+        if let transform = transformClosestToAppKit(point: point) {
             return transform.toWindowServer(point: point)
         }
         let global = globalFrame
@@ -134,7 +170,7 @@ enum ScreenCoordinateSpace {
     }
 
     static func toWindowServer(rect: CGRect) -> CGRect {
-        if let transform = transformForAppKit(point: rect.center) {
+        if let transform = transformClosestToAppKit(point: rect.center) {
             return transform.toWindowServer(rect: rect)
         }
         let global = globalFrame

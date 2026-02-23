@@ -18,6 +18,10 @@ final class AXManager {
     var onAppTerminated: ((pid_t) -> Void)?
 
     private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect)]] = [:]
+    private var lastAppliedFrames: [Int: CGRect] = [:]
+
+    /// Window IDs belonging to inactive workspaces — checked LIVE in applyFramesParallel.
+    private(set) var inactiveWorkspaceWindowIds: Set<Int> = []
 
     init() {
         setupTerminationObserver()
@@ -54,6 +58,30 @@ final class AXManager {
                 self?.onAppLaunched?(app)
             }
         }
+    }
+
+    func updateInactiveWorkspaceWindows(
+        allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)],
+        activeWorkspaceIds: Set<WorkspaceDescriptor.ID>
+    ) {
+        inactiveWorkspaceWindowIds.removeAll(keepingCapacity: true)
+        for (wsId, windowId) in allEntries {
+            if !activeWorkspaceIds.contains(wsId) {
+                inactiveWorkspaceWindowIds.insert(windowId)
+            }
+        }
+    }
+
+    func markWindowActive(_ windowId: Int) {
+        inactiveWorkspaceWindowIds.remove(windowId)
+    }
+
+    func markWindowInactive(_ windowId: Int) {
+        inactiveWorkspaceWindowIds.insert(windowId)
+    }
+
+    func clearInactiveWorkspaceWindows() {
+        inactiveWorkspaceWindowIds.removeAll()
     }
 
     func cleanup() {
@@ -141,6 +169,13 @@ final class AXManager {
         }
 
         for (pid, windowId, frame) in frames {
+            if inactiveWorkspaceWindowIds.contains(windowId) { continue }
+            if let cached = lastAppliedFrames[windowId],
+               abs(cached.origin.x - frame.origin.x) < 0.5,
+               abs(cached.origin.y - frame.origin.y) < 0.5,
+               abs(cached.size.width - frame.size.width) < 0.5,
+               abs(cached.size.height - frame.size.height) < 0.5 { continue }
+            lastAppliedFrames[windowId] = frame
             if framesByPidBuffer[pid] == nil {
                 framesByPidBuffer[pid] = []
                 framesByPidBuffer[pid]?.reserveCapacity(8)
@@ -163,6 +198,9 @@ final class AXManager {
     }
 
     func suppressFrameWrites(_ entries: [(pid: pid_t, windowId: Int)]) {
+        for (_, windowId) in entries {
+            lastAppliedFrames.removeValue(forKey: windowId)
+        }
         for (pid, windowIds) in groupedWindowIdsByPid(entries) {
             AppAXContext.contexts[pid]?.suppressFrameWrites(for: windowIds)
         }
@@ -174,8 +212,15 @@ final class AXManager {
         }
     }
 
-    func applyPositionsViaSkyLight(_ positions: [(windowId: Int, origin: CGPoint)]) {
-        let batchPositions = positions.map {
+    func applyPositionsViaSkyLight(
+        _ positions: [(windowId: Int, origin: CGPoint)],
+        allowInactive: Bool = false
+    ) {
+        let filtered = allowInactive
+            ? positions
+            : positions.filter { !inactiveWorkspaceWindowIds.contains($0.windowId) }
+        guard !filtered.isEmpty else { return }
+        let batchPositions = filtered.map {
             (windowId: UInt32($0.windowId), origin: ScreenCoordinateSpace.toWindowServer(point: $0.origin))
         }
         SkyLight.shared.batchMoveWindows(batchPositions)

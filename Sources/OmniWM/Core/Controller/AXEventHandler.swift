@@ -284,7 +284,7 @@ final class AXEventHandler: CGSEventDelegate {
                 controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
             } ?? false
 
-            if !isWorkspaceActive {
+            if !isWorkspaceActive && !controller.isTransferringWindow {
                 let wsName = controller.workspaceManager.descriptor(for: wsId)?.name ?? ""
                 if let result = controller.workspaceManager.focusWorkspace(named: wsName) {
                     let currentMonitorId = controller.activeMonitorId

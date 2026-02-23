@@ -2,6 +2,21 @@ import AppKit
 import ApplicationServices
 import Foundation
 
+final class LockedWindowIdSet: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: Set<Int> = []
+
+    func insert(_ id: Int) {
+        lock.lock(); ids.insert(id); lock.unlock()
+    }
+    func remove(_ id: Int) {
+        lock.lock(); ids.remove(id); lock.unlock()
+    }
+    func contains(_ id: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return ids.contains(id)
+    }
+}
+
 @MainActor
 final class AppAXContext {
     let pid: pid_t
@@ -11,7 +26,7 @@ final class AppAXContext {
     private let windows: ThreadGuardedValue<[Int: AXUIElement]>
     nonisolated(unsafe) private var thread: Thread?
     private var setFrameJobs: [Int: RunLoopJob] = [:]
-    private var suppressedFrameWindowIds: Set<Int> = []
+    let suppressedFrameWindowIds = LockedWindowIdSet()
     private let axObserver: ThreadGuardedValue<AXObserver?>
     private let subscribedWindowIds: ThreadGuardedValue<Set<Int>>
 
@@ -263,7 +278,7 @@ final class AppAXContext {
             setFrameJobs[windowId]?.cancel()
         }
 
-        let suppressedSnapshot = suppressedFrameWindowIds
+        let suppression = suppressedFrameWindowIds
 
         let batchJob = appThread.runInLoopAsync { [axApp, windows] job in
             let enhancedUIKey = "AXEnhancedUserInterface" as CFString
@@ -287,7 +302,7 @@ final class AppAXContext {
 
             for (windowId, frame) in frames {
                 if job.isCancelled { break }
-                if suppressedSnapshot.contains(windowId) {
+                if suppression.contains(windowId) {
                     continue
                 }
                 guard let element = windows[windowId] else {

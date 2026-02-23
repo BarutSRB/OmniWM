@@ -46,6 +46,7 @@ final class WMController {
     @ObservationIgnored
     private lazy var quakeTerminalController: QuakeTerminalController = .init(settings: settings)
 
+    var isTransferringWindow: Bool = false
     var hiddenAppPIDs: Set<pid_t> = []
 
     private(set) var appRulesByBundleId: [String: AppRule] = [:]
