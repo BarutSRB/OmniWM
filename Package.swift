@@ -26,7 +26,8 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-                .interoperabilityMode(.C)
+                .interoperabilityMode(.C),
+                .unsafeFlags(["-enable-testing"])
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
