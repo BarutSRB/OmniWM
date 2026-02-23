@@ -14,7 +14,8 @@ private let sponsors: [Sponsor] = [
     Sponsor(name: "Christopher2K", githubUsername: "Christopher2K", imageName: "christopher2k", imageExtension: "jpg", rank: .first),
     Sponsor(name: "Aelte", githubUsername: "aelte", imageName: "aelte", imageExtension: "png", rank: .second),
     Sponsor(name: "captainpryce", githubUsername: "captainpryce", imageName: "captainpryce", imageExtension: "jpg", rank: .third),
-    Sponsor(name: "sgrimee", githubUsername: "sgrimee", imageName: "sgrimee", imageExtension: "jpg", rank: .fourth)
+    Sponsor(name: "sgrimee", githubUsername: "sgrimee", imageName: "sgrimee", imageExtension: "jpg", rank: .fourth),
+    Sponsor(name: "aidansunbury", githubUsername: "aidansunbury", imageName: "aidansunbury", imageExtension: "png", rank: .fifth)
 ]
 
 struct SponsorsView: View {
@@ -23,7 +24,7 @@ struct SponsorsView: View {
     @State private var currentIndex = 0
     let onClose: () -> Void
 
-    private let visibleCount = 3
+    private let visibleCount = 1
 
     private var canNavigateLeft: Bool {
         currentIndex > 0
@@ -95,7 +96,7 @@ struct SponsorsView: View {
                     leftArrowButton
                 }
 
-                HStack(spacing: 32) {
+                HStack(spacing: 0) {
                     ForEach(Array(visibleSponsors)) { sponsor in
                         SponsorCardView(
                             name: sponsor.name,
@@ -104,6 +105,7 @@ struct SponsorsView: View {
                             imageExtension: sponsor.imageExtension,
                             rank: sponsor.rank
                         )
+                        .frame(maxWidth: 360)
                     }
                 }
 
@@ -180,6 +182,7 @@ enum SponsorRank {
     case second
     case third
     case fourth
+    case fifth
 
     var gradientColors: [Color] {
         switch self {
@@ -195,6 +198,9 @@ enum SponsorRank {
         case .fourth:
             return [Color(red: 0.3, green: 0.3, blue: 0.3),
                     Color(red: 0.15, green: 0.15, blue: 0.15)]
+        case .fifth:
+            return [Color(red: 0.22, green: 0.24, blue: 0.27),
+                    Color(red: 0.09, green: 0.1, blue: 0.12)]
         }
     }
 
@@ -208,6 +214,8 @@ enum SponsorRank {
             return Color(red: 0.75, green: 0.38, blue: 0.12)
         case .fourth:
             return Color(red: 0.4, green: 0.4, blue: 0.4)
+        case .fifth:
+            return Color(red: 0.3, green: 0.34, blue: 0.38)
         }
     }
 
@@ -221,6 +229,8 @@ enum SponsorRank {
             return "3rd"
         case .fourth:
             return "4th"
+        case .fifth:
+            return "5th"
         }
     }
 }
@@ -255,12 +265,18 @@ struct SponsorCardView: View {
                     Text(name)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .allowsTightening(true)
 
                     HStack(spacing: 4) {
                         Image(systemName: "link")
                             .font(.system(size: 11))
                         Text("@\(githubUsername)")
                             .font(.system(size: 13))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .allowsTightening(true)
                     }
                     .foregroundStyle(.secondary)
                 }

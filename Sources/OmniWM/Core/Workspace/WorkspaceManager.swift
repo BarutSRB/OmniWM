@@ -670,7 +670,8 @@ final class WorkspaceManager {
 
     private func rearrangeWorkspacesOnMonitors() {
         var oldVisibleScreens = Set(visibleWorkspaces.forward.keys)
-        let newScreens = monitors.map(\.workspaceAnchorPoint)
+        // Keep monitor traversal deterministic so startup workspace mapping is stable.
+        let newScreens = Monitor.sortedByPosition(monitors).map(\.workspaceAnchorPoint)
 
         var newScreenToOldScreenMapping: [CGPoint: CGPoint] = [:]
         for newScreen in newScreens {
@@ -707,7 +708,8 @@ final class WorkspaceManager {
             return prevId
         }
 
-        if let candidate = workspacesById.values.first(where: { workspace in
+        // Choose stub candidates in deterministic workspace order to avoid relaunch variance.
+        if let candidate = sortedWorkspaces().first(where: { workspace in
             guard !visibleWorkspaceIds().contains(workspace.id) else { return false }
             guard forceAssignedMonitor(for: workspace.name) == nil else { return false }
             guard let monitorPoint = workspaceMonitorPoint(for: workspace.id) else { return false }
