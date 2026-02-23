@@ -19,6 +19,7 @@ final class AXManager {
 
     private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect)]] = [:]
     private var lastAppliedFrames: [Int: CGRect] = [:]
+    private var forceApplyWindowIds: Set<Int> = []
 
     /// Window IDs belonging to inactive workspaces — checked LIVE in applyFramesParallel.
     private(set) var inactiveWorkspaceWindowIds: Set<Int> = []
@@ -78,6 +79,11 @@ final class AXManager {
 
     func markWindowInactive(_ windowId: Int) {
         inactiveWorkspaceWindowIds.insert(windowId)
+    }
+
+    func forceApplyNextFrame(for windowId: Int) {
+        forceApplyWindowIds.insert(windowId)
+        lastAppliedFrames.removeValue(forKey: windowId)
     }
 
     func clearInactiveWorkspaceWindows() {
@@ -169,12 +175,18 @@ final class AXManager {
         }
 
         for (pid, windowId, frame) in frames {
-            if inactiveWorkspaceWindowIds.contains(windowId) { continue }
+            if inactiveWorkspaceWindowIds.contains(windowId) {
+                continue
+            }
+            let shouldForceApply = forceApplyWindowIds.remove(windowId) != nil
             if let cached = lastAppliedFrames[windowId],
                abs(cached.origin.x - frame.origin.x) < 0.5,
                abs(cached.origin.y - frame.origin.y) < 0.5,
                abs(cached.size.width - frame.size.width) < 0.5,
-               abs(cached.size.height - frame.size.height) < 0.5 { continue }
+               abs(cached.size.height - frame.size.height) < 0.5,
+               !shouldForceApply {
+                continue
+            }
             lastAppliedFrames[windowId] = frame
             if framesByPidBuffer[pid] == nil {
                 framesByPidBuffer[pid] = []

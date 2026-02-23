@@ -123,6 +123,11 @@ import QuartzCore
         for (handle, frame) in frames {
             guard let entry = controller.workspaceManager.entry(for: handle) else { continue }
 
+            if let node = engine.findNode(for: handle),
+               node.sizingMode == .fullscreen {
+                controller.axManager.forceApplyNextFrame(for: entry.windowId)
+            }
+
             if let side = hiddenHandles[handle] {
                 let actualSize = AXWindowService.framePreferFast(entry.axRef)?.size ?? frame.size
                 let hiddenOrigin = lrc.hiddenOrigin(
@@ -657,6 +662,10 @@ import QuartzCore
         for (handle, frame) in frames {
             if hiddenHandles[handle] != nil { continue }
             if let entry = controller.workspaceManager.entry(for: handle) {
+                if let node = pass.engine.findNode(for: handle),
+                   node.sizingMode == .fullscreen {
+                    controller.axManager.forceApplyNextFrame(for: entry.windowId)
+                }
                 frameUpdates.append((handle.pid, entry.windowId, frame))
             }
         }
