@@ -40,7 +40,7 @@ A lot more features not show in the gif.
 
 ## Known Limitations
 
-- **Multi-monitor support** - Not fully tested (developer lacks multi-monitor setup)
+- **Multi-monitor support** - Functional but not fully bug free.
 - **Gestures/Trackpad** - Magic Mouse and trackpad gestures are untested (no hardware available for testing)
 
 ## Requirements
@@ -146,6 +146,30 @@ All shortcuts are customizable in Settings > Hotkeys.
 | Quake Terminal | `` Option + ` `` |
 | Overview | `Option + Shift + O` |
 
+#### Quake Terminal (Inside Terminal)
+
+| Action | Shortcut |
+|--------|----------|
+| New Tab | `Cmd + T` |
+| Close Tab | `Cmd + W` |
+| Next Tab | `Cmd + Shift + ]` |
+| Previous Tab | `Cmd + Shift + [` |
+| Next Tab (Alt) | `Ctrl + Tab` |
+| Previous Tab (Alt) | `Ctrl + Shift + Tab` |
+| Select Tab 1-9 | `Cmd + 1-9` |
+| Split Pane (Horizontal) | `Cmd + D` |
+| Split Pane (Vertical) | `Cmd + Shift + D` |
+| Close Pane | `Cmd + Shift + W` |
+| Equalize Splits | `Cmd + Shift + =` |
+| Navigate Pane | `Cmd + Option + Arrow Keys` |
+
+#### Hidden Bar
+
+| Action | Shortcut |
+|--------|----------|
+| Toggle Hidden Bar (when enabled) | Right-click menu bar icon |
+| Toggle Hidden Bar (Hotkey, unassigned by default) | Unassigned |
+
 ### Features
 
 #### Quake Terminal
@@ -153,6 +177,8 @@ All shortcuts are customizable in Settings > Hotkeys.
 A drop-down terminal (powered by Ghostty) that slides in from the screen edge:
 - Toggle with `` Option + ` ``
 - Supports multiple tabs and splits within tabs
+- Tab and pane shortcuts are listed in **Quake Terminal (Inside Terminal)**
+- Mouse resize by dragging edges; `Option + drag` to move (remembers size/position per monitor)
 - Configure position (top/bottom/left/right/center), size, and opacity in Settings
 - Auto-hides on focus loss (optional)
 
@@ -183,16 +209,26 @@ A visual indicator showing your workspaces:
 - Click to switch workspaces
 - Configure position, height, and appearance in Settings
 
+#### Hidden Bar
+
+Hide or reveal status bar icons using a separator item:
+- Enable in Settings
+- Right-click the OmniWM menu bar icon to toggle
+- Optional hotkey exists but is unassigned by default
+
 ### Tips
 
 - **Workspaces** - Create named workspaces in Settings to organize by project or context
 - **App Rules** - Exclude problematic apps from tiling or assign them to specific workspaces
-- **Mouse** - You can also drag windows to reposition them interactively
-- **Trackpad Gestures** - Use scroll gestures with modifier keys to adjust column width
+- **Mouse** - `Option + drag` moves tiled windows; `Option + Shift + drag` inserts between windows (Niri)
+- **Mouse Resize** - Hover window edges and drag to resize (Niri)
+- **Scroll Gestures (Mouse)** - Hold `Option + Shift + Mouse Scroll Wheel` (default, configurable) and scroll through columns horizontally
+- **Trackpad Gestures** - Use horizontal gestures with 2/3/4 fingers (configurable); direction can be inverted (not tested lacking hardware)
 
 ## Configuration
 
 Access settings by clicking the **O** menu bar icon and selecting **Settings** or **App Rules**.
+Mouse/gesture settings and Hidden Bar options are available in Settings.
 
 ## App Rules
 
@@ -218,5 +254,3 @@ If you find OmniWM useful, consider supporting development:
 ## Contributing
 
 Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM).
-
-
