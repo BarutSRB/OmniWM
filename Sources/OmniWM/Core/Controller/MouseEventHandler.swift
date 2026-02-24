@@ -366,7 +366,6 @@ final class MouseEventHandler {
             outer: controller.workspaceManager.outerGaps
         )
         let insetFrame = controller.insetWorkingFrame(for: monitor)
-
         guard let wsId = controller.activeWorkspace()?.id else { return }
 
         if engine.interactiveResizeUpdate(

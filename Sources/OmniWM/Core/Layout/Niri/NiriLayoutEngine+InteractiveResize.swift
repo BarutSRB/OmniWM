@@ -97,7 +97,6 @@ extension NiriLayoutEngine {
         guard let windowNode = findNode(by: windowId) as? NiriWindow else { return false }
         guard let column = findColumn(containing: windowNode, in: workspaceId) else { return false }
         guard let colIdx = columnIndex(of: column, in: workspaceId) else { return false }
-
         if windowNode.isFullscreen {
             return false
         }
@@ -166,7 +165,7 @@ extension NiriLayoutEngine {
             if resize.edges.contains(.left), let origOffset = resize.originalViewOffset {
                 let widthDelta = column.cachedWidth - originalWidth
                 viewportState { state in
-                    state.viewOffsetPixels = .static(origOffset - widthDelta)
+                    state.viewOffsetPixels = .static(origOffset + widthDelta)
                 }
             }
         }
