@@ -1061,6 +1061,71 @@ import QuartzCore
             }
         }
     }
+
+    func withNiriWorkspaceContext(
+        for workspaceId: WorkspaceDescriptor.ID,
+        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
+    ) {
+        guard let controller else { return }
+        controller.layoutRefreshController.runLightSession {
+            guard let engine = controller.niriEngine else { return }
+            guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+            let gaps = CGFloat(controller.workspaceManager.gaps)
+            controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+                perform(engine, workspaceId, &state, monitor, workingFrame, gaps)
+            }
+        }
+    }
+
+    func overviewInsertWindow(
+        handle: WindowHandle,
+        targetHandle: WindowHandle,
+        position: InsertPosition,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) {
+        guard let controller else { return }
+        var didMove = false
+        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, state, monitor, workingFrame, gaps in
+            guard let source = engine.findNode(for: handle) else { return }
+            guard let target = engine.findNode(for: targetHandle) else { return }
+            didMove = engine.insertWindowByMove(
+                sourceWindowId: source.id,
+                targetWindowId: target.id,
+                position: position,
+                in: wsId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        }
+        if didMove {
+            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+        }
+    }
+
+    func overviewInsertWindowInNewColumn(
+        handle: WindowHandle,
+        insertIndex: Int,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) {
+        guard let controller else { return }
+        var didMove = false
+        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, state, monitor, workingFrame, gaps in
+            guard let window = engine.findNode(for: handle) as? NiriWindow else { return }
+            didMove = engine.insertWindowInNewColumn(
+                window,
+                insertIndex: insertIndex,
+                in: wsId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        }
+        if didMove {
+            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+        }
+    }
 }
 
 struct NodeActivationOptions {

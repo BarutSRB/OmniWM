@@ -32,6 +32,7 @@ struct OverviewWorkspaceSection {
     var windows: [OverviewWindowItem]
     var sectionFrame: CGRect
     var labelFrame: CGRect
+    var gridFrame: CGRect
     var isActive: Bool
 }
 
@@ -85,6 +86,9 @@ struct OverviewLayout {
     var totalContentHeight: CGFloat
     var scrollOffset: CGFloat
     var scale: CGFloat
+    var niriColumnDropZonesByWorkspace: [WorkspaceDescriptor.ID: [OverviewColumnDropZone]]
+    var dragTarget: OverviewDragTarget?
+    var niriColumnsByWorkspace: [WorkspaceDescriptor.ID: [OverviewNiriColumn]]
     private var windowPositionByHandle: [WindowHandle: WindowPosition]
     private var lastHoveredHandle: WindowHandle?
     private var lastSelectedHandle: WindowHandle?
@@ -95,6 +99,9 @@ struct OverviewLayout {
         totalContentHeight = 0
         scrollOffset = 0
         scale = 1.0
+        niriColumnDropZonesByWorkspace = [:]
+        dragTarget = nil
+        niriColumnsByWorkspace = [:]
         windowPositionByHandle = [:]
         lastHoveredHandle = nil
         lastSelectedHandle = nil
@@ -206,6 +213,41 @@ struct OverviewLayout {
         return false
     }
 
+    func workspaceSection(at point: CGPoint) -> OverviewWorkspaceSection? {
+        let adjustedPoint = CGPoint(x: point.x, y: point.y + scrollOffset)
+        for section in workspaceSections {
+            if section.sectionFrame.contains(adjustedPoint) {
+                return section
+            }
+        }
+        return nil
+    }
+
+    func columnDropZone(at point: CGPoint) -> OverviewColumnDropZone? {
+        let adjustedPoint = CGPoint(x: point.x, y: point.y + scrollOffset)
+        for (_, zones) in niriColumnDropZonesByWorkspace {
+            for zone in zones where zone.frame.contains(adjustedPoint) {
+                return zone
+            }
+        }
+        return nil
+    }
+
+    func insertPosition(for window: OverviewWindowItem, at point: CGPoint) -> InsertPosition {
+        let adjustedPoint = CGPoint(x: point.x, y: point.y + scrollOffset)
+        return adjustedPoint.y > window.overviewFrame.midY ? .before : .after
+    }
+
+    func window(for handle: WindowHandle) -> OverviewWindowItem? {
+        guard let position = windowPositionByHandle[handle],
+              workspaceSections.indices.contains(position.sectionIndex),
+              workspaceSections[position.sectionIndex].windows.indices.contains(position.windowIndex)
+        else {
+            return nil
+        }
+        return workspaceSections[position.sectionIndex].windows[position.windowIndex]
+    }
+
     func selectedWindow() -> OverviewWindowItem? {
         guard let handle = lastSelectedHandle,
               let position = windowPositionByHandle[handle] else { return nil }
@@ -217,4 +259,32 @@ struct OverviewLayout {
               let position = windowPositionByHandle[handle] else { return nil }
         return workspaceSections[position.sectionIndex].windows[position.windowIndex]
     }
+}
+
+struct OverviewNiriColumn: Equatable {
+    let workspaceId: WorkspaceDescriptor.ID
+    let columnIndex: Int
+    let frame: CGRect
+    let windowHandles: [WindowHandle]
+}
+
+enum OverviewDragTarget: Equatable {
+    case niriWindowInsert(
+        workspaceId: WorkspaceDescriptor.ID,
+        targetHandle: WindowHandle,
+        position: InsertPosition
+    )
+    case niriColumnInsert(
+        workspaceId: WorkspaceDescriptor.ID,
+        insertIndex: Int
+    )
+    case workspaceMove(
+        workspaceId: WorkspaceDescriptor.ID
+    )
+}
+
+struct OverviewColumnDropZone: Equatable {
+    let workspaceId: WorkspaceDescriptor.ID
+    let insertIndex: Int
+    let frame: CGRect
 }

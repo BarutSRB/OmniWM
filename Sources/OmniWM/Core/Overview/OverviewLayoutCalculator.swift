@@ -118,6 +118,12 @@ struct OverviewLayoutCalculator {
 
             let rows = (sortedWindows.count + columns - 1) / columns
             let gridHeight = CGFloat(rows) * thumbnailHeight + CGFloat(rows - 1) * OverviewLayoutMetrics.windowSpacing
+            let gridFrame = CGRect(
+                x: gridStartX,
+                y: currentY - gridHeight,
+                width: totalGridWidth,
+                height: gridHeight
+            )
 
             let sectionBottom = currentY - gridHeight
             let sectionFrame = CGRect(
@@ -133,6 +139,7 @@ struct OverviewLayoutCalculator {
                 windows: windowItems,
                 sectionFrame: sectionFrame,
                 labelFrame: labelFrame,
+                gridFrame: gridFrame,
                 isActive: workspace.isActive
             )
             layout.workspaceSections.append(section)

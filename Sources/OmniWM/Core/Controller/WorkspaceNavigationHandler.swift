@@ -869,6 +869,35 @@ final class WorkspaceNavigationHandler {
         }
     }
 
+    func moveWindowFromOverview(handle: WindowHandle, toWorkspaceId targetWsId: WorkspaceDescriptor.ID) {
+        guard let controller else { return }
+
+        let currentWorkspaceId = controller.workspaceManager.workspace(for: handle)
+        let transferResult = transferWindowFromSourceEngine(
+            handle: handle,
+            from: currentWorkspaceId,
+            to: targetWsId
+        )
+        guard transferResult.succeeded else { return }
+
+        controller.workspaceManager.setWorkspace(for: handle, to: targetWsId)
+        controller.focusManager.updateWorkspaceFocusMemory(handle, for: targetWsId)
+
+        if let currentWorkspaceId {
+            let sourceState = controller.workspaceManager.niriViewportState(for: currentWorkspaceId)
+            controller.recoverSourceFocusAfterMove(in: currentWorkspaceId, preferredNodeId: sourceState.selectedNodeId)
+        }
+
+        if let currentWorkspaceId {
+            controller.layoutRefreshController.applyLayoutForWorkspaces([currentWorkspaceId, targetWsId])
+        } else {
+            controller.layoutRefreshController.applyLayoutForWorkspaces([targetWsId])
+        }
+
+        controller.layoutRefreshController.hideInactiveWorkspacesSync()
+        controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
     func moveFocusedWindowToMonitor(direction: Direction) {
         guard let controller else { return }
         guard let handle = controller.focusedHandle,

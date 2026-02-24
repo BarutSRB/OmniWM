@@ -95,6 +95,14 @@ final class WindowActionHandler {
         overviewController.toggle()
     }
 
+    func isOverviewOpen() -> Bool {
+        overviewController.isOpen
+    }
+
+    func isPointInOverview(_ point: CGPoint) -> Bool {
+        overviewController.isPointInside(point)
+    }
+
     private func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
         guard controller.workspaceManager.entry(for: handle) != nil else { return }

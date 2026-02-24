@@ -12,6 +12,10 @@ final class OverviewWindow: NSPanel {
     var onSearchChanged: ((String) -> Void)?
     var onNavigate: ((Direction) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
+    var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
+    var onDragUpdate: ((CGPoint) -> Void)?
+    var onDragEnd: ((CGPoint) -> Void)?
+    var onDragCancel: (() -> Void)?
 
     init(monitor: Monitor) {
         self.monitor = monitor
@@ -59,6 +63,18 @@ final class OverviewWindow: NSPanel {
         overlayView.onScroll = { [weak self] delta in
             self?.onScroll?(delta)
         }
+        overlayView.onDragBegin = { [weak self] handle, start in
+            self?.onDragBegin?(handle, start)
+        }
+        overlayView.onDragUpdate = { [weak self] point in
+            self?.onDragUpdate?(point)
+        }
+        overlayView.onDragEnd = { [weak self] point in
+            self?.onDragEnd?(point)
+        }
+        overlayView.onDragCancel = { [weak self] in
+            self?.onDragCancel?()
+        }
     }
 
     override var canBecomeKey: Bool { true }
@@ -100,10 +116,18 @@ final class OverviewView: NSView {
     var onSearchChanged: ((String) -> Void)?
     var onNavigate: ((Direction) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
+    var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
+    var onDragUpdate: ((CGPoint) -> Void)?
+    var onDragEnd: ((CGPoint) -> Void)?
+    var onDragCancel: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?
     private var keyMonitor: Any?
     private var flagsMonitor: Any?
+    private var dragCandidateHandle: WindowHandle?
+    private var dragStartPoint: CGPoint = .zero
+    private var isDragging: Bool = false
+    private let dragThreshold: CGFloat = 6.0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -131,6 +155,15 @@ final class OverviewView: NSView {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self else { return event }
             return handleKeyDown(event) ? nil : event
+        }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            guard let self else { return event }
+            if (self.isDragging || self.dragCandidateHandle != nil),
+               !event.modifierFlags.contains(.option)
+            {
+                self.cancelDrag()
+            }
+            return event
         }
     }
 
@@ -225,6 +258,53 @@ final class OverviewView: NSView {
         }
 
         if let window = layout.windowAt(point: point) {
+            if event.modifierFlags.contains(.option) {
+                dragCandidateHandle = window.handle
+                dragStartPoint = point
+                isDragging = false
+            } else {
+                onWindowSelected?(window.handle)
+            }
+            return
+        }
+
+        onDismiss?()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let handle = dragCandidateHandle else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let distance = hypot(point.x - dragStartPoint.x, point.y - dragStartPoint.y)
+
+        if !isDragging {
+            guard distance >= dragThreshold else { return }
+            isDragging = true
+            onDragBegin?(handle, dragStartPoint)
+        }
+
+        onDragUpdate?(point)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+
+        if isDragging {
+            onDragEnd?(point)
+            cancelDragState()
+            return
+        }
+
+        guard dragCandidateHandle != nil else { return }
+        cancelDragState()
+
+        if layout.isCloseButtonAt(point: point) {
+            if let window = layout.windowAt(point: point) {
+                onWindowClosed?(window.handle)
+            }
+            return
+        }
+
+        if let window = layout.windowAt(point: point) {
             onWindowSelected?(window.handle)
             return
         }
@@ -235,6 +315,18 @@ final class OverviewView: NSView {
     override func scrollWheel(with event: NSEvent) {
         let delta = event.scrollingDeltaY
         onScroll?(delta)
+    }
+
+    private func cancelDrag() {
+        if isDragging {
+            onDragCancel?()
+        }
+        cancelDragState()
+    }
+
+    private func cancelDragState() {
+        dragCandidateHandle = nil
+        isDragging = false
     }
 
     private func updateHoverState(at point: CGPoint) {

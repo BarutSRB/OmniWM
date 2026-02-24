@@ -16,9 +16,12 @@ final class OverviewController {
     private var thumbnailCaptureTask: Task<Void, Never>?
 
     private var inputHandler: OverviewInputHandler?
+    private var dragGhostController: DragGhostController?
+    private var dragSession: DragSession?
 
     var onActivateWindow: ((WindowHandle, WorkspaceDescriptor.ID) -> Void)?
     var onCloseWindow: ((WindowHandle) -> Void)?
+    var isOpen: Bool { state.isOpen }
 
     init(wmController: WMController) {
         self.wmController = wmController
@@ -123,6 +126,9 @@ final class OverviewController {
         if let firstWindow = layout.allWindows.first {
             layout.setSelected(handle: firstWindow.handle)
         }
+
+        buildNiriColumnLayout(windowData: windowData)
+        buildNiriDropZones()
     }
 
     private func createWindows() {
@@ -151,6 +157,18 @@ final class OverviewController {
             window.onScroll = { [weak self] delta in
                 self?.adjustScrollOffset(by: delta)
             }
+            window.onDragBegin = { [weak self] handle, start in
+                self?.beginDrag(handle: handle, startPoint: start)
+            }
+            window.onDragUpdate = { [weak self] point in
+                self?.updateDrag(at: point)
+            }
+            window.onDragEnd = { [weak self] point in
+                self?.endDrag(at: point)
+            }
+            window.onDragCancel = { [weak self] in
+                self?.cancelDrag()
+            }
 
             windows.append(window)
         }
@@ -162,6 +180,16 @@ final class OverviewController {
             window.close()
         }
         windows.removeAll()
+    }
+
+    func isPointInside(_ point: CGPoint) -> Bool {
+        guard state.isOpen else { return false }
+        for window in windows {
+            if window.frame.contains(point) {
+                return true
+            }
+        }
+        return false
     }
 
     private func updateWindowDisplays() {
@@ -325,6 +353,9 @@ final class OverviewController {
         inputHandler?.reset()
         searchQuery = ""
         layout = .init()
+        dragGhostController?.endDrag()
+        dragGhostController = nil
+        dragSession = nil
         closeWindows()
     }
 
@@ -339,5 +370,317 @@ final class OverviewController {
         MainActor.assumeIsolated {
             cleanup()
         }
+    }
+}
+
+private extension OverviewController {
+    struct DragSession {
+        let handle: WindowHandle
+        let windowId: Int
+        let workspaceId: WorkspaceDescriptor.ID
+        let startPoint: CGPoint
+    }
+
+    func beginDrag(handle: WindowHandle, startPoint: CGPoint) {
+        guard let wmController else { return }
+        guard let entry = wmController.workspaceManager.entry(for: handle) else { return }
+
+        dragSession = DragSession(
+            handle: handle,
+            windowId: entry.windowId,
+            workspaceId: entry.workspaceId,
+            startPoint: startPoint
+        )
+
+        if let frame = AXWindowService.framePreferFast(entry.axRef) {
+            if dragGhostController == nil {
+                dragGhostController = DragGhostController()
+            }
+            dragGhostController?.beginDrag(
+                windowId: entry.windowId,
+                originalFrame: frame,
+                cursorLocation: startPoint
+            )
+        }
+    }
+
+    func updateDrag(at point: CGPoint) {
+        guard dragSession != nil else { return }
+        dragGhostController?.updatePosition(cursorLocation: point)
+
+        let target = resolveDragTarget(at: point)
+        if target != layout.dragTarget {
+            layout.dragTarget = target
+            updateWindowDisplays()
+        }
+    }
+
+    func endDrag(at point: CGPoint) {
+        guard let session = dragSession else { return }
+        dragGhostController?.updatePosition(cursorLocation: point)
+
+        let target = layout.dragTarget
+        layout.dragTarget = nil
+        dragGhostController?.endDrag()
+        dragSession = nil
+
+        guard let target else {
+            updateWindowDisplays()
+            return
+        }
+
+        performDragAction(
+            session: session,
+            target: target
+        )
+
+        buildLayout()
+        updateWindowDisplays()
+    }
+
+    func cancelDrag() {
+        layout.dragTarget = nil
+        dragGhostController?.endDrag()
+        dragSession = nil
+        updateWindowDisplays()
+    }
+
+    func resolveDragTarget(at point: CGPoint) -> OverviewDragTarget? {
+        if let window = layout.windowAt(point: point) {
+            guard window.handle != dragSession?.handle else { return nil }
+            if isNiriLayout(workspaceId: window.workspaceId) {
+                let position = layout.insertPosition(for: window, at: point)
+                return .niriWindowInsert(
+                    workspaceId: window.workspaceId,
+                    targetHandle: window.handle,
+                    position: position
+                )
+            }
+            return .workspaceMove(workspaceId: window.workspaceId)
+        }
+
+        if let zone = layout.columnDropZone(at: point) {
+            return .niriColumnInsert(
+                workspaceId: zone.workspaceId,
+                insertIndex: zone.insertIndex
+            )
+        }
+
+        if let section = layout.workspaceSection(at: point) {
+            return .workspaceMove(workspaceId: section.workspaceId)
+        }
+
+        return nil
+    }
+
+    func performDragAction(session: DragSession, target: OverviewDragTarget) {
+        guard let wmController else { return }
+
+        switch target {
+        case let .workspaceMove(targetWsId):
+            guard targetWsId != session.workspaceId else { return }
+            wmController.workspaceNavigationHandler.moveWindowFromOverview(
+                handle: session.handle,
+                toWorkspaceId: targetWsId
+            )
+
+        case let .niriWindowInsert(targetWsId, targetHandle, position):
+            guard isNiriLayout(workspaceId: targetWsId) else { return }
+            if targetWsId != session.workspaceId {
+                wmController.workspaceNavigationHandler.moveWindowFromOverview(
+                    handle: session.handle,
+                    toWorkspaceId: targetWsId
+                )
+            }
+            let niriPosition = overviewInsertPositionToNiri(position)
+            wmController.niriLayoutHandler.overviewInsertWindow(
+                handle: session.handle,
+                targetHandle: targetHandle,
+                position: niriPosition,
+                in: targetWsId
+            )
+            wmController.layoutRefreshController.startScrollAnimation(for: targetWsId)
+
+        case let .niriColumnInsert(targetWsId, insertIndex):
+            guard isNiriLayout(workspaceId: targetWsId) else { return }
+            if targetWsId != session.workspaceId {
+                wmController.workspaceNavigationHandler.moveWindowFromOverview(
+                    handle: session.handle,
+                    toWorkspaceId: targetWsId
+                )
+            }
+            wmController.niriLayoutHandler.overviewInsertWindowInNewColumn(
+                handle: session.handle,
+                insertIndex: insertIndex,
+                in: targetWsId
+            )
+            wmController.layoutRefreshController.startScrollAnimation(for: targetWsId)
+        }
+
+        wmController.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let wmController else { return false }
+        guard let name = wmController.workspaceManager.descriptor(for: workspaceId)?.name else { return false }
+        let layoutType = wmController.settings.layoutType(for: name)
+        return layoutType != .dwindle
+    }
+
+    func buildNiriDropZones() {
+        guard let wmController else { return }
+        guard let engine = wmController.niriEngine else {
+            layout.niriColumnDropZonesByWorkspace = [:]
+            return
+        }
+
+        let gapBase = CGFloat(wmController.workspaceManager.gaps)
+        var zonesByWorkspace: [WorkspaceDescriptor.ID: [OverviewColumnDropZone]] = [:]
+
+        for section in layout.workspaceSections {
+            guard isNiriLayout(workspaceId: section.workspaceId) else { continue }
+
+            let niriColumns = layout.niriColumnsByWorkspace[section.workspaceId] ?? []
+            guard !niriColumns.isEmpty else { continue }
+            let columnFrames = niriColumns.map(\.frame)
+            let zoneWidth = max(12.0, min(30.0, gapBase))
+
+            var zones: [OverviewColumnDropZone] = []
+            let leftBoundary = columnFrames.first?.minX ?? section.gridFrame.minX
+            zones.append(OverviewColumnDropZone(
+                workspaceId: section.workspaceId,
+                insertIndex: 0,
+                frame: CGRect(
+                    x: leftBoundary - zoneWidth / 2,
+                    y: section.gridFrame.minY,
+                    width: zoneWidth,
+                    height: section.gridFrame.height
+                )
+            ))
+
+            if columnFrames.count > 1 {
+                for idx in 0 ..< (columnFrames.count - 1) {
+                    let boundary = (columnFrames[idx].maxX + columnFrames[idx + 1].minX) / 2
+                    zones.append(OverviewColumnDropZone(
+                        workspaceId: section.workspaceId,
+                        insertIndex: idx + 1,
+                        frame: CGRect(
+                            x: boundary - zoneWidth / 2,
+                            y: section.gridFrame.minY,
+                            width: zoneWidth,
+                            height: section.gridFrame.height
+                        )
+                    ))
+                }
+            }
+
+            let rightBoundary = columnFrames.last?.maxX ?? section.gridFrame.maxX
+            zones.append(OverviewColumnDropZone(
+                workspaceId: section.workspaceId,
+                insertIndex: columnFrames.count,
+                frame: CGRect(
+                    x: rightBoundary - zoneWidth / 2,
+                    y: section.gridFrame.minY,
+                    width: zoneWidth,
+                    height: section.gridFrame.height
+                )
+            ))
+
+            zonesByWorkspace[section.workspaceId] = zones
+        }
+
+        layout.niriColumnDropZonesByWorkspace = zonesByWorkspace
+    }
+
+    func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
+        switch position {
+        case .before:
+            return .after
+        case .after:
+            return .before
+        case .swap:
+            return .swap
+        }
+    }
+
+    func buildNiriColumnLayout(
+        windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)]
+    ) {
+        guard let wmController else { return }
+        guard let engine = wmController.niriEngine else {
+            layout.niriColumnsByWorkspace = [:]
+            return
+        }
+
+        var columnsByWorkspace: [WorkspaceDescriptor.ID: [OverviewNiriColumn]] = [:]
+
+        for section in layout.workspaceSections {
+            guard isNiriLayout(workspaceId: section.workspaceId) else { continue }
+            let niriColumns = engine.columns(in: section.workspaceId)
+            guard !niriColumns.isEmpty else { continue }
+
+            let columnCount = niriColumns.count
+            let spacing = OverviewLayoutMetrics.windowSpacing
+            let totalSpacing = spacing * CGFloat(max(0, columnCount - 1))
+            let rawWidth = (section.gridFrame.width - totalSpacing) / CGFloat(columnCount)
+            let columnWidth = min(
+                OverviewLayoutMetrics.maxThumbnailWidth,
+                max(OverviewLayoutMetrics.minThumbnailWidth, rawWidth)
+            )
+            let totalWidth = CGFloat(columnCount) * columnWidth + totalSpacing
+            let startX = section.gridFrame.minX + max(0, (section.gridFrame.width - totalWidth) / 2)
+            let columnHeight = section.gridFrame.height
+
+            var columns: [OverviewNiriColumn] = []
+
+            for (idx, column) in niriColumns.enumerated() {
+                let columnX = startX + CGFloat(idx) * (columnWidth + spacing)
+                let columnFrame = CGRect(
+                    x: columnX,
+                    y: section.gridFrame.minY,
+                    width: columnWidth,
+                    height: columnHeight
+                )
+
+                let handles: [WindowHandle] = column.windowNodes.map(\.handle)
+                let orderedHandles = handles
+                    .compactMap { handle -> (WindowHandle, CGRect)? in
+                        guard let frame = windowData[handle]?.frame else { return nil }
+                        return (handle, frame)
+                    }
+                    .sorted { lhs, rhs in
+                        lhs.1.maxY > rhs.1.maxY
+                    }
+                    .map(\.0)
+
+                let tileCount = max(1, orderedHandles.count)
+                let innerSpacing: CGFloat = 6
+                let totalInnerSpacing = innerSpacing * CGFloat(max(0, tileCount - 1))
+                let tileHeight = max(30, (columnHeight - totalInnerSpacing) / CGFloat(tileCount))
+
+                for (tileIdx, handle) in orderedHandles.enumerated() {
+                    let tileY = columnFrame.maxY - CGFloat(tileIdx + 1) * tileHeight - CGFloat(tileIdx) * innerSpacing
+                    let tileFrame = CGRect(
+                        x: columnFrame.minX,
+                        y: tileY,
+                        width: columnFrame.width,
+                        height: tileHeight
+                    )
+                    layout.updateWindowFrame(handle: handle, frame: tileFrame)
+                }
+
+                let columnEntry = OverviewNiriColumn(
+                    workspaceId: section.workspaceId,
+                    columnIndex: idx,
+                    frame: columnFrame,
+                    windowHandles: orderedHandles
+                )
+                columns.append(columnEntry)
+            }
+
+            columnsByWorkspace[section.workspaceId] = columns
+        }
+
+        layout.niriColumnsByWorkspace = columnsByWorkspace
     }
 }

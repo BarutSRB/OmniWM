@@ -79,6 +79,64 @@ extension NiriLayoutEngine {
         cleanupEmptyColumn(sourceColumn, in: workspaceId, state: &state)
     }
 
+    func insertWindowInNewColumn(
+        _ window: NiriWindow,
+        insertIndex: Int,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        workingFrame: CGRect,
+        gaps: CGFloat
+    ) -> Bool {
+        guard let root = roots[workspaceId] else { return false }
+        guard let sourceColumn = findColumn(containing: window, in: workspaceId) else { return false }
+
+        let sourceWasTabbed = sourceColumn.displayMode == .tabbed
+        sourceColumn.adjustActiveTileIdxForRemoval(of: window)
+
+        let newColumn = NiriContainer()
+        newColumn.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+
+        let cols = columns(in: workspaceId)
+        let clampedIndex = insertIndex.clamped(to: 0 ... cols.count)
+        if clampedIndex >= cols.count {
+            root.appendChild(newColumn)
+        } else {
+            root.insertBefore(newColumn, reference: cols[clampedIndex])
+        }
+
+        if let newColIdx = columnIndex(of: newColumn, in: workspaceId) {
+            animateColumnsForAddition(
+                columnIndex: newColIdx,
+                in: workspaceId,
+                state: state,
+                gaps: gaps,
+                workingAreaWidth: workingFrame.width
+            )
+        }
+
+        window.detach()
+        newColumn.appendChild(window)
+        window.isHiddenInTabbedMode = false
+
+        if sourceWasTabbed, !sourceColumn.children.isEmpty {
+            sourceColumn.clampActiveTileIdx()
+            updateTabbedColumnVisibility(column: sourceColumn)
+        }
+
+        cleanupEmptyColumn(sourceColumn, in: workspaceId, state: &state)
+
+        ensureSelectionVisible(
+            node: window,
+            in: workspaceId,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: gaps,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+        )
+
+        return true
+    }
+
     func cleanupEmptyColumn(
         _ column: NiriContainer,
         in workspaceId: WorkspaceDescriptor.ID,

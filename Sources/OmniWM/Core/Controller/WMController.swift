@@ -433,6 +433,7 @@ final class WMController {
     func openMenuPalette() { windowActionHandler.openMenuPalette() }
     func toggleOverview() { windowActionHandler.toggleOverview() }
     func raiseAllFloatingWindows() { windowActionHandler.raiseAllFloatingWindows() }
+    func isOverviewOpen() -> Bool { windowActionHandler.isOverviewOpen() }
 
     @discardableResult
     func resolveAndSetWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
@@ -492,6 +493,7 @@ extension WMController {
 
     func isPointInOwnWindow(_ point: CGPoint) -> Bool {
         if isPointInQuakeTerminal(point) { return true }
+        if windowActionHandler.isPointInOverview(point) { return true }
         if SettingsWindowController.shared.isPointInside(point) { return true }
         if AppRulesWindowController.shared.isPointInside(point) { return true }
         if SponsorsWindowController.shared.isPointInside(point) { return true }

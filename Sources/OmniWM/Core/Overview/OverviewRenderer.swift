@@ -21,6 +21,11 @@ enum OverviewRenderer {
         static let textDimmed = CGColor(gray: 0.4, alpha: 1.0)
         static let workspaceLabelActive = CGColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0)
         static let workspaceLabelInactive = CGColor(gray: 0.6, alpha: 1.0)
+        static let dropTarget = CGColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 1.0)
+        static let dropTargetBackground = CGColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 0.2)
+        static let columnBackground = CGColor(red: 0.12, green: 0.12, blue: 0.16, alpha: 1.0)
+        static let columnBorder = CGColor(red: 0.25, green: 0.25, blue: 0.3, alpha: 1.0)
+        static let columnDivider = CGColor(red: 0.2, green: 0.2, blue: 0.25, alpha: 0.8)
     }
 
     private enum Metrics {
@@ -37,6 +42,11 @@ enum OverviewRenderer {
         static let appNameFontSize: CGFloat = 10
         static let workspaceLabelFontSize: CGFloat = 16
         static let searchFontSize: CGFloat = 16
+        static let dropLineHeight: CGFloat = 4
+        static let dropOutlineWidth: CGFloat = 3
+        static let dropLineWidth: CGFloat = 4
+        static let columnCornerRadius: CGFloat = 10
+        static let dividerHeight: CGFloat = 2
     }
 
     static func render(
@@ -64,6 +74,15 @@ enum OverviewRenderer {
         for section in layout.workspaceSections {
             renderWorkspaceLabel(context: context, section: section, alpha: alpha)
 
+            if let columns = layout.niriColumnsByWorkspace[section.workspaceId] {
+                renderNiriColumns(
+                    context: context,
+                    columns: columns,
+                    layout: layout,
+                    alpha: alpha
+                )
+            }
+
             for window in section.windows {
                 renderWindow(
                     context: context,
@@ -74,6 +93,15 @@ enum OverviewRenderer {
             }
         }
 
+        if let dragTarget = layout.dragTarget {
+            renderDragTarget(
+                context: context,
+                layout: layout,
+                dragTarget: dragTarget,
+                alpha: alpha
+            )
+        }
+
         context.restoreGState()
 
         renderSearchBar(
@@ -82,6 +110,90 @@ enum OverviewRenderer {
             searchQuery: searchQuery,
             alpha: alpha
         )
+    }
+
+    private static func renderNiriColumns(
+        context: CGContext,
+        columns: [OverviewNiriColumn],
+        layout: OverviewLayout,
+        alpha: CGFloat
+    ) {
+        for column in columns {
+            let frame = column.frame
+            let path = CGPath(
+                roundedRect: frame,
+                cornerWidth: Metrics.columnCornerRadius,
+                cornerHeight: Metrics.columnCornerRadius,
+                transform: nil
+            )
+            context.addPath(path)
+            context.setFillColor(Colors.columnBackground.copy(alpha: alpha * 0.6)!)
+            context.fillPath()
+
+            context.addPath(path)
+            context.setStrokeColor(Colors.columnBorder.copy(alpha: alpha)!)
+            context.setLineWidth(1.0)
+            context.strokePath()
+
+            if column.windowHandles.count > 1 {
+                let frames = column.windowHandles.compactMap { layout.window(for: $0)?.overviewFrame }
+                let sorted = frames.sorted { $0.maxY > $1.maxY }
+                for i in 0 ..< (sorted.count - 1) {
+                    let upper = sorted[i]
+                    let lower = sorted[i + 1]
+                    let y = (upper.minY + lower.maxY) / 2
+                    let divider = CGRect(
+                        x: frame.minX + 8,
+                        y: y - Metrics.dividerHeight / 2,
+                        width: frame.width - 16,
+                        height: Metrics.dividerHeight
+                    )
+                    context.setFillColor(Colors.columnDivider.copy(alpha: alpha)!)
+                    context.fill(divider)
+                }
+            }
+        }
+    }
+
+    private static func renderDragTarget(
+        context: CGContext,
+        layout: OverviewLayout,
+        dragTarget: OverviewDragTarget,
+        alpha: CGFloat
+    ) {
+        switch dragTarget {
+        case let .niriWindowInsert(_, targetHandle, position):
+            guard let window = layout.window(for: targetHandle) else { return }
+            let frame = window.overviewFrame
+            let y = position == .before ? frame.maxY - Metrics.dropLineHeight : frame.minY
+            let lineFrame = CGRect(
+                x: frame.minX,
+                y: y,
+                width: frame.width,
+                height: Metrics.dropLineHeight
+            )
+            context.setFillColor(Colors.dropTarget.copy(alpha: alpha)!)
+            context.fill(lineFrame)
+
+        case let .niriColumnInsert(workspaceId, insertIndex):
+            guard let zones = layout.niriColumnDropZonesByWorkspace[workspaceId] else { return }
+            guard let zone = zones.first(where: { $0.insertIndex == insertIndex }) else { return }
+            let x = zone.frame.midX - Metrics.dropLineWidth / 2
+            let lineFrame = CGRect(
+                x: x,
+                y: zone.frame.minY,
+                width: Metrics.dropLineWidth,
+                height: zone.frame.height
+            )
+            context.setFillColor(Colors.dropTarget.copy(alpha: alpha)!)
+            context.fill(lineFrame)
+
+        case let .workspaceMove(workspaceId):
+            guard let section = layout.workspaceSections.first(where: { $0.workspaceId == workspaceId }) else { return }
+            context.setStrokeColor(Colors.dropTarget.copy(alpha: alpha)!)
+            context.setLineWidth(Metrics.dropOutlineWidth)
+            context.stroke(section.sectionFrame)
+        }
     }
 
     private static func renderWorkspaceLabel(

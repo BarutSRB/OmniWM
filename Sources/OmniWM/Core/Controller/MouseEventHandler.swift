@@ -192,6 +192,7 @@ final class MouseEventHandler {
             }
             return
         }
+        if controller.isOverviewOpen() { return }
 
         if controller.isPointInOwnWindow(location) {
             if !state.currentHoveredEdges.isEmpty {
@@ -233,6 +234,7 @@ final class MouseEventHandler {
     private func handleMouseDownFromTap(at location: CGPoint, modifiers: CGEventFlags) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
+        if controller.isOverviewOpen() { return }
 
         if controller.isPointInOwnWindow(location) {
             return
@@ -310,6 +312,7 @@ final class MouseEventHandler {
     private func handleMouseDraggedFromTap(at _: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
+        if controller.isOverviewOpen() { return }
         guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
 
         let location = NSEvent.mouseLocation
@@ -382,6 +385,7 @@ final class MouseEventHandler {
 
     private func handleMouseUpFromTap(at location: CGPoint) {
         guard let controller else { return }
+        if controller.isOverviewOpen() { return }
 
         if state.isMoving {
             if let engine = controller.niriEngine,
@@ -455,6 +459,7 @@ final class MouseEventHandler {
     ) {
         guard let controller else { return }
         guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
+        if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
         guard !state.isResizing, !state.isMoving else { return }
         guard let engine = controller.niriEngine, let wsId = controller.activeWorkspace()?.id else { return }
@@ -521,6 +526,7 @@ final class MouseEventHandler {
     private func handleGestureEvent(_ event: NSEvent, at location: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
+        if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
         guard !state.isResizing, !state.isMoving else { return }
         guard let engine = controller.niriEngine, let wsId = controller.activeWorkspace()?.id else { return }
