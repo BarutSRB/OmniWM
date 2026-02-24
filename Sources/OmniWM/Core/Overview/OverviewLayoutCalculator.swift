@@ -24,26 +24,32 @@ struct OverviewLayoutCalculator {
         workspaces: [(id: WorkspaceDescriptor.ID, name: String, isActive: Bool)],
         windows: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)],
         screenFrame: CGRect,
-        searchQuery: String
+        searchQuery: String,
+        scale: CGFloat
     ) -> OverviewLayout {
         var layout = OverviewLayout()
+        layout.scale = scale
 
-        let searchBarY = screenFrame.maxY - OverviewLayoutMetrics.searchBarHeight - OverviewLayoutMetrics.searchBarPadding
+        let metricsScale = max(0.5, min(1.5, scale))
+        let scaledSearchBarHeight = OverviewLayoutMetrics.searchBarHeight * metricsScale
+        let scaledSearchBarPadding = OverviewLayoutMetrics.searchBarPadding * metricsScale
+        let searchBarY = screenFrame.maxY - scaledSearchBarHeight - scaledSearchBarPadding
         layout.searchBarFrame = CGRect(
             x: screenFrame.minX + screenFrame.width * 0.25,
             y: searchBarY,
             width: screenFrame.width * 0.5,
-            height: OverviewLayoutMetrics.searchBarHeight
+            height: scaledSearchBarHeight
         )
 
-        let availableWidth = screenFrame.width - (OverviewLayoutMetrics.windowPadding * 2)
+        let scaledWindowPadding = OverviewLayoutMetrics.windowPadding * metricsScale
+        let availableWidth = screenFrame.width - (scaledWindowPadding * 2)
         let thumbnailWidth = min(
-            OverviewLayoutMetrics.maxThumbnailWidth,
-            max(OverviewLayoutMetrics.minThumbnailWidth, availableWidth / 4)
+            OverviewLayoutMetrics.maxThumbnailWidth * metricsScale,
+            max(OverviewLayoutMetrics.minThumbnailWidth * metricsScale, availableWidth / 4)
         )
         let thumbnailHeight = thumbnailWidth / OverviewLayoutMetrics.thumbnailAspectRatio
 
-        var currentY = searchBarY - OverviewLayoutMetrics.contentTopPadding
+        var currentY = searchBarY - OverviewLayoutMetrics.contentTopPadding * metricsScale
 
         for workspace in workspaces {
             let workspaceWindows = windows.filter { $0.value.entry.workspaceId == workspace.id }
@@ -67,24 +73,24 @@ struct OverviewLayoutCalculator {
             let totalGridWidth = CGFloat(columns) * thumbnailWidth + CGFloat(columns - 1) * OverviewLayoutMetrics.windowSpacing
             let gridStartX = screenFrame.minX + (screenFrame.width - totalGridWidth) / 2
 
-            currentY -= OverviewLayoutMetrics.workspaceLabelHeight
+            currentY -= OverviewLayoutMetrics.workspaceLabelHeight * metricsScale
 
             let labelFrame = CGRect(
-                x: screenFrame.minX + OverviewLayoutMetrics.windowPadding,
+                x: screenFrame.minX + scaledWindowPadding,
                 y: currentY,
                 width: availableWidth,
-                height: OverviewLayoutMetrics.workspaceLabelHeight
+                height: OverviewLayoutMetrics.workspaceLabelHeight * metricsScale
             )
 
-            currentY -= OverviewLayoutMetrics.workspaceSectionPadding
+            currentY -= OverviewLayoutMetrics.workspaceSectionPadding * metricsScale
 
             var windowIndex = 0
             for (handle, windowData) in sortedWindows {
                 let column = windowIndex % columns
                 let row = windowIndex / columns
 
-                let windowX = gridStartX + CGFloat(column) * (thumbnailWidth + OverviewLayoutMetrics.windowSpacing)
-                let windowY = currentY - CGFloat(row + 1) * (thumbnailHeight + OverviewLayoutMetrics.windowSpacing)
+                let windowX = gridStartX + CGFloat(column) * (thumbnailWidth + OverviewLayoutMetrics.windowSpacing * metricsScale)
+                let windowY = currentY - CGFloat(row + 1) * (thumbnailHeight + OverviewLayoutMetrics.windowSpacing * metricsScale)
 
                 let overviewFrame = CGRect(
                     x: windowX,
@@ -117,7 +123,7 @@ struct OverviewLayoutCalculator {
             }
 
             let rows = (sortedWindows.count + columns - 1) / columns
-            let gridHeight = CGFloat(rows) * thumbnailHeight + CGFloat(rows - 1) * OverviewLayoutMetrics.windowSpacing
+            let gridHeight = CGFloat(rows) * thumbnailHeight + CGFloat(rows - 1) * OverviewLayoutMetrics.windowSpacing * metricsScale
             let gridFrame = CGRect(
                 x: gridStartX,
                 y: currentY - gridHeight,
@@ -130,7 +136,7 @@ struct OverviewLayoutCalculator {
                 x: screenFrame.minX,
                 y: sectionBottom,
                 width: screenFrame.width,
-                height: currentY + OverviewLayoutMetrics.workspaceLabelHeight - sectionBottom
+                height: currentY + OverviewLayoutMetrics.workspaceLabelHeight * metricsScale - sectionBottom
             )
 
             let section = OverviewWorkspaceSection(
@@ -144,11 +150,12 @@ struct OverviewLayoutCalculator {
             )
             layout.workspaceSections.append(section)
 
-            currentY = sectionBottom - OverviewLayoutMetrics.workspaceSectionPadding
+            currentY = sectionBottom - OverviewLayoutMetrics.workspaceSectionPadding * metricsScale
         }
 
-        let contentTop = searchBarY - OverviewLayoutMetrics.contentTopPadding
-        let contentBottom = currentY + OverviewLayoutMetrics.workspaceSectionPadding - OverviewLayoutMetrics.contentBottomPadding
+        let contentTop = searchBarY - OverviewLayoutMetrics.contentTopPadding * metricsScale
+        let contentBottom = currentY + OverviewLayoutMetrics.workspaceSectionPadding * metricsScale
+            - OverviewLayoutMetrics.contentBottomPadding * metricsScale
         layout.totalContentHeight = contentTop - contentBottom
 
         return layout
@@ -183,6 +190,22 @@ struct OverviewLayoutCalculator {
                 layout.workspaceSections[sectionIndex].windows[windowIndex].matchesSearch = matches
             }
         }
+    }
+
+    static func scrollOffsetBounds(layout: OverviewLayout, screenFrame: CGRect) -> ClosedRange<CGFloat> {
+        let metricsScale = max(0.5, min(1.5, layout.scale))
+        let contentTop = layout.searchBarFrame.minY - OverviewLayoutMetrics.contentTopPadding * metricsScale
+        let contentBottom = contentTop - layout.totalContentHeight
+        let minOffset = min(0, contentBottom - screenFrame.minY)
+        return minOffset ... 0
+    }
+
+    static func clampedScrollOffset(
+        _ scrollOffset: CGFloat,
+        layout: OverviewLayout,
+        screenFrame: CGRect
+    ) -> CGFloat {
+        scrollOffset.clamped(to: scrollOffsetBounds(layout: layout, screenFrame: screenFrame))
     }
 
     static func findNextWindow(

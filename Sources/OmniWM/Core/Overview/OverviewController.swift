@@ -4,6 +4,13 @@ import ScreenCaptureKit
 
 @MainActor
 final class OverviewController {
+    private enum ScrollTuning {
+        static let preciseScrollMultiplier: CGFloat = 3.5
+        static let nonPreciseScrollMultiplier: CGFloat = 2.0
+        static let zoomStep: CGFloat = 0.05
+        static let zoomEpsilon: CGFloat = 0.0001
+    }
+
     private weak var wmController: WMController?
 
     private(set) var state: OverviewState = .closed
@@ -116,11 +123,13 @@ final class OverviewController {
 
         guard let screen = NSScreen.main else { return }
 
+        let previousScale = layout.scale
         layout = OverviewLayoutCalculator.calculateLayout(
             workspaces: workspaces,
             windows: windowData,
             screenFrame: screen.frame,
-            searchQuery: searchQuery
+            searchQuery: searchQuery,
+            scale: previousScale
         )
 
         if let firstWindow = layout.allWindows.first {
@@ -156,6 +165,9 @@ final class OverviewController {
             }
             window.onScroll = { [weak self] delta in
                 self?.adjustScrollOffset(by: delta)
+            }
+            window.onScrollWithModifiers = { [weak self] delta, modifiers, isPrecise in
+                self?.handleScroll(delta: delta, modifiers: modifiers, isPrecise: isPrecise)
             }
             window.onDragBegin = { [weak self] handle, start in
                 self?.beginDrag(handle: handle, startPoint: start)
@@ -341,9 +353,40 @@ final class OverviewController {
     }
 
     func adjustScrollOffset(by delta: CGFloat) {
-        let maxScroll = max(0, layout.totalContentHeight - (NSScreen.main?.frame.height ?? 800))
-        layout.scrollOffset = min(max(0, layout.scrollOffset - delta), maxScroll)
+        let screenFrame = NSScreen.main?.frame ?? .zero
+        let nextOffset = layout.scrollOffset - delta
+        layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
+            nextOffset,
+            layout: layout,
+            screenFrame: screenFrame
+        )
         updateWindowDisplays()
+    }
+
+    func handleScroll(delta: CGFloat, modifiers: NSEvent.ModifierFlags) {
+        handleScroll(delta: delta, modifiers: modifiers, isPrecise: false)
+    }
+
+    func handleScroll(delta: CGFloat, modifiers: NSEvent.ModifierFlags, isPrecise: Bool) {
+        if modifiers.contains([.option, .shift]) {
+            guard abs(delta) > ScrollTuning.zoomEpsilon else { return }
+            let step: CGFloat = delta > 0 ? ScrollTuning.zoomStep : -ScrollTuning.zoomStep
+            layout.scale = (layout.scale + step).clamped(to: 0.5 ... 1.5)
+            let previousOffset = layout.scrollOffset
+            buildLayout()
+            let screenFrame = NSScreen.main?.frame ?? .zero
+            layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
+                previousOffset,
+                layout: layout,
+                screenFrame: screenFrame
+            )
+            updateWindowDisplays()
+        } else {
+            let multiplier = isPrecise
+                ? ScrollTuning.preciseScrollMultiplier
+                : ScrollTuning.nonPreciseScrollMultiplier
+            adjustScrollOffset(by: delta * multiplier)
+        }
     }
 
     private func cleanup() {
@@ -529,7 +572,7 @@ private extension OverviewController {
 
     func buildNiriDropZones() {
         guard let wmController else { return }
-        guard let engine = wmController.niriEngine else {
+        guard wmController.niriEngine != nil else {
             layout.niriColumnDropZonesByWorkspace = [:]
             return
         }

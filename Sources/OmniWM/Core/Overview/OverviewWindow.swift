@@ -12,6 +12,7 @@ final class OverviewWindow: NSPanel {
     var onSearchChanged: ((String) -> Void)?
     var onNavigate: ((Direction) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
+    var onScrollWithModifiers: ((CGFloat, NSEvent.ModifierFlags, Bool) -> Void)?
     var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
     var onDragUpdate: ((CGPoint) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
@@ -62,6 +63,9 @@ final class OverviewWindow: NSPanel {
         }
         overlayView.onScroll = { [weak self] delta in
             self?.onScroll?(delta)
+        }
+        overlayView.onScrollWithModifiers = { [weak self] delta, modifiers, isPrecise in
+            self?.onScrollWithModifiers?(delta, modifiers, isPrecise)
         }
         overlayView.onDragBegin = { [weak self] handle, start in
             self?.onDragBegin?(handle, start)
@@ -116,6 +120,7 @@ final class OverviewView: NSView {
     var onSearchChanged: ((String) -> Void)?
     var onNavigate: ((Direction) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
+    var onScrollWithModifiers: ((CGFloat, NSEvent.ModifierFlags, Bool) -> Void)?
     var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
     var onDragUpdate: ((CGPoint) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
@@ -128,6 +133,7 @@ final class OverviewView: NSView {
     private var dragStartPoint: CGPoint = .zero
     private var isDragging: Bool = false
     private let dragThreshold: CGFloat = 6.0
+    private let scrollAxisEpsilon: CGFloat = 0.0001
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -313,8 +319,22 @@ final class OverviewView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        let delta = event.scrollingDeltaY
-        onScroll?(delta)
+        let delta = normalizedScrollDelta(for: event)
+        if let onScrollWithModifiers {
+            onScrollWithModifiers(delta, event.modifierFlags, event.hasPreciseScrollingDeltas)
+        } else {
+            onScroll?(delta)
+        }
+    }
+
+    private func normalizedScrollDelta(for event: NSEvent) -> CGFloat {
+        let rawY = event.scrollingDeltaY
+        let rawX = event.scrollingDeltaX
+        let dominantRaw = abs(rawY) >= abs(rawX) ? rawY : rawX
+        if abs(dominantRaw) <= scrollAxisEpsilon {
+            return 0
+        }
+        return event.isDirectionInvertedFromDevice ? -dominantRaw : dominantRaw
     }
 
     private func cancelDrag() {

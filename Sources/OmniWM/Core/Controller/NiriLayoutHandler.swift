@@ -1112,7 +1112,7 @@ import QuartzCore
         guard let controller else { return }
         var didMove = false
         withNiriWorkspaceContext(for: workspaceId) { engine, wsId, state, monitor, workingFrame, gaps in
-            guard let window = engine.findNode(for: handle) as? NiriWindow else { return }
+            guard let window = engine.findNode(for: handle) else { return }
             didMove = engine.insertWindowInNewColumn(
                 window,
                 insertIndex: insertIndex,
