@@ -808,7 +808,6 @@ final class WorkspaceNavigationHandler {
             return
         }
         let currentWorkspaceId = controller.workspaceManager.workspace(for: handle)
-        let sourceDesc = currentWorkspaceId.flatMap { controller.workspaceManager.descriptor(for: $0) }
         let transferResult = transferWindowFromSourceEngine(handle: handle, from: currentWorkspaceId, to: target.id)
         guard transferResult.succeeded else { return }
 
