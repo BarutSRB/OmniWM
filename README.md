@@ -43,6 +43,16 @@ A lot more features not show in the gif.
 - **Multi-monitor support** - Functional but not fully bug free.
 - **Gestures/Trackpad** - Magic Mouse and trackpad gestures are untested (no hardware available for testing)
 
+## Performance & Trust
+
+OmniWM is built for high responsiveness and smooth, crisp animations.
+
+- **Private APIs** - OmniWM leverages Apple private APIs where ever technically possible in order to reduce latency and improve window management responsiveness.
+- **Refresh-rate-aware animations** - OmniWM targets true display refresh pacing (for example 60/120/144Hz) for animations.
+- **No SIP disable required** - OmniWM does not require System Integrity Protection (SIP) to be disabled and never will.
+- **Always notarized official releases** - Official OmniWM release builds are developer-signed and notarized by Apple and will stay that way.
+- **Forever free, no limitations** - OmniWM is and will remain free to use forever, with no subscriptions, feature paywalls, trial limits, or usage caps.
+
 ## Requirements
 
 - macOS 26+ (Tahoe)
