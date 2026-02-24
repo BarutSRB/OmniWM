@@ -50,6 +50,7 @@ final class StatusBarMenuBuilder {
 
     func updateToggles() {
         toggleViews["focusFollowsMouse"]?.isOn = settings.focusFollowsMouse
+        toggleViews["focusFollowsWindowToMonitor"]?.isOn = settings.focusFollowsWindowToMonitor
         toggleViews["moveMouseToFocusedWindow"]?.isOn = settings.moveMouseToFocusedWindow
         toggleViews["mouseWarpEnabled"]?.isOn = settings.mouseWarpEnabled
         toggleViews["bordersEnabled"]?.isOn = settings.bordersEnabled
@@ -86,6 +87,18 @@ final class StatusBarMenuBuilder {
         let focusItem = NSMenuItem()
         focusItem.view = focusToggle
         menu.addItem(focusItem)
+
+        let followMoveToggle = MenuToggleRowView(
+            icon: "arrow.right.square",
+            label: "Follow Window to Workspace",
+            isOn: settings.focusFollowsWindowToMonitor
+        ) { [weak self] newValue in
+            self?.settings.focusFollowsWindowToMonitor = newValue
+        }
+        toggleViews["focusFollowsWindowToMonitor"] = followMoveToggle
+        let followMoveItem = NSMenuItem()
+        followMoveItem.view = followMoveToggle
+        menu.addItem(followMoveItem)
 
         let mouseToFocusedToggle = MenuToggleRowView(
             icon: "arrow.up.left.and.down.right.magnifyingglass",
