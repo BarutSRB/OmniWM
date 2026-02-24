@@ -7,15 +7,15 @@ struct Sponsor: Identifiable {
     let githubUsername: String
     let imageName: String
     let imageExtension: String
-    let rank: SponsorRank
 }
 
 private let sponsors: [Sponsor] = [
-    Sponsor(name: "Christopher2K", githubUsername: "Christopher2K", imageName: "christopher2k", imageExtension: "jpg", rank: .first),
-    Sponsor(name: "Aelte", githubUsername: "aelte", imageName: "aelte", imageExtension: "png", rank: .second),
-    Sponsor(name: "captainpryce", githubUsername: "captainpryce", imageName: "captainpryce", imageExtension: "jpg", rank: .third),
-    Sponsor(name: "sgrimee", githubUsername: "sgrimee", imageName: "sgrimee", imageExtension: "jpg", rank: .fourth),
-    Sponsor(name: "aidansunbury", githubUsername: "aidansunbury", imageName: "aidansunbury", imageExtension: "png", rank: .fifth)
+    Sponsor(name: "Christopher2K", githubUsername: "Christopher2K", imageName: "christopher2k", imageExtension: "jpg"),
+    Sponsor(name: "Aelte", githubUsername: "aelte", imageName: "aelte", imageExtension: "png"),
+    Sponsor(name: "captainpryce", githubUsername: "captainpryce", imageName: "captainpryce", imageExtension: "jpg"),
+    Sponsor(name: "sgrimee", githubUsername: "sgrimee", imageName: "sgrimee", imageExtension: "jpg"),
+    Sponsor(name: "aidansunbury", githubUsername: "aidansunbury", imageName: "aidansunbury", imageExtension: "png"),
+    Sponsor(name: "dwstevens", githubUsername: "dwstevens", imageName: "dwstevens", imageExtension: "png")
 ]
 
 struct SponsorsView: View {
@@ -37,6 +37,40 @@ struct SponsorsView: View {
     private var visibleSponsors: ArraySlice<Sponsor> {
         let endIndex = min(currentIndex + visibleCount, sponsors.count)
         return sponsors[currentIndex..<endIndex]
+    }
+
+    private func tier(for index: Int) -> SponsorTier {
+        switch index {
+        case 0:
+            return .gold
+        case 1:
+            return .silver
+        case 2:
+            return .bronze
+        default:
+            return .standard
+        }
+    }
+
+    private func rankLabel(for index: Int) -> String {
+        let rank = index + 1
+        let mod100 = rank % 100
+        let suffix: String
+        if mod100 >= 11 && mod100 <= 13 {
+            suffix = "th"
+        } else {
+            switch rank % 10 {
+            case 1:
+                suffix = "st"
+            case 2:
+                suffix = "nd"
+            case 3:
+                suffix = "rd"
+            default:
+                suffix = "th"
+            }
+        }
+        return "\(rank)\(suffix)"
     }
 
     private func navigateLeft() {
@@ -97,13 +131,14 @@ struct SponsorsView: View {
                 }
 
                 HStack(spacing: 0) {
-                    ForEach(Array(visibleSponsors)) { sponsor in
+                    ForEach(Array(visibleSponsors).enumerated(), id: \.element.id) { offset, sponsor in
                         SponsorCardView(
                             name: sponsor.name,
                             githubUsername: sponsor.githubUsername,
                             imageName: sponsor.imageName,
                             imageExtension: sponsor.imageExtension,
-                            rank: sponsor.rank
+                            tier: tier(for: currentIndex + offset),
+                            rankLabel: rankLabel(for: currentIndex + offset)
                         )
                         .frame(maxWidth: 360)
                     }
@@ -177,60 +212,39 @@ struct SponsorsView: View {
     }
 }
 
-enum SponsorRank {
-    case first
-    case second
-    case third
-    case fourth
-    case fifth
+enum SponsorTier {
+    case gold
+    case silver
+    case bronze
+    case standard
 
     var gradientColors: [Color] {
         switch self {
-        case .first:
+        case .gold:
             return [Color(red: 1.0, green: 0.84, blue: 0.0),
                     Color(red: 1.0, green: 0.55, blue: 0.0)]
-        case .second:
+        case .silver:
             return [Color(red: 0.91, green: 0.91, blue: 0.91),
                     Color(red: 0.66, green: 0.75, blue: 0.85)]
-        case .third:
+        case .bronze:
             return [Color(red: 0.82, green: 0.41, blue: 0.12),
                     Color(red: 0.42, green: 0.24, blue: 0.10)]
-        case .fourth:
-            return [Color(red: 0.3, green: 0.3, blue: 0.3),
-                    Color(red: 0.15, green: 0.15, blue: 0.15)]
-        case .fifth:
-            return [Color(red: 0.22, green: 0.24, blue: 0.27),
-                    Color(red: 0.09, green: 0.1, blue: 0.12)]
+        case .standard:
+            return [Color(red: 0.16, green: 0.62, blue: 0.56),
+                    Color(red: 0.12, green: 0.44, blue: 0.36)]
         }
     }
 
     var glowColor: Color {
         switch self {
-        case .first:
+        case .gold:
             return Color(red: 1.0, green: 0.7, blue: 0.0)
-        case .second:
+        case .silver:
             return Color(red: 0.6, green: 0.7, blue: 0.85)
-        case .third:
+        case .bronze:
             return Color(red: 0.75, green: 0.38, blue: 0.12)
-        case .fourth:
-            return Color(red: 0.4, green: 0.4, blue: 0.4)
-        case .fifth:
-            return Color(red: 0.3, green: 0.34, blue: 0.38)
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .first:
-            return "1st"
-        case .second:
-            return "2nd"
-        case .third:
-            return "3rd"
-        case .fourth:
-            return "4th"
-        case .fifth:
-            return "5th"
+        case .standard:
+            return Color(red: 0.16, green: 0.62, blue: 0.56)
         }
     }
 }
@@ -240,7 +254,8 @@ struct SponsorCardView: View {
     let githubUsername: String
     let imageName: String
     let imageExtension: String
-    let rank: SponsorRank
+    let tier: SponsorTier
+    let rankLabel: String
 
     @State private var isHovered = false
 
@@ -258,7 +273,7 @@ struct SponsorCardView: View {
                 GlowingAvatarView(
                     imageName: imageName,
                     imageExtension: imageExtension,
-                    rank: rank
+                    tier: tier
                 )
 
                 VStack(spacing: 4) {
@@ -281,7 +296,7 @@ struct SponsorCardView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                Text(rank.label)
+                Text(rankLabel)
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
@@ -290,7 +305,7 @@ struct SponsorCardView: View {
                         Capsule()
                             .fill(
                                 LinearGradient(
-                                    colors: rank.gradientColors,
+                                    colors: tier.gradientColors,
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
@@ -302,7 +317,7 @@ struct SponsorCardView: View {
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(.ultraThinMaterial)
-                    .shadow(color: rank.glowColor.opacity(isHovered ? 0.3 : 0.1), radius: isHovered ? 12 : 6)
+                    .shadow(color: tier.glowColor.opacity(isHovered ? 0.3 : 0.1), radius: isHovered ? 12 : 6)
             )
             .scaleEffect(isHovered ? 1.02 : 1.0)
             .animation(
@@ -320,7 +335,7 @@ struct SponsorCardView: View {
 struct GlowingAvatarView: View {
     let imageName: String
     let imageExtension: String
-    let rank: SponsorRank
+    let tier: SponsorTier
 
     @State private var isAnimating = false
 
@@ -337,7 +352,7 @@ struct GlowingAvatarView: View {
             Circle()
                 .stroke(
                     LinearGradient(
-                        colors: rank.gradientColors,
+                        colors: tier.gradientColors,
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
@@ -345,7 +360,7 @@ struct GlowingAvatarView: View {
                 )
                 .frame(width: 88, height: 88)
                 .shadow(
-                    color: rank.glowColor.opacity(isAnimating ? 0.8 : 0.5),
+                    color: tier.glowColor.opacity(isAnimating ? 0.8 : 0.5),
                     radius: isAnimating ? 12 : 8
                 )
 
