@@ -16,6 +16,7 @@ final class AXEventHandler: CGSEventDelegate {
 
     func cleanup() {
         CGSEventObserver.shared.delegate = nil
+        CGSEventObserver.shared.stop()
     }
 
     func cgsEventObserver(_: CGSEventObserver, didReceive event: CGSWindowEvent) {

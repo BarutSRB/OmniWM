@@ -3,7 +3,7 @@
 A powerful tiling window manager for macOS.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-26.0%2B-green?logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/macOS-15.0%2B-green?logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Apple%20Silicon-supported-green?logo=apple&logoColor=white" alt="Apple Silicon">
   <img src="https://img.shields.io/badge/X86/X64-supported-green?logo=intel&logoColor=white" alt="Intel">
   <img src="https://img.shields.io/badge/Claude%20Code-Assisted-green?logo=claude&logoColor=white" alt="Claude Code">
@@ -58,7 +58,7 @@ OmniWM is built for high responsiveness and smooth, crisp animations.
 
 ## Requirements
 
-- macOS 26+ (Tahoe)
+- macOS 15+ (Sequoia)
 - Accessibility permissions (prompted on launch)
 
 ## Installation
@@ -255,7 +255,7 @@ Configure per-application behavior in Settings > App Rules:
 
 Requirements:
 - SwiftPM with Swift 6.2+
-- macOS 26.0+
+- macOS 15.0+
 
 ## Support
 

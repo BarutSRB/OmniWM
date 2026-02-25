@@ -125,39 +125,54 @@ final class SkyLight {
             fatalError("Failed to load SkyLight framework")
         }
 
-        guard let mainConnectionID = unsafeBitCast(dlsym(lib, "SLSMainConnectionID"), to: MainConnectionIDFunc?.self),
-              let windowQueryWindows = unsafeBitCast(
-                  dlsym(lib, "SLSWindowQueryWindows"),
-                  to: WindowQueryWindowsFunc?.self
-              ),
-              let windowQueryResultCopyWindows = unsafeBitCast(
-                  dlsym(lib, "SLSWindowQueryResultCopyWindows"),
-                  to: WindowQueryResultCopyWindowsFunc?.self
-              ),
-              let windowIteratorGetCount = unsafeBitCast(
-                  dlsym(lib, "SLSWindowIteratorGetCount"),
-                  to: WindowIteratorGetCountFunc?.self
-              ),
-              let windowIteratorAdvance = unsafeBitCast(
-                  dlsym(lib, "SLSWindowIteratorAdvance"),
-                  to: WindowIteratorAdvanceFunc?.self
-              ),
-              let transactionCreate = unsafeBitCast(
-                  dlsym(lib, "SLSTransactionCreate"),
-                  to: TransactionCreateFunc?.self
-              ),
-              let transactionCommit = unsafeBitCast(
-                  dlsym(lib, "SLSTransactionCommit"),
-                  to: TransactionCommitFunc?.self
-              ),
-              let transactionOrderWindow = unsafeBitCast(
-                  dlsym(lib, "SLSTransactionOrderWindow"),
-                  to: TransactionOrderWindowFunc?.self
-              ),
-              let disableUpdate = unsafeBitCast(dlsym(lib, "SLSDisableUpdate"), to: DisableUpdateFunc?.self),
-              let reenableUpdate = unsafeBitCast(dlsym(lib, "SLSReenableUpdate"), to: ReenableUpdateFunc?.self)
+        func resolveOptional<T>(_ symbol: String, as _: T.Type) -> T? {
+            guard let ptr = dlsym(lib, symbol) else { return nil }
+            return unsafeBitCast(ptr, to: T.self)
+        }
+
+        var missingRequiredSymbols: [String] = []
+        func resolveRequired<T>(_ symbol: String, as type: T.Type) -> T? {
+            let resolved: T? = resolveOptional(symbol, as: type)
+            if resolved == nil {
+                missingRequiredSymbols.append(symbol)
+            }
+            return resolved
+        }
+
+        let mainConnectionID = resolveRequired("SLSMainConnectionID", as: MainConnectionIDFunc.self)
+        let windowQueryWindows = resolveRequired("SLSWindowQueryWindows", as: WindowQueryWindowsFunc.self)
+        let windowQueryResultCopyWindows = resolveRequired(
+            "SLSWindowQueryResultCopyWindows",
+            as: WindowQueryResultCopyWindowsFunc.self
+        )
+        let windowIteratorGetCount = resolveRequired("SLSWindowIteratorGetCount", as: WindowIteratorGetCountFunc.self)
+        let windowIteratorAdvance = resolveRequired("SLSWindowIteratorAdvance", as: WindowIteratorAdvanceFunc.self)
+        let transactionCreate = resolveRequired("SLSTransactionCreate", as: TransactionCreateFunc.self)
+        let transactionCommit = resolveRequired("SLSTransactionCommit", as: TransactionCommitFunc.self)
+        let transactionOrderWindow = resolveRequired("SLSTransactionOrderWindow", as: TransactionOrderWindowFunc.self)
+        let disableUpdate = resolveRequired("SLSDisableUpdate", as: DisableUpdateFunc.self)
+        let reenableUpdate = resolveRequired("SLSReenableUpdate", as: ReenableUpdateFunc.self)
+
+        if !missingRequiredSymbols.isEmpty {
+            let message = "SkyLight missing required symbols: \(missingRequiredSymbols.joined(separator: ", "))"
+            if let data = "OmniWM: \(message)\n".data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
+            fatalError(message)
+        }
+
+        guard let mainConnectionID,
+              let windowQueryWindows,
+              let windowQueryResultCopyWindows,
+              let windowIteratorGetCount,
+              let windowIteratorAdvance,
+              let transactionCreate,
+              let transactionCommit,
+              let transactionOrderWindow,
+              let disableUpdate,
+              let reenableUpdate
         else {
-            fatalError("Failed to load required SkyLight functions")
+            fatalError("SkyLight required symbol resolution failed")
         }
 
         self.mainConnectionID = mainConnectionID
@@ -171,74 +186,35 @@ final class SkyLight {
         self.disableUpdate = disableUpdate
         self.reenableUpdate = reenableUpdate
 
-        windowIteratorGetCornerRadii = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetCornerRadii"),
-            to: WindowIteratorGetCornerRadiiFunc?.self
-        )
+        windowIteratorGetCornerRadii = resolveOptional("SLSWindowIteratorGetCornerRadii", as: WindowIteratorGetCornerRadiiFunc.self)
 
-        transactionMoveWindowWithGroup = unsafeBitCast(
-            dlsym(lib, "SLSTransactionMoveWindowWithGroup"),
-            to: TransactionMoveWindowWithGroupFunc?.self
-        )
-        moveWindow = unsafeBitCast(dlsym(lib, "SLSMoveWindow"), to: MoveWindowFunc?.self)
-        getWindowBounds = unsafeBitCast(dlsym(lib, "SLSGetWindowBounds"), to: GetWindowBoundsFunc?.self)
+        transactionMoveWindowWithGroup = resolveOptional("SLSTransactionMoveWindowWithGroup", as: TransactionMoveWindowWithGroupFunc.self)
+        moveWindow = resolveOptional("SLSMoveWindow", as: MoveWindowFunc.self)
+        getWindowBounds = resolveOptional("SLSGetWindowBounds", as: GetWindowBoundsFunc.self)
 
-        windowIteratorGetBounds = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetBounds"),
-            to: WindowIteratorGetBoundsFunc?.self
-        )
-        windowIteratorGetWindowID = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetWindowID"),
-            to: WindowIteratorGetWindowIDFunc?.self
-        )
-        windowIteratorGetPID = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetPID"),
-            to: WindowIteratorGetPIDFunc?.self
-        )
-        windowIteratorGetLevel = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetLevel"),
-            to: WindowIteratorGetLevelFunc?.self
-        )
-        windowIteratorGetTags = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetTags"),
-            to: WindowIteratorGetTagsFunc?.self
-        )
-        windowIteratorGetAttributes = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetAttributes"),
-            to: WindowIteratorGetAttributesFunc?.self
-        )
-        windowIteratorGetParentID = unsafeBitCast(
-            dlsym(lib, "SLSWindowIteratorGetParentID"),
-            to: WindowIteratorGetParentIDFunc?.self
-        )
+        windowIteratorGetBounds = resolveOptional("SLSWindowIteratorGetBounds", as: WindowIteratorGetBoundsFunc.self)
+        windowIteratorGetWindowID = resolveOptional("SLSWindowIteratorGetWindowID", as: WindowIteratorGetWindowIDFunc.self)
+        windowIteratorGetPID = resolveOptional("SLSWindowIteratorGetPID", as: WindowIteratorGetPIDFunc.self)
+        windowIteratorGetLevel = resolveOptional("SLSWindowIteratorGetLevel", as: WindowIteratorGetLevelFunc.self)
+        windowIteratorGetTags = resolveOptional("SLSWindowIteratorGetTags", as: WindowIteratorGetTagsFunc.self)
+        windowIteratorGetAttributes = resolveOptional("SLSWindowIteratorGetAttributes", as: WindowIteratorGetAttributesFunc.self)
+        windowIteratorGetParentID = resolveOptional("SLSWindowIteratorGetParentID", as: WindowIteratorGetParentIDFunc.self)
 
-        registerConnectionNotifyProc = unsafeBitCast(
-            dlsym(lib, "SLSRegisterConnectionNotifyProc"),
-            to: RegisterConnectionNotifyProcFunc?.self
-        )
-        unregisterConnectionNotifyProc = unsafeBitCast(
-            dlsym(lib, "SLSUnregisterConnectionNotifyProc"),
-            to: UnregisterConnectionNotifyProcFunc?.self
-        )
-        requestNotificationsForWindows = unsafeBitCast(
-            dlsym(lib, "SLSRequestNotificationsForWindows"),
-            to: RequestNotificationsForWindowsFunc?.self
-        )
-        registerNotifyProc = unsafeBitCast(
-            dlsym(lib, "SLSRegisterNotifyProc"),
-            to: RegisterNotifyProcFunc?.self
-        )
+        registerConnectionNotifyProc = resolveOptional("SLSRegisterConnectionNotifyProc", as: RegisterConnectionNotifyProcFunc.self)
+        unregisterConnectionNotifyProc = resolveOptional("SLSUnregisterConnectionNotifyProc", as: UnregisterConnectionNotifyProcFunc.self)
+        requestNotificationsForWindows = resolveOptional("SLSRequestNotificationsForWindows", as: RequestNotificationsForWindowsFunc.self)
+        registerNotifyProc = resolveOptional("SLSRegisterNotifyProc", as: RegisterNotifyProcFunc.self)
 
-        newWindow = unsafeBitCast(dlsym(lib, "SLSNewWindow"), to: NewWindowFunc?.self)
-        releaseWindow = unsafeBitCast(dlsym(lib, "SLSReleaseWindow"), to: ReleaseWindowFunc?.self)
-        windowContextCreate = unsafeBitCast(dlsym(lib, "SLWindowContextCreate"), to: WindowContextCreateFunc?.self)
-        setWindowShape = unsafeBitCast(dlsym(lib, "SLSSetWindowShape"), to: SetWindowShapeFunc?.self)
-        setWindowResolution = unsafeBitCast(dlsym(lib, "SLSSetWindowResolution"), to: SetWindowResolutionFunc?.self)
-        setWindowOpacity = unsafeBitCast(dlsym(lib, "SLSSetWindowOpacity"), to: SetWindowOpacityFunc?.self)
-        setWindowTags = unsafeBitCast(dlsym(lib, "SLSSetWindowTags"), to: SetWindowTagsFunc?.self)
-        flushWindowContentRegion = unsafeBitCast(dlsym(lib, "SLSFlushWindowContentRegion"), to: FlushWindowContentRegionFunc?.self)
-        newRegionWithRect = unsafeBitCast(dlsym(lib, "CGSNewRegionWithRect"), to: NewRegionWithRectFunc?.self)
-        transactionSetWindowLevel = unsafeBitCast(dlsym(lib, "SLSTransactionSetWindowLevel"), to: TransactionSetWindowLevelFunc?.self)
+        newWindow = resolveOptional("SLSNewWindow", as: NewWindowFunc.self)
+        releaseWindow = resolveOptional("SLSReleaseWindow", as: ReleaseWindowFunc.self)
+        windowContextCreate = resolveOptional("SLWindowContextCreate", as: WindowContextCreateFunc.self)
+        setWindowShape = resolveOptional("SLSSetWindowShape", as: SetWindowShapeFunc.self)
+        setWindowResolution = resolveOptional("SLSSetWindowResolution", as: SetWindowResolutionFunc.self)
+        setWindowOpacity = resolveOptional("SLSSetWindowOpacity", as: SetWindowOpacityFunc.self)
+        setWindowTags = resolveOptional("SLSSetWindowTags", as: SetWindowTagsFunc.self)
+        flushWindowContentRegion = resolveOptional("SLSFlushWindowContentRegion", as: FlushWindowContentRegionFunc.self)
+        newRegionWithRect = resolveOptional("CGSNewRegionWithRect", as: NewRegionWithRectFunc.self)
+        transactionSetWindowLevel = resolveOptional("SLSTransactionSetWindowLevel", as: TransactionSetWindowLevelFunc.self)
     }
 
     func getMainConnectionID() -> Int32 {
