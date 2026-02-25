@@ -85,7 +85,7 @@ struct MenuPaletteView: View {
             }
         }
         .frame(width: 600, height: 400)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
+        .omniGlassEffect(in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

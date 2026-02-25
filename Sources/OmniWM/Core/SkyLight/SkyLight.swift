@@ -89,7 +89,7 @@ final class SkyLight {
     private let windowQueryResultCopyWindows: WindowQueryResultCopyWindowsFunc
     private let windowIteratorGetCount: WindowIteratorGetCountFunc
     private let windowIteratorAdvance: WindowIteratorAdvanceFunc
-    private let windowIteratorGetCornerRadii: WindowIteratorGetCornerRadiiFunc
+    private let windowIteratorGetCornerRadii: WindowIteratorGetCornerRadiiFunc?
     private let windowIteratorGetBounds: WindowIteratorGetBoundsFunc?
     private let windowIteratorGetWindowID: WindowIteratorGetWindowIDFunc?
     private let windowIteratorGetPID: WindowIteratorGetPIDFunc?
@@ -142,10 +142,6 @@ final class SkyLight {
                   dlsym(lib, "SLSWindowIteratorAdvance"),
                   to: WindowIteratorAdvanceFunc?.self
               ),
-              let windowIteratorGetCornerRadii = unsafeBitCast(
-                  dlsym(lib, "SLSWindowIteratorGetCornerRadii"),
-                  to: WindowIteratorGetCornerRadiiFunc?.self
-              ),
               let transactionCreate = unsafeBitCast(
                   dlsym(lib, "SLSTransactionCreate"),
                   to: TransactionCreateFunc?.self
@@ -169,12 +165,16 @@ final class SkyLight {
         self.windowQueryResultCopyWindows = windowQueryResultCopyWindows
         self.windowIteratorGetCount = windowIteratorGetCount
         self.windowIteratorAdvance = windowIteratorAdvance
-        self.windowIteratorGetCornerRadii = windowIteratorGetCornerRadii
         self.transactionCreate = transactionCreate
         self.transactionCommit = transactionCommit
         self.transactionOrderWindow = transactionOrderWindow
         self.disableUpdate = disableUpdate
         self.reenableUpdate = reenableUpdate
+
+        windowIteratorGetCornerRadii = unsafeBitCast(
+            dlsym(lib, "SLSWindowIteratorGetCornerRadii"),
+            to: WindowIteratorGetCornerRadiiFunc?.self
+        )
 
         transactionMoveWindowWithGroup = unsafeBitCast(
             dlsym(lib, "SLSTransactionMoveWindowWithGroup"),
@@ -246,6 +246,7 @@ final class SkyLight {
     }
 
     func cornerRadius(forWindowId wid: Int) -> CGFloat? {
+        guard let windowIteratorGetCornerRadii else { return nil }
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
 

@@ -271,7 +271,7 @@ struct WindowFinderView: View {
             }
         }
         .frame(width: 500, height: 400)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
+        .omniGlassEffect(in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

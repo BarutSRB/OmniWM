@@ -113,7 +113,7 @@ struct SecureInputIndicatorView: View {
             width: isExpanded ? expandedSize.width : iconSize.width,
             height: isExpanded ? expandedSize.height : iconSize.height
         )
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
+        .omniGlassEffect(in: RoundedRectangle(cornerRadius: 12))
         .onTapGesture {
             onTap()
         }

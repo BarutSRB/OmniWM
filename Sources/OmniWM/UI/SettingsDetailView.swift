@@ -12,7 +12,7 @@ struct SettingsDetailView: View {
                 .padding()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .backgroundExtensionEffect()
+        .omniBackgroundExtensionEffect()
     }
 
     @ViewBuilder

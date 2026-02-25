@@ -37,10 +37,10 @@ struct AppRulesView: View {
                     }
                 )
                 .id(ruleId)
-                .backgroundExtensionEffect()
+                .omniBackgroundExtensionEffect()
             } else {
                 AppRulesEmptyState(onAdd: { isAddingNew = true })
-                    .backgroundExtensionEffect()
+                    .omniBackgroundExtensionEffect()
             }
         }
         .navigationSplitViewStyle(.balanced)
