@@ -264,6 +264,28 @@ If you find OmniWM useful, consider supporting development:
 - [GitHub Sponsors](https://github.com/sponsors/BarutSRB)
 - [PayPal](https://paypal.me/beacon2024)
 
+## Contributors
+
+<p align="center">
+  Thank you to everyone who contributed to OmniWM. Your ideas and code made a real difference.
+</p>
+
+<p align="center">
+  <a href="https://github.com/janhesters" title="Jan Hesters">
+    <img src="https://github.com/janhesters.png?size=96" width="96" alt="Jan Hesters">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://github.com/balazshevesi" title="Balazs Hevesi">
+    <img src="https://github.com/balazshevesi.png?size=96" width="96" alt="Balazs Hevesi">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/janhesters"><strong>Jan Hesters</strong></a>
+  &nbsp;•&nbsp;
+  <a href="https://github.com/balazshevesi"><strong>Balazs Hevesi</strong></a>
+</p>
+
 ## Contributing
 
 Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM).
