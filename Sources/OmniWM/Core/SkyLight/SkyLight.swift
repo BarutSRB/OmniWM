@@ -83,6 +83,11 @@ final class SkyLight {
         UInt32,
         UnsafeMutableRawPointer?
     ) -> Int32
+    private typealias UnregisterNotifyProcFunc = @convention(c) (
+        NotifyCallback,
+        UInt32,
+        UnsafeMutableRawPointer?
+    ) -> Int32
 
     private let mainConnectionID: MainConnectionIDFunc
     private let windowQueryWindows: WindowQueryWindowsFunc
@@ -109,6 +114,7 @@ final class SkyLight {
     private let unregisterConnectionNotifyProc: UnregisterConnectionNotifyProcFunc?
     private let requestNotificationsForWindows: RequestNotificationsForWindowsFunc?
     private let registerNotifyProc: RegisterNotifyProcFunc?
+    private let unregisterNotifyProcFunc: UnregisterNotifyProcFunc?
     private let newWindow: NewWindowFunc?
     private let releaseWindow: ReleaseWindowFunc?
     private let windowContextCreate: WindowContextCreateFunc?
@@ -204,6 +210,8 @@ final class SkyLight {
         unregisterConnectionNotifyProc = resolveOptional("SLSUnregisterConnectionNotifyProc", as: UnregisterConnectionNotifyProcFunc.self)
         requestNotificationsForWindows = resolveOptional("SLSRequestNotificationsForWindows", as: RequestNotificationsForWindowsFunc.self)
         registerNotifyProc = resolveOptional("SLSRegisterNotifyProc", as: RegisterNotifyProcFunc.self)
+        unregisterNotifyProcFunc = resolveOptional("SLSUnregisterNotifyProc", as: UnregisterNotifyProcFunc.self)
+            ?? resolveOptional("SLSRemoveNotifyProc", as: UnregisterNotifyProcFunc.self)
 
         newWindow = resolveOptional("SLSNewWindow", as: NewWindowFunc.self)
         releaseWindow = resolveOptional("SLSReleaseWindow", as: ReleaseWindowFunc.self)
@@ -446,6 +454,18 @@ final class SkyLight {
             return false
         }
         let result = registerNotifyProc(callback, event.rawValue, context)
+        return result == 0
+    }
+
+    func unregisterNotifyProc(
+        event: CGSEventType,
+        callback: @escaping NotifyCallback,
+        context: UnsafeMutableRawPointer? = nil
+    ) -> Bool {
+        guard let unregisterNotifyProcFunc else {
+            return false
+        }
+        let result = unregisterNotifyProcFunc(callback, event.rawValue, context)
         return result == 0
     }
 

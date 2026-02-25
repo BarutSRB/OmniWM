@@ -22,6 +22,7 @@ final class CGSEventObserver {
     weak var delegate: CGSEventDelegate?
 
     private var isRegistered = false
+    private var isWindowClosedNotifyRegistered = false
 
     private init() {}
 
@@ -49,40 +50,57 @@ final class CGSEventObserver {
             }
         }
 
-        let cid = SkyLight.shared.getMainConnectionID()
-        let cidContext = UnsafeMutableRawPointer(bitPattern: Int(cid))
-        let windowClosedSuccess = SkyLight.shared.registerNotifyProc(
-            event: .windowClosed,
-            callback: notifyCallback,
-            context: cidContext
-        )
-        if windowClosedSuccess {
+        if isWindowClosedNotifyRegistered {
             successCount += 1
+        } else {
+            let cid = SkyLight.shared.getMainConnectionID()
+            let cidContext = UnsafeMutableRawPointer(bitPattern: Int(cid))
+            let windowClosedSuccess = SkyLight.shared.registerNotifyProc(
+                event: .windowClosed,
+                callback: notifyCallback,
+                context: cidContext
+            )
+            if windowClosedSuccess {
+                successCount += 1
+                isWindowClosedNotifyRegistered = true
+            }
         }
 
         isRegistered = successCount > 0
     }
 
     func stop() {
-        guard isRegistered else { return }
+        if isRegistered {
+            let eventsToUnregister: [CGSEventType] = [
+                .spaceWindowCreated,
+                .spaceWindowDestroyed,
+                .windowMoved,
+                .windowResized,
+                .windowTitleChanged,
+                .frontmostApplicationChanged
+            ]
 
-        let eventsToUnregister: [CGSEventType] = [
-            .spaceWindowCreated,
-            .spaceWindowDestroyed,
-            .windowMoved,
-            .windowResized,
-            .windowTitleChanged,
-            .frontmostApplicationChanged
-        ]
+            for event in eventsToUnregister {
+                _ = SkyLight.shared.unregisterForNotification(
+                    event: event,
+                    callback: cgsConnectionCallback
+                )
+            }
 
-        for event in eventsToUnregister {
-            _ = SkyLight.shared.unregisterForNotification(
-                event: event,
-                callback: cgsConnectionCallback
-            )
+            isRegistered = false
         }
 
-        isRegistered = false
+        if isWindowClosedNotifyRegistered {
+            let cid = SkyLight.shared.getMainConnectionID()
+            let cidContext = UnsafeMutableRawPointer(bitPattern: Int(cid))
+            if SkyLight.shared.unregisterNotifyProc(
+                event: .windowClosed,
+                callback: notifyCallback,
+                context: cidContext
+            ) {
+                isWindowClosedNotifyRegistered = false
+            }
+        }
     }
 
     @discardableResult
