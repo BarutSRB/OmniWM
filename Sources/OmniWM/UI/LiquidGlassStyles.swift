@@ -7,10 +7,7 @@ struct GlassButtonStyle: ButtonStyle {
         configuration.label
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .glassEffect(
-                isProminent ? .regular.tint(.accentColor) : .regular,
-                in: Capsule()
-            )
+            .omniGlassEffect(in: Capsule(), prominent: isProminent)
             .opacity(configuration.isPressed ? 0.8 : 1.0)
     }
 }

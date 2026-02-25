@@ -131,7 +131,7 @@ struct SponsorsView: View {
                 }
 
                 HStack(spacing: 0) {
-                    ForEach(Array(visibleSponsors).enumerated(), id: \.element.id) { offset, sponsor in
+                    ForEach(Array(Array(visibleSponsors).enumerated()), id: \.element.id) { offset, sponsor in
                         SponsorCardView(
                             name: sponsor.name,
                             githubUsername: sponsor.githubUsername,
