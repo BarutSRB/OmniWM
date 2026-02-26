@@ -919,7 +919,7 @@ import QuartzCore
                     niriMonitor.activateWorkspace(activeWorkspace.id)
                 }
             }
-            let resolved = controller.settings.resolvedNiriSettings(for: monitor.name)
+            let resolved = controller.settings.resolvedNiriSettings(for: monitor)
             engine.updateMonitorSettings(resolved, for: monitor.id)
         }
     }

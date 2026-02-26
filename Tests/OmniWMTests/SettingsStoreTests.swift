@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -6,6 +7,25 @@ import Testing
 private func makeTestDefaults() -> UserDefaults {
     let suiteName = "com.omniwm.test.\(UUID().uuidString)"
     return UserDefaults(suiteName: suiteName)!
+}
+
+private func makeSettingsTestMonitor(
+    displayId: CGDirectDisplayID,
+    name: String,
+    x: CGFloat = 0,
+    y: CGFloat = 0,
+    width: CGFloat = 1920,
+    height: CGFloat = 1080
+) -> Monitor {
+    let frame = CGRect(x: x, y: y, width: width, height: height)
+    return Monitor(
+        id: Monitor.ID(displayId: displayId),
+        displayId: displayId,
+        frame: frame,
+        visibleFrame: frame,
+        hasNotch: false,
+        name: name
+    )
 }
 
 @Suite struct MonitorSettingsStoreTests {
@@ -87,6 +107,44 @@ private func makeTestDefaults() -> UserDefaults {
         #expect(loaded.count == 2)
         #expect(loaded[0].maxVisibleColumns == 1)
         #expect(loaded[1].maxVisibleColumns == 2)
+    }
+
+    @Test func monitorLookupPrefersDisplayIdOverNameFallback() {
+        let monitor = makeSettingsTestMonitor(displayId: 42, name: "Studio Display")
+        let settings = [
+            MonitorNiriSettings(monitorName: "Studio Display", maxVisibleColumns: 1),
+            MonitorNiriSettings(monitorName: "Studio Display", monitorDisplayId: 42, maxVisibleColumns: 3),
+        ]
+
+        let result = MonitorSettingsStore.get(for: monitor, in: settings)
+        #expect(result?.maxVisibleColumns == 3)
+    }
+
+    @Test func monitorLookupFallsBackToLegacyNameWhenDisplayIdMissing() {
+        let monitor = makeSettingsTestMonitor(displayId: 99, name: "Legacy")
+        let settings = [
+            MonitorNiriSettings(monitorName: "Legacy", maxVisibleColumns: 2),
+        ]
+
+        let result = MonitorSettingsStore.get(for: monitor, in: settings)
+        #expect(result?.maxVisibleColumns == 2)
+    }
+
+    @Test func updateMigratesLegacyNameEntryToDisplayIdEntry() {
+        var settings = [
+            MonitorNiriSettings(monitorName: "Studio Display", maxVisibleColumns: 1)
+        ]
+
+        let updated = MonitorNiriSettings(
+            monitorName: "Studio Display",
+            monitorDisplayId: 77,
+            maxVisibleColumns: 4
+        )
+        MonitorSettingsStore.update(updated, in: &settings)
+
+        #expect(settings.count == 1)
+        #expect(settings[0].monitorDisplayId == 77)
+        #expect(settings[0].maxVisibleColumns == 4)
     }
 }
 

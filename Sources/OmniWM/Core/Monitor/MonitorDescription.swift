@@ -15,8 +15,11 @@ enum MonitorDescription: Equatable {
         case .main:
             return sortedMonitors.first(where: { $0.isMain }) ?? sortedMonitors.first
         case .secondary:
-            guard sortedMonitors.count == 2 else { return nil }
-            return sortedMonitors.first(where: { !$0.isMain })
+            guard sortedMonitors.count >= 2 else { return nil }
+            if let secondary = sortedMonitors.first(where: { !$0.isMain }) {
+                return secondary
+            }
+            return sortedMonitors.dropFirst().first
         case let .pattern(pattern):
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
                 return nil
@@ -30,24 +33,27 @@ enum MonitorDescription: Equatable {
 }
 
 func parseMonitorDescription(_ raw: String) -> Result<MonitorDescription, ParseError> {
-    if let number = Int(raw) {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if let number = Int(trimmed) {
         if number >= 1 {
             return .success(.sequenceNumber(number))
         }
         return .failure(ParseError("Monitor sequence numbers use 1-based indexing"))
     }
-    if raw == "main" {
+    let normalized = trimmed.lowercased()
+    if normalized == "main" {
         return .success(.main)
     }
-    if raw == "secondary" {
+    if normalized == "secondary" {
         return .success(.secondary)
     }
-    if raw.isEmpty {
+    if trimmed.isEmpty {
         return .failure(ParseError("Empty string is an illegal monitor description"))
     }
 
-    if (try? NSRegularExpression(pattern: raw, options: [.caseInsensitive])) == nil {
-        return .failure(ParseError("Can't parse '\(raw)' regex"))
+    if (try? NSRegularExpression(pattern: trimmed, options: [.caseInsensitive])) == nil {
+        return .failure(ParseError("Can't parse '\(trimmed)' regex"))
     }
-    return .success(.pattern(raw))
+    return .success(.pattern(trimmed))
 }

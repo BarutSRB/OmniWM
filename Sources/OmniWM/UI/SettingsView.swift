@@ -200,7 +200,7 @@ struct NiriSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
 
-    @State private var selectedMonitor: String?
+    @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
 
     var body: some View {
@@ -209,10 +209,10 @@ struct NiriSettingsTab: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Picker("Configure settings for:", selection: $selectedMonitor) {
-                    Text("Global Defaults").tag(nil as String?)
+                    Text("Global Defaults").tag(nil as Monitor.ID?)
                     if !connectedMonitors.isEmpty {
                         Divider()
-                        ForEach(connectedMonitors, id: \.name) { monitor in
+                        ForEach(connectedMonitors, id: \.id) { monitor in
                             HStack {
                                 Text(monitor.name)
                                 if monitor.isMain {
@@ -220,14 +220,16 @@ struct NiriSettingsTab: View {
                                         .foregroundColor(.secondary)
                                 }
                             }
-                            .tag(monitor.name as String?)
+                            .tag(monitor.id as Monitor.ID?)
                         }
                     }
                 }
 
-                if let monitorName = selectedMonitor {
+                if let monitorId = selectedMonitor,
+                   let monitor = connectedMonitors.first(where: { $0.id == monitorId })
+                {
                     HStack {
-                        if settings.niriSettings(for: monitorName) != nil {
+                        if settings.niriSettings(for: monitor) != nil {
                             Text("Has custom overrides")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -238,21 +240,23 @@ struct NiriSettingsTab: View {
                         }
                         Spacer()
                         Button("Reset to Global") {
-                            settings.removeNiriSettings(for: monitorName)
+                            settings.removeNiriSettings(for: monitor)
                             controller.updateMonitorNiriSettings()
                         }
-                        .disabled(settings.niriSettings(for: monitorName) == nil)
+                        .disabled(settings.niriSettings(for: monitor) == nil)
                     }
                 }
             }
 
             Divider()
 
-            if let monitorName = selectedMonitor {
+            if let monitorId = selectedMonitor,
+               let monitor = connectedMonitors.first(where: { $0.id == monitorId })
+            {
                 MonitorNiriSettingsSection(
                     settings: settings,
                     controller: controller,
-                    monitorName: monitorName
+                    monitor: monitor
                 )
             } else {
                 GlobalNiriSettingsSection(
@@ -386,14 +390,19 @@ private struct GlobalNiriSettingsSection: View {
 private struct MonitorNiriSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-    let monitorName: String
+    let monitor: Monitor
 
     private var monitorSettings: MonitorNiriSettings {
-        settings.niriSettings(for: monitorName) ?? MonitorNiriSettings(monitorName: monitorName)
+        settings.niriSettings(for: monitor) ?? MonitorNiriSettings(
+            monitorName: monitor.name,
+            monitorDisplayId: monitor.displayId
+        )
     }
 
     private func updateSetting(_ update: (inout MonitorNiriSettings) -> Void) {
         var ms = monitorSettings
+        ms.monitorName = monitor.name
+        ms.monitorDisplayId = monitor.displayId
         update(&ms)
         settings.updateNiriSettings(ms)
         controller.updateMonitorNiriSettings()

@@ -4,6 +4,7 @@ import CoreGraphics
 struct MonitorDwindleSettings: MonitorSettingsType {
     let id: UUID
     var monitorName: String
+    var monitorDisplayId: CGDirectDisplayID?
 
     var smartSplit: Bool?
     var defaultSplitRatio: Double?
@@ -19,6 +20,7 @@ struct MonitorDwindleSettings: MonitorSettingsType {
     init(
         id: UUID = UUID(),
         monitorName: String,
+        monitorDisplayId: CGDirectDisplayID? = nil,
         smartSplit: Bool? = nil,
         defaultSplitRatio: Double? = nil,
         splitWidthMultiplier: Double? = nil,
@@ -32,6 +34,7 @@ struct MonitorDwindleSettings: MonitorSettingsType {
     ) {
         self.id = id
         self.monitorName = monitorName
+        self.monitorDisplayId = monitorDisplayId
         self.smartSplit = smartSplit
         self.defaultSplitRatio = defaultSplitRatio
         self.splitWidthMultiplier = splitWidthMultiplier
@@ -45,7 +48,7 @@ struct MonitorDwindleSettings: MonitorSettingsType {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, monitorName, smartSplit, defaultSplitRatio, splitWidthMultiplier
+        case id, monitorName, monitorDisplayId, smartSplit, defaultSplitRatio, splitWidthMultiplier
         case singleWindowAspectRatio, useGlobalGaps, innerGap
         case outerGapTop, outerGapBottom, outerGapLeft, outerGapRight
     }
@@ -54,6 +57,7 @@ struct MonitorDwindleSettings: MonitorSettingsType {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         monitorName = try container.decode(String.self, forKey: .monitorName)
+        monitorDisplayId = try container.decodeIfPresent(CGDirectDisplayID.self, forKey: .monitorDisplayId)
         smartSplit = try container.decodeIfPresent(Bool.self, forKey: .smartSplit)
         defaultSplitRatio = try container.decodeIfPresent(Double.self, forKey: .defaultSplitRatio)
         splitWidthMultiplier = try container.decodeIfPresent(Double.self, forKey: .splitWidthMultiplier)
@@ -71,6 +75,7 @@ struct MonitorDwindleSettings: MonitorSettingsType {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(monitorName, forKey: .monitorName)
+        try container.encodeIfPresent(monitorDisplayId, forKey: .monitorDisplayId)
         try container.encodeIfPresent(smartSplit, forKey: .smartSplit)
         try container.encodeIfPresent(defaultSplitRatio, forKey: .defaultSplitRatio)
         try container.encodeIfPresent(splitWidthMultiplier, forKey: .splitWidthMultiplier)

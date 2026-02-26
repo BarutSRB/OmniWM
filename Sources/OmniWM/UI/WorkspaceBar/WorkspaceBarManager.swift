@@ -106,7 +106,7 @@ final class WorkspaceBarManager {
 
         for monitor in currentMonitors {
             existingMonitorIds.remove(monitor.id)
-            let resolved = settings.resolvedBarSettings(for: monitor.name)
+            let resolved = settings.resolvedBarSettings(for: monitor)
 
             if !resolved.enabled {
                 removeBarForMonitor(monitor.id)
@@ -128,7 +128,7 @@ final class WorkspaceBarManager {
     private func createBarForMonitor(_ monitor: Monitor) {
         guard let controller, let settings else { return }
 
-        let resolved = settings.resolvedBarSettings(for: monitor.name)
+        let resolved = settings.resolvedBarSettings(for: monitor)
         let panel = createPanel()
 
         if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
@@ -166,7 +166,7 @@ final class WorkspaceBarManager {
             instance.panel.targetScreen = screen
         }
 
-        let resolved = settings.resolvedBarSettings(for: monitor.name)
+        let resolved = settings.resolvedBarSettings(for: monitor)
         let barHeight = max(menuBarHeight(for: monitor), resolved.height)
         instance.hostingView.rootView = WorkspaceBarView(
             controller: controller,
@@ -221,7 +221,7 @@ final class WorkspaceBarManager {
     private func updateBarFrameAndPosition(for monitor: Monitor, instance: MonitorBarInstance) {
         guard let settings else { return }
 
-        let resolved = settings.resolvedBarSettings(for: monitor.name)
+        let resolved = settings.resolvedBarSettings(for: monitor)
         let fittingSize = instance.hostingView.fittingSize
         let screenFrame = monitor.frame
         let visibleFrame = monitor.visibleFrame
@@ -302,7 +302,7 @@ final class WorkspaceBarManager {
 
     private func applySettingsToPanel(_ panel: NSPanel, for monitor: Monitor) {
         guard let settings else { return }
-        let resolved = settings.resolvedBarSettings(for: monitor.name)
+        let resolved = settings.resolvedBarSettings(for: monitor)
         panel.level = resolved.windowLevel.nsWindowLevel
     }
 

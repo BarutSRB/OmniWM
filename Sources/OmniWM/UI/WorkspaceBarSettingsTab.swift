@@ -4,7 +4,7 @@ struct WorkspaceBarSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
 
-    @State private var selectedMonitor: String?
+    @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
 
     var body: some View {
@@ -13,10 +13,10 @@ struct WorkspaceBarSettingsTab: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Picker("Configure settings for:", selection: $selectedMonitor) {
-                        Text("Global Defaults").tag(nil as String?)
+                        Text("Global Defaults").tag(nil as Monitor.ID?)
                         if !connectedMonitors.isEmpty {
                             Divider()
-                            ForEach(connectedMonitors, id: \.name) { monitor in
+                            ForEach(connectedMonitors, id: \.id) { monitor in
                                 HStack {
                                     Text(monitor.name)
                                     if monitor.isMain {
@@ -24,14 +24,16 @@ struct WorkspaceBarSettingsTab: View {
                                             .foregroundColor(.secondary)
                                     }
                                 }
-                                .tag(monitor.name as String?)
+                                .tag(monitor.id as Monitor.ID?)
                             }
                         }
                     }
 
-                    if let monitorName = selectedMonitor {
+                    if let monitorId = selectedMonitor,
+                       let monitor = connectedMonitors.first(where: { $0.id == monitorId })
+                    {
                         HStack {
-                            if settings.barSettings(for: monitorName) != nil {
+                            if settings.barSettings(for: monitor) != nil {
                                 Text("Has custom overrides")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -42,21 +44,23 @@ struct WorkspaceBarSettingsTab: View {
                             }
                             Spacer()
                             Button("Reset to Global") {
-                                settings.removeBarSettings(for: monitorName)
+                                settings.removeBarSettings(for: monitor)
                                 controller.updateWorkspaceBarSettings()
                             }
-                            .disabled(settings.barSettings(for: monitorName) == nil)
+                            .disabled(settings.barSettings(for: monitor) == nil)
                         }
                     }
                 }
 
                 Divider()
 
-                if let monitorName = selectedMonitor {
+                if let monitorId = selectedMonitor,
+                   let monitor = connectedMonitors.first(where: { $0.id == monitorId })
+                {
                     MonitorBarSettingsSection(
                         settings: settings,
                         controller: controller,
-                        monitorName: monitorName
+                        monitor: monitor
                     )
                 } else {
                     GlobalBarSettingsSection(
@@ -235,14 +239,19 @@ private struct GlobalBarSettingsSection: View {
 private struct MonitorBarSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-    let monitorName: String
+    let monitor: Monitor
 
     private var monitorSettings: MonitorBarSettings {
-        settings.barSettings(for: monitorName) ?? MonitorBarSettings(monitorName: monitorName)
+        settings.barSettings(for: monitor) ?? MonitorBarSettings(
+            monitorName: monitor.name,
+            monitorDisplayId: monitor.displayId
+        )
     }
 
     private func updateSetting(_ update: (inout MonitorBarSettings) -> Void) {
         var ms = monitorSettings
+        ms.monitorName = monitor.name
+        ms.monitorDisplayId = monitor.displayId
         update(&ms)
         settings.updateBarSettings(ms)
         controller.updateWorkspaceBarSettings()

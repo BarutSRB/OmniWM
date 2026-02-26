@@ -4,7 +4,7 @@ struct DwindleSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
 
-    @State private var selectedMonitor: String?
+    @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
 
     var body: some View {
@@ -13,10 +13,10 @@ struct DwindleSettingsTab: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Picker("Configure settings for:", selection: $selectedMonitor) {
-                    Text("Global Defaults").tag(nil as String?)
+                    Text("Global Defaults").tag(nil as Monitor.ID?)
                     if !connectedMonitors.isEmpty {
                         Divider()
-                        ForEach(connectedMonitors, id: \.name) { monitor in
+                        ForEach(connectedMonitors, id: \.id) { monitor in
                             HStack {
                                 Text(monitor.name)
                                 if monitor.isMain {
@@ -24,14 +24,16 @@ struct DwindleSettingsTab: View {
                                         .foregroundColor(.secondary)
                                 }
                             }
-                            .tag(monitor.name as String?)
+                            .tag(monitor.id as Monitor.ID?)
                         }
                     }
                 }
 
-                if let monitorName = selectedMonitor {
+                if let monitorId = selectedMonitor,
+                   let monitor = connectedMonitors.first(where: { $0.id == monitorId })
+                {
                     HStack {
-                        if settings.dwindleSettings(for: monitorName) != nil {
+                        if settings.dwindleSettings(for: monitor) != nil {
                             Text("Has custom overrides")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -42,21 +44,23 @@ struct DwindleSettingsTab: View {
                         }
                         Spacer()
                         Button("Reset to Global") {
-                            settings.removeDwindleSettings(for: monitorName)
+                            settings.removeDwindleSettings(for: monitor)
                             controller.updateMonitorDwindleSettings()
                         }
-                        .disabled(settings.dwindleSettings(for: monitorName) == nil)
+                        .disabled(settings.dwindleSettings(for: monitor) == nil)
                     }
                 }
             }
 
             Divider()
 
-            if let monitorName = selectedMonitor {
+            if let monitorId = selectedMonitor,
+               let monitor = connectedMonitors.first(where: { $0.id == monitorId })
+            {
                 MonitorDwindleSettingsSection(
                     settings: settings,
                     controller: controller,
-                    monitorName: monitorName
+                    monitor: monitor
                 )
             } else {
                 GlobalDwindleSettingsSection(
@@ -150,14 +154,19 @@ private struct GlobalDwindleSettingsSection: View {
 private struct MonitorDwindleSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-    let monitorName: String
+    let monitor: Monitor
 
     private var monitorSettings: MonitorDwindleSettings {
-        settings.dwindleSettings(for: monitorName) ?? MonitorDwindleSettings(monitorName: monitorName)
+        settings.dwindleSettings(for: monitor) ?? MonitorDwindleSettings(
+            monitorName: monitor.name,
+            monitorDisplayId: monitor.displayId
+        )
     }
 
     private func updateSetting(_ update: (inout MonitorDwindleSettings) -> Void) {
         var ms = monitorSettings
+        ms.monitorName = monitor.name
+        ms.monitorDisplayId = monitor.displayId
         update(&ms)
         settings.updateDwindleSettings(ms)
         controller.updateMonitorDwindleSettings()

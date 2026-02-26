@@ -3,7 +3,7 @@ import SwiftUI
 struct MonitorSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-    @State private var selectedMonitor: String?
+    @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
 
     var body: some View {
@@ -13,24 +13,24 @@ struct MonitorSettingsTab: View {
             Section {
                 Picker("Monitor:", selection: $selectedMonitor) {
                     if connectedMonitors.isEmpty {
-                        Text("No monitors detected").tag(nil as String?)
+                        Text("No monitors detected").tag(nil as Monitor.ID?)
                     } else {
-                        ForEach(connectedMonitors, id: \.name) { monitor in
+                        ForEach(connectedMonitors, id: \.id) { monitor in
                             HStack {
                                 Text(monitor.name)
                                 if monitor.isMain {
                                     Text("(Main)").foregroundColor(.secondary)
                                 }
                             }
-                            .tag(monitor.name as String?)
+                            .tag(monitor.id as Monitor.ID?)
                         }
                     }
                 }
                 .pickerStyle(.menu)
             }
 
-            if let monitorName = selectedMonitor,
-               let monitor = connectedMonitors.first(where: { $0.name == monitorName })
+            if let monitorId = selectedMonitor,
+               let monitor = connectedMonitors.first(where: { $0.id == monitorId })
             {
                 MonitorOrientationSection(
                     settings: settings,
@@ -48,7 +48,7 @@ struct MonitorSettingsTab: View {
         .onAppear {
             connectedMonitors = Monitor.current()
             if selectedMonitor == nil, let first = connectedMonitors.first {
-                selectedMonitor = first.name
+                selectedMonitor = first.id
             }
         }
     }
@@ -60,7 +60,7 @@ private struct MonitorOrientationSection: View {
     let monitor: Monitor
 
     private var orientationOverride: Monitor.Orientation? {
-        settings.orientationSettings(for: monitor.name)?.orientation
+        settings.orientationSettings(for: monitor)?.orientation
     }
 
     private var effectiveOrientation: Monitor.Orientation {
@@ -119,10 +119,11 @@ private struct MonitorOrientationSection: View {
     private func updateOrientation(_ orientation: Monitor.Orientation?) {
         let newSettings = MonitorOrientationSettings(
             monitorName: monitor.name,
+            monitorDisplayId: monitor.displayId,
             orientation: orientation
         )
         if orientation == nil {
-            settings.removeOrientationSettings(for: monitor.name)
+            settings.removeOrientationSettings(for: monitor)
         } else {
             settings.updateOrientationSettings(newSettings)
         }

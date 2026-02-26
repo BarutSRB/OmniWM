@@ -195,7 +195,22 @@ final class MouseWarpHandler {
     }
 
     private func mouseWarpToMonitor(named name: String, edge: Edge, yRatio: CGFloat, monitors: [Monitor], margin: CGFloat) {
-        guard let targetMonitor = controller?.workspaceManager.monitor(named: name) ?? monitors.first(where: { $0.name == name }) else { return }
+        let candidates = controller?.workspaceManager.monitors(named: name) ?? monitors.filter { $0.name == name }
+        guard !candidates.isEmpty else { return }
+
+        let targetMonitor: Monitor
+        if candidates.count == 1 {
+            targetMonitor = candidates[0]
+        } else {
+            let sorted = Monitor.sortedByPosition(candidates)
+            if edge == .right, let first = sorted.first {
+                targetMonitor = first
+            } else if let last = sorted.last {
+                targetMonitor = last
+            } else {
+                return
+            }
+        }
 
         let frame = targetMonitor.frame
 

@@ -1,8 +1,10 @@
+import CoreGraphics
 import Foundation
 
 struct MonitorBarSettings: MonitorSettingsType {
     let id: UUID
     var monitorName: String
+    var monitorDisplayId: CGDirectDisplayID?
 
     var enabled: Bool?
     var showLabels: Bool?
@@ -19,6 +21,7 @@ struct MonitorBarSettings: MonitorSettingsType {
     init(
         id: UUID = UUID(),
         monitorName: String,
+        monitorDisplayId: CGDirectDisplayID? = nil,
         enabled: Bool? = nil,
         showLabels: Bool? = nil,
         deduplicateAppIcons: Bool? = nil,
@@ -33,6 +36,7 @@ struct MonitorBarSettings: MonitorSettingsType {
     ) {
         self.id = id
         self.monitorName = monitorName
+        self.monitorDisplayId = monitorDisplayId
         self.enabled = enabled
         self.showLabels = showLabels
         self.deduplicateAppIcons = deduplicateAppIcons
@@ -47,7 +51,7 @@ struct MonitorBarSettings: MonitorSettingsType {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, monitorName, enabled, showLabels, deduplicateAppIcons
+        case id, monitorName, monitorDisplayId, enabled, showLabels, deduplicateAppIcons
         case hideEmptyWorkspaces, notchAware, position, windowLevel
         case height, backgroundOpacity, xOffset, yOffset
     }
@@ -56,6 +60,7 @@ struct MonitorBarSettings: MonitorSettingsType {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         monitorName = try container.decode(String.self, forKey: .monitorName)
+        monitorDisplayId = try container.decodeIfPresent(CGDirectDisplayID.self, forKey: .monitorDisplayId)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
         showLabels = try container.decodeIfPresent(Bool.self, forKey: .showLabels)
         deduplicateAppIcons = try container.decodeIfPresent(Bool.self, forKey: .deduplicateAppIcons)
@@ -75,6 +80,7 @@ struct MonitorBarSettings: MonitorSettingsType {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(monitorName, forKey: .monitorName)
+        try container.encodeIfPresent(monitorDisplayId, forKey: .monitorDisplayId)
         try container.encodeIfPresent(enabled, forKey: .enabled)
         try container.encodeIfPresent(showLabels, forKey: .showLabels)
         try container.encodeIfPresent(deduplicateAppIcons, forKey: .deduplicateAppIcons)

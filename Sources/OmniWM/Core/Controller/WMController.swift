@@ -194,7 +194,7 @@ final class WMController {
     func updateMonitorNiriSettings() {
         guard let engine = niriEngine else { return }
         for monitor in workspaceManager.monitors {
-            let resolved = settings.resolvedNiriSettings(for: monitor.name)
+            let resolved = settings.resolvedNiriSettings(for: monitor)
             engine.updateMonitorSettings(resolved, for: monitor.id)
         }
         layoutRefreshController.refreshWindowsAndLayout()
@@ -203,7 +203,7 @@ final class WMController {
     func updateMonitorDwindleSettings() {
         guard let engine = dwindleEngine else { return }
         for monitor in workspaceManager.monitors {
-            let resolved = settings.resolvedDwindleSettings(for: monitor.name)
+            let resolved = settings.resolvedDwindleSettings(for: monitor)
             engine.updateMonitorSettings(resolved, for: monitor.id)
         }
         layoutRefreshController.refreshWindowsAndLayout()
@@ -508,13 +508,16 @@ extension WMController {
         let pid = handle.pid
         let windowId = entry.windowId
         let moveMouseEnabled = moveMouseToFocusedWindowEnabled
+        let shouldRaiseWithAX = NSScreen.screensHaveSeparateSpaces && workspaceManager.monitors.count > 1
 
         focusManager.focusWindow(
             handle,
             workspaceId: entry.workspaceId,
             performFocus: { [weak self] in
                 OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
-                AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
+                if shouldRaiseWithAX {
+                    AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
+                }
 
                 if let runningApp = NSRunningApplication(processIdentifier: pid) {
                     runningApp.activate()

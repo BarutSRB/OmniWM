@@ -543,6 +543,8 @@ final class SettingsStore {
 
     func workspaceToMonitorAssignments() -> [String: [MonitorDescription]] {
         if !workspaceConfigurations.isEmpty {
+            // TODO: WorkspaceConfiguration currently models a single preferred monitor.
+            // Legacy raw assignments support multiple fallback monitors per workspace.
             var result: [String: [MonitorDescription]] = [:]
             for config in workspaceConfigurations {
                 if let desc = config.monitorAssignment.toMonitorDescription() {
@@ -674,6 +676,10 @@ final class SettingsStore {
         defaults.set(true, forKey: Keys.workspaceSettingsMigrated)
     }
 
+    func barSettings(for monitor: Monitor) -> MonitorBarSettings? {
+        MonitorSettingsStore.get(for: monitor, in: monitorBarSettings)
+    }
+
     func barSettings(for monitorName: String) -> MonitorBarSettings? {
         MonitorSettingsStore.get(for: monitorName, in: monitorBarSettings)
     }
@@ -682,8 +688,30 @@ final class SettingsStore {
         MonitorSettingsStore.update(settings, in: &monitorBarSettings)
     }
 
+    func removeBarSettings(for monitor: Monitor) {
+        MonitorSettingsStore.remove(for: monitor, from: &monitorBarSettings)
+    }
+
     func removeBarSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorBarSettings)
+    }
+
+    func resolvedBarSettings(for monitor: Monitor) -> ResolvedBarSettings {
+        let override = barSettings(for: monitor)
+
+        return ResolvedBarSettings(
+            enabled: override?.enabled ?? workspaceBarEnabled,
+            showLabels: override?.showLabels ?? workspaceBarShowLabels,
+            deduplicateAppIcons: override?.deduplicateAppIcons ?? workspaceBarDeduplicateAppIcons,
+            hideEmptyWorkspaces: override?.hideEmptyWorkspaces ?? workspaceBarHideEmptyWorkspaces,
+            notchAware: override?.notchAware ?? workspaceBarNotchAware,
+            position: override?.position ?? workspaceBarPosition,
+            windowLevel: override?.windowLevel ?? workspaceBarWindowLevel,
+            height: override?.height ?? workspaceBarHeight,
+            backgroundOpacity: override?.backgroundOpacity ?? workspaceBarBackgroundOpacity,
+            xOffset: override?.xOffset ?? workspaceBarXOffset,
+            yOffset: override?.yOffset ?? workspaceBarYOffset
+        )
     }
 
     func resolvedBarSettings(for monitorName: String) -> ResolvedBarSettings {
@@ -722,12 +750,16 @@ final class SettingsStore {
         appRules.first { $0.bundleId == bundleId }
     }
 
+    func orientationSettings(for monitor: Monitor) -> MonitorOrientationSettings? {
+        MonitorSettingsStore.get(for: monitor, in: monitorOrientationSettings)
+    }
+
     func orientationSettings(for monitorName: String) -> MonitorOrientationSettings? {
         MonitorSettingsStore.get(for: monitorName, in: monitorOrientationSettings)
     }
 
     func effectiveOrientation(for monitor: Monitor) -> Monitor.Orientation {
-        if let override = orientationSettings(for: monitor.name),
+        if let override = orientationSettings(for: monitor),
            let orientation = override.orientation
         {
             return orientation
@@ -739,8 +771,16 @@ final class SettingsStore {
         MonitorSettingsStore.update(settings, in: &monitorOrientationSettings)
     }
 
+    func removeOrientationSettings(for monitor: Monitor) {
+        MonitorSettingsStore.remove(for: monitor, from: &monitorOrientationSettings)
+    }
+
     func removeOrientationSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorOrientationSettings)
+    }
+
+    func niriSettings(for monitor: Monitor) -> MonitorNiriSettings? {
+        MonitorSettingsStore.get(for: monitor, in: monitorNiriSettings)
     }
 
     func niriSettings(for monitorName: String) -> MonitorNiriSettings? {
@@ -751,8 +791,25 @@ final class SettingsStore {
         MonitorSettingsStore.update(settings, in: &monitorNiriSettings)
     }
 
+    func removeNiriSettings(for monitor: Monitor) {
+        MonitorSettingsStore.remove(for: monitor, from: &monitorNiriSettings)
+    }
+
     func removeNiriSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorNiriSettings)
+    }
+
+    func resolvedNiriSettings(for monitor: Monitor) -> ResolvedNiriSettings {
+        let override = niriSettings(for: monitor)
+
+        return ResolvedNiriSettings(
+            maxVisibleColumns: override?.maxVisibleColumns ?? niriMaxVisibleColumns,
+            maxWindowsPerColumn: override?.maxWindowsPerColumn ?? niriMaxWindowsPerColumn,
+            centerFocusedColumn: override?.centerFocusedColumn ?? niriCenterFocusedColumn,
+            alwaysCenterSingleColumn: override?.alwaysCenterSingleColumn ?? niriAlwaysCenterSingleColumn,
+            singleWindowAspectRatio: override?.singleWindowAspectRatio ?? niriSingleWindowAspectRatio,
+            infiniteLoop: override?.infiniteLoop ?? niriInfiniteLoop
+        )
     }
 
     func resolvedNiriSettings(for monitorName: String) -> ResolvedNiriSettings {
@@ -768,6 +825,10 @@ final class SettingsStore {
         )
     }
 
+    func dwindleSettings(for monitor: Monitor) -> MonitorDwindleSettings? {
+        MonitorSettingsStore.get(for: monitor, in: monitorDwindleSettings)
+    }
+
     func dwindleSettings(for monitorName: String) -> MonitorDwindleSettings? {
         MonitorSettingsStore.get(for: monitorName, in: monitorDwindleSettings)
     }
@@ -776,8 +837,30 @@ final class SettingsStore {
         MonitorSettingsStore.update(settings, in: &monitorDwindleSettings)
     }
 
+    func removeDwindleSettings(for monitor: Monitor) {
+        MonitorSettingsStore.remove(for: monitor, from: &monitorDwindleSettings)
+    }
+
     func removeDwindleSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorDwindleSettings)
+    }
+
+    func resolvedDwindleSettings(for monitor: Monitor) -> ResolvedDwindleSettings {
+        let override = dwindleSettings(for: monitor)
+        let useGlobalGaps = override?.useGlobalGaps ?? dwindleUseGlobalGaps
+
+        return ResolvedDwindleSettings(
+            smartSplit: override?.smartSplit ?? dwindleSmartSplit,
+            defaultSplitRatio: CGFloat(override?.defaultSplitRatio ?? dwindleDefaultSplitRatio),
+            splitWidthMultiplier: CGFloat(override?.splitWidthMultiplier ?? dwindleSplitWidthMultiplier),
+            singleWindowAspectRatio: override?.singleWindowAspectRatio ?? dwindleSingleWindowAspectRatio,
+            useGlobalGaps: useGlobalGaps,
+            innerGap: useGlobalGaps ? CGFloat(gapSize) : CGFloat(override?.innerGap ?? gapSize),
+            outerGapTop: useGlobalGaps ? CGFloat(outerGapTop) : CGFloat(override?.outerGapTop ?? outerGapTop),
+            outerGapBottom: useGlobalGaps ? CGFloat(outerGapBottom) : CGFloat(override?.outerGapBottom ?? outerGapBottom),
+            outerGapLeft: useGlobalGaps ? CGFloat(outerGapLeft) : CGFloat(override?.outerGapLeft ?? outerGapLeft),
+            outerGapRight: useGlobalGaps ? CGFloat(outerGapRight) : CGFloat(override?.outerGapRight ?? outerGapRight)
+        )
     }
 
     func resolvedDwindleSettings(for monitorName: String) -> ResolvedDwindleSettings {
@@ -938,4 +1021,3 @@ private enum Keys {
 
     static let appearanceMode = "settings.appearanceMode"
 }
-
