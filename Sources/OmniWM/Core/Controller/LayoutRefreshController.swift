@@ -516,7 +516,7 @@ import QuartzCore
             _ = controller.workspaceManager.addWindow(ax, pid: pid, windowId: winId, to: wsForWindow)
             seenKeys.insert(.init(pid: pid, windowId: winId))
         }
-        controller.workspaceManager.removeMissing(keys: seenKeys)
+        controller.workspaceManager.removeMissing(keys: seenKeys, requiredConsecutiveMisses: 2)
         controller.workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWorkspaceId)
 
         try Task.checkCancellation()

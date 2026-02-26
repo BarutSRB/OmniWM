@@ -86,6 +86,28 @@ private func makeOverviewWindowItem(
         #expect(model.windows(in: ws2).map(\.handle) == [h3])
     }
 
+    @Test func windowModelRemoveMissingRequiresConsecutiveMissesWhenConfigured() {
+        let model = WindowModel()
+        let ws = WorkspaceDescriptor.ID()
+
+        let _ = model.upsert(window: makeAXWindowRef(windowId: 301), pid: 45, windowId: 301, workspace: ws)
+        let _ = model.upsert(window: makeAXWindowRef(windowId: 302), pid: 45, windowId: 302, workspace: ws)
+
+        model.removeMissing(keys: [.init(pid: 45, windowId: 301)], requiredConsecutiveMisses: 2)
+        #expect(model.entry(forWindowId: 302) != nil)
+
+        model.removeMissing(keys: [.init(pid: 45, windowId: 301)], requiredConsecutiveMisses: 2)
+        #expect(model.entry(forWindowId: 302) == nil)
+
+        let _ = model.upsert(window: makeAXWindowRef(windowId: 303), pid: 45, windowId: 303, workspace: ws)
+        model.removeMissing(keys: [], requiredConsecutiveMisses: 2)
+        #expect(model.entry(forWindowId: 303) != nil)
+
+        model.removeMissing(keys: [.init(pid: 45, windowId: 303)], requiredConsecutiveMisses: 2)
+        model.removeMissing(keys: [], requiredConsecutiveMisses: 2)
+        #expect(model.entry(forWindowId: 303) != nil)
+    }
+
     @Test func overviewLayoutHoverAndSelectionOnlyTouchOldAndNew() {
         let ws1 = WorkspaceDescriptor.ID()
         let ws2 = WorkspaceDescriptor.ID()
@@ -105,6 +127,7 @@ private func makeOverviewWindowItem(
                 ],
                 sectionFrame: .zero,
                 labelFrame: .zero,
+                gridFrame: .zero,
                 isActive: true
             ),
             OverviewWorkspaceSection(
@@ -113,6 +136,7 @@ private func makeOverviewWindowItem(
                 windows: [makeOverviewWindowItem(handle: h3, workspaceId: ws2, title: "C")],
                 sectionFrame: .zero,
                 labelFrame: .zero,
+                gridFrame: .zero,
                 isActive: false
             )
         ]
@@ -151,6 +175,7 @@ private func makeOverviewWindowItem(
                 ],
                 sectionFrame: .zero,
                 labelFrame: .zero,
+                gridFrame: .zero,
                 isActive: true
             )
         ]

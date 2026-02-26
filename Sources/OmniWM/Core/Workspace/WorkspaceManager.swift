@@ -307,8 +307,8 @@ final class WorkspaceManager {
         windows.allEntries()
     }
 
-    func removeMissing(keys activeKeys: Set<WindowModel.WindowKey>) {
-        windows.removeMissing(keys: activeKeys)
+    func removeMissing(keys activeKeys: Set<WindowModel.WindowKey>, requiredConsecutiveMisses: Int = 1) {
+        windows.removeMissing(keys: activeKeys, requiredConsecutiveMisses: requiredConsecutiveMisses)
     }
 
     func removeWindow(pid: pid_t, windowId: Int) {

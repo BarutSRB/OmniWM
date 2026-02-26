@@ -159,8 +159,14 @@ final class ServiceLifecycleManager {
 
     private func handleMonitorConfigurationChanged() {
         guard let controller else { return }
-        controller.workspaceManager.updateMonitors(Monitor.current())
+        let workspaceSnapshots = captureWorkspaceSnapshotsBeforeMonitorUpdate()
+        let currentMonitors = Monitor.current()
+        guard !currentMonitors.isEmpty else { return }
+        guard currentMonitors.allSatisfy({ $0.frame.width > 1 && $0.frame.height > 1 }) else { return }
+
+        controller.workspaceManager.updateMonitors(currentMonitors)
         controller.workspaceManager.reconcileAfterMonitorChange()
+        restoreWorkspacesAfterMonitorUpdate(from: workspaceSnapshots)
         controller.syncMonitorsToNiriEngine()
 
         if let activeMonitorId = controller.activeMonitorId,
@@ -178,6 +184,57 @@ final class ServiceLifecycleManager {
         controller.workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWsId)
 
         controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    private func captureWorkspaceSnapshotsBeforeMonitorUpdate() -> [WorkspaceRestoreSnapshot] {
+        guard let controller else { return [] }
+        var snapshots: [WorkspaceRestoreSnapshot] = []
+        snapshots.reserveCapacity(controller.workspaceManager.monitors.count)
+
+        for monitor in controller.workspaceManager.monitors {
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+            snapshots.append(WorkspaceRestoreSnapshot(
+                monitor: MonitorRestoreKey(monitor: monitor),
+                workspaceId: workspace.id
+            ))
+        }
+
+        return snapshots
+    }
+
+    private func restoreWorkspacesAfterMonitorUpdate(from snapshots: [WorkspaceRestoreSnapshot]) {
+        guard let controller else { return }
+        guard !snapshots.isEmpty else { return }
+        let forcedWorkspaceIds = forcedWorkspaceIdsForCurrentSettings()
+
+        let assignments = resolveWorkspaceRestoreAssignments(
+            snapshots: snapshots,
+            monitors: controller.workspaceManager.monitors,
+            workspaceExists: { workspaceId in
+                controller.workspaceManager.descriptor(for: workspaceId) != nil
+            }
+        )
+
+        if assignments.isEmpty { return }
+
+        let sortedMonitors = Monitor.sortedByPosition(controller.workspaceManager.monitors)
+        var restoredWorkspaces: Set<WorkspaceDescriptor.ID> = []
+
+        for monitor in sortedMonitors {
+            guard let workspaceId = assignments[monitor.id] else { continue }
+            guard !forcedWorkspaceIds.contains(workspaceId) else { continue }
+            guard restoredWorkspaces.insert(workspaceId).inserted else { continue }
+            _ = controller.workspaceManager.setActiveWorkspace(workspaceId, on: monitor.id)
+        }
+
+        // Forced workspace assignments remain authoritative after reconnect restore.
+        controller.workspaceManager.reconcileAfterMonitorChange()
+    }
+
+    private func forcedWorkspaceIdsForCurrentSettings() -> Set<WorkspaceDescriptor.ID> {
+        guard let controller else { return [] }
+        let assignmentNames = controller.settings.workspaceToMonitorAssignments().keys
+        return Set(assignmentNames.compactMap { controller.workspaceManager.workspaceId(named: $0) })
     }
 
     private func setupWorkspaceObservation() {

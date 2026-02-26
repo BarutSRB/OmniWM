@@ -38,6 +38,7 @@ final class WindowModel {
     private var handlesByWorkspace: [WorkspaceDescriptor.ID: [WindowHandle]] = [:]
     private var handleIndexByWorkspace: [WorkspaceDescriptor.ID: [WindowHandle: Int]] = [:]
     private var windowIdToHandle: [Int: WindowHandle] = [:]
+    private var missingDetectionCountByKey: [WindowKey: Int] = [:]
 
     struct WindowKey: Hashable {
         let pid: pid_t
@@ -81,6 +82,7 @@ final class WindowModel {
         let key = WindowKey(pid: pid, windowId: windowId)
         if let handle = keyToHandle[key] {
             entries[handle]?.axRef = window
+            missingDetectionCountByKey.removeValue(forKey: key)
             return handle
         } else {
             let handle = WindowHandle(id: UUID(), pid: pid, axElement: window.element)
@@ -95,6 +97,7 @@ final class WindowModel {
             keyToHandle[key] = handle
             appendHandle(handle, to: workspace)
             windowIdToHandle[windowId] = handle
+            missingDetectionCountByKey.removeValue(forKey: key)
             return handle
         }
     }
@@ -177,21 +180,46 @@ final class WindowModel {
         return prevKind
     }
 
-    func removeMissing(keys activeKeys: Set<WindowKey>) {
-        let toRemove = keyToHandle.keys.filter { !activeKeys.contains($0) }
-        for key in toRemove {
-                if let handle = keyToHandle[key] {
-                    if let entry = entries[handle] {
-                        removeHandle(handle, from: entry.workspaceId)
-                        windowIdToHandle.removeValue(forKey: entry.windowId)
-                    }
-                    entries.removeValue(forKey: handle)
-                    keyToHandle.removeValue(forKey: key)
+    func removeMissing(keys activeKeys: Set<WindowKey>, requiredConsecutiveMisses: Int = 1) {
+        let threshold = max(1, requiredConsecutiveMisses)
+        let knownKeys = Array(keyToHandle.keys)
+
+        for key in knownKeys where activeKeys.contains(key) {
+            missingDetectionCountByKey.removeValue(forKey: key)
+        }
+
+        let missingKeys = knownKeys.filter { !activeKeys.contains($0) }
+        var confirmedMissing: [WindowKey] = []
+        confirmedMissing.reserveCapacity(missingKeys.count)
+
+        for key in missingKeys {
+            let misses = (missingDetectionCountByKey[key] ?? 0) + 1
+            if misses >= threshold {
+                confirmedMissing.append(key)
+                missingDetectionCountByKey.removeValue(forKey: key)
+            } else {
+                missingDetectionCountByKey[key] = misses
+            }
+        }
+
+        for key in confirmedMissing {
+            if let handle = keyToHandle[key] {
+                if let entry = entries[handle] {
+                    removeHandle(handle, from: entry.workspaceId)
+                    windowIdToHandle.removeValue(forKey: entry.windowId)
                 }
+                entries.removeValue(forKey: handle)
+                keyToHandle.removeValue(forKey: key)
+            }
+        }
+
+        if !missingDetectionCountByKey.isEmpty {
+            missingDetectionCountByKey = missingDetectionCountByKey.filter { keyToHandle[$0.key] != nil }
         }
     }
 
     func removeWindow(key: WindowKey) {
+        missingDetectionCountByKey.removeValue(forKey: key)
         if let handle = keyToHandle[key] {
             if let entry = entries[handle] {
                 removeHandle(handle, from: entry.workspaceId)
