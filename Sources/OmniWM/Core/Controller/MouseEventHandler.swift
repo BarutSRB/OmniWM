@@ -28,6 +28,8 @@ final class MouseEventHandler {
         var gestureStartX: CGFloat = 0.0
         var gestureStartY: CGFloat = 0.0
         var gestureLastDeltaX: CGFloat = 0.0
+        var gestureWorkspaceId: WorkspaceDescriptor.ID?
+        var gestureMonitorId: Monitor.ID?
     }
 
     nonisolated(unsafe) static weak var _instance: MouseEventHandler?
@@ -462,7 +464,7 @@ final class MouseEventHandler {
         if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
         guard !state.isResizing, !state.isMoving else { return }
-        guard let engine = controller.niriEngine, let wsId = controller.activeWorkspace()?.id else { return }
+        guard let context = resolveScrollContext(at: location) else { return }
 
         let isTrackpad = momentumPhase != 0 || phase != 0
         if isTrackpad {
@@ -484,7 +486,13 @@ final class MouseEventHandler {
         let sensitivity = CGFloat(controller.settings.scrollSensitivity)
         let adjustedDelta = scrollDeltaX * sensitivity
 
-        applyMouseViewportScrollDelta(adjustedDelta, isTrackpad: false, engine: engine, wsId: wsId)
+        applyMouseViewportScrollDelta(
+            adjustedDelta,
+            isTrackpad: false,
+            engine: context.engine,
+            wsId: context.wsId,
+            monitor: context.monitor
+        )
     }
 
     private func handleFocusFollowsMouse(at location: CGPoint) {
@@ -529,7 +537,7 @@ final class MouseEventHandler {
         if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
         guard !state.isResizing, !state.isMoving else { return }
-        guard let engine = controller.niriEngine, let wsId = controller.activeWorkspace()?.id else { return }
+        guard let engine = controller.niriEngine else { return }
 
         let requiredFingers = controller.settings.gestureFingerCount.rawValue
         let invertDirection = controller.settings.gestureInvertDirection
@@ -537,7 +545,10 @@ final class MouseEventHandler {
         let phase = event.phase
         if phase == .ended || phase == .cancelled {
             if state.gesturePhase == .committed {
-                guard let monitor = controller.monitorForInteraction() else {
+                guard let wsId = state.gestureWorkspaceId,
+                      let monitorId = state.gestureMonitorId,
+                      let monitor = controller.workspaceManager.monitor(byId: monitorId)
+                else {
                     resetGestureState()
                     return
                 }
@@ -562,6 +573,11 @@ final class MouseEventHandler {
 
         if phase == .began {
             resetGestureState()
+        }
+
+        guard let currentContext = resolveScrollContext(at: location) else {
+            resetGestureState()
+            return
         }
 
         let touches = event.allTouches()
@@ -604,12 +620,25 @@ final class MouseEventHandler {
 
         switch state.gesturePhase {
         case .idle:
+            state.gestureWorkspaceId = currentContext.wsId
+            state.gestureMonitorId = currentContext.monitor.id
             state.gestureStartX = avgX
             state.gestureStartY = avgY
             state.gestureLastDeltaX = 0.0
             state.gesturePhase = .armed
 
         case .armed, .committed:
+            let wsId = state.gestureWorkspaceId ?? currentContext.wsId
+            let monitor = if let monitorId = state.gestureMonitorId,
+                             let savedMonitor = controller.workspaceManager.monitor(byId: monitorId)
+            {
+                savedMonitor
+            } else {
+                currentContext.monitor
+            }
+            state.gestureWorkspaceId = wsId
+            state.gestureMonitorId = monitor.id
+
             let dx = avgX - state.gestureStartX
             let currentDeltaX = dx
             let deltaNorm = currentDeltaX - state.gestureLastDeltaX
@@ -627,7 +656,13 @@ final class MouseEventHandler {
 
             state.gesturePhase = .committed
 
-            applyMouseViewportScrollDelta(deltaUnits, isTrackpad: true, engine: engine, wsId: wsId)
+            applyMouseViewportScrollDelta(
+                deltaUnits,
+                isTrackpad: true,
+                engine: engine,
+                wsId: wsId,
+                monitor: monitor
+            )
         }
     }
 
@@ -635,10 +670,10 @@ final class MouseEventHandler {
         _ delta: CGFloat,
         isTrackpad: Bool,
         engine: NiriLayoutEngine,
-        wsId: WorkspaceDescriptor.ID
+        wsId: WorkspaceDescriptor.ID,
+        monitor: Monitor
     ) {
         guard let controller else { return }
-        guard let monitor = controller.monitorForInteraction() else { return }
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let viewportWidth = insetFrame.width
         let gap = CGFloat(controller.workspaceManager.gaps)
@@ -687,10 +722,33 @@ final class MouseEventHandler {
         }
     }
 
+    private func resolveScrollContext(at location: CGPoint) -> (
+        engine: NiriLayoutEngine,
+        wsId: WorkspaceDescriptor.ID,
+        monitor: Monitor
+    )? {
+        guard let controller,
+              let engine = controller.niriEngine
+        else {
+            return nil
+        }
+
+        let monitors = controller.workspaceManager.monitors
+        guard let monitor = location.monitorApproximation(in: monitors),
+              let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        else {
+            return nil
+        }
+
+        return (engine, workspace.id, monitor)
+    }
+
     private func resetGestureState() {
         state.gesturePhase = .idle
         state.gestureStartX = 0.0
         state.gestureStartY = 0.0
         state.gestureLastDeltaX = 0.0
+        state.gestureWorkspaceId = nil
+        state.gestureMonitorId = nil
     }
 }
