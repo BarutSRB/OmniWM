@@ -697,26 +697,14 @@ final class SettingsStore {
     }
 
     func resolvedBarSettings(for monitor: Monitor) -> ResolvedBarSettings {
-        let override = barSettings(for: monitor)
-
-        return ResolvedBarSettings(
-            enabled: override?.enabled ?? workspaceBarEnabled,
-            showLabels: override?.showLabels ?? workspaceBarShowLabels,
-            deduplicateAppIcons: override?.deduplicateAppIcons ?? workspaceBarDeduplicateAppIcons,
-            hideEmptyWorkspaces: override?.hideEmptyWorkspaces ?? workspaceBarHideEmptyWorkspaces,
-            notchAware: override?.notchAware ?? workspaceBarNotchAware,
-            position: override?.position ?? workspaceBarPosition,
-            windowLevel: override?.windowLevel ?? workspaceBarWindowLevel,
-            height: override?.height ?? workspaceBarHeight,
-            backgroundOpacity: override?.backgroundOpacity ?? workspaceBarBackgroundOpacity,
-            xOffset: override?.xOffset ?? workspaceBarXOffset,
-            yOffset: override?.yOffset ?? workspaceBarYOffset
-        )
+        resolvedBarSettings(override: barSettings(for: monitor))
     }
 
     func resolvedBarSettings(for monitorName: String) -> ResolvedBarSettings {
-        let override = barSettings(for: monitorName)
+        resolvedBarSettings(override: barSettings(for: monitorName))
+    }
 
+    private func resolvedBarSettings(override: MonitorBarSettings?) -> ResolvedBarSettings {
         return ResolvedBarSettings(
             enabled: override?.enabled ?? workspaceBarEnabled,
             showLabels: override?.showLabels ?? workspaceBarShowLabels,
@@ -800,21 +788,14 @@ final class SettingsStore {
     }
 
     func resolvedNiriSettings(for monitor: Monitor) -> ResolvedNiriSettings {
-        let override = niriSettings(for: monitor)
-
-        return ResolvedNiriSettings(
-            maxVisibleColumns: override?.maxVisibleColumns ?? niriMaxVisibleColumns,
-            maxWindowsPerColumn: override?.maxWindowsPerColumn ?? niriMaxWindowsPerColumn,
-            centerFocusedColumn: override?.centerFocusedColumn ?? niriCenterFocusedColumn,
-            alwaysCenterSingleColumn: override?.alwaysCenterSingleColumn ?? niriAlwaysCenterSingleColumn,
-            singleWindowAspectRatio: override?.singleWindowAspectRatio ?? niriSingleWindowAspectRatio,
-            infiniteLoop: override?.infiniteLoop ?? niriInfiniteLoop
-        )
+        resolvedNiriSettings(override: niriSettings(for: monitor))
     }
 
     func resolvedNiriSettings(for monitorName: String) -> ResolvedNiriSettings {
-        let override = niriSettings(for: monitorName)
+        resolvedNiriSettings(override: niriSettings(for: monitorName))
+    }
 
+    private func resolvedNiriSettings(override: MonitorNiriSettings?) -> ResolvedNiriSettings {
         return ResolvedNiriSettings(
             maxVisibleColumns: override?.maxVisibleColumns ?? niriMaxVisibleColumns,
             maxWindowsPerColumn: override?.maxWindowsPerColumn ?? niriMaxWindowsPerColumn,
@@ -846,27 +827,15 @@ final class SettingsStore {
     }
 
     func resolvedDwindleSettings(for monitor: Monitor) -> ResolvedDwindleSettings {
-        let override = dwindleSettings(for: monitor)
-        let useGlobalGaps = override?.useGlobalGaps ?? dwindleUseGlobalGaps
-
-        return ResolvedDwindleSettings(
-            smartSplit: override?.smartSplit ?? dwindleSmartSplit,
-            defaultSplitRatio: CGFloat(override?.defaultSplitRatio ?? dwindleDefaultSplitRatio),
-            splitWidthMultiplier: CGFloat(override?.splitWidthMultiplier ?? dwindleSplitWidthMultiplier),
-            singleWindowAspectRatio: override?.singleWindowAspectRatio ?? dwindleSingleWindowAspectRatio,
-            useGlobalGaps: useGlobalGaps,
-            innerGap: useGlobalGaps ? CGFloat(gapSize) : CGFloat(override?.innerGap ?? gapSize),
-            outerGapTop: useGlobalGaps ? CGFloat(outerGapTop) : CGFloat(override?.outerGapTop ?? outerGapTop),
-            outerGapBottom: useGlobalGaps ? CGFloat(outerGapBottom) : CGFloat(override?.outerGapBottom ?? outerGapBottom),
-            outerGapLeft: useGlobalGaps ? CGFloat(outerGapLeft) : CGFloat(override?.outerGapLeft ?? outerGapLeft),
-            outerGapRight: useGlobalGaps ? CGFloat(outerGapRight) : CGFloat(override?.outerGapRight ?? outerGapRight)
-        )
+        resolvedDwindleSettings(override: dwindleSettings(for: monitor))
     }
 
     func resolvedDwindleSettings(for monitorName: String) -> ResolvedDwindleSettings {
-        let override = dwindleSettings(for: monitorName)
-        let useGlobalGaps = override?.useGlobalGaps ?? dwindleUseGlobalGaps
+        resolvedDwindleSettings(override: dwindleSettings(for: monitorName))
+    }
 
+    private func resolvedDwindleSettings(override: MonitorDwindleSettings?) -> ResolvedDwindleSettings {
+        let useGlobalGaps = override?.useGlobalGaps ?? dwindleUseGlobalGaps
         return ResolvedDwindleSettings(
             smartSplit: override?.smartSplit ?? dwindleSmartSplit,
             defaultSplitRatio: CGFloat(override?.defaultSplitRatio ?? dwindleDefaultSplitRatio),

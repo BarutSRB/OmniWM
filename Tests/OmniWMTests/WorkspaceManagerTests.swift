@@ -59,4 +59,34 @@ private func makeWorkspaceManagerTestMonitor(
         #expect(manager.activeWorkspace(on: newCenter.id)?.id == ws1)
         #expect(manager.activeWorkspace(on: newFar.id)?.id == ws2)
     }
+
+    @Test @MainActor func adjacentMonitorPrefersClosestDirectionalCandidate() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        let manager = WorkspaceManager(settings: settings)
+
+        let left = makeWorkspaceManagerTestMonitor(displayId: 10, name: "Left", x: -1400, y: 0)
+        let center = makeWorkspaceManagerTestMonitor(displayId: 20, name: "Center", x: 0, y: 0)
+        let rightNear = makeWorkspaceManagerTestMonitor(displayId: 30, name: "Right Near", x: 1100, y: 350)
+        let rightFar = makeWorkspaceManagerTestMonitor(displayId: 40, name: "Right Far", x: 1800, y: 0)
+        manager.updateMonitors([left, center, rightNear, rightFar])
+
+        #expect(manager.adjacentMonitor(from: center.id, direction: .right)?.id == rightNear.id)
+        #expect(manager.adjacentMonitor(from: center.id, direction: .left)?.id == left.id)
+    }
+
+    @Test @MainActor func adjacentMonitorWrapsToOppositeExtremeWhenNoDirectionalCandidate() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        let manager = WorkspaceManager(settings: settings)
+
+        let left = makeWorkspaceManagerTestMonitor(displayId: 10, name: "Left", x: -2000, y: 0)
+        let center = makeWorkspaceManagerTestMonitor(displayId: 20, name: "Center", x: 0, y: 0)
+        let right = makeWorkspaceManagerTestMonitor(displayId: 30, name: "Right", x: 2000, y: 0)
+        manager.updateMonitors([left, center, right])
+
+        #expect(manager.adjacentMonitor(from: right.id, direction: .right, wrapAround: false) == nil)
+        #expect(manager.adjacentMonitor(from: right.id, direction: .right, wrapAround: true)?.id == left.id)
+        #expect(manager.adjacentMonitor(from: left.id, direction: .left, wrapAround: true)?.id == right.id)
+    }
 }

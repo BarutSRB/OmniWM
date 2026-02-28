@@ -709,7 +709,8 @@ import QuartzCore
             monitors: controller.workspaceManager.monitors
         )
         let moveEpsilon: CGFloat = 0.01
-        if abs(frame.origin.x - origin.x) < moveEpsilon {
+        if abs(frame.origin.x - origin.x) < moveEpsilon,
+           abs(frame.origin.y - origin.y) < moveEpsilon {
             return
         }
         controller.axManager.applyPositionsViaSkyLight([(entry.windowId, origin)], allowInactive: true)

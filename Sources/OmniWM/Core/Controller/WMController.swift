@@ -421,7 +421,13 @@ final class WMController {
         if let fallbackWorkspaceId {
             return fallbackWorkspaceId
         }
-        return workspaceManager.primaryWorkspace()?.id ?? workspaceManager.workspaces.first!.id
+        if let workspaceId = workspaceManager.primaryWorkspace()?.id ?? workspaceManager.workspaces.first?.id {
+            return workspaceId
+        }
+        if let createdWorkspaceId = workspaceManager.workspaceId(for: "1", createIfMissing: true) {
+            return createdWorkspaceId
+        }
+        fatalError("resolveWorkspaceForNewWindow: no workspaces exist")
     }
 
     func workspaceAssignment(pid: pid_t, windowId: Int) -> WorkspaceDescriptor.ID? {

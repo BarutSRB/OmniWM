@@ -585,84 +585,89 @@ final class WorkspaceManager {
     }
 
     private func bestMonitor(in candidates: [Monitor], from current: Monitor, direction: Direction) -> Monitor? {
-        candidates.min(by: { lhs, rhs in
-            let lhsDelta = monitorDelta(from: current, to: lhs)
-            let rhsDelta = monitorDelta(from: current, to: rhs)
-
-            let lhsAxisDistance: CGFloat
-            let lhsCrossDistance: CGFloat
-            let rhsAxisDistance: CGFloat
-            let rhsCrossDistance: CGFloat
-
-            switch direction {
-            case .left, .right:
-                lhsAxisDistance = abs(lhsDelta.dx)
-                lhsCrossDistance = abs(lhsDelta.dy)
-                rhsAxisDistance = abs(rhsDelta.dx)
-                rhsCrossDistance = abs(rhsDelta.dy)
-            case .up, .down:
-                lhsAxisDistance = abs(lhsDelta.dy)
-                lhsCrossDistance = abs(lhsDelta.dx)
-                rhsAxisDistance = abs(rhsDelta.dy)
-                rhsCrossDistance = abs(rhsDelta.dx)
-            }
-
-            if lhsAxisDistance != rhsAxisDistance {
-                return lhsAxisDistance < rhsAxisDistance
-            }
-            if lhsCrossDistance != rhsCrossDistance {
-                return lhsCrossDistance < rhsCrossDistance
-            }
-            let lhsDistance = lhs.frame.center.distanceSquared(to: current.frame.center)
-            let rhsDistance = rhs.frame.center.distanceSquared(to: current.frame.center)
-            if lhsDistance != rhsDistance {
-                return lhsDistance < rhsDistance
-            }
-            return monitorSortKey(lhs) < monitorSortKey(rhs)
+        candidates.min(by: {
+            isBetterMonitorCandidate($0, than: $1, from: current, direction: direction, mode: .directional)
         })
     }
 
     private func wrappedMonitor(in candidates: [Monitor], from current: Monitor, direction: Direction) -> Monitor? {
-        candidates.min(by: { lhs, rhs in
-            let lhsDelta = monitorDelta(from: current, to: lhs)
-            let rhsDelta = monitorDelta(from: current, to: rhs)
+        candidates.min(by: {
+            isBetterMonitorCandidate($0, than: $1, from: current, direction: direction, mode: .wrapped)
+        })
+    }
 
-            let lhsPrimary: CGFloat
-            let lhsSecondary: CGFloat
-            let rhsPrimary: CGFloat
-            let rhsSecondary: CGFloat
+    private enum MonitorSelectionMode {
+        case directional
+        case wrapped
+    }
 
+    private struct MonitorSelectionRank {
+        let primary: CGFloat
+        let secondary: CGFloat
+        let distance: CGFloat?
+    }
+
+    private func isBetterMonitorCandidate(
+        _ lhs: Monitor,
+        than rhs: Monitor,
+        from current: Monitor,
+        direction: Direction,
+        mode: MonitorSelectionMode
+    ) -> Bool {
+        let lhsRank = monitorSelectionRank(for: lhs, from: current, direction: direction, mode: mode)
+        let rhsRank = monitorSelectionRank(for: rhs, from: current, direction: direction, mode: mode)
+
+        if lhsRank.primary != rhsRank.primary {
+            return lhsRank.primary < rhsRank.primary
+        }
+        if lhsRank.secondary != rhsRank.secondary {
+            return lhsRank.secondary < rhsRank.secondary
+        }
+        if let lhsDistance = lhsRank.distance,
+           let rhsDistance = rhsRank.distance,
+           lhsDistance != rhsDistance
+        {
+            return lhsDistance < rhsDistance
+        }
+        return monitorSortKey(lhs) < monitorSortKey(rhs)
+    }
+
+    private func monitorSelectionRank(
+        for candidate: Monitor,
+        from current: Monitor,
+        direction: Direction,
+        mode: MonitorSelectionMode
+    ) -> MonitorSelectionRank {
+        let delta = monitorDelta(from: current, to: candidate)
+
+        switch mode {
+        case .directional:
+            switch direction {
+            case .left, .right:
+                return MonitorSelectionRank(
+                    primary: abs(delta.dx),
+                    secondary: abs(delta.dy),
+                    distance: candidate.frame.center.distanceSquared(to: current.frame.center)
+                )
+            case .up, .down:
+                return MonitorSelectionRank(
+                    primary: abs(delta.dy),
+                    secondary: abs(delta.dx),
+                    distance: candidate.frame.center.distanceSquared(to: current.frame.center)
+                )
+            }
+        case .wrapped:
             switch direction {
             case .right:
-                lhsPrimary = lhs.frame.center.x
-                rhsPrimary = rhs.frame.center.x
-                lhsSecondary = abs(lhsDelta.dy)
-                rhsSecondary = abs(rhsDelta.dy)
+                return MonitorSelectionRank(primary: candidate.frame.center.x, secondary: abs(delta.dy), distance: nil)
             case .left:
-                lhsPrimary = -lhs.frame.center.x
-                rhsPrimary = -rhs.frame.center.x
-                lhsSecondary = abs(lhsDelta.dy)
-                rhsSecondary = abs(rhsDelta.dy)
+                return MonitorSelectionRank(primary: -candidate.frame.center.x, secondary: abs(delta.dy), distance: nil)
             case .up:
-                lhsPrimary = lhs.frame.center.y
-                rhsPrimary = rhs.frame.center.y
-                lhsSecondary = abs(lhsDelta.dx)
-                rhsSecondary = abs(rhsDelta.dx)
+                return MonitorSelectionRank(primary: candidate.frame.center.y, secondary: abs(delta.dx), distance: nil)
             case .down:
-                lhsPrimary = -lhs.frame.center.y
-                rhsPrimary = -rhs.frame.center.y
-                lhsSecondary = abs(lhsDelta.dx)
-                rhsSecondary = abs(rhsDelta.dx)
+                return MonitorSelectionRank(primary: -candidate.frame.center.y, secondary: abs(delta.dx), distance: nil)
             }
-
-            if lhsPrimary != rhsPrimary {
-                return lhsPrimary < rhsPrimary
-            }
-            if lhsSecondary != rhsSecondary {
-                return lhsSecondary < rhsSecondary
-            }
-            return monitorSortKey(lhs) < monitorSortKey(rhs)
-        })
+        }
     }
 
     private func monitorSortKey(_ monitor: Monitor) -> (CGFloat, CGFloat, UInt32) {

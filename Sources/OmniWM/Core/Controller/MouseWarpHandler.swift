@@ -115,7 +115,11 @@ final class MouseWarpHandler {
         }
 
         state.lastMonitorId = currentMonitor.id
-        guard let currentIndex = monitorOrder.firstIndex(of: currentMonitor.name) else { return }
+        guard let currentIndex = mouseWarpCurrentIndex(
+            for: currentMonitor,
+            in: monitorOrder,
+            monitors: monitors
+        ) else { return }
 
         let frame = currentMonitor.frame
 
@@ -198,19 +202,7 @@ final class MouseWarpHandler {
         let candidates = controller?.workspaceManager.monitors(named: name) ?? monitors.filter { $0.name == name }
         guard !candidates.isEmpty else { return }
 
-        let targetMonitor: Monitor
-        if candidates.count == 1 {
-            targetMonitor = candidates[0]
-        } else {
-            let sorted = Monitor.sortedByPosition(candidates)
-            if edge == .right, let first = sorted.first {
-                targetMonitor = first
-            } else if let last = sorted.last {
-                targetMonitor = last
-            } else {
-                return
-            }
-        }
+        guard let targetMonitor = mouseWarpTargetMonitor(from: candidates, edge: edge) else { return }
 
         let frame = targetMonitor.frame
 
@@ -234,6 +226,37 @@ final class MouseWarpHandler {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.cooldownSeconds) { [weak self] in
             self?.state.isWarping = false
+        }
+    }
+
+    private func mouseWarpCurrentIndex(for currentMonitor: Monitor, in monitorOrder: [String], monitors: [Monitor]) -> Int? {
+        let matchingIndices = monitorOrder.indices.filter { monitorOrder[$0] == currentMonitor.name }
+        guard !matchingIndices.isEmpty else { return nil }
+        guard matchingIndices.count > 1 else { return matchingIndices[0] }
+
+        let sameNameMonitors = controller?.workspaceManager.monitors(named: currentMonitor.name)
+            ?? monitors.filter { $0.name == currentMonitor.name }
+        let sortedSameName = Monitor.sortedByPosition(sameNameMonitors)
+        guard let rank = sortedSameName.firstIndex(where: { $0.id == currentMonitor.id }) else {
+            return matchingIndices[0]
+        }
+
+        let clampedRank = min(rank, matchingIndices.count - 1)
+        return matchingIndices[clampedRank]
+    }
+
+    private func mouseWarpTargetMonitor(from candidates: [Monitor], edge: Edge) -> Monitor? {
+        guard !candidates.isEmpty else { return nil }
+        if candidates.count == 1 {
+            return candidates[0]
+        }
+
+        let sorted = Monitor.sortedByPosition(candidates)
+        switch edge {
+        case .left:
+            return sorted.first
+        case .right:
+            return sorted.last
         }
     }
 
