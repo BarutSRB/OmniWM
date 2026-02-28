@@ -338,12 +338,16 @@ final class WorkspaceManager {
         windows.entry(for: handle)?.workspaceId
     }
 
-    func setHiddenProportionalPosition(_ position: CGPoint?, for handle: WindowHandle) {
-        windows.setHiddenProportionalPosition(position, for: handle)
-    }
-
     func isHiddenInCorner(_ handle: WindowHandle) -> Bool {
         windows.isHiddenInCorner(handle)
+    }
+
+    func setHiddenState(_ state: WindowModel.HiddenState?, for handle: WindowHandle) {
+        windows.setHiddenState(state, for: handle)
+    }
+
+    func hiddenState(for handle: WindowHandle) -> WindowModel.HiddenState? {
+        windows.hiddenState(for: handle)
     }
 
     func layoutReason(for handle: WindowHandle) -> LayoutReason {
