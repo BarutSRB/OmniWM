@@ -6,6 +6,11 @@ import QuartzCore
     weak var controller: WMController?
     static let hiddenWindowEdgeRevealEpsilon: CGFloat = 1.0
 
+    enum HideReason {
+        case workspaceInactive
+        case layoutTransient
+    }
+
     struct LayoutState {
         struct ClosingAnimation {
             let windowId: Int
@@ -292,11 +297,13 @@ import QuartzCore
             }
         }
 
+        let preferredSides = preferredHideSides(for: controller.workspaceManager.monitors)
         for ws in controller.workspaceManager.workspaces where workspaceIds.contains(ws.id) {
             guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
             let isActive = controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == ws.id
             if !isActive {
-                hideWorkspace(ws.id, monitor: monitor)
+                let preferredSide = preferredSides[monitor.id] ?? .right
+                hideWorkspace(ws.id, monitor: monitor, preferredSide: preferredSide)
             }
         }
     }
@@ -548,9 +555,11 @@ import QuartzCore
             activeWorkspaceIds: activeWorkspaceIds
         )
 
+        let preferredSides = preferredHideSides(for: controller.workspaceManager.monitors)
         for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
             guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
-            hideWorkspace(ws.id, monitor: monitor)
+            let preferredSide = preferredSides[monitor.id] ?? .right
+            hideWorkspace(ws.id, monitor: monitor, preferredSide: preferredSide)
         }
         controller.updateWorkspaceBar()
 
@@ -635,9 +644,11 @@ import QuartzCore
             controller.axManager.cancelPendingFrameJobs(inactiveWindowJobs)
         }
 
+        let preferredSides = preferredHideSides(for: controller.workspaceManager.monitors)
         for ws in controller.workspaceManager.workspaces where !activeWorkspaceIds.contains(ws.id) {
             guard let monitor = controller.workspaceManager.monitor(for: ws.id) else { continue }
-            hideWorkspace(ws.id, monitor: monitor)
+            let preferredSide = preferredSides[monitor.id] ?? .right
+            hideWorkspace(ws.id, monitor: monitor, preferredSide: preferredSide)
         }
     }
 
@@ -650,24 +661,38 @@ import QuartzCore
         }
     }
 
-    private func hideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
+    private func hideWorkspace(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor, preferredSide: HideSide) {
         guard let controller else { return }
         for entry in controller.workspaceManager.entries(in: workspaceId) {
             controller.axManager.markWindowInactive(entry.windowId)
-            hideWindow(entry, monitor: monitor, side: .right, targetY: nil)
+            hideWindow(entry, monitor: monitor, side: preferredSide, targetY: nil, reason: .workspaceInactive)
         }
     }
 
-    func hideWindow(_ entry: WindowModel.Entry, monitor: Monitor, side: HideSide, targetY: CGFloat?) {
+    func hideWindow(_ entry: WindowModel.Entry, monitor: Monitor, side: HideSide, targetY: CGFloat?, reason: HideReason) {
         guard let controller else { return }
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
         let frameEntry = (pid: entry.handle.pid, windowId: entry.windowId)
         if !controller.workspaceManager.isHiddenInCorner(entry.handle) {
             let center = frame.center
-            let referenceFrame = center.monitorApproximation(in: controller.workspaceManager.monitors)?
-                .frame ?? monitor.frame
+            let referenceMonitor = center.monitorApproximation(in: controller.workspaceManager.monitors) ?? monitor
+            let referenceFrame = referenceMonitor.frame
             let proportional = proportionalPosition(topLeft: frame.topLeftCorner, in: referenceFrame)
-            controller.workspaceManager.setHiddenProportionalPosition(proportional, for: entry.handle)
+            let hiddenState = WindowModel.HiddenState(
+                proportionalPosition: proportional,
+                referenceMonitorId: referenceMonitor.id,
+                workspaceInactive: reason == .workspaceInactive
+            )
+            controller.workspaceManager.setHiddenState(hiddenState, for: entry.handle)
+        } else if reason == .workspaceInactive,
+                  let existingState = controller.workspaceManager.hiddenState(for: entry.handle),
+                  !existingState.workspaceInactive {
+            let upgradedState = WindowModel.HiddenState(
+                proportionalPosition: existingState.proportionalPosition,
+                referenceMonitorId: existingState.referenceMonitorId,
+                workspaceInactive: true
+            )
+            controller.workspaceManager.setHiddenState(upgradedState, for: entry.handle)
         }
         controller.axManager.suppressFrameWrites([frameEntry])
         controller.axManager.cancelPendingFrameJobs([frameEntry])
@@ -690,13 +715,7 @@ import QuartzCore
         controller.axManager.applyPositionsViaSkyLight([(entry.windowId, origin)], allowInactive: true)
 
         let verifyEpsilon: CGFloat = 1.0
-        var observedOrigin: CGPoint?
-        if let wsRect = SkyLight.shared.getWindowBounds(UInt32(entry.windowId)) {
-            let appKitRect = ScreenCoordinateSpace.toAppKit(rect: wsRect)
-            observedOrigin = appKitRect.origin
-        } else if let axFrame = AXWindowService.framePreferFast(entry.axRef) {
-            observedOrigin = axFrame.origin
-        }
+        let observedOrigin = observedWindowOrigin(entry)
 
         if let observedOrigin,
            abs(observedOrigin.x - origin.x) > verifyEpsilon
@@ -709,7 +728,11 @@ import QuartzCore
 
     func unhideWindow(_ entry: WindowModel.Entry, monitor: Monitor) {
         guard let controller else { return }
-        controller.workspaceManager.setHiddenProportionalPosition(nil, for: entry.handle)
+        if let hiddenState = controller.workspaceManager.hiddenState(for: entry.handle),
+           hiddenState.workspaceInactive {
+            restoreWindowFromHiddenState(entry, monitor: monitor, hiddenState: hiddenState)
+        }
+        controller.workspaceManager.setHiddenState(nil, for: entry.handle)
         controller.axManager.unsuppressFrameWrites([(entry.handle.pid, entry.windowId)])
     }
 
@@ -768,6 +791,123 @@ import QuartzCore
         }
 
         return primaryOrigin
+    }
+
+    private func preferredHideSides(for monitors: [Monitor]) -> [Monitor.ID: HideSide] {
+        let important = 10
+        var preferredSides: [Monitor.ID: HideSide] = [:]
+
+        for monitor in monitors {
+            let monitorFrame = monitor.frame
+            let xOff = monitorFrame.width * 0.1
+            let yOff = monitorFrame.height * 0.1
+
+            let bottomRight = CGPoint(x: monitorFrame.maxX, y: monitorFrame.minY)
+            let bottomLeft = CGPoint(x: monitorFrame.minX, y: monitorFrame.minY)
+
+            let rightPoints = [
+                CGPoint(x: bottomRight.x + 2, y: bottomRight.y - yOff),
+                CGPoint(x: bottomRight.x - xOff, y: bottomRight.y + 2),
+                CGPoint(x: bottomRight.x + 2, y: bottomRight.y + 2)
+            ]
+
+            let leftPoints = [
+                CGPoint(x: bottomLeft.x - 2, y: bottomLeft.y - yOff),
+                CGPoint(x: bottomLeft.x + xOff, y: bottomLeft.y + 2),
+                CGPoint(x: bottomLeft.x - 2, y: bottomLeft.y + 2)
+            ]
+
+            func sideScore(_ points: [CGPoint]) -> Int {
+                monitors.reduce(0) { partial, other in
+                    let c1 = other.frame.contains(points[0]) ? 1 : 0
+                    let c2 = other.frame.contains(points[1]) ? 1 : 0
+                    let c3 = other.frame.contains(points[2]) ? 1 : 0
+                    return partial + c1 + c2 + important * c3
+                }
+            }
+
+            let leftScore = sideScore(leftPoints)
+            let rightScore = sideScore(rightPoints)
+            preferredSides[monitor.id] = leftScore < rightScore ? .left : .right
+        }
+
+        return preferredSides
+    }
+
+    private func restoreWindowFromHiddenState(
+        _ entry: WindowModel.Entry,
+        monitor: Monitor,
+        hiddenState: WindowModel.HiddenState
+    ) {
+        guard let controller else { return }
+        guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
+
+        let fallbackMonitor = hiddenState.referenceMonitorId
+            .flatMap { controller.workspaceManager.monitor(byId: $0) }
+        let restoreFrame: CGRect
+        if monitor.frame.width > 1, monitor.frame.height > 1 {
+            restoreFrame = monitor.frame
+        } else {
+            restoreFrame = fallbackMonitor?.frame ?? monitor.frame
+        }
+
+        let topLeft = topLeftPoint(from: hiddenState.proportionalPosition, in: restoreFrame)
+        let restoredOrigin = clampedOrigin(forTopLeft: topLeft, windowSize: frame.size, in: restoreFrame)
+        let moveEpsilon: CGFloat = 0.01
+        if abs(frame.origin.x - restoredOrigin.x) < moveEpsilon,
+           abs(frame.origin.y - restoredOrigin.y) < moveEpsilon {
+            return
+        }
+
+        controller.axManager.applyPositionsViaSkyLight([(entry.windowId, restoredOrigin)], allowInactive: true)
+
+        let verifyEpsilon: CGFloat = 1.0
+        if let observedOrigin = observedWindowOrigin(entry),
+           abs(observedOrigin.x - restoredOrigin.x) > verifyEpsilon
+            || abs(observedOrigin.y - restoredOrigin.y) > verifyEpsilon
+        {
+            let fallbackFrame = CGRect(origin: restoredOrigin, size: frame.size)
+            try? AXWindowService.setFrame(entry.axRef, frame: fallbackFrame)
+        }
+    }
+
+    private func topLeftPoint(from proportionalPosition: CGPoint, in frame: CGRect) -> CGPoint {
+        let xRatio = min(max(proportionalPosition.x, 0), 1)
+        let yRatio = min(max(proportionalPosition.y, 0), 1)
+        return CGPoint(
+            x: frame.minX + frame.width * xRatio,
+            y: frame.maxY - frame.height * yRatio
+        )
+    }
+
+    private func clampedOrigin(forTopLeft topLeft: CGPoint, windowSize: CGSize, in frame: CGRect) -> CGPoint {
+        let minX = frame.minX
+        let maxX = frame.maxX - windowSize.width
+        let clampedX: CGFloat
+        if maxX >= minX {
+            clampedX = min(max(topLeft.x, minX), maxX)
+        } else {
+            clampedX = minX
+        }
+
+        let minTopLeftY = frame.minY + windowSize.height
+        let maxTopLeftY = frame.maxY
+        let clampedTopLeftY: CGFloat
+        if maxTopLeftY >= minTopLeftY {
+            clampedTopLeftY = min(max(topLeft.y, minTopLeftY), maxTopLeftY)
+        } else {
+            clampedTopLeftY = maxTopLeftY
+        }
+
+        return CGPoint(x: clampedX, y: clampedTopLeftY - windowSize.height)
+    }
+
+    private func observedWindowOrigin(_ entry: WindowModel.Entry) -> CGPoint? {
+        if let wsRect = SkyLight.shared.getWindowBounds(UInt32(entry.windowId)) {
+            let appKitRect = ScreenCoordinateSpace.toAppKit(rect: wsRect)
+            return appKitRect.origin
+        }
+        return AXWindowService.framePreferFast(entry.axRef)?.origin
     }
 
     static func hiddenEdgeReveal(isZoomApp: Bool) -> CGFloat {

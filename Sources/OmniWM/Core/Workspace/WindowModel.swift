@@ -2,12 +2,20 @@ import CoreGraphics
 import Foundation
 
 final class WindowModel {
+    struct HiddenState {
+        let proportionalPosition: CGPoint
+        let referenceMonitorId: Monitor.ID?
+        let workspaceInactive: Bool
+    }
+
     final class Entry {
         let handle: WindowHandle
         var axRef: AXWindowRef
         var workspaceId: WorkspaceDescriptor.ID
         let windowId: Int
         var hiddenProportionalPosition: CGPoint?
+        var hiddenReferenceMonitorId: Monitor.ID?
+        var hiddenByWorkspaceInactivity: Bool = false
 
         var layoutReason: LayoutReason = .standard
 
@@ -150,8 +158,27 @@ final class WindowModel {
         Array(entries.values)
     }
 
-    func setHiddenProportionalPosition(_ position: CGPoint?, for handle: WindowHandle) {
-        entries[handle]?.hiddenProportionalPosition = position
+    func setHiddenState(_ state: HiddenState?, for handle: WindowHandle) {
+        guard let entry = entries[handle] else { return }
+        if let state {
+            entry.hiddenProportionalPosition = state.proportionalPosition
+            entry.hiddenReferenceMonitorId = state.referenceMonitorId
+            entry.hiddenByWorkspaceInactivity = state.workspaceInactive
+        } else {
+            entry.hiddenProportionalPosition = nil
+            entry.hiddenReferenceMonitorId = nil
+            entry.hiddenByWorkspaceInactivity = false
+        }
+    }
+
+    func hiddenState(for handle: WindowHandle) -> HiddenState? {
+        guard let entry = entries[handle],
+              let proportionalPosition = entry.hiddenProportionalPosition else { return nil }
+        return HiddenState(
+            proportionalPosition: proportionalPosition,
+            referenceMonitorId: entry.hiddenReferenceMonitorId,
+            workspaceInactive: entry.hiddenByWorkspaceInactivity
+        )
     }
 
     func isHiddenInCorner(_ handle: WindowHandle) -> Bool {

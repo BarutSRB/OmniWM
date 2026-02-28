@@ -651,7 +651,7 @@ import QuartzCore
         for entry in workspaceEntries {
             if let side = hiddenHandles[entry.handle] {
                 let targetY = frames[entry.handle]?.origin.y
-                lrc.hideWindow(entry, monitor: pass.monitor, side: side, targetY: targetY)
+                lrc.hideWindow(entry, monitor: pass.monitor, side: side, targetY: targetY, reason: .layoutTransient)
             } else {
                 lrc.unhideWindow(entry, monitor: pass.monitor)
             }
