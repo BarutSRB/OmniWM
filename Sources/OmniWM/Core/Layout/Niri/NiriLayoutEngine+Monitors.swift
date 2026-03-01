@@ -31,11 +31,31 @@ extension NiriLayoutEngine {
         }
 
         let newIds = Set(newMonitors.map(\.id))
+        let removedMonitors = monitors.filter { !newIds.contains($0.key) }
+
+        // Preserve workspace roots and viewport states from monitors being removed
+        // so they survive display ID changes (e.g. KVM switches).
+        for (_, removedMonitor) in removedMonitors {
+            for (workspaceId, root) in removedMonitor.workspaceRoots {
+                roots[workspaceId] = root
+                orphanedViewportStates[workspaceId] = removedMonitor.viewportStates[workspaceId]
+            }
+        }
+
         monitors = monitors.filter { newIds.contains($0.key) }
     }
 
     func cleanupRemovedMonitor(_ monitorId: Monitor.ID) {
         guard let niriMonitor = monitors[monitorId] else { return }
+
+        // Always preserve workspace roots and viewport states at the engine level
+        // so they survive even if all monitors change IDs (e.g. KVM switch).
+        for (workspaceId, root) in niriMonitor.workspaceRoots {
+            roots[workspaceId] = root
+            if let state = niriMonitor.viewportStates[workspaceId] {
+                orphanedViewportStates[workspaceId] = state
+            }
+        }
 
         let remainingMonitorId = monitors.keys.first { $0 != monitorId }
 
@@ -52,10 +72,6 @@ extension NiriLayoutEngine {
                 if !targetMonitor.workspaceOrder.contains(workspaceId) {
                     targetMonitor.workspaceOrder.append(workspaceId)
                 }
-            }
-        } else {
-            for workspaceId in niriMonitor.workspaceRoots.keys {
-                roots.removeValue(forKey: workspaceId)
             }
         }
 
@@ -123,7 +139,12 @@ extension NiriLayoutEngine {
             targetMonitor.workspaceRoots[workspaceId] = root
         }
         if targetMonitor.viewportStates[workspaceId] == nil {
-            targetMonitor.viewportStates[workspaceId] = ViewportState()
+            // Recover viewport state orphaned during monitor ID change, if available
+            if let orphanedState = orphanedViewportStates.removeValue(forKey: workspaceId) {
+                targetMonitor.viewportStates[workspaceId] = orphanedState
+            } else {
+                targetMonitor.viewportStates[workspaceId] = ViewportState()
+            }
         }
         if !targetMonitor.workspaceOrder.contains(workspaceId) {
             targetMonitor.workspaceOrder.append(workspaceId)
