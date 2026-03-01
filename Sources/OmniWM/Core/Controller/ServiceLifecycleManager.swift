@@ -159,6 +159,9 @@ final class ServiceLifecycleManager {
 
     private func handleMonitorConfigurationChanged() {
         guard let controller else { return }
+        // Invalidate border cache so it gets fully recomputed after monitor change
+        // (prevents stale geometry when display ID or coordinate space changes, e.g. KVM switch)
+        controller.borderManager.hideBorder()
         let workspaceSnapshots = captureWorkspaceSnapshotsBeforeMonitorUpdate()
         let currentMonitors = Monitor.current()
         guard !currentMonitors.isEmpty else { return }
