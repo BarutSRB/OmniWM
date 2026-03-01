@@ -166,6 +166,9 @@ final class ServiceLifecycleManager {
         performPostUpdateActions: Bool = true
     ) {
         guard let controller else { return }
+        // Invalidate border cache so it gets fully recomputed after monitor change
+        // (prevents stale geometry when display ID or coordinate space changes, e.g. KVM switch)
+        controller.borderManager.hideBorder()
         let workspaceSnapshots = captureWorkspaceSnapshotsBeforeMonitorUpdate()
         guard !currentMonitors.isEmpty else { return }
         guard currentMonitors.allSatisfy({ $0.frame.width > 1 && $0.frame.height > 1 }) else { return }
