@@ -514,22 +514,20 @@ extension WMController {
         let pid = handle.pid
         let windowId = entry.windowId
         let moveMouseEnabled = moveMouseToFocusedWindowEnabled
-        let shouldRaiseWithAX = NSScreen.screensHaveSeparateSpaces && workspaceManager.monitors.count > 1
-
         focusManager.focusWindow(
             handle,
             workspaceId: entry.workspaceId,
-            performFocus: { [weak self] in
-                OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
-                if shouldRaiseWithAX {
-                    AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
-                }
-
+            performFocus: {
+                // 1. Activate app first (brings process to front, may pick wrong key window)
                 if let runningApp = NSRunningApplication(processIdentifier: pid) {
-                    runningApp.activate()
+                    runningApp.activate(options: [])
                 }
 
-                guard let self else { return }
+                // 2. Private API sets the SPECIFIC window as key (overrides activate's choice)
+                OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
+
+                // 3. AX raise ensures the window is visually on top and receives keyboard focus
+                AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
 
                 if moveMouseEnabled {
                     self.moveMouseToWindow(handle)

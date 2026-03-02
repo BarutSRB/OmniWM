@@ -100,7 +100,7 @@ final class FocusManager {
     func focusWindow(
         _ handle: WindowHandle,
         workspaceId: WorkspaceDescriptor.ID,
-        performFocus: @escaping () async -> Void,
+        performFocus: () -> Void,
         onDeferredFocus: @escaping (WindowHandle) -> Void
     ) {
         let now = Date()
@@ -121,14 +121,12 @@ final class FocusManager {
         lastFocusTime = now
         lastFocusedByWorkspace[workspaceId] = handle
 
-        Task { @MainActor [weak self] in
-            await performFocus()
-            guard let self else { return }
-            self.isFocusOperationPending = false
-            if let deferred = self.deferredFocusHandle, deferred != handle {
-                self.deferredFocusHandle = nil
-                onDeferredFocus(deferred)
-            }
+        performFocus()
+
+        isFocusOperationPending = false
+        if let deferred = deferredFocusHandle, deferred != handle {
+            deferredFocusHandle = nil
+            onDeferredFocus(deferred)
         }
     }
 
