@@ -12,6 +12,22 @@ func makeTestHandle(pid: pid_t = 1) -> WindowHandle {
     )
 }
 
+func makeTestMonitor(
+    displayId: CGDirectDisplayID,
+    name: String,
+    x: CGFloat
+) -> Monitor {
+    let frame = CGRect(x: x, y: 0, width: 1920, height: 1080)
+    return Monitor(
+        id: Monitor.ID(displayId: displayId),
+        displayId: displayId,
+        frame: frame,
+        visibleFrame: frame,
+        hasNotch: false,
+        name: name
+    )
+}
+
 @Suite struct NiriLayoutEngineTests {
 
     @Test func selectionFallbackAfterRemoval_sameSibling() {
@@ -255,5 +271,52 @@ func makeTestHandle(pid: pid_t = 1) -> WindowHandle {
         #expect(col2.isFullWidth == true)
         #expect(col1.savedWidth == nil)
         #expect(col2.savedWidth == .proportion(0.4))
+    }
+
+    @Test func cleanupRemovedMonitorRescuesAndRestoresViewportStateOnMove() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let oldMonitor = makeTestMonitor(displayId: 100, name: "Old", x: 0)
+        let newMonitor = makeTestMonitor(displayId: 200, name: "New", x: 1920)
+        let wsId = UUID()
+
+        let oldNiriMonitor = engine.ensureMonitor(for: oldMonitor.id, monitor: oldMonitor)
+        let rescuedRoot = NiriRoot(workspaceId: wsId)
+        oldNiriMonitor.workspaceRoots[wsId] = rescuedRoot
+        oldNiriMonitor.workspaceOrder = [wsId]
+        var rescuedState = ViewportState()
+        rescuedState.activeColumnIndex = 3
+        oldNiriMonitor.viewportStates[wsId] = rescuedState
+
+        engine.cleanupRemovedMonitor(oldMonitor.id)
+        #expect(engine.monitor(for: oldMonitor.id) == nil)
+        #expect(engine.orphanedViewportStates[wsId]?.activeColumnIndex == 3)
+
+        engine.moveWorkspace(wsId, to: newMonitor.id, monitor: newMonitor)
+
+        let newNiriMonitor = engine.monitor(for: newMonitor.id)
+        #expect(newNiriMonitor != nil)
+        #expect(newNiriMonitor?.workspaceRoots[wsId] != nil)
+        if let restoredRoot = newNiriMonitor?.workspaceRoots[wsId] {
+            #expect(restoredRoot === rescuedRoot)
+        }
+        #expect(newNiriMonitor?.viewportStates[wsId]?.activeColumnIndex == 3)
+        #expect(engine.orphanedViewportStates[wsId] == nil)
+    }
+
+    @Test func clearOrphanedViewportStatesRemovesStaleEntries() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let oldMonitor = makeTestMonitor(displayId: 300, name: "Temp", x: 0)
+        let wsId = UUID()
+
+        let oldNiriMonitor = engine.ensureMonitor(for: oldMonitor.id, monitor: oldMonitor)
+        oldNiriMonitor.workspaceRoots[wsId] = NiriRoot(workspaceId: wsId)
+        oldNiriMonitor.workspaceOrder = [wsId]
+        oldNiriMonitor.viewportStates[wsId] = ViewportState()
+
+        engine.cleanupRemovedMonitor(oldMonitor.id)
+        #expect(engine.orphanedViewportStates[wsId] != nil)
+
+        engine.clearOrphanedViewportStates()
+        #expect(engine.orphanedViewportStates.isEmpty)
     }
 }

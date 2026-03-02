@@ -36,10 +36,7 @@ extension NiriLayoutEngine {
         // Preserve workspace roots and viewport states from monitors being removed
         // so they survive display ID changes (e.g. KVM switches).
         for (_, removedMonitor) in removedMonitors {
-            for (workspaceId, root) in removedMonitor.workspaceRoots {
-                roots[workspaceId] = root
-                orphanedViewportStates[workspaceId] = removedMonitor.viewportStates[workspaceId]
-            }
+            preserveWorkspaceState(from: removedMonitor)
         }
 
         monitors = monitors.filter { newIds.contains($0.key) }
@@ -50,12 +47,7 @@ extension NiriLayoutEngine {
 
         // Always preserve workspace roots and viewport states at the engine level
         // so they survive even if all monitors change IDs (e.g. KVM switch).
-        for (workspaceId, root) in niriMonitor.workspaceRoots {
-            roots[workspaceId] = root
-            if let state = niriMonitor.viewportStates[workspaceId] {
-                orphanedViewportStates[workspaceId] = state
-            }
-        }
+        preserveWorkspaceState(from: niriMonitor)
 
         let remainingMonitorId = monitors.keys.first { $0 != monitorId }
 
@@ -76,6 +68,10 @@ extension NiriLayoutEngine {
         }
 
         monitors.removeValue(forKey: monitorId)
+    }
+
+    func clearOrphanedViewportStates() {
+        orphanedViewportStates.removeAll(keepingCapacity: true)
     }
 
     func updateMonitorOrientations(_ orientations: [Monitor.ID: Monitor.Orientation]) {
@@ -167,5 +163,14 @@ extension NiriLayoutEngine {
             }
         }
         return nil
+    }
+
+    private func preserveWorkspaceState(from monitor: NiriMonitor) {
+        for (workspaceId, root) in monitor.workspaceRoots {
+            roots[workspaceId] = root
+            if let state = monitor.viewportStates[workspaceId] {
+                orphanedViewportStates[workspaceId] = state
+            }
+        }
     }
 }

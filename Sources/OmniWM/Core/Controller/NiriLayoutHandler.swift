@@ -909,6 +909,8 @@ import QuartzCore
             guard let monitor = controller.workspaceManager.monitor(for: workspace.id) else { continue }
             engine.moveWorkspace(workspace.id, to: monitor.id, monitor: monitor)
         }
+        // Any rescued orphan states left after this sync are stale for the current topology.
+        engine.clearOrphanedViewportStates()
 
         for monitor in currentMonitors {
             let orderedWorkspaceIds = controller.workspaceManager.workspaces(on: monitor.id).map(\.id)
