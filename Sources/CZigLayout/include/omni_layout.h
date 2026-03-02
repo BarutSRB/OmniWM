@@ -20,6 +20,23 @@ typedef struct {
     uint8_t was_constrained;
 } OmniAxisOutput;
 
+typedef enum {
+    OMNI_CENTER_NEVER = 0,
+    OMNI_CENTER_ALWAYS = 1,
+    OMNI_CENTER_ON_OVERFLOW = 2
+} OmniCenterMode;
+
+typedef struct {
+    double view_pos;
+    size_t column_index;
+} OmniSnapResult;
+
+enum {
+    OMNI_OK = 0,
+    OMNI_ERR_INVALID_ARGS = -1,
+    OMNI_ERR_OUT_OF_RANGE = -2
+};
+
 /// Solve axis layout for window_count windows.
 ///
 /// is_tabbed: 0 = normal (weighted) layout, 1 = tabbed (all windows share one span).
@@ -44,3 +61,26 @@ int32_t omni_axis_solve_tabbed(
     double gap_size,
     OmniAxisOutput *out,
     size_t out_count);
+
+int32_t omni_viewport_compute_visible_offset(
+    const double *spans,
+    size_t span_count,
+    size_t container_index,
+    double gap,
+    double viewport_span,
+    double current_view_start,
+    uint8_t center_mode,
+    uint8_t always_center_single_column,
+    int64_t from_container_index,
+    double *out_target_offset);
+
+int32_t omni_viewport_find_snap_target(
+    const double *spans,
+    size_t span_count,
+    double gap,
+    double viewport_span,
+    double projected_view_pos,
+    double current_view_pos,
+    uint8_t center_mode,
+    uint8_t always_center_single_column,
+    OmniSnapResult *out_result);

@@ -55,7 +55,6 @@ func makeTestMonitor(
 
     @Test func selectionFallbackAfterColumnRemoval() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
-        engine.animationsEnabled = false
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -184,7 +183,6 @@ func makeTestMonitor(
 
     @Test func ensureSelectionVisibleMovesViewport() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
-        engine.animationsEnabled = false
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -219,7 +217,6 @@ func makeTestMonitor(
 
     @Test func swapWindowHorizontalTransfersSavedWidthState() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
-        engine.animationsEnabled = false
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)

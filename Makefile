@@ -11,7 +11,7 @@ lint-fix:
 
 check: lint
 
-# Build the Zig static library.  Must run before `swift build`.
-# Override the target architecture with ZIG_TARGET=x86_64-macos if needed.
+# Build the Zig static library used by Swift.
+# Default output is universal (arm64 + x86_64). Set ZIG_TARGET for single-arch.
 zig-build:
 	./build-zig.sh

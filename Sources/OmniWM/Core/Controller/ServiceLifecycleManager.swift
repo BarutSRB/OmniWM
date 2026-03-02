@@ -170,7 +170,6 @@ final class ServiceLifecycleManager {
         // (prevents stale geometry when display ID or coordinate space changes, e.g. KVM switch)
         controller.borderManager.hideBorder()
         let workspaceSnapshots = captureWorkspaceSnapshotsBeforeMonitorUpdate()
-        let currentMonitors = Monitor.current()
         guard !currentMonitors.isEmpty else { return }
         guard currentMonitors.allSatisfy({ $0.frame.width > 1 && $0.frame.height > 1 }) else { return }
 

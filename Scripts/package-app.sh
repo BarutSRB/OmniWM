@@ -14,6 +14,10 @@ SIGNING_IDENTITY="Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
 NOTARIZE_PROFILE="OmniWM-Notarize"
 ENTITLEMENTS="$ROOT_DIR/OmniWM.entitlements"
 
+echo "Building Zig static library (universal arm64 + x86_64)..."
+unset ZIG_TARGET
+"$ROOT_DIR/build-zig.sh"
+
 echo "Building OmniWM universal binary ($CONFIG)..."
 swift build -c "$CONFIG" --arch arm64 --arch x86_64
 

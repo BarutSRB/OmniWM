@@ -698,8 +698,11 @@ final class WorkspaceManager {
         }
 
         for (workspaceId, forcedMonitor) in forcedTargets {
-            guard let currentMonitorId = visibleWorkspaces[reverse: workspaceId] else { continue }
-            if currentMonitorId != forcedMonitor.id {
+            if let currentMonitorId = visibleWorkspaces[reverse: workspaceId] {
+                if currentMonitorId != forcedMonitor.id {
+                    _ = setActiveWorkspace(workspaceId, on: forcedMonitor)
+                }
+            } else {
                 _ = setActiveWorkspace(workspaceId, on: forcedMonitor)
             }
         }

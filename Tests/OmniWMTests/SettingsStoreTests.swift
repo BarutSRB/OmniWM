@@ -384,7 +384,6 @@ private func makeSettingsTestMonitor(
             scrollModifierKey: "option",
             gestureFingerCount: 4,
             gestureInvertDirection: true,
-            animationsEnabled: false,
             menuAnywhereNativeEnabled: false,
             menuAnywherePaletteEnabled: true,
             menuAnywherePosition: "center",

@@ -134,85 +134,15 @@ extension ViewportState {
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false
     ) -> SnapResult {
-        guard !columns.isEmpty else { return SnapResult(viewPos: 0, columnIndex: 0) }
-
-        let effectiveCenterMode = (columns.count == 1 && alwaysCenterSingleColumn) ? .always : centerMode
-
-        let vw = Double(viewportWidth)
-        let gaps = Double(gap)
-        var snapPoints: [(viewPos: Double, columnIndex: Int)] = []
-
-        if effectiveCenterMode == .always {
-            for (idx, _) in columns.enumerated() {
-                let colX = Double(columnX(at: idx, columns: columns, gap: gap))
-                let offset = Double(computeCenteredOffset(
-                    columnIndex: idx,
-                    columns: columns,
-                    gap: gap,
-                    viewportWidth: viewportWidth
-                ))
-                let snapViewPos = colX + offset
-                snapPoints.append((snapViewPos, idx))
-            }
-        } else {
-            var colX: Double = 0
-            for (idx, col) in columns.enumerated() {
-                let colW = Double(col.cachedWidth)
-                let padding = max(0, min((vw - colW) / 2.0, gaps))
-
-                let leftSnap = colX - padding
-                let rightSnap = colX + colW + padding - vw
-
-                snapPoints.append((leftSnap, idx))
-                if rightSnap != leftSnap {
-                    snapPoints.append((rightSnap, idx))
-                }
-                colX += colW + gaps
-            }
-        }
-
-        let totalW = Double(totalWidth(columns: columns, gap: gap))
-        let maxViewPos: Double = 0
-        let minViewPos = vw - totalW
-
-        let clampedSnaps = snapPoints.map { snap -> (viewPos: Double, columnIndex: Int) in
-            let clampedPos = min(max(snap.viewPos, minViewPos), maxViewPos)
-            return (clampedPos, snap.columnIndex)
-        }
-
-        guard let closest = clampedSnaps.min(by: { abs($0.viewPos - projectedViewPos) < abs($1.viewPos - projectedViewPos) }) else {
-            return SnapResult(viewPos: 0, columnIndex: 0)
-        }
-
-        var newColIdx = closest.columnIndex
-
-        if effectiveCenterMode != .always {
-            let scrollingRight = projectedViewPos >= currentViewPos
-            if scrollingRight {
-                for idx in (newColIdx + 1) ..< columns.count {
-                    let colX = Double(columnX(at: idx, columns: columns, gap: gap))
-                    let colW = Double(columns[idx].cachedWidth)
-                    let padding = max(0, min((vw - colW) / 2.0, gaps))
-                    if closest.viewPos + vw >= colX + colW + padding {
-                        newColIdx = idx
-                    } else {
-                        break
-                    }
-                }
-            } else {
-                for idx in stride(from: newColIdx - 1, through: 0, by: -1) {
-                    let colX = Double(columnX(at: idx, columns: columns, gap: gap))
-                    let colW = Double(columns[idx].cachedWidth)
-                    let padding = max(0, min((vw - colW) / 2.0, gaps))
-                    if colX - padding >= closest.viewPos {
-                        newColIdx = idx
-                    } else {
-                        break
-                    }
-                }
-            }
-        }
-
-        return SnapResult(viewPos: closest.viewPos, columnIndex: newColIdx)
+        let spans = columns.map { Double($0.cachedWidth) }
+        return NiriViewportZigMath.findSnapTarget(
+            spans: spans,
+            gap: gap,
+            viewportSpan: viewportWidth,
+            projectedViewPos: projectedViewPos,
+            currentViewPos: currentViewPos,
+            centerMode: centerMode,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+        )
     }
 }
