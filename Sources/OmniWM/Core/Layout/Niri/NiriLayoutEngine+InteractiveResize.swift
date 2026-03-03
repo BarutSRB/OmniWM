@@ -10,30 +10,21 @@ extension NiriLayoutEngine {
         guard let root = roots[workspaceId] else { return nil }
 
         let threshold = threshold ?? resizeConfiguration.edgeThreshold
-
-        for (colIdx, column) in root.columns.enumerated() {
-            for child in column.children {
-                guard let window = child as? NiriWindow,
-                      let frame = window.frame else { continue }
-
-                if window.isFullscreen {
-                    continue
-                }
-
-                let edges = detectEdges(point: point, frame: frame, threshold: threshold)
-                if !edges.isEmpty {
-                    return ResizeHitTestResult(
-                        windowHandle: window.handle,
-                        nodeId: window.id,
-                        edges: edges,
-                        columnIndex: colIdx,
-                        windowFrame: frame
-                    )
-                }
-            }
+        guard let hit = NiriLayoutZigKernel.hitTestResize(
+            columns: root.columns,
+            point: point,
+            threshold: threshold
+        ) else {
+            return nil
         }
 
-        return nil
+        return ResizeHitTestResult(
+            windowHandle: hit.window.handle,
+            nodeId: hit.window.id,
+            edges: hit.edges,
+            columnIndex: hit.columnIndex,
+            windowFrame: hit.frame
+        )
     }
 
     func hitTestTiled(
@@ -41,48 +32,10 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) -> NiriWindow? {
         guard let root = roots[workspaceId] else { return nil }
-
-        for column in root.columns {
-            for child in column.children {
-                guard let window = child as? NiriWindow,
-                      let frame = window.frame else { continue }
-
-                if frame.contains(point) {
-                    return window
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func detectEdges(point: CGPoint, frame: CGRect, threshold: CGFloat) -> ResizeEdge {
-        var edges: ResizeEdge = []
-
-        let expandedFrame = frame.insetBy(dx: -threshold, dy: -threshold)
-        guard expandedFrame.contains(point) else {
-            return []
-        }
-
-        let innerFrame = frame.insetBy(dx: threshold, dy: threshold)
-        if innerFrame.contains(point) {
-            return []
-        }
-
-        if point.x <= frame.minX + threshold, point.x >= frame.minX - threshold {
-            edges.insert(.left)
-        }
-        if point.x >= frame.maxX - threshold, point.x <= frame.maxX + threshold {
-            edges.insert(.right)
-        }
-        if point.y <= frame.minY + threshold, point.y >= frame.minY - threshold {
-            edges.insert(.bottom)
-        }
-        if point.y >= frame.maxY - threshold, point.y <= frame.maxY + threshold {
-            edges.insert(.top)
-        }
-
-        return edges
+        return NiriLayoutZigKernel.hitTestTiled(
+            columns: root.columns,
+            point: point
+        )
     }
 
     func interactiveResizeBegin(
@@ -140,57 +93,55 @@ extension NiriLayoutEngine {
             return false
         }
 
-        let delta = CGPoint(
-            x: currentLocation.x - resize.startMouseLocation.x,
-            y: currentLocation.y - resize.startMouseLocation.y
-        )
+        let hasHorizontal = resize.edges.hasHorizontal && resize.originalColumnWidth != nil
+        let minColumnWidth: CGFloat = hasHorizontal
+            ? (column.windowNodes.map(\.constraints.minSize.width).max() ?? 50)
+            : 0
+        let maxColumnWidth: CGFloat = hasHorizontal
+            ? (monitorFrame.width - gaps.horizontal)
+            : 0
 
-        var changed = false
-
-        if resize.edges.hasHorizontal, let originalWidth = resize.originalColumnWidth {
-            var dx = delta.x
-
-            if resize.edges.contains(.left) {
-                dx = -dx
-            }
-
-            let minWidth = column.windowNodes.map(\.constraints.minSize.width).max() ?? 50
-            let maxWidth = monitorFrame.width - gaps.horizontal
-
-            let newWidth = originalWidth + dx
-            column.cachedWidth = newWidth.clamped(to: minWidth ... maxWidth)
-            column.width = .fixed(column.cachedWidth)
-            changed = true
-
-            if resize.edges.contains(.left), let origOffset = resize.originalViewOffset {
-                let widthDelta = column.cachedWidth - originalWidth
-                viewportState { state in
-                    state.viewOffsetPixels = .static(origOffset + widthDelta)
-                }
-            }
-        }
-
-        if resize.edges.hasVertical, let originalHeight = resize.originalWindowHeight {
-            var dy = delta.y
-
-            if resize.edges.contains(.bottom) {
-                dy = -dy
-            }
-
-            let pixelsPerWeight = calculateVerticalPixelsPerWeightUnit(
+        let hasVertical = resize.edges.hasVertical && resize.originalWindowHeight != nil
+        let pixelsPerWeight: CGFloat = hasVertical
+            ? calculateVerticalPixelsPerWeightUnit(
                 column: column,
                 monitorFrame: monitorFrame,
                 gaps: gaps
             )
+            : 0
 
-            if pixelsPerWeight > 0 {
-                let weightDelta = dy / pixelsPerWeight
-                let newWeight = originalHeight + weightDelta
-                windowNode.size = newWeight.clamped(
-                    to: resizeConfiguration.minWindowWeight ... resizeConfiguration.maxWindowWeight
-                )
-                changed = true
+        let result = NiriLayoutZigKernel.computeResize(
+            .init(
+                edges: resize.edges,
+                startLocation: resize.startMouseLocation,
+                currentLocation: currentLocation,
+                originalColumnWidth: resize.originalColumnWidth ?? 0,
+                minColumnWidth: minColumnWidth,
+                maxColumnWidth: maxColumnWidth,
+                originalWindowWeight: resize.originalWindowHeight ?? 0,
+                minWindowWeight: resizeConfiguration.minWindowWeight,
+                maxWindowWeight: resizeConfiguration.maxWindowWeight,
+                pixelsPerWeight: pixelsPerWeight,
+                originalViewOffset: resize.originalViewOffset
+            )
+        )
+
+        var changed = false
+        if hasHorizontal, result.changedWidth {
+            column.cachedWidth = result.newColumnWidth
+            column.width = .fixed(result.newColumnWidth)
+            changed = true
+        }
+
+        if result.adjustViewOffset {
+            viewportState { state in
+                state.viewOffsetPixels = .static(result.newViewOffset)
             }
+        }
+
+        if hasVertical, result.changedWeight {
+            windowNode.size = result.newWindowWeight
+            changed = true
         }
 
         return changed

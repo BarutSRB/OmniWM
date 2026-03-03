@@ -192,104 +192,21 @@ extension NiriLayoutEngine {
             }
         }
 
-        let containerSpans: [CGFloat] = switch orientation {
-        case .horizontal: containers.map { $0.cachedWidth }
-        case .vertical: containers.map { $0.cachedHeight }
-        }
-        let containerRenderOffsets = containers.map { $0.renderOffset(at: time) }
-
-        var containerPositions: [CGFloat] = []
-        containerPositions.reserveCapacity(containers.count)
-        var runningPos: CGFloat = 0
-        var totalSpan: CGFloat = 0
-        for i in 0 ..< containers.count {
-            containerPositions.append(runningPos)
-            let span = containerSpans[i]
-            runningPos += span + primaryGap
-            totalSpan += span
-            if i < containers.count - 1 {
-                totalSpan += primaryGap
-            }
-        }
-
-        let viewOffset = state.viewOffsetPixels.value(at: time)
         let activeIdx = state.activeColumnIndex.clamped(to: 0 ... max(0, containers.count - 1))
-        let activePos = containerPositions[activeIdx]
-        let viewPos = activePos + viewOffset
-        let viewStart = viewPos
+        let sizeKeyPath: KeyPath<NiriContainer, CGFloat> = switch orientation {
+        case .horizontal: \.cachedWidth
+        case .vertical: \.cachedHeight
+        }
+        let activePos = state.containerPosition(
+            at: activeIdx,
+            containers: containers,
+            gap: primaryGap,
+            sizeKeyPath: sizeKeyPath
+        )
+        let viewStart = activePos + state.viewOffsetPixels.value(at: time)
         let viewportSpan: CGFloat = switch orientation {
         case .horizontal: workingFrame.width
         case .vertical: workingFrame.height
-        }
-        let viewEnd = viewStart + viewportSpan
-
-        var usedIndices = Set<Int>()
-        var containerSides: [Int: HideSide] = [:]
-
-        for idx in 0 ..< containers.count {
-            let containerPos = containerPositions[idx]
-            let containerSpan = containerSpans[idx]
-            let containerEnd = containerPos + containerSpan
-            let renderOffset = containerRenderOffsets[idx]
-
-            let isVisible = containerEnd > viewStart && containerPos < viewEnd
-            if isVisible {
-                usedIndices.insert(idx)
-                let containerRect: CGRect
-                switch orientation {
-                case .horizontal:
-                    let screenX = workingFrame.origin.x + containerPos - viewPos + renderOffset.x + workspaceOffset
-                    let width = containerSpan.roundedToPhysicalPixel(scale: effectiveScale)
-                    containerRect = CGRect(
-                        x: screenX,
-                        y: workingFrame.origin.y,
-                        width: width,
-                        height: workingFrame.height
-                    ).roundedToPhysicalPixels(scale: effectiveScale)
-                case .vertical:
-                    let screenY = workingFrame.origin.y + containerPos - viewPos + renderOffset.y
-                    let height = containerSpan.roundedToPhysicalPixel(scale: effectiveScale)
-                    containerRect = CGRect(
-                        x: workingFrame.origin.x + workspaceOffset,
-                        y: screenY,
-                        width: workingFrame.width,
-                        height: height
-                    ).roundedToPhysicalPixels(scale: effectiveScale)
-                }
-                containers[idx].frame = containerRect
-            } else {
-                let hideSide: HideSide = containerEnd <= viewStart ? .left : .right
-                containerSides[idx] = hideSide
-            }
-        }
-
-        if containers.count > usedIndices.count {
-            let avgSpan = totalSpan / CGFloat(max(1, containers.count))
-            let hiddenSpan = max(1, avgSpan).roundedToPhysicalPixel(scale: effectiveScale)
-            for (idx, container) in containers.enumerated() {
-                if usedIndices.contains(idx) { continue }
-
-                let hiddenRect: CGRect
-                switch orientation {
-                case .horizontal:
-                    let side = containerSides[idx] ?? .right
-                    hiddenRect = hiddenColumnRect(
-                        side: side,
-                        width: hiddenSpan,
-                        height: workingFrame.height,
-                        screenY: viewFrame.maxY - 2,
-                        edgeFrame: viewFrame,
-                        scale: effectiveScale
-                    ).offsetBy(dx: workspaceOffset, dy: 0).roundedToPhysicalPixels(scale: effectiveScale)
-                case .vertical:
-                    hiddenRect = hiddenRowRect(
-                        screenRect: viewFrame,
-                        width: workingFrame.width,
-                        height: hiddenSpan
-                    ).offsetBy(dx: workspaceOffset, dy: 0).roundedToPhysicalPixels(scale: effectiveScale)
-                }
-                container.frame = hiddenRect
-            }
         }
 
         let kernelResults = NiriLayoutZigKernel.run(
@@ -308,7 +225,11 @@ extension NiriLayoutEngine {
             time: time
         )
 
-        for result in kernelResults {
+        for result in kernelResults.columns {
+            result.column.frame = result.frame.roundedToPhysicalPixels(scale: effectiveScale)
+        }
+
+        for result in kernelResults.windows {
             let roundedBaseFrame = result.baseFrame.roundedToPhysicalPixels(scale: effectiveScale)
             let roundedAnimatedFrame = result.animatedFrame.roundedToPhysicalPixels(scale: effectiveScale)
 
@@ -327,37 +248,5 @@ extension NiriLayoutEngine {
             }
             frames[result.window.handle] = roundedAnimatedFrame
         }
-    }
-
-    private func hiddenRowRect(
-        screenRect: CGRect,
-        width: CGFloat,
-        height: CGFloat
-    ) -> CGRect {
-        let origin = CGPoint(
-            x: screenRect.maxX - 2,
-            y: screenRect.maxY - 2
-        )
-        return CGRect(origin: origin, size: CGSize(width: width, height: height))
-    }
-
-    private func hiddenColumnRect(
-        side: HideSide,
-        width: CGFloat,
-        height: CGFloat,
-        screenY: CGFloat,
-        edgeFrame: CGRect,
-        scale: CGFloat
-    ) -> CGRect {
-        let edgeReveal = 1.0 / max(1.0, scale)
-        let x: CGFloat
-        switch side {
-        case .left:
-            x = edgeFrame.minX - width + edgeReveal
-        case .right:
-            x = edgeFrame.maxX - edgeReveal
-        }
-        let origin = CGPoint(x: x, y: screenY)
-        return CGRect(origin: origin, size: CGSize(width: width, height: height))
     }
 }

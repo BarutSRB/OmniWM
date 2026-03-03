@@ -68,6 +68,56 @@ pub const OmniNiriWindowOutput = extern struct {
     column_index: usize,
 };
 
+pub const OmniNiriColumnOutput = extern struct {
+    frame_x: f64,
+    frame_y: f64,
+    frame_width: f64,
+    frame_height: f64,
+    hide_side: u8,
+    is_visible: u8,
+};
+
+pub const OmniNiriHitTestWindow = extern struct {
+    window_index: usize,
+    column_index: usize,
+    frame_x: f64,
+    frame_y: f64,
+    frame_width: f64,
+    frame_height: f64,
+    is_fullscreen: u8,
+};
+
+pub const OmniNiriResizeHitResult = extern struct {
+    window_index: i64,
+    edges: u8,
+};
+
+pub const OmniNiriResizeInput = extern struct {
+    edges: u8,
+    start_x: f64,
+    start_y: f64,
+    current_x: f64,
+    current_y: f64,
+    original_column_width: f64,
+    min_column_width: f64,
+    max_column_width: f64,
+    original_window_weight: f64,
+    min_window_weight: f64,
+    max_window_weight: f64,
+    pixels_per_weight: f64,
+    has_original_view_offset: u8,
+    original_view_offset: f64,
+};
+
+pub const OmniNiriResizeResult = extern struct {
+    changed_width: u8,
+    new_column_width: f64,
+    changed_weight: u8,
+    new_window_weight: f64,
+    adjust_view_offset: u8,
+    new_view_offset: f64,
+};
+
 const Rect = struct {
     x: f64,
     y: f64,
@@ -95,6 +145,11 @@ const OMNI_NIRI_SIZING_FULLSCREEN: u8 = 1;
 const OMNI_NIRI_HIDE_NONE: u8 = 0;
 const OMNI_NIRI_HIDE_LEFT: u8 = 1;
 const OMNI_NIRI_HIDE_RIGHT: u8 = 2;
+
+const OMNI_NIRI_RESIZE_EDGE_TOP: u8 = 0b0001;
+const OMNI_NIRI_RESIZE_EDGE_BOTTOM: u8 = 0b0010;
+const OMNI_NIRI_RESIZE_EDGE_LEFT: u8 = 0b0100;
+const OMNI_NIRI_RESIZE_EDGE_RIGHT: u8 = 0b1000;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Exported entry points
@@ -543,10 +598,72 @@ export fn omni_niri_layout_pass(
     out_windows: [*c]OmniNiriWindowOutput,
     out_window_count: usize,
 ) i32 {
+    return omni_niri_layout_pass_v2(
+        columns,
+        column_count,
+        windows,
+        window_count,
+        working_x,
+        working_y,
+        working_width,
+        working_height,
+        view_x,
+        view_y,
+        view_width,
+        view_height,
+        fullscreen_x,
+        fullscreen_y,
+        fullscreen_width,
+        fullscreen_height,
+        primary_gap,
+        secondary_gap,
+        view_start,
+        viewport_span,
+        workspace_offset,
+        scale,
+        orientation,
+        out_windows,
+        out_window_count,
+        null,
+        0,
+    );
+}
+
+export fn omni_niri_layout_pass_v2(
+    columns: [*c]const OmniNiriColumnInput,
+    column_count: usize,
+    windows: [*c]const OmniNiriWindowInput,
+    window_count: usize,
+    working_x: f64,
+    working_y: f64,
+    working_width: f64,
+    working_height: f64,
+    view_x: f64,
+    view_y: f64,
+    view_width: f64,
+    view_height: f64,
+    fullscreen_x: f64,
+    fullscreen_y: f64,
+    fullscreen_width: f64,
+    fullscreen_height: f64,
+    primary_gap: f64,
+    secondary_gap: f64,
+    view_start: f64,
+    viewport_span: f64,
+    workspace_offset: f64,
+    scale: f64,
+    orientation: u8,
+    out_windows: [*c]OmniNiriWindowOutput,
+    out_window_count: usize,
+    out_columns: [*c]OmniNiriColumnOutput,
+    out_column_count: usize,
+) i32 {
     if (out_windows == null) return OMNI_ERR_INVALID_ARGS;
     if (out_window_count < window_count) return OMNI_ERR_INVALID_ARGS;
     if (column_count > 0 and columns == null) return OMNI_ERR_INVALID_ARGS;
     if (window_count > 0 and windows == null) return OMNI_ERR_INVALID_ARGS;
+    if (out_column_count > 0 and out_columns == null) return OMNI_ERR_INVALID_ARGS;
+    if (out_column_count > 0 and out_column_count < column_count) return OMNI_ERR_INVALID_ARGS;
 
     const parsed_orientation = parseNiriOrientation(orientation) orelse return OMNI_ERR_INVALID_ARGS;
 
@@ -565,6 +682,19 @@ export fn omni_niri_layout_pass(
             .hide_side = OMNI_NIRI_HIDE_NONE,
             .column_index = 0,
         };
+    }
+
+    if (out_columns != null and out_column_count > 0) {
+        for (0..column_count) |i| {
+            out_columns[i] = .{
+                .frame_x = 0.0,
+                .frame_y = 0.0,
+                .frame_width = 0.0,
+                .frame_height = 0.0,
+                .hide_side = OMNI_NIRI_HIDE_NONE,
+                .is_visible = 0,
+            };
+        }
     }
 
     if (column_count == 0) {
@@ -614,6 +744,17 @@ export fn omni_niri_layout_pass(
                     },
                     scale,
                 );
+
+            if (out_columns != null and out_column_count >= column_count) {
+                out_columns[idx] = .{
+                    .frame_x = container_rect.x,
+                    .frame_y = container_rect.y,
+                    .frame_width = container_rect.width,
+                    .frame_height = container_rect.height,
+                    .hide_side = OMNI_NIRI_HIDE_NONE,
+                    .is_visible = 1,
+                };
+            }
 
             const rc = solveAndLayoutNiriColumn(
                 col,
@@ -684,6 +825,17 @@ export fn omni_niri_layout_pass(
                 );
             const container_rect = roundRectToPhysicalPixels(container_rect_unrounded, scale);
 
+            if (out_columns != null and out_column_count >= column_count) {
+                out_columns[idx] = .{
+                    .frame_x = container_rect.x,
+                    .frame_y = container_rect.y,
+                    .frame_width = container_rect.width,
+                    .frame_height = container_rect.height,
+                    .hide_side = hide_side,
+                    .is_visible = 0,
+                };
+            }
+
             const rc = solveAndLayoutNiriColumn(
                 col,
                 windows,
@@ -706,6 +858,173 @@ export fn omni_niri_layout_pass(
         if (idx < column_count - 1) {
             running_pos += primary_gap;
         }
+    }
+
+    return OMNI_OK;
+}
+
+fn pointInRect(point_x: f64, point_y: f64, rect: Rect) bool {
+    if (rect.width < 0.0 or rect.height < 0.0) return false;
+    const max_x = rect.x + rect.width;
+    const max_y = rect.y + rect.height;
+    return point_x >= rect.x and point_x <= max_x and point_y >= rect.y and point_y <= max_y;
+}
+
+fn detectResizeEdgesForPoint(point_x: f64, point_y: f64, rect: Rect, threshold: f64) u8 {
+    const expanded = Rect{
+        .x = rect.x - threshold,
+        .y = rect.y - threshold,
+        .width = rect.width + threshold * 2.0,
+        .height = rect.height + threshold * 2.0,
+    };
+    if (!pointInRect(point_x, point_y, expanded)) return 0;
+
+    const inner = Rect{
+        .x = rect.x + threshold,
+        .y = rect.y + threshold,
+        .width = rect.width - threshold * 2.0,
+        .height = rect.height - threshold * 2.0,
+    };
+    if (pointInRect(point_x, point_y, inner)) return 0;
+
+    const min_x = rect.x;
+    const max_x = rect.x + rect.width;
+    const min_y = rect.y;
+    const max_y = rect.y + rect.height;
+
+    var edges: u8 = 0;
+    if (point_x <= min_x + threshold and point_x >= min_x - threshold) {
+        edges |= OMNI_NIRI_RESIZE_EDGE_LEFT;
+    }
+    if (point_x >= max_x - threshold and point_x <= max_x + threshold) {
+        edges |= OMNI_NIRI_RESIZE_EDGE_RIGHT;
+    }
+    if (point_y <= min_y + threshold and point_y >= min_y - threshold) {
+        edges |= OMNI_NIRI_RESIZE_EDGE_BOTTOM;
+    }
+    if (point_y >= max_y - threshold and point_y <= max_y + threshold) {
+        edges |= OMNI_NIRI_RESIZE_EDGE_TOP;
+    }
+    return edges;
+}
+
+export fn omni_niri_hit_test_tiled(
+    windows: [*c]const OmniNiriHitTestWindow,
+    window_count: usize,
+    point_x: f64,
+    point_y: f64,
+    out_window_index: [*c]i64,
+) i32 {
+    if (out_window_index == null) return OMNI_ERR_INVALID_ARGS;
+    if (window_count > 0 and windows == null) return OMNI_ERR_INVALID_ARGS;
+
+    out_window_index[0] = -1;
+    for (0..window_count) |i| {
+        const w = windows[i];
+        const rect = Rect{
+            .x = w.frame_x,
+            .y = w.frame_y,
+            .width = w.frame_width,
+            .height = w.frame_height,
+        };
+        if (pointInRect(point_x, point_y, rect)) {
+            out_window_index[0] = @as(i64, @intCast(i));
+            return OMNI_OK;
+        }
+    }
+
+    return OMNI_OK;
+}
+
+export fn omni_niri_hit_test_resize(
+    windows: [*c]const OmniNiriHitTestWindow,
+    window_count: usize,
+    point_x: f64,
+    point_y: f64,
+    threshold: f64,
+    out_result: [*c]OmniNiriResizeHitResult,
+) i32 {
+    if (out_result == null) return OMNI_ERR_INVALID_ARGS;
+    if (window_count > 0 and windows == null) return OMNI_ERR_INVALID_ARGS;
+
+    out_result[0] = .{
+        .window_index = -1,
+        .edges = 0,
+    };
+
+    const safe_threshold = @max(0.0, threshold);
+    for (0..window_count) |i| {
+        const w = windows[i];
+        if (w.is_fullscreen != 0) continue;
+
+        const rect = Rect{
+            .x = w.frame_x,
+            .y = w.frame_y,
+            .width = w.frame_width,
+            .height = w.frame_height,
+        };
+        const edges = detectResizeEdgesForPoint(point_x, point_y, rect, safe_threshold);
+        if (edges != 0) {
+            out_result[0] = .{
+                .window_index = @as(i64, @intCast(i)),
+                .edges = edges,
+            };
+            return OMNI_OK;
+        }
+    }
+
+    return OMNI_OK;
+}
+
+export fn omni_niri_resize_compute(
+    input: [*c]const OmniNiriResizeInput,
+    out_result: [*c]OmniNiriResizeResult,
+) i32 {
+    if (input == null or out_result == null) return OMNI_ERR_INVALID_ARGS;
+
+    const in = input[0];
+    out_result[0] = .{
+        .changed_width = 0,
+        .new_column_width = in.original_column_width,
+        .changed_weight = 0,
+        .new_window_weight = in.original_window_weight,
+        .adjust_view_offset = 0,
+        .new_view_offset = in.original_view_offset,
+    };
+
+    const delta_x = in.current_x - in.start_x;
+    const delta_y = in.current_y - in.start_y;
+    const has_horizontal = (in.edges & (OMNI_NIRI_RESIZE_EDGE_LEFT | OMNI_NIRI_RESIZE_EDGE_RIGHT)) != 0;
+    const has_vertical = (in.edges & (OMNI_NIRI_RESIZE_EDGE_TOP | OMNI_NIRI_RESIZE_EDGE_BOTTOM)) != 0;
+    const has_left = (in.edges & OMNI_NIRI_RESIZE_EDGE_LEFT) != 0;
+    const has_bottom = (in.edges & OMNI_NIRI_RESIZE_EDGE_BOTTOM) != 0;
+
+    if (has_horizontal) {
+        var dx = delta_x;
+        if (has_left) dx = -dx;
+
+        const min_width = @min(in.min_column_width, in.max_column_width);
+        const max_width = @max(in.min_column_width, in.max_column_width);
+        const next_width = clampFloat(in.original_column_width + dx, min_width, max_width);
+        out_result[0].new_column_width = next_width;
+        out_result[0].changed_width = @intFromBool(@abs(next_width - in.original_column_width) > 0.0001);
+
+        if (has_left and in.has_original_view_offset != 0) {
+            out_result[0].adjust_view_offset = 1;
+            out_result[0].new_view_offset = in.original_view_offset + (next_width - in.original_column_width);
+        }
+    }
+
+    if (has_vertical and in.pixels_per_weight > 0.0) {
+        var dy = delta_y;
+        if (has_bottom) dy = -dy;
+
+        const weight_delta = dy / in.pixels_per_weight;
+        const min_weight = @min(in.min_window_weight, in.max_window_weight);
+        const max_weight = @max(in.min_window_weight, in.max_window_weight);
+        const next_weight = clampFloat(in.original_window_weight + weight_delta, min_weight, max_weight);
+        out_result[0].new_window_weight = next_weight;
+        out_result[0].changed_weight = @intFromBool(@abs(next_weight - in.original_window_weight) > 0.0001);
     }
 
     return OMNI_OK;

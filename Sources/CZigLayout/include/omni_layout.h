@@ -85,6 +85,63 @@ typedef struct {
     size_t column_index;
 } OmniNiriWindowOutput;
 
+typedef struct {
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+    uint8_t hide_side;
+    uint8_t is_visible;
+} OmniNiriColumnOutput;
+
+typedef enum {
+    OMNI_NIRI_RESIZE_EDGE_TOP = 0b0001,
+    OMNI_NIRI_RESIZE_EDGE_BOTTOM = 0b0010,
+    OMNI_NIRI_RESIZE_EDGE_LEFT = 0b0100,
+    OMNI_NIRI_RESIZE_EDGE_RIGHT = 0b1000
+} OmniNiriResizeEdge;
+
+typedef struct {
+    size_t window_index;
+    size_t column_index;
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+    uint8_t is_fullscreen;
+} OmniNiriHitTestWindow;
+
+typedef struct {
+    int64_t window_index;
+    uint8_t edges;
+} OmniNiriResizeHitResult;
+
+typedef struct {
+    uint8_t edges;
+    double start_x;
+    double start_y;
+    double current_x;
+    double current_y;
+    double original_column_width;
+    double min_column_width;
+    double max_column_width;
+    double original_window_weight;
+    double min_window_weight;
+    double max_window_weight;
+    double pixels_per_weight;
+    uint8_t has_original_view_offset;
+    double original_view_offset;
+} OmniNiriResizeInput;
+
+typedef struct {
+    uint8_t changed_width;
+    double new_column_width;
+    uint8_t changed_weight;
+    double new_window_weight;
+    uint8_t adjust_view_offset;
+    double new_view_offset;
+} OmniNiriResizeResult;
+
 enum {
     OMNI_OK = 0,
     OMNI_ERR_INVALID_ARGS = -1,
@@ -165,3 +222,51 @@ int32_t omni_niri_layout_pass(
     uint8_t orientation,
     OmniNiriWindowOutput *out_windows,
     size_t out_window_count);
+
+int32_t omni_niri_layout_pass_v2(
+    const OmniNiriColumnInput *columns,
+    size_t column_count,
+    const OmniNiriWindowInput *windows,
+    size_t window_count,
+    double working_x,
+    double working_y,
+    double working_width,
+    double working_height,
+    double view_x,
+    double view_y,
+    double view_width,
+    double view_height,
+    double fullscreen_x,
+    double fullscreen_y,
+    double fullscreen_width,
+    double fullscreen_height,
+    double primary_gap,
+    double secondary_gap,
+    double view_start,
+    double viewport_span,
+    double workspace_offset,
+    double scale,
+    uint8_t orientation,
+    OmniNiriWindowOutput *out_windows,
+    size_t out_window_count,
+    OmniNiriColumnOutput *out_columns,
+    size_t out_column_count);
+
+int32_t omni_niri_hit_test_tiled(
+    const OmniNiriHitTestWindow *windows,
+    size_t window_count,
+    double point_x,
+    double point_y,
+    int64_t *out_window_index);
+
+int32_t omni_niri_hit_test_resize(
+    const OmniNiriHitTestWindow *windows,
+    size_t window_count,
+    double point_x,
+    double point_y,
+    double threshold,
+    OmniNiriResizeHitResult *out_result);
+
+int32_t omni_niri_resize_compute(
+    const OmniNiriResizeInput *input,
+    OmniNiriResizeResult *out_result);
