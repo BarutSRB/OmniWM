@@ -1,6 +1,7 @@
 {
   "date": "2026-03-03",
-  "commit": "89da084c8a08dde29731b8c4a937a86eafea7eb6",
-  "window_ops_p95_sec": 0.000001600,
-  "notes": "Measured from NiriZigWindowOpsParityTests/windowOpsMutationPlannerBenchmarkHarnessP95 with 10k requests; baseline reflects typical local debug variance."
+  "commit": "b9a439b32cea4ba01715c59661775c335f3f21a3",
+  "window_ops_planner_p95_sec": 0.000001167,
+  "window_ops_full_path_p95_sec": 0.000020625,
+  "notes": "Planner measured from NiriZigWindowOpsParityTests/windowOpsMutationPlannerBenchmarkHarnessP95 with 10k requests; runtime measured from NiriZigWindowOpsParityTests/windowOpsRuntimeFullPathBenchmarkHarnessP95 with 10k runtime operations."
 }
