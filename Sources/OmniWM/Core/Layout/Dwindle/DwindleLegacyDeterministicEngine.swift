@@ -3,6 +3,8 @@ import Foundation
 import CoreGraphics
 import QuartzCore
 
+/// Internal legacy deterministic reference retained for parity and regression tests.
+/// This implementation is intentionally excluded from production runtime behavior.
 final class LegacyDwindleLayoutEngine {
     private var roots: [WorkspaceDescriptor.ID: DwindleNode] = [:]
     private var windowToNode: [WindowHandle: DwindleNode] = [:]
