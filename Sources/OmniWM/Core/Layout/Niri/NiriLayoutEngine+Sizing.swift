@@ -130,7 +130,10 @@ extension NiriLayoutEngine {
         }
         guard outcome.rc == 0 else { return }
 
-        guard let resolvedColumn = root(for: workspaceId)?.findNode(by: column.id) as? NiriContainer else {
+        guard let resolvedColumn = runtimeColumnNode(
+            for: column.id,
+            in: workspaceId
+        ) else {
             return
         }
         resolvedColumn.presetWidthIdx = nextIdx
@@ -198,7 +201,10 @@ extension NiriLayoutEngine {
         }
         guard outcome.rc == 0 else { return }
 
-        guard let resolvedColumn = root(for: workspaceId)?.findNode(by: column.id) as? NiriContainer else {
+        guard let resolvedColumn = runtimeColumnNode(
+            for: column.id,
+            in: workspaceId
+        ) else {
             return
         }
         if resolvedColumn.isFullWidth {

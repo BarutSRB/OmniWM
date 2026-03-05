@@ -120,10 +120,57 @@ final class NiriTxnContractTests: XCTestCase {
 
         XCTAssertTrue(kernelContent.contains("omni_niri_runtime_render("))
         XCTAssertFalse(kernelContent.contains("omni_niri_layout_pass_v3("))
+        XCTAssertTrue(kernelContent.contains("runtimeRenderStateMismatch"))
         XCTAssertTrue(kernelContent.contains("OMNI_ERR_OUT_OF_RANGE"))
-        XCTAssertTrue(kernelContent.contains("seedRuntimeState("))
-        XCTAssertTrue(kernelContent.contains("reseed_rc="))
-        XCTAssertTrue(kernelContent.contains("retry_rc="))
+        XCTAssertFalse(kernelContent.contains("seedRuntimeState("))
+        XCTAssertFalse(kernelContent.contains("reseed_rc="))
+        XCTAssertFalse(kernelContent.contains("retry_rc="))
+    }
+
+    func testPhase3OperationReadPathsDoNotUseNodeCastLookups() throws {
+        let operationFiles = [
+            "NiriLayoutEngine+Sizing.swift",
+            "NiriLayoutEngine+TabbedMode.swift",
+            "NiriLayoutEngine+InteractiveResize.swift",
+            "NiriLayoutEngine+InteractiveMove.swift",
+            "NiriLayoutEngine+ColumnOps.swift",
+            "NiriLayoutEngine+WindowOps.swift",
+            "NiriLayoutEngine+WorkspaceOps.swift",
+            "NiriLayoutEngine+Windows.swift",
+            "NiriNavigation.swift",
+            "NiriRuntimeBoundary.swift",
+        ]
+
+        for fileName in operationFiles {
+            let fileURL = niriSourceDirURL().appendingPathComponent(fileName)
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertFalse(
+                content.contains("as? NiriWindow"),
+                "Phase 3 operation reads must not use NiriWindow cast lookup in \(fileName)"
+            )
+            XCTAssertFalse(
+                content.contains("as? NiriContainer"),
+                "Phase 3 operation reads must not use NiriContainer cast lookup in \(fileName)"
+            )
+        }
+    }
+
+    func testPhase3NavigationReadPathUsesRuntimeViewSelection() throws {
+        let navigationURL = niriSourceDirURL().appendingPathComponent("NiriNavigation.swift")
+        let navigationContent = try String(contentsOf: navigationURL, encoding: .utf8)
+
+        XCTAssertTrue(navigationContent.contains("runtimeSelectionAnchor("))
+        XCTAssertTrue(navigationContent.contains("resolveWorkspaceNavigationTargetNode("))
+        XCTAssertFalse(navigationContent.contains("makeSnapshot(columns: columns(in: workspaceId))"))
+    }
+
+    func testPhase3LayoutInteractionIndexUsesRuntimeView() throws {
+        let layoutURL = niriSourceDirURL().appendingPathComponent("NiriLayout.swift")
+        let layoutContent = try String(contentsOf: layoutURL, encoding: .utf8)
+
+        XCTAssertTrue(layoutContent.contains("runtimeWorkspaceView(for: workspaceId)"))
+        XCTAssertTrue(layoutContent.contains("makeInteractionIndex("))
+        XCTAssertTrue(layoutContent.contains("view: runtimeView"))
     }
 
     func testPhase1RuntimeBoundaryTypesAndStoreDispatchExist() throws {

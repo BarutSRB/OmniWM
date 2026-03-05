@@ -241,6 +241,13 @@ extension NiriLayoutEngine {
                 tabIndicatorWidth: renderStyle.tabIndicatorWidth,
                 time: time
             )
+        } catch let error as NiriLayoutZigKernel.KernelCallError {
+            interactionIndexes.removeValue(forKey: workspaceId)
+            if case .runtimeRenderStateMismatch = error {
+                // Recover on next pass by forcing a fresh runtime seed in prepareSeededRuntimeContext.
+                clearRuntimeMirrorState(for: workspaceId)
+            }
+            return
         } catch {
             interactionIndexes.removeValue(forKey: workspaceId)
             return
@@ -270,6 +277,13 @@ extension NiriLayoutEngine {
             frames[result.window.handle] = roundedAnimatedFrame
         }
 
-        interactionIndexes[workspaceId] = NiriLayoutZigKernel.makeInteractionIndex(columns: containers)
+        if let runtimeView = runtimeWorkspaceView(for: workspaceId) {
+            interactionIndexes[workspaceId] = NiriLayoutZigKernel.makeInteractionIndex(
+                view: runtimeView,
+                handleToNode: handleToNode
+            )
+        } else {
+            interactionIndexes.removeValue(forKey: workspaceId)
+        }
     }
 }

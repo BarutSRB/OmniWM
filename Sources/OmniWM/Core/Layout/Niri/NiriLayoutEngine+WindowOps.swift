@@ -29,21 +29,18 @@ extension NiriLayoutEngine {
         insertPosition: InsertPosition? = nil,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> WindowMutationPreparedRequest? {
-        let workspaceColumns = columns(in: workspaceId)
-        let sourceWindowExists = workspaceColumns.contains { column in
-            column.windowNodes.contains(where: { $0.id == sourceWindow.id })
-        }
-        guard sourceWindowExists else {
+        guard let runtimeView = runtimeWorkspaceView(for: workspaceId) else {
             return nil
         }
-        if let targetWindow {
-            let targetWindowExists = workspaceColumns.contains { column in
-                column.windowNodes.contains(where: { $0.id == targetWindow.id })
-            }
-            guard targetWindowExists else {
-                return nil
-            }
+
+        guard runtimeView.window(for: sourceWindow.id) != nil else {
+            return nil
         }
+        if let targetWindow, runtimeView.window(for: targetWindow.id) == nil {
+            return nil
+        }
+
+        let workspaceColumns = columns(in: workspaceId)
         guard let command = windowMutationCommand(
             op: op,
             sourceWindowId: sourceWindow.id,
@@ -82,7 +79,10 @@ extension NiriLayoutEngine {
             delegatedMoveColumn: nil
         )
         if let targetWindowId = applyOutcome.targetWindowId {
-            guard let resolvedTarget = root(for: workspaceId)?.findNode(by: targetWindowId) as? NiriWindow else {
+            guard let resolvedTarget = runtimeWindowNode(
+                for: targetWindowId,
+                in: workspaceId
+            ) else {
                 return nil
             }
             runtimeOutcome = WindowMutationApplyOutcome(
@@ -92,7 +92,10 @@ extension NiriLayoutEngine {
             )
         }
         if let delegated = applyOutcome.delta?.delegatedMoveColumn {
-            guard let resolvedColumn = root(for: workspaceId)?.findNode(by: delegated.columnId) as? NiriContainer else {
+            guard let resolvedColumn = runtimeColumnNode(
+                for: delegated.columnId,
+                in: workspaceId
+            ) else {
                 return nil
             }
             runtimeOutcome = WindowMutationApplyOutcome(

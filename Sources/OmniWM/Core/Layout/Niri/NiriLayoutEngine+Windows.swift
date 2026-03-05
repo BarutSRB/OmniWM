@@ -11,7 +11,12 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) -> NodeId? {
         guard let selectedNodeId else { return nil }
-        guard root(for: workspaceId)?.findNode(by: selectedNodeId) != nil else { return nil }
+        guard runtimeSelectionAnchor(
+            selectedNodeId: selectedNodeId,
+            workspaceId: workspaceId
+        ) != nil else {
+            return nil
+        }
         return selectedNodeId
     }
 
@@ -124,7 +129,7 @@ extension NiriLayoutEngine {
         let focusedWindowId: NodeId?
         if let focusedHandle,
            let focusedNode = handleToNode[focusedHandle],
-           root(for: workspaceId)?.findNode(by: focusedNode.id) is NiriWindow
+           runtimeWindowView(for: focusedNode.id, in: workspaceId) != nil
         {
             focusedWindowId = focusedNode.id
         } else {
@@ -224,7 +229,7 @@ extension NiriLayoutEngine {
             fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
             return
         }
-        guard root(for: workspaceId)?.findNode(by: node.id) is NiriWindow else {
+        guard runtimeWindowView(for: node.id, in: workspaceId) != nil else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
@@ -372,7 +377,7 @@ extension NiriLayoutEngine {
         ) else {
             return nil
         }
-        guard root(for: workspaceId)?.findNode(by: removingNodeId) is NiriWindow else {
+        guard runtimeWindowView(for: removingNodeId, in: workspaceId) != nil else {
             return nil
         }
 
@@ -391,8 +396,12 @@ extension NiriLayoutEngine {
     }
 
     func updateFocusTimestamp(for nodeId: NodeId) {
-        guard let node = findNode(by: nodeId) as? NiriWindow else { return }
-        node.lastFocusedTime = Date()
+        for workspaceId in roots.keys {
+            if let node = runtimeWindowNode(for: nodeId, in: workspaceId) {
+                node.lastFocusedTime = Date()
+                return
+            }
+        }
     }
 
     func updateFocusTimestamp(for handle: WindowHandle) {

@@ -63,12 +63,15 @@ extension NiriLayoutEngine {
 
         let movedHandle: WindowHandle?
         if let movedWindowId = applyOutcome.movedWindowId {
-            guard let movedWindow = root(for: prepared.targetWorkspaceId)?
-                .findNode(by: movedWindowId) as? NiriWindow
+            guard let movedWindowView = runtimeWindowView(
+                for: movedWindowId,
+                in: prepared.targetWorkspaceId
+            ),
+                let handle = movedWindowView.handle
             else {
                 return nil
             }
-            movedHandle = movedWindow.handle
+            movedHandle = handle
         } else {
             movedHandle = nil
         }
@@ -128,22 +131,19 @@ extension NiriLayoutEngine {
         to targetWorkspaceId: WorkspaceDescriptor.ID
     ) -> WorkspacePreparedRequest? {
         guard sourceWorkspaceId != targetWorkspaceId else { return nil }
+        guard runtimeWindowView(
+            for: window.id,
+            in: sourceWorkspaceId
+        ) != nil else {
+            return nil
+        }
 
-        guard let sourceRoot = roots[sourceWorkspaceId],
-              findColumn(containing: window, in: sourceWorkspaceId) != nil
-        else {
+        guard roots[sourceWorkspaceId] != nil else {
             return nil
         }
 
         let targetRoot = ensureRoot(for: targetWorkspaceId)
-        let sourceColumns = sourceRoot.columns
         _ = targetRoot.columns
-        let sourceWindowExists = sourceColumns.contains { column in
-            column.windowNodes.contains(where: { $0.id == window.id })
-        }
-        guard sourceWindowExists else {
-            return nil
-        }
 
         return WorkspacePreparedRequest(
             sourceWorkspaceId: sourceWorkspaceId,
@@ -162,19 +162,19 @@ extension NiriLayoutEngine {
         to targetWorkspaceId: WorkspaceDescriptor.ID
     ) -> WorkspacePreparedRequest? {
         guard sourceWorkspaceId != targetWorkspaceId else { return nil }
+        guard runtimeColumnView(
+            for: column.id,
+            in: sourceWorkspaceId
+        ) != nil else {
+            return nil
+        }
 
-        guard let sourceRoot = roots[sourceWorkspaceId],
-              columnIndex(of: column, in: sourceWorkspaceId) != nil
-        else {
+        guard roots[sourceWorkspaceId] != nil else {
             return nil
         }
 
         let targetRoot = ensureRoot(for: targetWorkspaceId)
-        let sourceColumns = sourceRoot.columns
         _ = targetRoot.columns
-        guard sourceColumns.contains(where: { $0.id == column.id }) else {
-            return nil
-        }
 
         return WorkspacePreparedRequest(
             sourceWorkspaceId: sourceWorkspaceId,

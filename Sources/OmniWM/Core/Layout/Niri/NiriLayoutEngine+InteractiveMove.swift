@@ -4,7 +4,7 @@ import Foundation
 extension NiriLayoutEngine {
     func interactiveMoveBegin(
         windowId: NodeId,
-        windowHandle: WindowHandle,
+        windowHandle _: WindowHandle,
         startLocation: CGPoint,
         isInsertMode: Bool = false,
         in workspaceId: WorkspaceDescriptor.ID,
@@ -15,9 +15,13 @@ extension NiriLayoutEngine {
         guard interactiveMove == nil else { return false }
         guard interactiveResize == nil else { return false }
 
-        guard let windowNode = findNode(by: windowId) as? NiriWindow else { return false }
-        guard let column = findColumn(containing: windowNode, in: workspaceId) else { return false }
-        guard let colIdx = columnIndex(of: column, in: workspaceId) else { return false }
+        guard let windowView = runtimeWindowView(for: windowId, in: workspaceId),
+              let resolvedHandle = windowView.handle,
+              let windowNode = handleToNode[resolvedHandle],
+              runtimeColumnNode(for: windowView.columnId, in: workspaceId) != nil
+        else {
+            return false
+        }
 
         if windowNode.isFullscreen {
             return false
@@ -25,10 +29,10 @@ extension NiriLayoutEngine {
 
         interactiveMove = InteractiveMove(
             windowId: windowId,
-            windowHandle: windowHandle,
+            windowHandle: resolvedHandle,
             workspaceId: workspaceId,
             startMouseLocation: startLocation,
-            originalColumnIndex: colIdx,
+            originalColumnIndex: windowView.columnOrderIndex,
             originalFrame: windowNode.frame ?? .zero,
             isInsertMode: isInsertMode,
             currentHoverTarget: nil
@@ -36,7 +40,7 @@ extension NiriLayoutEngine {
 
         let cols = columns(in: workspaceId)
         state.transitionToColumn(
-            colIdx,
+            windowView.columnOrderIndex,
             columns: cols,
             gap: gaps,
             viewportWidth: workingFrame.width,
@@ -161,8 +165,14 @@ extension NiriLayoutEngine {
         gaps: CGFloat,
         fromColumnIndex: Int? = nil
     ) -> Bool {
-        guard let sourceWindow = findNode(by: sourceWindowId) as? NiriWindow,
-              let targetWindow = findNode(by: targetWindowId) as? NiriWindow
+        guard let sourceWindow = runtimeWindowNode(
+            for: sourceWindowId,
+            in: workspaceId
+        ),
+            let targetWindow = runtimeWindowNode(
+                for: targetWindowId,
+                in: workspaceId
+            )
         else {
             return false
         }
@@ -200,8 +210,14 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> Bool {
-        guard let sourceWindow = findNode(by: sourceWindowId) as? NiriWindow,
-              let targetWindow = findNode(by: targetWindowId) as? NiriWindow
+        guard let sourceWindow = runtimeWindowNode(
+            for: sourceWindowId,
+            in: workspaceId
+        ),
+            let targetWindow = runtimeWindowNode(
+                for: targetWindowId,
+                in: workspaceId
+            )
         else {
             return false
         }

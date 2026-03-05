@@ -479,8 +479,10 @@ final class NiriRuntimeWorkspaceStore {
                 )
             }
         case let .setWindowSizingMode(sourceWindowId, mode):
-            guard let window = engine.root(for: workspaceId)?
-                .findNode(by: sourceWindowId) as? NiriWindow
+            guard let window = engine.runtimeWindowNode(
+                for: sourceWindowId,
+                in: workspaceId
+            )
             else {
                 return .success(
                     .init(

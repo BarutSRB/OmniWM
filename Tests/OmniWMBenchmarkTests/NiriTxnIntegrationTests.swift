@@ -786,7 +786,7 @@ final class NiriTxnIntegrationTests: XCTestCase {
         XCTAssertEqual(outcome.targetDelta?.windows.count, 1)
     }
 
-    func testRuntimeRenderRecoversFromCountDriftByReseedingAndRetrying() throws {
+    func testRuntimeRenderReturnsTypedMismatchAndRecoversAfterExplicitReseed() throws {
         let workspace = WorkspaceDescriptor(name: "txn-runtime-render-retry")
         let engine = NiriLayoutEngine()
         let root = engine.ensureRoot(for: workspace.id)
@@ -803,6 +803,40 @@ final class NiriTxnIntegrationTests: XCTestCase {
 
         let frame = CGRect(x: 0, y: 0, width: 1200, height: 900)
         column.resolveAndCacheWidth(workingAreaWidth: frame.width, gaps: 10)
+        XCTAssertThrowsError(
+            try NiriLayoutZigKernel.run(
+                context: context,
+                columns: engine.columns(in: workspace.id),
+                orientation: .horizontal,
+                primaryGap: 10,
+                secondaryGap: 10,
+                workingFrame: frame,
+                viewFrame: frame,
+                fullscreenFrame: frame,
+                viewStart: 0,
+                viewportSpan: frame.width,
+                workspaceOffset: 0,
+                scale: 2,
+                tabIndicatorWidth: 0,
+                time: 0
+            )
+        ) { error in
+            guard case let NiriLayoutZigKernel.KernelCallError.runtimeRenderStateMismatch(rc, columns, windows) = error else {
+                return XCTFail("Expected runtimeRenderStateMismatch, got \(error)")
+            }
+            XCTAssertEqual(rc, Int32(OMNI_ERR_OUT_OF_RANGE))
+            XCTAssertEqual(columns, 1)
+            XCTAssertEqual(windows, 0)
+        }
+
+        XCTAssertEqual(
+            NiriStateZigKernel.seedRuntimeState(
+                context: context,
+                snapshot: NiriStateZigKernel.makeSnapshot(columns: engine.columns(in: workspace.id))
+            ),
+            Int32(OMNI_OK)
+        )
+
         let result = try NiriLayoutZigKernel.run(
             context: context,
             columns: engine.columns(in: workspace.id),

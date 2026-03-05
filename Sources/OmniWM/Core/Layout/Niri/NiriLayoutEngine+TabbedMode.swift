@@ -4,9 +4,11 @@ import Foundation
 extension NiriLayoutEngine {
     @discardableResult
     func toggleColumnTabbed(in workspaceId: WorkspaceDescriptor.ID, state: ViewportState) -> Bool {
-        guard let selectedId = state.selectedNodeId,
-              let selectedNode = findNode(by: selectedId),
-              let column = column(of: selectedNode)
+        guard let selectedColumnId = runtimeSelectedColumnId(
+            selectedNodeId: state.selectedNodeId,
+            workspaceId: workspaceId
+        ),
+            let column = runtimeColumnNode(for: selectedColumnId, in: workspaceId)
         else {
             return false
         }
@@ -21,9 +23,11 @@ extension NiriLayoutEngine {
         guard let workspaceId = column.findRoot()?.workspaceId else { return false }
 
         if let resize = interactiveResize,
-           let resizeWindow = findNode(by: resize.windowId) as? NiriWindow,
-           let resizeColumn = findColumn(containing: resizeWindow, in: resize.workspaceId),
-           resizeColumn.id == column.id
+           let resizeWindowView = runtimeWindowView(
+               for: resize.windowId,
+               in: resize.workspaceId
+           ),
+           resizeWindowView.columnId == column.id
         {
             clearInteractiveResize()
         }
@@ -81,12 +85,13 @@ extension NiriLayoutEngine {
         }
     }
 
-    func activeColumn(in _: WorkspaceDescriptor.ID, state: ViewportState) -> NiriContainer? {
-        guard let selectedId = state.selectedNodeId,
-              let selectedNode = findNode(by: selectedId)
-        else {
+    func activeColumn(in workspaceId: WorkspaceDescriptor.ID, state: ViewportState) -> NiriContainer? {
+        guard let selectedColumnId = runtimeSelectedColumnId(
+            selectedNodeId: state.selectedNodeId,
+            workspaceId: workspaceId
+        ) else {
             return nil
         }
-        return column(of: selectedNode)
+        return runtimeColumnNode(for: selectedColumnId, in: workspaceId)
     }
 }

@@ -107,24 +107,30 @@ extension NiriLayoutEngine {
         focusWindowIndex: Int = -1,
         allowMissingSelection: Bool = false
     ) -> NiriNode? {
-        let selection = navigationSelectionIds(
-            for: currentSelection,
-            snapshot: snapshot
-        )
-        if selection == nil, !allowMissingSelection {
-            return nil
-        }
-
         let selectionAnchor: NiriRuntimeSelectionAnchor?
-        if let sourceWindowId = selection?.sourceWindowId {
-            selectionAnchor = .window(
-                windowId: sourceWindowId,
-                columnId: selection?.sourceColumnId
+        if let workspaceId {
+            selectionAnchor = runtimeSelectionAnchor(
+                selectedNodeId: currentSelection.id,
+                workspaceId: workspaceId
             )
-        } else if let sourceColumnId = selection?.sourceColumnId {
-            selectionAnchor = .column(columnId: sourceColumnId)
         } else {
-            selectionAnchor = nil
+            let selection = navigationSelectionIds(
+                for: currentSelection,
+                snapshot: snapshot
+            )
+            if let sourceWindowId = selection?.sourceWindowId {
+                selectionAnchor = .window(
+                    windowId: sourceWindowId,
+                    columnId: selection?.sourceColumnId
+                )
+            } else if let sourceColumnId = selection?.sourceColumnId {
+                selectionAnchor = .column(columnId: sourceColumnId)
+            } else {
+                selectionAnchor = nil
+            }
+        }
+        if selectionAnchor == nil, !allowMissingSelection {
+            return nil
         }
 
         let command: NiriRuntimeNavigationCommand?
@@ -201,20 +207,19 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        let request = NiriStateZigKernel.NavigationRequest(
-            op: op,
-            sourceWindowId: selectionAnchor?.sourceWindowId,
-            sourceColumnId: selectionAnchor?.sourceColumnId,
-            direction: direction,
-            orientation: orientation,
-            infiniteLoop: infiniteLoop,
-            step: step,
-            targetRowIndex: targetRowIndex,
-            focusColumnIndex: focusColumnIndex,
-            focusWindowIndex: focusWindowIndex
-        )
-
         guard let workspaceId else {
+            let request = NiriStateZigKernel.NavigationRequest(
+                op: op,
+                sourceWindowId: selectionAnchor?.sourceWindowId,
+                sourceColumnId: selectionAnchor?.sourceColumnId,
+                direction: direction,
+                orientation: orientation,
+                infiniteLoop: infiniteLoop,
+                step: step,
+                targetRowIndex: targetRowIndex,
+                focusColumnIndex: focusColumnIndex,
+                focusWindowIndex: focusWindowIndex
+            )
             return resolveNavigationTargetWithTransientRuntime(
                 snapshot: snapshot,
                 request: request
@@ -236,7 +241,43 @@ extension NiriLayoutEngine {
         guard let targetWindowId = outcome.targetWindowId else {
             return nil
         }
-        return root(for: workspaceId)?.findNode(by: targetWindowId)
+        return runtimeWindowNode(
+            for: targetWindowId,
+            in: workspaceId
+        )
+    }
+
+    private func resolveWorkspaceNavigationTargetNode(
+        workspaceId: WorkspaceDescriptor.ID,
+        op: NiriStateZigKernel.NavigationOp,
+        currentSelection: NiriNode,
+        direction: Direction? = nil,
+        orientation: Monitor.Orientation = .horizontal,
+        step: Int = 0,
+        targetRowIndex: Int = -1,
+        focusColumnIndex: Int = -1,
+        focusWindowIndex: Int = -1,
+        allowMissingSelection: Bool = false
+    ) -> NiriNode? {
+        guard let runtimeView = runtimeWorkspaceView(for: workspaceId),
+              !runtimeView.columns.isEmpty
+        else {
+            return nil
+        }
+
+        return resolveNavigationTargetNode(
+            snapshot: NiriStateZigKernel.makeSnapshot(columns: []),
+            workspaceId: workspaceId,
+            op: op,
+            currentSelection: currentSelection,
+            direction: direction,
+            orientation: orientation,
+            step: step,
+            targetRowIndex: targetRowIndex,
+            focusColumnIndex: focusColumnIndex,
+            focusWindowIndex: focusWindowIndex,
+            allowMissingSelection: allowMissingSelection
+        )
     }
 
     func moveSelectionByColumns(
@@ -250,11 +291,7 @@ extension NiriLayoutEngine {
 
         guard steps != 0 else { return currentSelection }
 
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
-        return resolveNavigationTargetNode(
-            snapshot: snapshot,
+        return resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .moveByColumns,
             currentSelection: currentSelection,
@@ -346,11 +383,7 @@ extension NiriLayoutEngine {
         }
 
         if let resolvedWorkspaceId = workspaceId ?? currentSelection.findRoot()?.workspaceId {
-            let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: resolvedWorkspaceId))
-            guard !snapshot.columnEntries.isEmpty else { return nil }
-
-            return resolveNavigationTargetNode(
-                snapshot: snapshot,
+            return resolveWorkspaceNavigationTargetNode(
                 workspaceId: resolvedWorkspaceId,
                 op: .moveVertical,
                 currentSelection: currentSelection,
@@ -436,11 +469,7 @@ extension NiriLayoutEngine {
         gaps: CGFloat,
         orientation: Monitor.Orientation = .horizontal
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusTarget,
             currentSelection: currentSelection,
@@ -471,11 +500,7 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusDownOrLeft,
             currentSelection: currentSelection
@@ -503,11 +528,7 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusUpOrRight,
             currentSelection: currentSelection
@@ -535,13 +556,9 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
         state.activatePrevColumnOnRemoval = nil
 
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusColumnFirst,
             currentSelection: currentSelection,
@@ -570,13 +587,9 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
         state.activatePrevColumnOnRemoval = nil
 
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusColumnLast,
             currentSelection: currentSelection,
@@ -606,13 +619,15 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard snapshot.columnEntries.indices.contains(columnIndex) else { return nil }
+        guard let runtimeView = runtimeWorkspaceView(for: workspaceId),
+              runtimeView.columns.indices.contains(columnIndex)
+        else {
+            return nil
+        }
 
         state.activatePrevColumnOnRemoval = nil
 
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusColumnIndex,
             currentSelection: currentSelection,
@@ -643,11 +658,7 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusWindowIndex,
             currentSelection: currentSelection,
@@ -676,11 +687,7 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusWindowTop,
             currentSelection: currentSelection
@@ -708,11 +715,7 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard !snapshot.columnEntries.isEmpty else { return nil }
-
-        guard let target = resolveNavigationTargetNode(
-            snapshot: snapshot,
+        guard let target = resolveWorkspaceNavigationTargetNode(
             workspaceId: workspaceId,
             op: .focusWindowBottom,
             currentSelection: currentSelection

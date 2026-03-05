@@ -89,7 +89,8 @@ enum NiriLayoutZigKernel {
     }
 
     enum KernelCallError: Error, Equatable, CustomStringConvertible {
-        case runtimeRenderFailed(initialRC: Int32, reseedRC: Int32?, retryRC: Int32?, columns: Int, windows: Int)
+        case runtimeRenderStateMismatch(rc: Int32, columns: Int, windows: Int)
+        case runtimeRenderFailed(rc: Int32, columns: Int, windows: Int)
         case hitTestTiledFailed(rc: Int32)
         case hitTestResizeFailed(rc: Int32)
         case hitTestMoveTargetFailed(rc: Int32)
@@ -98,8 +99,10 @@ enum NiriLayoutZigKernel {
 
         var description: String {
             switch self {
-            case let .runtimeRenderFailed(initialRC, reseedRC, retryRC, columns, windows):
-                return "omni_niri_runtime_render failed initial_rc=\(initialRC) reseed_rc=\(reseedRC.map(String.init) ?? "n/a") retry_rc=\(retryRC.map(String.init) ?? "n/a") columns=\(columns) windows=\(windows)"
+            case let .runtimeRenderStateMismatch(rc, columns, windows):
+                return "omni_niri_runtime_render state mismatch rc=\(rc) columns=\(columns) windows=\(windows)"
+            case let .runtimeRenderFailed(rc, columns, windows):
+                return "omni_niri_runtime_render failed rc=\(rc) columns=\(columns) windows=\(windows)"
             case let .hitTestTiledFailed(rc):
                 return "omni_niri_ctx_hit_test_tiled failed rc=\(rc)"
             case let .hitTestResizeFailed(rc):
@@ -362,32 +365,17 @@ enum NiriLayoutZigKernel {
             }
         }
 
-        let initialRC = renderOnce()
-        var reseedRC: Int32?
-        var retryRC: Int32?
-        let rc: Int32
-        if initialRC == OMNI_ERR_OUT_OF_RANGE {
-            let reseedResult = NiriStateZigKernel.seedRuntimeState(
-                context: context,
-                snapshot: NiriStateZigKernel.makeSnapshot(columns: columns)
-            )
-            reseedRC = reseedResult
-            if reseedResult == OMNI_OK {
-                let secondRC = renderOnce()
-                retryRC = secondRC
-                rc = secondRC
-            } else {
-                rc = reseedResult
-            }
-        } else {
-            rc = initialRC
-        }
-
+        let rc = renderOnce()
         guard rc == OMNI_OK else {
+            if rc == OMNI_ERR_OUT_OF_RANGE {
+                throw KernelCallError.runtimeRenderStateMismatch(
+                    rc: rc,
+                    columns: columnInputs.count,
+                    windows: windowInputs.count
+                )
+            }
             throw KernelCallError.runtimeRenderFailed(
-                initialRC: initialRC,
-                reseedRC: reseedRC,
-                retryRC: retryRC,
+                rc: rc,
                 columns: columnInputs.count,
                 windows: windowInputs.count
             )
@@ -455,6 +443,40 @@ enum NiriLayoutZigKernel {
                 )
                 indexByNodeId[window.id] = index
             }
+        }
+
+        return InteractionIndex(
+            windowEntries: entries,
+            windowIndexByNodeId: indexByNodeId
+        )
+    }
+
+    static func makeInteractionIndex(
+        view: NiriRuntimeWorkspaceView,
+        handleToNode: [WindowHandle: NiriWindow]
+    ) -> InteractionIndex {
+        var entries: [InteractionWindowEntry] = []
+        entries.reserveCapacity(view.windows.count)
+
+        var indexByNodeId: [NodeId: Int] = [:]
+        indexByNodeId.reserveCapacity(view.windows.count)
+
+        for window in view.windows {
+            guard let handle = window.handle,
+                  let windowNode = handleToNode[handle],
+                  let frame = windowNode.frame
+            else {
+                continue
+            }
+            let entryIndex = entries.count
+            entries.append(
+                InteractionWindowEntry(
+                    window: windowNode,
+                    columnIndex: window.columnOrderIndex,
+                    frame: frame
+                )
+            )
+            indexByNodeId[window.windowId] = entryIndex
         }
 
         return InteractionIndex(

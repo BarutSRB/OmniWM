@@ -41,24 +41,25 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         maxVisibleColumns: Int = -1
     ) -> ColumnMutationPreparedRequest? {
+        guard let runtimeView = runtimeWorkspaceView(for: workspaceId) else {
+            return nil
+        }
+
         let workspaceColumns = columns(in: workspaceId)
         if let sourceWindow {
-            let sourceWindowExists = workspaceColumns.contains { column in
-                column.windowNodes.contains(where: { $0.id == sourceWindow.id })
-            }
-            guard sourceWindowExists else {
+            guard runtimeView.window(for: sourceWindow.id) != nil else {
                 return nil
             }
         }
 
         if let sourceColumn {
-            guard workspaceColumns.contains(where: { $0.id == sourceColumn.id }) else {
+            guard runtimeView.column(for: sourceColumn.id) != nil else {
                 return nil
             }
         }
 
         if let targetColumn {
-            guard workspaceColumns.contains(where: { $0.id == targetColumn.id }) else {
+            guard runtimeView.column(for: targetColumn.id) != nil else {
                 return nil
             }
         }
@@ -109,7 +110,10 @@ extension NiriLayoutEngine {
 
         let targetWindow: NiriWindow?
         if let targetWindowId = applyOutcome.targetWindowId {
-            guard let resolvedWindow = root(for: workspaceId)?.findNode(by: targetWindowId) as? NiriWindow else {
+            guard let resolvedWindow = runtimeWindowNode(
+                for: targetWindowId,
+                in: workspaceId
+            ) else {
                 return nil
             }
             targetWindow = resolvedWindow

@@ -2,6 +2,26 @@ import AppKit
 import Foundation
 
 extension NiriLayoutEngine {
+    private func resolveRuntimeWindowAndColumn(
+        windowId: NodeId,
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> (
+        window: NiriWindow,
+        windowView: NiriRuntimeWorkspaceView.WindowView,
+        column: NiriContainer
+    )? {
+        guard let view = runtimeWorkspaceView(for: workspaceId),
+              let windowView = view.window(for: windowId),
+              let handle = windowView.handle,
+              let window = handleToNode[handle],
+              let column = runtimeColumnNode(for: windowView.columnId, in: workspaceId)
+        else {
+            return nil
+        }
+
+        return (window: window, windowView: windowView, column: column)
+    }
+
     func hitTestResize(
         point: CGPoint,
         in workspaceId: WorkspaceDescriptor.ID,
@@ -58,9 +78,15 @@ extension NiriLayoutEngine {
     ) -> Bool {
         guard interactiveResize == nil else { return false }
 
-        guard let windowNode = findNode(by: windowId) as? NiriWindow else { return false }
-        guard let column = findColumn(containing: windowNode, in: workspaceId) else { return false }
-        guard let colIdx = columnIndex(of: column, in: workspaceId) else { return false }
+        guard let resolved = resolveRuntimeWindowAndColumn(
+            windowId: windowId,
+            workspaceId: workspaceId
+        ) else {
+            return false
+        }
+        let windowNode = resolved.window
+        let column = resolved.column
+        let colIdx = resolved.windowView.columnOrderIndex
         if windowNode.isFullscreen {
             return false
         }
@@ -97,15 +123,15 @@ extension NiriLayoutEngine {
 
         guard let resize = interactiveResize else { return false }
 
-        guard let windowNode = findNode(by: resize.windowId) as? NiriWindow else {
+        guard let resolved = resolveRuntimeWindowAndColumn(
+            windowId: resize.windowId,
+            workspaceId: resize.workspaceId
+        ) else {
             clearInteractiveResize()
             return false
         }
-
-        guard let column = findColumn(containing: windowNode, in: resize.workspaceId) else {
-            clearInteractiveResize()
-            return false
-        }
+        let windowNode = resolved.window
+        let column = resolved.column
 
         let hasHorizontal = resize.edges.hasHorizontal && resize.originalColumnWidth != nil
         let minColumnWidth: CGFloat = hasHorizontal
@@ -183,10 +209,17 @@ extension NiriLayoutEngine {
             return
         }
 
-        if let windowNode = findNode(by: resize.windowId) as? NiriWindow {
+        if let resolved = resolveRuntimeWindowAndColumn(
+            windowId: resize.windowId,
+            workspaceId: resize.workspaceId
+        ) {
+            let windowNode = resolved.window
             let runtimeStore = runtimeStore(for: resize.workspaceId)
             if resize.edges.hasHorizontal,
-               let column = findColumn(containing: windowNode, in: resize.workspaceId)
+               let column = runtimeColumnNode(
+                   for: resolved.windowView.columnId,
+                   in: resize.workspaceId
+               )
             {
                 _ = runtimeStore.executeMutation(
                     .setColumnWidth(
