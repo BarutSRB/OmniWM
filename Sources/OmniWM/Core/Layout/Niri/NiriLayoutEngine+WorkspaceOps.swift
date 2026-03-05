@@ -47,6 +47,7 @@ extension NiriLayoutEngine {
             targetContext: targetContext,
             request: .init(
                 request: prepared.request,
+                sourceSnapshot: prepared.sourceSnapshot,
                 targetCreatedColumnId: targetCreatedColumnId,
                 sourcePlaceholderColumnId: sourcePlaceholderColumnId
             )
@@ -66,6 +67,7 @@ extension NiriLayoutEngine {
         guard applyProjectedRuntimeExport(
             context: targetContext,
             workspaceId: prepared.targetWorkspaceId,
+            delta: applyOutcome.targetDelta,
             refreshMirrorStateFromExport: false
         ) != nil else {
             return nil
@@ -74,6 +76,7 @@ extension NiriLayoutEngine {
         guard applyProjectedRuntimeExport(
             context: sourceContext,
             workspaceId: prepared.sourceWorkspaceId,
+            delta: applyOutcome.sourceDelta,
             refreshMirrorStateFromExport: false
         ) != nil else {
             return nil
@@ -91,22 +94,15 @@ extension NiriLayoutEngine {
             movedHandle = nil
         }
 
-        let sourceProjectedSnapshot = NiriStateZigKernel.makeSnapshot(
-            columns: columns(in: prepared.sourceWorkspaceId)
-        )
-        let targetProjectedSnapshot = NiriStateZigKernel.makeSnapshot(
-            columns: columns(in: prepared.targetWorkspaceId)
-        )
-
         setRuntimeMirrorState(
             for: prepared.sourceWorkspaceId,
-            columnCount: sourceProjectedSnapshot.columns.count,
-            windowCount: sourceProjectedSnapshot.windows.count
+            columnCount: applyOutcome.sourceDelta?.columns.count ?? 0,
+            windowCount: applyOutcome.sourceDelta?.windows.count ?? 0
         )
         setRuntimeMirrorState(
             for: prepared.targetWorkspaceId,
-            columnCount: targetProjectedSnapshot.columns.count,
-            windowCount: targetProjectedSnapshot.windows.count
+            columnCount: applyOutcome.targetDelta?.columns.count ?? 0,
+            windowCount: applyOutcome.targetDelta?.windows.count ?? 0
         )
 
         return WorkspaceApplyOutcome(

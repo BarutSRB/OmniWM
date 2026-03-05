@@ -41,23 +41,12 @@ extension NiriLayoutEngine {
         }
 
         let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
-        guard let context = ensureLayoutContext(for: workspaceId) else {
-            return nil
-        }
-
-        let seedRC = NiriStateZigKernel.seedRuntimeState(
-            context: context,
+        guard let context = prepareSeededRuntimeContext(
+            for: workspaceId,
             snapshot: snapshot
-        )
-        guard seedRC == 0 else {
+        ) else {
             return nil
         }
-
-        runtimeMirrorStates[workspaceId] = RuntimeMirrorState(
-            isSeeded: true,
-            columnCount: snapshot.columns.count,
-            windowCount: snapshot.windows.count
-        )
 
         return LifecycleRuntimePreparation(context: context, snapshot: snapshot)
     }
@@ -104,6 +93,7 @@ extension NiriLayoutEngine {
         )
         let applyRequest = NiriStateZigKernel.MutationApplyRequest(
             request: request,
+            snapshot: prepared.snapshot,
             incomingWindowId: handle.id,
             createdColumnId: UUID(),
             placeholderColumnId: UUID()
@@ -129,19 +119,17 @@ extension NiriLayoutEngine {
             )
         }
 
-        let exported = NiriStateZigKernel.exportRuntimeState(context: prepared.context)
-        guard exported.rc == 0 else {
+        guard let delta = applyOutcome.delta else {
             lifecycleContractFailure(
                 op: .addWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx export failed rc=\(exported.rc)"
+                reason: "ctx delta missing after apply"
             )
         }
 
-        let projection = NiriStateZigRuntimeProjector.project(
-            export: exported.export,
-            hints: applyOutcome.hints,
+        let projection = NiriStateZigDeltaProjector.project(
+            delta: delta,
             workspaceId: workspaceId,
             engine: self,
             additionalHandlesById: [handle.id: handle]
@@ -163,6 +151,12 @@ extension NiriLayoutEngine {
                 reason: "missing projected incoming window node"
             )
         }
+
+        setRuntimeMirrorState(
+            for: workspaceId,
+            columnCount: delta.columns.count,
+            windowCount: delta.windows.count
+        )
         return targetWindow
     }
 
@@ -203,6 +197,7 @@ extension NiriLayoutEngine {
         )
         let applyRequest = NiriStateZigKernel.MutationApplyRequest(
             request: request,
+            snapshot: prepared.snapshot,
             placeholderColumnId: UUID()
         )
         let applyOutcome = NiriStateZigKernel.applyMutation(
@@ -226,19 +221,17 @@ extension NiriLayoutEngine {
             )
         }
 
-        let exported = NiriStateZigKernel.exportRuntimeState(context: prepared.context)
-        guard exported.rc == 0 else {
+        guard let delta = applyOutcome.delta else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx export failed rc=\(exported.rc)"
+                reason: "ctx delta missing after apply"
             )
         }
 
-        let projection = NiriStateZigRuntimeProjector.project(
-            export: exported.export,
-            hints: applyOutcome.hints,
+        let projection = NiriStateZigDeltaProjector.project(
+            delta: delta,
             workspaceId: workspaceId,
             engine: self
         )
@@ -251,6 +244,12 @@ extension NiriLayoutEngine {
                 reason: "runtime projection failed: \(reason)"
             )
         }
+
+        setRuntimeMirrorState(
+            for: workspaceId,
+            columnCount: delta.columns.count,
+            windowCount: delta.windows.count
+        )
     }
 
     @discardableResult
@@ -314,7 +313,10 @@ extension NiriLayoutEngine {
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: prepared.context,
-            request: .init(request: request)
+            request: .init(
+                request: request,
+                snapshot: prepared.snapshot
+            )
         )
         guard outcome.rc == 0 else {
             return columns(in: workspaceId).first?.firstChild()?.id
@@ -343,7 +345,10 @@ extension NiriLayoutEngine {
         )
         let outcome = NiriStateZigKernel.applyMutation(
             context: prepared.context,
-            request: .init(request: request)
+            request: .init(
+                request: request,
+                snapshot: prepared.snapshot
+            )
         )
         guard outcome.rc == 0 else { return nil }
         return outcome.targetNode?.nodeId

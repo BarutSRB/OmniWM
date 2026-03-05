@@ -20,6 +20,10 @@ extension NiriLayoutEngine {
         guard let context = ensureLayoutContext(for: workspaceId) else {
             return nil
         }
+        if let mirror = runtimeMirrorStates[workspaceId], mirror.isSeeded {
+            return context
+        }
+
         let seedRC = NiriStateZigKernel.seedRuntimeState(
             context: context,
             snapshot: snapshot
@@ -36,20 +40,26 @@ extension NiriLayoutEngine {
         return context
     }
 
+    @discardableResult
     func applyProjectedRuntimeExport(
         context: NiriLayoutZigKernel.LayoutContext,
         workspaceId: WorkspaceDescriptor.ID,
-        hints: NiriStateZigKernel.RuntimeMutationHints = .none,
+        delta: NiriStateZigKernel.DeltaExport? = nil,
         refreshMirrorStateFromExport: Bool = true
-    ) -> NiriStateZigKernel.RuntimeStateExport? {
-        let exported = NiriStateZigKernel.exportRuntimeState(context: context)
-        guard exported.rc == 0 else {
-            return nil
+    ) -> NiriStateZigKernel.DeltaExport? {
+        let resolvedDelta: NiriStateZigKernel.DeltaExport
+        if let delta {
+            resolvedDelta = delta
+        } else {
+            let exported = NiriStateZigKernel.exportDelta(context: context)
+            guard exported.rc == 0 else {
+                return nil
+            }
+            resolvedDelta = exported.export
         }
 
-        let projection = NiriStateZigRuntimeProjector.project(
-            export: exported.export,
-            hints: hints,
+        let projection = NiriStateZigDeltaProjector.project(
+            delta: resolvedDelta,
             workspaceId: workspaceId,
             engine: self
         )
@@ -60,12 +70,12 @@ extension NiriLayoutEngine {
         if refreshMirrorStateFromExport {
             setRuntimeMirrorState(
                 for: workspaceId,
-                columnCount: exported.export.columns.count,
-                windowCount: exported.export.windows.count
+                columnCount: resolvedDelta.columns.count,
+                windowCount: resolvedDelta.windows.count
             )
         }
 
-        return exported.export
+        return resolvedDelta
     }
 
     func navigationRefreshColumnIds(
@@ -82,17 +92,4 @@ extension NiriLayoutEngine {
         return refreshColumnIds
     }
 
-    func navigationRuntimeHints(
-        sourceColumnId: NodeId?,
-        targetColumnId: NodeId?
-    ) -> NiriStateZigKernel.RuntimeMutationHints {
-        NiriStateZigKernel.RuntimeMutationHints(
-            refreshTabbedVisibilityColumnIds: navigationRefreshColumnIds(
-                sourceColumnId: sourceColumnId,
-                targetColumnId: targetColumnId
-            ),
-            resetAllColumnCachedWidths: false,
-            delegatedMoveColumn: nil
-        )
-    }
 }

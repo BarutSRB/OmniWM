@@ -24,6 +24,33 @@ pub const OmniNiriLayoutContext = extern struct {
 
     runtime_column_id_slots: [ID_SLOT_COUNT]i64,
     runtime_window_id_slots: [ID_SLOT_COUNT]i64,
+
+    last_delta_generation: u64,
+    last_delta_column_count: usize,
+    last_delta_columns: [abi.MAX_WINDOWS]abi.OmniNiriDeltaColumnRecord,
+    last_delta_window_count: usize,
+    last_delta_windows: [abi.MAX_WINDOWS]abi.OmniNiriDeltaWindowRecord,
+    last_delta_removed_column_count: usize,
+    last_delta_removed_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128,
+    last_delta_removed_window_count: usize,
+    last_delta_removed_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128,
+    last_delta_refresh_count: u8,
+    last_delta_refresh_column_ids: [abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS]abi.OmniUuid128,
+    last_delta_reset_all_column_cached_widths: u8,
+    last_delta_has_delegate_move_column: u8,
+    last_delta_delegate_move_column_id: abi.OmniUuid128,
+    last_delta_delegate_move_direction: u8,
+    last_delta_has_target_window_id: u8,
+    last_delta_target_window_id: abi.OmniUuid128,
+    last_delta_has_target_node_id: u8,
+    last_delta_target_node_kind: u8,
+    last_delta_target_node_id: abi.OmniUuid128,
+    last_delta_has_source_selection_window_id: u8,
+    last_delta_source_selection_window_id: abi.OmniUuid128,
+    last_delta_has_target_selection_window_id: u8,
+    last_delta_target_selection_window_id: abi.OmniUuid128,
+    last_delta_has_moved_window_id: u8,
+    last_delta_moved_window_id: abi.OmniUuid128,
 };
 
 const RuntimeState = struct {
@@ -44,6 +71,26 @@ const MutationApplyHints = struct {
     delegate_move_direction: u8,
 };
 
+const TxnDeltaMeta = struct {
+    refresh_count: usize,
+    refresh_column_ids: [abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS]abi.OmniUuid128,
+    reset_all_column_cached_widths: bool,
+    has_delegate_move_column: bool,
+    delegate_move_column_id: abi.OmniUuid128,
+    delegate_move_direction: u8,
+    has_target_window_id: bool,
+    target_window_id: abi.OmniUuid128,
+    has_target_node_id: bool,
+    target_node_kind: u8,
+    target_node_id: abi.OmniUuid128,
+    has_source_selection_window_id: bool,
+    source_selection_window_id: abi.OmniUuid128,
+    has_target_selection_window_id: bool,
+    target_selection_window_id: abi.OmniUuid128,
+    has_moved_window_id: bool,
+    moved_window_id: abi.OmniUuid128,
+};
+
 fn zeroUuid() abi.OmniUuid128 {
     return .{ .bytes = [_]u8{0} ** 16 };
 }
@@ -57,6 +104,52 @@ fn initMutationApplyHints() MutationApplyHints {
         .delegate_move_column_id = zeroUuid(),
         .delegate_move_direction = 0,
     };
+}
+
+fn initTxnDeltaMeta() TxnDeltaMeta {
+    return .{
+        .refresh_count = 0,
+        .refresh_column_ids = [_]abi.OmniUuid128{zeroUuid()} ** abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS,
+        .reset_all_column_cached_widths = false,
+        .has_delegate_move_column = false,
+        .delegate_move_column_id = zeroUuid(),
+        .delegate_move_direction = 0,
+        .has_target_window_id = false,
+        .target_window_id = zeroUuid(),
+        .has_target_node_id = false,
+        .target_node_kind = abi.OMNI_NIRI_MUTATION_NODE_NONE,
+        .target_node_id = zeroUuid(),
+        .has_source_selection_window_id = false,
+        .source_selection_window_id = zeroUuid(),
+        .has_target_selection_window_id = false,
+        .target_selection_window_id = zeroUuid(),
+        .has_moved_window_id = false,
+        .moved_window_id = zeroUuid(),
+    };
+}
+
+fn resetDeltaBuffers(ctx: *OmniNiriLayoutContext) void {
+    ctx.last_delta_generation = 0;
+    ctx.last_delta_column_count = 0;
+    ctx.last_delta_window_count = 0;
+    ctx.last_delta_removed_column_count = 0;
+    ctx.last_delta_removed_window_count = 0;
+    ctx.last_delta_refresh_count = 0;
+    ctx.last_delta_reset_all_column_cached_widths = 0;
+    ctx.last_delta_has_delegate_move_column = 0;
+    ctx.last_delta_delegate_move_column_id = zeroUuid();
+    ctx.last_delta_delegate_move_direction = 0;
+    ctx.last_delta_has_target_window_id = 0;
+    ctx.last_delta_target_window_id = zeroUuid();
+    ctx.last_delta_has_target_node_id = 0;
+    ctx.last_delta_target_node_kind = abi.OMNI_NIRI_MUTATION_NODE_NONE;
+    ctx.last_delta_target_node_id = zeroUuid();
+    ctx.last_delta_has_source_selection_window_id = 0;
+    ctx.last_delta_source_selection_window_id = zeroUuid();
+    ctx.last_delta_has_target_selection_window_id = 0;
+    ctx.last_delta_target_selection_window_id = zeroUuid();
+    ctx.last_delta_has_moved_window_id = 0;
+    ctx.last_delta_moved_window_id = zeroUuid();
 }
 
 fn initMutationApplyResult(out_result: [*c]abi.OmniNiriMutationApplyResult) void {
@@ -117,6 +210,8 @@ fn resetContext(ctx: *OmniNiriLayoutContext) void {
         ctx.runtime_column_id_slots[idx] = EMPTY_SLOT;
         ctx.runtime_window_id_slots[idx] = EMPTY_SLOT;
     }
+
+    resetDeltaBuffers(ctx);
 }
 
 fn asMutableContext(context: [*c]OmniNiriLayoutContext) ?*OmniNiriLayoutContext {
@@ -292,6 +387,122 @@ fn commitRuntimeState(ctx: *OmniNiriLayoutContext, state: *const RuntimeState) v
     ctx.runtime_windows = state.windows;
     ctx.runtime_column_id_slots = state.column_id_slots;
     ctx.runtime_window_id_slots = state.window_id_slots;
+}
+
+fn initTxnResult(out_result: [*c]abi.OmniNiriTxnResult) void {
+    out_result[0] = .{
+        .applied = 0,
+        .kind = 0,
+        .has_target_window_id = 0,
+        .target_window_id = zeroUuid(),
+        .has_target_node_id = 0,
+        .target_node_kind = abi.OMNI_NIRI_MUTATION_NODE_NONE,
+        .target_node_id = zeroUuid(),
+        .changed_source_context = 0,
+        .changed_target_context = 0,
+        .error_code = abi.OMNI_OK,
+        .delta_column_count = 0,
+        .delta_window_count = 0,
+        .removed_column_count = 0,
+        .removed_window_count = 0,
+    };
+}
+
+fn storeTxnDeltaForContext(
+    ctx: *OmniNiriLayoutContext,
+    pre_state: ?*const RuntimeState,
+    meta: *const TxnDeltaMeta,
+) i32 {
+    var post_state = runtimeStateFromContext(ctx);
+
+    ctx.last_delta_generation +%= 1;
+    ctx.last_delta_column_count = post_state.column_count;
+    ctx.last_delta_window_count = post_state.window_count;
+    ctx.last_delta_removed_column_count = 0;
+    ctx.last_delta_removed_window_count = 0;
+
+    for (0..post_state.column_count) |idx| {
+        const column = post_state.columns[idx];
+        ctx.last_delta_columns[idx] = .{
+            .column_id = column.column_id,
+            .order_index = idx,
+            .window_start = column.window_start,
+            .window_count = column.window_count,
+            .active_tile_idx = column.active_tile_idx,
+            .is_tabbed = column.is_tabbed,
+            .size_value = column.size_value,
+            .width_kind = column.width_kind,
+            .is_full_width = column.is_full_width,
+            .has_saved_width = column.has_saved_width,
+            .saved_width_kind = column.saved_width_kind,
+            .saved_width_value = column.saved_width_value,
+        };
+    }
+
+    for (0..post_state.window_count) |idx| {
+        const window = post_state.windows[idx];
+        var row_index: usize = 0;
+        if (window.column_index < post_state.column_count) {
+            const column = post_state.columns[window.column_index];
+            if (idx >= column.window_start and idx < column.window_start + column.window_count) {
+                row_index = idx - column.window_start;
+            }
+        }
+
+        ctx.last_delta_windows[idx] = .{
+            .window_id = window.window_id,
+            .column_id = window.column_id,
+            .column_order_index = window.column_index,
+            .row_index = row_index,
+            .size_value = window.size_value,
+            .height_kind = window.height_kind,
+            .height_value = window.height_value,
+        };
+    }
+
+    if (pre_state) |before| {
+        for (0..before.column_count) |idx| {
+            const column_id = before.columns[idx].column_id;
+            if (findColumnIndexById(&post_state, column_id) == null) {
+                if (ctx.last_delta_removed_column_count >= abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
+                ctx.last_delta_removed_column_ids[ctx.last_delta_removed_column_count] = column_id;
+                ctx.last_delta_removed_column_count += 1;
+            }
+        }
+
+        for (0..before.window_count) |idx| {
+            const window_id = before.windows[idx].window_id;
+            if (findWindowIndexById(&post_state, window_id) == null) {
+                if (ctx.last_delta_removed_window_count >= abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
+                ctx.last_delta_removed_window_ids[ctx.last_delta_removed_window_count] = window_id;
+                ctx.last_delta_removed_window_count += 1;
+            }
+        }
+    }
+
+    ctx.last_delta_refresh_count = std.math.cast(u8, @min(meta.refresh_count, abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS)) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    const refresh_count: usize = @intCast(ctx.last_delta_refresh_count);
+    for (0..refresh_count) |idx| {
+        ctx.last_delta_refresh_column_ids[idx] = meta.refresh_column_ids[idx];
+    }
+    ctx.last_delta_reset_all_column_cached_widths = @intFromBool(meta.reset_all_column_cached_widths);
+    ctx.last_delta_has_delegate_move_column = @intFromBool(meta.has_delegate_move_column);
+    ctx.last_delta_delegate_move_column_id = meta.delegate_move_column_id;
+    ctx.last_delta_delegate_move_direction = meta.delegate_move_direction;
+
+    ctx.last_delta_has_target_window_id = @intFromBool(meta.has_target_window_id);
+    ctx.last_delta_target_window_id = meta.target_window_id;
+    ctx.last_delta_has_target_node_id = @intFromBool(meta.has_target_node_id);
+    ctx.last_delta_target_node_kind = meta.target_node_kind;
+    ctx.last_delta_target_node_id = meta.target_node_id;
+    ctx.last_delta_has_source_selection_window_id = @intFromBool(meta.has_source_selection_window_id);
+    ctx.last_delta_source_selection_window_id = meta.source_selection_window_id;
+    ctx.last_delta_has_target_selection_window_id = @intFromBool(meta.has_target_selection_window_id);
+    ctx.last_delta_target_selection_window_id = meta.target_selection_window_id;
+    ctx.last_delta_has_moved_window_id = @intFromBool(meta.has_moved_window_id);
+    ctx.last_delta_moved_window_id = meta.moved_window_id;
+
+    return abi.OMNI_OK;
 }
 
 fn validateRuntimeState(state: *RuntimeState) i32 {
@@ -1284,6 +1495,9 @@ pub fn omni_niri_ctx_seed_runtime_state_impl(
     if (refresh_rc != abi.OMNI_OK) return refresh_rc;
 
     commitRuntimeState(ctx, &runtime_state);
+    const meta = initTxnDeltaMeta();
+    const delta_rc = storeTxnDeltaForContext(ctx, null, &meta);
+    if (delta_rc != abi.OMNI_OK) return delta_rc;
     return abi.OMNI_OK;
 }
 
@@ -1812,6 +2026,423 @@ pub fn omni_niri_ctx_apply_navigation_impl(
     }
 
     return abi.OMNI_OK;
+}
+
+fn appendRefreshColumnMeta(meta: *TxnDeltaMeta, column_id: abi.OmniUuid128) void {
+    var idx: usize = 0;
+    while (idx < meta.refresh_count) : (idx += 1) {
+        if (uuidEqual(meta.refresh_column_ids[idx], column_id)) return;
+    }
+    if (meta.refresh_count >= abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS) return;
+    meta.refresh_column_ids[meta.refresh_count] = column_id;
+    meta.refresh_count += 1;
+}
+
+fn resolveWindowIndexFromTxn(
+    state: *const RuntimeState,
+    has_window_id: u8,
+    window_id: abi.OmniUuid128,
+    out_index: *i64,
+) i32 {
+    if (has_window_id == 0) {
+        out_index.* = -1;
+        return abi.OMNI_OK;
+    }
+    const idx = findWindowIndexById(state, window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    out_index.* = std.math.cast(i64, idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    return abi.OMNI_OK;
+}
+
+fn resolveColumnIndexFromTxn(
+    state: *const RuntimeState,
+    has_column_id: u8,
+    column_id: abi.OmniUuid128,
+    out_index: *i64,
+) i32 {
+    if (has_column_id == 0) {
+        out_index.* = -1;
+        return abi.OMNI_OK;
+    }
+    const idx = findColumnIndexById(state, column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    out_index.* = std.math.cast(i64, idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    return abi.OMNI_OK;
+}
+
+fn buildNavigationApplyRequestFromTxn(
+    state: *const RuntimeState,
+    payload: abi.OmniNiriTxnNavigationPayload,
+    out_request: *abi.OmniNiriNavigationApplyRequest,
+) i32 {
+    var selected_window_index: i64 = -1;
+    var selected_column_index: i64 = -1;
+    var target_window_index: i64 = -1;
+    var target_column_index: i64 = -1;
+
+    const selected_window_rc = resolveWindowIndexFromTxn(
+        state,
+        payload.has_selected_window_id,
+        payload.selected_window_id,
+        &selected_window_index,
+    );
+    if (selected_window_rc != abi.OMNI_OK) return selected_window_rc;
+
+    const selected_column_rc = resolveColumnIndexFromTxn(
+        state,
+        payload.has_selected_column_id,
+        payload.selected_column_id,
+        &selected_column_index,
+    );
+    if (selected_column_rc != abi.OMNI_OK) return selected_column_rc;
+
+    const target_window_rc = resolveWindowIndexFromTxn(
+        state,
+        payload.has_target_window_id,
+        payload.target_window_id,
+        &target_window_index,
+    );
+    if (target_window_rc != abi.OMNI_OK) return target_window_rc;
+
+    const target_column_rc = resolveColumnIndexFromTxn(
+        state,
+        payload.has_target_column_id,
+        payload.target_column_id,
+        &target_column_index,
+    );
+    if (target_column_rc != abi.OMNI_OK) return target_column_rc;
+
+    var selected_row_index = payload.selected_row_index;
+    if (selected_row_index < 0 and selected_window_index >= 0) {
+        const window_idx = std.math.cast(usize, selected_window_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+        if (window_idx >= state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
+        const derived_column_idx = state.windows[window_idx].column_index;
+        if (derived_column_idx >= state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
+        if (selected_column_index < 0) {
+            selected_column_index = std.math.cast(i64, derived_column_idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+        }
+        const column = state.columns[derived_column_idx];
+        if (window_idx < column.window_start or window_idx >= column.window_start + column.window_count) {
+            return abi.OMNI_ERR_OUT_OF_RANGE;
+        }
+        selected_row_index = std.math.cast(i64, window_idx - column.window_start) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    }
+
+    out_request.* = .{
+        .request = .{
+            .op = payload.op,
+            .direction = payload.direction,
+            .orientation = payload.orientation,
+            .infinite_loop = payload.infinite_loop,
+            .selected_window_index = selected_window_index,
+            .selected_column_index = selected_column_index,
+            .selected_row_index = selected_row_index,
+            .step = payload.step,
+            .target_row_index = payload.target_row_index,
+            .target_column_index = target_column_index,
+            .target_window_index = target_window_index,
+        },
+    };
+    return abi.OMNI_OK;
+}
+
+fn buildMutationApplyRequestFromTxn(
+    state: *const RuntimeState,
+    payload: abi.OmniNiriTxnMutationPayload,
+    out_request: *abi.OmniNiriMutationApplyRequest,
+) i32 {
+    var source_window_index: i64 = -1;
+    var target_window_index: i64 = -1;
+    var source_column_index: i64 = -1;
+    var target_column_index: i64 = -1;
+    var focused_window_index: i64 = -1;
+
+    var rc = resolveWindowIndexFromTxn(state, payload.has_source_window_id, payload.source_window_id, &source_window_index);
+    if (rc != abi.OMNI_OK) return rc;
+    rc = resolveWindowIndexFromTxn(state, payload.has_target_window_id, payload.target_window_id, &target_window_index);
+    if (rc != abi.OMNI_OK) return rc;
+    rc = resolveColumnIndexFromTxn(state, payload.has_source_column_id, payload.source_column_id, &source_column_index);
+    if (rc != abi.OMNI_OK) return rc;
+    rc = resolveColumnIndexFromTxn(state, payload.has_target_column_id, payload.target_column_id, &target_column_index);
+    if (rc != abi.OMNI_OK) return rc;
+    rc = resolveWindowIndexFromTxn(state, payload.has_focused_window_id, payload.focused_window_id, &focused_window_index);
+    if (rc != abi.OMNI_OK) return rc;
+
+    var selected_node_index: i64 = -1;
+    if (payload.has_selected_node_id != 0) {
+        switch (payload.selected_node_kind) {
+            abi.OMNI_NIRI_MUTATION_NODE_WINDOW => {
+                rc = resolveWindowIndexFromTxn(state, 1, payload.selected_node_id, &selected_node_index);
+                if (rc != abi.OMNI_OK) return rc;
+            },
+            abi.OMNI_NIRI_MUTATION_NODE_COLUMN => {
+                rc = resolveColumnIndexFromTxn(state, 1, payload.selected_node_id, &selected_node_index);
+                if (rc != abi.OMNI_OK) return rc;
+            },
+            abi.OMNI_NIRI_MUTATION_NODE_NONE => {
+                selected_node_index = -1;
+            },
+            else => return abi.OMNI_ERR_INVALID_ARGS,
+        }
+    }
+
+    out_request.* = .{
+        .request = .{
+            .op = payload.op,
+            .direction = payload.direction,
+            .infinite_loop = payload.infinite_loop,
+            .insert_position = payload.insert_position,
+            .source_window_index = source_window_index,
+            .target_window_index = target_window_index,
+            .max_windows_per_column = payload.max_windows_per_column,
+            .source_column_index = source_column_index,
+            .target_column_index = target_column_index,
+            .insert_column_index = payload.insert_column_index,
+            .max_visible_columns = payload.max_visible_columns,
+            .selected_node_kind = payload.selected_node_kind,
+            .selected_node_index = selected_node_index,
+            .focused_window_index = focused_window_index,
+        },
+        .has_incoming_window_id = payload.has_incoming_window_id,
+        .incoming_window_id = payload.incoming_window_id,
+        .has_created_column_id = payload.has_created_column_id,
+        .created_column_id = payload.created_column_id,
+        .has_placeholder_column_id = payload.has_placeholder_column_id,
+        .placeholder_column_id = payload.placeholder_column_id,
+    };
+    return abi.OMNI_OK;
+}
+
+fn buildWorkspaceApplyRequestFromTxn(
+    source_state: *const RuntimeState,
+    payload: abi.OmniNiriTxnWorkspacePayload,
+    out_request: *abi.OmniNiriWorkspaceApplyRequest,
+) i32 {
+    var source_window_index: i64 = -1;
+    var source_column_index: i64 = -1;
+
+    var rc = resolveWindowIndexFromTxn(source_state, payload.has_source_window_id, payload.source_window_id, &source_window_index);
+    if (rc != abi.OMNI_OK) return rc;
+    rc = resolveColumnIndexFromTxn(source_state, payload.has_source_column_id, payload.source_column_id, &source_column_index);
+    if (rc != abi.OMNI_OK) return rc;
+
+    out_request.* = .{
+        .request = .{
+            .op = payload.op,
+            .source_window_index = source_window_index,
+            .source_column_index = source_column_index,
+            .max_visible_columns = payload.max_visible_columns,
+        },
+        .has_target_created_column_id = payload.has_target_created_column_id,
+        .target_created_column_id = payload.target_created_column_id,
+        .has_source_placeholder_column_id = payload.has_source_placeholder_column_id,
+        .source_placeholder_column_id = payload.source_placeholder_column_id,
+    };
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_export_delta_impl(
+    context: [*c]const OmniNiriLayoutContext,
+    out_export: [*c]abi.OmniNiriTxnDeltaExport,
+) i32 {
+    const ctx = asConstContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (out_export == null) return abi.OMNI_ERR_INVALID_ARGS;
+
+    out_export[0] = .{
+        .columns = if (ctx.last_delta_column_count > 0) @ptrCast(&ctx.last_delta_columns[0]) else null,
+        .column_count = ctx.last_delta_column_count,
+        .windows = if (ctx.last_delta_window_count > 0) @ptrCast(&ctx.last_delta_windows[0]) else null,
+        .window_count = ctx.last_delta_window_count,
+        .removed_column_ids = if (ctx.last_delta_removed_column_count > 0) @ptrCast(&ctx.last_delta_removed_column_ids[0]) else null,
+        .removed_column_count = ctx.last_delta_removed_column_count,
+        .removed_window_ids = if (ctx.last_delta_removed_window_count > 0) @ptrCast(&ctx.last_delta_removed_window_ids[0]) else null,
+        .removed_window_count = ctx.last_delta_removed_window_count,
+        .refresh_tabbed_visibility_count = ctx.last_delta_refresh_count,
+        .refresh_tabbed_visibility_column_ids = ctx.last_delta_refresh_column_ids,
+        .reset_all_column_cached_widths = ctx.last_delta_reset_all_column_cached_widths,
+        .has_delegate_move_column = ctx.last_delta_has_delegate_move_column,
+        .delegate_move_column_id = ctx.last_delta_delegate_move_column_id,
+        .delegate_move_direction = ctx.last_delta_delegate_move_direction,
+        .has_target_window_id = ctx.last_delta_has_target_window_id,
+        .target_window_id = ctx.last_delta_target_window_id,
+        .has_target_node_id = ctx.last_delta_has_target_node_id,
+        .target_node_kind = ctx.last_delta_target_node_kind,
+        .target_node_id = ctx.last_delta_target_node_id,
+        .has_source_selection_window_id = ctx.last_delta_has_source_selection_window_id,
+        .source_selection_window_id = ctx.last_delta_source_selection_window_id,
+        .has_target_selection_window_id = ctx.last_delta_has_target_selection_window_id,
+        .target_selection_window_id = ctx.last_delta_target_selection_window_id,
+        .has_moved_window_id = ctx.last_delta_has_moved_window_id,
+        .moved_window_id = ctx.last_delta_moved_window_id,
+        .generation = ctx.last_delta_generation,
+    };
+
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_apply_txn_impl(
+    source_context: [*c]OmniNiriLayoutContext,
+    target_context: [*c]OmniNiriLayoutContext,
+    request: [*c]const abi.OmniNiriTxnRequest,
+    out_result: [*c]abi.OmniNiriTxnResult,
+) i32 {
+    const source_ctx = asMutableContext(source_context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (request == null or out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
+
+    initTxnResult(out_result);
+    out_result[0].kind = request[0].kind;
+
+    const pre_source_state = runtimeStateFromContext(source_ctx);
+    var source_delta_meta = initTxnDeltaMeta();
+
+    switch (request[0].kind) {
+        abi.OMNI_NIRI_TXN_NAVIGATION => {
+            var legacy_request: abi.OmniNiriNavigationApplyRequest = undefined;
+            const request_rc = buildNavigationApplyRequestFromTxn(
+                &pre_source_state,
+                request[0].navigation,
+                &legacy_request,
+            );
+            if (request_rc != abi.OMNI_OK) {
+                out_result[0].error_code = request_rc;
+                return request_rc;
+            }
+
+            var legacy_result: abi.OmniNiriNavigationApplyResult = undefined;
+            const rc = omni_niri_ctx_apply_navigation_impl(source_context, &legacy_request, &legacy_result);
+            out_result[0].error_code = rc;
+            if (rc != abi.OMNI_OK) return rc;
+
+            out_result[0].applied = legacy_result.applied;
+            out_result[0].changed_source_context = legacy_result.applied;
+            if (legacy_result.has_target_window_id != 0) {
+                out_result[0].has_target_window_id = 1;
+                out_result[0].target_window_id = legacy_result.target_window_id;
+                source_delta_meta.has_target_window_id = true;
+                source_delta_meta.target_window_id = legacy_result.target_window_id;
+            }
+            if (legacy_result.refresh_tabbed_visibility_source != 0) {
+                appendRefreshColumnMeta(&source_delta_meta, legacy_result.refresh_source_column_id);
+            }
+            if (legacy_result.refresh_tabbed_visibility_target != 0) {
+                appendRefreshColumnMeta(&source_delta_meta, legacy_result.refresh_target_column_id);
+            }
+
+            const delta_rc = storeTxnDeltaForContext(source_ctx, &pre_source_state, &source_delta_meta);
+            if (delta_rc != abi.OMNI_OK) return delta_rc;
+
+            out_result[0].delta_column_count = source_ctx.last_delta_column_count;
+            out_result[0].delta_window_count = source_ctx.last_delta_window_count;
+            out_result[0].removed_column_count = source_ctx.last_delta_removed_column_count;
+            out_result[0].removed_window_count = source_ctx.last_delta_removed_window_count;
+            return abi.OMNI_OK;
+        },
+        abi.OMNI_NIRI_TXN_MUTATION => {
+            var legacy_request: abi.OmniNiriMutationApplyRequest = undefined;
+            const request_rc = buildMutationApplyRequestFromTxn(
+                &pre_source_state,
+                request[0].mutation,
+                &legacy_request,
+            );
+            if (request_rc != abi.OMNI_OK) {
+                out_result[0].error_code = request_rc;
+                return request_rc;
+            }
+
+            var legacy_result: abi.OmniNiriMutationApplyResult = undefined;
+            const rc = omni_niri_ctx_apply_mutation_impl(source_context, &legacy_request, &legacy_result);
+            out_result[0].error_code = rc;
+            if (rc != abi.OMNI_OK) return rc;
+
+            out_result[0].applied = legacy_result.applied;
+            out_result[0].changed_source_context = legacy_result.applied;
+            if (legacy_result.has_target_window_id != 0) {
+                out_result[0].has_target_window_id = 1;
+                out_result[0].target_window_id = legacy_result.target_window_id;
+                source_delta_meta.has_target_window_id = true;
+                source_delta_meta.target_window_id = legacy_result.target_window_id;
+            }
+            if (legacy_result.has_target_node_id != 0) {
+                out_result[0].has_target_node_id = 1;
+                out_result[0].target_node_kind = legacy_result.target_node_kind;
+                out_result[0].target_node_id = legacy_result.target_node_id;
+                source_delta_meta.has_target_node_id = true;
+                source_delta_meta.target_node_kind = legacy_result.target_node_kind;
+                source_delta_meta.target_node_id = legacy_result.target_node_id;
+            }
+
+            const refresh_count = std.math.cast(usize, legacy_result.refresh_tabbed_visibility_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+            source_delta_meta.refresh_count = @min(refresh_count, abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS);
+            for (0..source_delta_meta.refresh_count) |idx| {
+                source_delta_meta.refresh_column_ids[idx] = legacy_result.refresh_tabbed_visibility_column_ids[idx];
+            }
+            source_delta_meta.reset_all_column_cached_widths = legacy_result.reset_all_column_cached_widths != 0;
+            source_delta_meta.has_delegate_move_column = legacy_result.has_delegate_move_column != 0;
+            source_delta_meta.delegate_move_column_id = legacy_result.delegate_move_column_id;
+            source_delta_meta.delegate_move_direction = legacy_result.delegate_move_direction;
+
+            const delta_rc = storeTxnDeltaForContext(source_ctx, &pre_source_state, &source_delta_meta);
+            if (delta_rc != abi.OMNI_OK) return delta_rc;
+
+            out_result[0].delta_column_count = source_ctx.last_delta_column_count;
+            out_result[0].delta_window_count = source_ctx.last_delta_window_count;
+            out_result[0].removed_column_count = source_ctx.last_delta_removed_column_count;
+            out_result[0].removed_window_count = source_ctx.last_delta_removed_window_count;
+            return abi.OMNI_OK;
+        },
+        abi.OMNI_NIRI_TXN_WORKSPACE => {
+            const target_ctx = asMutableContext(target_context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+            const pre_target_state = runtimeStateFromContext(target_ctx);
+            var source_meta = initTxnDeltaMeta();
+            var target_meta = initTxnDeltaMeta();
+
+            var legacy_request: abi.OmniNiriWorkspaceApplyRequest = undefined;
+            const request_rc = buildWorkspaceApplyRequestFromTxn(
+                &pre_source_state,
+                request[0].workspace,
+                &legacy_request,
+            );
+            if (request_rc != abi.OMNI_OK) {
+                out_result[0].error_code = request_rc;
+                return request_rc;
+            }
+
+            var legacy_result: abi.OmniNiriWorkspaceApplyResult = undefined;
+            const rc = omni_niri_ctx_apply_workspace_impl(source_context, target_context, &legacy_request, &legacy_result);
+            out_result[0].error_code = rc;
+            if (rc != abi.OMNI_OK) return rc;
+
+            out_result[0].applied = legacy_result.applied;
+            out_result[0].changed_source_context = legacy_result.applied;
+            out_result[0].changed_target_context = legacy_result.applied;
+
+            if (legacy_result.has_source_selection_window_id != 0) {
+                source_meta.has_source_selection_window_id = true;
+                source_meta.source_selection_window_id = legacy_result.source_selection_window_id;
+            }
+            if (legacy_result.has_target_selection_window_id != 0) {
+                target_meta.has_target_selection_window_id = true;
+                target_meta.target_selection_window_id = legacy_result.target_selection_window_id;
+            }
+            if (legacy_result.has_moved_window_id != 0) {
+                target_meta.has_moved_window_id = true;
+                target_meta.moved_window_id = legacy_result.moved_window_id;
+            }
+
+            const source_delta_rc = storeTxnDeltaForContext(source_ctx, &pre_source_state, &source_meta);
+            if (source_delta_rc != abi.OMNI_OK) return source_delta_rc;
+            const target_delta_rc = storeTxnDeltaForContext(target_ctx, &pre_target_state, &target_meta);
+            if (target_delta_rc != abi.OMNI_OK) return target_delta_rc;
+
+            out_result[0].delta_column_count = source_ctx.last_delta_column_count + target_ctx.last_delta_column_count;
+            out_result[0].delta_window_count = source_ctx.last_delta_window_count + target_ctx.last_delta_window_count;
+            out_result[0].removed_column_count = source_ctx.last_delta_removed_column_count + target_ctx.last_delta_removed_column_count;
+            out_result[0].removed_window_count = source_ctx.last_delta_removed_window_count + target_ctx.last_delta_removed_window_count;
+            return abi.OMNI_OK;
+        },
+        else => {
+            out_result[0].error_code = abi.OMNI_ERR_INVALID_ARGS;
+            return abi.OMNI_ERR_INVALID_ARGS;
+        },
+    }
 }
 
 test "layout pass v3 handles columns with zero windows and keeps empty interaction cache" {

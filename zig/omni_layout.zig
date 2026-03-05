@@ -275,55 +275,29 @@ export fn omni_niri_ctx_seed_runtime_state(
     );
 }
 
-/// Export authoritative runtime state pointers/counts from context.
-export fn omni_niri_ctx_export_runtime_state(
-    context: [*c]const layout_context.OmniNiriLayoutContext,
-    out_export: [*c]abi.OmniNiriRuntimeStateExport,
-) i32 {
-    return layout_context.omni_niri_ctx_export_runtime_state_impl(
-        context,
-        out_export,
-    );
-}
-
-/// Apply navigation request against authoritative runtime context.
-export fn omni_niri_ctx_apply_navigation(
-    context: [*c]layout_context.OmniNiriLayoutContext,
-    request: [*c]const abi.OmniNiriNavigationApplyRequest,
-    out_result: [*c]abi.OmniNiriNavigationApplyResult,
-) i32 {
-    return layout_context.omni_niri_ctx_apply_navigation_impl(
-        context,
-        request,
-        out_result,
-    );
-}
-
-/// Apply mutation request against authoritative runtime context.
-export fn omni_niri_ctx_apply_mutation(
-    context: [*c]layout_context.OmniNiriLayoutContext,
-    request: [*c]const abi.OmniNiriMutationApplyRequest,
-    out_result: [*c]abi.OmniNiriMutationApplyResult,
-) i32 {
-    return layout_context.omni_niri_ctx_apply_mutation_impl(
-        context,
-        request,
-        out_result,
-    );
-}
-
-/// Apply workspace request against source/target authoritative runtime contexts.
-export fn omni_niri_ctx_apply_workspace(
+/// Apply one Niri transaction against source/target authoritative runtime contexts.
+export fn omni_niri_ctx_apply_txn(
     source_context: [*c]layout_context.OmniNiriLayoutContext,
     target_context: [*c]layout_context.OmniNiriLayoutContext,
-    request: [*c]const abi.OmniNiriWorkspaceApplyRequest,
-    out_result: [*c]abi.OmniNiriWorkspaceApplyResult,
+    request: [*c]const abi.OmniNiriTxnRequest,
+    out_result: [*c]abi.OmniNiriTxnResult,
 ) i32 {
-    return layout_context.omni_niri_ctx_apply_workspace_impl(
+    return layout_context.omni_niri_ctx_apply_txn_impl(
         source_context,
         target_context,
         request,
         out_result,
+    );
+}
+
+/// Export context-owned transaction delta pointers/counts from last apply.
+export fn omni_niri_ctx_export_delta(
+    context: [*c]const layout_context.OmniNiriLayoutContext,
+    out_export: [*c]abi.OmniNiriTxnDeltaExport,
+) i32 {
+    return layout_context.omni_niri_ctx_export_delta_impl(
+        context,
+        out_export,
     );
 }
 

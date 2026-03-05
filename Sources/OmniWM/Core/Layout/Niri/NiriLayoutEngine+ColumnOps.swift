@@ -99,6 +99,7 @@ extension NiriLayoutEngine {
             context: context,
             request: .init(
                 request: prepared.request,
+                snapshot: prepared.snapshot,
                 createdColumnId: createdColumnId,
                 placeholderColumnId: placeholderColumnId
             )
@@ -116,7 +117,7 @@ extension NiriLayoutEngine {
         guard applyProjectedRuntimeExport(
             context: context,
             workspaceId: workspaceId,
-            hints: applyOutcome.hints
+            delta: applyOutcome.delta
         ) != nil else {
             return nil
         }

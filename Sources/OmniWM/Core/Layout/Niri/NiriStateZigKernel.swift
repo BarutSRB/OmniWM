@@ -260,36 +260,81 @@ enum NiriStateZigKernel {
         let windows: [RuntimeWindowState]
     }
 
+    struct DeltaColumnRecord: Equatable {
+        let column: RuntimeColumnState
+        let orderIndex: Int
+    }
+
+    struct DeltaWindowRecord: Equatable {
+        let window: RuntimeWindowState
+        let columnOrderIndex: Int
+        let rowIndex: Int
+    }
+
+    struct DeltaExport {
+        let columns: [DeltaColumnRecord]
+        let windows: [DeltaWindowRecord]
+        let removedColumnIds: [NodeId]
+        let removedWindowIds: [NodeId]
+        let refreshTabbedVisibilityColumnIds: [NodeId]
+        let resetAllColumnCachedWidths: Bool
+        let delegatedMoveColumn: (columnId: NodeId, direction: Direction)?
+        let targetWindowId: NodeId?
+        let targetNode: RuntimeNodeTarget?
+        let sourceSelectionWindowId: NodeId?
+        let targetSelectionWindowId: NodeId?
+        let movedWindowId: NodeId?
+        let generation: UInt64
+    }
+
+    enum TxnKind: UInt8 {
+        case layout = 0
+        case navigation = 1
+        case mutation = 2
+        case workspace = 3
+    }
+
+    enum TxnRequest {
+        case navigation(context: NiriLayoutZigKernel.LayoutContext, request: NavigationApplyRequest)
+        case mutation(context: NiriLayoutZigKernel.LayoutContext, request: MutationApplyRequest)
+        case workspace(sourceContext: NiriLayoutZigKernel.LayoutContext, targetContext: NiriLayoutZigKernel.LayoutContext, request: WorkspaceApplyRequest)
+    }
+
+    struct TxnOutcome {
+        let rc: Int32
+        let kind: TxnKind
+        let applied: Bool
+        let targetWindowId: NodeId?
+        let targetNode: RuntimeNodeTarget?
+        let changedSourceContext: Bool
+        let changedTargetContext: Bool
+        let deltaColumnCount: Int
+        let deltaWindowCount: Int
+        let removedColumnCount: Int
+        let removedWindowCount: Int
+    }
+
     struct RuntimeNodeTarget: Equatable {
         let kind: MutationNodeKind
         let nodeId: NodeId
     }
 
-    struct RuntimeMutationHints {
-        let refreshTabbedVisibilityColumnIds: [NodeId]
-        let resetAllColumnCachedWidths: Bool
-        let delegatedMoveColumn: (columnId: NodeId, direction: Direction)?
-
-        static let none = RuntimeMutationHints(
-            refreshTabbedVisibilityColumnIds: [],
-            resetAllColumnCachedWidths: false,
-            delegatedMoveColumn: nil
-        )
-    }
-
     struct MutationApplyRequest {
         let request: MutationRequest
+        let snapshot: Snapshot?
         let incomingWindowId: UUID?
         let createdColumnId: UUID?
         let placeholderColumnId: UUID?
 
         init(
             request: MutationRequest,
+            snapshot: Snapshot? = nil,
             incomingWindowId: UUID? = nil,
             createdColumnId: UUID? = nil,
             placeholderColumnId: UUID? = nil
         ) {
             self.request = request
+            self.snapshot = snapshot
             self.incomingWindowId = incomingWindowId
             self.createdColumnId = createdColumnId
             self.placeholderColumnId = placeholderColumnId
@@ -301,20 +346,23 @@ enum NiriStateZigKernel {
         let applied: Bool
         let targetWindowId: NodeId?
         let targetNode: RuntimeNodeTarget?
-        let hints: RuntimeMutationHints
+        let delta: DeltaExport?
     }
 
     struct WorkspaceApplyRequest {
         let request: WorkspaceRequest
+        let sourceSnapshot: Snapshot?
         let targetCreatedColumnId: UUID?
         let sourcePlaceholderColumnId: UUID?
 
         init(
             request: WorkspaceRequest,
+            sourceSnapshot: Snapshot? = nil,
             targetCreatedColumnId: UUID? = nil,
             sourcePlaceholderColumnId: UUID? = nil
         ) {
             self.request = request
+            self.sourceSnapshot = sourceSnapshot
             self.targetCreatedColumnId = targetCreatedColumnId
             self.sourcePlaceholderColumnId = sourcePlaceholderColumnId
         }
@@ -326,6 +374,8 @@ enum NiriStateZigKernel {
         let sourceSelectionWindowId: NodeId?
         let targetSelectionWindowId: NodeId?
         let movedWindowId: NodeId?
+        let sourceDelta: DeltaExport?
+        let targetDelta: DeltaExport?
     }
 
     struct RuntimeActiveTileUpdate {
@@ -335,6 +385,12 @@ enum NiriStateZigKernel {
 
     struct NavigationApplyRequest {
         let request: NavigationRequest
+        let snapshot: Snapshot?
+
+        init(request: NavigationRequest, snapshot: Snapshot? = nil) {
+            self.request = request
+            self.snapshot = snapshot
+        }
     }
 
     struct NavigationApplyOutcome {
@@ -345,6 +401,7 @@ enum NiriStateZigKernel {
         let targetActiveTileUpdate: RuntimeActiveTileUpdate?
         let refreshSourceColumnId: NodeId?
         let refreshTargetColumnId: NodeId?
+        let delta: DeltaExport?
     }
 
     static func omniUUID(from nodeId: NodeId) -> OmniUuid128 {
@@ -882,82 +939,435 @@ enum NiriStateZigKernel {
         }
     }
 
-    static func exportRuntimeState(
-        context: NiriLayoutZigKernel.LayoutContext
-    ) -> (rc: Int32, export: RuntimeStateExport) {
-        var rawExport = OmniNiriRuntimeStateExport(
-            columns: nil,
-            column_count: 0,
-            windows: nil,
-            window_count: 0
+    private static func emptyNavigationTxnPayload() -> OmniNiriTxnNavigationPayload {
+        OmniNiriTxnNavigationPayload(
+            op: 0,
+            direction: 0,
+            orientation: 0,
+            infinite_loop: 0,
+            has_selected_window_id: 0,
+            selected_window_id: zeroUUID(),
+            has_selected_column_id: 0,
+            selected_column_id: zeroUUID(),
+            selected_row_index: -1,
+            step: 0,
+            target_row_index: -1,
+            has_target_column_id: 0,
+            target_column_id: zeroUUID(),
+            has_target_window_id: 0,
+            target_window_id: zeroUUID()
         )
+    }
+
+    private static func emptyMutationTxnPayload() -> OmniNiriTxnMutationPayload {
+        OmniNiriTxnMutationPayload(
+            op: 0,
+            direction: 0,
+            infinite_loop: 0,
+            insert_position: 0,
+            has_source_window_id: 0,
+            source_window_id: zeroUUID(),
+            has_target_window_id: 0,
+            target_window_id: zeroUUID(),
+            max_windows_per_column: 0,
+            has_source_column_id: 0,
+            source_column_id: zeroUUID(),
+            has_target_column_id: 0,
+            target_column_id: zeroUUID(),
+            insert_column_index: -1,
+            max_visible_columns: -1,
+            selected_node_kind: UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_NONE.rawValue),
+            has_selected_node_id: 0,
+            selected_node_id: zeroUUID(),
+            has_focused_window_id: 0,
+            focused_window_id: zeroUUID(),
+            has_incoming_window_id: 0,
+            incoming_window_id: zeroUUID(),
+            has_created_column_id: 0,
+            created_column_id: zeroUUID(),
+            has_placeholder_column_id: 0,
+            placeholder_column_id: zeroUUID()
+        )
+    }
+
+    private static func emptyWorkspaceTxnPayload() -> OmniNiriTxnWorkspacePayload {
+        OmniNiriTxnWorkspacePayload(
+            op: 0,
+            has_source_window_id: 0,
+            source_window_id: zeroUUID(),
+            has_source_column_id: 0,
+            source_column_id: zeroUUID(),
+            max_visible_columns: -1,
+            has_target_created_column_id: 0,
+            target_created_column_id: zeroUUID(),
+            has_source_placeholder_column_id: 0,
+            source_placeholder_column_id: zeroUUID()
+        )
+    }
+
+    private static func nodeId(atWindowIndex index: Int, snapshot: Snapshot?) -> NodeId? {
+        guard let snapshot, index >= 0, index < snapshot.windowEntries.count else { return nil }
+        return snapshot.windowEntries[index].window.id
+    }
+
+    private static func nodeId(atColumnIndex index: Int, snapshot: Snapshot?) -> NodeId? {
+        guard let snapshot, index >= 0, index < snapshot.columnEntries.count else { return nil }
+        return snapshot.columnEntries[index].column.id
+    }
+
+    static func exportDelta(
+        context: NiriLayoutZigKernel.LayoutContext
+    ) -> (rc: Int32, export: DeltaExport) {
+        var rawExport = OmniNiriTxnDeltaExport()
 
         let rc = context.withRawContext { raw in
             withUnsafeMutablePointer(to: &rawExport) { exportPtr in
-                omni_niri_ctx_export_runtime_state(raw, exportPtr)
+                omni_niri_ctx_export_delta(raw, exportPtr)
             }
         }
 
         guard rc == OMNI_OK else {
-            return (rc: rc, export: RuntimeStateExport(columns: [], windows: []))
-        }
-
-        let hasColumnPointer = rawExport.columns != nil
-        let hasColumnCount = rawExport.column_count > 0
-        let hasWindowPointer = rawExport.windows != nil
-        let hasWindowCount = rawExport.window_count > 0
-
-        guard hasColumnPointer == hasColumnCount,
-              hasWindowPointer == hasWindowCount
-        else {
             return (
-                rc: Int32(OMNI_ERR_INVALID_ARGS),
-                export: RuntimeStateExport(columns: [], windows: [])
+                rc: rc,
+                export: DeltaExport(
+                    columns: [],
+                    windows: [],
+                    removedColumnIds: [],
+                    removedWindowIds: [],
+                    refreshTabbedVisibilityColumnIds: [],
+                    resetAllColumnCachedWidths: false,
+                    delegatedMoveColumn: nil,
+                    targetWindowId: nil,
+                    targetNode: nil,
+                    sourceSelectionWindowId: nil,
+                    targetSelectionWindowId: nil,
+                    movedWindowId: nil,
+                    generation: 0
+                )
             )
         }
 
-        let columns: [RuntimeColumnState]
+        var columns: [DeltaColumnRecord] = []
         if let base = rawExport.columns, rawExport.column_count > 0 {
             let rawColumns = Array(UnsafeBufferPointer(start: base, count: rawExport.column_count))
             columns = rawColumns.map { column in
-                RuntimeColumnState(
-                    columnId: nodeId(from: column.column_id),
-                    windowStart: column.window_start,
-                    windowCount: column.window_count,
-                    activeTileIdx: column.active_tile_idx,
-                    isTabbed: column.is_tabbed != 0,
-                    sizeValue: column.size_value,
-                    widthKind: column.width_kind,
-                    isFullWidth: column.is_full_width != 0,
-                    hasSavedWidth: column.has_saved_width != 0,
-                    savedWidthKind: column.saved_width_kind,
-                    savedWidthValue: column.saved_width_value
+                DeltaColumnRecord(
+                    column: RuntimeColumnState(
+                        columnId: nodeId(from: column.column_id),
+                        windowStart: column.window_start,
+                        windowCount: column.window_count,
+                        activeTileIdx: column.active_tile_idx,
+                        isTabbed: column.is_tabbed != 0,
+                        sizeValue: column.size_value,
+                        widthKind: column.width_kind,
+                        isFullWidth: column.is_full_width != 0,
+                        hasSavedWidth: column.has_saved_width != 0,
+                        savedWidthKind: column.saved_width_kind,
+                        savedWidthValue: column.saved_width_value
+                    ),
+                    orderIndex: column.order_index
                 )
             }
-        } else {
-            columns = []
         }
 
-        let windows: [RuntimeWindowState]
+        var windows: [DeltaWindowRecord] = []
         if let base = rawExport.windows, rawExport.window_count > 0 {
             let rawWindows = Array(UnsafeBufferPointer(start: base, count: rawExport.window_count))
             windows = rawWindows.map { window in
-                RuntimeWindowState(
-                    windowId: nodeId(from: window.window_id),
-                    columnId: nodeId(from: window.column_id),
-                    columnIndex: window.column_index,
-                    sizeValue: window.size_value,
-                    heightKind: window.height_kind,
-                    heightValue: window.height_value
+                DeltaWindowRecord(
+                    window: RuntimeWindowState(
+                        windowId: nodeId(from: window.window_id),
+                        columnId: nodeId(from: window.column_id),
+                        columnIndex: window.column_order_index,
+                        sizeValue: window.size_value,
+                        heightKind: window.height_kind,
+                        heightValue: window.height_value
+                    ),
+                    columnOrderIndex: window.column_order_index,
+                    rowIndex: window.row_index
                 )
             }
+        }
+
+        var removedColumnIds: [NodeId] = []
+        if let base = rawExport.removed_column_ids, rawExport.removed_column_count > 0 {
+            removedColumnIds = Array(UnsafeBufferPointer(start: base, count: rawExport.removed_column_count)).map(nodeId(from:))
+        }
+
+        var removedWindowIds: [NodeId] = []
+        if let base = rawExport.removed_window_ids, rawExport.removed_window_count > 0 {
+            removedWindowIds = Array(UnsafeBufferPointer(start: base, count: rawExport.removed_window_count)).map(nodeId(from:))
+        }
+
+        let refreshCount = max(0, min(Int(OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS), Int(rawExport.refresh_tabbed_visibility_count)))
+        var refreshIds: [NodeId] = []
+        refreshIds.reserveCapacity(refreshCount)
+        withUnsafePointer(to: &rawExport.refresh_tabbed_visibility_column_ids) { tuplePtr in
+            let base = UnsafeRawPointer(tuplePtr).assumingMemoryBound(to: OmniUuid128.self)
+            for idx in 0 ..< refreshCount {
+                refreshIds.append(nodeId(from: base[idx]))
+            }
+        }
+
+        let delegatedMoveColumn: (columnId: NodeId, direction: Direction)?
+        if rawExport.has_delegate_move_column != 0,
+           let direction = direction(from: rawExport.delegate_move_direction) {
+            delegatedMoveColumn = (nodeId(from: rawExport.delegate_move_column_id), direction)
         } else {
-            windows = []
+            delegatedMoveColumn = nil
+        }
+
+        let targetNode: RuntimeNodeTarget?
+        if rawExport.has_target_node_id != 0,
+           let kind = MutationNodeKind(rawValue: rawExport.target_node_kind),
+           kind != .none {
+            targetNode = RuntimeNodeTarget(
+                kind: kind,
+                nodeId: nodeId(from: rawExport.target_node_id)
+            )
+        } else {
+            targetNode = nil
         }
 
         return (
             rc: rc,
-            export: RuntimeStateExport(columns: columns, windows: windows)
+            export: DeltaExport(
+                columns: columns,
+                windows: windows,
+                removedColumnIds: removedColumnIds,
+                removedWindowIds: removedWindowIds,
+                refreshTabbedVisibilityColumnIds: refreshIds,
+                resetAllColumnCachedWidths: rawExport.reset_all_column_cached_widths != 0,
+                delegatedMoveColumn: delegatedMoveColumn,
+                targetWindowId: rawExport.has_target_window_id != 0
+                    ? nodeId(from: rawExport.target_window_id)
+                    : nil,
+                targetNode: targetNode,
+                sourceSelectionWindowId: rawExport.has_source_selection_window_id != 0
+                    ? nodeId(from: rawExport.source_selection_window_id)
+                    : nil,
+                targetSelectionWindowId: rawExport.has_target_selection_window_id != 0
+                    ? nodeId(from: rawExport.target_selection_window_id)
+                    : nil,
+                movedWindowId: rawExport.has_moved_window_id != 0
+                    ? nodeId(from: rawExport.moved_window_id)
+                    : nil,
+                generation: rawExport.generation
+            )
+        )
+    }
+
+    static func applyTxn(_ request: TxnRequest) -> TxnOutcome {
+        let sourceContext: NiriLayoutZigKernel.LayoutContext
+        let targetContext: NiriLayoutZigKernel.LayoutContext?
+        let kind: TxnKind
+        var rawNavigation = emptyNavigationTxnPayload()
+        var rawMutation = emptyMutationTxnPayload()
+        var rawWorkspace = emptyWorkspaceTxnPayload()
+
+        switch request {
+        case let .navigation(context, navRequest):
+            sourceContext = context
+            targetContext = nil
+            kind = .navigation
+            let selectedWindowId: NodeId?
+            let selectedColumnId: NodeId?
+            let targetWindowId: NodeId?
+            let targetColumnId: NodeId?
+            guard let snapshot = navRequest.snapshot else {
+                return TxnOutcome(
+                    rc: Int32(OMNI_ERR_INVALID_ARGS),
+                    kind: .navigation,
+                    applied: false,
+                    targetWindowId: nil,
+                    targetNode: nil,
+                    changedSourceContext: false,
+                    changedTargetContext: false,
+                    deltaColumnCount: 0,
+                    deltaWindowCount: 0,
+                    removedColumnCount: 0,
+                    removedWindowCount: 0
+                )
+            }
+            selectedWindowId = nodeId(atWindowIndex: navRequest.request.selectedWindowIndex, snapshot: snapshot)
+            selectedColumnId = nodeId(atColumnIndex: navRequest.request.selectedColumnIndex, snapshot: snapshot)
+            targetWindowId = nodeId(atWindowIndex: navRequest.request.targetWindowIndex, snapshot: snapshot)
+            targetColumnId = nodeId(atColumnIndex: navRequest.request.targetColumnIndex, snapshot: snapshot)
+
+            rawNavigation = OmniNiriTxnNavigationPayload(
+                op: navigationOpCode(navRequest.request.op),
+                direction: navigationDirectionCode(navRequest.request.direction),
+                orientation: orientationCode(navRequest.request.orientation),
+                infinite_loop: navRequest.request.infiniteLoop ? 1 : 0,
+                has_selected_window_id: selectedWindowId == nil ? 0 : 1,
+                selected_window_id: selectedWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_selected_column_id: selectedColumnId == nil ? 0 : 1,
+                selected_column_id: selectedColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                selected_row_index: Int64(navRequest.request.selectedRowIndex),
+                step: Int64(navRequest.request.step),
+                target_row_index: Int64(navRequest.request.targetRowIndex),
+                has_target_column_id: targetColumnId == nil ? 0 : 1,
+                target_column_id: targetColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_target_window_id: targetWindowId == nil ? 0 : 1,
+                target_window_id: targetWindowId.map(omniUUID(from:)) ?? zeroUUID()
+            )
+        case let .mutation(context, mutationRequest):
+            sourceContext = context
+            targetContext = nil
+            kind = .mutation
+            let sourceWindowId: NodeId?
+            let targetWindowId: NodeId?
+            let sourceColumnId: NodeId?
+            let targetColumnId: NodeId?
+            let focusedWindowId: NodeId?
+            let selectedNodeId: NodeId?
+
+            guard let snapshot = mutationRequest.snapshot else {
+                return TxnOutcome(
+                    rc: Int32(OMNI_ERR_INVALID_ARGS),
+                    kind: .mutation,
+                    applied: false,
+                    targetWindowId: nil,
+                    targetNode: nil,
+                    changedSourceContext: false,
+                    changedTargetContext: false,
+                    deltaColumnCount: 0,
+                    deltaWindowCount: 0,
+                    removedColumnCount: 0,
+                    removedWindowCount: 0
+                )
+            }
+            sourceWindowId = nodeId(atWindowIndex: mutationRequest.request.sourceWindowIndex, snapshot: snapshot)
+            targetWindowId = nodeId(atWindowIndex: mutationRequest.request.targetWindowIndex, snapshot: snapshot)
+            sourceColumnId = nodeId(atColumnIndex: mutationRequest.request.sourceColumnIndex, snapshot: snapshot)
+            targetColumnId = nodeId(atColumnIndex: mutationRequest.request.targetColumnIndex, snapshot: snapshot)
+            focusedWindowId = nodeId(atWindowIndex: mutationRequest.request.focusedWindowIndex, snapshot: snapshot)
+            selectedNodeId = switch mutationRequest.request.selectedNodeKind {
+            case .window:
+                nodeId(atWindowIndex: mutationRequest.request.selectedNodeIndex, snapshot: snapshot)
+            case .column:
+                nodeId(atColumnIndex: mutationRequest.request.selectedNodeIndex, snapshot: snapshot)
+            case .none:
+                nil
+            }
+
+            rawMutation = OmniNiriTxnMutationPayload(
+                op: mutationOpCode(mutationRequest.request.op),
+                direction: mutationDirectionCode(mutationRequest.request.direction),
+                infinite_loop: mutationRequest.request.infiniteLoop ? 1 : 0,
+                insert_position: insertPositionCode(mutationRequest.request.insertPosition),
+                has_source_window_id: sourceWindowId == nil ? 0 : 1,
+                source_window_id: sourceWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_target_window_id: targetWindowId == nil ? 0 : 1,
+                target_window_id: targetWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                max_windows_per_column: Int64(mutationRequest.request.maxWindowsPerColumn),
+                has_source_column_id: sourceColumnId == nil ? 0 : 1,
+                source_column_id: sourceColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_target_column_id: targetColumnId == nil ? 0 : 1,
+                target_column_id: targetColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                insert_column_index: Int64(mutationRequest.request.insertColumnIndex),
+                max_visible_columns: Int64(mutationRequest.request.maxVisibleColumns),
+                selected_node_kind: mutationNodeKindCode(mutationRequest.request.selectedNodeKind),
+                has_selected_node_id: selectedNodeId == nil ? 0 : 1,
+                selected_node_id: selectedNodeId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_focused_window_id: focusedWindowId == nil ? 0 : 1,
+                focused_window_id: focusedWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_incoming_window_id: mutationRequest.incomingWindowId == nil ? 0 : 1,
+                incoming_window_id: mutationRequest.incomingWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_created_column_id: mutationRequest.createdColumnId == nil ? 0 : 1,
+                created_column_id: mutationRequest.createdColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_placeholder_column_id: mutationRequest.placeholderColumnId == nil ? 0 : 1,
+                placeholder_column_id: mutationRequest.placeholderColumnId.map(omniUUID(from:)) ?? zeroUUID()
+            )
+        case let .workspace(source, target, workspaceRequest):
+            sourceContext = source
+            targetContext = target
+            kind = .workspace
+            let sourceWindowId: NodeId?
+            let sourceColumnId: NodeId?
+            guard let snapshot = workspaceRequest.sourceSnapshot else {
+                return TxnOutcome(
+                    rc: Int32(OMNI_ERR_INVALID_ARGS),
+                    kind: .workspace,
+                    applied: false,
+                    targetWindowId: nil,
+                    targetNode: nil,
+                    changedSourceContext: false,
+                    changedTargetContext: false,
+                    deltaColumnCount: 0,
+                    deltaWindowCount: 0,
+                    removedColumnCount: 0,
+                    removedWindowCount: 0
+                )
+            }
+            sourceWindowId = nodeId(atWindowIndex: workspaceRequest.request.sourceWindowIndex, snapshot: snapshot)
+            sourceColumnId = nodeId(atColumnIndex: workspaceRequest.request.sourceColumnIndex, snapshot: snapshot)
+            rawWorkspace = OmniNiriTxnWorkspacePayload(
+                op: workspaceOpCode(workspaceRequest.request.op),
+                has_source_window_id: sourceWindowId == nil ? 0 : 1,
+                source_window_id: sourceWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_source_column_id: sourceColumnId == nil ? 0 : 1,
+                source_column_id: sourceColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                max_visible_columns: Int64(workspaceRequest.request.maxVisibleColumns),
+                has_target_created_column_id: workspaceRequest.targetCreatedColumnId == nil ? 0 : 1,
+                target_created_column_id: workspaceRequest.targetCreatedColumnId.map(omniUUID(from:)) ?? zeroUUID(),
+                has_source_placeholder_column_id: workspaceRequest.sourcePlaceholderColumnId == nil ? 0 : 1,
+                source_placeholder_column_id: workspaceRequest.sourcePlaceholderColumnId.map(omniUUID(from:)) ?? zeroUUID()
+            )
+        }
+
+        var rawRequest = OmniNiriTxnRequest(
+            kind: kind.rawValue,
+            navigation: rawNavigation,
+            mutation: rawMutation,
+            workspace: rawWorkspace,
+            max_delta_columns: 0,
+            max_delta_windows: 0,
+            max_removed_ids: 0
+        )
+
+        var rawResult = OmniNiriTxnResult()
+        let rc = sourceContext.withRawContext { sourceRaw in
+            withUnsafePointer(to: &rawRequest) { requestPtr in
+                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                    if let targetContext {
+                        return targetContext.withRawContext { targetRaw in
+                            omni_niri_ctx_apply_txn(sourceRaw, targetRaw, requestPtr, resultPtr)
+                        }
+                    }
+                    return omni_niri_ctx_apply_txn(sourceRaw, nil, requestPtr, resultPtr)
+                }
+            }
+        }
+
+        let targetNode: RuntimeNodeTarget?
+        if rc == OMNI_OK,
+           rawResult.has_target_node_id != 0,
+           let nodeKind = MutationNodeKind(rawValue: rawResult.target_node_kind),
+           nodeKind != .none {
+            targetNode = RuntimeNodeTarget(
+                kind: nodeKind,
+                nodeId: nodeId(from: rawResult.target_node_id)
+            )
+        } else {
+            targetNode = nil
+        }
+
+        let resolvedKind = TxnKind(rawValue: rawResult.kind) ?? kind
+        return TxnOutcome(
+            rc: rc,
+            kind: resolvedKind,
+            applied: rc == OMNI_OK && rawResult.applied != 0,
+            targetWindowId: rc == OMNI_OK && rawResult.has_target_window_id != 0
+                ? nodeId(from: rawResult.target_window_id)
+                : nil,
+            targetNode: targetNode,
+            changedSourceContext: rc == OMNI_OK && rawResult.changed_source_context != 0,
+            changedTargetContext: rc == OMNI_OK && rawResult.changed_target_context != 0,
+            deltaColumnCount: rawResult.delta_column_count,
+            deltaWindowCount: rawResult.delta_window_count,
+            removedColumnCount: rawResult.removed_column_count,
+            removedWindowCount: rawResult.removed_window_count
         )
     }
 
@@ -965,95 +1375,23 @@ enum NiriStateZigKernel {
         context: NiriLayoutZigKernel.LayoutContext,
         request: MutationApplyRequest
     ) -> MutationApplyOutcome {
-        var rawRequest = OmniNiriMutationApplyRequest(
-            request: rawMutationRequest(from: request.request),
-            has_incoming_window_id: request.incomingWindowId == nil ? 0 : 1,
-            incoming_window_id: request.incomingWindowId.map(omniUUID(from:)) ?? zeroUUID(),
-            has_created_column_id: request.createdColumnId == nil ? 0 : 1,
-            created_column_id: request.createdColumnId.map(omniUUID(from:)) ?? zeroUUID(),
-            has_placeholder_column_id: request.placeholderColumnId == nil ? 0 : 1,
-            placeholder_column_id: request.placeholderColumnId.map(omniUUID(from:)) ?? zeroUUID()
-        )
-
-        var rawResult = OmniNiriMutationApplyResult()
-        let rc = context.withRawContext { raw in
-            withUnsafePointer(to: &rawRequest) { requestPtr in
-                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
-                    omni_niri_ctx_apply_mutation(raw, requestPtr, resultPtr)
-                }
-            }
-        }
-
-        let targetWindowId: NodeId?
-        if rc == OMNI_OK, rawResult.has_target_window_id != 0 {
-            targetWindowId = nodeId(from: rawResult.target_window_id)
-        } else {
-            targetWindowId = nil
-        }
-
-        let targetNode: RuntimeNodeTarget?
-        if rc == OMNI_OK, rawResult.has_target_node_id != 0 {
-            guard let kind = MutationNodeKind(rawValue: rawResult.target_node_kind),
-                  kind != .none
-            else {
-                return MutationApplyOutcome(
-                    rc: Int32(OMNI_ERR_INVALID_ARGS),
-                    applied: false,
-                    targetWindowId: nil,
-                    targetNode: nil,
-                    hints: .none
-                )
-            }
-            targetNode = RuntimeNodeTarget(
-                kind: kind,
-                nodeId: nodeId(from: rawResult.target_node_id)
+        let outcome = applyTxn(.mutation(context: context, request: request))
+        let delta = exportDelta(context: context)
+        guard outcome.rc == OMNI_OK, delta.rc == OMNI_OK else {
+            return MutationApplyOutcome(
+                rc: outcome.rc != OMNI_OK ? outcome.rc : delta.rc,
+                applied: false,
+                targetWindowId: nil,
+                targetNode: nil,
+                delta: nil
             )
-        } else {
-            targetNode = nil
         }
-
-        var refreshColumnIds: [NodeId] = []
-        if rc == OMNI_OK {
-            let maxCount = Int(OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS)
-            let refreshCount = max(0, min(maxCount, Int(rawResult.refresh_tabbed_visibility_count)))
-            refreshColumnIds.reserveCapacity(refreshCount)
-
-            withUnsafePointer(to: &rawResult.refresh_tabbed_visibility_column_ids) { tuplePtr in
-                let base = UnsafeRawPointer(tuplePtr).assumingMemoryBound(to: OmniUuid128.self)
-                for idx in 0 ..< refreshCount {
-                    refreshColumnIds.append(nodeId(from: base[idx]))
-                }
-            }
-        }
-
-        let delegatedMoveColumn: (columnId: NodeId, direction: Direction)?
-        if rc == OMNI_OK, rawResult.has_delegate_move_column != 0 {
-            guard let direction = direction(from: rawResult.delegate_move_direction) else {
-                return MutationApplyOutcome(
-                    rc: Int32(OMNI_ERR_INVALID_ARGS),
-                    applied: false,
-                    targetWindowId: nil,
-                    targetNode: nil,
-                    hints: .none
-                )
-            }
-            delegatedMoveColumn = (nodeId(from: rawResult.delegate_move_column_id), direction)
-        } else {
-            delegatedMoveColumn = nil
-        }
-
-        let hints = RuntimeMutationHints(
-            refreshTabbedVisibilityColumnIds: refreshColumnIds,
-            resetAllColumnCachedWidths: rc == OMNI_OK && rawResult.reset_all_column_cached_widths != 0,
-            delegatedMoveColumn: delegatedMoveColumn
-        )
-
         return MutationApplyOutcome(
-            rc: rc,
-            applied: rc == OMNI_OK && rawResult.applied != 0,
-            targetWindowId: targetWindowId,
-            targetNode: targetNode,
-            hints: hints
+            rc: outcome.rc,
+            applied: outcome.applied,
+            targetWindowId: outcome.targetWindowId,
+            targetNode: outcome.targetNode,
+            delta: delta.export
         )
     }
 
@@ -1062,37 +1400,17 @@ enum NiriStateZigKernel {
         targetContext: NiriLayoutZigKernel.LayoutContext,
         request: WorkspaceApplyRequest
     ) -> WorkspaceApplyOutcome {
-        var rawRequest = OmniNiriWorkspaceApplyRequest(
-            request: rawWorkspaceRequest(from: request.request),
-            has_target_created_column_id: request.targetCreatedColumnId == nil ? 0 : 1,
-            target_created_column_id: request.targetCreatedColumnId.map(omniUUID(from:)) ?? zeroUUID(),
-            has_source_placeholder_column_id: request.sourcePlaceholderColumnId == nil ? 0 : 1,
-            source_placeholder_column_id: request.sourcePlaceholderColumnId.map(omniUUID(from:)) ?? zeroUUID()
-        )
-
-        var rawResult = OmniNiriWorkspaceApplyResult()
-        let rc = sourceContext.withRawContext { sourceRaw in
-            targetContext.withRawContext { targetRaw in
-                withUnsafePointer(to: &rawRequest) { requestPtr in
-                    withUnsafeMutablePointer(to: &rawResult) { resultPtr in
-                        omni_niri_ctx_apply_workspace(sourceRaw, targetRaw, requestPtr, resultPtr)
-                    }
-                }
-            }
-        }
-
+        let outcome = applyTxn(.workspace(sourceContext: sourceContext, targetContext: targetContext, request: request))
+        let sourceDelta = exportDelta(context: sourceContext)
+        let targetDelta = exportDelta(context: targetContext)
         return WorkspaceApplyOutcome(
-            rc: rc,
-            applied: rc == OMNI_OK && rawResult.applied != 0,
-            sourceSelectionWindowId: rc == OMNI_OK && rawResult.has_source_selection_window_id != 0
-                ? nodeId(from: rawResult.source_selection_window_id)
-                : nil,
-            targetSelectionWindowId: rc == OMNI_OK && rawResult.has_target_selection_window_id != 0
-                ? nodeId(from: rawResult.target_selection_window_id)
-                : nil,
-            movedWindowId: rc == OMNI_OK && rawResult.has_moved_window_id != 0
-                ? nodeId(from: rawResult.moved_window_id)
-                : nil
+            rc: outcome.rc,
+            applied: outcome.applied,
+            sourceSelectionWindowId: sourceDelta.rc == OMNI_OK ? sourceDelta.export.sourceSelectionWindowId : nil,
+            targetSelectionWindowId: targetDelta.rc == OMNI_OK ? targetDelta.export.targetSelectionWindowId : nil,
+            movedWindowId: targetDelta.rc == OMNI_OK ? targetDelta.export.movedWindowId : nil,
+            sourceDelta: sourceDelta.rc == OMNI_OK ? sourceDelta.export : nil,
+            targetDelta: targetDelta.rc == OMNI_OK ? targetDelta.export : nil
         )
     }
 
@@ -1100,75 +1418,23 @@ enum NiriStateZigKernel {
         context: NiriLayoutZigKernel.LayoutContext,
         request: NavigationApplyRequest
     ) -> NavigationApplyOutcome {
-        var rawRequest = OmniNiriNavigationApplyRequest(
-            request: rawNavigationRequest(from: request.request)
-        )
-
-        var rawResult = OmniNiriNavigationApplyResult()
-        let rc = context.withRawContext { raw in
-            withUnsafePointer(to: &rawRequest) { requestPtr in
-                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
-                    omni_niri_ctx_apply_navigation(raw, requestPtr, resultPtr)
-                }
-            }
-        }
-
-        let sourceActiveTileUpdate: RuntimeActiveTileUpdate?
-        if rc == OMNI_OK, rawResult.update_source_active_tile != 0 {
-            guard let idx = Int(exactly: rawResult.source_active_tile_idx) else {
-                return NavigationApplyOutcome(
-                    rc: Int32(OMNI_ERR_INVALID_ARGS),
-                    applied: false,
-                    targetWindowId: nil,
-                    sourceActiveTileUpdate: nil,
-                    targetActiveTileUpdate: nil,
-                    refreshSourceColumnId: nil,
-                    refreshTargetColumnId: nil
-                )
-            }
-            sourceActiveTileUpdate = RuntimeActiveTileUpdate(
-                columnId: nodeId(from: rawResult.source_column_id),
-                activeTileIdx: idx
-            )
+        let outcome = applyTxn(.navigation(context: context, request: request))
+        let delta = exportDelta(context: context)
+        let refreshColumnIds: [NodeId]
+        if delta.rc == OMNI_OK {
+            refreshColumnIds = delta.export.refreshTabbedVisibilityColumnIds
         } else {
-            sourceActiveTileUpdate = nil
+            refreshColumnIds = []
         }
-
-        let targetActiveTileUpdate: RuntimeActiveTileUpdate?
-        if rc == OMNI_OK, rawResult.update_target_active_tile != 0 {
-            guard let idx = Int(exactly: rawResult.target_active_tile_idx) else {
-                return NavigationApplyOutcome(
-                    rc: Int32(OMNI_ERR_INVALID_ARGS),
-                    applied: false,
-                    targetWindowId: nil,
-                    sourceActiveTileUpdate: nil,
-                    targetActiveTileUpdate: nil,
-                    refreshSourceColumnId: nil,
-                    refreshTargetColumnId: nil
-                )
-            }
-            targetActiveTileUpdate = RuntimeActiveTileUpdate(
-                columnId: nodeId(from: rawResult.target_column_id),
-                activeTileIdx: idx
-            )
-        } else {
-            targetActiveTileUpdate = nil
-        }
-
         return NavigationApplyOutcome(
-            rc: rc,
-            applied: rc == OMNI_OK && rawResult.applied != 0,
-            targetWindowId: rc == OMNI_OK && rawResult.has_target_window_id != 0
-                ? nodeId(from: rawResult.target_window_id)
-                : nil,
-            sourceActiveTileUpdate: sourceActiveTileUpdate,
-            targetActiveTileUpdate: targetActiveTileUpdate,
-            refreshSourceColumnId: rc == OMNI_OK && rawResult.refresh_tabbed_visibility_source != 0
-                ? nodeId(from: rawResult.refresh_source_column_id)
-                : nil,
-            refreshTargetColumnId: rc == OMNI_OK && rawResult.refresh_tabbed_visibility_target != 0
-                ? nodeId(from: rawResult.refresh_target_column_id)
-                : nil
+            rc: outcome.rc,
+            applied: outcome.applied,
+            targetWindowId: outcome.targetWindowId,
+            sourceActiveTileUpdate: nil,
+            targetActiveTileUpdate: nil,
+            refreshSourceColumnId: refreshColumnIds.first,
+            refreshTargetColumnId: refreshColumnIds.count > 1 ? refreshColumnIds[1] : nil,
+            delta: delta.rc == OMNI_OK ? delta.export : nil
         )
     }
 }

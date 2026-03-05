@@ -244,6 +244,60 @@ pub const OmniNiriRuntimeStateExport = extern struct {
     window_count: usize,
 };
 
+pub const OmniNiriDeltaColumnRecord = extern struct {
+    column_id: OmniUuid128,
+    order_index: usize,
+    window_start: usize,
+    window_count: usize,
+    active_tile_idx: usize,
+    is_tabbed: u8,
+    size_value: f64,
+    width_kind: u8,
+    is_full_width: u8,
+    has_saved_width: u8,
+    saved_width_kind: u8,
+    saved_width_value: f64,
+};
+
+pub const OmniNiriDeltaWindowRecord = extern struct {
+    window_id: OmniUuid128,
+    column_id: OmniUuid128,
+    column_order_index: usize,
+    row_index: usize,
+    size_value: f64,
+    height_kind: u8,
+    height_value: f64,
+};
+
+pub const OmniNiriTxnDeltaExport = extern struct {
+    columns: [*c]const OmniNiriDeltaColumnRecord,
+    column_count: usize,
+    windows: [*c]const OmniNiriDeltaWindowRecord,
+    window_count: usize,
+    removed_column_ids: [*c]const OmniUuid128,
+    removed_column_count: usize,
+    removed_window_ids: [*c]const OmniUuid128,
+    removed_window_count: usize,
+    refresh_tabbed_visibility_count: u8,
+    refresh_tabbed_visibility_column_ids: [OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS]OmniUuid128,
+    reset_all_column_cached_widths: u8,
+    has_delegate_move_column: u8,
+    delegate_move_column_id: OmniUuid128,
+    delegate_move_direction: u8,
+    has_target_window_id: u8,
+    target_window_id: OmniUuid128,
+    has_target_node_id: u8,
+    target_node_kind: u8,
+    target_node_id: OmniUuid128,
+    has_source_selection_window_id: u8,
+    source_selection_window_id: OmniUuid128,
+    has_target_selection_window_id: u8,
+    target_selection_window_id: OmniUuid128,
+    has_moved_window_id: u8,
+    moved_window_id: OmniUuid128,
+    generation: u64,
+};
+
 pub const OmniNiriStateValidationResult = extern struct {
     column_count: usize,
     window_count: usize,
@@ -399,6 +453,93 @@ pub const OmniNiriWorkspaceApplyResult = extern struct {
     target_selection_window_id: OmniUuid128,
     has_moved_window_id: u8,
     moved_window_id: OmniUuid128,
+};
+
+pub const OmniNiriTxnNavigationPayload = extern struct {
+    op: u8,
+    direction: u8,
+    orientation: u8,
+    infinite_loop: u8,
+    has_selected_window_id: u8,
+    selected_window_id: OmniUuid128,
+    has_selected_column_id: u8,
+    selected_column_id: OmniUuid128,
+    selected_row_index: i64,
+    step: i64,
+    target_row_index: i64,
+    has_target_column_id: u8,
+    target_column_id: OmniUuid128,
+    has_target_window_id: u8,
+    target_window_id: OmniUuid128,
+};
+
+pub const OmniNiriTxnMutationPayload = extern struct {
+    op: u8,
+    direction: u8,
+    infinite_loop: u8,
+    insert_position: u8,
+    has_source_window_id: u8,
+    source_window_id: OmniUuid128,
+    has_target_window_id: u8,
+    target_window_id: OmniUuid128,
+    max_windows_per_column: i64,
+    has_source_column_id: u8,
+    source_column_id: OmniUuid128,
+    has_target_column_id: u8,
+    target_column_id: OmniUuid128,
+    insert_column_index: i64,
+    max_visible_columns: i64,
+    selected_node_kind: u8,
+    has_selected_node_id: u8,
+    selected_node_id: OmniUuid128,
+    has_focused_window_id: u8,
+    focused_window_id: OmniUuid128,
+    has_incoming_window_id: u8,
+    incoming_window_id: OmniUuid128,
+    has_created_column_id: u8,
+    created_column_id: OmniUuid128,
+    has_placeholder_column_id: u8,
+    placeholder_column_id: OmniUuid128,
+};
+
+pub const OmniNiriTxnWorkspacePayload = extern struct {
+    op: u8,
+    has_source_window_id: u8,
+    source_window_id: OmniUuid128,
+    has_source_column_id: u8,
+    source_column_id: OmniUuid128,
+    max_visible_columns: i64,
+    has_target_created_column_id: u8,
+    target_created_column_id: OmniUuid128,
+    has_source_placeholder_column_id: u8,
+    source_placeholder_column_id: OmniUuid128,
+};
+
+pub const OmniNiriTxnRequest = extern struct {
+    kind: u8,
+    navigation: OmniNiriTxnNavigationPayload,
+    mutation: OmniNiriTxnMutationPayload,
+    workspace: OmniNiriTxnWorkspacePayload,
+    max_delta_columns: usize,
+    max_delta_windows: usize,
+    max_removed_ids: usize,
+};
+
+pub const OmniNiriTxnResult = extern struct {
+    applied: u8,
+    kind: u8,
+    has_target_window_id: u8,
+    target_window_id: OmniUuid128,
+    has_target_node_id: u8,
+    target_node_kind: u8,
+    target_node_id: OmniUuid128,
+    changed_source_context: u8,
+    changed_target_context: u8,
+    error_code: i32,
+    delta_column_count: usize,
+    delta_window_count: usize,
+    removed_column_count: usize,
+    removed_window_count: usize,
 };
 
 pub const OmniDwindleSeedNode = extern struct {
@@ -604,6 +745,11 @@ pub const OMNI_NIRI_DIRECTION_LEFT: u8 = 0;
 pub const OMNI_NIRI_DIRECTION_RIGHT: u8 = 1;
 pub const OMNI_NIRI_DIRECTION_UP: u8 = 2;
 pub const OMNI_NIRI_DIRECTION_DOWN: u8 = 3;
+
+pub const OMNI_NIRI_TXN_LAYOUT: u8 = 0;
+pub const OMNI_NIRI_TXN_NAVIGATION: u8 = 1;
+pub const OMNI_NIRI_TXN_MUTATION: u8 = 2;
+pub const OMNI_NIRI_TXN_WORKSPACE: u8 = 3;
 
 pub const OMNI_NIRI_NAV_OP_MOVE_BY_COLUMNS: u8 = 0;
 pub const OMNI_NIRI_NAV_OP_MOVE_VERTICAL: u8 = 1;

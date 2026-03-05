@@ -69,7 +69,10 @@ extension NiriLayoutEngine {
 
         let applyOutcome = NiriStateZigKernel.applyMutation(
             context: context,
-            request: .init(request: prepared.request)
+            request: .init(
+                request: prepared.request,
+                snapshot: prepared.snapshot
+            )
         )
         guard applyOutcome.rc == 0 else {
             return nil
@@ -85,7 +88,7 @@ extension NiriLayoutEngine {
         guard applyProjectedRuntimeExport(
             context: context,
             workspaceId: workspaceId,
-            hints: applyOutcome.hints
+            delta: applyOutcome.delta
         ) != nil else {
             return nil
         }
@@ -105,7 +108,7 @@ extension NiriLayoutEngine {
                 delegatedMoveColumn: nil
             )
         }
-        if let delegated = applyOutcome.hints.delegatedMoveColumn {
+        if let delegated = applyOutcome.delta?.delegatedMoveColumn {
             guard let resolvedColumn = root(for: workspaceId)?.findNode(by: delegated.columnId) as? NiriContainer else {
                 return nil
             }

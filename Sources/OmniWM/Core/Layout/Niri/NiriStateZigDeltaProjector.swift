@@ -1,14 +1,13 @@
 import Foundation
 
-enum NiriStateZigRuntimeProjector {
+enum NiriStateZigDeltaProjector {
     struct ProjectionResult {
         let applied: Bool
         let failureReason: String?
     }
 
     static func project(
-        export: NiriStateZigKernel.RuntimeStateExport,
-        hints: NiriStateZigKernel.RuntimeMutationHints = .none,
+        delta: NiriStateZigKernel.DeltaExport,
         workspaceId: WorkspaceDescriptor.ID,
         engine: NiriLayoutEngine,
         additionalHandlesById: [UUID: WindowHandle] = [:]
@@ -16,6 +15,7 @@ enum NiriStateZigRuntimeProjector {
         struct ResolvedColumn {
             let column: NiriContainer
             let runtime: NiriStateZigKernel.RuntimeColumnState
+            let windowRecords: [NiriStateZigKernel.DeltaWindowRecord]
             let windows: [NiriWindow]
         }
 
@@ -56,17 +56,34 @@ enum NiriStateZigRuntimeProjector {
             handleById[window.handle.id] = window.handle
         }
 
-        var claimedWindowSlots = Array(repeating: false, count: export.windows.count)
+        let orderedColumns = delta.columns.sorted { $0.orderIndex < $1.orderIndex }
+        var seenColumnOrders = Set<Int>()
+        seenColumnOrders.reserveCapacity(orderedColumns.count)
+        for column in orderedColumns {
+            if !seenColumnOrders.insert(column.orderIndex).inserted {
+                return fail("duplicate delta column order index \(column.orderIndex)")
+            }
+        }
+        let orderedWindows = delta.windows.sorted {
+            if $0.columnOrderIndex == $1.columnOrderIndex {
+                return $0.rowIndex < $1.rowIndex
+            }
+            return $0.columnOrderIndex < $1.columnOrderIndex
+        }
+        var claimedWindowSlots = Array(repeating: false, count: orderedWindows.count)
+
         var usedColumns = Set<ObjectIdentifier>()
         var usedWindows = Set<ObjectIdentifier>()
         var resolvedColumns: [ResolvedColumn] = []
-        resolvedColumns.reserveCapacity(export.columns.count)
+        resolvedColumns.reserveCapacity(orderedColumns.count)
 
-        for (columnIndex, runtimeColumn) in export.columns.enumerated() {
-            let column = existingColumnsById[runtimeColumn.columnId]
+        for orderedColumn in orderedColumns {
+            let runtimeColumn = orderedColumn.column
+            let resolvedColumn = existingColumnsById[runtimeColumn.columnId]
                 ?? (engine.findNode(by: runtimeColumn.columnId) as? NiriContainer)
                 ?? NiriContainer(id: runtimeColumn.columnId)
-            let columnObjectId = ObjectIdentifier(column)
+
+            let columnObjectId = ObjectIdentifier(resolvedColumn)
             guard !usedColumns.contains(columnObjectId) else {
                 return fail("duplicate resolved column for id \(runtimeColumn.columnId.uuid)")
             }
@@ -74,26 +91,36 @@ enum NiriStateZigRuntimeProjector {
 
             let start = runtimeColumn.windowStart
             let end = start + runtimeColumn.windowCount
-            guard start >= 0, end >= start, end <= export.windows.count else {
-                return fail("invalid runtime column window range start=\(start) count=\(runtimeColumn.windowCount)")
+            guard start >= 0, end >= start, end <= orderedWindows.count else {
+                return fail("invalid delta column window range start=\(start) count=\(runtimeColumn.windowCount)")
             }
 
+            var windowRecords: [NiriStateZigKernel.DeltaWindowRecord] = []
+            windowRecords.reserveCapacity(runtimeColumn.windowCount)
             var resolvedWindows: [NiriWindow] = []
             resolvedWindows.reserveCapacity(runtimeColumn.windowCount)
+
             for idx in start ..< end {
                 if claimedWindowSlots[idx] {
-                    return fail("overlapping runtime window range at index \(idx)")
+                    return fail("overlapping delta window range at index \(idx)")
                 }
                 claimedWindowSlots[idx] = true
 
-                let runtimeWindow = export.windows[idx]
-                guard runtimeWindow.columnId == runtimeColumn.columnId else {
-                    return fail("runtime window \(runtimeWindow.windowId.uuid) has mismatched column id")
+                let windowRecord = orderedWindows[idx]
+                if windowRecord.columnOrderIndex != orderedColumn.orderIndex {
+                    return fail("delta window \(windowRecord.window.windowId.uuid) has mismatched column order index")
                 }
-                guard runtimeWindow.columnIndex == columnIndex else {
-                    return fail("runtime window \(runtimeWindow.windowId.uuid) has mismatched column index")
+                if windowRecord.window.columnId != runtimeColumn.columnId {
+                    return fail("delta window \(windowRecord.window.windowId.uuid) has mismatched column id")
+                }
+                let expectedRowIndex = idx - start
+                if windowRecord.rowIndex != expectedRowIndex {
+                    return fail("delta window \(windowRecord.window.windowId.uuid) has non-contiguous row index")
                 }
 
+                windowRecords.append(windowRecord)
+
+                let runtimeWindow = windowRecord.window
                 let resolvedWindow: NiriWindow
                 if let nodeById = existingWindowsById[runtimeWindow.windowId] {
                     resolvedWindow = nodeById
@@ -104,12 +131,12 @@ enum NiriStateZigRuntimeProjector {
                 } else if let handle = handleById[runtimeWindow.windowId.uuid] {
                     resolvedWindow = NiriWindow(handle: handle, id: runtimeWindow.windowId)
                 } else {
-                    return fail("missing window handle for runtime window id \(runtimeWindow.windowId.uuid)")
+                    return fail("missing window handle for delta window id \(runtimeWindow.windowId.uuid)")
                 }
 
                 let windowObjectId = ObjectIdentifier(resolvedWindow)
                 guard !usedWindows.contains(windowObjectId) else {
-                    return fail("duplicate resolved window object for runtime window id \(runtimeWindow.windowId.uuid)")
+                    return fail("duplicate resolved window object for delta window id \(runtimeWindow.windowId.uuid)")
                 }
                 usedWindows.insert(windowObjectId)
                 resolvedWindows.append(resolvedWindow)
@@ -117,25 +144,27 @@ enum NiriStateZigRuntimeProjector {
 
             resolvedColumns.append(
                 ResolvedColumn(
-                    column: column,
+                    column: resolvedColumn,
                     runtime: runtimeColumn,
+                    windowRecords: windowRecords,
                     windows: resolvedWindows
                 )
             )
         }
 
         if claimedWindowSlots.contains(false) {
-            return fail("runtime export windows are not fully covered by column ranges")
+            return fail("delta windows are not fully covered by column ranges")
         }
 
         for (targetColumnIndex, resolvedColumn) in resolvedColumns.enumerated() {
             let column = resolvedColumn.column
             root.insertChild(column, at: targetColumnIndex)
+
             guard let runtimeWidth = NiriStateZigKernel.decodeWidth(
                 kind: resolvedColumn.runtime.widthKind,
                 value: resolvedColumn.runtime.sizeValue
             ) else {
-                return fail("invalid runtime width kind for column id \(resolvedColumn.runtime.columnId.uuid)")
+                return fail("invalid delta width kind for column id \(resolvedColumn.runtime.columnId.uuid)")
             }
             column.width = runtimeWidth
             column.isFullWidth = resolvedColumn.runtime.isFullWidth
@@ -144,7 +173,7 @@ enum NiriStateZigRuntimeProjector {
                     kind: resolvedColumn.runtime.savedWidthKind,
                     value: resolvedColumn.runtime.savedWidthValue
                 ) else {
-                    return fail("invalid runtime saved width kind for column id \(resolvedColumn.runtime.columnId.uuid)")
+                    return fail("invalid delta saved width kind for column id \(resolvedColumn.runtime.columnId.uuid)")
                 }
                 column.savedWidth = runtimeSavedWidth
             } else {
@@ -154,12 +183,12 @@ enum NiriStateZigRuntimeProjector {
 
             for (targetWindowIndex, window) in resolvedColumn.windows.enumerated() {
                 column.insertChild(window, at: targetWindowIndex)
-                let runtimeWindow = export.windows[resolvedColumn.runtime.windowStart + targetWindowIndex]
+                let runtimeWindow = resolvedColumn.windowRecords[targetWindowIndex].window
                 guard let runtimeHeight = NiriStateZigKernel.decodeHeight(
                     kind: runtimeWindow.heightKind,
                     value: runtimeWindow.heightValue
                 ) else {
-                    return fail("invalid runtime height kind for window id \(runtimeWindow.windowId.uuid)")
+                    return fail("invalid delta height kind for window id \(runtimeWindow.windowId.uuid)")
                 }
                 window.height = runtimeHeight
             }
@@ -203,13 +232,13 @@ enum NiriStateZigRuntimeProjector {
             engine.handleToNode[window.handle] = window
         }
 
-        if hints.resetAllColumnCachedWidths {
+        if delta.resetAllColumnCachedWidths {
             for column in root.columns {
                 column.cachedWidth = 0
             }
         }
 
-        for columnId in hints.refreshTabbedVisibilityColumnIds {
+        for columnId in delta.refreshTabbedVisibilityColumnIds {
             if let column = root.findNode(by: columnId) as? NiriContainer {
                 engine.updateTabbedColumnVisibility(column: column)
             }
@@ -219,6 +248,6 @@ enum NiriStateZigRuntimeProjector {
     }
 
     private static func fail(_ reason: String) -> ProjectionResult {
-        return ProjectionResult(applied: false, failureReason: reason)
+        ProjectionResult(applied: false, failureReason: reason)
     }
 }

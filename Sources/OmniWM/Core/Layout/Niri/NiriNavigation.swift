@@ -53,7 +53,10 @@ extension NiriLayoutEngine {
 
         let outcome = NiriStateZigKernel.applyNavigation(
             context: context,
-            request: .init(request: request)
+            request: .init(
+                request: request,
+                snapshot: snapshot
+            )
         )
         guard outcome.rc == OMNI_OK else {
             return nil
@@ -116,7 +119,10 @@ extension NiriLayoutEngine {
 
         let outcome = NiriStateZigKernel.applyNavigation(
             context: context,
-            request: .init(request: request)
+            request: .init(
+                request: request,
+                snapshot: snapshot
+            )
         )
         guard outcome.rc == OMNI_OK else {
             return nil
@@ -125,10 +131,7 @@ extension NiriLayoutEngine {
         guard applyProjectedRuntimeExport(
             context: context,
             workspaceId: workspaceId,
-            hints: navigationRuntimeHints(
-                sourceColumnId: outcome.refreshSourceColumnId,
-                targetColumnId: outcome.refreshTargetColumnId
-            )
+            delta: outcome.delta
         ) != nil else {
             return nil
         }
