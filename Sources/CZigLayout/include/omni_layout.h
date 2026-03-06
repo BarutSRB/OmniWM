@@ -88,6 +88,15 @@ typedef struct {
     double initial_velocity;
 } OmniViewportGestureEndResult;
 
+typedef struct {
+    double current_offset;
+    double target_offset;
+    int64_t active_column_index;
+    double selection_progress;
+    uint8_t is_gesture;
+    uint8_t is_animating;
+} OmniNiriRuntimeViewportStatus;
+
 typedef enum {
     OMNI_NIRI_ORIENTATION_HORIZONTAL = 0,
     OMNI_NIRI_ORIENTATION_VERTICAL = 1
@@ -977,6 +986,7 @@ typedef struct {
 
 typedef struct {
     OmniNiriTxnRequest txn;
+    double sample_time;
 } OmniNiriRuntimeCommandRequest;
 
 typedef struct {
@@ -1007,6 +1017,7 @@ typedef struct {
     double workspace_offset;
     double scale;
     uint8_t orientation;
+    double sample_time;
 } OmniNiriRuntimeRenderRequest;
 
 typedef struct {
@@ -1014,6 +1025,7 @@ typedef struct {
     size_t window_count;
     OmniNiriColumnOutput *columns;
     size_t column_count;
+    uint8_t animation_active;
 } OmniNiriRuntimeRenderOutput;
 
 /// Apply one Niri runtime transaction and update context-owned delta buffers.
@@ -1058,6 +1070,101 @@ int32_t omni_niri_runtime_render(
     OmniNiriLayoutContext *layout_context,
     const OmniNiriRuntimeRenderRequest *request,
     OmniNiriRuntimeRenderOutput *out_output);
+
+/// Start the workspace-switch structural animation track for a runtime.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_start_workspace_switch_animation(
+    OmniNiriRuntime *runtime,
+    double sample_time);
+
+/// Start the mutation structural animation track for a runtime.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_start_mutation_animation(
+    OmniNiriRuntime *runtime,
+    double sample_time);
+
+/// Cancel any active runtime animation track.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_cancel_animation(
+    OmniNiriRuntime *runtime);
+
+/// Query whether the runtime still has an active animation track at `sample_time`.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_animation_active(
+    OmniNiriRuntime *runtime,
+    double sample_time,
+    uint8_t *out_active);
+
+/// Query the current Niri runtime viewport motion state at `sample_time`.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_viewport_status(
+    OmniNiriRuntime *runtime,
+    double sample_time,
+    OmniNiriRuntimeViewportStatus *out_status);
+
+/// Begin a runtime-owned viewport gesture sequence.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_viewport_begin_gesture(
+    OmniNiriRuntime *runtime,
+    double sample_time,
+    uint8_t is_trackpad);
+
+/// Advance a runtime-owned viewport gesture sequence.
+/// Returns 0 on success, -1 for invalid args, -2 for range/capacity failures.
+int32_t omni_niri_runtime_viewport_update_gesture(
+    OmniNiriRuntime *runtime,
+    const double *spans,
+    size_t span_count,
+    double delta_pixels,
+    double timestamp,
+    double gap,
+    double viewport_span,
+    OmniViewportGestureUpdateResult *out_result);
+
+/// Finish a runtime-owned viewport gesture sequence and start the snap spring.
+/// Returns 0 on success, -1 for invalid args, -2 for range/capacity failures.
+int32_t omni_niri_runtime_viewport_end_gesture(
+    OmniNiriRuntime *runtime,
+    const double *spans,
+    size_t span_count,
+    double gap,
+    double viewport_span,
+    uint8_t center_mode,
+    uint8_t always_center_single_column,
+    double sample_time,
+    double display_refresh_rate,
+    uint8_t reduce_motion,
+    OmniViewportGestureEndResult *out_result);
+
+/// Transition the runtime-owned viewport toward a selected column.
+/// Returns 0 on success, -1 for invalid args, -2 for range/capacity failures.
+int32_t omni_niri_runtime_viewport_transition_to_column(
+    OmniNiriRuntime *runtime,
+    const double *spans,
+    size_t span_count,
+    size_t requested_index,
+    double gap,
+    double viewport_span,
+    uint8_t center_mode,
+    uint8_t always_center_single_column,
+    uint8_t animate,
+    double scale,
+    double sample_time,
+    double display_refresh_rate,
+    uint8_t reduce_motion,
+    OmniViewportTransitionResult *out_result);
+
+/// Force the runtime-owned viewport offset to a static value.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_viewport_set_offset(
+    OmniNiriRuntime *runtime,
+    double offset);
+
+/// Cancel runtime-owned viewport gesture/spring motion at `sample_time`.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_niri_runtime_viewport_cancel(
+    OmniNiriRuntime *runtime,
+    double sample_time);
 
 /// Export full runtime snapshot pointers/counts.
 /// Returns 0 on success, -1 for invalid args.

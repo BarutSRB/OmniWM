@@ -67,6 +67,15 @@ pub const OmniViewportGestureEndResult = extern struct {
     initial_velocity: f64,
 };
 
+pub const OmniNiriRuntimeViewportStatus = extern struct {
+    current_offset: f64,
+    target_offset: f64,
+    active_column_index: i64,
+    selection_progress: f64,
+    is_gesture: u8,
+    is_animating: u8,
+};
+
 pub const OmniNiriColumnInput = extern struct {
     span: f64,
     render_offset_x: f64,
@@ -554,6 +563,7 @@ pub const OmniNiriRuntimeSeedRequest = extern struct {
 
 pub const OmniNiriRuntimeCommandRequest = extern struct {
     txn: OmniNiriTxnRequest,
+    sample_time: f64,
 };
 
 pub const OmniNiriRuntimeCommandResult = extern struct {
@@ -584,6 +594,7 @@ pub const OmniNiriRuntimeRenderRequest = extern struct {
     workspace_offset: f64,
     scale: f64,
     orientation: u8,
+    sample_time: f64,
 };
 
 pub const OmniNiriRuntimeRenderOutput = extern struct {
@@ -591,6 +602,7 @@ pub const OmniNiriRuntimeRenderOutput = extern struct {
     window_count: usize,
     columns: [*c]OmniNiriColumnOutput,
     column_count: usize,
+    animation_active: u8,
 };
 
 pub const OmniDwindleSeedNode = extern struct {

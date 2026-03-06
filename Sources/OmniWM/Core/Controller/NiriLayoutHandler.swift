@@ -28,47 +28,34 @@ final class NiriLayoutHandler {
             return
         }
 
-        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-            let viewportAnimationRunning = state.advanceAnimations(at: targetTime)
-            controller.zigNiriEngine?.pruneExpiredStructuralAnimations(
-                at: targetTime,
-                workspaceId: wsId
-            )
-            let structuralAnimationRunning = controller.zigNiriEngine?.hasActiveStructuralAnimation(
-                in: wsId,
-                at: targetTime
-            ) ?? false
-            applyFramesOnDemand(
-                wsId: wsId,
-                state: state,
-                monitor: monitor,
-                animationTime: targetTime
-            )
+        let isAnimating = applyFramesOnDemand(
+            wsId: wsId,
+            monitor: monitor,
+            animationTime: targetTime
+        )
 
-            if !viewportAnimationRunning && !structuralAnimationRunning {
-                finalizeAnimation(for: wsId)
-                var activeIds = Set<WorkspaceDescriptor.ID>()
-                for mon in controller.workspaceManager.monitors {
-                    if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: mon.id) {
-                        activeIds.insert(ws.id)
-                    }
+        if !isAnimating {
+            finalizeAnimation(for: wsId)
+            var activeIds = Set<WorkspaceDescriptor.ID>()
+            for mon in controller.workspaceManager.monitors {
+                if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: mon.id) {
+                    activeIds.insert(ws.id)
                 }
-                controller.layoutRefreshController.hideInactiveWorkspaces(activeWorkspaceIds: activeIds)
-                controller.layoutRefreshController.stopScrollAnimation(for: displayId)
             }
+            controller.layoutRefreshController.hideInactiveWorkspaces(activeWorkspaceIds: activeIds)
+            controller.layoutRefreshController.stopScrollAnimation(for: displayId)
         }
     }
 
     func applyFramesOnDemand(
         wsId: WorkspaceDescriptor.ID,
-        state: ViewportState,
         monitor: Monitor,
         animationTime: TimeInterval? = nil
-    ) {
+    ) -> Bool {
         guard let controller,
               let zig = controller.zigNiriEngine
         else {
-            return
+            return false
         }
 
         let orientation = controller.settings.effectiveOrientation(for: monitor)
@@ -95,7 +82,7 @@ final class NiriLayoutHandler {
                 scale: area.scale,
                 workingArea: area,
                 orientation: orientation,
-                viewportOffset: state.viewOffsetPixels.value(at: now),
+                viewportOffset: zig.viewportOffset(in: wsId, at: now),
                 animationTime: now
             )
         )
@@ -152,6 +139,7 @@ final class NiriLayoutHandler {
 
         controller.axManager.applyFramesParallel(frameUpdates)
         updateBorderDuringLayout(frames: frames, hiddenHandles: hiddenHandles, direct: animationTime != nil)
+        return layoutResult.isAnimating
     }
 
     private func updateBorderDuringLayout(
@@ -207,9 +195,7 @@ final class NiriLayoutHandler {
         for (displayId, wsId) in scrollAnimationByDisplay where wsId == workspaceId {
             controller.layoutRefreshController.stopScrollAnimation(for: displayId)
         }
-        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-            state.cancelAnimation()
-        }
+        _ = controller.zigNiriEngine?.cancelViewportMotion(in: workspaceId)
         controller.zigNiriEngine?.cancelStructuralAnimation(in: workspaceId)
     }
 
@@ -247,13 +233,9 @@ final class NiriLayoutHandler {
                     controller.workspaceManager.setSelection(selection, for: wsId)
                 }
 
-                state.displayRefreshRate = controller.layoutRefreshController.layoutState.refreshRateByDisplay[monitor.displayId] ?? 60.0
-                applyFramesOnDemand(wsId: wsId, state: state, monitor: monitor)
+                let isAnimating = applyFramesOnDemand(wsId: wsId, monitor: monitor)
 
-                if !useScrollAnimationPath,
-                   (state.viewOffsetPixels.isAnimating
-                       || zig.hasActiveStructuralAnimation(in: wsId))
-                {
+                if !useScrollAnimationPath, isAnimating {
                     controller.layoutRefreshController.startScrollAnimation(for: wsId)
                 }
             }
@@ -794,7 +776,7 @@ final class NiriLayoutHandler {
         )
         controller.layoutRefreshController.executeLayoutRefreshImmediate()
         if result.structuralAnimationActive
-            || (controller.zigNiriEngine?.hasActiveStructuralAnimation(in: workspaceId) ?? false)
+            || (controller.zigNiriEngine?.hasActiveAnimation(in: workspaceId) ?? false)
         {
             controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
@@ -951,19 +933,23 @@ final class NiriLayoutHandler {
         )
         guard !columnSpans.isEmpty else { return }
 
-        state.transitionToColumn(
-            selectedColumnIndex,
-            columnSpans: columnSpans,
+        let didStartViewportAnimation = zig.transitionViewportToColumn(
+            in: workspaceId,
+            requestedIndex: selectedColumnIndex,
+            spans: columnSpans,
             gap: CGFloat(controller.workspaceManager.gaps),
             viewportSpan: viewportSpan,
             animate: true,
             centerMode: resolved.centerFocusedColumn,
             alwaysCenterSingleColumn: resolved.alwaysCenterSingleColumn,
-            fromColumnIndex: state.activeColumnIndex,
-            scale: controller.layoutRefreshController.backingScale(for: monitor)
+            scale: controller.layoutRefreshController.backingScale(for: monitor),
+            displayRefreshRate: controller.layoutRefreshController.layoutState.refreshRateByDisplay[monitor.displayId] ?? 60.0,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         )
 
-        if state.viewOffsetPixels.isAnimating {
+        if didStartViewportAnimation,
+           zig.hasActiveAnimation(in: workspaceId)
+        {
             controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
     }

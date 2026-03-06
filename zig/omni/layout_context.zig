@@ -6,10 +6,65 @@ const layout_pass = @import("layout_pass.zig");
 const state_validation = @import("state_validation.zig");
 const navigation = @import("navigation.zig");
 const mutation = @import("mutation.zig");
+const viewport = @import("viewport.zig");
 const workspace = @import("workspace.zig");
 
 const ID_SLOT_COUNT: usize = abi.MAX_WINDOWS * 2;
 const EMPTY_SLOT: i64 = -1;
+pub const RUNTIME_ANIMATION_NONE: u8 = 0;
+pub const RUNTIME_ANIMATION_MUTATION: u8 = 1;
+pub const RUNTIME_ANIMATION_WORKSPACE_SWITCH: u8 = 2;
+pub const NIRI_MUTATION_ANIMATION_DURATION: f64 = 0.18;
+pub const NIRI_WORKSPACE_SWITCH_ANIMATION_DURATION: f64 = 0.20;
+const NIRI_MUTATION_APPEAR_OFFSET: f64 = 24.0;
+const NIRI_WORKSPACE_SWITCH_OFFSET: f64 = 32.0;
+const NIRI_VIEWPORT_SPRING_RESPONSE: f64 = 0.22;
+const NIRI_VIEWPORT_SPRING_DAMPING: f64 = 0.95;
+const NIRI_VIEWPORT_SPRING_EPSILON: f64 = 0.5;
+const NIRI_VIEWPORT_SPRING_VELOCITY_EPSILON: f64 = 8.0;
+const NIRI_VIEWPORT_REDUCED_RESPONSE: f64 = 0.18;
+const NIRI_VIEWPORT_REDUCED_DAMPING: f64 = 0.98;
+const NIRI_VIEWPORT_REDUCED_EPSILON: f64 = 0.4;
+const NIRI_VIEWPORT_REDUCED_VELOCITY_EPSILON: f64 = 6.0;
+const NIRI_VIEWPORT_MIN_REFRESH_RATE: f64 = 1.0;
+
+const RuntimeRenderFrame = extern struct {
+    window_id: abi.OmniUuid128,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+};
+
+const RuntimeAnimationState = extern struct {
+    active_kind: u8,
+    started_at: f64,
+    duration: f64,
+    last_render_count: usize,
+    last_render_frames: [abi.MAX_WINDOWS]RuntimeRenderFrame,
+};
+
+const RuntimeViewportSpringState = extern struct {
+    from: f64,
+    to: f64,
+    initial_velocity: f64,
+    started_at: f64,
+    response: f64,
+    damping_fraction: f64,
+    epsilon: f64,
+    velocity_epsilon: f64,
+    display_refresh_rate: f64,
+};
+
+const RuntimeViewportState = extern struct {
+    active_column_index: i64,
+    static_offset: f64,
+    selection_progress: f64,
+    gesture_active: u8,
+    gesture_state: abi.OmniViewportGestureState,
+    spring_active: u8,
+    spring_state: RuntimeViewportSpringState,
+};
 
 pub const OmniNiriLayoutContext = extern struct {
     interaction_window_count: usize,
@@ -24,6 +79,8 @@ pub const OmniNiriLayoutContext = extern struct {
 
     runtime_column_id_slots: [ID_SLOT_COUNT]i64,
     runtime_window_id_slots: [ID_SLOT_COUNT]i64,
+    animation_state: RuntimeAnimationState,
+    viewport_state: RuntimeViewportState,
 
     last_delta_generation: u64,
     last_delta_column_count: usize,
@@ -93,6 +150,66 @@ const TxnDeltaMeta = struct {
 
 fn zeroUuid() abi.OmniUuid128 {
     return .{ .bytes = [_]u8{0} ** 16 };
+}
+
+fn zeroRuntimeRenderFrame() RuntimeRenderFrame {
+    return .{
+        .window_id = zeroUuid(),
+        .x = 0,
+        .y = 0,
+        .width = 0,
+        .height = 0,
+    };
+}
+
+fn initRuntimeAnimationState() RuntimeAnimationState {
+    return .{
+        .active_kind = RUNTIME_ANIMATION_NONE,
+        .started_at = 0,
+        .duration = 0,
+        .last_render_count = 0,
+        .last_render_frames = [_]RuntimeRenderFrame{zeroRuntimeRenderFrame()} ** abi.MAX_WINDOWS,
+    };
+}
+
+fn zeroViewportGestureState() abi.OmniViewportGestureState {
+    return .{
+        .is_trackpad = 0,
+        .history_count = 0,
+        .history_head = 0,
+        .tracker_position = 0,
+        .current_view_offset = 0,
+        .stationary_view_offset = 0,
+        .delta_from_tracker = 0,
+        .history_deltas = [_]f64{0} ** abi.OMNI_VIEWPORT_GESTURE_HISTORY_CAP,
+        .history_timestamps = [_]f64{0} ** abi.OMNI_VIEWPORT_GESTURE_HISTORY_CAP,
+    };
+}
+
+fn zeroRuntimeViewportSpringState() RuntimeViewportSpringState {
+    return .{
+        .from = 0,
+        .to = 0,
+        .initial_velocity = 0,
+        .started_at = 0,
+        .response = NIRI_VIEWPORT_SPRING_RESPONSE,
+        .damping_fraction = NIRI_VIEWPORT_SPRING_DAMPING,
+        .epsilon = NIRI_VIEWPORT_SPRING_EPSILON,
+        .velocity_epsilon = NIRI_VIEWPORT_SPRING_VELOCITY_EPSILON,
+        .display_refresh_rate = 60,
+    };
+}
+
+fn initRuntimeViewportState() RuntimeViewportState {
+    return .{
+        .active_column_index = 0,
+        .static_offset = 0,
+        .selection_progress = 0,
+        .gesture_active = 0,
+        .gesture_state = zeroViewportGestureState(),
+        .spring_active = 0,
+        .spring_state = zeroRuntimeViewportSpringState(),
+    };
 }
 
 fn initMutationApplyHints() MutationApplyHints {
@@ -211,7 +328,663 @@ fn resetContext(ctx: *OmniNiriLayoutContext) void {
         ctx.runtime_window_id_slots[idx] = EMPTY_SLOT;
     }
 
+    ctx.animation_state = initRuntimeAnimationState();
+    ctx.viewport_state = initRuntimeViewportState();
     resetDeltaBuffers(ctx);
+}
+
+fn clearRuntimeAnimationState(ctx: *OmniNiriLayoutContext) void {
+    ctx.animation_state.active_kind = RUNTIME_ANIMATION_NONE;
+    ctx.animation_state.started_at = 0;
+    ctx.animation_state.duration = 0;
+}
+
+pub fn startRuntimeAnimation(
+    ctx: *OmniNiriLayoutContext,
+    kind: u8,
+    started_at: f64,
+    duration: f64,
+) void {
+    ctx.animation_state.active_kind = kind;
+    ctx.animation_state.started_at = started_at;
+    ctx.animation_state.duration = @max(0.01, duration);
+}
+
+fn syncRuntimeAnimationState(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+) bool {
+    if (ctx.animation_state.active_kind == RUNTIME_ANIMATION_NONE) return false;
+
+    const elapsed = @max(0.0, sample_time - ctx.animation_state.started_at);
+    if (elapsed >= ctx.animation_state.duration) {
+        clearRuntimeAnimationState(ctx);
+        return false;
+    }
+
+    return true;
+}
+
+fn clampViewportRefreshRate(display_refresh_rate: f64) f64 {
+    return @max(display_refresh_rate, NIRI_VIEWPORT_MIN_REFRESH_RATE);
+}
+
+fn viewportTargetOffset(ctx: *const OmniNiriLayoutContext) f64 {
+    if (ctx.viewport_state.spring_active != 0) {
+        return ctx.viewport_state.spring_state.to;
+    }
+    if (ctx.viewport_state.gesture_active != 0) {
+        return ctx.viewport_state.gesture_state.current_view_offset;
+    }
+    return ctx.viewport_state.static_offset;
+}
+
+fn viewportSpringAngularFrequency(response: f64) f64 {
+    if (!(response > 0)) return 0;
+    return (2.0 * std.math.pi) / response;
+}
+
+fn viewportSpringDisplacement(
+    spring: *const RuntimeViewportSpringState,
+    sample_time: f64,
+) f64 {
+    const elapsed = @max(0.0, sample_time - spring.started_at);
+    const omega0 = viewportSpringAngularFrequency(spring.response);
+    if (!(omega0 > 0)) return 0;
+
+    const zeta = spring.damping_fraction;
+    const initial_displacement = spring.from - spring.to;
+    const initial_velocity = spring.initial_velocity;
+
+    if (zeta < 1.0) {
+        const omega_d = omega0 * @sqrt(@max(0.0, 1.0 - zeta * zeta));
+        if (!(omega_d > 0)) return 0;
+        const exp_term = std.math.exp(-zeta * omega0 * elapsed);
+        const cos_term = std.math.cos(omega_d * elapsed);
+        const sin_term = std.math.sin(omega_d * elapsed);
+        const b = (initial_velocity + zeta * omega0 * initial_displacement) / omega_d;
+        return exp_term * (initial_displacement * cos_term + b * sin_term);
+    }
+
+    if (@abs(zeta - 1.0) <= 0.0001) {
+        const exp_term = std.math.exp(-omega0 * elapsed);
+        const c2 = initial_velocity + omega0 * initial_displacement;
+        return exp_term * (initial_displacement + c2 * elapsed);
+    }
+
+    const omega_z = omega0 * @sqrt(@max(0.0, zeta * zeta - 1.0));
+    const r1 = -omega0 * zeta + omega_z;
+    const r2 = -omega0 * zeta - omega_z;
+    const c2 = if (@abs(r2 - r1) <= 0.0001)
+        0.0
+    else
+        (initial_velocity - r1 * initial_displacement) / (r2 - r1);
+    const c1 = initial_displacement - c2;
+    return c1 * std.math.exp(r1 * elapsed) + c2 * std.math.exp(r2 * elapsed);
+}
+
+fn viewportSpringVelocityValue(
+    spring: *const RuntimeViewportSpringState,
+    sample_time: f64,
+) f64 {
+    const elapsed = @max(0.0, sample_time - spring.started_at);
+    const omega0 = viewportSpringAngularFrequency(spring.response);
+    if (!(omega0 > 0)) return 0;
+
+    const zeta = spring.damping_fraction;
+    const initial_displacement = spring.from - spring.to;
+    const initial_velocity = spring.initial_velocity;
+
+    if (zeta < 1.0) {
+        const omega_d = omega0 * @sqrt(@max(0.0, 1.0 - zeta * zeta));
+        if (!(omega_d > 0)) return 0;
+        const exp_term = std.math.exp(-zeta * omega0 * elapsed);
+        const cos_term = std.math.cos(omega_d * elapsed);
+        const sin_term = std.math.sin(omega_d * elapsed);
+        const b = (initial_velocity + zeta * omega0 * initial_displacement) / omega_d;
+        return exp_term *
+            ((-zeta * omega0) * (initial_displacement * cos_term + b * sin_term) +
+            (-initial_displacement * omega_d * sin_term + b * omega_d * cos_term));
+    }
+
+    if (@abs(zeta - 1.0) <= 0.0001) {
+        const exp_term = std.math.exp(-omega0 * elapsed);
+        const c2 = initial_velocity + omega0 * initial_displacement;
+        return exp_term * (initial_velocity - omega0 * c2 * elapsed);
+    }
+
+    const omega_z = omega0 * @sqrt(@max(0.0, zeta * zeta - 1.0));
+    const r1 = -omega0 * zeta + omega_z;
+    const r2 = -omega0 * zeta - omega_z;
+    const c2 = if (@abs(r2 - r1) <= 0.0001)
+        0.0
+    else
+        (initial_velocity - r1 * initial_displacement) / (r2 - r1);
+    const c1 = initial_displacement - c2;
+    return c1 * r1 * std.math.exp(r1 * elapsed) + c2 * r2 * std.math.exp(r2 * elapsed);
+}
+
+fn viewportSpringValue(
+    spring: *const RuntimeViewportSpringState,
+    sample_time: f64,
+) f64 {
+    return spring.to + viewportSpringDisplacement(spring, sample_time);
+}
+
+fn viewportSpringIsComplete(
+    spring: *const RuntimeViewportSpringState,
+    sample_time: f64,
+) bool {
+    const position = viewportSpringValue(spring, sample_time);
+    const velocity = viewportSpringVelocityValue(spring, sample_time);
+    const refresh_scale = 60.0 / clampViewportRefreshRate(spring.display_refresh_rate);
+    const scaled_epsilon = spring.epsilon * refresh_scale;
+    const scaled_velocity_epsilon = spring.velocity_epsilon * refresh_scale;
+    return @abs(position - spring.to) < scaled_epsilon and
+        @abs(velocity) < scaled_velocity_epsilon;
+}
+
+fn clearViewportSpring(ctx: *OmniNiriLayoutContext) void {
+    ctx.viewport_state.spring_active = 0;
+    ctx.viewport_state.spring_state = zeroRuntimeViewportSpringState();
+}
+
+fn clearViewportGesture(ctx: *OmniNiriLayoutContext) void {
+    ctx.viewport_state.gesture_active = 0;
+    ctx.viewport_state.gesture_state = zeroViewportGestureState();
+}
+
+fn sampleViewportOffset(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+) f64 {
+    if (ctx.viewport_state.spring_active != 0) {
+        if (viewportSpringIsComplete(&ctx.viewport_state.spring_state, sample_time)) {
+            ctx.viewport_state.static_offset = ctx.viewport_state.spring_state.to;
+            clearViewportSpring(ctx);
+            return ctx.viewport_state.static_offset;
+        }
+        return viewportSpringValue(&ctx.viewport_state.spring_state, sample_time);
+    }
+
+    if (ctx.viewport_state.gesture_active != 0) {
+        return ctx.viewport_state.gesture_state.current_view_offset;
+    }
+
+    return ctx.viewport_state.static_offset;
+}
+
+fn currentViewportVelocity(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+) f64 {
+    if (ctx.viewport_state.spring_active != 0) {
+        if (viewportSpringIsComplete(&ctx.viewport_state.spring_state, sample_time)) {
+            ctx.viewport_state.static_offset = ctx.viewport_state.spring_state.to;
+            clearViewportSpring(ctx);
+            return 0;
+        }
+        return viewportSpringVelocityValue(&ctx.viewport_state.spring_state, sample_time);
+    }
+
+    if (ctx.viewport_state.gesture_active != 0) {
+        var velocity: f64 = 0;
+        const rc = viewport.omni_viewport_gesture_velocity_impl(
+            @ptrCast(&ctx.viewport_state.gesture_state),
+            &velocity,
+        );
+        return if (rc == abi.OMNI_OK) velocity else 0;
+    }
+
+    return 0;
+}
+
+fn shiftViewportOffset(
+    ctx: *OmniNiriLayoutContext,
+    delta: f64,
+) void {
+    if (@abs(delta) <= std.math.floatEps(f64)) return;
+
+    if (ctx.viewport_state.spring_active != 0) {
+        ctx.viewport_state.spring_state.from += delta;
+        ctx.viewport_state.spring_state.to += delta;
+        return;
+    }
+
+    if (ctx.viewport_state.gesture_active != 0) {
+        ctx.viewport_state.gesture_state.current_view_offset += delta;
+        ctx.viewport_state.gesture_state.stationary_view_offset += delta;
+        ctx.viewport_state.gesture_state.delta_from_tracker += delta;
+        return;
+    }
+
+    ctx.viewport_state.static_offset += delta;
+}
+
+fn configureViewportSpring(
+    spring: *RuntimeViewportSpringState,
+    from: f64,
+    to: f64,
+    initial_velocity: f64,
+    sample_time: f64,
+    display_refresh_rate: f64,
+    reduce_motion: u8,
+) void {
+    spring.* = .{
+        .from = from,
+        .to = to,
+        .initial_velocity = initial_velocity,
+        .started_at = sample_time,
+        .response = if (reduce_motion != 0) NIRI_VIEWPORT_REDUCED_RESPONSE else NIRI_VIEWPORT_SPRING_RESPONSE,
+        .damping_fraction = if (reduce_motion != 0) NIRI_VIEWPORT_REDUCED_DAMPING else NIRI_VIEWPORT_SPRING_DAMPING,
+        .epsilon = if (reduce_motion != 0) NIRI_VIEWPORT_REDUCED_EPSILON else NIRI_VIEWPORT_SPRING_EPSILON,
+        .velocity_epsilon = if (reduce_motion != 0) NIRI_VIEWPORT_REDUCED_VELOCITY_EPSILON else NIRI_VIEWPORT_SPRING_VELOCITY_EPSILON,
+        .display_refresh_rate = clampViewportRefreshRate(display_refresh_rate),
+    };
+}
+
+fn startViewportSpring(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+    from: f64,
+    to: f64,
+    initial_velocity: f64,
+    display_refresh_rate: f64,
+    reduce_motion: u8,
+) void {
+    clearViewportGesture(ctx);
+    ctx.viewport_state.spring_active = 1;
+    ctx.viewport_state.static_offset = from;
+    configureViewportSpring(
+        &ctx.viewport_state.spring_state,
+        from,
+        to,
+        initial_velocity,
+        sample_time,
+        display_refresh_rate,
+        reduce_motion,
+    );
+}
+
+fn cancelViewportMotion(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+) void {
+    ctx.viewport_state.static_offset = sampleViewportOffset(ctx, sample_time);
+    clearViewportSpring(ctx);
+    clearViewportGesture(ctx);
+}
+
+fn viewportAnimationActive(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+) bool {
+    _ = sampleViewportOffset(ctx, sample_time);
+    return ctx.viewport_state.spring_active != 0 or ctx.viewport_state.gesture_active != 0;
+}
+
+fn rectFromWindowOutput(window: abi.OmniNiriWindowOutput) geometry.Rect {
+    return .{
+        .x = window.frame_x,
+        .y = window.frame_y,
+        .width = window.frame_width,
+        .height = window.frame_height,
+    };
+}
+
+fn applyAnimatedRectToWindowOutput(
+    window: *allowzero abi.OmniNiriWindowOutput,
+    rect: geometry.Rect,
+    scale: f64,
+) void {
+    const rounded = geometry.roundRectToPhysicalPixels(rect, scale);
+    window.animated_x = rounded.x;
+    window.animated_y = rounded.y;
+    window.animated_width = rounded.width;
+    window.animated_height = rounded.height;
+}
+
+fn interpolateRect(from: geometry.Rect, to: geometry.Rect, progress: f64) geometry.Rect {
+    const clamped = geometry.clampFloat(progress, 0.0, 1.0);
+    return .{
+        .x = from.x + (to.x - from.x) * clamped,
+        .y = from.y + (to.y - from.y) * clamped,
+        .width = from.width + (to.width - from.width) * clamped,
+        .height = from.height + (to.height - from.height) * clamped,
+    };
+}
+
+fn shiftedRect(rect: geometry.Rect, orientation: u8, offset: f64) geometry.Rect {
+    return if (orientation == abi.OMNI_NIRI_ORIENTATION_HORIZONTAL)
+        .{
+            .x = rect.x + offset,
+            .y = rect.y,
+            .width = rect.width,
+            .height = rect.height,
+        }
+    else
+        .{
+            .x = rect.x,
+            .y = rect.y + offset,
+            .width = rect.width,
+            .height = rect.height,
+        };
+}
+
+fn findLastRenderFrame(
+    animation: *const RuntimeAnimationState,
+    window_id: abi.OmniUuid128,
+) ?RuntimeRenderFrame {
+    var idx: usize = 0;
+    while (idx < animation.last_render_count) : (idx += 1) {
+        const frame = animation.last_render_frames[idx];
+        if (uuidEqual(frame.window_id, window_id)) return frame;
+    }
+    return null;
+}
+
+fn snapshotRuntimeRenderFrames(
+    ctx: *OmniNiriLayoutContext,
+    windows: [*c]const abi.OmniNiriWindowOutput,
+    window_count: usize,
+) void {
+    ctx.animation_state.last_render_count = @min(window_count, ctx.runtime_window_count);
+    for (0..ctx.animation_state.last_render_count) |idx| {
+        const output = windows[idx];
+        ctx.animation_state.last_render_frames[idx] = .{
+            .window_id = ctx.runtime_windows[idx].window_id,
+            .x = output.animated_x,
+            .y = output.animated_y,
+            .width = output.animated_width,
+            .height = output.animated_height,
+        };
+    }
+}
+
+pub fn applyRuntimeAnimationToOutputs(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+    orientation: u8,
+    scale: f64,
+    windows: [*c]abi.OmniNiriWindowOutput,
+    window_count: usize,
+) u8 {
+    const structural_active = syncRuntimeAnimationState(ctx, sample_time);
+    if (!structural_active) {
+        snapshotRuntimeRenderFrames(ctx, windows, window_count);
+        return @intFromBool(viewportAnimationActive(ctx, sample_time));
+    }
+
+    const progress = geometry.clampFloat(
+        (sample_time - ctx.animation_state.started_at) / ctx.animation_state.duration,
+        0.0,
+        1.0,
+    );
+
+    switch (ctx.animation_state.active_kind) {
+        RUNTIME_ANIMATION_MUTATION => {
+            for (0..window_count) |idx| {
+                const target = rectFromWindowOutput(windows[idx]);
+                const from_rect = if (findLastRenderFrame(&ctx.animation_state, ctx.runtime_windows[idx].window_id)) |frame|
+                    geometry.Rect{
+                        .x = frame.x,
+                        .y = frame.y,
+                        .width = frame.width,
+                        .height = frame.height,
+                    }
+                else
+                    shiftedRect(target, orientation, NIRI_MUTATION_APPEAR_OFFSET);
+                applyAnimatedRectToWindowOutput(
+                    &windows[idx],
+                    interpolateRect(from_rect, target, progress),
+                    scale,
+                );
+            }
+        },
+        RUNTIME_ANIMATION_WORKSPACE_SWITCH => {
+            const offset = (1.0 - progress) * NIRI_WORKSPACE_SWITCH_OFFSET;
+            for (0..window_count) |idx| {
+                const target = rectFromWindowOutput(windows[idx]);
+                applyAnimatedRectToWindowOutput(
+                    &windows[idx],
+                    shiftedRect(target, orientation, offset),
+                    scale,
+                );
+            }
+        },
+        else => {},
+    }
+
+    snapshotRuntimeRenderFrames(ctx, windows, window_count);
+    return 1;
+}
+
+pub fn omni_niri_ctx_viewport_status_impl(
+    context: [*c]OmniNiriLayoutContext,
+    sample_time: f64,
+    out_status: [*c]abi.OmniNiriRuntimeViewportStatus,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (out_status == null) return abi.OMNI_ERR_INVALID_ARGS;
+
+    out_status[0] = .{
+        .current_offset = sampleViewportOffset(ctx, sample_time),
+        .target_offset = viewportTargetOffset(ctx),
+        .active_column_index = ctx.viewport_state.active_column_index,
+        .selection_progress = ctx.viewport_state.selection_progress,
+        .is_gesture = ctx.viewport_state.gesture_active,
+        .is_animating = @intFromBool(viewportAnimationActive(ctx, sample_time)),
+    };
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_viewport_begin_gesture_impl(
+    context: [*c]OmniNiriLayoutContext,
+    sample_time: f64,
+    is_trackpad: u8,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+
+    cancelViewportMotion(ctx, sample_time);
+    const rc = viewport.omni_viewport_gesture_begin_impl(
+        ctx.viewport_state.static_offset,
+        is_trackpad,
+        @ptrCast(&ctx.viewport_state.gesture_state),
+    );
+    if (rc != abi.OMNI_OK) return rc;
+
+    ctx.viewport_state.gesture_active = 1;
+    ctx.viewport_state.selection_progress = 0;
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_viewport_update_gesture_impl(
+    context: [*c]OmniNiriLayoutContext,
+    spans: [*c]const f64,
+    span_count: usize,
+    delta_pixels: f64,
+    timestamp: f64,
+    gap: f64,
+    viewport_span: f64,
+    out_result: [*c]abi.OmniViewportGestureUpdateResult,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
+    if (ctx.viewport_state.gesture_active == 0) return abi.OMNI_ERR_INVALID_ARGS;
+
+    const clamped_active_index: usize = if (span_count == 0)
+        0
+    else blk: {
+        const current = if (ctx.viewport_state.active_column_index < 0)
+            0
+        else
+            @as(usize, @intCast(ctx.viewport_state.active_column_index));
+        break :blk @min(current, span_count - 1);
+    };
+
+    const rc = viewport.omni_viewport_gesture_update_impl(
+        @ptrCast(&ctx.viewport_state.gesture_state),
+        spans,
+        span_count,
+        clamped_active_index,
+        delta_pixels,
+        timestamp,
+        gap,
+        viewport_span,
+        ctx.viewport_state.selection_progress,
+        out_result,
+    );
+    if (rc != abi.OMNI_OK) return rc;
+
+    ctx.viewport_state.selection_progress = out_result[0].selection_progress;
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_viewport_end_gesture_impl(
+    context: [*c]OmniNiriLayoutContext,
+    spans: [*c]const f64,
+    span_count: usize,
+    gap: f64,
+    viewport_span: f64,
+    center_mode: u8,
+    always_center_single_column: u8,
+    sample_time: f64,
+    display_refresh_rate: f64,
+    reduce_motion: u8,
+    out_result: [*c]abi.OmniViewportGestureEndResult,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
+    if (ctx.viewport_state.gesture_active == 0) return abi.OMNI_ERR_INVALID_ARGS;
+
+    const clamped_active_index: usize = if (span_count == 0)
+        0
+    else blk: {
+        const current = if (ctx.viewport_state.active_column_index < 0)
+            0
+        else
+            @as(usize, @intCast(ctx.viewport_state.active_column_index));
+        break :blk @min(current, span_count - 1);
+    };
+
+    const rc = viewport.omni_viewport_gesture_end_impl(
+        @ptrCast(&ctx.viewport_state.gesture_state),
+        spans,
+        span_count,
+        clamped_active_index,
+        gap,
+        viewport_span,
+        center_mode,
+        always_center_single_column,
+        out_result,
+    );
+    if (rc != abi.OMNI_OK) return rc;
+
+    ctx.viewport_state.active_column_index = @intCast(out_result[0].resolved_column_index);
+    ctx.viewport_state.selection_progress = 0;
+    startViewportSpring(
+        ctx,
+        sample_time,
+        out_result[0].spring_from,
+        out_result[0].spring_to,
+        out_result[0].initial_velocity,
+        display_refresh_rate,
+        reduce_motion,
+    );
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_viewport_transition_to_column_impl(
+    context: [*c]OmniNiriLayoutContext,
+    spans: [*c]const f64,
+    span_count: usize,
+    requested_index: usize,
+    gap: f64,
+    viewport_span: f64,
+    center_mode: u8,
+    always_center_single_column: u8,
+    animate: u8,
+    scale: f64,
+    sample_time: f64,
+    display_refresh_rate: f64,
+    reduce_motion: u8,
+    out_result: [*c]abi.OmniViewportTransitionResult,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
+    if (span_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
+
+    const current_active_index: usize = blk: {
+        const current = if (ctx.viewport_state.active_column_index < 0)
+            0
+        else
+            @as(usize, @intCast(ctx.viewport_state.active_column_index));
+        break :blk @min(current, span_count - 1);
+    };
+
+    const rc = viewport.omni_viewport_transition_to_column_impl(
+        spans,
+        span_count,
+        current_active_index,
+        requested_index,
+        gap,
+        viewport_span,
+        viewportTargetOffset(ctx),
+        center_mode,
+        always_center_single_column,
+        ctx.viewport_state.active_column_index,
+        scale,
+        out_result,
+    );
+    if (rc != abi.OMNI_OK) return rc;
+
+    shiftViewportOffset(ctx, out_result[0].offset_delta);
+    ctx.viewport_state.active_column_index = @intCast(out_result[0].resolved_column_index);
+
+    if (out_result[0].snap_to_target_immediately != 0) {
+        shiftViewportOffset(ctx, out_result[0].snap_delta);
+        return abi.OMNI_OK;
+    }
+
+    if (animate != 0) {
+        const current_offset = sampleViewportOffset(ctx, sample_time);
+        const velocity = currentViewportVelocity(ctx, sample_time);
+        startViewportSpring(
+            ctx,
+            sample_time,
+            current_offset,
+            out_result[0].target_offset,
+            velocity,
+            display_refresh_rate,
+            reduce_motion,
+        );
+    } else {
+        cancelViewportMotion(ctx, sample_time);
+        ctx.viewport_state.static_offset = out_result[0].target_offset;
+    }
+
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_viewport_set_offset_impl(
+    context: [*c]OmniNiriLayoutContext,
+    offset: f64,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    clearViewportSpring(ctx);
+    clearViewportGesture(ctx);
+    ctx.viewport_state.static_offset = offset;
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_viewport_cancel_impl(
+    context: [*c]OmniNiriLayoutContext,
+    sample_time: f64,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    cancelViewportMotion(ctx, sample_time);
+    ctx.viewport_state.selection_progress = 0;
+    return abi.OMNI_OK;
 }
 
 fn asMutableContext(context: [*c]OmniNiriLayoutContext) ?*OmniNiriLayoutContext {
@@ -2057,12 +2830,14 @@ fn applyMutationTxn(
 
     var pre_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     var pre_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
+    const pre_column_count = runtime_state.column_count;
+    const pre_window_count = runtime_state.window_count;
     capturePreIds(runtime_state, &pre_column_ids, &pre_window_ids);
 
     if (plan_result.has_target_window != 0) {
         const target_window_id = preWindowId(
             &pre_window_ids,
-            runtime_state.window_count,
+            pre_window_count,
             plan_result.target_window_index,
         ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         out_result[0].has_target_window_id = 1;
@@ -2079,7 +2854,7 @@ fn applyMutationTxn(
             abi.OMNI_NIRI_MUTATION_NODE_WINDOW => {
                 const target_window_id = preWindowId(
                     &pre_window_ids,
-                    runtime_state.window_count,
+                    pre_window_count,
                     plan_result.target_node_index,
                 ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
                 out_result[0].target_node_id = target_window_id;
@@ -2090,7 +2865,7 @@ fn applyMutationTxn(
             abi.OMNI_NIRI_MUTATION_NODE_COLUMN => {
                 const target_column_id = preColumnId(
                     &pre_column_ids,
-                    runtime_state.column_count,
+                    pre_column_count,
                     plan_result.target_node_index,
                 ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
                 out_result[0].target_node_id = target_column_id;
@@ -2116,8 +2891,8 @@ fn applyMutationTxn(
             plan_result.edits[idx],
             &pre_column_ids,
             &pre_window_ids,
-            runtime_state.column_count,
-            runtime_state.window_count,
+            pre_column_count,
+            pre_window_count,
             &hints,
         );
         if (apply_rc != abi.OMNI_OK) return apply_rc;
@@ -2547,6 +3322,39 @@ pub fn omni_niri_ctx_export_delta_impl(
     return abi.OMNI_OK;
 }
 
+pub fn omni_niri_ctx_start_workspace_switch_animation_impl(
+    context: [*c]OmniNiriLayoutContext,
+    sample_time: f64,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    startRuntimeAnimation(
+        ctx,
+        RUNTIME_ANIMATION_WORKSPACE_SWITCH,
+        sample_time,
+        NIRI_WORKSPACE_SWITCH_ANIMATION_DURATION,
+    );
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_cancel_animation_impl(
+    context: [*c]OmniNiriLayoutContext,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    clearRuntimeAnimationState(ctx);
+    return abi.OMNI_OK;
+}
+
+pub fn omni_niri_ctx_animation_active_impl(
+    context: [*c]OmniNiriLayoutContext,
+    sample_time: f64,
+    out_active: [*c]u8,
+) i32 {
+    const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (out_active == null) return abi.OMNI_ERR_INVALID_ARGS;
+    out_active[0] = @intFromBool(syncRuntimeAnimationState(ctx, sample_time));
+    return abi.OMNI_OK;
+}
+
 pub fn omni_niri_ctx_apply_txn_impl(
     source_context: [*c]OmniNiriLayoutContext,
     target_context: [*c]OmniNiriLayoutContext,
@@ -2705,4 +3513,115 @@ test "layout pass v3 handles columns with zero windows and keeps empty interacti
 
     const resolved_ctx = asConstContext(context).?;
     try testing.expectEqual(@as(usize, 0), resolved_ctx.interaction_window_count);
+}
+
+test "mutation replay keeps frozen pre-window ids after window removal" {
+    const testing = std.testing;
+
+    const column_id = abi.OmniUuid128{ .bytes = [_]u8{1} ++ ([_]u8{0} ** 15) };
+    const first_window_id = abi.OmniUuid128{ .bytes = [_]u8{2} ++ ([_]u8{0} ** 15) };
+    const second_window_id = abi.OmniUuid128{ .bytes = [_]u8{3} ++ ([_]u8{0} ** 15) };
+
+    var state = RuntimeState{
+        .column_count = 1,
+        .columns = undefined,
+        .window_count = 2,
+        .windows = undefined,
+        .column_id_slots = undefined,
+        .window_id_slots = undefined,
+    };
+    state.columns[0] = .{
+        .column_id = column_id,
+        .window_start = 0,
+        .window_count = 2,
+        .active_tile_idx = 0,
+        .is_tabbed = 0,
+        .size_value = 1.0,
+        .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+        .is_full_width = 0,
+        .has_saved_width = 0,
+        .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
+        .saved_width_value = 1.0,
+    };
+    state.windows[0] = .{
+        .window_id = first_window_id,
+        .column_id = column_id,
+        .column_index = 0,
+        .size_value = 1.0,
+        .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO,
+        .height_value = 1.0,
+    };
+    state.windows[1] = .{
+        .window_id = second_window_id,
+        .column_id = column_id,
+        .column_index = 0,
+        .size_value = 3.0,
+        .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_FIXED,
+        .height_value = 240.0,
+    };
+
+    const refresh_rc = refreshRuntimeState(&state);
+    try testing.expectEqual(@as(i32, abi.OMNI_OK), refresh_rc);
+
+    var pre_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
+    var pre_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
+    capturePreIds(&state, &pre_column_ids, &pre_window_ids);
+    const pre_column_count = state.column_count;
+    const pre_window_count = state.window_count;
+
+    const apply_request = abi.OmniNiriMutationApplyRequest{
+        .request = std.mem.zeroes(abi.OmniNiriMutationRequest),
+        .has_incoming_window_id = 0,
+        .incoming_window_id = zeroUuid(),
+        .has_created_column_id = 0,
+        .created_column_id = zeroUuid(),
+        .has_placeholder_column_id = 1,
+        .placeholder_column_id = abi.OmniUuid128{ .bytes = [_]u8{4} ++ ([_]u8{0} ** 15) },
+    };
+    var hints = initMutationApplyHints();
+
+    const remove_rc = applyMutationEdit(
+        &state,
+        apply_request,
+        .{
+            .kind = abi.OMNI_NIRI_MUTATION_EDIT_REMOVE_WINDOW_BY_INDEX,
+            .subject_index = 0,
+            .related_index = -1,
+            .value_a = -1,
+            .value_b = -1,
+            .scalar_a = 0,
+            .scalar_b = 0,
+        },
+        &pre_column_ids,
+        &pre_window_ids,
+        pre_column_count,
+        pre_window_count,
+        &hints,
+    );
+    try testing.expectEqual(@as(i32, abi.OMNI_OK), remove_rc);
+    try testing.expectEqual(@as(usize, 1), state.window_count);
+
+    const reset_height_rc = applyMutationEdit(
+        &state,
+        apply_request,
+        .{
+            .kind = abi.OMNI_NIRI_MUTATION_EDIT_RESET_WINDOW_SIZE_HEIGHT,
+            .subject_index = 1,
+            .related_index = -1,
+            .value_a = -1,
+            .value_b = -1,
+            .scalar_a = 0,
+            .scalar_b = 0,
+        },
+        &pre_column_ids,
+        &pre_window_ids,
+        pre_column_count,
+        pre_window_count,
+        &hints,
+    );
+    try testing.expectEqual(@as(i32, abi.OMNI_OK), reset_height_rc);
+    try testing.expectEqual(second_window_id, state.windows[0].window_id);
+    try testing.expectEqual(@as(u8, abi.OMNI_NIRI_HEIGHT_KIND_AUTO), state.windows[0].height_kind);
+    try testing.expectEqual(@as(f64, 1.0), state.windows[0].size_value);
+    try testing.expectEqual(@as(f64, 1.0), state.windows[0].height_value);
 }

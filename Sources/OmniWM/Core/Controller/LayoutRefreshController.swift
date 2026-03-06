@@ -254,11 +254,8 @@ import QuartzCore
 
             switch layoutType {
             case .niri, .defaultLayout:
-                let state = controller.workspaceManager.niriViewportState(for: wsId)
-
-                niriHandler.applyFramesOnDemand(
+                _ = niriHandler.applyFramesOnDemand(
                     wsId: wsId,
-                    state: state,
                     monitor: monitor,
                     animationTime: nil
                 )

@@ -280,8 +280,7 @@ final class MouseEventHandler {
         guard !state.currentHoveredEdges.isEmpty else { return }
 
         if let hitResult = context.engine.hitTestResize(at: location, request) {
-            let viewportOffset = controller.workspaceManager.niriViewportState(for: context.wsId)
-                .viewOffsetPixels.current()
+            let viewportOffset = context.engine.viewportOffset(in: context.wsId)
             if context.engine.beginInteractiveResize(
                 ZigNiriInteractiveResizeState(
                     windowId: hitResult.windowId,
@@ -334,9 +333,7 @@ final class MouseEventHandler {
         let update = context.engine.updateInteractiveResize(mouseLocation: location)
         if update.applied {
             if let viewportOffset = update.resizeOutput?.viewportOffset {
-                controller.workspaceManager.withNiriViewportState(for: context.wsId) { viewport in
-                    viewport.viewOffsetPixels = .static(viewportOffset)
-                }
+                _ = context.engine.setViewportOffset(in: context.wsId, offset: viewportOffset)
             }
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
@@ -620,19 +617,20 @@ final class MouseEventHandler {
             guard let view = engine.workspaceView(for: wsId) else { return }
             let columnSpans = columnSpans(for: view, orientation: orientation, fallbackFrame: insetFrame)
 
-            if vstate.viewOffsetPixels.isAnimating {
-                vstate.cancelAnimation()
-            }
-
-            if !vstate.viewOffsetPixels.isGesture {
-                vstate.beginGesture(isTrackpad: isTrackpad)
-            }
-
             let timestamp = CACurrentMediaTime()
-            if let steps = vstate.updateGesture(
+            if !engine.isViewportGestureActive(in: wsId, at: timestamp) {
+                _ = engine.beginViewportGesture(
+                    in: wsId,
+                    isTrackpad: isTrackpad,
+                    sampleTime: timestamp
+                )
+            }
+
+            if let steps = engine.updateViewportGesture(
+                in: wsId,
                 deltaPixels: delta,
                 timestamp: timestamp,
-                columnSpans: columnSpans,
+                spans: columnSpans,
                 gap: gap,
                 viewportSpan: viewportSpan
             ), steps != 0 {
@@ -695,26 +693,25 @@ final class MouseEventHandler {
             guard let view = engine.workspaceView(for: wsId) else { return }
             let spans = columnSpans(for: view, orientation: orientation, fallbackFrame: insetFrame)
 
-            endState.endGesture(
-                columnSpans: spans,
+            _ = engine.endViewportGesture(
+                in: wsId,
+                spans: spans,
                 gap: gap,
                 viewportSpan: viewportSpan,
                 centerMode: resolved.centerFocusedColumn,
-                alwaysCenterSingleColumn: resolved.alwaysCenterSingleColumn
+                alwaysCenterSingleColumn: resolved.alwaysCenterSingleColumn,
+                displayRefreshRate: controller.layoutRefreshController.layoutState.refreshRateByDisplay[monitor.displayId] ?? 60.0,
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             )
         }
         controller.layoutRefreshController.startScrollAnimation(for: wsId)
     }
 
     private func cancelCommittedGestureViewportState(for wsId: WorkspaceDescriptor.ID) {
-        guard let controller else { return }
-        var didCancel = false
-        controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-            guard vstate.viewOffsetPixels.isGesture else { return }
-            vstate.cancelAnimation()
-            vstate.selectionProgress = 0.0
-            didCancel = true
-        }
+        guard let controller,
+              let engine = controller.zigNiriEngine
+        else { return }
+        let didCancel = engine.isViewportGestureActive(in: wsId) && engine.cancelViewportMotion(in: wsId)
         if didCancel {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }

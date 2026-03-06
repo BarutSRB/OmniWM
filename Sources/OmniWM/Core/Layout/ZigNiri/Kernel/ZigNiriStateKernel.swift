@@ -1,5 +1,6 @@
 import CZigLayout
 import Foundation
+import QuartzCore
 
 enum ZigNiriStateKernel {
     enum NavigationOp {
@@ -234,6 +235,68 @@ enum ZigNiriStateKernel {
     struct RuntimeStateExport: Equatable {
         var columns: [RuntimeColumnState]
         var windows: [RuntimeWindowState]
+    }
+
+    struct RuntimeRenderRequest {
+        let columns: [OmniNiriColumnInput]
+        let windows: [OmniNiriWindowInput]
+        let workingFrame: CGRect
+        let viewFrame: CGRect
+        let fullscreenFrame: CGRect
+        let primaryGap: CGFloat
+        let secondaryGap: CGFloat
+        let viewStart: CGFloat
+        let viewportSpan: CGFloat
+        let workspaceOffset: CGFloat
+        let scale: CGFloat
+        let orientation: Monitor.Orientation
+        let sampleTime: TimeInterval
+    }
+
+    struct RuntimeRenderOutput {
+        let windows: [OmniNiriWindowOutput]
+        let columns: [OmniNiriColumnOutput]
+        let animationActive: Bool
+    }
+
+    struct RuntimeViewportStatus {
+        let currentOffset: CGFloat
+        let targetOffset: CGFloat
+        let activeColumnIndex: Int
+        let selectionProgress: CGFloat
+        let isGesture: Bool
+        let isAnimating: Bool
+    }
+
+    struct RuntimeViewportGestureUpdateResult {
+        let currentOffset: CGFloat
+        let selectionProgress: CGFloat
+        let selectionSteps: Int?
+    }
+
+    struct RuntimeViewportTransitionRequest {
+        let spans: [Double]
+        let requestedIndex: Int
+        let gap: CGFloat
+        let viewportSpan: CGFloat
+        let centerMode: CenterFocusedColumn
+        let alwaysCenterSingleColumn: Bool
+        let animate: Bool
+        let scale: CGFloat
+        let sampleTime: TimeInterval
+        let displayRefreshRate: Double
+        let reduceMotion: Bool
+    }
+
+    struct RuntimeViewportGestureEndRequest {
+        let spans: [Double]
+        let gap: CGFloat
+        let viewportSpan: CGFloat
+        let centerMode: CenterFocusedColumn
+        let alwaysCenterSingleColumn: Bool
+        let sampleTime: TimeInterval
+        let displayRefreshRate: Double
+        let reduceMotion: Bool
     }
 
     enum RuntimeExportDecodeError: Error, Equatable, CustomStringConvertible {
@@ -616,6 +679,26 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_ORIENTATION_HORIZONTAL.rawValue)
         case .vertical:
             return UInt8(truncatingIfNeeded: OMNI_NIRI_ORIENTATION_VERTICAL.rawValue)
+        }
+    }
+
+    private static func centerModeCode(_ centerMode: CenterFocusedColumn) -> UInt8 {
+        switch centerMode {
+        case .never:
+            return UInt8(truncatingIfNeeded: OMNI_CENTER_NEVER.rawValue)
+        case .always:
+            return UInt8(truncatingIfNeeded: OMNI_CENTER_ALWAYS.rawValue)
+        case .onOverflow:
+            return UInt8(truncatingIfNeeded: OMNI_CENTER_ON_OVERFLOW.rawValue)
+        }
+    }
+
+    static func sizingModeCode(_ mode: SizingMode) -> UInt8 {
+        switch mode {
+        case .fullscreen:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_SIZING_FULLSCREEN.rawValue)
+        case .normal:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_SIZING_NORMAL.rawValue)
         }
     }
 
@@ -1128,7 +1211,10 @@ enum ZigNiriStateKernel {
         }
     }
 
-    static func applyTxn(_ request: TxnRequest) -> TxnOutcome {
+    static func applyTxn(
+        _ request: TxnRequest,
+        sampleTime: TimeInterval
+    ) -> TxnOutcome {
         let sourceContext: ZigNiriLayoutKernel.LayoutContext
         let targetContext: ZigNiriLayoutKernel.LayoutContext?
         let kind: TxnKind
@@ -1220,7 +1306,10 @@ enum ZigNiriStateKernel {
             max_delta_windows: 0,
             max_removed_ids: 0
         )
-        var rawRuntimeRequest = OmniNiriRuntimeCommandRequest(txn: rawRequest)
+        var rawRuntimeRequest = OmniNiriRuntimeCommandRequest(
+            txn: rawRequest,
+            sample_time: sampleTime
+        )
 
         var rawRuntimeResult = OmniNiriRuntimeCommandResult()
         let rc = sourceContext.withRawContext { sourceRaw in
@@ -1271,11 +1360,13 @@ enum ZigNiriStateKernel {
 
     static func applyMutation(
         context: ZigNiriLayoutKernel.LayoutContext,
-        request: MutationApplyRequest
+        request: MutationApplyRequest,
+        sampleTime: TimeInterval = CACurrentMediaTime()
     ) -> MutationApplyOutcome {
         let exported = applyTxnAndExportSingleContext(
             .mutation(context: context, request: request),
-            context: context
+            context: context,
+            sampleTime: sampleTime
         )
         guard exported.outcome.rc == OMNI_OK, exported.deltaRC == OMNI_OK else {
             return MutationApplyOutcome(
@@ -1300,12 +1391,14 @@ enum ZigNiriStateKernel {
     static func applyWorkspace(
         sourceContext: ZigNiriLayoutKernel.LayoutContext,
         targetContext: ZigNiriLayoutKernel.LayoutContext,
-        request: WorkspaceApplyRequest
+        request: WorkspaceApplyRequest,
+        sampleTime: TimeInterval = CACurrentMediaTime()
     ) -> WorkspaceApplyOutcome {
         let exported = applyTxnAndExportWorkspace(
             sourceContext: sourceContext,
             targetContext: targetContext,
-            request: request
+            request: request,
+            sampleTime: sampleTime
         )
         return WorkspaceApplyOutcome(
             rc: exported.outcome.rc,
@@ -1321,11 +1414,13 @@ enum ZigNiriStateKernel {
 
     static func applyNavigation(
         context: ZigNiriLayoutKernel.LayoutContext,
-        request: NavigationApplyRequest
+        request: NavigationApplyRequest,
+        sampleTime: TimeInterval = CACurrentMediaTime()
     ) -> NavigationApplyOutcome {
         let exported = applyTxnAndExportSingleContext(
             .navigation(context: context, request: request),
-            context: context
+            context: context,
+            sampleTime: sampleTime
         )
         let refreshColumnIds: [NodeId]
         if exported.deltaRC == OMNI_OK, let delta = exported.delta {
@@ -1345,15 +1440,315 @@ enum ZigNiriStateKernel {
         )
     }
 
+    static func renderRuntime(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        request: RuntimeRenderRequest
+    ) -> (rc: Int32, output: RuntimeRenderOutput) {
+        var rawWindows = Array(
+            repeating: OmniNiriWindowOutput(),
+            count: request.windows.count
+        )
+        var rawColumns = Array(
+            repeating: OmniNiriColumnOutput(),
+            count: request.columns.count
+        )
+        var rc = Int32(OMNI_OK)
+        var animationActive = false
+
+        request.columns.withUnsafeBufferPointer { columnBuf in
+            request.windows.withUnsafeBufferPointer { windowBuf in
+                rawWindows.withUnsafeMutableBufferPointer { outWindowBuf in
+                    rawColumns.withUnsafeMutableBufferPointer { outColumnBuf in
+                        var rawRequest = OmniNiriRuntimeRenderRequest(
+                            columns: columnBuf.baseAddress,
+                            column_count: columnBuf.count,
+                            windows: windowBuf.baseAddress,
+                            window_count: windowBuf.count,
+                            working_x: request.workingFrame.minX,
+                            working_y: request.workingFrame.minY,
+                            working_width: request.workingFrame.width,
+                            working_height: request.workingFrame.height,
+                            view_x: request.viewFrame.minX,
+                            view_y: request.viewFrame.minY,
+                            view_width: request.viewFrame.width,
+                            view_height: request.viewFrame.height,
+                            fullscreen_x: request.fullscreenFrame.minX,
+                            fullscreen_y: request.fullscreenFrame.minY,
+                            fullscreen_width: request.fullscreenFrame.width,
+                            fullscreen_height: request.fullscreenFrame.height,
+                            primary_gap: request.primaryGap,
+                            secondary_gap: request.secondaryGap,
+                            view_start: request.viewStart,
+                            viewport_span: request.viewportSpan,
+                            workspace_offset: request.workspaceOffset,
+                            scale: request.scale,
+                            orientation: orientationCode(request.orientation),
+                            sample_time: request.sampleTime
+                        )
+                        var rawOutput = OmniNiriRuntimeRenderOutput(
+                            windows: outWindowBuf.baseAddress,
+                            window_count: outWindowBuf.count,
+                            columns: outColumnBuf.baseAddress,
+                            column_count: outColumnBuf.count,
+                            animation_active: 0
+                        )
+
+                        rc = context.withRawContext { raw in
+                            withUnsafePointer(to: &rawRequest) { requestPtr in
+                                withUnsafeMutablePointer(to: &rawOutput) { outputPtr in
+                                    omni_niri_runtime_render(raw, raw, requestPtr, outputPtr)
+                                }
+                            }
+                        }
+                        animationActive = rawOutput.animation_active != 0
+                    }
+                }
+            }
+        }
+
+        if rc != OMNI_OK {
+            return (
+                rc: rc,
+                output: RuntimeRenderOutput(
+                    windows: [],
+                    columns: [],
+                    animationActive: false
+                )
+            )
+        }
+
+        return (
+            rc: rc,
+            output: RuntimeRenderOutput(
+                windows: rawWindows,
+                columns: rawColumns,
+                animationActive: animationActive
+            )
+        )
+    }
+
+    static func startWorkspaceSwitchAnimation(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        sampleTime: TimeInterval
+    ) -> Int32 {
+        context.withRawContext { raw in
+            omni_niri_runtime_start_workspace_switch_animation(raw, sampleTime)
+        }
+    }
+
+    static func startMutationAnimation(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        sampleTime: TimeInterval
+    ) -> Int32 {
+        context.withRawContext { raw in
+            omni_niri_runtime_start_mutation_animation(raw, sampleTime)
+        }
+    }
+
+    static func cancelAnimation(
+        context: ZigNiriLayoutKernel.LayoutContext
+    ) -> Int32 {
+        context.withRawContext { raw in
+            omni_niri_runtime_cancel_animation(raw)
+        }
+    }
+
+    static func isAnimationActive(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        sampleTime: TimeInterval
+    ) -> Bool {
+        var rawActive: UInt8 = 0
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawActive) { activePtr in
+                omni_niri_runtime_animation_active(raw, sampleTime, activePtr)
+            }
+        }
+        return rc == OMNI_OK && rawActive != 0
+    }
+
+    static func viewportStatus(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        sampleTime: TimeInterval
+    ) -> (rc: Int32, status: RuntimeViewportStatus?) {
+        var rawStatus = OmniNiriRuntimeViewportStatus(
+            current_offset: 0,
+            target_offset: 0,
+            active_column_index: 0,
+            selection_progress: 0,
+            is_gesture: 0,
+            is_animating: 0
+        )
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawStatus) { statusPtr in
+                omni_niri_runtime_viewport_status(raw, sampleTime, statusPtr)
+            }
+        }
+        guard rc == OMNI_OK else { return (rc, nil) }
+        return (
+            rc,
+            RuntimeViewportStatus(
+                currentOffset: CGFloat(rawStatus.current_offset),
+                targetOffset: CGFloat(rawStatus.target_offset),
+                activeColumnIndex: Int(rawStatus.active_column_index),
+                selectionProgress: CGFloat(rawStatus.selection_progress),
+                isGesture: rawStatus.is_gesture != 0,
+                isAnimating: rawStatus.is_animating != 0
+            )
+        )
+    }
+
+    static func beginViewportGesture(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        sampleTime: TimeInterval,
+        isTrackpad: Bool
+    ) -> Int32 {
+        context.withRawContext { raw in
+            omni_niri_runtime_viewport_begin_gesture(
+                raw,
+                sampleTime,
+                isTrackpad ? 1 : 0
+            )
+        }
+    }
+
+    static func updateViewportGesture(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        spans: [Double],
+        deltaPixels: CGFloat,
+        timestamp: TimeInterval,
+        gap: CGFloat,
+        viewportSpan: CGFloat
+    ) -> (rc: Int32, result: RuntimeViewportGestureUpdateResult?) {
+        var rawResult = OmniViewportGestureUpdateResult(
+            current_view_offset: 0,
+            selection_progress: 0,
+            has_selection_steps: 0,
+            selection_steps: 0
+        )
+        let rc = spans.withUnsafeBufferPointer { spansBuf in
+            context.withRawContext { raw in
+                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                    omni_niri_runtime_viewport_update_gesture(
+                        raw,
+                        spansBuf.baseAddress,
+                        spansBuf.count,
+                        Double(deltaPixels),
+                        timestamp,
+                        Double(gap),
+                        Double(viewportSpan),
+                        resultPtr
+                    )
+                }
+            }
+        }
+        guard rc == OMNI_OK else { return (rc, nil) }
+        return (
+            rc,
+            RuntimeViewportGestureUpdateResult(
+                currentOffset: CGFloat(rawResult.current_view_offset),
+                selectionProgress: CGFloat(rawResult.selection_progress),
+                selectionSteps: rawResult.has_selection_steps != 0 ? Int(rawResult.selection_steps) : nil
+            )
+        )
+    }
+
+    static func endViewportGesture(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        request: RuntimeViewportGestureEndRequest
+    ) -> (rc: Int32, resolvedColumnIndex: Int?) {
+        var rawResult = OmniViewportGestureEndResult(
+            resolved_column_index: 0,
+            spring_from: 0,
+            spring_to: 0,
+            initial_velocity: 0
+        )
+        let rc = request.spans.withUnsafeBufferPointer { spansBuf in
+            context.withRawContext { raw in
+                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                    omni_niri_runtime_viewport_end_gesture(
+                        raw,
+                        spansBuf.baseAddress,
+                        spansBuf.count,
+                        Double(request.gap),
+                        Double(request.viewportSpan),
+                        centerModeCode(request.centerMode),
+                        request.alwaysCenterSingleColumn ? 1 : 0,
+                        request.sampleTime,
+                        request.displayRefreshRate,
+                        request.reduceMotion ? 1 : 0,
+                        resultPtr
+                    )
+                }
+            }
+        }
+        return (rc, rc == OMNI_OK ? Int(rawResult.resolved_column_index) : nil)
+    }
+
+    static func transitionViewportToColumn(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        request: RuntimeViewportTransitionRequest
+    ) -> (rc: Int32, resolvedColumnIndex: Int?) {
+        var rawResult = OmniViewportTransitionResult(
+            resolved_column_index: 0,
+            offset_delta: 0,
+            adjusted_target_offset: 0,
+            target_offset: 0,
+            snap_delta: 0,
+            snap_to_target_immediately: 0
+        )
+        let rc = request.spans.withUnsafeBufferPointer { spansBuf in
+            context.withRawContext { raw in
+                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                    omni_niri_runtime_viewport_transition_to_column(
+                        raw,
+                        spansBuf.baseAddress,
+                        spansBuf.count,
+                        request.requestedIndex,
+                        Double(request.gap),
+                        Double(request.viewportSpan),
+                        centerModeCode(request.centerMode),
+                        request.alwaysCenterSingleColumn ? 1 : 0,
+                        request.animate ? 1 : 0,
+                        Double(request.scale),
+                        request.sampleTime,
+                        request.displayRefreshRate,
+                        request.reduceMotion ? 1 : 0,
+                        resultPtr
+                    )
+                }
+            }
+        }
+        return (rc, rc == OMNI_OK ? Int(rawResult.resolved_column_index) : nil)
+    }
+
+    static func setViewportOffset(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        offset: CGFloat
+    ) -> Int32 {
+        context.withRawContext { raw in
+            omni_niri_runtime_viewport_set_offset(raw, Double(offset))
+        }
+    }
+
+    static func cancelViewportMotion(
+        context: ZigNiriLayoutKernel.LayoutContext,
+        sampleTime: TimeInterval
+    ) -> Int32 {
+        context.withRawContext { raw in
+            omni_niri_runtime_viewport_cancel(raw, sampleTime)
+        }
+    }
+
     private static func applyTxnAndExportSingleContext(
         _ request: TxnRequest,
-        context: ZigNiriLayoutKernel.LayoutContext
+        context: ZigNiriLayoutKernel.LayoutContext,
+        sampleTime: TimeInterval
     ) -> (
         outcome: TxnOutcome,
         deltaRC: Int32,
         delta: DeltaExport?
     ) {
-        let outcome = applyTxn(request)
+        let outcome = applyTxn(request, sampleTime: sampleTime)
         let delta = exportDelta(context: context)
         return (
             outcome: outcome,
@@ -1365,7 +1760,8 @@ enum ZigNiriStateKernel {
     private static func applyTxnAndExportWorkspace(
         sourceContext: ZigNiriLayoutKernel.LayoutContext,
         targetContext: ZigNiriLayoutKernel.LayoutContext,
-        request: WorkspaceApplyRequest
+        request: WorkspaceApplyRequest,
+        sampleTime: TimeInterval
     ) -> (
         outcome: TxnOutcome,
         sourceDelta: DeltaExport?,
@@ -1376,7 +1772,8 @@ enum ZigNiriStateKernel {
                 sourceContext: sourceContext,
                 targetContext: targetContext,
                 request: request
-            )
+            ),
+            sampleTime: sampleTime
         )
         let sourceDelta = exportDelta(context: sourceContext)
         let targetDelta = exportDelta(context: targetContext)

@@ -195,6 +195,7 @@ struct ZigNiriLayoutRequest {
 struct ZigNiriLayoutResult {
     let frames: [WindowHandle: CGRect]
     let hiddenHandles: [WindowHandle: HideSide]
+    let isAnimating: Bool
 }
 
 struct ZigNiriHitTestRequest {

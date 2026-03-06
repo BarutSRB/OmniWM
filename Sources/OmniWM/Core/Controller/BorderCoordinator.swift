@@ -44,8 +44,7 @@ final class BorderCoordinator {
     private func shouldDeferBorderUpdates(for workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let controller else { return false }
 
-        let state = controller.workspaceManager.niriViewportState(for: workspaceId)
-        if state.viewOffsetPixels.isAnimating {
+        if controller.zigNiriEngine?.hasActiveAnimation(in: workspaceId) == true {
             return true
         }
 

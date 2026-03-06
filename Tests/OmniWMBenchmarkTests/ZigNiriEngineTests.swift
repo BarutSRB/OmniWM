@@ -241,6 +241,77 @@ final class ZigNiriEngineTests: XCTestCase {
         XCTAssertTrue(engine.hasActiveStructuralAnimation(in: workspace.id))
     }
 
+    func testRemoveWindowMutationPreservesStructuralAnimationFrames() throws {
+        let workspace = WorkspaceDescriptor(name: "zig-niri-remove-window-animation")
+        let clock = DeterministicClock(now: 2_500)
+        let engine = ZigNiriEngine(timeProvider: { clock.now })
+        let first = makeWindowHandle()
+        let second = makeWindowHandle()
+
+        _ = engine.syncWindows(
+            [first, second],
+            in: workspace.id,
+            selectedNodeId: nil
+        )
+
+        let initial = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: 0
+            )
+        )
+        let firstInitialFrame = try XCTUnwrap(initial.frames[first])
+        let secondId = try XCTUnwrap(engine.nodeId(for: second))
+        let startedAt = clock.now
+
+        let result = engine.applyMutation(
+            .removeWindow(windowId: secondId),
+            in: workspace.id
+        )
+        XCTAssertTrue(result.applied)
+        XCTAssertTrue(result.structuralAnimationActive)
+        XCTAssertTrue(engine.hasActiveStructuralAnimation(in: workspace.id))
+
+        clock.advance(by: ZigNiriEngine.mutationAnimationDuration * 10)
+        let animated = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: 0,
+                animationTime: startedAt + ZigNiriEngine.mutationAnimationDuration * 0.5
+            )
+        )
+        let settled = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: 0,
+                animationTime: startedAt + ZigNiriEngine.mutationAnimationDuration * 2
+            )
+        )
+
+        let animatedFrame = try XCTUnwrap(animated.frames[first])
+        let settledFrame = try XCTUnwrap(settled.frames[first])
+        XCTAssertNotEqual(firstInitialFrame, settledFrame)
+        XCTAssertNotEqual(animatedFrame, settledFrame)
+    }
+
     func testMoveWindowWorkspaceCommandLazilyResyncsSourceWorkspace() throws {
         let sourceWorkspace = WorkspaceDescriptor(name: "zig-niri-workspace-source")
         let targetWorkspace = WorkspaceDescriptor(name: "zig-niri-workspace-target")
@@ -458,6 +529,105 @@ final class ZigNiriEngineTests: XCTestCase {
         XCTAssertEqual(leftHiddenCount, 1)
         XCTAssertEqual(rightHiddenCount, 1)
         XCTAssertEqual(visibleCount, 1)
+    }
+
+    func testViewportTransitionAnimationRunsThroughZigRuntime() throws {
+        let workspace = WorkspaceDescriptor(name: "zig-niri-runtime-viewport-transition")
+        let clock = DeterministicClock(now: 9_000)
+        let engine = ZigNiriEngine(maxWindowsPerColumn: 1, timeProvider: { clock.now })
+        let first = makeWindowHandle()
+        let second = makeWindowHandle()
+        let third = makeWindowHandle()
+
+        _ = engine.syncWindows(
+            [first, second, third],
+            in: workspace.id,
+            selectedNodeId: nil
+        )
+
+        let firstId = try XCTUnwrap(engine.nodeId(for: first))
+        let thirdId = try XCTUnwrap(engine.nodeId(for: third))
+
+        _ = engine.applyWorkspace(
+            .setSelection(
+                ZigNiriSelection(
+                    selectedNodeId: firstId,
+                    focusedWindowId: firstId
+                )
+            ),
+            in: workspace.id
+        )
+        _ = engine.setViewportOffset(in: workspace.id, offset: 0)
+
+        _ = engine.applyWorkspace(
+            .setSelection(
+                ZigNiriSelection(
+                    selectedNodeId: thirdId,
+                    focusedWindowId: thirdId
+                )
+            ),
+            in: workspace.id
+        )
+
+        let view = try XCTUnwrap(engine.workspaceView(for: workspace.id))
+        let spans = engine.resolvedColumnSpans(
+            for: view,
+            primarySpan: 1000,
+            primaryGap: 8
+        )
+
+        XCTAssertTrue(
+            engine.transitionViewportToColumn(
+                in: workspace.id,
+                requestedIndex: 2,
+                spans: spans,
+                gap: 8,
+                viewportSpan: 1000,
+                animate: true,
+                centerMode: .always,
+                alwaysCenterSingleColumn: true,
+                scale: 2,
+                displayRefreshRate: 60,
+                reduceMotion: false,
+                sampleTime: clock.now
+            )
+        )
+
+        let midpointTime = clock.now + 0.05
+        let midpoint = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1000, height: 700),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: engine.viewportOffset(in: workspace.id, at: midpointTime),
+                animationTime: midpointTime
+            )
+        )
+        XCTAssertTrue(midpoint.isAnimating)
+        XCTAssertTrue(engine.hasActiveAnimation(in: workspace.id, at: midpointTime))
+
+        let settledTime = clock.now + 1.0
+        let settled = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1000, height: 700),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: engine.viewportOffset(in: workspace.id, at: settledTime),
+                animationTime: settledTime
+            )
+        )
+
+        XCTAssertFalse(settled.isAnimating)
+        XCTAssertFalse(engine.hasActiveAnimation(in: workspace.id, at: settledTime))
+        XCTAssertNotEqual(midpoint.frames[first], settled.frames[first])
     }
 
     func testFullscreenToggleMaintainsSingleOwnerAndRestoresDemotedHeight() throws {
@@ -929,15 +1099,15 @@ final class ZigNiriEngineTests: XCTestCase {
 
         let startedAt = clock.now
         XCTAssertTrue(engine.startWorkspaceSwitchAnimation(in: workspace.id))
-        clock.advance(by: ZigNiriEngine.workspaceSwitchAnimationDuration * 2)
-        XCTAssertFalse(engine.hasActiveStructuralAnimation(in: workspace.id))
-
         XCTAssertTrue(
             engine.hasActiveStructuralAnimation(
                 in: workspace.id,
                 at: startedAt + ZigNiriEngine.workspaceSwitchAnimationDuration * 0.25
             )
         )
+
+        clock.advance(by: ZigNiriEngine.workspaceSwitchAnimationDuration * 2)
+        XCTAssertFalse(engine.hasActiveStructuralAnimation(in: workspace.id))
         XCTAssertFalse(
             engine.hasActiveStructuralAnimation(
                 in: workspace.id,

@@ -353,6 +353,183 @@ export fn omni_niri_runtime_render(
     );
 }
 
+/// Start the workspace-switch structural animation track for a runtime.
+export fn omni_niri_runtime_start_workspace_switch_animation(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    sample_time: f64,
+) i32 {
+    return runtime.omni_niri_runtime_start_workspace_switch_animation_impl(
+        runtime_context,
+        sample_time,
+    );
+}
+
+/// Start the mutation structural animation track for a runtime.
+export fn omni_niri_runtime_start_mutation_animation(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    sample_time: f64,
+) i32 {
+    return runtime.omni_niri_runtime_start_mutation_animation_impl(
+        runtime_context,
+        sample_time,
+    );
+}
+
+/// Cancel any active Niri runtime animation track.
+export fn omni_niri_runtime_cancel_animation(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+) i32 {
+    return runtime.omni_niri_runtime_cancel_animation_impl(runtime_context);
+}
+
+/// Query whether the runtime still has an active animation track at `sample_time`.
+export fn omni_niri_runtime_animation_active(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    sample_time: f64,
+    out_active: [*c]u8,
+) i32 {
+    return runtime.omni_niri_runtime_animation_active_impl(
+        runtime_context,
+        sample_time,
+        out_active,
+    );
+}
+
+/// Query the current runtime-owned viewport motion state.
+export fn omni_niri_runtime_viewport_status(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    sample_time: f64,
+    out_status: [*c]abi.OmniNiriRuntimeViewportStatus,
+) i32 {
+    return runtime.omni_niri_runtime_viewport_status_impl(
+        runtime_context,
+        sample_time,
+        out_status,
+    );
+}
+
+/// Begin a runtime-owned viewport gesture sequence.
+export fn omni_niri_runtime_viewport_begin_gesture(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    sample_time: f64,
+    is_trackpad: u8,
+) i32 {
+    return runtime.omni_niri_runtime_viewport_begin_gesture_impl(
+        runtime_context,
+        sample_time,
+        is_trackpad,
+    );
+}
+
+/// Advance a runtime-owned viewport gesture sequence.
+export fn omni_niri_runtime_viewport_update_gesture(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    spans: [*c]const f64,
+    span_count: usize,
+    delta_pixels: f64,
+    timestamp: f64,
+    gap: f64,
+    viewport_span: f64,
+    out_result: [*c]abi.OmniViewportGestureUpdateResult,
+) i32 {
+    return runtime.omni_niri_runtime_viewport_update_gesture_impl(
+        runtime_context,
+        spans,
+        span_count,
+        delta_pixels,
+        timestamp,
+        gap,
+        viewport_span,
+        out_result,
+    );
+}
+
+/// Finish a runtime-owned viewport gesture sequence and start its snap spring.
+export fn omni_niri_runtime_viewport_end_gesture(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    spans: [*c]const f64,
+    span_count: usize,
+    gap: f64,
+    viewport_span: f64,
+    center_mode: u8,
+    always_center_single_column: u8,
+    sample_time: f64,
+    display_refresh_rate: f64,
+    reduce_motion: u8,
+    out_result: [*c]abi.OmniViewportGestureEndResult,
+) i32 {
+    return runtime.omni_niri_runtime_viewport_end_gesture_impl(
+        runtime_context,
+        spans,
+        span_count,
+        gap,
+        viewport_span,
+        center_mode,
+        always_center_single_column,
+        sample_time,
+        display_refresh_rate,
+        reduce_motion,
+        out_result,
+    );
+}
+
+/// Transition the runtime-owned viewport toward a selected column.
+export fn omni_niri_runtime_viewport_transition_to_column(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    spans: [*c]const f64,
+    span_count: usize,
+    requested_index: usize,
+    gap: f64,
+    viewport_span: f64,
+    center_mode: u8,
+    always_center_single_column: u8,
+    animate: u8,
+    scale: f64,
+    sample_time: f64,
+    display_refresh_rate: f64,
+    reduce_motion: u8,
+    out_result: [*c]abi.OmniViewportTransitionResult,
+) i32 {
+    return runtime.omni_niri_runtime_viewport_transition_to_column_impl(
+        runtime_context,
+        spans,
+        span_count,
+        requested_index,
+        gap,
+        viewport_span,
+        center_mode,
+        always_center_single_column,
+        animate,
+        scale,
+        sample_time,
+        display_refresh_rate,
+        reduce_motion,
+        out_result,
+    );
+}
+
+/// Force the runtime-owned viewport to a static offset.
+export fn omni_niri_runtime_viewport_set_offset(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    offset: f64,
+) i32 {
+    return runtime.omni_niri_runtime_viewport_set_offset_impl(
+        runtime_context,
+        offset,
+    );
+}
+
+/// Cancel any runtime-owned viewport gesture or spring motion.
+export fn omni_niri_runtime_viewport_cancel(
+    runtime_context: [*c]runtime.OmniNiriRuntime,
+    sample_time: f64,
+) i32 {
+    return runtime.omni_niri_runtime_viewport_cancel_impl(
+        runtime_context,
+        sample_time,
+    );
+}
+
 /// Snapshot full runtime state buffers.
 export fn omni_niri_runtime_snapshot(
     runtime_context: [*c]const runtime.OmniNiriRuntime,
