@@ -24,7 +24,10 @@ final class WorkspaceNavigationHandler {
         guard controller.settings.layoutType(for: targetWorkspace.name) != .dwindle else {
             return false
         }
-        return previousWorkspace?.id != targetWorkspace.id
+        guard previousWorkspace?.id != targetWorkspace.id else {
+            return false
+        }
+        return controller.zigNiriEngine?.startWorkspaceSwitchAnimation(in: targetWorkspace.id) ?? false
     }
 
     func focusMonitorInDirection(_ direction: Direction) {

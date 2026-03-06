@@ -368,6 +368,7 @@ pub const OmniNiriMutationRequest = extern struct {
     selected_node_kind: u8,
     selected_node_index: i64,
     focused_window_index: i64,
+    incoming_spawn_mode: u8,
 };
 
 pub const OmniNiriMutationEdit = extern struct {
@@ -494,6 +495,7 @@ pub const OmniNiriTxnMutationPayload = extern struct {
     selected_node_id: OmniUuid128,
     has_focused_window_id: u8,
     focused_window_id: OmniUuid128,
+    incoming_spawn_mode: u8,
     has_incoming_window_id: u8,
     incoming_window_id: OmniUuid128,
     has_created_column_id: u8,
@@ -528,6 +530,7 @@ pub const OmniNiriTxnRequest = extern struct {
 pub const OmniNiriTxnResult = extern struct {
     applied: u8,
     kind: u8,
+    structural_animation_active: u8,
     has_target_window_id: u8,
     target_window_id: OmniUuid128,
     has_target_node_id: u8,
@@ -788,6 +791,9 @@ pub const OMNI_NIRI_RESIZE_EDGE_RIGHT: u8 = 0b1000;
 pub const OMNI_NIRI_INSERT_BEFORE: u8 = 0;
 pub const OMNI_NIRI_INSERT_AFTER: u8 = 1;
 pub const OMNI_NIRI_INSERT_SWAP: u8 = 2;
+
+pub const OMNI_NIRI_SPAWN_NEW_COLUMN: u8 = 0;
+pub const OMNI_NIRI_SPAWN_FOCUSED_COLUMN: u8 = 1;
 
 pub const OMNI_NIRI_DIRECTION_LEFT: u8 = 0;
 pub const OMNI_NIRI_DIRECTION_RIGHT: u8 = 1;

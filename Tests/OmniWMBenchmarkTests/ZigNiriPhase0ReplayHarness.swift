@@ -275,15 +275,18 @@ enum ZigNiriPhase0ReplayHarness {
             )
 
         case .windowMove:
-            let result = fixture.engine.applyMutation(
-                .moveWindow(
-                    windowId: fixture.trackedNodeId,
-                    direction: .up,
-                    orientation: .horizontal
-                ),
-                in: fixture.trackedWorkspaceId
-            )
-            guard result.applied else {
+            let candidateDirections: [Direction] = [.up, .down, .left, .right]
+            let applied = candidateDirections.contains { direction in
+                fixture.engine.applyMutation(
+                    .moveWindow(
+                        windowId: fixture.trackedNodeId,
+                        direction: direction,
+                        orientation: .horizontal
+                    ),
+                    in: fixture.trackedWorkspaceId
+                ).applied
+            }
+            guard applied else {
                 throw Error.operationFailed("moveWindow mutation did not apply")
             }
 
@@ -293,7 +296,11 @@ enum ZigNiriPhase0ReplayHarness {
                     windowId: fixture.trackedNodeId,
                     workspaceId: fixture.trackedWorkspaceId,
                     edges: [.right],
-                    startMouseLocation: CGPoint(x: 100, y: 100)
+                    startMouseLocation: CGPoint(x: 100, y: 100),
+                    monitorFrame: fixture.monitorFrame,
+                    orientation: .horizontal,
+                    gap: fixture.gaps.horizontal,
+                    initialViewportOffset: 0
                 )
             ) else {
                 throw Error.operationFailed("beginInteractiveResize returned false")

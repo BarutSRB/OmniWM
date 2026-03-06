@@ -19,6 +19,8 @@ const OMNI_NIRI_DIRECTION_DOWN = abi.OMNI_NIRI_DIRECTION_DOWN;
 
 const OMNI_NIRI_INSERT_BEFORE = abi.OMNI_NIRI_INSERT_BEFORE;
 const OMNI_NIRI_INSERT_AFTER = abi.OMNI_NIRI_INSERT_AFTER;
+const OMNI_NIRI_SPAWN_NEW_COLUMN = abi.OMNI_NIRI_SPAWN_NEW_COLUMN;
+const OMNI_NIRI_SPAWN_FOCUSED_COLUMN = abi.OMNI_NIRI_SPAWN_FOCUSED_COLUMN;
 
 const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL = abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL;
 const OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL = abi.OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL;
@@ -1195,6 +1197,7 @@ fn planAddWindow(
     window_count: usize,
     selected_target: ?NodeTarget,
     focused_window_index_raw: i64,
+    incoming_spawn_mode: u8,
     max_visible_columns: usize,
     out_result: *OmniNiriMutationResult,
 ) i32 {
@@ -1243,6 +1246,24 @@ fn planAddWindow(
 
     if (reference_column_index == null) {
         reference_column_index = column_count - 1;
+    }
+
+    if (incoming_spawn_mode == OMNI_NIRI_SPAWN_FOCUSED_COLUMN) {
+        const rc_focused = addMutationEdit(
+            out_result,
+            OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_INTO_COLUMN,
+            std.math.cast(i64, reference_column_index.?) orelse return OMNI_ERR_OUT_OF_RANGE,
+            -1,
+            std.math.cast(i64, max_visible_columns) orelse return OMNI_ERR_OUT_OF_RANGE,
+            -1,
+        );
+        if (rc_focused != OMNI_OK) return rc_focused;
+        out_result.applied = 1;
+        return OMNI_OK;
+    }
+
+    if (incoming_spawn_mode != OMNI_NIRI_SPAWN_NEW_COLUMN) {
+        return OMNI_ERR_INVALID_ARGS;
     }
 
     const rc = addMutationEdit(
@@ -1666,6 +1687,7 @@ pub fn omni_niri_mutation_plan_impl(
                     window_count,
                     selected_target,
                     req.focused_window_index,
+                    req.incoming_spawn_mode,
                     max_visible_columns,
                     &resolved_result,
                 );

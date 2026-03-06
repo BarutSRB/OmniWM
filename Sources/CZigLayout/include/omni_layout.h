@@ -186,6 +186,11 @@ typedef enum {
     OMNI_NIRI_INSERT_SWAP = 2
 } OmniNiriInsertPosition;
 
+typedef enum {
+    OMNI_NIRI_SPAWN_NEW_COLUMN = 0,
+    OMNI_NIRI_SPAWN_FOCUSED_COLUMN = 1
+} OmniNiriIncomingSpawnMode;
+
 typedef struct {
     int64_t window_index;
     uint8_t insert_position;
@@ -761,6 +766,7 @@ typedef struct {
     uint8_t selected_node_kind;
     int64_t selected_node_index;
     int64_t focused_window_index;
+    uint8_t incoming_spawn_mode;
 } OmniNiriMutationRequest;
 
 typedef struct {
@@ -912,6 +918,7 @@ typedef struct {
     OmniUuid128 selected_node_id;
     uint8_t has_focused_window_id;
     OmniUuid128 focused_window_id;
+    uint8_t incoming_spawn_mode;
     uint8_t has_incoming_window_id;
     OmniUuid128 incoming_window_id;
     uint8_t has_created_column_id;
@@ -946,6 +953,7 @@ typedef struct {
 typedef struct {
     uint8_t applied;
     uint8_t kind;
+    uint8_t structural_animation_active;
     uint8_t has_target_window_id;
     OmniUuid128 target_window_id;
     uint8_t has_target_node_id;

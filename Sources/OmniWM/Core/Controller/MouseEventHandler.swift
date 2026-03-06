@@ -280,12 +280,18 @@ final class MouseEventHandler {
         guard !state.currentHoveredEdges.isEmpty else { return }
 
         if let hitResult = context.engine.hitTestResize(at: location, request) {
+            let viewportOffset = controller.workspaceManager.niriViewportState(for: context.wsId)
+                .viewOffsetPixels.current()
             if context.engine.beginInteractiveResize(
                 ZigNiriInteractiveResizeState(
                     windowId: hitResult.windowId,
                     workspaceId: context.wsId,
                     edges: hitResult.edges,
-                    startMouseLocation: location
+                    startMouseLocation: location,
+                    monitorFrame: context.monitor.visibleFrame,
+                    orientation: context.orientation,
+                    gap: CGFloat(controller.workspaceManager.gaps),
+                    initialViewportOffset: viewportOffset
                 )
             ) {
                 state.isResizing = true
@@ -327,6 +333,11 @@ final class MouseEventHandler {
 
         let update = context.engine.updateInteractiveResize(mouseLocation: location)
         if update.applied {
+            if let viewportOffset = update.resizeOutput?.viewportOffset {
+                controller.workspaceManager.withNiriViewportState(for: context.wsId) { viewport in
+                    viewport.viewOffsetPixels = .static(viewportOffset)
+                }
+            }
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }

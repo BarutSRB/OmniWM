@@ -30,6 +30,10 @@ final class NiriLayoutHandler {
 
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
             let viewportAnimationRunning = state.advanceAnimations(at: targetTime)
+            let structuralAnimationRunning = controller.zigNiriEngine?.hasActiveStructuralAnimation(
+                in: wsId,
+                at: targetTime
+            ) ?? false
             applyFramesOnDemand(
                 wsId: wsId,
                 state: state,
@@ -37,7 +41,7 @@ final class NiriLayoutHandler {
                 animationTime: targetTime
             )
 
-            if !viewportAnimationRunning {
+            if !viewportAnimationRunning && !structuralAnimationRunning {
                 finalizeAnimation(for: wsId)
                 var activeIds = Set<WorkspaceDescriptor.ID>()
                 for mon in controller.workspaceManager.monitors {
@@ -87,7 +91,8 @@ final class NiriLayoutHandler {
                 scale: area.scale,
                 workingArea: area,
                 orientation: orientation,
-                viewportOffset: state.viewOffsetPixels.value(at: now)
+                viewportOffset: state.viewOffsetPixels.value(at: now),
+                animationTime: now
             )
         )
 
@@ -201,6 +206,7 @@ final class NiriLayoutHandler {
         controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
             state.cancelAnimation()
         }
+        controller.zigNiriEngine?.cancelStructuralAnimation(in: workspaceId)
     }
 
     func layoutWithNiriEngine(
@@ -241,7 +247,8 @@ final class NiriLayoutHandler {
                 applyFramesOnDemand(wsId: wsId, state: state, monitor: monitor)
 
                 if !useScrollAnimationPath,
-                   state.viewOffsetPixels.isAnimating
+                   (state.viewOffsetPixels.isAnimating
+                       || zig.hasActiveStructuralAnimation(in: wsId))
                 {
                     controller.layoutRefreshController.startScrollAnimation(for: wsId)
                 }
@@ -782,6 +789,11 @@ final class NiriLayoutHandler {
             animateViewport: animateViewport
         )
         controller.layoutRefreshController.executeLayoutRefreshImmediate()
+        if result.structuralAnimationActive
+            || (controller.zigNiriEngine?.hasActiveStructuralAnimation(in: workspaceId) ?? false)
+        {
+            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+        }
     }
 
     private func normalizedColumnWidth(

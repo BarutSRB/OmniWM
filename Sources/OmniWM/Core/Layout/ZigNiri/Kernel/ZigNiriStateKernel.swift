@@ -45,6 +45,11 @@ enum ZigNiriStateKernel {
         case column = 2
     }
 
+    enum IncomingSpawnMode: UInt8 {
+        case newColumn = 0
+        case focusedColumn = 1
+    }
+
     enum WorkspaceOp: UInt8 {
         case moveWindowToWorkspace = 0
         case moveColumnToWorkspace = 1
@@ -126,6 +131,7 @@ enum ZigNiriStateKernel {
         let maxVisibleColumns: Int
         let selectedNodeId: NodeId?
         let focusedWindowId: NodeId?
+        let incomingSpawnMode: IncomingSpawnMode
 
         init(
             op: MutationOp,
@@ -140,7 +146,8 @@ enum ZigNiriStateKernel {
             insertColumnIndex: Int = -1,
             maxVisibleColumns: Int = -1,
             selectedNodeId: NodeId? = nil,
-            focusedWindowId: NodeId? = nil
+            focusedWindowId: NodeId? = nil,
+            incomingSpawnMode: IncomingSpawnMode = .newColumn
         ) {
             self.op = op
             self.sourceWindowId = sourceWindowId
@@ -155,6 +162,7 @@ enum ZigNiriStateKernel {
             self.maxVisibleColumns = maxVisibleColumns
             self.selectedNodeId = selectedNodeId
             self.focusedWindowId = focusedWindowId
+            self.incomingSpawnMode = incomingSpawnMode
         }
     }
 
@@ -300,6 +308,7 @@ enum ZigNiriStateKernel {
         let rc: Int32
         let kind: TxnKind
         let applied: Bool
+        let structuralAnimationActive: Bool
         let targetWindowId: NodeId?
         let targetNode: RuntimeNodeTarget?
         let changedSourceContext: Bool
@@ -337,6 +346,7 @@ enum ZigNiriStateKernel {
     struct MutationApplyOutcome {
         let rc: Int32
         let applied: Bool
+        let structuralAnimationActive: Bool
         let targetWindowId: NodeId?
         let targetNode: RuntimeNodeTarget?
         let delta: DeltaExport?
@@ -361,6 +371,7 @@ enum ZigNiriStateKernel {
     struct WorkspaceApplyOutcome {
         let rc: Int32
         let applied: Bool
+        let structuralAnimationActive: Bool
         let sourceSelectionWindowId: NodeId?
         let targetSelectionWindowId: NodeId?
         let movedWindowId: NodeId?
@@ -873,6 +884,7 @@ enum ZigNiriStateKernel {
             selected_node_id: zeroUUID(),
             has_focused_window_id: 0,
             focused_window_id: zeroUUID(),
+            incoming_spawn_mode: UInt8(truncatingIfNeeded: OMNI_NIRI_SPAWN_NEW_COLUMN.rawValue),
             has_incoming_window_id: 0,
             incoming_window_id: zeroUUID(),
             has_created_column_id: 0,
@@ -1173,6 +1185,7 @@ enum ZigNiriStateKernel {
                 selected_node_id: mutationRequest.request.selectedNodeId.map(omniUUID(from:)) ?? zeroUUID(),
                 has_focused_window_id: mutationRequest.request.focusedWindowId == nil ? 0 : 1,
                 focused_window_id: mutationRequest.request.focusedWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                incoming_spawn_mode: mutationRequest.request.incomingSpawnMode.rawValue,
                 has_incoming_window_id: mutationRequest.incomingWindowId == nil ? 0 : 1,
                 incoming_window_id: mutationRequest.incomingWindowId.map(omniUUID(from:)) ?? zeroUUID(),
                 has_created_column_id: mutationRequest.createdColumnId == nil ? 0 : 1,
@@ -1242,6 +1255,7 @@ enum ZigNiriStateKernel {
             rc: rc,
             kind: resolvedKind,
             applied: rc == OMNI_OK && rawResult.applied != 0,
+            structuralAnimationActive: rc == OMNI_OK && rawResult.structural_animation_active != 0,
             targetWindowId: rc == OMNI_OK && rawResult.has_target_window_id != 0
                 ? nodeId(from: rawResult.target_window_id)
                 : nil,
@@ -1267,6 +1281,7 @@ enum ZigNiriStateKernel {
             return MutationApplyOutcome(
                 rc: exported.outcome.rc != OMNI_OK ? exported.outcome.rc : exported.deltaRC,
                 applied: false,
+                structuralAnimationActive: false,
                 targetWindowId: nil,
                 targetNode: nil,
                 delta: nil
@@ -1275,6 +1290,7 @@ enum ZigNiriStateKernel {
         return MutationApplyOutcome(
             rc: exported.outcome.rc,
             applied: exported.outcome.applied,
+            structuralAnimationActive: exported.outcome.structuralAnimationActive,
             targetWindowId: exported.outcome.targetWindowId,
             targetNode: exported.outcome.targetNode,
             delta: exported.delta
@@ -1294,6 +1310,7 @@ enum ZigNiriStateKernel {
         return WorkspaceApplyOutcome(
             rc: exported.outcome.rc,
             applied: exported.outcome.applied,
+            structuralAnimationActive: exported.outcome.structuralAnimationActive,
             sourceSelectionWindowId: exported.sourceDelta?.sourceSelectionWindowId,
             targetSelectionWindowId: exported.targetDelta?.targetSelectionWindowId,
             movedWindowId: exported.targetDelta?.movedWindowId,

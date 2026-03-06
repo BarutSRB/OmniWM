@@ -415,6 +415,7 @@ fn initTxnResult(out_result: [*c]abi.OmniNiriTxnResult) void {
     out_result[0] = .{
         .applied = 0,
         .kind = 0,
+        .structural_animation_active = 0,
         .has_target_window_id = 0,
         .target_window_id = zeroUuid(),
         .has_target_node_id = 0,
@@ -1744,6 +1745,28 @@ fn mutationOpRequiresTargetColumn(op: u8) bool {
     };
 }
 
+fn mutationOpTriggersStructuralAnimation(op: u8) bool {
+    return switch (op) {
+        abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL,
+        abi.OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL,
+        abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_HORIZONTAL,
+        abi.OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_HORIZONTAL,
+        abi.OMNI_NIRI_MUTATION_OP_SWAP_WINDOWS_BY_MOVE,
+        abi.OMNI_NIRI_MUTATION_OP_INSERT_WINDOW_BY_MOVE,
+        abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_TO_COLUMN,
+        abi.OMNI_NIRI_MUTATION_OP_CREATE_COLUMN_AND_MOVE,
+        abi.OMNI_NIRI_MUTATION_OP_INSERT_WINDOW_IN_NEW_COLUMN,
+        abi.OMNI_NIRI_MUTATION_OP_MOVE_COLUMN,
+        abi.OMNI_NIRI_MUTATION_OP_CONSUME_WINDOW,
+        abi.OMNI_NIRI_MUTATION_OP_EXPEL_WINDOW,
+        abi.OMNI_NIRI_MUTATION_OP_BALANCE_SIZES,
+        abi.OMNI_NIRI_MUTATION_OP_ADD_WINDOW,
+        abi.OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW,
+        => true,
+        else => false,
+    };
+}
+
 fn applyNavigationTxn(
     source_ctx: *OmniNiriLayoutContext,
     source_state: *RuntimeState,
@@ -2008,6 +2031,7 @@ fn applyMutationTxn(
         .selected_node_kind = selected_node_kind,
         .selected_node_index = selected_node_index,
         .focused_window_index = focused_window_index,
+        .incoming_spawn_mode = payload.incoming_spawn_mode,
     };
 
     const apply_request: abi.OmniNiriMutationApplyRequest = .{
@@ -2105,6 +2129,9 @@ fn applyMutationTxn(
     commitRuntimeState(source_ctx, runtime_state);
     out_result[0].applied = 1;
     out_result[0].changed_source_context = 1;
+    out_result[0].structural_animation_active = @intFromBool(
+        mutationOpTriggersStructuralAnimation(payload.op)
+    );
 
     source_delta_meta.refresh_count = hints.refresh_count;
     source_delta_meta.refresh_column_ids = hints.refresh_column_ids;
@@ -2476,6 +2503,7 @@ fn applyWorkspaceTxn(
     out_result[0].applied = 1;
     out_result[0].changed_source_context = 1;
     out_result[0].changed_target_context = 1;
+    out_result[0].structural_animation_active = 1;
 
     return abi.OMNI_OK;
 }

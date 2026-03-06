@@ -1,5 +1,7 @@
+import CZigLayout
 import CoreGraphics
 import Foundation
+import QuartzCore
 
 final class ZigNiriEngine {
     private struct RuntimeSelectionAnchor {
@@ -11,6 +13,34 @@ final class ZigNiriEngine {
     private struct RuntimeStateMutationOutcome {
         let rc: Int32
         let applied: Bool
+    }
+
+    private struct ActiveInteractiveResize {
+        let windowId: NodeId
+        let workspaceId: WorkspaceDescriptor.ID
+        let edges: ZigNiriResizeEdge
+        let startMouseLocation: CGPoint
+        let columnId: NodeId?
+        let originalColumnWidth: CGFloat
+        let minColumnWidth: CGFloat
+        let maxColumnWidth: CGFloat
+        let originalWindowWeight: CGFloat
+        let minWindowWeight: CGFloat
+        let maxWindowWeight: CGFloat
+        let pixelsPerWeight: CGFloat
+        let originalViewOffset: CGFloat?
+        let orientation: Monitor.Orientation
+    }
+
+    private enum StructuralAnimationKind {
+        case mutation(fromFramesByNodeId: [NodeId: CGRect])
+        case workspaceSwitch
+    }
+
+    private struct StructuralAnimationState {
+        let kind: StructuralAnimationKind
+        let startedAt: TimeInterval
+        let duration: TimeInterval
     }
 
     private var maxVisibleColumns: Int
@@ -32,7 +62,8 @@ final class ZigNiriEngine {
     private var savedWindowHeightsByNodeId: [NodeId: WeightedSize] = [:]
 
     private var interactiveMoveState: ZigNiriInteractiveMoveState?
-    private var interactiveResizeState: ZigNiriInteractiveResizeState?
+    private var interactiveResizeState: ActiveInteractiveResize?
+    private var structuralAnimationsByWorkspace: [WorkspaceDescriptor.ID: StructuralAnimationState] = [:]
 
     init(
         maxWindowsPerColumn: Int = 3,
@@ -70,6 +101,44 @@ final class ZigNiriEngine {
 
     func workspaceView(for workspaceId: WorkspaceDescriptor.ID) -> ZigNiriWorkspaceView? {
         workspaceViews[workspaceId]
+    }
+
+    func hasActiveStructuralAnimation(
+        in workspaceId: WorkspaceDescriptor.ID,
+        at time: TimeInterval = CACurrentMediaTime()
+    ) -> Bool {
+        guard let animation = structuralAnimationsByWorkspace[workspaceId] else {
+            return false
+        }
+        let elapsed = max(0, time - animation.startedAt)
+        if elapsed < animation.duration {
+            return true
+        }
+        structuralAnimationsByWorkspace.removeValue(forKey: workspaceId)
+        return false
+    }
+
+    func cancelStructuralAnimation(in workspaceId: WorkspaceDescriptor.ID) {
+        structuralAnimationsByWorkspace.removeValue(forKey: workspaceId)
+    }
+
+    @discardableResult
+    func startWorkspaceSwitchAnimation(
+        in workspaceId: WorkspaceDescriptor.ID,
+        duration: TimeInterval = 0.20
+    ) -> Bool {
+        guard ensureRuntimeContext(for: workspaceId) != nil else {
+            return false
+        }
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return false
+        }
+        structuralAnimationsByWorkspace[workspaceId] = StructuralAnimationState(
+            kind: .workspaceSwitch,
+            startedAt: CACurrentMediaTime(),
+            duration: max(0.01, duration)
+        )
+        return true
     }
 
     @discardableResult
@@ -505,6 +574,8 @@ final class ZigNiriEngine {
                     selection: workspaceViews[workspaceId]?.selection
                 )
             }
+            let sourcePreFrames = captureNodeFrames(in: workspaceId)
+            let targetPreFrames = captureNodeFrames(in: targetWorkspaceId)
 
             let outcome = ZigNiriStateKernel.applyWorkspace(
                 sourceContext: sourceContext,
@@ -530,6 +601,17 @@ final class ZigNiriEngine {
                 markWorkspaceDirty(targetWorkspaceId)
                 markWorkspaceDirty(workspaceId)
             }
+            let structuralAnimationActive = outcome.applied && outcome.structuralAnimationActive
+            if structuralAnimationActive {
+                scheduleStructuralAnimation(
+                    in: workspaceId,
+                    from: sourcePreFrames
+                )
+                scheduleStructuralAnimation(
+                    in: targetWorkspaceId,
+                    from: targetPreFrames
+                )
+            }
             guard ensureSyncedViewIfNeeded(workspaceId: targetWorkspaceId) else {
                 return .noChange(
                     workspaceId: workspaceId,
@@ -543,7 +625,8 @@ final class ZigNiriEngine {
                 workspaceId: targetWorkspaceId,
                 selection: targetView.selection,
                 affectedNodeIds: [windowId],
-                removedNodeIds: []
+                removedNodeIds: [],
+                structuralAnimationActive: structuralAnimationActive
             )
 
         case let .moveColumn(columnId, targetWorkspaceId):
@@ -555,6 +638,8 @@ final class ZigNiriEngine {
                     selection: workspaceViews[workspaceId]?.selection
                 )
             }
+            let sourcePreFrames = captureNodeFrames(in: workspaceId)
+            let targetPreFrames = captureNodeFrames(in: targetWorkspaceId)
 
             let outcome = ZigNiriStateKernel.applyWorkspace(
                 sourceContext: sourceContext,
@@ -578,6 +663,17 @@ final class ZigNiriEngine {
                 markWorkspaceDirty(targetWorkspaceId)
                 markWorkspaceDirty(workspaceId)
             }
+            let structuralAnimationActive = outcome.applied && outcome.structuralAnimationActive
+            if structuralAnimationActive {
+                scheduleStructuralAnimation(
+                    in: workspaceId,
+                    from: sourcePreFrames
+                )
+                scheduleStructuralAnimation(
+                    in: targetWorkspaceId,
+                    from: targetPreFrames
+                )
+            }
             guard ensureSyncedViewIfNeeded(workspaceId: targetWorkspaceId) else {
                 return .noChange(
                     workspaceId: workspaceId,
@@ -591,7 +687,8 @@ final class ZigNiriEngine {
                 workspaceId: targetWorkspaceId,
                 selection: targetView.selection,
                 affectedNodeIds: [columnId],
-                removedNodeIds: []
+                removedNodeIds: [],
+                structuralAnimationActive: structuralAnimationActive
             )
         }
     }
@@ -606,6 +703,7 @@ final class ZigNiriEngine {
         guard let context = ensureRuntimeContext(for: workspaceId) else {
             return []
         }
+        let preFrames = captureNodeFrames(in: workspaceId)
 
         let incomingHandles = Set(handles)
         var incomingByUUID: [UUID: WindowHandle] = [:]
@@ -650,39 +748,19 @@ final class ZigNiriEngine {
             export.columns = [defaultRuntimeColumnState(columnId: NodeId())]
         }
         normalizeRuntimeExport(&export)
+        let selectedAnchorId = selectedNodeId ?? workspaceViews[workspaceId]?.selection?.selectedNodeId
 
         let preferredColumnId: NodeId = {
             let view = workspaceViews[workspaceId]
             let anchor = runtimeSelectionAnchor(
-                selectedNodeId: selectedNodeId ?? view?.selection?.selectedNodeId,
+                selectedNodeId: selectedAnchorId,
                 in: view
             )
             return anchor?.columnId ?? export.columns.first!.columnId
         }()
-
-        if !export.columns.contains(where: { $0.columnId == preferredColumnId }) {
-            export.columns.append(defaultRuntimeColumnState(columnId: preferredColumnId))
-        }
-
-        let maxPerColumn = max(1, maxWindowsPerColumn)
-        var windowIdsByColumn: [NodeId: [NodeId]] = [:]
-        windowIdsByColumn.reserveCapacity(export.columns.count)
-        for column in export.columns {
-            let start = column.windowStart
-            let count = column.windowCount
-            guard start >= 0,
-                  count >= 0,
-                  start <= export.windows.count,
-                  count <= export.windows.count - start
-            else {
-                windowIdsByColumn[column.columnId] = []
-                continue
-            }
-            let ids = export.windows[start ..< start + count].map(\.windowId)
-            windowIdsByColumn[column.columnId] = ids
-        }
-
         var existingWindowIds = Set(export.windows.map(\.windowId))
+        var addedWindowIds: [NodeId] = []
+
         for handle in handles {
             let nodeId: NodeId
             if let existingNodeId = windowNodeIdsByHandle[handle] {
@@ -697,30 +775,22 @@ final class ZigNiriEngine {
                 continue
             }
 
-            if !windowIdsByColumn.keys.contains(preferredColumnId) {
-                windowIdsByColumn[preferredColumnId] = []
-            }
-
-            let preferredIndex = export.columns.firstIndex(where: { $0.columnId == preferredColumnId }) ?? 0
             let targetColumnId: NodeId
-            let preferredCount = windowIdsByColumn[preferredColumnId, default: []].count
-            if preferredCount < maxPerColumn {
-                targetColumnId = preferredColumnId
-            } else if let nearestIndex = nearestNonFullColumnIndex(
-                columns: export.columns,
-                windowsByColumn: windowIdsByColumn,
-                anchorIndex: preferredIndex,
-                maxPerColumn: maxPerColumn
-            ) {
-                targetColumnId = export.columns[nearestIndex].columnId
+            if export.windows.isEmpty,
+               let emptyColumnIndex = export.columns.firstIndex(where: { $0.windowCount == 0 })
+            {
+                targetColumnId = export.columns[emptyColumnIndex].columnId
             } else {
-                let spillColumnId = NodeId()
-                export.columns.append(defaultRuntimeColumnState(columnId: spillColumnId))
-                windowIdsByColumn[spillColumnId] = []
-                targetColumnId = spillColumnId
+                let preferredIndex = export.columns.firstIndex(where: { $0.columnId == preferredColumnId })
+                    ?? max(0, export.columns.count - 1)
+                let insertedColumnId = NodeId()
+                export.columns.insert(
+                    defaultRuntimeColumnState(columnId: insertedColumnId),
+                    at: min(preferredIndex + 1, export.columns.count)
+                )
+                targetColumnId = insertedColumnId
             }
 
-            windowIdsByColumn[targetColumnId, default: []].append(nodeId)
             export.windows.append(
                 ZigNiriStateKernel.RuntimeWindowState(
                     windowId: nodeId,
@@ -732,6 +802,7 @@ final class ZigNiriEngine {
                 )
             )
             existingWindowIds.insert(nodeId)
+            addedWindowIds.append(nodeId)
         }
 
         normalizeRuntimeExport(&export)
@@ -753,11 +824,16 @@ final class ZigNiriEngine {
         var view = ensureWorkspaceView(for: workspaceId)
 
         let focusedNodeId = focusedHandle.flatMap { windowNodeIdsByHandle[$0] }
+        let selectedForView = selectedNodeId ?? focusedNodeId ?? view.selection?.selectedNodeId
         view.selection = ZigNiriSelection(
-            selectedNodeId: selectedNodeId ?? view.selection?.selectedNodeId,
+            selectedNodeId: selectedForView,
             focusedWindowId: focusedNodeId ?? view.selection?.focusedWindowId
         )
         _ = storeWorkspaceView(view, workspaceId: workspaceId)
+
+        if !addedWindowIds.isEmpty || !removedNodeIds.isEmpty {
+            scheduleStructuralAnimation(in: workspaceId, from: preFrames)
+        }
 
         return removedHandles
     }
@@ -817,7 +893,23 @@ final class ZigNiriEngine {
                     hiddenHandles[existingWindow.handle] = .right
                 }
             }
+            let layoutTime = request.animationTime ?? CACurrentMediaTime()
+            frames = applyStructuralAnimationIfNeeded(
+                frames: frames,
+                workspaceId: request.workspaceId,
+                orientation: request.orientation,
+                at: layoutTime
+            )
             if persistFrames {
+                for (handle, frame) in frames {
+                    guard let nodeId = windowNodeIdsByHandle[handle],
+                          var window = view.windowsById[nodeId]
+                    else {
+                        continue
+                    }
+                    window.frame = frame
+                    view.windowsById[nodeId] = window
+                }
                 workspaceViews[request.workspaceId] = view
             }
             return ZigNiriLayoutResult(frames: frames, hiddenHandles: hiddenHandles)
@@ -887,6 +979,26 @@ final class ZigNiriEngine {
                     view.windowsById[windowId] = persistedWindow
                 }
                 frames[window.handle] = frame
+            }
+        }
+
+        let layoutTime = request.animationTime ?? CACurrentMediaTime()
+        frames = applyStructuralAnimationIfNeeded(
+            frames: frames,
+            workspaceId: request.workspaceId,
+            orientation: request.orientation,
+            at: layoutTime
+        )
+
+        if persistFrames {
+            for (handle, frame) in frames {
+                guard let nodeId = windowNodeIdsByHandle[handle],
+                      var window = view.windowsById[nodeId]
+                else {
+                    continue
+                }
+                window.frame = frame
+                view.windowsById[nodeId] = window
             }
         }
 
@@ -1015,7 +1127,77 @@ final class ZigNiriEngine {
     @discardableResult
     func beginInteractiveResize(_ state: ZigNiriInteractiveResizeState) -> Bool {
         guard interactiveResizeState == nil else { return false }
-        interactiveResizeState = state
+        guard ensureSyncedViewIfNeeded(workspaceId: state.workspaceId),
+              let view = workspaceViews[state.workspaceId],
+              let window = view.windowsById[state.windowId]
+        else {
+            return false
+        }
+        let fallbackWidth = max(1, state.orientation == .horizontal
+            ? state.monitorFrame.width / 2
+            : state.monitorFrame.width)
+        let fallbackHeight = max(1, state.orientation == .horizontal
+            ? state.monitorFrame.height
+            : state.monitorFrame.height / 2)
+        let windowFrame = window.frame ?? CGRect(
+            x: state.monitorFrame.minX,
+            y: state.monitorFrame.minY,
+            width: fallbackWidth,
+            height: fallbackHeight
+        )
+
+        let columnId = window.columnId
+        let hasHorizontal = state.edges.hasHorizontal
+        let hasVertical = state.edges.hasVertical
+
+        let originalColumnWidth: CGFloat
+        let minColumnWidth: CGFloat
+        let maxColumnWidth: CGFloat
+        if hasHorizontal {
+            let measured = state.orientation == .horizontal ? windowFrame.width : windowFrame.height
+            originalColumnWidth = max(1, measured)
+            minColumnWidth = 80
+            let monitorPrimary = state.orientation == .horizontal
+                ? state.monitorFrame.width
+                : state.monitorFrame.height
+            maxColumnWidth = max(minColumnWidth, monitorPrimary - state.gap)
+        } else {
+            originalColumnWidth = 0
+            minColumnWidth = 0
+            maxColumnWidth = 0
+        }
+
+        let originalWindowWeight: CGFloat
+        let pixelsPerWeight: CGFloat
+        if hasVertical {
+            switch window.height {
+            case let .auto(weight):
+                originalWindowWeight = max(0.1, weight)
+            case let .fixed(value):
+                originalWindowWeight = max(0.1, value / max(windowFrame.height, 1))
+            }
+            pixelsPerWeight = max(1, windowFrame.height / max(0.1, originalWindowWeight))
+        } else {
+            originalWindowWeight = 0
+            pixelsPerWeight = 0
+        }
+
+        interactiveResizeState = ActiveInteractiveResize(
+            windowId: state.windowId,
+            workspaceId: state.workspaceId,
+            edges: state.edges,
+            startMouseLocation: state.startMouseLocation,
+            columnId: columnId,
+            originalColumnWidth: originalColumnWidth,
+            minColumnWidth: minColumnWidth,
+            maxColumnWidth: maxColumnWidth,
+            originalWindowWeight: originalWindowWeight,
+            minWindowWeight: ResizeConfiguration.default.minWindowWeight,
+            maxWindowWeight: ResizeConfiguration.default.maxWindowWeight,
+            pixelsPerWeight: pixelsPerWeight,
+            originalViewOffset: state.edges.contains(.left) ? state.initialViewportOffset : nil,
+            orientation: state.orientation
+        )
         return true
     }
 
@@ -1028,14 +1210,145 @@ final class ZigNiriEngine {
         }
         let hasMovement = mouseLocation != resize.startMouseLocation
         guard hasMovement else {
-            return .noChange(workspaceId: resize.workspaceId, selection: nil)
+            return .noChange(
+                workspaceId: resize.workspaceId,
+                selection: workspaceViews[resize.workspaceId]?.selection
+            )
         }
+
+        var input = OmniNiriResizeInput(
+            edges: UInt8(resize.edges.rawValue & 0xFF),
+            start_x: Double(resize.startMouseLocation.x),
+            start_y: Double(resize.startMouseLocation.y),
+            current_x: Double(mouseLocation.x),
+            current_y: Double(mouseLocation.y),
+            original_column_width: Double(resize.originalColumnWidth),
+            min_column_width: Double(resize.minColumnWidth),
+            max_column_width: Double(resize.maxColumnWidth),
+            original_window_weight: Double(resize.originalWindowWeight),
+            min_window_weight: Double(resize.minWindowWeight),
+            max_window_weight: Double(resize.maxWindowWeight),
+            pixels_per_weight: Double(resize.pixelsPerWeight),
+            has_original_view_offset: resize.originalViewOffset == nil ? 0 : 1,
+            original_view_offset: Double(resize.originalViewOffset ?? 0)
+        )
+        var output = OmniNiriResizeResult(
+            changed_width: 0,
+            new_column_width: Double(resize.originalColumnWidth),
+            changed_weight: 0,
+            new_window_weight: Double(resize.originalWindowWeight),
+            adjust_view_offset: 0,
+            new_view_offset: Double(resize.originalViewOffset ?? 0)
+        )
+        let rc = withUnsafePointer(to: &input) { inputPtr in
+            withUnsafeMutablePointer(to: &output) { outputPtr in
+                omni_niri_resize_compute(inputPtr, outputPtr)
+            }
+        }
+        guard rc == 0 else {
+            return .noChange(
+                workspaceId: resize.workspaceId,
+                selection: workspaceViews[resize.workspaceId]?.selection
+            )
+        }
+
+        let nextColumnWidth: CGFloat? = output.changed_width != 0 ? CGFloat(output.new_column_width) : nil
+        let nextWindowWeight: CGFloat? = output.changed_weight != 0 ? CGFloat(output.new_window_weight) : nil
+        let nextViewportOffset: CGFloat? = output.adjust_view_offset != 0 ? CGFloat(output.new_view_offset) : nil
+        guard nextColumnWidth != nil || nextWindowWeight != nil || nextViewportOffset != nil else {
+            return .noChange(
+                workspaceId: resize.workspaceId,
+                selection: workspaceViews[resize.workspaceId]?.selection
+            )
+        }
+
+        let mutation: RuntimeStateMutationOutcome = if let context = ensureRuntimeContext(for: resize.workspaceId) {
+            mutateRuntimeState(context: context, workspaceId: resize.workspaceId) { export in
+                var changed = false
+
+                if let columnId = resize.columnId,
+                   let nextColumnWidth,
+                   let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId })
+                {
+                    let column = export.columns[columnIndex]
+                    if column.widthKind != ZigNiriStateKernel.sizeKindFixed
+                        || abs(column.sizeValue - Double(nextColumnWidth)) > 0.0001
+                        || column.isFullWidth
+                        || column.hasSavedWidth
+                    {
+                        export.columns[columnIndex] = ZigNiriStateKernel.RuntimeColumnState(
+                            columnId: column.columnId,
+                            windowStart: column.windowStart,
+                            windowCount: column.windowCount,
+                            activeTileIdx: column.activeTileIdx,
+                            isTabbed: column.isTabbed,
+                            sizeValue: Double(nextColumnWidth),
+                            widthKind: ZigNiriStateKernel.sizeKindFixed,
+                            isFullWidth: false,
+                            hasSavedWidth: false,
+                            savedWidthKind: ZigNiriStateKernel.sizeKindFixed,
+                            savedWidthValue: Double(nextColumnWidth)
+                        )
+                        changed = true
+                    }
+                }
+
+                if let nextWindowWeight,
+                   let windowIndex = export.windows.firstIndex(where: { $0.windowId == resize.windowId })
+                {
+                    let runtimeWindow = export.windows[windowIndex]
+                    if runtimeWindow.heightKind != ZigNiriStateKernel.heightKindAuto
+                        || abs(runtimeWindow.heightValue - Double(nextWindowWeight)) > 0.0001
+                        || abs(runtimeWindow.sizeValue - Double(nextWindowWeight)) > 0.0001
+                    {
+                        export.windows[windowIndex] = ZigNiriStateKernel.RuntimeWindowState(
+                            windowId: runtimeWindow.windowId,
+                            columnId: runtimeWindow.columnId,
+                            columnIndex: runtimeWindow.columnIndex,
+                            sizeValue: Double(nextWindowWeight),
+                            heightKind: ZigNiriStateKernel.heightKindAuto,
+                            heightValue: Double(nextWindowWeight)
+                        )
+                        changed = true
+                    }
+                }
+
+                return changed
+            }
+        } else {
+            RuntimeStateMutationOutcome(rc: -1, applied: false)
+        }
+
+        guard mutation.rc == 0 else {
+            return .noChange(
+                workspaceId: resize.workspaceId,
+                selection: workspaceViews[resize.workspaceId]?.selection
+            )
+        }
+
+        if mutation.applied {
+            _ = ensureSyncedViewIfNeeded(workspaceId: resize.workspaceId)
+        }
+
+        var affectedNodeIds: [NodeId] = []
+        if mutation.applied {
+            affectedNodeIds.append(resize.windowId)
+            if let columnId = resize.columnId {
+                affectedNodeIds.append(columnId)
+            }
+        }
+
         return ZigNiriMutationResult(
-            applied: true,
+            applied: mutation.applied || nextViewportOffset != nil,
             workspaceId: resize.workspaceId,
-            selection: nil,
-            affectedNodeIds: [resize.windowId],
-            removedNodeIds: []
+            selection: workspaceViews[resize.workspaceId]?.selection,
+            affectedNodeIds: affectedNodeIds,
+            removedNodeIds: [],
+            resizeOutput: ZigNiriResizeMutationOutput(
+                columnWidth: nextColumnWidth,
+                windowWeight: nextWindowWeight,
+                viewportOffset: nextViewportOffset
+            )
         )
     }
 
@@ -1076,6 +1389,8 @@ private extension ZigNiriEngine {
         var insertPosition: InsertPosition?
         var insertColumnIndex: Int
         var maxVisibleColumnsOverride: Int?
+        var incomingWindowId: UUID?
+        var incomingSpawnMode: ZigNiriStateKernel.IncomingSpawnMode
         var createdColumnId: UUID?
         var placeholderColumnId: UUID?
 
@@ -1088,6 +1403,8 @@ private extension ZigNiriEngine {
             insertPosition: InsertPosition? = nil,
             insertColumnIndex: Int = -1,
             maxVisibleColumnsOverride: Int? = nil,
+            incomingWindowId: UUID? = nil,
+            incomingSpawnMode: ZigNiriStateKernel.IncomingSpawnMode = .newColumn,
             createdColumnId: UUID? = nil,
             placeholderColumnId: UUID? = nil
         ) {
@@ -1099,6 +1416,8 @@ private extension ZigNiriEngine {
             self.insertPosition = insertPosition
             self.insertColumnIndex = insertColumnIndex
             self.maxVisibleColumnsOverride = maxVisibleColumnsOverride
+            self.incomingWindowId = incomingWindowId
+            self.incomingSpawnMode = incomingSpawnMode
             self.createdColumnId = createdColumnId
             self.placeholderColumnId = placeholderColumnId
         }
@@ -1126,6 +1445,7 @@ private extension ZigNiriEngine {
         guard let context = ensureRuntimeContext(for: workspaceId) else {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
+        let preFrames = captureNodeFrames(in: workspaceId)
 
         let request = ZigNiriStateKernel.MutationRequest(
             op: mutation.op,
@@ -1140,12 +1460,14 @@ private extension ZigNiriEngine {
             insertColumnIndex: mutation.insertColumnIndex,
             maxVisibleColumns: mutation.maxVisibleColumnsOverride ?? maxVisibleColumns,
             selectedNodeId: selection?.selectedNodeId ?? workspaceViews[workspaceId]?.selection?.selectedNodeId,
-            focusedWindowId: selection?.focusedWindowId ?? workspaceViews[workspaceId]?.selection?.focusedWindowId
+            focusedWindowId: selection?.focusedWindowId ?? workspaceViews[workspaceId]?.selection?.focusedWindowId,
+            incomingSpawnMode: mutation.incomingSpawnMode
         )
         let outcome = ZigNiriStateKernel.applyMutation(
             context: context,
             request: .init(
                 request: request,
+                incomingWindowId: mutation.incomingWindowId,
                 createdColumnId: mutation.createdColumnId,
                 placeholderColumnId: mutation.placeholderColumnId
             )
@@ -1155,10 +1477,15 @@ private extension ZigNiriEngine {
         }
 
         let removedIds = outcome.delta?.removedWindowIds ?? []
+        let structuralAnimationActive = outcome.applied && outcome.structuralAnimationActive
         if outcome.applied {
             markWorkspaceDirty(workspaceId)
+            if structuralAnimationActive {
+                scheduleStructuralAnimation(in: workspaceId, from: preFrames)
+            }
         }
-        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+        let synced = ensureSyncedViewIfNeeded(workspaceId: workspaceId)
+        guard synced else {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
         var view = ensureWorkspaceView(for: workspaceId)
@@ -1226,7 +1553,8 @@ private extension ZigNiriEngine {
             workspaceId: workspaceId,
             selection: view.selection,
             affectedNodeIds: affected,
-            removedNodeIds: removedIds
+            removedNodeIds: removedIds,
+            structuralAnimationActive: structuralAnimationActive
         )
     }
 
@@ -1421,6 +1749,7 @@ private extension ZigNiriEngine {
         guard let context = ensureRuntimeContext(for: workspaceId) else {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
+        let preFrames = captureNodeFrames(in: workspaceId)
 
         let mutation = mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
             guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId }) else {
@@ -1466,13 +1795,18 @@ private extension ZigNiriEngine {
             view.selection = normalizedSelection(selection, in: view)
         }
         view = storeWorkspaceView(view, workspaceId: workspaceId)
+        let structuralAnimationActive = mutation.applied
+        if structuralAnimationActive {
+            scheduleStructuralAnimation(in: workspaceId, from: preFrames)
+        }
 
         return ZigNiriMutationResult(
             applied: mutation.applied,
             workspaceId: workspaceId,
             selection: view.selection,
             affectedNodeIds: mutation.applied ? [columnId] : [],
-            removedNodeIds: []
+            removedNodeIds: [],
+            structuralAnimationActive: structuralAnimationActive
         )
     }
 
@@ -1548,6 +1882,7 @@ private extension ZigNiriEngine {
         guard let context = ensureRuntimeContext(for: workspaceId) else {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
+        let preFrames = captureNodeFrames(in: workspaceId)
 
         let mutation = mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
             guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId }) else {
@@ -1592,13 +1927,18 @@ private extension ZigNiriEngine {
             view.selection = normalizedSelection(selection, in: view)
         }
         view = storeWorkspaceView(view, workspaceId: workspaceId)
+        let structuralAnimationActive = mutation.applied
+        if structuralAnimationActive {
+            scheduleStructuralAnimation(in: workspaceId, from: preFrames)
+        }
 
         return ZigNiriMutationResult(
             applied: mutation.applied,
             workspaceId: workspaceId,
             selection: view.selection,
             affectedNodeIds: mutation.applied ? [columnId] : [],
-            removedNodeIds: []
+            removedNodeIds: [],
+            structuralAnimationActive: structuralAnimationActive
         )
     }
 
@@ -1610,6 +1950,7 @@ private extension ZigNiriEngine {
         guard let context = ensureRuntimeContext(for: workspaceId) else {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
+        let preFrames = captureNodeFrames(in: workspaceId)
 
         let mutation = mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
             guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId }) else {
@@ -1677,13 +2018,18 @@ private extension ZigNiriEngine {
             view.selection = selection
         }
         view = storeWorkspaceView(view, workspaceId: workspaceId)
+        let structuralAnimationActive = mutation.applied
+        if structuralAnimationActive {
+            scheduleStructuralAnimation(in: workspaceId, from: preFrames)
+        }
 
         return ZigNiriMutationResult(
             applied: mutation.applied,
             workspaceId: workspaceId,
             selection: view.selection,
             affectedNodeIds: mutation.applied ? [columnId] : [],
-            removedNodeIds: []
+            removedNodeIds: [],
+            structuralAnimationActive: structuralAnimationActive
         )
     }
 
@@ -1699,6 +2045,7 @@ private extension ZigNiriEngine {
         guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
+        let preFrames = captureNodeFrames(in: workspaceId)
         var view = ensureWorkspaceView(for: workspaceId)
         if let selection {
             view.selection = selection
@@ -1774,13 +2121,15 @@ private extension ZigNiriEngine {
         window.sizingMode = mode
         view.windowsById[windowId] = window
         view = storeWorkspaceView(view, workspaceId: workspaceId)
+        scheduleStructuralAnimation(in: workspaceId, from: preFrames)
 
         return ZigNiriMutationResult(
             applied: true,
             workspaceId: workspaceId,
             selection: view.selection,
             affectedNodeIds: affectedNodeIds,
-            removedNodeIds: []
+            removedNodeIds: [],
+            structuralAnimationActive: true
         )
     }
 
@@ -2904,6 +3253,90 @@ private extension ZigNiriEngine {
         case .focus, .move:
             return view.selection?.selectedNodeId
         }
+    }
+
+    func captureNodeFrames(in workspaceId: WorkspaceDescriptor.ID) -> [NodeId: CGRect] {
+        guard let view = workspaceViews[workspaceId] else {
+            return [:]
+        }
+        var framesByNodeId: [NodeId: CGRect] = [:]
+        framesByNodeId.reserveCapacity(view.windowsById.count)
+        for (windowId, window) in view.windowsById {
+            if let frame = window.frame {
+                framesByNodeId[windowId] = frame
+            }
+        }
+        return framesByNodeId
+    }
+
+    func scheduleStructuralAnimation(
+        in workspaceId: WorkspaceDescriptor.ID,
+        from fromFramesByNodeId: [NodeId: CGRect],
+        duration: TimeInterval = 0.18
+    ) {
+        structuralAnimationsByWorkspace[workspaceId] = StructuralAnimationState(
+            kind: .mutation(fromFramesByNodeId: fromFramesByNodeId),
+            startedAt: CACurrentMediaTime(),
+            duration: max(0.01, duration)
+        )
+    }
+
+    func applyStructuralAnimationIfNeeded(
+        frames: [WindowHandle: CGRect],
+        workspaceId: WorkspaceDescriptor.ID,
+        orientation: Monitor.Orientation,
+        at time: TimeInterval
+    ) -> [WindowHandle: CGRect] {
+        guard let animation = structuralAnimationsByWorkspace[workspaceId] else {
+            return frames
+        }
+        let progress = max(0, min(1, (time - animation.startedAt) / animation.duration))
+        if progress >= 1 {
+            structuralAnimationsByWorkspace.removeValue(forKey: workspaceId)
+            return frames
+        }
+
+        let appearOffset: CGFloat = 24
+        var adjusted = frames
+        switch animation.kind {
+        case let .mutation(fromFramesByNodeId):
+            for (handle, targetFrame) in frames {
+                guard let nodeId = windowNodeIdsByHandle[handle] else { continue }
+                let fromFrame = fromFramesByNodeId[nodeId] ?? shiftedFrame(
+                    targetFrame,
+                    orientation: orientation,
+                    offset: appearOffset
+                )
+                adjusted[handle] = interpolatedFrame(from: fromFrame, to: targetFrame, progress: progress)
+            }
+        case .workspaceSwitch:
+            let offset = CGFloat(1 - progress) * 32
+            for (handle, frame) in frames {
+                adjusted[handle] = shiftedFrame(frame, orientation: orientation, offset: offset)
+            }
+        }
+        return adjusted
+    }
+
+    func shiftedFrame(
+        _ frame: CGRect,
+        orientation: Monitor.Orientation,
+        offset: CGFloat
+    ) -> CGRect {
+        if orientation == .horizontal {
+            return frame.offsetBy(dx: offset, dy: 0)
+        }
+        return frame.offsetBy(dx: 0, dy: offset)
+    }
+
+    func interpolatedFrame(from: CGRect, to: CGRect, progress: TimeInterval) -> CGRect {
+        let t = CGFloat(max(0, min(1, progress)))
+        return CGRect(
+            x: from.origin.x + (to.origin.x - from.origin.x) * t,
+            y: from.origin.y + (to.origin.y - from.origin.y) * t,
+            width: from.width + (to.width - from.width) * t,
+            height: from.height + (to.height - from.height) * t
+        )
     }
 
     func rowIndex(for windowId: NodeId, in windowIds: [NodeId]) -> Int? {

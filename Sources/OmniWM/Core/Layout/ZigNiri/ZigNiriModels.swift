@@ -40,6 +40,26 @@ struct ZigNiriMutationResult {
     let selection: ZigNiriSelection?
     let affectedNodeIds: [NodeId]
     let removedNodeIds: [NodeId]
+    let structuralAnimationActive: Bool
+    let resizeOutput: ZigNiriResizeMutationOutput?
+
+    init(
+        applied: Bool,
+        workspaceId: WorkspaceDescriptor.ID?,
+        selection: ZigNiriSelection?,
+        affectedNodeIds: [NodeId],
+        removedNodeIds: [NodeId],
+        structuralAnimationActive: Bool = false,
+        resizeOutput: ZigNiriResizeMutationOutput? = nil
+    ) {
+        self.applied = applied
+        self.workspaceId = workspaceId
+        self.selection = selection
+        self.affectedNodeIds = affectedNodeIds
+        self.removedNodeIds = removedNodeIds
+        self.structuralAnimationActive = structuralAnimationActive
+        self.resizeOutput = resizeOutput
+    }
 
     static func noChange(
         workspaceId: WorkspaceDescriptor.ID?,
@@ -50,9 +70,17 @@ struct ZigNiriMutationResult {
             workspaceId: workspaceId,
             selection: selection,
             affectedNodeIds: [],
-            removedNodeIds: []
+            removedNodeIds: [],
+            structuralAnimationActive: false,
+            resizeOutput: nil
         )
     }
+}
+
+struct ZigNiriResizeMutationOutput {
+    let columnWidth: CGFloat?
+    let windowWeight: CGFloat?
+    let viewportOffset: CGFloat?
 }
 
 struct ZigNiriNavigationResult {
@@ -139,6 +167,29 @@ struct ZigNiriLayoutRequest {
     let workingArea: ZigNiriWorkingAreaContext?
     let orientation: Monitor.Orientation
     let viewportOffset: CGFloat
+    let animationTime: TimeInterval?
+
+    init(
+        workspaceId: WorkspaceDescriptor.ID,
+        monitorFrame: CGRect,
+        screenFrame: CGRect?,
+        gaps: ZigNiriGaps,
+        scale: CGFloat,
+        workingArea: ZigNiriWorkingAreaContext?,
+        orientation: Monitor.Orientation,
+        viewportOffset: CGFloat,
+        animationTime: TimeInterval? = nil
+    ) {
+        self.workspaceId = workspaceId
+        self.monitorFrame = monitorFrame
+        self.screenFrame = screenFrame
+        self.gaps = gaps
+        self.scale = scale
+        self.workingArea = workingArea
+        self.orientation = orientation
+        self.viewportOffset = viewportOffset
+        self.animationTime = animationTime
+    }
 }
 
 struct ZigNiriLayoutResult {
@@ -217,4 +268,8 @@ struct ZigNiriInteractiveResizeState {
     let workspaceId: WorkspaceDescriptor.ID
     let edges: ZigNiriResizeEdge
     let startMouseLocation: CGPoint
+    let monitorFrame: CGRect
+    let orientation: Monitor.Orientation
+    let gap: CGFloat
+    let initialViewportOffset: CGFloat?
 }
