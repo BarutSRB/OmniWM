@@ -27,7 +27,6 @@ final class MouseEventHandler {
         var lastFocusFollowsMouseHandle: WindowHandle?
         let focusFollowsMouseDebounce: TimeInterval = 0.1
         var dragGhostController: DragGhostController?
-        var moveIsInsertMode: Bool = false
 
         var gesturePhase: GesturePhase = .idle
         var gestureStartX: CGFloat = 0.0
@@ -214,9 +213,7 @@ final class MouseEventHandler {
 
         guard !state.isResizing else { return }
 
-        guard let engine = controller.niriEngine,
-              let wsId = controller.activeWorkspace()?.id
-        else {
+        guard let context = resolveScrollContext(at: location) else {
             if !state.currentHoveredEdges.isEmpty {
                 NSCursor.arrow.set()
                 state.currentHoveredEdges = []
@@ -224,16 +221,16 @@ final class MouseEventHandler {
             return
         }
 
-        if let hitResult = engine.hitTestResize(point: location, in: wsId) {
-            if hitResult.edges != state.currentHoveredEdges {
-                hitResult.edges.cursor.set()
-                state.currentHoveredEdges = hitResult.edges
+        let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
+        if let hitResult = context.engine.hitTestResize(at: location, request) {
+            let legacy = resizeEdges(from: hitResult.edges)
+            if legacy != state.currentHoveredEdges {
+                legacy.cursor.set()
+                state.currentHoveredEdges = legacy
             }
-        } else {
-            if !state.currentHoveredEdges.isEmpty {
-                NSCursor.arrow.set()
-                state.currentHoveredEdges = []
-            }
+        } else if !state.currentHoveredEdges.isEmpty {
+            NSCursor.arrow.set()
+            state.currentHoveredEdges = []
         }
     }
 
@@ -241,46 +238,29 @@ final class MouseEventHandler {
         guard let controller else { return }
         guard controller.isEnabled else { return }
         if controller.isOverviewOpen() { return }
+        if controller.isPointInOwnWindow(location) { return }
 
-        if controller.isPointInOwnWindow(location) {
-            return
-        }
+        guard let context = resolveScrollContext(at: location) else { return }
 
-        guard let engine = controller.niriEngine,
-              let wsId = controller.activeWorkspace()?.id
-        else {
-            return
-        }
+        let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
 
         if modifiers.contains(.maskAlternate) {
-            if let tiledWindow = engine.hitTestTiled(point: location, in: wsId),
-               let monitor = controller.workspaceManager.monitor(for: wsId)
-            {
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                let gaps = CGFloat(controller.workspaceManager.gaps)
+            if let tiledWindow = context.engine.hitTestTiled(at: location, request) {
+                let started = context.engine.beginInteractiveMove(
+                    ZigNiriInteractiveMoveState(
+                        windowId: tiledWindow.windowId,
+                        workspaceId: context.wsId,
+                        startMouseLocation: location,
+                        monitorFrame: context.monitor.visibleFrame,
+                        currentHoverTarget: nil
+                    )
+                )
 
-                let isInsertMode = modifiers.contains(.maskShift)
-                var moveStarted = false
-                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                    if engine.interactiveMoveBegin(
-                        windowId: tiledWindow.id,
-                        windowHandle: tiledWindow.handle,
-                        startLocation: location,
-                        isInsertMode: isInsertMode,
-                        in: wsId,
-                        state: &vstate,
-                        workingFrame: workingFrame,
-                        gaps: gaps
-                    ) {
-                        moveStarted = true
-                    }
-                }
-                if moveStarted {
-                    state.moveIsInsertMode = isInsertMode
+                if started {
                     state.isMoving = true
                     NSCursor.closedHand.set()
 
-                    if let entry = controller.workspaceManager.entry(for: tiledWindow.handle),
+                    if let entry = controller.workspaceManager.entry(for: tiledWindow.windowHandle),
                        let frame = AXWindowService.framePreferFast(entry.axRef)
                     {
                         if state.dragGhostController == nil {
@@ -299,18 +279,18 @@ final class MouseEventHandler {
 
         guard !state.currentHoveredEdges.isEmpty else { return }
 
-        if let hitResult = engine.hitTestResize(point: location, in: wsId) {
-            let currentViewOffset = controller.workspaceManager.niriViewportState(for: wsId).viewOffsetPixels.current()
-            if engine.interactiveResizeBegin(
-                windowId: hitResult.nodeId,
-                edges: hitResult.edges,
-                startLocation: location,
-                in: wsId,
-                viewOffset: currentViewOffset
+        if let hitResult = context.engine.hitTestResize(at: location, request) {
+            if context.engine.beginInteractiveResize(
+                ZigNiriInteractiveResizeState(
+                    windowId: hitResult.windowId,
+                    workspaceId: context.wsId,
+                    edges: hitResult.edges,
+                    startMouseLocation: location
+                )
             ) {
                 state.isResizing = true
-                controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
-                hitResult.edges.cursor.set()
+                controller.niriLayoutHandler.cancelActiveAnimations(for: context.wsId)
+                resizeEdges(from: hitResult.edges).cursor.set()
             }
         }
     }
@@ -324,37 +304,18 @@ final class MouseEventHandler {
         let location = NSEvent.mouseLocation
 
         if state.isMoving {
-            guard let engine = controller.niriEngine,
-                  let wsId = controller.activeWorkspace()?.id
-            else {
+            guard let context = resolveScrollContext(at: location) else {
                 return
             }
 
-            let hoverTarget = engine.interactiveMoveUpdate(currentLocation: location, in: wsId)
+            let hoverTarget = context.engine.updateInteractiveMove(mouseLocation: location)
             state.dragGhostController?.updatePosition(cursorLocation: location)
 
-            if let hoverTarget {
-                switch hoverTarget {
-                case let .window(nodeId, handle, insertPosition):
-                    if insertPosition == .swap {
-                        if let entry = controller.workspaceManager.entry(for: handle),
-                           let frame = AXWindowService.framePreferFast(entry.axRef)
-                        {
-                            state.dragGhostController?.showSwapTarget(frame: frame)
-                        }
-                    } else if let wsId = controller.activeWorkspace()?.id,
-                              let dropFrame = engine.insertionDropzoneFrame(
-                                  targetWindowId: nodeId,
-                                  position: insertPosition,
-                                  in: wsId,
-                                  gaps: CGFloat(controller.workspaceManager.gaps)
-                              )
-                    {
-                        state.dragGhostController?.showSwapTarget(frame: dropFrame)
-                    }
-                default:
-                    state.dragGhostController?.hideSwapTarget()
-                }
+            if case let .window(_, handle, _) = hoverTarget,
+               let entry = controller.workspaceManager.entry(for: handle),
+               let frame = AXWindowService.framePreferFast(entry.axRef)
+            {
+                state.dragGhostController?.showSwapTarget(frame: frame)
             } else {
                 state.dragGhostController?.hideSwapTarget()
             }
@@ -362,29 +323,10 @@ final class MouseEventHandler {
         }
 
         guard state.isResizing else { return }
+        guard let context = resolveScrollContext(at: location) else { return }
 
-        guard let engine = controller.niriEngine,
-              let monitor = controller.monitorForInteraction()
-        else {
-            return
-        }
-
-        let gaps = LayoutGaps(
-            horizontal: CGFloat(controller.workspaceManager.gaps),
-            vertical: CGFloat(controller.workspaceManager.gaps),
-            outer: controller.workspaceManager.outerGaps
-        )
-        let insetFrame = controller.insetWorkingFrame(for: monitor)
-        guard let wsId = controller.activeWorkspace()?.id else { return }
-
-        if engine.interactiveResizeUpdate(
-            currentLocation: location,
-            monitorFrame: insetFrame,
-            gaps: gaps,
-            viewportState: { mutate in
-                controller.workspaceManager.withNiriViewportState(for: wsId, mutate)
-            }
-        ) {
+        let update = context.engine.updateInteractiveResize(mouseLocation: location)
+        if update.applied {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
@@ -394,65 +336,37 @@ final class MouseEventHandler {
         if controller.isOverviewOpen() { return }
 
         if state.isMoving {
-            if let engine = controller.niriEngine,
-               let wsId = controller.activeWorkspace()?.id,
-               let monitor = controller.workspaceManager.monitor(for: wsId)
-            {
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                let gaps = CGFloat(controller.workspaceManager.gaps)
-                var didEnd = false
-                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                    didEnd = engine.interactiveMoveEnd(
-                        at: location,
-                        in: wsId,
-                        state: &vstate,
-                        workingFrame: workingFrame,
-                        gaps: gaps
-                    )
-                }
-                if didEnd {
+            if let context = resolveScrollContext(at: location) {
+                let result = context.engine.endInteractiveMove(commit: true)
+                if result.applied {
                     controller.layoutRefreshController.executeLayoutRefreshImmediate()
                 }
             }
 
             state.dragGhostController?.endDrag()
             state.isMoving = false
-            state.moveIsInsertMode = false
             NSCursor.arrow.set()
             return
         }
 
         guard state.isResizing else { return }
 
-        if let engine = controller.niriEngine,
-           let wsId = controller.activeWorkspace()?.id,
-           let monitor = controller.workspaceManager.monitor(for: wsId)
-        {
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(controller.workspaceManager.gaps)
+        if let context = resolveScrollContext(at: location) {
+            _ = context.engine.endInteractiveResize(commit: true)
+            controller.layoutRefreshController.startScrollAnimation(for: context.wsId)
 
-            controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                engine.interactiveResizeEnd(
-                    state: &vstate,
-                    workingFrame: workingFrame,
-                    gaps: gaps
-                )
+            let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
+            if let hitResult = context.engine.hitTestResize(at: location, request) {
+                let legacy = resizeEdges(from: hitResult.edges)
+                legacy.cursor.set()
+                state.currentHoveredEdges = legacy
+            } else {
+                NSCursor.arrow.set()
+                state.currentHoveredEdges = []
             }
-            controller.layoutRefreshController.startScrollAnimation(for: wsId)
         }
 
         state.isResizing = false
-
-        if let engine = controller.niriEngine,
-           let wsId = controller.activeWorkspace()?.id,
-           let hitResult = engine.hitTestResize(point: location, in: wsId)
-        {
-            hitResult.edges.cursor.set()
-            state.currentHoveredEdges = hitResult.edges
-        } else {
-            NSCursor.arrow.set()
-            state.currentHoveredEdges = []
-        }
     }
 
     private func handleScrollWheelFromTap(
@@ -495,7 +409,8 @@ final class MouseEventHandler {
             isTrackpad: false,
             engine: context.engine,
             wsId: context.wsId,
-            monitor: context.monitor
+            monitor: context.monitor,
+            orientation: context.orientation
         )
     }
 
@@ -510,22 +425,30 @@ final class MouseEventHandler {
             return
         }
 
-        guard let engine = controller.niriEngine,
-              let wsId = controller.activeWorkspace()?.id
-        else {
-            return
-        }
+        guard let context = resolveScrollContext(at: location) else { return }
+        let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
 
-        if let tiledWindow = engine.hitTestTiled(point: location, in: wsId) {
-            let handle = tiledWindow.handle
+        if let tiledWindow = context.engine.hitTestTiled(at: location, request) {
+            let handle = tiledWindow.windowHandle
             if handle != state.lastFocusFollowsMouseHandle, handle != controller.focusedHandle {
                 state.lastFocusFollowsMouseTime = now
                 state.lastFocusFollowsMouseHandle = handle
-                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                    controller.niriLayoutHandler.activateNode(tiledWindow, in: wsId, state: &vstate)
+
+                _ = context.engine.applyWorkspace(
+                    .setSelection(
+                        ZigNiriSelection(
+                            selectedNodeId: tiledWindow.windowId,
+                            focusedWindowId: tiledWindow.windowId
+                        )
+                    ),
+                    in: context.wsId
+                )
+                controller.workspaceManager.withNiriViewportState(for: context.wsId) { vstate in
+                    vstate.selectedNodeId = tiledWindow.windowId
                 }
+                controller.focusManager.setFocus(handle, in: context.wsId)
+                controller.focusWindow(handle)
             }
-            return
         }
     }
 
@@ -541,7 +464,6 @@ final class MouseEventHandler {
         if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
         guard !state.isResizing, !state.isMoving else { return }
-        guard let engine = controller.niriEngine else { return }
 
         let requiredFingers = controller.settings.gestureFingerCount.rawValue
         let invertDirection = controller.settings.gestureInvertDirection
@@ -554,7 +476,7 @@ final class MouseEventHandler {
                     resetGestureState()
                     return
                 }
-                finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine)
+                finalizeOrCancelCommittedGesture(using: lockedContext)
             }
             resetGestureState()
             return
@@ -654,12 +576,15 @@ final class MouseEventHandler {
 
             state.gesturePhase = .committed
 
+            let orientation = controller.settings.effectiveOrientation(for: monitor)
+            guard let engine = controller.zigNiriEngine else { return }
             applyMouseViewportScrollDelta(
                 deltaUnits,
                 isTrackpad: true,
                 engine: engine,
                 wsId: wsId,
-                monitor: monitor
+                monitor: monitor,
+                orientation: orientation
             )
         }
     }
@@ -667,18 +592,23 @@ final class MouseEventHandler {
     private func applyMouseViewportScrollDelta(
         _ delta: CGFloat,
         isTrackpad: Bool,
-        engine: NiriLayoutEngine,
+        engine: ZigNiriEngine,
         wsId: WorkspaceDescriptor.ID,
-        monitor: Monitor
+        monitor: Monitor,
+        orientation: Monitor.Orientation
     ) {
         guard let controller else { return }
         let insetFrame = controller.insetWorkingFrame(for: monitor)
-        let viewportWidth = insetFrame.width
+        let viewportSpan = orientation == .horizontal ? insetFrame.width : insetFrame.height
         let gap = CGFloat(controller.workspaceManager.gaps)
-        let columns = engine.columns(in: wsId)
 
         var targetWindowHandle: WindowHandle?
+
         controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+            _ = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: vstate.selectedNodeId)
+            guard let view = engine.workspaceView(for: wsId) else { return }
+            let columnSpans = columnSpans(for: view, orientation: orientation, fallbackFrame: insetFrame)
+
             if vstate.viewOffsetPixels.isAnimating {
                 vstate.cancelAnimation()
             }
@@ -691,57 +621,75 @@ final class MouseEventHandler {
             if let steps = vstate.updateGesture(
                 deltaPixels: delta,
                 timestamp: timestamp,
-                columns: columns,
+                columnSpans: columnSpans,
                 gap: gap,
-                viewportWidth: viewportWidth
-            ) {
-                if let currentId = vstate.selectedNodeId,
-                   let currentNode = engine.findNode(by: currentId),
-                   let newNode = engine.moveSelectionByColumns(
-                       steps: steps,
-                       currentSelection: currentNode,
-                       in: wsId
-                   )
-                {
-                    vstate.selectedNodeId = newNode.id
+                viewportSpan: viewportSpan
+            ), steps != 0 {
+                let stepDirection: Direction = if orientation == .horizontal {
+                    steps > 0 ? .right : .left
+                } else {
+                    steps > 0 ? .down : .up
+                }
 
-                    if let newHandle = controller.zigWindowHandle(for: newNode.id, workspaceId: wsId) {
-                        controller.focusManager.setFocus(newHandle, in: wsId)
-                        engine.updateFocusTimestamp(for: newNode.id)
-                        targetWindowHandle = newHandle
-                    }
+                for _ in 0 ..< abs(steps) {
+                    let result = engine.applyNavigation(
+                        .focus(direction: stepDirection),
+                        in: wsId,
+                        orientation: orientation,
+                        selection: ZigNiriSelection(
+                            selectedNodeId: vstate.selectedNodeId,
+                            focusedWindowId: controller.focusedHandle.flatMap { controller.zigNodeId(for: $0, workspaceId: wsId) }
+                        )
+                    )
+                    vstate.selectedNodeId = result.selection?.selectedNodeId
+                    controller.workspaceManager.setSelection(result.selection?.selectedNodeId, for: wsId)
+                }
+
+                if let selectedNodeId = vstate.selectedNodeId,
+                   let newHandle = controller.zigWindowHandle(for: selectedNodeId, workspaceId: wsId)
+                {
+                    controller.focusManager.setFocus(newHandle, in: wsId)
+                    targetWindowHandle = newHandle
                 }
             }
         }
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
 
+        controller.layoutRefreshController.executeLayoutRefreshImmediate()
         if let handle = targetWindowHandle {
             controller.focusWindow(handle)
         }
     }
 
-    private func finalizeOrCancelCommittedGesture(
-        using lockedContext: State.LockedGestureContext,
-        engine: NiriLayoutEngine
-    ) {
-        guard let controller else { return }
+    private func finalizeOrCancelCommittedGesture(using lockedContext: State.LockedGestureContext) {
+        guard let controller,
+              let engine = controller.zigNiriEngine
+        else {
+            return
+        }
+
         let wsId = lockedContext.workspaceId
         guard let monitor = controller.workspaceManager.monitor(byId: lockedContext.monitorId) else {
             cancelCommittedGestureViewportState(for: wsId)
             return
         }
 
+        let orientation = controller.settings.effectiveOrientation(for: monitor)
         let insetFrame = controller.insetWorkingFrame(for: monitor)
-        let columns = engine.columns(in: wsId)
+        let viewportSpan = orientation == .horizontal ? insetFrame.width : insetFrame.height
         let gap = CGFloat(controller.workspaceManager.gaps)
+        let resolved = controller.settings.resolvedNiriSettings(for: monitor)
 
         controller.workspaceManager.withNiriViewportState(for: wsId) { endState in
+            _ = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: endState.selectedNodeId)
+            guard let view = engine.workspaceView(for: wsId) else { return }
+            let spans = columnSpans(for: view, orientation: orientation, fallbackFrame: insetFrame)
+
             endState.endGesture(
-                columns: columns,
+                columnSpans: spans,
                 gap: gap,
-                viewportWidth: insetFrame.width,
-                centerMode: engine.centerFocusedColumn,
-                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                viewportSpan: viewportSpan,
+                centerMode: resolved.centerFocusedColumn,
+                alwaysCenterSingleColumn: resolved.alwaysCenterSingleColumn
             )
         }
         controller.layoutRefreshController.startScrollAnimation(for: wsId)
@@ -762,12 +710,13 @@ final class MouseEventHandler {
     }
 
     private func resolveScrollContext(at location: CGPoint) -> (
-        engine: NiriLayoutEngine,
+        engine: ZigNiriEngine,
         wsId: WorkspaceDescriptor.ID,
-        monitor: Monitor
+        monitor: Monitor,
+        orientation: Monitor.Orientation
     )? {
         guard let controller,
-              let engine = controller.niriEngine
+              let engine = controller.zigNiriEngine
         else {
             return nil
         }
@@ -779,7 +728,62 @@ final class MouseEventHandler {
             return nil
         }
 
-        return (engine, workspace.id, monitor)
+        let orientation = controller.settings.effectiveOrientation(for: monitor)
+        return (engine, workspace.id, monitor, orientation)
+    }
+
+    private func makeHitTestRequest(
+        wsId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        orientation: Monitor.Orientation
+    ) -> ZigNiriHitTestRequest {
+        guard let controller else {
+            return ZigNiriHitTestRequest(
+                workspaceId: wsId,
+                monitorFrame: monitor.visibleFrame,
+                gaps: .default,
+                scale: 2.0,
+                orientation: orientation
+            )
+        }
+
+        return ZigNiriHitTestRequest(
+            workspaceId: wsId,
+            monitorFrame: controller.insetWorkingFrame(for: monitor),
+            gaps: ZigNiriGaps(
+                horizontal: CGFloat(controller.workspaceManager.gaps),
+                vertical: CGFloat(controller.workspaceManager.gaps)
+            ),
+            scale: controller.layoutRefreshController.backingScale(for: monitor),
+            orientation: orientation
+        )
+    }
+
+    private func columnSpans(
+        for view: ZigNiriWorkspaceView,
+        orientation: Monitor.Orientation,
+        fallbackFrame: CGRect
+    ) -> [CGFloat] {
+        guard !view.columns.isEmpty else { return [] }
+
+        let fallback = (orientation == .horizontal ? fallbackFrame.width : fallbackFrame.height) / CGFloat(max(1, view.columns.count))
+
+        return view.columns.map { column in
+            let frames = column.windowIds.compactMap { view.windowsById[$0]?.frame }
+            if orientation == .horizontal {
+                return frames.map(\.width).max() ?? fallback
+            }
+            return frames.map(\.height).max() ?? fallback
+        }
+    }
+
+    private func resizeEdges(from edges: ZigNiriResizeEdge) -> ResizeEdge {
+        var result: ResizeEdge = []
+        if edges.contains(.top) { result.insert(.top) }
+        if edges.contains(.bottom) { result.insert(.bottom) }
+        if edges.contains(.left) { result.insert(.left) }
+        if edges.contains(.right) { result.insert(.right) }
+        return result
     }
 
     private func resetGestureState() {

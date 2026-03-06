@@ -1,7 +1,7 @@
 import CZigLayout
 import Foundation
 
-enum NiriViewportZigMath {
+enum ZigNiriViewportMath {
     struct TransitionPlan {
         let resolvedColumnIndex: Int
         let offsetDelta: CGFloat
@@ -52,7 +52,7 @@ enum NiriViewportZigMath {
     }
 
     private static func report(_ error: ViewportMathError) {
-        NSLog("NiriViewportZigMath error: %@", error.description)
+        NSLog("ZigNiriViewportMath error: %@", error.description)
     }
 
     private static func centerModeCode(_ centerMode: CenterFocusedColumn) -> UInt8 {

@@ -1,42 +1,40 @@
 import Foundation
 
 extension ViewportState {
-    func columnX(at index: Int, columns: [NiriContainer], gap: CGFloat) -> CGFloat {
-        containerPosition(at: index, containers: columns, gap: gap, sizeKeyPath: \.cachedWidth)
+    func columnX(at index: Int, spans: [CGFloat], gap: CGFloat) -> CGFloat {
+        containerPosition(at: index, spans: spans, gap: gap)
     }
 
-    func containerPosition(at index: Int, containers: [NiriContainer], gap: CGFloat, sizeKeyPath: KeyPath<NiriContainer, CGFloat>) -> CGFloat {
+    func containerPosition(at index: Int, spans: [CGFloat], gap: CGFloat) -> CGFloat {
         var pos: CGFloat = 0
         for i in 0 ..< index {
-            guard i < containers.count else { break }
-            pos += containers[i][keyPath: sizeKeyPath] + gap
+            guard i < spans.count else { break }
+            pos += spans[i] + gap
         }
         return pos
     }
 
-    func totalSpan(containers: [NiriContainer], gap: CGFloat, sizeKeyPath: KeyPath<NiriContainer, CGFloat>) -> CGFloat {
-        guard !containers.isEmpty else { return 0 }
-        let sizeSum = containers.reduce(0) { $0 + $1[keyPath: sizeKeyPath] }
-        let gapSum = CGFloat(max(0, containers.count - 1)) * gap
+    func totalSpan(spans: [CGFloat], gap: CGFloat) -> CGFloat {
+        guard !spans.isEmpty else { return 0 }
+        let sizeSum = spans.reduce(0, +)
+        let gapSum = CGFloat(max(0, spans.count - 1)) * gap
         return sizeSum + gapSum
     }
 
     func computeVisibleOffset(
         containerIndex: Int,
-        containers: [NiriContainer],
+        spans: [CGFloat],
         gap: CGFloat,
         viewportSpan: CGFloat,
-        sizeKeyPath: KeyPath<NiriContainer, CGFloat>,
         currentViewStart: CGFloat,
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false,
         fromContainerIndex: Int? = nil
     ) -> CGFloat {
-        guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return 0 }
+        guard !spans.isEmpty, containerIndex >= 0, containerIndex < spans.count else { return 0 }
 
-        let spans = containers.map { Double($0[keyPath: sizeKeyPath]) }
-        return NiriViewportZigMath.computeVisibleOffset(
-            spans: spans,
+        return ZigNiriViewportMath.computeVisibleOffset(
+            spans: spans.map(Double.init),
             containerIndex: containerIndex,
             gap: gap,
             viewportSpan: viewportSpan,
@@ -49,21 +47,20 @@ extension ViewportState {
 
     func computeVisibleOffset(
         columnIndex: Int,
-        columns: [NiriContainer],
+        columnSpans: [CGFloat],
         gap: CGFloat,
-        viewportWidth: CGFloat,
+        viewportSpan: CGFloat,
         currentOffset: CGFloat,
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false,
         fromColumnIndex: Int? = nil
     ) -> CGFloat {
-        let colX = columnX(at: columnIndex, columns: columns, gap: gap)
+        let colX = columnX(at: columnIndex, spans: columnSpans, gap: gap)
         return computeVisibleOffset(
             containerIndex: columnIndex,
-            containers: columns,
+            spans: columnSpans,
             gap: gap,
-            viewportSpan: viewportWidth,
-            sizeKeyPath: \.cachedWidth,
+            viewportSpan: viewportSpan,
             currentViewStart: colX + currentOffset,
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,

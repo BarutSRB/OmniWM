@@ -199,7 +199,6 @@ final class WindowActionHandler {
 
     func navigateToWindowInternal(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
-        guard let engine = controller.niriEngine else { return }
 
         let currentWsId = controller.activeWorkspace()?.id
 
@@ -214,26 +213,16 @@ final class WindowActionHandler {
         if let nodeId = controller.zigNodeId(for: handle, workspaceId: workspaceId) {
             controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
                 state.selectedNodeId = nodeId
-
-                if let workspaceView = controller.syncZigNiriWorkspace(
-                    workspaceId: workspaceId,
-                    selectedNodeId: nodeId
-                ),
-                   let colIdx = workspaceView.columns.firstIndex(where: { $0.windowIds.contains(nodeId) }),
-                   let monitor = controller.workspaceManager.monitor(for: workspaceId)
-                {
-                    engine.activateWindow(nodeId)
-
-                    let cols = engine.columns(in: workspaceId)
-                    let gap = CGFloat(controller.workspaceManager.gaps)
-                    state.snapToColumn(
-                        colIdx,
-                        columns: cols,
-                        gap: gap,
-                        viewportWidth: monitor.visibleFrame.width
-                    )
-                }
             }
+            _ = controller.zigNiriEngine?.applyWorkspace(
+                .setSelection(
+                    ZigNiriSelection(
+                        selectedNodeId: nodeId,
+                        focusedWindowId: nodeId
+                    )
+                ),
+                in: workspaceId
+            )
         }
 
         controller.layoutRefreshController.refreshWindowsAndLayout()

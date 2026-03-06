@@ -4,19 +4,19 @@ import Foundation
 extension ViewportState {
     mutating func setActiveColumn(
         _ index: Int,
-        columns: [NiriContainer],
+        columnSpans: [CGFloat],
         gap: CGFloat,
-        viewportWidth: CGFloat,
+        viewportSpan: CGFloat,
         animate: Bool = false
     ) {
-        guard !columns.isEmpty else { return }
-        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
-        let clampedIndex = index.clamped(to: 0 ... (columns.count - 1))
+        guard !columnSpans.isEmpty else { return }
+        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columnSpans.count - 1))
+        let clampedIndex = index.clamped(to: 0 ... (columnSpans.count - 1))
         transitionToColumn(
             clampedIndex,
-            columns: columns,
+            columnSpans: columnSpans,
             gap: gap,
-            viewportWidth: viewportWidth,
+            viewportSpan: viewportSpan,
             animate: animate,
             centerMode: .always,
             alwaysCenterSingleColumn: true,
@@ -27,31 +27,31 @@ extension ViewportState {
 
     mutating func transitionToColumn(
         _ newIndex: Int,
-        columns: [NiriContainer],
+        columnSpans: [CGFloat],
         gap: CGFloat,
-        viewportWidth: CGFloat,
+        viewportSpan: CGFloat,
         animate: Bool,
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false,
         fromColumnIndex: Int? = nil,
         scale: CGFloat = 2.0
     ) {
-        guard !columns.isEmpty else { return }
-        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
+        guard !columnSpans.isEmpty else { return }
+        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columnSpans.count - 1))
         let requestedNonNegative = max(newIndex, 0)
         let resolvedFromColumnIndex: Int = if let fromColumnIndex,
-                                              (0 ..< columns.count).contains(fromColumnIndex) {
+                                              (0 ..< columnSpans.count).contains(fromColumnIndex) {
             fromColumnIndex
         } else {
             safeCurrentIndex
         }
-        let spans = columns.map { Double($0.cachedWidth) }
-        let plan = NiriViewportZigMath.transitionPlan(
-            spans: spans,
+
+        let plan = ZigNiriViewportMath.transitionPlan(
+            spans: columnSpans.map(Double.init),
             currentActiveIndex: safeCurrentIndex,
             requestedIndex: requestedNonNegative,
             gap: gap,
-            viewportSpan: viewportWidth,
+            viewportSpan: viewportSpan,
             currentTargetOffset: viewOffsetPixels.target(),
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
@@ -81,20 +81,19 @@ extension ViewportState {
 
     mutating func ensureContainerVisible(
         containerIndex: Int,
-        containers: [NiriContainer],
+        spans: [CGFloat],
         gap: CGFloat,
         viewportSpan: CGFloat,
-        sizeKeyPath: KeyPath<NiriContainer, CGFloat>,
         animate: Bool = true,
         centerMode: CenterFocusedColumn = .never,
         alwaysCenterSingleColumn: Bool = false,
         animationConfig: SpringConfig? = nil,
         fromContainerIndex: Int? = nil
     ) {
-        guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return }
-        let safeActiveIndex = activeColumnIndex.clamped(to: 0 ... (containers.count - 1))
+        guard !spans.isEmpty, containerIndex >= 0, containerIndex < spans.count else { return }
+        let safeActiveIndex = activeColumnIndex.clamped(to: 0 ... (spans.count - 1))
         let normalizedFromContainerIndex: Int? = if let fromContainerIndex {
-            if (0 ..< containers.count).contains(fromContainerIndex) {
+            if (0 ..< spans.count).contains(fromContainerIndex) {
                 fromContainerIndex
             } else {
                 safeActiveIndex
@@ -102,10 +101,10 @@ extension ViewportState {
         } else {
             nil
         }
-        let spans = containers.map { Double($0[keyPath: sizeKeyPath]) }
+
         let currentOffset = viewOffsetPixels.current()
-        let plan = NiriViewportZigMath.ensureVisiblePlan(
-            spans: spans,
+        let plan = ZigNiriViewportMath.ensureVisiblePlan(
+            spans: spans.map(Double.init),
             activeContainerIndex: safeActiveIndex,
             targetContainerIndex: containerIndex,
             gap: gap,
@@ -140,20 +139,19 @@ extension ViewportState {
 
     mutating func snapToColumn(
         _ columnIndex: Int,
-        columns: [NiriContainer],
+        columnSpans: [CGFloat],
         gap: CGFloat,
-        viewportWidth: CGFloat
+        viewportSpan: CGFloat
     ) {
-        guard !columns.isEmpty else { return }
-        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
+        guard !columnSpans.isEmpty else { return }
+        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columnSpans.count - 1))
         let requestedNonNegative = max(columnIndex, 0)
-        let spans = columns.map { Double($0.cachedWidth) }
-        let plan = NiriViewportZigMath.transitionPlan(
-            spans: spans,
+        let plan = ZigNiriViewportMath.transitionPlan(
+            spans: columnSpans.map(Double.init),
             currentActiveIndex: safeCurrentIndex,
             requestedIndex: requestedNonNegative,
             gap: gap,
-            viewportSpan: viewportWidth,
+            viewportSpan: viewportSpan,
             currentTargetOffset: viewOffsetPixels.target(),
             centerMode: .always,
             alwaysCenterSingleColumn: true,
@@ -168,16 +166,15 @@ extension ViewportState {
 
     mutating func scrollByPixels(
         _ deltaPixels: CGFloat,
-        columns: [NiriContainer],
+        columnSpans: [CGFloat],
         gap: CGFloat,
-        viewportWidth: CGFloat,
+        viewportSpan: CGFloat,
         changeSelection: Bool
     ) -> Int? {
-        let spans = columns.map { Double($0.cachedWidth) }
-        let result = NiriViewportZigMath.scrollStep(
-            spans: spans,
+        let result = ZigNiriViewportMath.scrollStep(
+            spans: columnSpans.map(Double.init),
             deltaPixels: deltaPixels,
-            viewportSpan: viewportWidth,
+            viewportSpan: viewportSpan,
             gap: gap,
             currentOffset: viewOffsetPixels.current(),
             selectionProgress: selectionProgress,

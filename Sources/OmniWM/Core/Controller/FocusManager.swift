@@ -7,6 +7,9 @@ final class FocusManager {
     private(set) var isNonManagedFocusActive: Bool = false
     private(set) var isAppFullscreenActive: Bool = false
 
+    private var focusHistoryByWorkspace: [WorkspaceDescriptor.ID: [WindowHandle]] = [:]
+    private let maxHistoryPerWorkspace = 32
+
     private var pendingFocusHandle: WindowHandle?
     private var deferredFocusHandle: WindowHandle?
     private var isFocusOperationPending = false
@@ -25,6 +28,7 @@ final class FocusManager {
     func setFocus(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) {
         focusedHandle = handle
         lastFocusedByWorkspace[workspaceId] = handle
+        recordFocus(handle, in: workspaceId)
         onFocusedHandleChanged?(handle)
     }
 
@@ -35,6 +39,27 @@ final class FocusManager {
 
     func updateWorkspaceFocusMemory(_ handle: WindowHandle, for workspaceId: WorkspaceDescriptor.ID) {
         lastFocusedByWorkspace[workspaceId] = handle
+        recordFocus(handle, in: workspaceId)
+    }
+
+    func previousFocusedHandle(
+        in workspaceId: WorkspaceDescriptor.ID,
+        excluding excludedHandle: WindowHandle? = nil,
+        isValid: ((WindowHandle) -> Bool)? = nil
+    ) -> WindowHandle? {
+        guard var history = focusHistoryByWorkspace[workspaceId], !history.isEmpty else {
+            return nil
+        }
+
+        if let isValid {
+            history.removeAll { !isValid($0) }
+            focusHistoryByWorkspace[workspaceId] = history
+        }
+
+        return history.first { candidate in
+            guard let excludedHandle else { return true }
+            return candidate.id != excludedHandle.id
+        }
     }
 
     func resolveWorkspaceFocus(
@@ -90,6 +115,13 @@ final class FocusManager {
         {
             lastFocusedByWorkspace[wsId] = nil
         }
+
+        for workspaceId in Array(focusHistoryByWorkspace.keys) {
+            focusHistoryByWorkspace[workspaceId]?.removeAll { $0.id == handle.id }
+            if focusHistoryByWorkspace[workspaceId]?.isEmpty == true {
+                focusHistoryByWorkspace[workspaceId] = nil
+            }
+        }
     }
 
     func focusWindow(
@@ -115,6 +147,7 @@ final class FocusManager {
         pendingFocusHandle = handle
         lastFocusTime = now
         lastFocusedByWorkspace[workspaceId] = handle
+        recordFocus(handle, in: workspaceId)
 
         performFocus()
 
@@ -165,5 +198,15 @@ final class FocusManager {
         } else {
             clearFocus()
         }
+    }
+
+    private func recordFocus(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) {
+        var history = focusHistoryByWorkspace[workspaceId] ?? []
+        history.removeAll { $0.id == handle.id }
+        history.insert(handle, at: 0)
+        if history.count > maxHistoryPerWorkspace {
+            history.removeLast(history.count - maxHistoryPerWorkspace)
+        }
+        focusHistoryByWorkspace[workspaceId] = history
     }
 }

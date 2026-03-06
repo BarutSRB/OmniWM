@@ -2,25 +2,9 @@ import AppKit
 import Foundation
 import QuartzCore
 
-@MainActor final class NiriLayoutHandler {
+@MainActor
+final class NiriLayoutHandler {
     weak var controller: WMController?
-
-    struct NiriLayoutPass {
-        let wsId: WorkspaceDescriptor.ID
-        let engine: NiriLayoutEngine
-        let monitor: Monitor
-        let insetFrame: CGRect
-        let gap: CGFloat
-    }
-
-    struct RemovalContext {
-        var existingHandleIds: Set<UUID>
-        var wasEmptyBeforeSync: Bool
-        var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
-        var precomputedFallback: NodeId?
-        var originalColumnIndex: Int?
-    }
-
     var scrollAnimationByDisplay: [CGDirectDisplayID: WorkspaceDescriptor.ID] = [:]
 
     init(controller: WMController?) {
@@ -37,38 +21,24 @@ import QuartzCore
 
     func tickScrollAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
         guard let wsId = scrollAnimationByDisplay[displayId] else { return }
-        guard let controller, let engine = controller.niriEngine else {
+        guard let controller,
+              let monitor = controller.workspaceManager.monitors.first(where: { $0.displayId == displayId })
+        else {
             controller?.layoutRefreshController.stopScrollAnimation(for: displayId)
             return
         }
 
-        let windowAnimationsRunning = engine.tickAllWindowAnimations(in: wsId, at: targetTime)
-        let columnAnimationsRunning = engine.tickAllColumnAnimations(in: wsId, at: targetTime)
-        let workspaceSwitchRunning = engine.tickWorkspaceSwitchAnimation(for: wsId, at: targetTime)
-
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
             let viewportAnimationRunning = state.advanceAnimations(at: targetTime)
-
-            guard let monitor = controller.workspaceManager.monitors.first(where: { $0.displayId == displayId }) else {
-                controller.layoutRefreshController.stopScrollAnimation(for: displayId)
-                return
-            }
-
-            self.applyFramesOnDemand(
+            applyFramesOnDemand(
                 wsId: wsId,
                 state: state,
-                engine: engine,
                 monitor: monitor,
                 animationTime: targetTime
             )
 
-            let animationsOngoing = viewportAnimationRunning
-                || windowAnimationsRunning
-                || columnAnimationsRunning
-                || workspaceSwitchRunning
-
-            if !animationsOngoing {
-                self.finalizeAnimation()
+            if !viewportAnimationRunning {
+                finalizeAnimation(for: wsId)
                 var activeIds = Set<WorkspaceDescriptor.ID>()
                 for mon in controller.workspaceManager.monitors {
                     if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: mon.id) {
@@ -84,557 +54,50 @@ import QuartzCore
     func applyFramesOnDemand(
         wsId: WorkspaceDescriptor.ID,
         state: ViewportState,
-        engine: NiriLayoutEngine,
         monitor: Monitor,
         animationTime: TimeInterval? = nil
     ) {
-        guard let controller else { return }
-        let lrc = controller.layoutRefreshController
+        guard let controller,
+              let zig = controller.zigNiriEngine
+        else {
+            return
+        }
 
-        let gaps = LayoutGaps(
+        let orientation = controller.settings.effectiveOrientation(for: monitor)
+        let gaps = ZigNiriGaps(
             horizontal: CGFloat(controller.workspaceManager.gaps),
-            vertical: CGFloat(controller.workspaceManager.gaps),
-            outer: controller.workspaceManager.outerGaps
+            vertical: CGFloat(controller.workspaceManager.gaps)
         )
-
+        let lrc = controller.layoutRefreshController
         let insetFrame = controller.insetWorkingFrame(for: monitor)
-        let area = WorkingAreaContext(
+
+        let area = ZigNiriWorkingAreaContext(
             workingFrame: insetFrame,
             viewFrame: monitor.frame,
             scale: lrc.backingScale(for: monitor)
         )
-        let edgeFrame = monitor.visibleFrame
-        let monitors = controller.workspaceManager.monitors
 
-        let (frames, hiddenHandles) = engine.calculateCombinedLayoutUsingPools(
-            in: wsId,
-            monitor: monitor,
-            gaps: gaps,
-            state: state,
-            workingArea: area,
-            animationTime: animationTime
+        let now = animationTime ?? CACurrentMediaTime()
+        let layoutResult = zig.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: wsId,
+                monitorFrame: monitor.visibleFrame,
+                screenFrame: monitor.frame,
+                gaps: gaps,
+                scale: area.scale,
+                workingArea: area,
+                orientation: orientation,
+                viewportOffset: state.viewOffsetPixels.value(at: now)
+            )
         )
 
-        var positionUpdates: [(windowId: Int, origin: CGPoint)] = []
-        var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+        let frames = layoutResult.frames
+        let hiddenHandles = layoutResult.hiddenHandles
+
         var hiddenWindowJobs: [(pid: pid_t, windowId: Int)] = []
         var visibleWindowJobs: [(pid: pid_t, windowId: Int)] = []
 
-        for (handle, frame) in frames {
-            guard let entry = controller.workspaceManager.entry(for: handle) else { continue }
-
-            if let node = engine.findNode(for: handle),
-               node.sizingMode == .fullscreen {
-                controller.axManager.forceApplyNextFrame(for: entry.windowId)
-            }
-
-            if let side = hiddenHandles[handle] {
-                let actualSize = AXWindowService.framePreferFast(entry.axRef)?.size ?? frame.size
-                let hiddenOrigin = lrc.hiddenOrigin(
-                    for: actualSize,
-                    edgeFrame: edgeFrame,
-                    scale: area.scale,
-                    side: side,
-                    pid: handle.pid,
-                    targetY: frame.origin.y,
-                    monitor: monitor,
-                    monitors: monitors
-                )
-                positionUpdates.append((entry.windowId, hiddenOrigin))
-                hiddenWindowJobs.append((handle.pid, entry.windowId))
-                continue
-            }
-
-            visibleWindowJobs.append((handle.pid, entry.windowId))
-            frameUpdates.append((handle.pid, entry.windowId, frame))
-        }
-
-        if !hiddenWindowJobs.isEmpty {
-            controller.axManager.suppressFrameWrites(hiddenWindowJobs)
-            controller.axManager.cancelPendingFrameJobs(hiddenWindowJobs)
-        }
-        if !positionUpdates.isEmpty {
-        controller.axManager.applyPositionsViaSkyLight(positionUpdates)
-        }
-        if !visibleWindowJobs.isEmpty {
-            let activeJobs = visibleWindowJobs.filter { !controller.axManager.inactiveWorkspaceWindowIds.contains($0.windowId) }
-            if !activeJobs.isEmpty {
-                controller.axManager.unsuppressFrameWrites(activeJobs)
-            }
-        }
-        if !frameUpdates.isEmpty {
-            controller.axManager.applyFramesParallel(frameUpdates)
-        }
-        updateBorderDuringLayout(frames: frames, hiddenHandles: hiddenHandles, direct: true)
-    }
-
-    private func finalizeAnimation() {
-        guard let controller,
-              let focusedHandle = controller.focusedHandle,
-              let entry = controller.workspaceManager.entry(for: focusedHandle),
-              let engine = controller.niriEngine
-        else { return }
-
-        if let node = engine.findNode(for: focusedHandle),
-           let frame = node.frame {
-            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
-        }
-
-        if controller.moveMouseToFocusedWindowEnabled {
-            controller.moveMouseToWindow(focusedHandle)
-        }
-    }
-
-    private func updateBorderDuringLayout(
-        frames: [WindowHandle: CGRect],
-        hiddenHandles: [WindowHandle: HideSide],
-        direct: Bool
-    ) {
-        guard let controller,
-              let focusedHandle = controller.focusedHandle else { return }
-
-        if hiddenHandles[focusedHandle] != nil {
-            controller.borderManager.hideBorder()
-        } else if let frame = frames[focusedHandle],
-                  let entry = controller.workspaceManager.entry(for: focusedHandle) {
-            if direct {
-                controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
-            } else {
-                controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
-            }
-        }
-    }
-
-    func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
-        guard let controller else { return }
-
-        for (displayId, wsId) in scrollAnimationByDisplay where wsId == workspaceId {
-            controller.layoutRefreshController.stopScrollAnimation(for: displayId)
-        }
-
-        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-            state.cancelAnimation()
-        }
-    }
-
-    func layoutWithNiriEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>, useScrollAnimationPath: Bool = false, removedNodeId: NodeId? = nil) async {
-        guard let controller, let engine = controller.niriEngine else { return }
-        let lrc = controller.layoutRefreshController
-
-        for monitor in controller.workspaceManager.monitors {
-            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
-            lrc.unhideWorkspace(workspace.id, monitor: monitor)
-        }
-
-        var processedWorkspaces: Set<WorkspaceDescriptor.ID> = []
-        for monitor in controller.workspaceManager.monitors {
-            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
-            let wsId = workspace.id
-            guard !processedWorkspaces.contains(wsId) else { continue }
-            processedWorkspaces.insert(wsId)
-
-            let layoutType = controller.settings.layoutType(for: workspace.name)
-            if layoutType == .dwindle { continue }
-
-            let windowHandles = controller.workspaceManager.entries(in: wsId).map(\.handle)
-
-            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                let currentSelection = state.selectedNodeId
-
-                let pass = NiriLayoutPass(
-                    wsId: wsId,
-                    engine: engine,
-                    monitor: monitor,
-                    insetFrame: controller.insetWorkingFrame(for: monitor),
-                    gap: CGFloat(controller.workspaceManager.gaps)
-                )
-
-                let removal = self.processWindowRemovals(
-                    pass: pass,
-                    state: &state,
-                    windowHandles: windowHandles,
-                    currentSelection: currentSelection,
-                    removedNodeId: removedNodeId
-                )
-
-                let newHandles = self.syncAndInsert(
-                    pass: pass,
-                    state: &state,
-                    windowHandles: windowHandles,
-                    removal: removal
-                )
-
-                lrc.updateWindowConstraints(in: wsId) { engine.updateWindowConstraints(for: $0, constraints: $1) }
-
-                let viewportNeedsRecalc = self.resolveSelection(
-                    pass: pass,
-                    state: &state,
-                    windowHandles: windowHandles,
-                    removal: removal
-                )
-
-                let newWindowHandle = self.handleNewWindowArrival(
-                    pass: pass,
-                    state: &state,
-                    newHandles: newHandles,
-                    existingHandleIds: removal.existingHandleIds
-                )
-
-                self.computeAndApplyLayout(
-                    pass: pass,
-                    state: state,
-                    newWindowHandle: newWindowHandle,
-                    viewportNeedsRecalc: viewportNeedsRecalc,
-                    useScrollAnimationPath: useScrollAnimationPath
-                )
-            }
-
-            await Task.yield()
-        }
-
-        updateTabbedColumnOverlays()
-        controller.updateWorkspaceBar()
-    }
-
-    private func processWindowRemovals(
-        pass: NiriLayoutPass,
-        state: inout ViewportState,
-        windowHandles: [WindowHandle],
-        currentSelection: NodeId?,
-        removedNodeId: NodeId?
-    ) -> RemovalContext {
-        let existingHandleIds = pass.engine.root(for: pass.wsId)?.windowIdSet ?? []
-        var currentHandleIds = Set<UUID>(minimumCapacity: windowHandles.count)
-        for handle in windowHandles {
-            currentHandleIds.insert(handle.id)
-        }
-        let removedHandleIds = existingHandleIds.subtracting(currentHandleIds)
-
-        var precomputedFallback: NodeId?
-        var originalColumnIndex: Int?
-        var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
-
-        let wasEmptyBeforeSync = pass.engine.columns(in: pass.wsId).isEmpty
-
-        for removedHandleId in removedHandleIds {
-            guard let window = pass.engine.root(for: pass.wsId)?.allWindows.first(where: { $0.handle.id == removedHandleId }),
-                  let col = pass.engine.column(of: window),
-                  let colIdx = pass.engine.columnIndex(of: col, in: pass.wsId) else { continue }
-
-            let allWindowsInColumnRemoved = col.windowNodes.allSatisfy { w in
-                !currentHandleIds.contains(w.handle.id)
-            }
-
-            if allWindowsInColumnRemoved && columnRemovalResult == nil {
-                originalColumnIndex = colIdx
-                columnRemovalResult = pass.engine.animateColumnsForRemoval(
-                    columnIndex: colIdx,
-                    in: pass.wsId,
-                    state: &state,
-                    gaps: pass.gap
-                )
-            }
-
-            let nodeIdForFallback = removedNodeId ?? currentSelection
-            if window.id == nodeIdForFallback {
-                precomputedFallback = pass.engine.fallbackSelectionOnRemoval(
-                    removing: window.id,
-                    in: pass.wsId
-                )
-            }
-        }
-
-        return RemovalContext(
-            existingHandleIds: existingHandleIds,
-            wasEmptyBeforeSync: wasEmptyBeforeSync,
-            columnRemovalResult: columnRemovalResult,
-            precomputedFallback: precomputedFallback,
-            originalColumnIndex: originalColumnIndex
-        )
-    }
-
-    private func syncAndInsert(
-        pass: NiriLayoutPass,
-        state: inout ViewportState,
-        windowHandles: [WindowHandle],
-        removal: RemovalContext
-    ) -> [WindowHandle] {
-        guard let controller else { return [] }
-
-        let currentSelection = state.selectedNodeId
-        _ = pass.engine.syncWindows(
-            windowHandles,
-            in: pass.wsId,
-            selectedNodeId: currentSelection,
-            focusedHandle: controller.focusedHandle
-        )
-        let newHandles = windowHandles.filter { !removal.existingHandleIds.contains($0.id) }
-
-        for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
-        }
-
-        if !removal.wasEmptyBeforeSync, !newHandles.isEmpty {
-            var newColumnData: [(col: NiriContainer, colIdx: Int)] = []
-            for newHandle in newHandles {
-                if let node = pass.engine.findNode(for: newHandle),
-                   let col = pass.engine.column(of: node),
-                   let colIdx = pass.engine.columnIndex(of: col, in: pass.wsId)
-                {
-                    if !newColumnData.contains(where: { $0.col.id == col.id }) {
-                        newColumnData.append((col, colIdx))
-                    }
-                }
-            }
-
-            let originalActiveIdx = state.activeColumnIndex
-            let insertedBeforeActive = newColumnData.filter { $0.colIdx <= originalActiveIdx }
-            if !insertedBeforeActive.isEmpty, removal.columnRemovalResult == nil {
-                let totalInsertedWidth = insertedBeforeActive.reduce(CGFloat(0)) { total, data in
-                    total + data.col.cachedWidth + pass.gap
-                }
-                state.viewOffsetPixels.offset(delta: Double(-totalInsertedWidth))
-                state.activeColumnIndex = originalActiveIdx + insertedBeforeActive.count
-            }
-
-            let sortedNewColumns = newColumnData.sorted { $0.colIdx < $1.colIdx }
-            for addedData in sortedNewColumns {
-                pass.engine.animateColumnsForAddition(
-                    columnIndex: addedData.colIdx,
-                    in: pass.wsId,
-                    state: state,
-                    gaps: pass.gap,
-                    workingAreaWidth: pass.insetFrame.width
-                )
-            }
-        }
-
-        return newHandles
-    }
-
-    private func resolveSelection(
-        pass: NiriLayoutPass,
-        state: inout ViewportState,
-        windowHandles: [WindowHandle],
-        removal: RemovalContext
-    ) -> Bool {
-        guard let controller else { return false }
-        let lrc = controller.layoutRefreshController
-
-        state.displayRefreshRate = lrc.layoutState.refreshRateByDisplay[pass.monitor.displayId] ?? 60.0
-
-        if let result = removal.columnRemovalResult {
-            if let prevOffset = state.activatePrevColumnOnRemoval {
-                state.viewOffsetPixels = .static(prevOffset)
-                state.activatePrevColumnOnRemoval = nil
-            }
-
-            if let fallback = result.fallbackSelectionId {
-                state.selectedNodeId = fallback
-            } else if let selectedId = state.selectedNodeId, pass.engine.findNode(by: selectedId) == nil {
-                state.selectedNodeId = removal.precomputedFallback
-                    ?? pass.engine.validateSelection(selectedId, in: pass.wsId)
-            }
-        } else {
-            if let selectedId = state.selectedNodeId {
-                if pass.engine.findNode(by: selectedId) == nil {
-                    state.selectedNodeId = removal.precomputedFallback
-                        ?? pass.engine.validateSelection(selectedId, in: pass.wsId)
-                }
-            }
-        }
-
-        if state.selectedNodeId == nil {
-            if let firstHandle = windowHandles.first,
-               let firstNode = pass.engine.findNode(for: firstHandle)
-            {
-                state.selectedNodeId = firstNode.id
-            }
-        }
-
-        let offsetBefore = state.viewOffsetPixels.current()
-        var viewportNeedsRecalc = false
-
-        let isGestureOrAnimation = state.viewOffsetPixels.isGesture || state.viewOffsetPixels.isAnimating
-
-        for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
-        }
-
-        if !isGestureOrAnimation,
-           pass.wsId == controller.activeWorkspace()?.id,
-           let selectedId = state.selectedNodeId,
-           let selectedNode = pass.engine.findNode(by: selectedId)
-        {
-            if let restoreOffset = removal.columnRemovalResult?.restorePreviousViewOffset {
-                state.viewOffsetPixels = .static(restoreOffset)
-            } else {
-                pass.engine.ensureSelectionVisible(
-                    node: selectedNode,
-                    in: pass.wsId,
-                    state: &state,
-                    workingFrame: pass.insetFrame,
-                    gaps: pass.gap,
-                    alwaysCenterSingleColumn: pass.engine.alwaysCenterSingleColumn,
-                    fromContainerIndex: removal.originalColumnIndex
-                )
-            }
-            if abs(state.viewOffsetPixels.current() - offsetBefore) > 1 {
-                viewportNeedsRecalc = true
-            }
-        }
-
-        if let selectedId = state.selectedNodeId,
-           let selectedHandle = controller.zigWindowHandle(for: selectedId, workspaceId: pass.wsId)
-        {
-            controller.focusManager.updateWorkspaceFocusMemory(selectedHandle, for: pass.wsId)
-            if let currentFocused = controller.focusedHandle {
-                if controller.workspaceManager.workspace(for: currentFocused) == pass.wsId {
-                    controller.focusManager.setFocus(selectedHandle, in: pass.wsId)
-                }
-            } else {
-                controller.focusManager.setFocus(selectedHandle, in: pass.wsId)
-            }
-        }
-
-        return viewportNeedsRecalc
-    }
-
-    private func handleNewWindowArrival(
-        pass: NiriLayoutPass,
-        state: inout ViewportState,
-        newHandles: [WindowHandle],
-        existingHandleIds: Set<UUID>
-    ) -> WindowHandle? {
-        guard let controller else { return nil }
-        let lrc = controller.layoutRefreshController
-
-        let wasEmpty = existingHandleIds.isEmpty
-
-        var newWindowHandle: WindowHandle?
-        if lrc.layoutState.hasCompletedInitialRefresh,
-           let newHandle = newHandles.last,
-           let newNode = pass.engine.findNode(for: newHandle),
-           pass.wsId == controller.activeWorkspace()?.id
-        {
-            state.selectedNodeId = newNode.id
-
-            if wasEmpty {
-                let cols = pass.engine.columns(in: pass.wsId)
-                state.transitionToColumn(
-                    0,
-                    columns: cols,
-                    gap: pass.gap,
-                    viewportWidth: pass.insetFrame.width,
-                    animate: false,
-                    centerMode: pass.engine.centerFocusedColumn
-                )
-            } else if let newCol = pass.engine.column(of: newNode),
-                      let newColIdx = pass.engine.columnIndex(of: newCol, in: pass.wsId) {
-                if newCol.cachedWidth <= 0 {
-                    newCol.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-                }
-
-                let shouldRestorePrevOffset = newColIdx == state.activeColumnIndex + 1
-                let offsetBeforeActivation = state.stationary()
-
-                pass.engine.ensureSelectionVisible(
-                    node: newNode,
-                    in: pass.wsId,
-                    state: &state,
-                    workingFrame: pass.insetFrame,
-                    gaps: pass.gap,
-                    alwaysCenterSingleColumn: pass.engine.alwaysCenterSingleColumn,
-                    fromContainerIndex: state.activeColumnIndex
-                )
-
-                if shouldRestorePrevOffset {
-                    state.activatePrevColumnOnRemoval = offsetBeforeActivation
-                }
-            }
-            controller.focusManager.setFocus(newHandle, in: pass.wsId)
-            pass.engine.updateFocusTimestamp(for: newNode.id)
-            newWindowHandle = newHandle
-        }
-
-        if lrc.layoutState.hasCompletedInitialRefresh,
-           pass.wsId == controller.activeWorkspace()?.id,
-           !newHandles.isEmpty
-        {
-            let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
-            let appearOffset = 16.0 * reduceMotionScale
-
-            for handle in newHandles {
-                guard let window = pass.engine.findNode(for: handle),
-                      !window.isHiddenInTabbedMode else { continue }
-
-                if abs(appearOffset) > 0.1 {
-                    window.animateMoveFrom(
-                        displacement: CGPoint(x: 0, y: -appearOffset),
-                        clock: pass.engine.animationClock,
-                        config: pass.engine.windowMovementAnimationConfig,
-                        displayRefreshRate: state.displayRefreshRate
-                    )
-                }
-            }
-        }
-
-        return newWindowHandle
-    }
-
-    private func computeAndApplyLayout(
-        pass: NiriLayoutPass,
-        state: ViewportState,
-        newWindowHandle: WindowHandle?,
-        viewportNeedsRecalc: Bool,
-        useScrollAnimationPath: Bool
-    ) {
-        guard let controller else { return }
-        let lrc = controller.layoutRefreshController
-
-        let gaps = LayoutGaps(
-            horizontal: pass.gap,
-            vertical: pass.gap,
-            outer: controller.workspaceManager.outerGaps
-        )
-
-        let area = WorkingAreaContext(
-            workingFrame: pass.insetFrame,
-            viewFrame: pass.monitor.frame,
-            scale: lrc.backingScale(for: pass.monitor)
-        )
-
-        let (frames, hiddenHandles) = pass.engine.calculateCombinedLayoutUsingPools(
-            in: pass.wsId,
-            monitor: pass.monitor,
-            gaps: gaps,
-            state: state,
-            workingArea: area,
-            animationTime: nil
-        )
-
-        let hasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
-
-        if !useScrollAnimationPath {
-            if viewportNeedsRecalc, newWindowHandle == nil {
-                lrc.startScrollAnimation(for: pass.wsId)
-            } else if hasColumnAnimations {
-                lrc.startScrollAnimation(for: pass.wsId)
-            }
-        }
-
-        if let newHandle = newWindowHandle {
-            lrc.startScrollAnimation(for: pass.wsId)
-            controller.focusWindow(newHandle)
-        }
-
-        let workspaceEntries = controller.workspaceManager.entries(in: pass.wsId)
-        var hiddenWindowJobs: [(pid: pid_t, windowId: Int)] = []
-        var visibleWindowJobs: [(pid: pid_t, windowId: Int)] = []
+        let workspaceEntries = controller.workspaceManager.entries(in: wsId)
         for entry in workspaceEntries {
             if hiddenHandles[entry.handle] != nil {
                 hiddenWindowJobs.append((entry.handle.pid, entry.windowId))
@@ -642,6 +105,7 @@ import QuartzCore
                 visibleWindowJobs.append((entry.handle.pid, entry.windowId))
             }
         }
+
         if !hiddenWindowJobs.isEmpty {
             controller.axManager.suppressFrameWrites(hiddenWindowJobs)
             controller.axManager.cancelPendingFrameJobs(hiddenWindowJobs)
@@ -650,19 +114,20 @@ import QuartzCore
         for entry in workspaceEntries {
             if let side = hiddenHandles[entry.handle] {
                 let targetY = frames[entry.handle]?.origin.y
-                lrc.hideWindow(entry, monitor: pass.monitor, side: side, targetY: targetY, reason: .layoutTransient)
+                lrc.hideWindow(entry, monitor: monitor, side: side, targetY: targetY, reason: .layoutTransient)
             } else {
-                lrc.unhideWindow(entry, monitor: pass.monitor)
+                lrc.unhideWindow(entry, monitor: monitor)
             }
         }
 
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
-
         for (handle, frame) in frames {
             if hiddenHandles[handle] != nil { continue }
             if let entry = controller.workspaceManager.entry(for: handle) {
-                if let node = pass.engine.findNode(for: handle),
-                   node.sizingMode == .fullscreen {
+                if let nodeId = zig.nodeId(for: handle),
+                   let workspaceView = zig.workspaceView(for: wsId),
+                   workspaceView.windowsById[nodeId]?.sizingMode == .fullscreen
+                {
                     controller.axManager.forceApplyNextFrame(for: entry.windowId)
                 }
                 frameUpdates.append((handle.pid, entry.windowId, frame))
@@ -675,431 +140,533 @@ import QuartzCore
                 controller.axManager.unsuppressFrameWrites(activeJobs)
             }
         }
-        controller.axManager.applyFramesParallel(frameUpdates)
 
-        updateBorderDuringLayout(
-            frames: frames,
-            hiddenHandles: hiddenHandles,
-            direct: useScrollAnimationPath
-        )
+        controller.axManager.applyFramesParallel(frameUpdates)
+        updateBorderDuringLayout(frames: frames, hiddenHandles: hiddenHandles, direct: animationTime != nil)
+    }
+
+    private func updateBorderDuringLayout(
+        frames: [WindowHandle: CGRect],
+        hiddenHandles: [WindowHandle: HideSide],
+        direct: Bool
+    ) {
+        guard let controller,
+              let focusedHandle = controller.focusedHandle
+        else {
+            return
+        }
+
+        if hiddenHandles[focusedHandle] != nil {
+            controller.borderManager.hideBorder()
+            return
+        }
+
+        guard let frame = frames[focusedHandle],
+              let entry = controller.workspaceManager.entry(for: focusedHandle)
+        else {
+            return
+        }
+
+        if direct {
+            controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
+        } else {
+            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+        }
+    }
+
+    private func finalizeAnimation(for workspaceId: WorkspaceDescriptor.ID) {
+        guard let controller else { return }
+
+        if let focusedHandle = controller.focusedHandle,
+           let entry = controller.workspaceManager.entry(for: focusedHandle),
+           let workspaceView = controller.syncZigNiriWorkspace(workspaceId: workspaceId),
+           let nodeId = controller.zigNodeId(for: focusedHandle),
+           let frame = workspaceView.windowsById[nodeId]?.frame
+        {
+            controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
+        }
+
+        if controller.moveMouseToFocusedWindowEnabled,
+           let focusedHandle = controller.focusedHandle
+        {
+            controller.moveMouseToWindow(focusedHandle)
+        }
+    }
+
+    func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
+        guard let controller else { return }
+        for (displayId, wsId) in scrollAnimationByDisplay where wsId == workspaceId {
+            controller.layoutRefreshController.stopScrollAnimation(for: displayId)
+        }
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.cancelAnimation()
+        }
+    }
+
+    func layoutWithNiriEngine(
+        activeWorkspaces: Set<WorkspaceDescriptor.ID>,
+        useScrollAnimationPath: Bool = false,
+        removedNodeId _: NodeId? = nil
+    ) async {
+        guard let controller,
+              let zig = controller.zigNiriEngine
+        else {
+            return
+        }
+
+        var processed: Set<WorkspaceDescriptor.ID> = []
+
+        for monitor in controller.workspaceManager.monitors {
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+            let wsId = workspace.id
+            guard activeWorkspaces.contains(wsId) else { continue }
+            guard !processed.contains(wsId) else { continue }
+            processed.insert(wsId)
+
+            let handles = controller.workspaceManager.entries(in: wsId).map(\.handle)
+            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+                _ = zig.syncWindows(
+                    handles,
+                    in: wsId,
+                    selectedNodeId: state.selectedNodeId,
+                    focusedHandle: controller.focusedHandle
+                )
+
+                if let selection = zig.workspaceView(for: wsId)?.selection?.selectedNodeId {
+                    state.selectedNodeId = selection
+                    controller.workspaceManager.setSelection(selection, for: wsId)
+                }
+
+                state.displayRefreshRate = controller.layoutRefreshController.layoutState.refreshRateByDisplay[monitor.displayId] ?? 60.0
+                applyFramesOnDemand(wsId: wsId, state: state, monitor: monitor)
+
+                if !useScrollAnimationPath,
+                   state.viewOffsetPixels.isAnimating
+                {
+                    controller.layoutRefreshController.startScrollAnimation(for: wsId)
+                }
+            }
+
+            await Task.yield()
+        }
+
+        updateTabbedColumnOverlays()
+        controller.updateWorkspaceBar()
     }
 
     func updateTabbedColumnOverlays() {
-        guard let controller else { return }
-        guard let engine = controller.niriEngine else {
-            controller.tabbedOverlayManager.removeAll()
+        guard let controller,
+              let zig = controller.zigNiriEngine
+        else {
+            controller?.tabbedOverlayManager.removeAll()
             return
         }
 
         var infos: [TabbedColumnOverlayInfo] = []
         for monitor in controller.workspaceManager.monitors {
-            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
-            else { continue }
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
+            guard let view = controller.syncZigNiriWorkspace(workspaceId: workspace.id) else { continue }
 
-            for column in engine.columns(in: workspace.id) where column.isTabbed {
-                guard let frame = column.frame else { continue }
+            for column in view.columns where column.display == .tabbed {
+                let visibleWindows = column.windowIds.compactMap { view.windowsById[$0] }
+                guard !visibleWindows.isEmpty else { continue }
+
+                let frames = visibleWindows.compactMap(\.frame)
+                guard !frames.isEmpty else { continue }
+
+                let unionFrame = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
                 guard TabbedColumnOverlayManager.shouldShowOverlay(
-                    columnFrame: frame,
+                    columnFrame: unionFrame,
                     visibleFrame: monitor.visibleFrame
                 ) else { continue }
 
-                let windows = column.windowNodes
-                guard !windows.isEmpty else { continue }
-
-                let activeIndex = min(max(0, column.activeTileIdx), windows.count - 1)
-                let activeHandle = windows[activeIndex].handle
+                let clampedIndex = min(max(0, column.activeWindowIndex ?? 0), visibleWindows.count - 1)
+                let activeHandle = visibleWindows[clampedIndex].handle
                 let activeWindowId = controller.workspaceManager.entry(for: activeHandle)?.windowId
 
                 infos.append(
                     TabbedColumnOverlayInfo(
                         workspaceId: workspace.id,
-                        columnId: column.id,
-                        columnFrame: frame,
-                        tabCount: windows.count,
-                        activeIndex: activeIndex,
+                        columnId: column.nodeId,
+                        columnFrame: unionFrame,
+                        tabCount: visibleWindows.count,
+                        activeIndex: clampedIndex,
                         activeWindowId: activeWindowId
                     )
                 )
             }
         }
 
+        _ = zig
         controller.tabbedOverlayManager.updateOverlays(infos)
     }
 
     func selectTabInNiri(workspaceId: WorkspaceDescriptor.ID, columnId: NodeId, index: Int) {
-        guard let controller, let engine = controller.niriEngine else { return }
-        guard let column = engine.columns(in: workspaceId).first(where: { $0.id == columnId }) else { return }
+        guard let controller,
+              let zig = controller.zigNiriEngine
+        else {
+            return
+        }
 
-        let windows = column.windowNodes
-        guard windows.indices.contains(index) else { return }
+        guard let view = controller.syncZigNiriWorkspace(workspaceId: workspaceId),
+              let column = view.columns.first(where: { $0.nodeId == columnId }),
+              column.windowIds.indices.contains(index)
+        else {
+            return
+        }
 
-        column.setActiveTileIdx(index)
-        engine.updateTabbedColumnVisibility(column: column)
+        let selectedWindowId = column.windowIds[index]
+        _ = zig.applyMutation(
+            .setColumnActiveWindow(columnId: columnId, windowIndex: index),
+            in: workspaceId
+        )
 
-        let target = windows[index]
+        let selection = ZigNiriSelection(selectedNodeId: selectedWindowId, focusedWindowId: selectedWindowId)
+        _ = zig.applyWorkspace(.setSelection(selection), in: workspaceId)
+
         controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-            if let monitor = controller.workspaceManager.monitor(for: workspaceId) {
-                let gap = CGFloat(controller.workspaceManager.gaps)
-                engine.ensureSelectionVisible(
-                    node: target,
-                    in: workspaceId,
-                    state: &state,
-                    workingFrame: monitor.visibleFrame,
-                    gaps: gap,
-                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
-                )
-            }
-            activateNode(
-                target, in: workspaceId, state: &state,
-                options: .init(activateWindow: false, ensureVisible: false, startAnimation: false)
-            )
+            state.selectedNodeId = selectedWindowId
+            controller.workspaceManager.setSelection(selectedWindowId, for: workspaceId)
         }
-        let updatedState = controller.workspaceManager.niriViewportState(for: workspaceId)
-        if updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
-            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+
+        if let handle = controller.zigWindowHandle(for: selectedWindowId, workspaceId: workspaceId) {
+            controller.focusManager.setFocus(handle, in: workspaceId)
         }
+
+        controller.layoutRefreshController.executeLayoutRefreshImmediate()
         updateTabbedColumnOverlays()
     }
 
-    // MARK: - Layout Capability Commands
-
-    func focusNeighbor(direction: Direction) {
+    func focusPrevious() {
         guard let controller else { return }
-        guard let engine = controller.niriEngine else { return }
-        guard let wsId = controller.activeWorkspace()?.id else { return }
 
-        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-            guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId)
-            else {
-                if let lastFocused = controller.focusManager.lastFocusedByWorkspace[wsId],
-                   let lastNode = engine.findNode(for: lastFocused)
-                {
-                    self.activateNode(
-                        lastNode, in: wsId, state: &state,
-                        options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
-                    )
-                } else if let firstHandle = controller.workspaceManager.entries(in: wsId).first?.handle,
-                          let firstNode = engine.findNode(for: firstHandle)
-                {
-                    self.activateNode(
-                        firstNode, in: wsId, state: &state,
-                        options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
-                    )
+        var appliedFromHistory = false
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            _ = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: state.selectedNodeId)
+            guard let previousHandle = controller.focusManager.previousFocusedHandle(
+                in: wsId,
+                excluding: controller.focusedHandle,
+                isValid: { handle in
+                    controller.workspaceManager.entry(for: handle)?.workspaceId == wsId
+                        && controller.zigNodeId(for: handle, workspaceId: wsId) != nil
                 }
+            ),
+                let previousNodeId = controller.zigNodeId(for: previousHandle, workspaceId: wsId)
+            else {
                 return
             }
 
-            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-            let gap = CGFloat(controller.workspaceManager.gaps)
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
+            let selection = ZigNiriSelection(
+                selectedNodeId: previousNodeId,
+                focusedWindowId: previousNodeId
+            )
+            let result = zig.applyWorkspace(.setSelection(selection), in: wsId)
 
-            for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
-            }
-
-            if let newNode = engine.focusTarget(
-                direction: direction,
-                currentSelection: currentNode,
-                in: wsId,
+            applySelection(
+                result.selection ?? selection,
+                workspaceId: wsId,
+                monitor: monitor,
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gap
-            ) {
-                self.activateNode(
-                    newNode, in: wsId, state: &state,
-                    options: .init(activateWindow: false, ensureVisible: false)
-                )
-            }
+                focusWindow: true,
+                animateViewport: true
+            )
+            appliedFromHistory = true
+        }
+
+        if !appliedFromHistory {
+            focusUsing(.focusWindowTop)
+        }
+    }
+
+    func focusDownOrLeft() {
+        focusUsing(.focusDownOrLeft)
+    }
+
+    func focusUpOrRight() {
+        focusUsing(.focusUpOrRight)
+    }
+
+    func focusColumnFirst() {
+        focusUsing(.focusColumnFirst)
+    }
+
+    func focusColumnLast() {
+        focusUsing(.focusColumnLast)
+    }
+
+    func focusColumn(index: Int) {
+        focusUsing(.focusColumn(index: index))
+    }
+
+    func focusWindowTop() {
+        focusUsing(.focusWindowTop)
+    }
+
+    func focusWindowBottom() {
+        focusUsing(.focusWindowBottom)
+    }
+
+    private func focusUsing(_ request: ZigNiriNavigationRequest) {
+        guard let controller else { return }
+
+        withActiveWorkspaceContext { wsId, monitor, orientation, state, zig in
+            _ = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: state.selectedNodeId)
+            let result = zig.applyNavigation(
+                request,
+                in: wsId,
+                orientation: orientation,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applySelection(
+                result.selection,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                focusWindow: true,
+                animateViewport: true
+            )
+        }
+    }
+
+    func moveWindow(direction: Direction) {
+        withActiveWorkspaceContext { wsId, monitor, orientation, state, zig in
+            guard let selectedWindowId = selectedWindowId(in: wsId, state: state) else { return }
+
+            let result = zig.applyMutation(
+                .moveWindow(windowId: selectedWindowId, direction: direction, orientation: orientation),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: true
+            )
         }
     }
 
     func swapWindow(direction: Direction) {
-        guard controller != nil else { return }
-        withNiriOperationContext { ctx, state in
-            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
-            guard ctx.engine.swapWindow(
-                ctx.windowNode, direction: direction, in: ctx.wsId,
-                state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
-            ) else { return false }
-            return ctx.commitWithPredictedAnimation(state: state, oldFrames: oldFrames)
+        withActiveWorkspaceContext { wsId, monitor, orientation, state, zig in
+            guard let selectedWindowId = selectedWindowId(in: wsId, state: state) else { return }
+
+            let result = zig.applyMutation(
+                .swapWindow(windowId: selectedWindowId, direction: direction, orientation: orientation),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: true
+            )
+        }
+    }
+
+    func moveColumn(direction: Direction) {
+        guard let controller else { return }
+
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            guard let view = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: state.selectedNodeId),
+                  let column = columnForSelection(selectionNodeId: state.selectedNodeId, in: view)
+            else {
+                return
+            }
+
+            let result = zig.applyMutation(
+                .moveColumn(columnId: column.nodeId, direction: direction),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: true
+            )
+        }
+    }
+
+    func consumeWindow(direction: Direction) {
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            guard let selectedWindowId = selectedWindowId(in: wsId, state: state) else { return }
+
+            let result = zig.applyMutation(
+                .consumeWindow(windowId: selectedWindowId, direction: direction),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: true
+            )
+        }
+    }
+
+    func expelWindow(direction: Direction) {
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            guard let selectedWindowId = selectedWindowId(in: wsId, state: state) else { return }
+
+            let result = zig.applyMutation(
+                .expelWindow(windowId: selectedWindowId, direction: direction),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: true
+            )
+        }
+    }
+
+    func toggleColumnTabbed() {
+        guard let controller else { return }
+
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            guard let view = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: state.selectedNodeId),
+                  let column = columnForSelection(selectionNodeId: state.selectedNodeId, in: view)
+            else {
+                return
+            }
+
+            let nextDisplay: ColumnDisplay = column.display == .tabbed ? .normal : .tabbed
+            let result = zig.applyMutation(
+                .setColumnDisplay(columnId: column.nodeId, display: nextDisplay),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            guard result.applied else { return }
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: false
+            )
+            updateTabbedColumnOverlays()
+        }
+    }
+
+    func toggleColumnFullWidth() {
+        guard let controller else { return }
+
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            guard let view = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: state.selectedNodeId),
+                  let column = columnForSelection(selectionNodeId: state.selectedNodeId, in: view)
+            else {
+                return
+            }
+
+            let result = zig.applyMutation(
+                .toggleColumnFullWidth(columnId: column.nodeId),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: false
+            )
         }
     }
 
     func toggleFullscreen() {
         guard let controller else { return }
-        withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
-            guard let currentId = state.selectedNodeId,
-                  let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
-                  let windowNode = engine.findNode(for: currentHandle)
-            else { return }
 
-            engine.toggleFullscreen(windowNode, state: &state)
-
-            controller.layoutRefreshController.executeLayoutRefreshImmediate()
-            if state.viewOffsetPixels.isAnimating {
-                controller.layoutRefreshController.startScrollAnimation(for: wsId)
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            guard let selectedWindowId = selectedWindowId(in: wsId, state: state),
+                  let view = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: selectedWindowId),
+                  let currentMode = view.windowsById[selectedWindowId]?.sizingMode
+            else {
+                return
             }
+
+            let nextMode: SizingMode = currentMode == .fullscreen ? .normal : .fullscreen
+            let result = zig.applyMutation(
+                .setWindowSizing(windowId: selectedWindowId, mode: nextMode),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: false
+            )
         }
     }
 
     func cycleSize(forward: Bool) {
         guard let controller else { return }
-        withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
-            guard let currentId = state.selectedNodeId,
-                  let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
-                  let windowNode = engine.findNode(for: currentHandle),
-                  let column = engine.findColumn(containing: windowNode, in: wsId)
-            else { return }
 
-            engine.toggleColumnWidth(
-                column,
-                forwards: forward,
-                in: wsId,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps
+        withActiveWorkspaceContext { wsId, monitor, orientation, state, zig in
+            guard let view = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: state.selectedNodeId),
+                  let column = columnForSelection(selectionNodeId: state.selectedNodeId, in: view)
+            else {
+                return
+            }
+
+            let presets = controller.settings.niriColumnWidthPresets
+            guard !presets.isEmpty else { return }
+
+            let monitorSpan = orientation == .horizontal
+                ? controller.insetWorkingFrame(for: monitor).width
+                : controller.insetWorkingFrame(for: monitor).height
+            let currentNormalizedWidth = normalizedColumnWidth(
+                column.width,
+                primarySpan: monitorSpan
             )
-            controller.layoutRefreshController.startScrollAnimation(for: wsId)
+            let currentIndex = nearestPresetIndex(
+                to: currentNormalizedWidth,
+                presets: presets
+            )
+            let nextIndex = forward
+                ? min(presets.count - 1, currentIndex + 1)
+                : max(0, currentIndex - 1)
+            let nextWidth = ProportionalSize.proportion(CGFloat(presets[nextIndex]))
+
+            let result = zig.applyMutation(
+                .setColumnWidth(columnId: column.nodeId, width: nextWidth),
+                in: wsId,
+                selection: currentSelection(workspaceId: wsId, state: state)
+            )
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
+                state: &state,
+                animateViewport: false
+            )
         }
     }
 
     func balanceSizes() {
-        guard let controller else { return }
-        withNiriWorkspaceContext { engine, wsId, _, _, workingFrame, gaps in
-            engine.balanceSizes(
+        withActiveWorkspaceContext { wsId, monitor, _, state, zig in
+            let result = zig.applyMutation(
+                .balanceSizes,
                 in: wsId,
-                workingAreaWidth: workingFrame.width,
-                gaps: gaps
+                selection: currentSelection(workspaceId: wsId, state: state)
             )
-            controller.layoutRefreshController.executeLayoutRefreshImmediate()
-            if engine.hasAnyColumnAnimationsRunning(in: wsId) {
-                controller.layoutRefreshController.startScrollAnimation(for: wsId)
-            }
-        }
-    }
-
-    // MARK: - Layout Engine Configuration
-
-    func enableNiriLayout(
-        maxWindowsPerColumn: Int = 3,
-        centerFocusedColumn: CenterFocusedColumn = .never,
-        alwaysCenterSingleColumn: Bool = false
-    ) {
-        guard let controller else { return }
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: maxWindowsPerColumn)
-        engine.centerFocusedColumn = centerFocusedColumn
-        engine.alwaysCenterSingleColumn = alwaysCenterSingleColumn
-        engine.renderStyle.tabIndicatorWidth = TabbedColumnOverlayManager.tabIndicatorWidth
-        engine.animationClock = controller.animationClock
-        controller.niriEngine = engine
-        controller.zigNiriEngine = ZigNiriEngine(
-            maxVisibleColumns: engine.maxVisibleColumns,
-            infiniteLoop: engine.infiniteLoop
-        )
-
-        syncMonitorsToNiriEngine()
-
-        controller.layoutRefreshController.refreshWindowsAndLayout()
-    }
-
-    func syncMonitorsToNiriEngine() {
-        guard let controller, let engine = controller.niriEngine else { return }
-
-        let currentMonitors = controller.workspaceManager.monitors
-        engine.updateMonitors(currentMonitors)
-
-        for workspace in controller.workspaceManager.workspaces {
-            guard let monitor = controller.workspaceManager.monitor(for: workspace.id) else { continue }
-            engine.moveWorkspace(workspace.id, to: monitor.id, monitor: monitor)
-        }
-        // Any rescued orphan states left after this sync are stale for the current topology.
-        engine.clearOrphanedViewportStates()
-
-        for monitor in currentMonitors {
-            let orderedWorkspaceIds = controller.workspaceManager.workspaces(on: monitor.id).map(\.id)
-            if let niriMonitor = engine.monitor(for: monitor.id) {
-                niriMonitor.workspaceOrder = orderedWorkspaceIds
-                niriMonitor.animationClock = controller.animationClock
-                if let activeWorkspace = controller.workspaceManager.activeWorkspace(on: monitor.id) {
-                    niriMonitor.activateWorkspace(activeWorkspace.id)
-                }
-            }
-            let resolved = controller.settings.resolvedNiriSettings(for: monitor)
-            engine.updateMonitorSettings(resolved, for: monitor.id)
-        }
-    }
-
-    func updateNiriConfig(
-        maxWindowsPerColumn: Int? = nil,
-        maxVisibleColumns: Int? = nil,
-        infiniteLoop: Bool? = nil,
-        centerFocusedColumn: CenterFocusedColumn? = nil,
-        alwaysCenterSingleColumn: Bool? = nil,
-        singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        columnWidthPresets: [Double]? = nil
-    ) {
-        guard let controller else { return }
-        controller.niriEngine?.updateConfiguration(
-            maxWindowsPerColumn: maxWindowsPerColumn,
-            maxVisibleColumns: maxVisibleColumns,
-            infiniteLoop: infiniteLoop,
-            centerFocusedColumn: centerFocusedColumn,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
-            singleWindowAspectRatio: singleWindowAspectRatio,
-            presetColumnWidths: columnWidthPresets?.map { .proportion($0) }
-        )
-        controller.zigNiriEngine?.updateConfiguration(
-            maxVisibleColumns: maxVisibleColumns,
-            infiniteLoop: infiniteLoop
-        )
-        controller.layoutRefreshController.refreshWindowsAndLayout()
-    }
-
-    // MARK: - Node Activation & Operation Context
-
-    func activateNode(
-        _ node: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID,
-        state: inout ViewportState,
-        options: NodeActivationOptions = NodeActivationOptions()
-    ) {
-        guard let controller, let engine = controller.niriEngine else { return }
-
-        state.selectedNodeId = node.id
-
-        if options.activateWindow {
-            engine.activateWindow(node.id)
-        }
-
-        if options.ensureVisible, let monitor = controller.workspaceManager.monitor(for: workspaceId) {
-            let gap = CGFloat(controller.workspaceManager.gaps)
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            engine.ensureSelectionVisible(
-                node: node,
-                in: workspaceId,
+            applyMutationSelection(
+                result,
+                workspaceId: wsId,
+                monitor: monitor,
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gap,
-                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                animateViewport: false
             )
-        }
-
-        let focusHandle = controller.zigWindowHandle(for: node.id, workspaceId: workspaceId)
-        if focusHandle != nil {
-            if options.updateTimestamp {
-                engine.updateFocusTimestamp(for: node.id)
-            }
-            if let focusHandle {
-                controller.focusManager.setFocus(focusHandle, in: workspaceId)
-            }
-        }
-
-        if options.layoutRefresh {
-            let focusHandleForAX = options.axFocus ? focusHandle : nil
-            controller.layoutRefreshController.executeLayoutRefreshImmediate { [weak controller] in
-                if let handle = focusHandleForAX {
-                    controller?.focusWindow(handle)
-                }
-            }
-            if options.startAnimation, state.viewOffsetPixels.isAnimating {
-                controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
-            }
-        } else {
-            if options.axFocus, let focusHandle {
-                controller.focusWindow(focusHandle)
-            }
-            if options.startAnimation, state.viewOffsetPixels.isAnimating {
-                controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
-            }
-        }
-    }
-
-    func activateNodeId(
-        _ nodeId: NodeId,
-        in workspaceId: WorkspaceDescriptor.ID,
-        state: inout ViewportState,
-        options: NodeActivationOptions = NodeActivationOptions()
-    ) {
-        guard let controller,
-              let engine = controller.niriEngine,
-              let node = engine.findNode(by: nodeId)
-        else {
-            return
-        }
-        activateNode(node, in: workspaceId, state: &state, options: options)
-    }
-
-    func withNiriOperationContext(
-        perform operation: (NiriOperationContext, inout ViewportState) -> Bool
-    ) {
-        guard let controller else { return }
-        var animatingWorkspaceId: WorkspaceDescriptor.ID?
-
-        controller.layoutRefreshController.runLightSession {
-            guard let engine = controller.niriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
-
-            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                guard let currentId = state.selectedNodeId,
-                      let currentHandle = controller.zigWindowHandle(for: currentId, workspaceId: wsId),
-                      let windowNode = engine.findNode(for: currentHandle)
-                else { return }
-
-                guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                let gaps = CGFloat(controller.workspaceManager.gaps)
-
-                let ctx = NiriOperationContext(
-                    controller: controller,
-                    engine: engine,
-                    wsId: wsId,
-                    windowNode: windowNode,
-                    monitor: monitor,
-                    workingFrame: workingFrame,
-                    gaps: gaps
-                )
-
-                if operation(ctx, &state) {
-                    animatingWorkspaceId = wsId
-                }
-            }
-        }
-
-        if let wsId = animatingWorkspaceId {
-            controller.layoutRefreshController.startScrollAnimation(for: wsId)
-        }
-    }
-
-    func withNiriWorkspaceContext(
-        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
-    ) {
-        guard let controller else { return }
-        controller.layoutRefreshController.runLightSession {
-            guard let engine = controller.niriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
-            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(controller.workspaceManager.gaps)
-            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                perform(engine, wsId, &state, monitor, workingFrame, gaps)
-            }
-        }
-    }
-
-    func withNiriWorkspaceContext(
-        for workspaceId: WorkspaceDescriptor.ID,
-        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
-    ) {
-        guard let controller else { return }
-        controller.layoutRefreshController.runLightSession {
-            guard let engine = controller.niriEngine else { return }
-            guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(controller.workspaceManager.gaps)
-            controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-                perform(engine, workspaceId, &state, monitor, workingFrame, gaps)
-            }
         }
     }
 
@@ -1109,23 +676,23 @@ import QuartzCore
         position: InsertPosition,
         in workspaceId: WorkspaceDescriptor.ID
     ) {
-        guard let controller else { return }
-        var didMove = false
-        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, state, monitor, workingFrame, gaps in
-            guard let source = engine.findNode(for: handle) else { return }
-            guard let target = engine.findNode(for: targetHandle) else { return }
-            didMove = engine.insertWindowByMove(
-                sourceWindowId: source.id,
-                targetWindowId: target.id,
-                position: position,
-                in: wsId,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps
-            )
+        guard let controller,
+              let zig = controller.zigNiriEngine,
+              let sourceId = controller.zigNodeId(for: handle, workspaceId: workspaceId),
+              let targetId = controller.zigNodeId(for: targetHandle, workspaceId: workspaceId)
+        else {
+            return
         }
-        if didMove {
-            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+
+        let result = zig.applyMutation(
+            .insertWindowByMove(sourceWindowId: sourceId, targetWindowId: targetId, position: position),
+            in: workspaceId
+        )
+        guard result.applied else { return }
+
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = result.selection?.selectedNodeId
+            controller.workspaceManager.setSelection(result.selection?.selectedNodeId, for: workspaceId)
         }
     }
 
@@ -1134,87 +701,260 @@ import QuartzCore
         insertIndex: Int,
         in workspaceId: WorkspaceDescriptor.ID
     ) {
+        guard let controller,
+              let zig = controller.zigNiriEngine,
+              let sourceId = controller.zigNodeId(for: handle, workspaceId: workspaceId)
+        else {
+            return
+        }
+
+        let result = zig.applyMutation(
+            .insertWindowInNewColumn(windowId: sourceId, insertIndex: insertIndex),
+            in: workspaceId
+        )
+        guard result.applied else { return }
+
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = result.selection?.selectedNodeId
+            controller.workspaceManager.setSelection(result.selection?.selectedNodeId, for: workspaceId)
+        }
+    }
+
+    func enableNiriLayout(
+        maxWindowsPerColumn: Int = 3,
+        centerFocusedColumn _: CenterFocusedColumn = .never,
+        alwaysCenterSingleColumn _: Bool = false
+    ) {
         guard let controller else { return }
-        var didMove = false
-        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, state, monitor, workingFrame, gaps in
-            guard let window = engine.findNode(for: handle) else { return }
-            didMove = engine.insertWindowInNewColumn(
-                window,
-                insertIndex: insertIndex,
-                in: wsId,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps
+
+        if controller.zigNiriEngine == nil {
+            controller.zigNiriEngine = ZigNiriEngine(
+                maxWindowsPerColumn: maxWindowsPerColumn,
+                maxVisibleColumns: controller.settings.niriMaxVisibleColumns,
+                infiniteLoop: controller.settings.niriInfiniteLoop
+            )
+        } else {
+            controller.zigNiriEngine?.updateConfiguration(maxWindowsPerColumn: maxWindowsPerColumn)
+        }
+
+        syncMonitorsToNiriEngine()
+        controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    func syncMonitorsToNiriEngine() {
+        // Zig runtime stores workspace state keyed by workspace id and does not require
+        // monitor registration. Keep this method as an explicit no-op for call-site parity.
+    }
+
+    func updateNiriConfig(
+        maxWindowsPerColumn: Int? = nil,
+        maxVisibleColumns: Int? = nil,
+        infiniteLoop: Bool? = nil,
+        centerFocusedColumn _: CenterFocusedColumn? = nil,
+        alwaysCenterSingleColumn _: Bool? = nil,
+        singleWindowAspectRatio _: SingleWindowAspectRatio? = nil,
+        columnWidthPresets _: [Double]? = nil
+    ) {
+        guard let controller else { return }
+        controller.zigNiriEngine?.updateConfiguration(
+            maxWindowsPerColumn: maxWindowsPerColumn,
+            maxVisibleColumns: maxVisibleColumns,
+            infiniteLoop: infiniteLoop
+        )
+        controller.layoutRefreshController.refreshWindowsAndLayout()
+    }
+
+    private func applyMutationSelection(
+        _ result: ZigNiriMutationResult,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        state: inout ViewportState,
+        animateViewport: Bool
+    ) {
+        guard let controller, result.applied else { return }
+
+        applySelection(
+            result.selection,
+            workspaceId: workspaceId,
+            monitor: monitor,
+            state: &state,
+            focusWindow: true,
+            animateViewport: animateViewport
+        )
+        controller.layoutRefreshController.executeLayoutRefreshImmediate()
+    }
+
+    private func normalizedColumnWidth(
+        _ width: ProportionalSize,
+        primarySpan: CGFloat
+    ) -> Double {
+        switch width {
+        case let .proportion(value):
+            return Double(max(0.05, min(1.0, value)))
+        case let .fixed(value):
+            guard primarySpan > 0 else { return 1.0 }
+            return Double(max(0.05, min(1.0, value / primarySpan)))
+        }
+    }
+
+    private func nearestPresetIndex(
+        to widthValue: Double,
+        presets: [Double]
+    ) -> Int {
+        var bestIndex = 0
+        var bestDistance = Double.greatestFiniteMagnitude
+        for (index, preset) in presets.enumerated() {
+            let distance = abs(preset - widthValue)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = index
+            }
+        }
+        return bestIndex
+    }
+
+    private func withActiveWorkspaceContext(
+        _ perform: (WorkspaceDescriptor.ID, Monitor, Monitor.Orientation, inout ViewportState, ZigNiriEngine) -> Void
+    ) {
+        guard let controller,
+              let zig = controller.zigNiriEngine
+        else {
+            return
+        }
+
+        controller.layoutRefreshController.runLightSession {
+            guard let workspace = controller.activeWorkspace(),
+                  let monitor = controller.workspaceManager.monitor(for: workspace.id)
+            else {
+                return
+            }
+            let orientation = controller.settings.effectiveOrientation(for: monitor)
+
+            controller.workspaceManager.withNiriViewportState(for: workspace.id) { state in
+                perform(workspace.id, monitor, orientation, &state, zig)
+            }
+        }
+    }
+
+    private func currentSelection(workspaceId: WorkspaceDescriptor.ID, state: ViewportState) -> ZigNiriSelection? {
+        guard let controller else { return nil }
+        let focusedWindowId = controller.focusedHandle.flatMap { controller.zigNodeId(for: $0, workspaceId: workspaceId) }
+        return ZigNiriSelection(
+            selectedNodeId: state.selectedNodeId,
+            focusedWindowId: focusedWindowId
+        )
+    }
+
+    private func selectedWindowId(
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: ViewportState
+    ) -> NodeId? {
+        guard let view = controller?.syncZigNiriWorkspace(workspaceId: workspaceId, selectedNodeId: state.selectedNodeId) else {
+            return nil
+        }
+        return Self.resolveActionableWindowId(
+            for: state.selectedNodeId,
+            in: view
+        )
+    }
+
+    static func resolveActionableWindowId(
+        for selectedNodeId: NodeId?,
+        in view: ZigNiriWorkspaceView
+    ) -> NodeId? {
+        ZigNiriSelectionResolver.actionableWindowId(
+            for: selectedNodeId,
+            in: view
+        )
+    }
+
+    private func columnForSelection(
+        selectionNodeId: NodeId?,
+        in workspaceView: ZigNiriWorkspaceView
+    ) -> ZigNiriColumnView? {
+        let selectedNodeId = selectionNodeId ?? workspaceView.selection?.selectedNodeId
+        guard let selectedNodeId else {
+            return workspaceView.columns.first
+        }
+        if let selectedColumn = workspaceView.columns.first(where: { $0.nodeId == selectedNodeId }) {
+            return selectedColumn
+        }
+        return workspaceView.columns.first(where: { $0.windowIds.contains(selectedNodeId) })
+    }
+
+    private func applySelection(
+        _ selection: ZigNiriSelection?,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        state: inout ViewportState,
+        focusWindow: Bool,
+        animateViewport: Bool
+    ) {
+        guard let controller,
+              let zig = controller.zigNiriEngine
+        else { return }
+        state.selectedNodeId = selection?.selectedNodeId
+        controller.workspaceManager.setSelection(selection?.selectedNodeId, for: workspaceId)
+
+        let workspaceView = controller.syncZigNiriWorkspace(
+            workspaceId: workspaceId,
+            selectedNodeId: selection?.selectedNodeId
+        )
+        let actionableNodeId = workspaceView.flatMap { view in
+            Self.resolveActionableWindowId(
+                for: selection?.selectedNodeId,
+                in: view
             )
         }
-        if didMove {
+
+        if let handle = actionableNodeId.flatMap({ controller.zigWindowHandle(for: $0, workspaceId: workspaceId) }) {
+            controller.focusManager.setFocus(handle, in: workspaceId)
+            if focusWindow {
+                controller.focusWindow(handle)
+            }
+        }
+
+        guard animateViewport,
+              let view = workspaceView,
+              let selectedNodeId = selection?.selectedNodeId ?? actionableNodeId,
+              let selectedColumnIndex = view.columns.firstIndex(where: { column in
+                  column.nodeId == selectedNodeId || column.windowIds.contains(selectedNodeId)
+              })
+        else {
+            return
+        }
+
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let orientation = controller.settings.effectiveOrientation(for: monitor)
+        let resolved = controller.settings.resolvedNiriSettings(for: monitor)
+        let viewportSpan = orientation == .horizontal ? workingFrame.width : workingFrame.height
+        let columnSpans = zig.resolvedColumnSpans(
+            for: view,
+            primarySpan: viewportSpan,
+            primaryGap: CGFloat(controller.workspaceManager.gaps)
+        )
+        guard !columnSpans.isEmpty else { return }
+
+        state.transitionToColumn(
+            selectedColumnIndex,
+            columnSpans: columnSpans,
+            gap: CGFloat(controller.workspaceManager.gaps),
+            viewportSpan: viewportSpan,
+            animate: true,
+            centerMode: resolved.centerFocusedColumn,
+            alwaysCenterSingleColumn: resolved.alwaysCenterSingleColumn,
+            fromColumnIndex: state.activeColumnIndex,
+            scale: controller.layoutRefreshController.backingScale(for: monitor)
+        )
+
+        if state.viewOffsetPixels.isAnimating {
             controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
     }
 }
 
-struct NodeActivationOptions {
-    var activateWindow: Bool = true
-    var ensureVisible: Bool = true
-    var updateTimestamp: Bool = true
-    var layoutRefresh: Bool = true
-    var axFocus: Bool = true
-    var startAnimation: Bool = true
-}
-
-@MainActor struct NiriOperationContext {
-    let controller: WMController
-    let engine: NiriLayoutEngine
-    let wsId: WorkspaceDescriptor.ID
-    let windowNode: NiriWindow
-    let monitor: Monitor
-    let workingFrame: CGRect
-    let gaps: CGFloat
-
-    func commitWithPredictedAnimation(
-        state: ViewportState,
-        oldFrames: [WindowHandle: CGRect]
-    ) -> Bool {
-        let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
-            .backingScaleFactor ?? 2.0
-        let workingArea = WorkingAreaContext(
-            workingFrame: workingFrame,
-            viewFrame: monitor.frame,
-            scale: scale
-        )
-        let layoutGaps = LayoutGaps(
-            horizontal: gaps,
-            vertical: gaps,
-            outer: controller.workspaceManager.outerGaps
-        )
-        let animationTime = (engine.animationClock?.now() ?? CACurrentMediaTime()) + 2.0
-        let newFrames = engine.calculateCombinedLayoutUsingPools(
-            in: wsId,
-            monitor: monitor,
-            gaps: layoutGaps,
-            state: state,
-            workingArea: workingArea,
-            animationTime: animationTime
-        ).frames
-        _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
-        return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
-    }
-
-    func commitWithCapturedAnimation(
-        state: ViewportState,
-        oldFrames: [WindowHandle: CGRect]
-    ) -> Bool {
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
-        let newFrames = engine.captureWindowFrames(in: wsId)
-        _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
-        return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
-    }
-
-    func commitSimple(state: ViewportState) -> Bool {
-        controller.layoutRefreshController.executeLayoutRefreshImmediate()
-        return state.viewOffsetPixels.isAnimating
+extension NiriLayoutHandler: LayoutFocusable, LayoutSwappable, LayoutSizable {
+    func focusNeighbor(direction: Direction) {
+        focusUsing(.focus(direction: direction))
     }
 }
-
-extension NiriLayoutHandler: LayoutFocusable, LayoutSwappable, LayoutSizable {}

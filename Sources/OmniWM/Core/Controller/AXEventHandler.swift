@@ -192,10 +192,6 @@ final class AXEventHandler: CGSEventDelegate {
                     return columnView.windowIds[activeIndex]
                 }()
                 shouldAnimate = activeWindowId == nil || activeWindowId == nodeId
-            } else if let engine = controller.niriEngine,
-                      let windowNode = engine.findNode(for: entry.handle)
-            {
-                shouldAnimate = !windowNode.isHiddenInTabbedMode
             } else {
                 shouldAnimate = true
             }
@@ -213,13 +209,10 @@ final class AXEventHandler: CGSEventDelegate {
             controller.focusManager.handleWindowRemoved(removed, in: affectedWorkspaceId)
         }
 
-        var oldFrames: [WindowHandle: CGRect] = [:]
+        let oldFrames: [WindowHandle: CGRect] = [:]
         var removedNodeId: NodeId?
-        if let wsId = affectedWorkspaceId, let engine = controller.niriEngine {
-            oldFrames = engine.captureWindowFrames(in: wsId)
-            if let handle = removedHandle {
-                removedNodeId = controller.zigNodeId(for: handle, workspaceId: wsId)
-            }
+        if let wsId = affectedWorkspaceId, let handle = removedHandle {
+            removedNodeId = controller.zigNodeId(for: handle, workspaceId: wsId)
         }
 
         controller.workspaceManager.removeWindow(pid: pid, windowId: winId)
@@ -242,21 +235,7 @@ final class AXEventHandler: CGSEventDelegate {
                     useScrollAnimationPath: true,
                     removedNodeId: removedNodeId
                 )
-
-                if let engine = controller.niriEngine {
-                    let newFrames = engine.captureWindowFrames(in: wsId)
-                    let animationsTriggered = engine.triggerMoveAnimations(
-                        in: wsId,
-                        oldFrames: oldFrames,
-                        newFrames: newFrames
-                    )
-                    let hasWindowAnimations = engine.hasAnyWindowAnimationsRunning(in: wsId)
-                    let hasColumnAnimations = engine.hasAnyColumnAnimationsRunning(in: wsId)
-
-                    if animationsTriggered || hasWindowAnimations || hasColumnAnimations {
-                        controller.layoutRefreshController.startScrollAnimation(for: wsId)
-                    }
-                }
+                _ = oldFrames
             }
         }
 
@@ -316,20 +295,21 @@ final class AXEventHandler: CGSEventDelegate {
 
             controller.focusManager.setFocus(entry.handle, in: wsId)
 
-            if let engine = controller.niriEngine,
-               let nodeId = controller.zigNodeId(for: entry.handle, workspaceId: wsId),
-               let _ = controller.workspaceManager.monitor(for: wsId)
-            {
-                controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                    controller.niriLayoutHandler.activateNodeId(
-                        nodeId, in: wsId, state: &state,
-                        options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
-                    )
+            if let nodeId = controller.zigNodeId(for: entry.handle, workspaceId: wsId) {
+                controller.workspaceManager.setSelection(nodeId, for: wsId)
+                _ = controller.zigNiriEngine?.applyWorkspace(
+                    .setSelection(
+                        ZigNiriSelection(
+                            selectedNodeId: nodeId,
+                            focusedWindowId: nodeId
+                        )
+                    ),
+                    in: wsId
+                )
+                if isWorkspaceActive {
+                    controller.layoutRefreshController.executeLayoutRefreshImmediate()
                 }
-
-                if let frame = engine.findNode(by: nodeId)?.frame {
-                    controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-                } else if let frame = try? AXWindowService.frame(entry.axRef) {
+                if let frame = try? AXWindowService.frame(entry.axRef) {
                     controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
                 }
             } else if let frame = try? AXWindowService.frame(entry.axRef) {

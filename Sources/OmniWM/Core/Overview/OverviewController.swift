@@ -572,7 +572,7 @@ private extension OverviewController {
 
     func buildNiriDropZones() {
         guard let wmController else { return }
-        guard wmController.niriEngine != nil else {
+        guard wmController.zigNiriEngine != nil else {
             layout.niriColumnDropZonesByWorkspace = [:]
             return
         }
@@ -650,7 +650,7 @@ private extension OverviewController {
         windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)]
     ) {
         guard let wmController else { return }
-        guard let engine = wmController.niriEngine else {
+        guard wmController.zigNiriEngine != nil else {
             layout.niriColumnsByWorkspace = [:]
             return
         }
@@ -659,7 +659,10 @@ private extension OverviewController {
 
         for section in layout.workspaceSections {
             guard isNiriLayout(workspaceId: section.workspaceId) else { continue }
-            let niriColumns = engine.columns(in: section.workspaceId)
+            guard let workspaceView = wmController.syncZigNiriWorkspace(workspaceId: section.workspaceId) else {
+                continue
+            }
+            let niriColumns = workspaceView.columns
             guard !niriColumns.isEmpty else { continue }
 
             let columnCount = niriColumns.count
@@ -685,7 +688,9 @@ private extension OverviewController {
                     height: columnHeight
                 )
 
-                let handles: [WindowHandle] = column.windowNodes.map(\.handle)
+                let handles: [WindowHandle] = column.windowIds.compactMap { windowId in
+                    wmController.zigWindowHandle(for: windowId, workspaceId: section.workspaceId)
+                }
                 let orderedHandles = handles
                     .compactMap { handle -> (WindowHandle, CGRect)? in
                         guard let frame = windowData[handle]?.frame else { return nil }

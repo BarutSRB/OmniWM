@@ -4,19 +4,19 @@ import XCTest
 @testable import OmniWM
 
 @MainActor
-final class NiriPhase0BenchmarkTests: XCTestCase {
-    private static var cachedReport: NiriPhase0BenchmarkReport?
-    private static var cachedScenario: NiriPhase0Scenario?
+final class ZigNiriPhase0BenchmarkTests: XCTestCase {
+    private static var cachedReport: ZigNiriPhase0BenchmarkReport?
+    private static var cachedScenario: ZigNiriPhase0Scenario?
 
     func testPercentilesAreMonotonic() {
-        let stats = NiriLatencyStats.from(samplesNanoseconds: [
+        let stats = ZigNiriLatencyStats.from(samplesNanoseconds: [
             9_100_000,
             1_300_000,
             5_500_000,
             2_200_000,
             8_400_000,
             3_700_000,
-            6_000_000
+            6_000_000,
         ])
 
         XCTAssertGreaterThan(stats.count, 0)
@@ -25,10 +25,10 @@ final class NiriPhase0BenchmarkTests: XCTestCase {
     }
 
     func testEmptyAndLowSampleStatsAreStable() {
-        let empty = NiriLatencyStats.from(samplesNanoseconds: [])
+        let empty = ZigNiriLatencyStats.from(samplesNanoseconds: [])
         XCTAssertEqual(empty, .empty)
 
-        let single = NiriLatencyStats.from(samplesNanoseconds: [1_250_000])
+        let single = ZigNiriLatencyStats.from(samplesNanoseconds: [1_250_000])
         XCTAssertEqual(single.count, 1)
         XCTAssertEqual(single.minMs, single.meanMs, accuracy: 0.000_001)
         XCTAssertEqual(single.meanMs, single.p50Ms, accuracy: 0.000_001)
@@ -40,13 +40,13 @@ final class NiriPhase0BenchmarkTests: XCTestCase {
     func testResetClearsSamples() throws {
         try requireBenchmarkEnabled()
 
-        NiriLatencyProbe.reset()
-        NiriLatencyProbe.record(.layoutPass, elapsedNanoseconds: 2_000_000)
-        let before = NiriLatencyProbe.snapshot()
+        ZigNiriLatencyProbe.reset()
+        ZigNiriLatencyProbe.record(.layoutPass, elapsedNanoseconds: 2_000_000)
+        let before = ZigNiriLatencyProbe.snapshot()
         XCTAssertEqual(before[.layoutPass]?.count, 1)
 
-        NiriLatencyProbe.reset()
-        let after = NiriLatencyProbe.snapshot()
+        ZigNiriLatencyProbe.reset()
+        let after = ZigNiriLatencyProbe.snapshot()
         XCTAssertEqual(after[.layoutPass]?.count, 0)
     }
 
@@ -54,18 +54,44 @@ final class NiriPhase0BenchmarkTests: XCTestCase {
         try requireBenchmarkEnabled()
         let report = try benchmarkReport()
 
-        for hotPath in NiriLatencyHotPath.allCases {
+        for hotPath in ZigNiriLatencyHotPath.allCases {
             let stats = try XCTUnwrap(report.metrics[hotPath.rawValue])
             XCTAssertGreaterThan(stats.count, 0, "Expected non-zero samples for \(hotPath.rawValue)")
         }
+    }
+
+    func testFixtureRespectsSeedMaxWindowsPerColumn() throws {
+        let seed = ZigNiriPhase0Scenario.Seed(
+            maxWindowsPerColumn: 1,
+            maxVisibleColumns: 3,
+            gap: 8,
+            scale: 2,
+            monitor: .init(
+                displayId: 424242,
+                width: 1440,
+                height: 900,
+                visibleInsets: .init(left: 0, right: 0, top: 0, bottom: 0)
+            ),
+            workspaces: [
+                .init(name: "bench-primary-seed-check", windowCount: 4),
+                .init(name: "bench-secondary-seed-check", windowCount: 2),
+            ]
+        )
+
+        let fixture = try ZigNiriPhase0ReplayHarness.makeFixture(seed: seed)
+        let view = try XCTUnwrap(fixture.engine.workspaceView(for: fixture.primaryWorkspaceId))
+        XCTAssertTrue(
+            view.columns.allSatisfy { $0.windowIds.count <= seed.maxWindowsPerColumn },
+            "Expected fixture to honor seed.maxWindowsPerColumn when constructing the engine"
+        )
     }
 
     func testReplayReproducibilityForCountsAndSchema() throws {
         try requireBenchmarkEnabled()
         let scenario = try loadScenario()
 
-        let first = try NiriReplayHarness.runScenario(scenario)
-        let second = try NiriReplayHarness.runScenario(scenario)
+        let first = try ZigNiriPhase0ReplayHarness.runScenario(scenario)
+        let second = try ZigNiriPhase0ReplayHarness.runScenario(scenario)
 
         XCTAssertEqual(Set(first.metrics.keys), Set(second.metrics.keys))
         XCTAssertEqual(first.sampleCounts, second.sampleCounts)
@@ -81,10 +107,10 @@ final class NiriPhase0BenchmarkTests: XCTestCase {
             .appendingPathComponent("phase0-baseline.json")
 
         let data = try Data(contentsOf: baselineURL)
-        let baseline = try JSONDecoder().decode(NiriPhase0BenchmarkReport.self, from: data)
+        let baseline = try JSONDecoder().decode(ZigNiriPhase0BenchmarkReport.self, from: data)
 
         XCTAssertEqual(baseline.schemaVersion, 1)
-        for hotPath in NiriLatencyHotPath.allCases {
+        for hotPath in ZigNiriLatencyHotPath.allCases {
             XCTAssertNotNil(baseline.metrics[hotPath.rawValue])
         }
     }
@@ -102,24 +128,24 @@ final class NiriPhase0BenchmarkTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: reportURL.path))
 
         let data = try Data(contentsOf: reportURL)
-        let decoded = try JSONDecoder().decode(NiriPhase0BenchmarkReport.self, from: data)
+        let decoded = try JSONDecoder().decode(ZigNiriPhase0BenchmarkReport.self, from: data)
         XCTAssertEqual(decoded.schemaVersion, 1)
         XCTAssertEqual(decoded.scenarioName, try loadScenario().name)
     }
 
-    private func benchmarkReport() throws -> NiriPhase0BenchmarkReport {
+    private func benchmarkReport() throws -> ZigNiriPhase0BenchmarkReport {
         if let cached = Self.cachedReport {
             return cached
         }
 
         let scenario = try loadScenario()
-        let report = try NiriReplayHarness.runScenario(scenario)
+        let report = try ZigNiriPhase0ReplayHarness.runScenario(scenario)
         Self.cachedScenario = scenario
         Self.cachedReport = report
         return report
     }
 
-    private func loadScenario() throws -> NiriPhase0Scenario {
+    private func loadScenario() throws -> ZigNiriPhase0Scenario {
         if let cached = Self.cachedScenario {
             return cached
         }
@@ -127,12 +153,12 @@ final class NiriPhase0BenchmarkTests: XCTestCase {
         guard let url = Bundle.module.url(forResource: "phase0-replay", withExtension: "json") else {
             throw XCTSkip("Missing phase0-replay.json fixture")
         }
-        return try NiriReplayHarness.loadScenario(from: url)
+        return try ZigNiriPhase0ReplayHarness.loadScenario(from: url)
     }
 
     private func requireBenchmarkEnabled() throws {
-        if !NiriLatencyProbe.isEnabled {
-            throw XCTSkip("Set \(NiriLatencyProbe.environmentKey)=1 to run benchmark replay tests")
+        if !ZigNiriLatencyProbe.isEnabled {
+            throw XCTSkip("Set \(ZigNiriLatencyProbe.environmentKey)=1 to run benchmark replay tests")
         }
     }
 

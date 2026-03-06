@@ -254,13 +254,11 @@ import QuartzCore
 
             switch layoutType {
             case .niri, .defaultLayout:
-                guard let engine = controller.niriEngine else { continue }
                 let state = controller.workspaceManager.niriViewportState(for: wsId)
 
                 niriHandler.applyFramesOnDemand(
                     wsId: wsId,
                     state: state,
-                    engine: engine,
                     monitor: monitor,
                     animationTime: nil
                 )
@@ -391,16 +389,13 @@ import QuartzCore
                             _ = dwindleEngine.syncWindows(handles, in: ws.id, focusedHandle: focused)
                         }
                     case .niri, .defaultLayout:
-                        if let niriEngine = controller.niriEngine {
-                            let selection = controller.workspaceManager.niriViewportState(for: ws.id).selectedNodeId
-                            _ = niriEngine.syncWindows(handles, in: ws.id, selectedNodeId: selection, focusedHandle: focused)
-                            _ = controller.zigNiriEngine?.syncWindows(
-                                handles,
-                                in: ws.id,
-                                selectedNodeId: selection,
-                                focusedHandle: focused
-                            )
-                        }
+                        let selection = controller.workspaceManager.niriViewportState(for: ws.id).selectedNodeId
+                        _ = controller.zigNiriEngine?.syncWindows(
+                            handles,
+                            in: ws.id,
+                            selectedNodeId: selection,
+                            focusedHandle: focused
+                        )
                     }
                 }
             }

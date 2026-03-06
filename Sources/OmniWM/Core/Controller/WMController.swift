@@ -33,7 +33,6 @@ final class WMController {
     var previousMonitorId: Monitor.ID?
     private var suppressActiveMonitorUpdate: Bool = false
 
-    var niriEngine: NiriLayoutEngine?
     var zigNiriEngine: ZigNiriEngine?
     var dwindleEngine: DwindleLayoutEngine?
 
@@ -184,20 +183,10 @@ final class WMController {
     }
 
     func updateMonitorOrientations() {
-        let monitors = workspaceManager.monitors
-        for monitor in monitors {
-            let orientation = settings.effectiveOrientation(for: monitor)
-            niriEngine?.monitors[monitor.id]?.updateOrientation(orientation)
-        }
         layoutRefreshController.refreshWindowsAndLayout()
     }
 
     func updateMonitorNiriSettings() {
-        guard let engine = niriEngine else { return }
-        for monitor in workspaceManager.monitors {
-            let resolved = settings.resolvedNiriSettings(for: monitor)
-            engine.updateMonitorSettings(resolved, for: monitor.id)
-        }
         layoutRefreshController.refreshWindowsAndLayout()
     }
 

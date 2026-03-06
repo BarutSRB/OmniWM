@@ -153,7 +153,6 @@ final class ServiceLifecycleManager {
             controller.previousMonitorId = nil
         }
 
-        controller.niriEngine?.cleanupRemovedMonitor(monitorId)
         controller.dwindleEngine?.cleanupRemovedMonitor(monitorId)
     }
 

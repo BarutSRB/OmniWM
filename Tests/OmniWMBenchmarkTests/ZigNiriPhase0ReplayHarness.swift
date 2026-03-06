@@ -3,7 +3,7 @@ import Foundation
 
 @testable import OmniWM
 
-struct NiriPhase0Scenario: Codable {
+struct ZigNiriPhase0Scenario: Codable {
     struct Seed: Codable {
         struct Workspace: Codable {
             let name: String
@@ -52,7 +52,7 @@ struct NiriPhase0Scenario: Codable {
     let events: [Event]
 }
 
-struct NiriPhase0BenchmarkReport: Codable {
+struct ZigNiriPhase0BenchmarkReport: Codable {
     let schemaVersion: Int
     let scenarioName: String
     let generatedAt: String
@@ -60,11 +60,11 @@ struct NiriPhase0BenchmarkReport: Codable {
     let measuredIterations: Int
     let sampleCounts: [String: Int]
     let expectedSamplesByPath: [String: Int]
-    let metrics: [String: NiriLatencyStats]
+    let metrics: [String: ZigNiriLatencyStats]
 }
 
 @MainActor
-enum NiriReplayHarness {
+enum ZigNiriPhase0ReplayHarness {
     private static let reportSchemaVersion = 1
     private static let reportPathEnvironmentKey = "OMNI_NIRI_PHASE0_REPORT_PATH"
 
@@ -85,24 +85,24 @@ enum NiriReplayHarness {
         }
     }
 
-    private struct Fixture {
-        let engine: NiriLayoutEngine
-        let monitor: Monitor
-        let workingArea: WorkingAreaContext
-        let gaps: LayoutGaps
+    struct Fixture {
+        let engine: ZigNiriEngine
+        let monitorFrame: CGRect
+        let workingArea: ZigNiriWorkingAreaContext
+        let gaps: ZigNiriGaps
         let primaryWorkspaceId: WorkspaceDescriptor.ID
         let secondaryWorkspaceId: WorkspaceDescriptor.ID
         let trackedHandle: WindowHandle
-        var primaryState: ViewportState
-        var secondaryState: ViewportState
+        let trackedNodeId: NodeId
+        var trackedWorkspaceId: WorkspaceDescriptor.ID
     }
 
-    static func loadScenario(from url: URL) throws -> NiriPhase0Scenario {
+    static func loadScenario(from url: URL) throws -> ZigNiriPhase0Scenario {
         let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(NiriPhase0Scenario.self, from: data)
+        return try JSONDecoder().decode(ZigNiriPhase0Scenario.self, from: data)
     }
 
-    static func runScenario(_ scenario: NiriPhase0Scenario) throws -> NiriPhase0BenchmarkReport {
+    static func runScenario(_ scenario: ZigNiriPhase0Scenario) throws -> ZigNiriPhase0BenchmarkReport {
         guard scenario.workspacesCount >= 2 else {
             throw Error.invalidScenario("at least two workspaces are required")
         }
@@ -121,14 +121,14 @@ enum NiriReplayHarness {
             try replay(events: scenario.events, fixture: &fixture)
         }
 
-        NiriLatencyProbe.reset()
+        ZigNiriLatencyProbe.reset()
 
         for _ in 0 ..< scenario.measuredIterations {
             var fixture = try makeFixture(seed: scenario.seed)
             try replay(events: scenario.events, fixture: &fixture)
         }
 
-        let snapshot = NiriLatencyProbe.snapshot()
+        let snapshot = ZigNiriLatencyProbe.snapshot()
         let metrics = metricsByName(from: snapshot)
         let sampleCounts = sampleCountsByName(from: metrics)
         let expectedSamples = expectedSamplesByPath(
@@ -136,7 +136,7 @@ enum NiriReplayHarness {
             measuredIterations: scenario.measuredIterations
         )
 
-        let report = NiriPhase0BenchmarkReport(
+        let report = ZigNiriPhase0BenchmarkReport(
             schemaVersion: reportSchemaVersion,
             scenarioName: scenario.name,
             generatedAt: timestampNowISO8601(),
@@ -151,7 +151,7 @@ enum NiriReplayHarness {
         return report
     }
 
-    static func writeReportIfRequested(_ report: NiriPhase0BenchmarkReport) throws {
+    static func writeReportIfRequested(_ report: ZigNiriPhase0BenchmarkReport) throws {
         guard let outputPath = ProcessInfo.processInfo.environment[reportPathEnvironmentKey],
               !outputPath.isEmpty else {
             return
@@ -167,7 +167,7 @@ enum NiriReplayHarness {
         try data.write(to: outputURL, options: .atomic)
     }
 
-    private static func makeFixture(seed: NiriPhase0Scenario.Seed) throws -> Fixture {
+    static func makeFixture(seed: ZigNiriPhase0Scenario.Seed) throws -> Fixture {
         let monitorFrame = CGRect(
             x: 0,
             y: 0,
@@ -180,121 +180,76 @@ enum NiriReplayHarness {
             width: max(1, monitorFrame.width - seed.monitor.visibleInsets.left - seed.monitor.visibleInsets.right),
             height: max(1, monitorFrame.height - seed.monitor.visibleInsets.top - seed.monitor.visibleInsets.bottom)
         )
-        let monitor = Monitor(
-            id: .init(displayId: CGDirectDisplayID(seed.monitor.displayId)),
-            displayId: CGDirectDisplayID(seed.monitor.displayId),
-            frame: monitorFrame,
-            visibleFrame: visibleFrame,
-            hasNotch: false,
-            name: "NiriPhase0BenchmarkMonitor"
-        )
 
-        let engine = NiriLayoutEngine(
+        let engine = ZigNiriEngine(
             maxWindowsPerColumn: seed.maxWindowsPerColumn,
             maxVisibleColumns: seed.maxVisibleColumns,
             infiniteLoop: false
         )
-        engine.maxVisibleColumns = seed.maxVisibleColumns
 
         let primaryWorkspace = WorkspaceDescriptor(name: seed.workspaces[0].name)
         let secondaryWorkspace = WorkspaceDescriptor(name: seed.workspaces[1].name)
 
-        engine.moveWorkspace(primaryWorkspace.id, to: monitor.id, monitor: monitor)
-        engine.moveWorkspace(secondaryWorkspace.id, to: monitor.id, monitor: monitor)
+        let primaryHandles = makeWindowHandles(count: max(2, seed.workspaces[0].windowCount))
+        let secondaryHandles = makeWindowHandles(count: max(1, seed.workspaces[1].windowCount))
 
-        let primaryHandles = try populateWorkspace(
-            engine: engine,
-            workspaceId: primaryWorkspace.id,
-            windowCount: max(2, seed.workspaces[0].windowCount)
+        _ = engine.syncWindows(
+            primaryHandles,
+            in: primaryWorkspace.id,
+            selectedNodeId: nil,
+            focusedHandle: primaryHandles.first
         )
-        _ = try populateWorkspace(
-            engine: engine,
-            workspaceId: secondaryWorkspace.id,
-            windowCount: max(1, seed.workspaces[1].windowCount)
+        _ = engine.syncWindows(
+            secondaryHandles,
+            in: secondaryWorkspace.id,
+            selectedNodeId: nil,
+            focusedHandle: secondaryHandles.first
         )
-
-        var primaryState = ViewportState()
-        var secondaryState = ViewportState()
-
-        if let splitSource = primaryHandles.dropFirst().first,
-           let splitNode = engine.findNode(for: splitSource)
-        {
-            _ = engine.insertWindowInNewColumn(
-                splitNode,
-                insertIndex: 1,
-                in: primaryWorkspace.id,
-                state: &primaryState,
-                workingFrame: visibleFrame,
-                gaps: CGFloat(seed.gap)
-            )
-        }
 
         guard let trackedHandle = primaryHandles.first,
-              let trackedNode = engine.findNode(for: trackedHandle) else {
+              let trackedNodeId = engine.nodeId(for: trackedHandle) else {
             throw Error.missingWindow("primary workspace has no tracked node")
         }
 
-        primaryState.selectedNodeId = trackedNode.id
-        engine.activateWindow(trackedNode.id)
+        _ = engine.syncWindows(
+            primaryHandles,
+            in: primaryWorkspace.id,
+            selectedNodeId: trackedNodeId,
+            focusedHandle: trackedHandle
+        )
 
-        if let secondaryNode = engine.columns(in: secondaryWorkspace.id).first?.windowNodes.first {
-            secondaryState.selectedNodeId = secondaryNode.id
-            engine.activateWindow(secondaryNode.id)
-        }
-
-        let workingArea = WorkingAreaContext(
+        let workingArea = ZigNiriWorkingAreaContext(
             workingFrame: visibleFrame,
             viewFrame: monitorFrame,
             scale: CGFloat(seed.scale)
         )
-        let gaps = LayoutGaps(horizontal: CGFloat(seed.gap), vertical: CGFloat(seed.gap), outer: .zero)
+        let gaps = ZigNiriGaps(horizontal: CGFloat(seed.gap), vertical: CGFloat(seed.gap))
 
         return Fixture(
             engine: engine,
-            monitor: monitor,
+            monitorFrame: monitorFrame,
             workingArea: workingArea,
             gaps: gaps,
             primaryWorkspaceId: primaryWorkspace.id,
             secondaryWorkspaceId: secondaryWorkspace.id,
             trackedHandle: trackedHandle,
-            primaryState: primaryState,
-            secondaryState: secondaryState
+            trackedNodeId: trackedNodeId,
+            trackedWorkspaceId: primaryWorkspace.id
         )
     }
 
-    private static func populateWorkspace(
-        engine: NiriLayoutEngine,
-        workspaceId: WorkspaceDescriptor.ID,
-        windowCount: Int
-    ) throws -> [WindowHandle] {
-        guard windowCount > 0 else {
-            throw Error.invalidScenario("workspace windowCount must be greater than zero")
-        }
-
+    private static func makeWindowHandles(count: Int) -> [WindowHandle] {
         let pid = pid_t(ProcessInfo.processInfo.processIdentifier)
-        var handles: [WindowHandle] = []
-        handles.reserveCapacity(windowCount)
-
-        for _ in 0 ..< windowCount {
-            let handle = WindowHandle(
+        return (0 ..< count).map { _ in
+            WindowHandle(
                 id: UUID(),
                 pid: pid,
                 axElement: AXUIElementCreateApplication(pid)
             )
-            let selectedNodeId = engine.columns(in: workspaceId).first?.windowNodes.last?.id
-            _ = engine.addWindow(
-                handle: handle,
-                to: workspaceId,
-                afterSelection: selectedNodeId,
-                focusedHandle: nil
-            )
-            handles.append(handle)
         }
-
-        return handles
     }
 
-    private static func replay(events: [NiriPhase0Scenario.Event], fixture: inout Fixture) throws {
+    private static func replay(events: [ZigNiriPhase0Scenario.Event], fixture: inout Fixture) throws {
         for event in events {
             let repetitions = max(1, event.count)
             for _ in 0 ..< repetitions {
@@ -303,113 +258,94 @@ enum NiriReplayHarness {
         }
     }
 
-    private static func execute(event: NiriPhase0Scenario.Event.Kind, fixture: inout Fixture) throws {
+    private static func execute(event: ZigNiriPhase0Scenario.Event.Kind, fixture: inout Fixture) throws {
         switch event {
         case .layoutPass:
-            _ = fixture.engine.calculateCombinedLayoutUsingPools(
-                in: fixture.primaryWorkspaceId,
-                monitor: fixture.monitor,
-                gaps: fixture.gaps,
-                state: fixture.primaryState,
-                workingArea: fixture.workingArea
+            _ = fixture.engine.calculateLayout(
+                ZigNiriLayoutRequest(
+                    workspaceId: fixture.trackedWorkspaceId,
+                    monitorFrame: fixture.monitorFrame,
+                    screenFrame: nil,
+                    gaps: fixture.gaps,
+                    scale: fixture.workingArea.scale,
+                    workingArea: fixture.workingArea,
+                    orientation: .horizontal,
+                    viewportOffset: 0
+                )
             )
 
         case .windowMove:
-            guard let trackedNode = fixture.engine.findNode(for: fixture.trackedHandle) else {
-                throw Error.missingWindow("tracked node missing for windowMove")
-            }
-            _ = fixture.engine.moveWindow(
-                trackedNode,
-                direction: .down,
-                in: fixture.primaryWorkspaceId,
-                state: &fixture.primaryState,
-                workingFrame: fixture.workingArea.workingFrame,
-                gaps: fixture.gaps.horizontal
+            let result = fixture.engine.applyMutation(
+                .moveWindow(
+                    windowId: fixture.trackedNodeId,
+                    direction: .up,
+                    orientation: .horizontal
+                ),
+                in: fixture.trackedWorkspaceId
             )
+            guard result.applied else {
+                throw Error.operationFailed("moveWindow mutation did not apply")
+            }
 
         case .resizeDragUpdate:
-            guard let trackedNode = fixture.engine.findNode(for: fixture.trackedHandle) else {
-                throw Error.missingWindow("tracked node missing for resizeDragUpdate")
-            }
-
-            let frame = trackedNode.frame ?? CGRect(
-                x: fixture.workingArea.workingFrame.midX - 200,
-                y: fixture.workingArea.workingFrame.midY - 150,
-                width: 400,
-                height: 300
-            )
-            let startLocation = CGPoint(x: frame.maxX - 2, y: frame.midY)
-
-            fixture.engine.clearInteractiveResize()
-            guard fixture.engine.interactiveResizeBegin(
-                windowId: trackedNode.id,
-                edges: [.right],
-                startLocation: startLocation,
-                in: fixture.primaryWorkspaceId,
-                viewOffset: fixture.primaryState.viewOffsetPixels.current()
+            guard fixture.engine.beginInteractiveResize(
+                ZigNiriInteractiveResizeState(
+                    windowId: fixture.trackedNodeId,
+                    workspaceId: fixture.trackedWorkspaceId,
+                    edges: [.right],
+                    startMouseLocation: CGPoint(x: 100, y: 100)
+                )
             ) else {
-                throw Error.operationFailed("interactiveResizeBegin returned false")
+                throw Error.operationFailed("beginInteractiveResize returned false")
             }
 
-            _ = fixture.engine.interactiveResizeUpdate(
-                currentLocation: CGPoint(x: startLocation.x + 24, y: startLocation.y),
-                monitorFrame: fixture.workingArea.workingFrame,
-                gaps: fixture.gaps,
-                viewportState: { mutate in
-                    mutate(&fixture.primaryState)
-                }
-            )
+            let updateResult = fixture.engine.updateInteractiveResize(mouseLocation: CGPoint(x: 124, y: 100))
+            guard updateResult.applied else {
+                throw Error.operationFailed("updateInteractiveResize did not apply")
+            }
 
-            fixture.engine.interactiveResizeEnd(
-                state: &fixture.primaryState,
-                workingFrame: fixture.workingArea.workingFrame,
-                gaps: fixture.gaps.horizontal
-            )
+            _ = fixture.engine.endInteractiveResize(commit: true)
 
         case .navigationStep:
-            guard let currentSelectionId = fixture.primaryState.selectedNodeId,
-                  let currentSelection = fixture.engine.findNode(by: currentSelectionId) else {
-                throw Error.missingWindow("selected node missing for navigationStep")
-            }
-
-            if let newSelection = fixture.engine.moveSelectionByColumns(
-                steps: 1,
-                currentSelection: currentSelection,
-                in: fixture.primaryWorkspaceId
-            ) {
-                fixture.primaryState.selectedNodeId = newSelection.id
+            let result = fixture.engine.applyNavigation(
+                .focusWindow(index: 1),
+                in: fixture.trackedWorkspaceId,
+                orientation: .horizontal
+            )
+            guard result.applied else {
+                throw Error.operationFailed("navigation request did not apply")
             }
 
         case .workspaceMove:
-            guard let trackedNode = fixture.engine.findNode(for: fixture.trackedHandle) else {
-                throw Error.missingWindow("tracked node missing for workspaceMove")
-            }
+            let sourceWorkspaceId = fixture.trackedWorkspaceId
+            let targetWorkspaceId = sourceWorkspaceId == fixture.primaryWorkspaceId
+                ? fixture.secondaryWorkspaceId
+                : fixture.primaryWorkspaceId
 
-            guard fixture.engine.moveWindowToWorkspace(
-                trackedNode,
-                from: fixture.primaryWorkspaceId,
-                to: fixture.secondaryWorkspaceId,
-                sourceState: &fixture.primaryState,
-                targetState: &fixture.secondaryState
-            ) != nil else {
-                throw Error.operationFailed("moveWindowToWorkspace returned nil")
+            let result = fixture.engine.applyWorkspace(
+                .moveWindow(windowId: fixture.trackedNodeId, targetWorkspaceId: targetWorkspaceId),
+                in: sourceWorkspaceId
+            )
+            guard result.applied else {
+                throw Error.operationFailed("workspace move did not apply")
             }
+            fixture.trackedWorkspaceId = targetWorkspaceId
         }
     }
 
     private static func metricsByName(
-        from snapshot: [NiriLatencyHotPath: NiriLatencyStats]
-    ) -> [String: NiriLatencyStats] {
-        var metrics: [String: NiriLatencyStats] = [:]
-        metrics.reserveCapacity(NiriLatencyHotPath.allCases.count)
+        from snapshot: [ZigNiriLatencyHotPath: ZigNiriLatencyStats]
+    ) -> [String: ZigNiriLatencyStats] {
+        var metrics: [String: ZigNiriLatencyStats] = [:]
+        metrics.reserveCapacity(ZigNiriLatencyHotPath.allCases.count)
 
-        for hotPath in NiriLatencyHotPath.allCases {
+        for hotPath in ZigNiriLatencyHotPath.allCases {
             metrics[hotPath.rawValue] = snapshot[hotPath] ?? .empty
         }
         return metrics
     }
 
-    private static func sampleCountsByName(from metrics: [String: NiriLatencyStats]) -> [String: Int] {
+    private static func sampleCountsByName(from metrics: [String: ZigNiriLatencyStats]) -> [String: Int] {
         var counts: [String: Int] = [:]
         counts.reserveCapacity(metrics.count)
         for (key, stats) in metrics {
@@ -419,11 +355,11 @@ enum NiriReplayHarness {
     }
 
     private static func expectedSamplesByPath(
-        events: [NiriPhase0Scenario.Event],
+        events: [ZigNiriPhase0Scenario.Event],
         measuredIterations: Int
     ) -> [String: Int] {
-        var perIteration: [NiriLatencyHotPath: Int] = Dictionary(
-            uniqueKeysWithValues: NiriLatencyHotPath.allCases.map { ($0, 0) }
+        var perIteration: [ZigNiriLatencyHotPath: Int] = Dictionary(
+            uniqueKeysWithValues: ZigNiriLatencyHotPath.allCases.map { ($0, 0) }
         )
 
         for event in events {
@@ -443,8 +379,8 @@ enum NiriReplayHarness {
         }
 
         var expected: [String: Int] = [:]
-        expected.reserveCapacity(NiriLatencyHotPath.allCases.count)
-        for hotPath in NiriLatencyHotPath.allCases {
+        expected.reserveCapacity(ZigNiriLatencyHotPath.allCases.count)
+        for hotPath in ZigNiriLatencyHotPath.allCases {
             let count = (perIteration[hotPath] ?? 0) * measuredIterations
             expected[hotPath.rawValue] = count
         }
@@ -458,7 +394,7 @@ enum NiriReplayHarness {
     }
 }
 
-private extension NiriPhase0Scenario {
+private extension ZigNiriPhase0Scenario {
     var workspacesCount: Int {
         seed.workspaces.count
     }

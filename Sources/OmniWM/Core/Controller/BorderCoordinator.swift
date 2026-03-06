@@ -53,13 +53,6 @@ final class BorderCoordinator {
             return true
         }
 
-        guard let engine = controller.niriEngine else { return false }
-        if engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
-            return true
-        }
-        if engine.hasAnyColumnAnimationsRunning(in: workspaceId) {
-            return true
-        }
         return false
     }
 

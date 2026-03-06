@@ -1,7 +1,7 @@
 import Dispatch
 import Foundation
 
-enum NiriLatencyHotPath: String, CaseIterable, Codable {
+enum ZigNiriLatencyHotPath: String, CaseIterable, Codable {
     case layoutPass
     case windowMove
     case resizeDragUpdate
@@ -9,7 +9,7 @@ enum NiriLatencyHotPath: String, CaseIterable, Codable {
     case workspaceMove
 }
 
-struct NiriLatencyStats: Codable, Equatable {
+struct ZigNiriLatencyStats: Codable, Equatable {
     let count: Int
     let minMs: Double
     let meanMs: Double
@@ -18,7 +18,7 @@ struct NiriLatencyStats: Codable, Equatable {
     let p99Ms: Double
     let maxMs: Double
 
-    static let empty = NiriLatencyStats(
+    static let empty = ZigNiriLatencyStats(
         count: 0,
         minMs: 0,
         meanMs: 0,
@@ -28,7 +28,7 @@ struct NiriLatencyStats: Codable, Equatable {
         maxMs: 0
     )
 
-    static func from(samplesNanoseconds: [UInt64]) -> NiriLatencyStats {
+    static func from(samplesNanoseconds: [UInt64]) -> ZigNiriLatencyStats {
         guard !samplesNanoseconds.isEmpty else {
             return .empty
         }
@@ -47,7 +47,7 @@ struct NiriLatencyStats: Codable, Equatable {
         let p95 = nearestRank(sorted: sorted, percentile: 0.95)
         let p99 = nearestRank(sorted: sorted, percentile: 0.99)
 
-        return NiriLatencyStats(
+        return ZigNiriLatencyStats(
             count: count,
             minMs: toMilliseconds(minValue),
             meanMs: toMilliseconds(totalNanoseconds / Double(count)),
@@ -75,13 +75,22 @@ struct NiriLatencyStats: Codable, Equatable {
     }
 }
 
-enum NiriLatencyProbe {
+enum ZigNiriLatencyProbe {
     static let environmentKey = "OMNI_NIRI_PHASE0_BENCH"
 
     private static let enabled = ProcessInfo.processInfo.environment[environmentKey] == "1"
-    private nonisolated(unsafe) static var samplesByPath: [NiriLatencyHotPath: [UInt64]] = Dictionary(
-        uniqueKeysWithValues: NiriLatencyHotPath.allCases.map { ($0, []) }
+    private static let hotPaths = ZigNiriLatencyHotPath.allCases
+    private static let initialSampleCapacity = 1_024
+    private static let hotPathIndices = Dictionary(
+        uniqueKeysWithValues: hotPaths.enumerated().map { ($1, $0) }
     )
+    private nonisolated(unsafe) static var samplesByPathIndex: [[UInt64]] = {
+        var buffers = Array(repeating: [UInt64](), count: hotPaths.count)
+        for index in buffers.indices {
+            buffers[index].reserveCapacity(initialSampleCapacity)
+        }
+        return buffers
+    }()
     private static let lock = NSLock()
 
     static var isEnabled: Bool {
@@ -89,7 +98,7 @@ enum NiriLatencyProbe {
     }
 
     @inline(__always)
-    static func measure<T>(_ hotPath: NiriLatencyHotPath, _ body: () throws -> T) rethrows -> T {
+    static func measure<T>(_ hotPath: ZigNiriLatencyHotPath, _ body: () throws -> T) rethrows -> T {
         guard enabled else {
             return try body()
         }
@@ -102,22 +111,21 @@ enum NiriLatencyProbe {
         return try body()
     }
 
-    static func record(_ hotPath: NiriLatencyHotPath, elapsedNanoseconds: UInt64) {
-        guard enabled else { return }
-
+    static func record(_ hotPath: ZigNiriLatencyHotPath, elapsedNanoseconds: UInt64) {
+        guard enabled, let hotPathIndex = hotPathIndices[hotPath] else { return }
         lock.lock()
-        samplesByPath[hotPath, default: []].append(elapsedNanoseconds)
+        samplesByPathIndex[hotPathIndex].append(elapsedNanoseconds)
         lock.unlock()
     }
 
     @inline(__always)
-    static func begin(_ hotPath: NiriLatencyHotPath) -> (hotPath: NiriLatencyHotPath, startedAt: UInt64)? {
+    static func begin(_ hotPath: ZigNiriLatencyHotPath) -> (hotPath: ZigNiriLatencyHotPath, startedAt: UInt64)? {
         guard enabled else { return nil }
         return (hotPath: hotPath, startedAt: DispatchTime.now().uptimeNanoseconds)
     }
 
     @inline(__always)
-    static func end(_ token: (hotPath: NiriLatencyHotPath, startedAt: UInt64)?) {
+    static func end(_ token: (hotPath: ZigNiriLatencyHotPath, startedAt: UInt64)?) {
         guard let token else { return }
         let endTime = DispatchTime.now().uptimeNanoseconds
         record(token.hotPath, elapsedNanoseconds: endTime &- token.startedAt)
@@ -127,34 +135,34 @@ enum NiriLatencyProbe {
         guard enabled else { return }
 
         lock.lock()
-        for hotPath in NiriLatencyHotPath.allCases {
-            samplesByPath[hotPath]?.removeAll(keepingCapacity: true)
+        for index in samplesByPathIndex.indices {
+            samplesByPathIndex[index].removeAll(keepingCapacity: true)
         }
         lock.unlock()
     }
 
-    static func snapshot() -> [NiriLatencyHotPath: NiriLatencyStats] {
+    static func snapshot() -> [ZigNiriLatencyHotPath: ZigNiriLatencyStats] {
         guard enabled else {
             return emptySnapshot()
         }
 
         lock.lock()
-        let captured = samplesByPath
+        let captured = samplesByPathIndex
         lock.unlock()
 
-        var result: [NiriLatencyHotPath: NiriLatencyStats] = [:]
-        result.reserveCapacity(NiriLatencyHotPath.allCases.count)
-        for hotPath in NiriLatencyHotPath.allCases {
-            let samples = captured[hotPath] ?? []
-            result[hotPath] = NiriLatencyStats.from(samplesNanoseconds: samples)
+        var result: [ZigNiriLatencyHotPath: ZigNiriLatencyStats] = [:]
+        result.reserveCapacity(hotPaths.count)
+        for (index, hotPath) in hotPaths.enumerated() {
+            let samples = captured.indices.contains(index) ? captured[index] : []
+            result[hotPath] = ZigNiriLatencyStats.from(samplesNanoseconds: samples)
         }
         return result
     }
 
-    static func emptySnapshot() -> [NiriLatencyHotPath: NiriLatencyStats] {
-        var result: [NiriLatencyHotPath: NiriLatencyStats] = [:]
-        result.reserveCapacity(NiriLatencyHotPath.allCases.count)
-        for hotPath in NiriLatencyHotPath.allCases {
+    static func emptySnapshot() -> [ZigNiriLatencyHotPath: ZigNiriLatencyStats] {
+        var result: [ZigNiriLatencyHotPath: ZigNiriLatencyStats] = [:]
+        result.reserveCapacity(hotPaths.count)
+        for hotPath in hotPaths {
             result[hotPath] = .empty
         }
         return result

@@ -13,6 +13,8 @@ struct ZigNiriColumnView {
     var windowIds: [NodeId]
     var display: ColumnDisplay
     var activeWindowIndex: Int?
+    var width: ProportionalSize = .default
+    var isFullWidth: Bool = false
 }
 
 struct ZigNiriWindowView {
@@ -78,16 +80,31 @@ struct ZigNiriNavigationResult {
 enum ZigNiriNavigationRequest {
     case focus(direction: Direction)
     case move(direction: Direction)
+    case focusDownOrLeft
+    case focusUpOrRight
     case focusColumnFirst
     case focusColumnLast
     case focusColumn(index: Int)
     case focusWindow(index: Int)
+    case focusWindowTop
+    case focusWindowBottom
 }
 
 enum ZigNiriMutationRequest {
     case setColumnDisplay(columnId: NodeId, display: ColumnDisplay)
+    case setColumnActiveWindow(columnId: NodeId, windowIndex: Int)
+    case setColumnWidth(columnId: NodeId, width: ProportionalSize)
+    case toggleColumnFullWidth(columnId: NodeId)
     case setWindowSizing(windowId: NodeId, mode: SizingMode)
     case setWindowHeight(windowId: NodeId, height: WeightedSize)
+    case moveWindow(windowId: NodeId, direction: Direction, orientation: Monitor.Orientation)
+    case swapWindow(windowId: NodeId, direction: Direction, orientation: Monitor.Orientation)
+    case moveColumn(columnId: NodeId, direction: Direction)
+    case consumeWindow(windowId: NodeId, direction: Direction)
+    case expelWindow(windowId: NodeId, direction: Direction)
+    case insertWindowByMove(sourceWindowId: NodeId, targetWindowId: NodeId, position: InsertPosition)
+    case insertWindowInNewColumn(windowId: NodeId, insertIndex: Int)
+    case balanceSizes
     case removeWindow(windowId: NodeId)
     case custom(name: String)
 }
@@ -121,6 +138,7 @@ struct ZigNiriLayoutRequest {
     let scale: CGFloat
     let workingArea: ZigNiriWorkingAreaContext?
     let orientation: Monitor.Orientation
+    let viewportOffset: CGFloat
 }
 
 struct ZigNiriLayoutResult {

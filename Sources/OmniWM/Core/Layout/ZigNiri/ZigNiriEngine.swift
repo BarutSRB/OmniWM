@@ -14,14 +14,18 @@ final class ZigNiriEngine {
     }
 
     private var maxVisibleColumns: Int
+    private var maxWindowsPerColumn: Int
     private var infiniteLoop: Bool
 
     private var workspaceViews: [WorkspaceDescriptor.ID: ZigNiriWorkspaceView] = [:]
     private var windowNodeIdsByHandle: [WindowHandle: NodeId] = [:]
     private var windowHandlesByNodeId: [NodeId: WindowHandle] = [:]
     private var windowHandlesByUUID: [UUID: WindowHandle] = [:]
+    private var dirtyWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
+    private var workspaceNodeIds: [WorkspaceDescriptor.ID: Set<NodeId>] = [:]
+    private var nodeReferenceCounts: [NodeId: Int] = [:]
 
-    private var layoutContexts: [WorkspaceDescriptor.ID: NiriLayoutZigKernel.LayoutContext] = [:]
+    private var layoutContexts: [WorkspaceDescriptor.ID: ZigNiriLayoutKernel.LayoutContext] = [:]
 
     // Runtime state does not encode these today, so we keep them in Swift side maps.
     private var windowSizingModesByNodeId: [NodeId: SizingMode] = [:]
@@ -31,17 +35,23 @@ final class ZigNiriEngine {
     private var interactiveResizeState: ZigNiriInteractiveResizeState?
 
     init(
+        maxWindowsPerColumn: Int = 3,
         maxVisibleColumns: Int = 3,
         infiniteLoop: Bool = false
     ) {
+        self.maxWindowsPerColumn = max(1, min(10, maxWindowsPerColumn))
         self.maxVisibleColumns = max(1, min(5, maxVisibleColumns))
         self.infiniteLoop = infiniteLoop
     }
 
     func updateConfiguration(
+        maxWindowsPerColumn: Int? = nil,
         maxVisibleColumns: Int? = nil,
         infiniteLoop: Bool? = nil
     ) {
+        if let maxWindowsPerColumn {
+            self.maxWindowsPerColumn = max(1, min(10, maxWindowsPerColumn))
+        }
         if let maxVisibleColumns {
             self.maxVisibleColumns = max(1, min(5, maxVisibleColumns))
         }
@@ -69,6 +79,9 @@ final class ZigNiriEngine {
         orientation: Monitor.Orientation = .horizontal,
         selection: ZigNiriSelection? = nil
     ) -> ZigNiriNavigationResult {
+        let latencyToken = ZigNiriLatencyProbe.begin(.navigationStep)
+        defer { ZigNiriLatencyProbe.end(latencyToken) }
+
         guard let context = ensureRuntimeContext(for: workspaceId) else {
             return .noChange(
                 workspaceId: workspaceId,
@@ -77,14 +90,18 @@ final class ZigNiriEngine {
             )
         }
 
-        _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(
+                workspaceId: workspaceId,
+                targetNodeId: nil,
+                selection: workspaceViews[workspaceId]?.selection
+            )
+        }
         var view = ensureWorkspaceView(for: workspaceId)
         if let selection {
             view.selection = selection
         }
-        view.selection = normalizedSelection(view.selection, in: view)
-        applyFocusState(to: &view)
-        workspaceViews[workspaceId] = view
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
 
         guard let runtimeRequest = runtimeNavigationRequest(
             for: request,
@@ -99,7 +116,7 @@ final class ZigNiriEngine {
             )
         }
 
-        let outcome = NiriStateZigKernel.applyNavigation(
+        let outcome = ZigNiriStateKernel.applyNavigation(
             context: context,
             request: .init(request: runtimeRequest)
         )
@@ -111,21 +128,26 @@ final class ZigNiriEngine {
             )
         }
 
-        _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+        if outcome.applied {
+            markWorkspaceDirty(workspaceId)
+        }
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(
+                workspaceId: workspaceId,
+                targetNodeId: view.selection?.selectedNodeId,
+                selection: view.selection
+            )
+        }
         var projected = ensureWorkspaceView(for: workspaceId)
         let targetNodeId = outcome.targetWindowId
             ?? navigationFallbackTarget(for: request, in: projected)
             ?? projected.selection?.selectedNodeId
 
-        projected.selection = normalizedSelection(
-            ZigNiriSelection(
-                selectedNodeId: targetNodeId,
-                focusedWindowId: outcome.targetWindowId ?? projected.selection?.focusedWindowId
-            ),
-            in: projected
+        projected.selection = ZigNiriSelection(
+            selectedNodeId: targetNodeId,
+            focusedWindowId: outcome.targetWindowId ?? projected.selection?.focusedWindowId
         )
-        applyFocusState(to: &projected)
-        workspaceViews[workspaceId] = projected
+        projected = storeWorkspaceView(projected, workspaceId: workspaceId)
 
         return ZigNiriNavigationResult(
             applied: outcome.applied,
@@ -142,19 +164,56 @@ final class ZigNiriEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         selection: ZigNiriSelection? = nil
     ) -> ZigNiriMutationResult {
+        let latencyToken: (hotPath: ZigNiriLatencyHotPath, startedAt: UInt64)?
+        switch request {
+        case .moveWindow:
+            latencyToken = ZigNiriLatencyProbe.begin(.windowMove)
+        default:
+            latencyToken = nil
+        }
+        defer { ZigNiriLatencyProbe.end(latencyToken) }
+
         guard ensureRuntimeContext(for: workspaceId) != nil else {
             return .noChange(
                 workspaceId: workspaceId,
                 selection: workspaceViews[workspaceId]?.selection
             )
         }
-        _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(
+                workspaceId: workspaceId,
+                selection: workspaceViews[workspaceId]?.selection
+            )
+        }
 
         switch request {
         case let .setColumnDisplay(columnId, display):
             return applyColumnDisplayMutation(
                 columnId: columnId,
                 display: display,
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .setColumnActiveWindow(columnId, windowIndex):
+            return applyColumnActiveWindowMutation(
+                columnId: columnId,
+                windowIndex: windowIndex,
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .setColumnWidth(columnId, width):
+            return applyColumnWidthMutation(
+                columnId: columnId,
+                width: width,
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .toggleColumnFullWidth(columnId):
+            return applyColumnFullWidthToggleMutation(
+                columnId: columnId,
                 workspaceId: workspaceId,
                 selection: selection
             )
@@ -175,6 +234,125 @@ final class ZigNiriEngine {
                 selection: selection
             )
 
+        case let .moveWindow(windowId, direction, orientation):
+            guard let op = mutationOpForWindowMove(
+                direction: direction,
+                orientation: orientation,
+                swap: false
+            )
+            else {
+                return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+            }
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: op,
+                    sourceWindowId: windowId,
+                    direction: direction
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .swapWindow(windowId, direction, orientation):
+            guard let op = mutationOpForWindowMove(
+                direction: direction,
+                orientation: orientation,
+                swap: true
+            )
+            else {
+                return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+            }
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: op,
+                    sourceWindowId: windowId,
+                    direction: direction
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .moveColumn(columnId, direction):
+            guard direction == .left || direction == .right else {
+                return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+            }
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: .moveColumn,
+                    sourceColumnId: columnId,
+                    direction: direction
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .consumeWindow(windowId, direction):
+            guard direction == .left || direction == .right else {
+                return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+            }
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: .consumeWindow,
+                    sourceWindowId: windowId,
+                    direction: direction,
+                    placeholderColumnId: UUID()
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .expelWindow(windowId, direction):
+            guard direction == .left || direction == .right else {
+                return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+            }
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: .expelWindow,
+                    sourceWindowId: windowId,
+                    direction: direction,
+                    createdColumnId: UUID(),
+                    placeholderColumnId: UUID()
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .insertWindowByMove(sourceWindowId, targetWindowId, position):
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: .insertWindowByMove,
+                    sourceWindowId: sourceWindowId,
+                    targetWindowId: targetWindowId,
+                    insertPosition: position
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case let .insertWindowInNewColumn(windowId, insertIndex):
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: .insertWindowInNewColumn,
+                    sourceWindowId: windowId,
+                    insertColumnIndex: insertIndex,
+                    maxVisibleColumnsOverride: maxVisibleColumns,
+                    createdColumnId: UUID(),
+                    placeholderColumnId: UUID()
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
+        case .balanceSizes:
+            return applyRuntimeMutation(
+                RuntimeMutationSpec(
+                    op: .balanceSizes,
+                    maxVisibleColumnsOverride: maxVisibleColumns
+                ),
+                workspaceId: workspaceId,
+                selection: selection
+            )
+
         case let .removeWindow(windowId):
             return applyRemoveWindowMutation(
                 windowId: windowId,
@@ -185,9 +363,8 @@ final class ZigNiriEngine {
         case .custom:
             var view = ensureWorkspaceView(for: workspaceId)
             if let selection {
-                view.selection = normalizedSelection(selection, in: view)
-                applyFocusState(to: &view)
-                workspaceViews[workspaceId] = view
+                view.selection = selection
+                view = storeWorkspaceView(view, workspaceId: workspaceId)
             }
             return .noChange(workspaceId: workspaceId, selection: view.selection)
         }
@@ -198,6 +375,15 @@ final class ZigNiriEngine {
         _ request: ZigNiriWorkspaceRequest,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> ZigNiriMutationResult {
+        let latencyToken: (hotPath: ZigNiriLatencyHotPath, startedAt: UInt64)?
+        switch request {
+        case .moveWindow:
+            latencyToken = ZigNiriLatencyProbe.begin(.workspaceMove)
+        default:
+            latencyToken = nil
+        }
+        defer { ZigNiriLatencyProbe.end(latencyToken) }
+
         switch request {
         case .ensureWorkspace:
             let existed = layoutContexts[workspaceId] != nil
@@ -207,7 +393,12 @@ final class ZigNiriEngine {
                     selection: workspaceViews[workspaceId]?.selection
                 )
             }
-            _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+            guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+                return .noChange(
+                    workspaceId: workspaceId,
+                    selection: workspaceViews[workspaceId]?.selection
+                )
+            }
             let view = ensureWorkspaceView(for: workspaceId)
             return ZigNiriMutationResult(
                 applied: !existed,
@@ -226,7 +417,7 @@ final class ZigNiriEngine {
             }
 
             let removedIds: [NodeId] = {
-                switch NiriStateZigKernel.snapshotRuntimeStateResult(context: context) {
+                switch ZigNiriStateKernel.snapshotRuntimeStateResult(context: context) {
                 case let .success(export):
                     return export.windows.map(\.windowId)
                 case .failure:
@@ -235,7 +426,7 @@ final class ZigNiriEngine {
             }()
 
             let resetColumnId = workspaceViews[workspaceId]?.columns.first?.nodeId ?? NodeId()
-            let clearedExport = NiriStateZigKernel.RuntimeStateExport(
+            let clearedExport = ZigNiriStateKernel.RuntimeStateExport(
                 columns: [
                     .init(
                         columnId: resetColumnId,
@@ -249,7 +440,7 @@ final class ZigNiriEngine {
                 windows: []
             )
 
-            let rc = NiriStateZigKernel.seedRuntimeState(
+            let rc = ZigNiriStateKernel.seedRuntimeState(
                 context: context,
                 export: clearedExport
             )
@@ -260,15 +451,16 @@ final class ZigNiriEngine {
                 )
             }
 
-            for removedId in removedIds {
-                cleanupWindowMappings(for: removedId)
+            markWorkspaceDirty(workspaceId)
+            guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+                return .noChange(
+                    workspaceId: workspaceId,
+                    selection: workspaceViews[workspaceId]?.selection
+                )
             }
-            _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
-
             var view = ensureWorkspaceView(for: workspaceId)
             view.selection = nil
-            applyFocusState(to: &view)
-            workspaceViews[workspaceId] = view
+            view = storeWorkspaceView(view, workspaceId: workspaceId, allowNilWhenRequested: true)
 
             return ZigNiriMutationResult(
                 applied: !removedIds.isEmpty,
@@ -285,16 +477,16 @@ final class ZigNiriEngine {
                     selection: workspaceViews[workspaceId]?.selection
                 )
             }
-            _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+            guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+                return .noChange(
+                    workspaceId: workspaceId,
+                    selection: workspaceViews[workspaceId]?.selection
+                )
+            }
 
             var view = ensureWorkspaceView(for: workspaceId)
-            view.selection = normalizedSelection(
-                selection,
-                in: view,
-                allowNilWhenRequested: true
-            )
-            applyFocusState(to: &view)
-            workspaceViews[workspaceId] = view
+            view.selection = selection
+            view = storeWorkspaceView(view, workspaceId: workspaceId, allowNilWhenRequested: true)
 
             return ZigNiriMutationResult(
                 applied: true,
@@ -314,11 +506,11 @@ final class ZigNiriEngine {
                 )
             }
 
-            let outcome = NiriStateZigKernel.applyWorkspace(
+            let outcome = ZigNiriStateKernel.applyWorkspace(
                 sourceContext: sourceContext,
                 targetContext: targetContext,
                 request: .init(
-                    request: NiriStateZigKernel.WorkspaceRequest(
+                    request: ZigNiriStateKernel.WorkspaceRequest(
                         op: .moveWindowToWorkspace,
                         sourceWindowId: windowId,
                         maxVisibleColumns: maxVisibleColumns
@@ -334,8 +526,16 @@ final class ZigNiriEngine {
                 )
             }
 
-            _ = syncWorkspaceViewFromRuntime(workspaceId: targetWorkspaceId)
-            _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+            if outcome.applied {
+                markWorkspaceDirty(targetWorkspaceId)
+                markWorkspaceDirty(workspaceId)
+            }
+            guard ensureSyncedViewIfNeeded(workspaceId: targetWorkspaceId) else {
+                return .noChange(
+                    workspaceId: workspaceId,
+                    selection: workspaceViews[workspaceId]?.selection
+                )
+            }
 
             let targetView = ensureWorkspaceView(for: targetWorkspaceId)
             return ZigNiriMutationResult(
@@ -356,11 +556,11 @@ final class ZigNiriEngine {
                 )
             }
 
-            let outcome = NiriStateZigKernel.applyWorkspace(
+            let outcome = ZigNiriStateKernel.applyWorkspace(
                 sourceContext: sourceContext,
                 targetContext: targetContext,
                 request: .init(
-                    request: NiriStateZigKernel.WorkspaceRequest(
+                    request: ZigNiriStateKernel.WorkspaceRequest(
                         op: .moveColumnToWorkspace,
                         sourceColumnId: columnId
                     ),
@@ -374,8 +574,16 @@ final class ZigNiriEngine {
                 )
             }
 
-            _ = syncWorkspaceViewFromRuntime(workspaceId: targetWorkspaceId)
-            _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+            if outcome.applied {
+                markWorkspaceDirty(targetWorkspaceId)
+                markWorkspaceDirty(workspaceId)
+            }
+            guard ensureSyncedViewIfNeeded(workspaceId: targetWorkspaceId) else {
+                return .noChange(
+                    workspaceId: workspaceId,
+                    selection: workspaceViews[workspaceId]?.selection
+                )
+            }
 
             let targetView = ensureWorkspaceView(for: targetWorkspaceId)
             return ZigNiriMutationResult(
@@ -407,8 +615,8 @@ final class ZigNiriEngine {
             windowHandlesByUUID[handle.id] = handle
         }
 
-        var export: NiriStateZigKernel.RuntimeStateExport
-        switch NiriStateZigKernel.snapshotRuntimeStateResult(context: context) {
+        var export: ZigNiriStateKernel.RuntimeStateExport
+        switch ZigNiriStateKernel.snapshotRuntimeStateResult(context: context) {
         case let .success(snapshot):
             export = snapshot
         case .failure:
@@ -416,7 +624,7 @@ final class ZigNiriEngine {
         }
 
         var removedNodeIds = Set<NodeId>()
-        var keptWindows: [NiriStateZigKernel.RuntimeWindowState] = []
+        var keptWindows: [ZigNiriStateKernel.RuntimeWindowState] = []
         keptWindows.reserveCapacity(export.windows.count)
 
         for runtimeWindow in export.windows {
@@ -439,17 +647,9 @@ final class ZigNiriEngine {
         export.windows = keptWindows
 
         if export.columns.isEmpty {
-            export.columns = [
-                .init(
-                    columnId: NodeId(),
-                    windowStart: 0,
-                    windowCount: 0,
-                    activeTileIdx: 0,
-                    isTabbed: false,
-                    sizeValue: 1.0
-                ),
-            ]
+            export.columns = [defaultRuntimeColumnState(columnId: NodeId())]
         }
+        normalizeRuntimeExport(&export)
 
         let preferredColumnId: NodeId = {
             let view = workspaceViews[workspaceId]
@@ -461,16 +661,25 @@ final class ZigNiriEngine {
         }()
 
         if !export.columns.contains(where: { $0.columnId == preferredColumnId }) {
-            export.columns.append(
-                .init(
-                    columnId: preferredColumnId,
-                    windowStart: 0,
-                    windowCount: 0,
-                    activeTileIdx: 0,
-                    isTabbed: false,
-                    sizeValue: 1.0
-                )
-            )
+            export.columns.append(defaultRuntimeColumnState(columnId: preferredColumnId))
+        }
+
+        let maxPerColumn = max(1, maxWindowsPerColumn)
+        var windowIdsByColumn: [NodeId: [NodeId]] = [:]
+        windowIdsByColumn.reserveCapacity(export.columns.count)
+        for column in export.columns {
+            let start = column.windowStart
+            let count = column.windowCount
+            guard start >= 0,
+                  count >= 0,
+                  start <= export.windows.count,
+                  count <= export.windows.count - start
+            else {
+                windowIdsByColumn[column.columnId] = []
+                continue
+            }
+            let ids = export.windows[start ..< start + count].map(\.windowId)
+            windowIdsByColumn[column.columnId] = ids
         }
 
         var existingWindowIds = Set(export.windows.map(\.windowId))
@@ -488,13 +697,37 @@ final class ZigNiriEngine {
                 continue
             }
 
+            if !windowIdsByColumn.keys.contains(preferredColumnId) {
+                windowIdsByColumn[preferredColumnId] = []
+            }
+
+            let preferredIndex = export.columns.firstIndex(where: { $0.columnId == preferredColumnId }) ?? 0
+            let targetColumnId: NodeId
+            let preferredCount = windowIdsByColumn[preferredColumnId, default: []].count
+            if preferredCount < maxPerColumn {
+                targetColumnId = preferredColumnId
+            } else if let nearestIndex = nearestNonFullColumnIndex(
+                columns: export.columns,
+                windowsByColumn: windowIdsByColumn,
+                anchorIndex: preferredIndex,
+                maxPerColumn: maxPerColumn
+            ) {
+                targetColumnId = export.columns[nearestIndex].columnId
+            } else {
+                let spillColumnId = NodeId()
+                export.columns.append(defaultRuntimeColumnState(columnId: spillColumnId))
+                windowIdsByColumn[spillColumnId] = []
+                targetColumnId = spillColumnId
+            }
+
+            windowIdsByColumn[targetColumnId, default: []].append(nodeId)
             export.windows.append(
-                NiriStateZigKernel.RuntimeWindowState(
+                ZigNiriStateKernel.RuntimeWindowState(
                     windowId: nodeId,
-                    columnId: preferredColumnId,
+                    columnId: targetColumnId,
                     columnIndex: 0,
                     sizeValue: 1.0,
-                    heightKind: NiriStateZigKernel.heightKindAuto,
+                    heightKind: ZigNiriStateKernel.heightKindAuto,
                     heightValue: 1.0
                 )
             )
@@ -502,7 +735,7 @@ final class ZigNiriEngine {
         }
 
         normalizeRuntimeExport(&export)
-        let seedRC = NiriStateZigKernel.seedRuntimeState(
+        let seedRC = ZigNiriStateKernel.seedRuntimeState(
             context: context,
             export: export
         )
@@ -513,37 +746,166 @@ final class ZigNiriEngine {
         let removedHandles = Set(
             removedNodeIds.compactMap { windowHandlesByNodeId[$0] }
         )
-        for removedNodeId in removedNodeIds {
-            cleanupWindowMappings(for: removedNodeId)
+        markWorkspaceDirty(workspaceId)
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return removedHandles
         }
-
-        _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
         var view = ensureWorkspaceView(for: workspaceId)
 
         let focusedNodeId = focusedHandle.flatMap { windowNodeIdsByHandle[$0] }
-        let desiredSelection = ZigNiriSelection(
+        view.selection = ZigNiriSelection(
             selectedNodeId: selectedNodeId ?? view.selection?.selectedNodeId,
             focusedWindowId: focusedNodeId ?? view.selection?.focusedWindowId
         )
-        view.selection = normalizedSelection(desiredSelection, in: view)
-        applyFocusState(to: &view)
-        workspaceViews[workspaceId] = view
+        _ = storeWorkspaceView(view, workspaceId: workspaceId)
 
         return removedHandles
     }
 
     func calculateLayout(_ request: ZigNiriLayoutRequest) -> ZigNiriLayoutResult {
-        guard let view = workspaceViews[request.workspaceId] else {
+        let latencyToken = ZigNiriLatencyProbe.begin(.layoutPass)
+        defer { ZigNiriLatencyProbe.end(latencyToken) }
+        let persistFrames = !ZigNiriLatencyProbe.isEnabled
+
+        guard var view = workspaceViews[request.workspaceId] else {
+            return ZigNiriLayoutResult(frames: [:], hiddenHandles: [:])
+        }
+        guard !view.columns.isEmpty else {
+            if persistFrames {
+                for windowId in view.windowsById.keys {
+                    var window = view.windowsById[windowId]
+                    window?.frame = nil
+                    if let window {
+                        view.windowsById[windowId] = window
+                    }
+                }
+                workspaceViews[request.workspaceId] = view
+            }
             return ZigNiriLayoutResult(frames: [:], hiddenHandles: [:])
         }
 
+        let workingFrame = request.workingArea?.workingFrame ?? request.monitorFrame
+        let primaryGap = request.orientation == .horizontal ? request.gaps.horizontal : request.gaps.vertical
+        let secondaryGap = request.orientation == .horizontal ? request.gaps.vertical : request.gaps.horizontal
+
         var frames: [WindowHandle: CGRect] = [:]
-        for window in view.windowsById.values {
-            if let frame = window.frame {
+        var hiddenHandles: [WindowHandle: HideSide] = [:]
+        let columnLayouts = columnLayoutsForLayout(
+            view: view,
+            workingFrame: workingFrame,
+            orientation: request.orientation,
+            primaryGap: primaryGap,
+            viewOffset: request.viewportOffset
+        )
+
+        if let fullscreenWindowId = view.windowsById.values.first(where: { $0.sizingMode == .fullscreen })?.nodeId {
+            let fullFrame = workingFrame.roundedToPhysicalPixels(scale: request.scale)
+            for (windowId, existingWindow) in view.windowsById {
+                if windowId == fullscreenWindowId {
+                    if persistFrames {
+                        var window = existingWindow
+                        window.frame = fullFrame
+                        view.windowsById[windowId] = window
+                    }
+                    frames[existingWindow.handle] = fullFrame
+                } else {
+                    if persistFrames {
+                        var window = existingWindow
+                        window.frame = nil
+                        view.windowsById[windowId] = window
+                    }
+                    hiddenHandles[existingWindow.handle] = .right
+                }
+            }
+            if persistFrames {
+                workspaceViews[request.workspaceId] = view
+            }
+            return ZigNiriLayoutResult(frames: frames, hiddenHandles: hiddenHandles)
+        }
+
+        for (columnIndex, column) in view.columns.enumerated() {
+            guard columnLayouts.indices.contains(columnIndex) else { continue }
+            let columnLayout = columnLayouts[columnIndex]
+            let columnRect = columnLayout.rect
+            let windowIds = column.windowIds
+            guard !windowIds.isEmpty else { continue }
+
+            if let offscreenSide = columnLayout.hiddenSide {
+                let frame = columnRect.roundedToPhysicalPixels(scale: request.scale)
+                for windowId in windowIds {
+                    guard let window = view.windowsById[windowId] else { continue }
+                    if persistFrames {
+                        var persistedWindow = window
+                        persistedWindow.frame = frame
+                        view.windowsById[windowId] = persistedWindow
+                    }
+                    frames[window.handle] = frame
+                    hiddenHandles[window.handle] = offscreenSide
+                }
+                continue
+            }
+
+            if column.display == .tabbed {
+                let activeIndex = min(max(column.activeWindowIndex ?? 0, 0), windowIds.count - 1)
+                for (rowIndex, windowId) in windowIds.enumerated() {
+                    guard let window = view.windowsById[windowId] else { continue }
+                    if rowIndex == activeIndex {
+                        let frame = columnRect.roundedToPhysicalPixels(scale: request.scale)
+                        if persistFrames {
+                            var persistedWindow = window
+                            persistedWindow.frame = frame
+                            view.windowsById[windowId] = persistedWindow
+                        }
+                        frames[window.handle] = frame
+                    } else {
+                        if persistFrames {
+                            var persistedWindow = window
+                            persistedWindow.frame = nil
+                            view.windowsById[windowId] = persistedWindow
+                        }
+                        hiddenHandles[window.handle] = .right
+                    }
+                }
+                continue
+            }
+
+            let rowRects = rowRectsForColumn(
+                windowIds: windowIds,
+                windowsById: view.windowsById,
+                columnRect: columnRect,
+                orientation: request.orientation,
+                secondaryGap: secondaryGap
+            )
+            for (rowIndex, windowId) in windowIds.enumerated() {
+                guard rowRects.indices.contains(rowIndex),
+                      let window = view.windowsById[windowId]
+                else { continue }
+                let frame = rowRects[rowIndex].roundedToPhysicalPixels(scale: request.scale)
+                if persistFrames {
+                    var persistedWindow = window
+                    persistedWindow.frame = frame
+                    view.windowsById[windowId] = persistedWindow
+                }
                 frames[window.handle] = frame
             }
         }
-        return ZigNiriLayoutResult(frames: frames, hiddenHandles: [:])
+
+        if persistFrames {
+            workspaceViews[request.workspaceId] = view
+        }
+        return ZigNiriLayoutResult(frames: frames, hiddenHandles: hiddenHandles)
+    }
+
+    func resolvedColumnSpans(
+        for view: ZigNiriWorkspaceView,
+        primarySpan: CGFloat,
+        primaryGap: CGFloat
+    ) -> [CGFloat] {
+        resolveColumnSpans(
+            view: view,
+            primarySpan: primarySpan,
+            primaryGap: primaryGap
+        )
     }
 
     func hitTestResize(
@@ -658,15 +1020,21 @@ final class ZigNiriEngine {
     }
 
     func updateInteractiveResize(mouseLocation: CGPoint) -> ZigNiriMutationResult {
+        let latencyToken = ZigNiriLatencyProbe.begin(.resizeDragUpdate)
+        defer { ZigNiriLatencyProbe.end(latencyToken) }
+
         guard let resize = interactiveResizeState else {
             return .noChange(workspaceId: nil, selection: nil)
         }
         let hasMovement = mouseLocation != resize.startMouseLocation
+        guard hasMovement else {
+            return .noChange(workspaceId: resize.workspaceId, selection: nil)
+        }
         return ZigNiriMutationResult(
-            applied: hasMovement,
+            applied: true,
             workspaceId: resize.workspaceId,
-            selection: workspaceViews[resize.workspaceId]?.selection,
-            affectedNodeIds: hasMovement ? [resize.windowId] : [],
+            selection: nil,
+            affectedNodeIds: [resize.windowId],
             removedNodeIds: []
         )
     }
@@ -694,6 +1062,356 @@ final class ZigNiriEngine {
 }
 
 private extension ZigNiriEngine {
+    struct ColumnLayoutEntry {
+        let rect: CGRect
+        let hiddenSide: HideSide?
+    }
+
+    struct RuntimeMutationSpec {
+        let op: ZigNiriStateKernel.MutationOp
+        var sourceWindowId: NodeId?
+        var sourceColumnId: NodeId?
+        var targetWindowId: NodeId?
+        var direction: Direction?
+        var insertPosition: InsertPosition?
+        var insertColumnIndex: Int
+        var maxVisibleColumnsOverride: Int?
+        var createdColumnId: UUID?
+        var placeholderColumnId: UUID?
+
+        init(
+            op: ZigNiriStateKernel.MutationOp,
+            sourceWindowId: NodeId? = nil,
+            sourceColumnId: NodeId? = nil,
+            targetWindowId: NodeId? = nil,
+            direction: Direction? = nil,
+            insertPosition: InsertPosition? = nil,
+            insertColumnIndex: Int = -1,
+            maxVisibleColumnsOverride: Int? = nil,
+            createdColumnId: UUID? = nil,
+            placeholderColumnId: UUID? = nil
+        ) {
+            self.op = op
+            self.sourceWindowId = sourceWindowId
+            self.sourceColumnId = sourceColumnId
+            self.targetWindowId = targetWindowId
+            self.direction = direction
+            self.insertPosition = insertPosition
+            self.insertColumnIndex = insertColumnIndex
+            self.maxVisibleColumnsOverride = maxVisibleColumnsOverride
+            self.createdColumnId = createdColumnId
+            self.placeholderColumnId = placeholderColumnId
+        }
+    }
+
+    func mutationOpForWindowMove(
+        direction: Direction,
+        orientation: Monitor.Orientation,
+        swap: Bool
+    ) -> ZigNiriStateKernel.MutationOp? {
+        if direction.primaryStep(for: orientation) != nil {
+            return swap ? .swapWindowHorizontal : .moveWindowHorizontal
+        }
+        if direction.secondaryStep(for: orientation) != nil {
+            return swap ? .swapWindowVertical : .moveWindowVertical
+        }
+        return nil
+    }
+
+    func applyRuntimeMutation(
+        _ mutation: RuntimeMutationSpec,
+        workspaceId: WorkspaceDescriptor.ID,
+        selection: ZigNiriSelection? = nil
+    ) -> ZigNiriMutationResult {
+        guard let context = ensureRuntimeContext(for: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        let request = ZigNiriStateKernel.MutationRequest(
+            op: mutation.op,
+            sourceWindowId: mutation.sourceWindowId,
+            targetWindowId: mutation.targetWindowId,
+            direction: mutation.direction,
+            infiniteLoop: infiniteLoop,
+            insertPosition: mutation.insertPosition,
+            maxWindowsPerColumn: maxWindowsPerColumn,
+            sourceColumnId: mutation.sourceColumnId,
+            targetColumnId: nil,
+            insertColumnIndex: mutation.insertColumnIndex,
+            maxVisibleColumns: mutation.maxVisibleColumnsOverride ?? maxVisibleColumns,
+            selectedNodeId: selection?.selectedNodeId ?? workspaceViews[workspaceId]?.selection?.selectedNodeId,
+            focusedWindowId: selection?.focusedWindowId ?? workspaceViews[workspaceId]?.selection?.focusedWindowId
+        )
+        let outcome = ZigNiriStateKernel.applyMutation(
+            context: context,
+            request: .init(
+                request: request,
+                createdColumnId: mutation.createdColumnId,
+                placeholderColumnId: mutation.placeholderColumnId
+            )
+        )
+        guard outcome.rc == 0 else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        let removedIds = outcome.delta?.removedWindowIds ?? []
+        if outcome.applied {
+            markWorkspaceDirty(workspaceId)
+        }
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+        var view = ensureWorkspaceView(for: workspaceId)
+        var nextSelection = selection ?? view.selection
+
+        if let targetWindowId = outcome.targetWindowId {
+            nextSelection = ZigNiriSelection(
+                selectedNodeId: targetWindowId,
+                focusedWindowId: targetWindowId
+            )
+        } else if let targetNode = outcome.targetNode {
+            switch targetNode.kind {
+            case .window:
+                nextSelection = ZigNiriSelection(
+                    selectedNodeId: targetNode.nodeId,
+                    focusedWindowId: targetNode.nodeId
+                )
+            case .column:
+                let focusedWindowId = nextSelection?.focusedWindowId ?? view.selection?.focusedWindowId
+                if let resolvedWindowId = ZigNiriSelectionResolver.actionableWindowId(
+                    for: targetNode.nodeId,
+                    in: view
+                ) {
+                    nextSelection = ZigNiriSelection(
+                        selectedNodeId: resolvedWindowId,
+                        focusedWindowId: resolvedWindowId
+                    )
+                } else {
+                    nextSelection = ZigNiriSelection(
+                        selectedNodeId: targetNode.nodeId,
+                        focusedWindowId: focusedWindowId
+                    )
+                }
+            case .none:
+                break
+            }
+        }
+
+        view.selection = nextSelection
+        view = storeWorkspaceView(view, workspaceId: workspaceId, allowNilWhenRequested: true)
+
+        var affected: [NodeId] = []
+        if let sourceWindowId = mutation.sourceWindowId {
+            affected.append(sourceWindowId)
+        }
+        if let sourceColumnId = mutation.sourceColumnId {
+            affected.append(sourceColumnId)
+        }
+        if let targetWindowId = mutation.targetWindowId {
+            affected.append(targetWindowId)
+        }
+        if let targetWindowId = outcome.targetWindowId,
+           !affected.contains(targetWindowId)
+        {
+            affected.append(targetWindowId)
+        }
+        if let targetNode = outcome.targetNode,
+           !affected.contains(targetNode.nodeId)
+        {
+            affected.append(targetNode.nodeId)
+        }
+
+        return ZigNiriMutationResult(
+            applied: outcome.applied,
+            workspaceId: workspaceId,
+            selection: view.selection,
+            affectedNodeIds: affected,
+            removedNodeIds: removedIds
+        )
+    }
+
+    func resolveColumnSpans(
+        view: ZigNiriWorkspaceView,
+        primarySpan: CGFloat,
+        primaryGap: CGFloat
+    ) -> [CGFloat] {
+        guard !view.columns.isEmpty else { return [] }
+        let availablePrimary = max(0, primarySpan)
+        let proportionalBase = max(0, availablePrimary - primaryGap)
+
+        return view.columns.map { column in
+            if column.isFullWidth {
+                return availablePrimary
+            }
+            switch column.width {
+            case let .proportion(value):
+                return max(0, proportionalBase * max(0, value))
+            case let .fixed(value):
+                return max(0, value)
+            }
+        }
+    }
+
+    func columnLayoutsForLayout(
+        view: ZigNiriWorkspaceView,
+        workingFrame: CGRect,
+        orientation: Monitor.Orientation,
+        primaryGap: CGFloat,
+        viewOffset: CGFloat
+    ) -> [ColumnLayoutEntry] {
+        let columns = view.columns
+        guard !columns.isEmpty else { return [] }
+        let primarySpan = orientation == .horizontal ? workingFrame.width : workingFrame.height
+        let viewportSpan = max(0, primarySpan)
+        let spans = resolveColumnSpans(
+            view: view,
+            primarySpan: primarySpan,
+            primaryGap: primaryGap
+        )
+        guard !spans.isEmpty else { return [] }
+
+        let selectedNodeId = view.selection?.selectedNodeId
+        let focusedWindowId = view.selection?.focusedWindowId
+        let activeColumnIndex = activeColumnIndex(
+            in: view,
+            selectedNodeId: selectedNodeId,
+            focusedWindowId: focusedWindowId
+        ) ?? 0
+        let clampedActiveIndex = min(max(activeColumnIndex, 0), spans.count - 1)
+
+        var activeColumnPosition: CGFloat = 0
+        if clampedActiveIndex > 0 {
+            for index in 0 ..< clampedActiveIndex {
+                activeColumnPosition += spans[index] + primaryGap
+            }
+        }
+        let viewStart = activeColumnPosition + viewOffset
+        let viewEnd = viewStart + viewportSpan
+
+        var entries: [ColumnLayoutEntry] = []
+        entries.reserveCapacity(columns.count)
+
+        var columnPosition: CGFloat = 0
+        for span in spans {
+            let clampedSpan = max(0, span)
+            let columnStart = columnPosition
+            let columnEnd = columnStart + clampedSpan
+            let hiddenSide: HideSide?
+            if columnEnd <= viewStart {
+                hiddenSide = .left
+            } else if columnStart >= viewEnd {
+                hiddenSide = .right
+            } else {
+                hiddenSide = nil
+            }
+
+            let rect: CGRect
+            if orientation == .horizontal {
+                rect = CGRect(
+                    x: workingFrame.minX + columnStart - viewStart,
+                    y: workingFrame.minY,
+                    width: clampedSpan,
+                    height: workingFrame.height
+                )
+            } else {
+                rect = CGRect(
+                    x: workingFrame.minX,
+                    y: workingFrame.minY + columnStart - viewStart,
+                    width: workingFrame.width,
+                    height: clampedSpan
+                )
+            }
+            entries.append(ColumnLayoutEntry(rect: rect, hiddenSide: hiddenSide))
+            columnPosition = columnEnd + primaryGap
+        }
+
+        return entries
+    }
+
+    func rowRectsForColumn(
+        windowIds: [NodeId],
+        windowsById: [NodeId: ZigNiriWindowView],
+        columnRect: CGRect,
+        orientation: Monitor.Orientation,
+        secondaryGap: CGFloat
+    ) -> [CGRect] {
+        guard !windowIds.isEmpty else { return [] }
+
+        let secondarySpan = orientation == .horizontal ? columnRect.height : columnRect.width
+        let availableSecondary = max(0, secondarySpan - CGFloat(max(0, windowIds.count - 1)) * secondaryGap)
+
+        var fixedTotal: CGFloat = 0
+        var sizingValues = Array(repeating: CGFloat(1), count: windowIds.count)
+        var isFixed = Array(repeating: false, count: windowIds.count)
+        var autoTotalWeight: CGFloat = 0
+
+        for index in windowIds.indices {
+            guard let window = windowsById[windowIds[index]] else {
+                autoTotalWeight += 1
+                continue
+            }
+            switch window.height {
+            case let .fixed(value):
+                let clamped = max(16, value)
+                sizingValues[index] = clamped
+                isFixed[index] = true
+                fixedTotal += clamped
+            case let .auto(weight):
+                let clamped = max(0.1, weight)
+                sizingValues[index] = clamped
+                autoTotalWeight += clamped
+            }
+        }
+
+        let autoAvailable = max(0, availableSecondary - fixedTotal)
+        let autoWeightDenominator = max(0.0001, autoTotalWeight)
+
+        var rects: [CGRect] = []
+        rects.reserveCapacity(windowIds.count)
+
+        var cursor = orientation == .horizontal ? columnRect.minY : columnRect.minX
+        for index in windowIds.indices {
+            let remaining = windowIds.count - index - 1
+            let remainingGap = CGFloat(max(0, remaining)) * secondaryGap
+            let endEdge = orientation == .horizontal ? columnRect.maxY : columnRect.maxX
+            let remainingSpan = max(0, endEdge - cursor - remainingGap)
+
+            let proposedSize: CGFloat
+            if isFixed[index] {
+                proposedSize = sizingValues[index]
+            } else {
+                proposedSize = autoAvailable * (sizingValues[index] / autoWeightDenominator)
+            }
+
+            var size = min(proposedSize, remainingSpan)
+            if index == windowIds.count - 1 {
+                size = max(0, remainingSpan)
+            }
+
+            let rect: CGRect
+            if orientation == .horizontal {
+                rect = CGRect(
+                    x: columnRect.minX,
+                    y: cursor,
+                    width: columnRect.width,
+                    height: max(0, size)
+                )
+                cursor = rect.maxY + secondaryGap
+            } else {
+                rect = CGRect(
+                    x: cursor,
+                    y: columnRect.minY,
+                    width: max(0, size),
+                    height: columnRect.height
+                )
+                cursor = rect.maxX + secondaryGap
+            }
+            rects.append(rect)
+        }
+
+        return rects
+    }
+
     func applyColumnDisplayMutation(
         columnId: NodeId,
         display: ColumnDisplay,
@@ -704,7 +1422,7 @@ private extension ZigNiriEngine {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
 
-        let mutation = mutateRuntimeState(context: context) { export in
+        let mutation = mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
             guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId }) else {
                 return false
             }
@@ -721,7 +1439,7 @@ private extension ZigNiriEngine {
                 nextActiveTile = min(max(column.activeTileIdx, 0), column.windowCount - 1)
             }
 
-            export.columns[columnIndex] = NiriStateZigKernel.RuntimeColumnState(
+            export.columns[columnIndex] = ZigNiriStateKernel.RuntimeColumnState(
                 columnId: column.columnId,
                 windowStart: column.windowStart,
                 windowCount: column.windowCount,
@@ -740,14 +1458,225 @@ private extension ZigNiriEngine {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
 
-        _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
         var view = ensureWorkspaceView(for: workspaceId)
         if let selection {
             view.selection = normalizedSelection(selection, in: view)
         }
-        view.selection = normalizedSelection(view.selection, in: view)
-        applyFocusState(to: &view)
-        workspaceViews[workspaceId] = view
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
+
+        return ZigNiriMutationResult(
+            applied: mutation.applied,
+            workspaceId: workspaceId,
+            selection: view.selection,
+            affectedNodeIds: mutation.applied ? [columnId] : [],
+            removedNodeIds: []
+        )
+    }
+
+    func applyColumnActiveWindowMutation(
+        columnId: NodeId,
+        windowIndex: Int,
+        workspaceId: WorkspaceDescriptor.ID,
+        selection: ZigNiriSelection?
+    ) -> ZigNiriMutationResult {
+        guard let context = ensureRuntimeContext(for: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        let mutation = mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
+            guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId }) else {
+                return false
+            }
+            let column = export.columns[columnIndex]
+            guard column.windowCount > 0 else { return false }
+
+            let clamped = min(max(windowIndex, 0), column.windowCount - 1)
+            guard column.activeTileIdx != clamped else {
+                return false
+            }
+            export.columns[columnIndex] = ZigNiriStateKernel.RuntimeColumnState(
+                columnId: column.columnId,
+                windowStart: column.windowStart,
+                windowCount: column.windowCount,
+                activeTileIdx: clamped,
+                isTabbed: column.isTabbed,
+                sizeValue: column.sizeValue,
+                widthKind: column.widthKind,
+                isFullWidth: column.isFullWidth,
+                hasSavedWidth: column.hasSavedWidth,
+                savedWidthKind: column.savedWidthKind,
+                savedWidthValue: column.savedWidthValue
+            )
+            return true
+        }
+        guard mutation.rc == 0 else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+        var view = ensureWorkspaceView(for: workspaceId)
+        if let selection {
+            view.selection = selection
+        } else if let column = view.columns.first(where: { $0.nodeId == columnId }),
+                  column.windowIds.indices.contains(min(max(windowIndex, 0), max(0, column.windowIds.count - 1)))
+        {
+            let activeWindowId = column.windowIds[min(max(windowIndex, 0), column.windowIds.count - 1)]
+            view.selection = ZigNiriSelection(selectedNodeId: activeWindowId, focusedWindowId: activeWindowId)
+        }
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
+
+        return ZigNiriMutationResult(
+            applied: mutation.applied,
+            workspaceId: workspaceId,
+            selection: view.selection,
+            affectedNodeIds: mutation.applied ? [columnId] : [],
+            removedNodeIds: []
+        )
+    }
+
+    func applyColumnWidthMutation(
+        columnId: NodeId,
+        width: ProportionalSize,
+        workspaceId: WorkspaceDescriptor.ID,
+        selection: ZigNiriSelection?
+    ) -> ZigNiriMutationResult {
+        guard let context = ensureRuntimeContext(for: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        let mutation = mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
+            guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId }) else {
+                return false
+            }
+
+            let column = export.columns[columnIndex]
+            let encodedWidth = ZigNiriStateKernel.encodeWidth(width)
+            guard column.widthKind != encodedWidth.kind
+                || column.sizeValue != encodedWidth.value
+                || column.isFullWidth
+                || column.hasSavedWidth
+            else {
+                return false
+            }
+
+            export.columns[columnIndex] = ZigNiriStateKernel.RuntimeColumnState(
+                columnId: column.columnId,
+                windowStart: column.windowStart,
+                windowCount: column.windowCount,
+                activeTileIdx: column.activeTileIdx,
+                isTabbed: column.isTabbed,
+                sizeValue: encodedWidth.value,
+                widthKind: encodedWidth.kind,
+                isFullWidth: false,
+                hasSavedWidth: false,
+                savedWidthKind: encodedWidth.kind,
+                savedWidthValue: encodedWidth.value
+            )
+            return true
+        }
+
+        guard mutation.rc == 0 else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+        var view = ensureWorkspaceView(for: workspaceId)
+        if let selection {
+            view.selection = normalizedSelection(selection, in: view)
+        }
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
+
+        return ZigNiriMutationResult(
+            applied: mutation.applied,
+            workspaceId: workspaceId,
+            selection: view.selection,
+            affectedNodeIds: mutation.applied ? [columnId] : [],
+            removedNodeIds: []
+        )
+    }
+
+    func applyColumnFullWidthToggleMutation(
+        columnId: NodeId,
+        workspaceId: WorkspaceDescriptor.ID,
+        selection: ZigNiriSelection?
+    ) -> ZigNiriMutationResult {
+        guard let context = ensureRuntimeContext(for: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        let mutation = mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
+            guard let columnIndex = export.columns.firstIndex(where: { $0.columnId == columnId }) else {
+                return false
+            }
+
+            let column = export.columns[columnIndex]
+            let nextColumn: ZigNiriStateKernel.RuntimeColumnState
+            if column.isFullWidth {
+                let restoredWidthKind: UInt8
+                let restoredWidthValue: Double
+                if column.hasSavedWidth {
+                    restoredWidthKind = column.savedWidthKind
+                    restoredWidthValue = column.savedWidthValue
+                } else {
+                    restoredWidthKind = ZigNiriStateKernel.sizeKindProportion
+                    restoredWidthValue = 1.0
+                }
+
+                nextColumn = ZigNiriStateKernel.RuntimeColumnState(
+                    columnId: column.columnId,
+                    windowStart: column.windowStart,
+                    windowCount: column.windowCount,
+                    activeTileIdx: column.activeTileIdx,
+                    isTabbed: column.isTabbed,
+                    sizeValue: restoredWidthValue,
+                    widthKind: restoredWidthKind,
+                    isFullWidth: false,
+                    hasSavedWidth: false,
+                    savedWidthKind: restoredWidthKind,
+                    savedWidthValue: restoredWidthValue
+                )
+            } else {
+                nextColumn = ZigNiriStateKernel.RuntimeColumnState(
+                    columnId: column.columnId,
+                    windowStart: column.windowStart,
+                    windowCount: column.windowCount,
+                    activeTileIdx: column.activeTileIdx,
+                    isTabbed: column.isTabbed,
+                    sizeValue: column.sizeValue,
+                    widthKind: column.widthKind,
+                    isFullWidth: true,
+                    hasSavedWidth: true,
+                    savedWidthKind: column.widthKind,
+                    savedWidthValue: column.sizeValue
+                )
+            }
+
+            guard nextColumn != column else {
+                return false
+            }
+            export.columns[columnIndex] = nextColumn
+            return true
+        }
+
+        guard mutation.rc == 0 else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+        var view = ensureWorkspaceView(for: workspaceId)
+        if let selection {
+            view.selection = selection
+        }
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
 
         return ZigNiriMutationResult(
             applied: mutation.applied,
@@ -764,9 +1693,15 @@ private extension ZigNiriEngine {
         workspaceId: WorkspaceDescriptor.ID,
         selection: ZigNiriSelection?
     ) -> ZigNiriMutationResult {
+        guard ensureRuntimeContext(for: workspaceId) != nil else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
         var view = ensureWorkspaceView(for: workspaceId)
         if let selection {
-            view.selection = normalizedSelection(selection, in: view)
+            view.selection = selection
         }
         guard var window = view.windowsById[windowId] else {
             return .noChange(workspaceId: workspaceId, selection: view.selection)
@@ -777,39 +1712,74 @@ private extension ZigNiriEngine {
             return .noChange(workspaceId: workspaceId, selection: view.selection)
         }
 
+        var affectedNodeIds: [NodeId] = [windowId]
+        var needsRuntimeRefresh = false
+
+        if mode == .fullscreen {
+            for candidateId in view.windowsById.keys where candidateId != windowId {
+                guard var candidateWindow = view.windowsById[candidateId] else { continue }
+                let candidateMode = windowSizingModesByNodeId[candidateId] ?? candidateWindow.sizingMode
+                guard candidateMode == .fullscreen else { continue }
+
+                affectedNodeIds.append(candidateId)
+                windowSizingModesByNodeId[candidateId] = .normal
+                candidateWindow.sizingMode = .normal
+
+                if let restoredHeight = savedWindowHeightsByNodeId.removeValue(forKey: candidateId) {
+                    let restoreOutcome = setWindowHeightInRuntime(
+                        windowId: candidateId,
+                        height: restoredHeight,
+                        workspaceId: workspaceId
+                    )
+                    if restoreOutcome.applied {
+                        needsRuntimeRefresh = true
+                    } else if restoreOutcome.rc != 0 {
+                        candidateWindow.height = restoredHeight
+                    }
+                }
+                view.windowsById[candidateId] = candidateWindow
+            }
+        }
+
         if previousMode == .normal, mode == .fullscreen {
             savedWindowHeightsByNodeId[windowId] = window.height
         } else if previousMode == .fullscreen,
                   mode == .normal,
                   let savedHeight = savedWindowHeightsByNodeId.removeValue(forKey: windowId)
         {
-            _ = setWindowHeightInRuntime(
+            let restoreOutcome = setWindowHeightInRuntime(
                 windowId: windowId,
                 height: savedHeight,
                 workspaceId: workspaceId
             )
-            _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+            if restoreOutcome.applied {
+                needsRuntimeRefresh = true
+            } else if restoreOutcome.rc != 0 {
+                window.height = savedHeight
+            }
+        }
+
+        if needsRuntimeRefresh {
+            guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+                return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+            }
             view = ensureWorkspaceView(for: workspaceId)
-            guard var refreshedWindow = view.windowsById[windowId] else {
+            guard let refreshedWindow = view.windowsById[windowId] else {
                 return .noChange(workspaceId: workspaceId, selection: view.selection)
             }
-            refreshedWindow.sizingMode = mode
-            view.windowsById[windowId] = refreshedWindow
             window = refreshedWindow
         }
 
         windowSizingModesByNodeId[windowId] = mode
         window.sizingMode = mode
         view.windowsById[windowId] = window
-        view.selection = normalizedSelection(view.selection, in: view)
-        applyFocusState(to: &view)
-        workspaceViews[workspaceId] = view
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
 
         return ZigNiriMutationResult(
             applied: true,
             workspaceId: workspaceId,
             selection: view.selection,
-            affectedNodeIds: [windowId],
+            affectedNodeIds: affectedNodeIds,
             removedNodeIds: []
         )
     }
@@ -829,14 +1799,14 @@ private extension ZigNiriEngine {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
 
-        _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
         var view = ensureWorkspaceView(for: workspaceId)
         if let selection {
-            view.selection = normalizedSelection(selection, in: view)
+            view.selection = selection
         }
-        view.selection = normalizedSelection(view.selection, in: view)
-        applyFocusState(to: &view)
-        workspaceViews[workspaceId] = view
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
 
         return ZigNiriMutationResult(
             applied: mutation.applied,
@@ -856,11 +1826,11 @@ private extension ZigNiriEngine {
             return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
         }
 
-        let request = NiriStateZigKernel.MutationRequest(
+        let request = ZigNiriStateKernel.MutationRequest(
             op: .removeWindow,
             sourceWindowId: windowId
         )
-        let outcome = NiriStateZigKernel.applyMutation(
+        let outcome = ZigNiriStateKernel.applyMutation(
             context: context,
             request: .init(
                 request: request,
@@ -872,17 +1842,17 @@ private extension ZigNiriEngine {
         }
 
         if outcome.applied {
-            cleanupWindowMappings(for: windowId)
+            markWorkspaceDirty(workspaceId)
         }
 
-        _ = syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId) else {
+            return .noChange(workspaceId: workspaceId, selection: workspaceViews[workspaceId]?.selection)
+        }
         var view = ensureWorkspaceView(for: workspaceId)
         if let selection {
-            view.selection = normalizedSelection(selection, in: view)
+            view.selection = selection
         }
-        view.selection = normalizedSelection(view.selection, in: view)
-        applyFocusState(to: &view)
-        workspaceViews[workspaceId] = view
+        view = storeWorkspaceView(view, workspaceId: workspaceId)
 
         return ZigNiriMutationResult(
             applied: outcome.applied,
@@ -902,13 +1872,13 @@ private extension ZigNiriEngine {
             return RuntimeStateMutationOutcome(rc: -1, applied: false)
         }
 
-        return mutateRuntimeState(context: context) { export in
+        return mutateRuntimeState(context: context, workspaceId: workspaceId) { export in
             guard let windowIndex = export.windows.firstIndex(where: { $0.windowId == windowId }) else {
                 return false
             }
 
             let runtimeWindow = export.windows[windowIndex]
-            let encodedHeight = NiriStateZigKernel.encodeHeight(height)
+            let encodedHeight = ZigNiriStateKernel.encodeHeight(height)
             let nextSizeValue: Double
             switch height {
             case let .auto(weight):
@@ -924,7 +1894,7 @@ private extension ZigNiriEngine {
                 return false
             }
 
-            export.windows[windowIndex] = NiriStateZigKernel.RuntimeWindowState(
+            export.windows[windowIndex] = ZigNiriStateKernel.RuntimeWindowState(
                 windowId: runtimeWindow.windowId,
                 columnId: runtimeWindow.columnId,
                 columnIndex: runtimeWindow.columnIndex,
@@ -937,11 +1907,12 @@ private extension ZigNiriEngine {
     }
 
     private func mutateRuntimeState(
-        context: NiriLayoutZigKernel.LayoutContext,
-        mutate: (inout NiriStateZigKernel.RuntimeStateExport) -> Bool
+        context: ZigNiriLayoutKernel.LayoutContext,
+        workspaceId: WorkspaceDescriptor.ID,
+        mutate: (inout ZigNiriStateKernel.RuntimeStateExport) -> Bool
     ) -> RuntimeStateMutationOutcome {
-        var export: NiriStateZigKernel.RuntimeStateExport
-        switch NiriStateZigKernel.snapshotRuntimeStateResult(context: context) {
+        var export: ZigNiriStateKernel.RuntimeStateExport
+        switch ZigNiriStateKernel.snapshotRuntimeStateResult(context: context) {
         case let .success(snapshot):
             export = snapshot
         case let .failure(error):
@@ -954,10 +1925,13 @@ private extension ZigNiriEngine {
         }
 
         normalizeRuntimeExport(&export)
-        let rc = NiriStateZigKernel.seedRuntimeState(
+        let rc = ZigNiriStateKernel.seedRuntimeState(
             context: context,
             export: export
         )
+        if rc == 0 {
+            markWorkspaceDirty(workspaceId)
+        }
         return RuntimeStateMutationOutcome(rc: rc, applied: rc == 0)
     }
 
@@ -975,15 +1949,44 @@ private extension ZigNiriEngine {
         return view
     }
 
-    func ensureRuntimeContext(for workspaceId: WorkspaceDescriptor.ID) -> NiriLayoutZigKernel.LayoutContext? {
+    func markWorkspaceDirty(_ workspaceId: WorkspaceDescriptor.ID) {
+        dirtyWorkspaceIds.insert(workspaceId)
+    }
+
+    @discardableResult
+    func ensureSyncedViewIfNeeded(workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        if workspaceViews[workspaceId] == nil || dirtyWorkspaceIds.contains(workspaceId) {
+            return syncWorkspaceViewFromRuntime(workspaceId: workspaceId)
+        }
+        return true
+    }
+
+    @discardableResult
+    func storeWorkspaceView(
+        _ view: ZigNiriWorkspaceView,
+        workspaceId: WorkspaceDescriptor.ID,
+        allowNilWhenRequested: Bool = false
+    ) -> ZigNiriWorkspaceView {
+        var normalizedView = view
+        normalizedView.selection = normalizedSelection(
+            normalizedView.selection,
+            in: normalizedView,
+            allowNilWhenRequested: allowNilWhenRequested
+        )
+        applyFocusState(to: &normalizedView)
+        workspaceViews[workspaceId] = normalizedView
+        return normalizedView
+    }
+
+    func ensureRuntimeContext(for workspaceId: WorkspaceDescriptor.ID) -> ZigNiriLayoutKernel.LayoutContext? {
         if let context = layoutContexts[workspaceId] {
             return context
         }
-        guard let context = NiriLayoutZigKernel.LayoutContext() else {
+        guard let context = ZigNiriLayoutKernel.LayoutContext() else {
             return nil
         }
         let bootstrapExport = runtimeBootstrapExport(for: workspaceId)
-        let seedRC = NiriStateZigKernel.seedRuntimeState(
+        let seedRC = ZigNiriStateKernel.seedRuntimeState(
             context: context,
             export: bootstrapExport
         )
@@ -991,12 +1994,13 @@ private extension ZigNiriEngine {
             return nil
         }
         layoutContexts[workspaceId] = context
+        markWorkspaceDirty(workspaceId)
         return context
     }
 
-    func runtimeBootstrapExport(for workspaceId: WorkspaceDescriptor.ID) -> NiriStateZigKernel.RuntimeStateExport {
+    func runtimeBootstrapExport(for workspaceId: WorkspaceDescriptor.ID) -> ZigNiriStateKernel.RuntimeStateExport {
         guard let view = workspaceViews[workspaceId], !view.columns.isEmpty else {
-            return NiriStateZigKernel.RuntimeStateExport(
+            return ZigNiriStateKernel.RuntimeStateExport(
                 columns: [
                     .init(
                         columnId: NodeId(),
@@ -1011,15 +2015,16 @@ private extension ZigNiriEngine {
             )
         }
 
-        var runtimeColumns: [NiriStateZigKernel.RuntimeColumnState] = []
+        var runtimeColumns: [ZigNiriStateKernel.RuntimeColumnState] = []
         runtimeColumns.reserveCapacity(max(1, view.columns.count))
 
-        var runtimeWindows: [NiriStateZigKernel.RuntimeWindowState] = []
+        var runtimeWindows: [ZigNiriStateKernel.RuntimeWindowState] = []
         for (columnIndex, column) in view.columns.enumerated() {
+            let encodedWidth = ZigNiriStateKernel.encodeWidth(column.width)
             let start = runtimeWindows.count
             for windowId in column.windowIds {
                 guard let window = view.windowsById[windowId] else { continue }
-                let encodedHeight = NiriStateZigKernel.encodeHeight(window.height)
+                let encodedHeight = ZigNiriStateKernel.encodeHeight(window.height)
                 let sizeValue: Double
                 switch window.height {
                 case let .auto(weight):
@@ -1028,7 +2033,7 @@ private extension ZigNiriEngine {
                     sizeValue = 1.0
                 }
                 runtimeWindows.append(
-                    NiriStateZigKernel.RuntimeWindowState(
+                    ZigNiriStateKernel.RuntimeWindowState(
                         windowId: window.nodeId,
                         columnId: column.nodeId,
                         columnIndex: columnIndex,
@@ -1040,13 +2045,18 @@ private extension ZigNiriEngine {
             }
 
             runtimeColumns.append(
-                NiriStateZigKernel.RuntimeColumnState(
+                ZigNiriStateKernel.RuntimeColumnState(
                     columnId: column.nodeId,
                     windowStart: start,
                     windowCount: runtimeWindows.count - start,
                     activeTileIdx: column.activeWindowIndex ?? 0,
                     isTabbed: column.display == .tabbed,
-                    sizeValue: 1.0
+                    sizeValue: encodedWidth.value,
+                    widthKind: encodedWidth.kind,
+                    isFullWidth: column.isFullWidth,
+                    hasSavedWidth: false,
+                    savedWidthKind: encodedWidth.kind,
+                    savedWidthValue: encodedWidth.value
                 )
             )
         }
@@ -1064,7 +2074,7 @@ private extension ZigNiriEngine {
             )
         }
 
-        return NiriStateZigKernel.RuntimeStateExport(
+        return ZigNiriStateKernel.RuntimeStateExport(
             columns: runtimeColumns,
             windows: runtimeWindows
         )
@@ -1075,8 +2085,8 @@ private extension ZigNiriEngine {
         guard let context = layoutContexts[workspaceId] else {
             return false
         }
-        let export: NiriStateZigKernel.RuntimeStateExport
-        switch NiriStateZigKernel.snapshotRuntimeStateResult(context: context) {
+        let export: ZigNiriStateKernel.RuntimeStateExport
+        switch ZigNiriStateKernel.snapshotRuntimeStateResult(context: context) {
         case let .success(snapshot):
             export = snapshot
         case .failure:
@@ -1084,64 +2094,68 @@ private extension ZigNiriEngine {
         }
 
         let previousView = workspaceViews[workspaceId]
+        var previousColumnsById: [NodeId: ZigNiriColumnView] = [:]
+        if let previousView {
+            previousColumnsById.reserveCapacity(previousView.columns.count)
+            for column in previousView.columns {
+                previousColumnsById[column.nodeId] = column
+            }
+        }
         var columns: [ZigNiriColumnView] = []
         columns.reserveCapacity(export.columns.count)
 
         var windowsById: [NodeId: ZigNiriWindowView] = [:]
         windowsById.reserveCapacity(export.windows.count)
 
-        var survivingNodeIds = Set<NodeId>()
-        survivingNodeIds.reserveCapacity(export.windows.count)
+        var currentNodeIds = Set<NodeId>()
+        currentNodeIds.reserveCapacity(export.windows.count)
 
         for runtimeColumn in export.columns {
             let start = runtimeColumn.windowStart
             let count = runtimeColumn.windowCount
-
-            let runtimeWindows: [NiriStateZigKernel.RuntimeWindowState]
-            if start >= 0,
-               count >= 0,
-               start <= export.windows.count,
-               count <= export.windows.count - start
-            {
-                runtimeWindows = Array(export.windows[start ..< start + count])
-            } else {
-                runtimeWindows = []
-            }
+            let hasValidRange = start >= 0
+                && count >= 0
+                && start <= export.windows.count
+                && count <= export.windows.count - start
+            let end = hasValidRange ? start + count : start
 
             var columnWindowIds: [NodeId] = []
-            columnWindowIds.reserveCapacity(runtimeWindows.count)
+            columnWindowIds.reserveCapacity(max(0, count))
 
-            for runtimeWindow in runtimeWindows {
-                let handle = windowHandlesByNodeId[runtimeWindow.windowId]
-                    ?? windowHandlesByUUID[runtimeWindow.windowId.uuid]
-                guard let handle else {
-                    continue
+            if hasValidRange {
+                for index in start ..< end {
+                    let runtimeWindow = export.windows[index]
+                    let handle = windowHandlesByNodeId[runtimeWindow.windowId]
+                        ?? windowHandlesByUUID[runtimeWindow.windowId.uuid]
+                    guard let handle else {
+                        continue
+                    }
+
+                    windowHandlesByNodeId[runtimeWindow.windowId] = handle
+                    windowNodeIdsByHandle[handle] = runtimeWindow.windowId
+                    windowHandlesByUUID[handle.id] = handle
+                    currentNodeIds.insert(runtimeWindow.windowId)
+
+                    let priorWindow = previousView?.windowsById[runtimeWindow.windowId]
+                    let height = ZigNiriStateKernel.decodeHeight(
+                        kind: runtimeWindow.heightKind,
+                        value: runtimeWindow.heightValue
+                    ) ?? priorWindow?.height ?? .default
+                    let sizingMode = windowSizingModesByNodeId[runtimeWindow.windowId]
+                        ?? priorWindow?.sizingMode
+                        ?? .normal
+
+                    windowsById[runtimeWindow.windowId] = ZigNiriWindowView(
+                        nodeId: runtimeWindow.windowId,
+                        handle: handle,
+                        columnId: runtimeColumn.columnId,
+                        frame: priorWindow?.frame,
+                        sizingMode: sizingMode,
+                        height: height,
+                        isFocused: false
+                    )
+                    columnWindowIds.append(runtimeWindow.windowId)
                 }
-
-                windowHandlesByNodeId[runtimeWindow.windowId] = handle
-                windowNodeIdsByHandle[handle] = runtimeWindow.windowId
-                windowHandlesByUUID[handle.id] = handle
-                survivingNodeIds.insert(runtimeWindow.windowId)
-
-                let priorWindow = previousView?.windowsById[runtimeWindow.windowId]
-                let height = NiriStateZigKernel.decodeHeight(
-                    kind: runtimeWindow.heightKind,
-                    value: runtimeWindow.heightValue
-                ) ?? priorWindow?.height ?? .default
-                let sizingMode = windowSizingModesByNodeId[runtimeWindow.windowId]
-                    ?? priorWindow?.sizingMode
-                    ?? .normal
-
-                windowsById[runtimeWindow.windowId] = ZigNiriWindowView(
-                    nodeId: runtimeWindow.windowId,
-                    handle: handle,
-                    columnId: runtimeColumn.columnId,
-                    frame: priorWindow?.frame,
-                    sizingMode: sizingMode,
-                    height: height,
-                    isFocused: false
-                )
-                columnWindowIds.append(runtimeWindow.windowId)
             }
 
             let activeWindowIndex: Int?
@@ -1150,13 +2164,20 @@ private extension ZigNiriEngine {
             } else {
                 activeWindowIndex = min(max(runtimeColumn.activeTileIdx, 0), columnWindowIds.count - 1)
             }
+            let priorColumn = previousColumnsById[runtimeColumn.columnId]
+            let width = ZigNiriStateKernel.decodeWidth(
+                kind: runtimeColumn.widthKind,
+                value: runtimeColumn.sizeValue
+            ) ?? priorColumn?.width ?? .default
 
             columns.append(
                 ZigNiriColumnView(
                     nodeId: runtimeColumn.columnId,
                     windowIds: columnWindowIds,
                     display: runtimeColumn.isTabbed ? .tabbed : .normal,
-                    activeWindowIndex: activeWindowIndex
+                    activeWindowIndex: activeWindowIndex,
+                    width: width,
+                    isFullWidth: runtimeColumn.isFullWidth
                 )
             )
         }
@@ -1167,74 +2188,299 @@ private extension ZigNiriEngine {
             windowsById: windowsById,
             selection: previousView?.selection
         )
-        nextView.selection = normalizedSelection(nextView.selection, in: nextView)
-        applyFocusState(to: &nextView)
-        workspaceViews[workspaceId] = nextView
+        nextView = storeWorkspaceView(nextView, workspaceId: workspaceId)
 
-        pruneWindowMappings(
-            updatedWorkspaceId: workspaceId,
-            survivingNodeIds: survivingNodeIds
-        )
+        let removedNodeIds = updateNodeReferences(for: workspaceId, currentNodeIds: currentNodeIds)
+        for removedNodeId in removedNodeIds {
+            cleanupWindowMappings(for: removedNodeId)
+        }
+
+        dirtyWorkspaceIds.remove(workspaceId)
         return true
     }
 
-    func pruneWindowMappings(
-        updatedWorkspaceId: WorkspaceDescriptor.ID,
-        survivingNodeIds: Set<NodeId>
-    ) {
-        var referencedNodeIds = survivingNodeIds
-        for (workspaceId, view) in workspaceViews where workspaceId != updatedWorkspaceId {
-            referencedNodeIds.formUnion(view.windowsById.keys)
+    func updateNodeReferences(
+        for workspaceId: WorkspaceDescriptor.ID,
+        currentNodeIds: Set<NodeId>
+    ) -> [NodeId] {
+        let previousNodeIds = workspaceNodeIds[workspaceId] ?? []
+        let addedNodeIds = currentNodeIds.subtracting(previousNodeIds)
+        let removedNodeIds = previousNodeIds.subtracting(currentNodeIds)
+
+        workspaceNodeIds[workspaceId] = currentNodeIds
+
+        for nodeId in addedNodeIds {
+            nodeReferenceCounts[nodeId, default: 0] += 1
         }
 
-        let knownNodeIds = Array(windowHandlesByNodeId.keys)
-        for nodeId in knownNodeIds where !referencedNodeIds.contains(nodeId) {
-            cleanupWindowMappings(for: nodeId)
+        var cleanupCandidates: [NodeId] = []
+        cleanupCandidates.reserveCapacity(removedNodeIds.count)
+        for nodeId in removedNodeIds {
+            let nextCount = (nodeReferenceCounts[nodeId] ?? 1) - 1
+            if nextCount <= 0 {
+                nodeReferenceCounts.removeValue(forKey: nodeId)
+                cleanupCandidates.append(nodeId)
+            } else {
+                nodeReferenceCounts[nodeId] = nextCount
+            }
         }
+
+        return cleanupCandidates
     }
 
-    func normalizeRuntimeExport(_ export: inout NiriStateZigKernel.RuntimeStateExport) {
-        var windowsByColumn: [NodeId: [NiriStateZigKernel.RuntimeWindowState]] = [:]
+    func normalizeRuntimeExport(_ export: inout ZigNiriStateKernel.RuntimeStateExport) {
+        let maxPerColumn = max(1, maxWindowsPerColumn)
+        guard runtimeExportNeedsNormalization(export, maxPerColumn: maxPerColumn) else {
+            return
+        }
+        var windowsByColumn = groupedRuntimeWindowsByColumn(export)
+        let normalized = rebuildNormalizedRuntimeExport(
+            sourceColumns: export.columns,
+            windowsByColumn: &windowsByColumn,
+            sourceWindows: export.windows,
+            maxPerColumn: maxPerColumn
+        )
+        export.columns = normalized.columns
+        export.windows = normalized.windows
+    }
+
+    func runtimeExportNeedsNormalization(
+        _ export: ZigNiriStateKernel.RuntimeStateExport,
+        maxPerColumn: Int
+    ) -> Bool {
+        guard !export.columns.isEmpty else {
+            return true
+        }
+
+        var seenWindowIds = Set<NodeId>()
+        seenWindowIds.reserveCapacity(export.windows.count)
+
+        for (columnIndex, column) in export.columns.enumerated() {
+            let start = column.windowStart
+            let count = column.windowCount
+            guard start >= 0,
+                  count >= 0,
+                  start <= export.windows.count,
+                  count <= export.windows.count - start
+            else {
+                return true
+            }
+
+            if count > maxPerColumn {
+                return true
+            }
+
+            if count == 0 {
+                if column.activeTileIdx != 0 {
+                    return true
+                }
+                continue
+            }
+
+            if column.activeTileIdx < 0 || column.activeTileIdx >= count {
+                return true
+            }
+
+            for index in start ..< start + count {
+                let runtimeWindow = export.windows[index]
+                if runtimeWindow.columnId != column.columnId || runtimeWindow.columnIndex != columnIndex {
+                    return true
+                }
+                if !seenWindowIds.insert(runtimeWindow.windowId).inserted {
+                    return true
+                }
+            }
+        }
+
+        return seenWindowIds.count != export.windows.count
+    }
+
+    func groupedRuntimeWindowsByColumn(
+        _ export: ZigNiriStateKernel.RuntimeStateExport
+    ) -> [NodeId: [ZigNiriStateKernel.RuntimeWindowState]] {
+        var windowsByColumn: [NodeId: [ZigNiriStateKernel.RuntimeWindowState]] = [:]
         windowsByColumn.reserveCapacity(export.columns.count + 1)
-        for runtimeWindow in export.windows {
+
+        var orderedWindowIds = Set<NodeId>()
+        orderedWindowIds.reserveCapacity(export.windows.count)
+
+        for sourceColumn in export.columns {
+            let start = sourceColumn.windowStart
+            let count = sourceColumn.windowCount
+            guard start >= 0,
+                  count >= 0,
+                  start <= export.windows.count,
+                  count <= export.windows.count - start
+            else {
+                windowsByColumn[sourceColumn.columnId, default: []] = []
+                continue
+            }
+
+            for runtimeWindow in export.windows[start ..< start + count] {
+                windowsByColumn[sourceColumn.columnId, default: []].append(runtimeWindow)
+                orderedWindowIds.insert(runtimeWindow.windowId)
+            }
+        }
+
+        for runtimeWindow in export.windows where !orderedWindowIds.contains(runtimeWindow.windowId) {
             windowsByColumn[runtimeWindow.columnId, default: []].append(runtimeWindow)
         }
 
-        var normalizedColumns: [NiriStateZigKernel.RuntimeColumnState] = []
-        normalizedColumns.reserveCapacity(max(1, export.columns.count))
-        var normalizedWindows: [NiriStateZigKernel.RuntimeWindowState] = []
-        normalizedWindows.reserveCapacity(export.windows.count)
+        return windowsByColumn
+    }
 
-        func appendColumn(_ sourceColumn: NiriStateZigKernel.RuntimeColumnState) {
-            let columnWindows = windowsByColumn[sourceColumn.columnId] ?? []
-            let start = normalizedWindows.count
-            let columnIndex = normalizedColumns.count
+    func rebuildNormalizedRuntimeExport(
+        sourceColumns: [ZigNiriStateKernel.RuntimeColumnState],
+        windowsByColumn: inout [NodeId: [ZigNiriStateKernel.RuntimeWindowState]],
+        sourceWindows: [ZigNiriStateKernel.RuntimeWindowState],
+        maxPerColumn: Int
+    ) -> (columns: [ZigNiriStateKernel.RuntimeColumnState], windows: [ZigNiriStateKernel.RuntimeWindowState]) {
+        var normalizedColumns: [ZigNiriStateKernel.RuntimeColumnState] = []
+        normalizedColumns.reserveCapacity(max(1, sourceColumns.count))
+        var normalizedWindows: [ZigNiriStateKernel.RuntimeWindowState] = []
+        normalizedWindows.reserveCapacity(sourceWindows.count)
 
-            for runtimeWindow in columnWindows {
-                normalizedWindows.append(
-                    NiriStateZigKernel.RuntimeWindowState(
-                        windowId: runtimeWindow.windowId,
-                        columnId: sourceColumn.columnId,
-                        columnIndex: columnIndex,
-                        sizeValue: runtimeWindow.sizeValue,
-                        heightKind: runtimeWindow.heightKind,
-                        heightValue: runtimeWindow.heightValue
-                    )
+        var occupiedNodeIds = Set<NodeId>()
+        occupiedNodeIds.reserveCapacity(sourceColumns.count + sourceWindows.count)
+        occupiedNodeIds.formUnion(sourceColumns.map(\.columnId))
+        occupiedNodeIds.formUnion(sourceWindows.map(\.windowId))
+
+        for sourceColumn in sourceColumns {
+            appendColumnWithSplits(
+                sourceColumn: sourceColumn,
+                windowsByColumn: &windowsByColumn,
+                maxPerColumn: maxPerColumn,
+                normalizedColumns: &normalizedColumns,
+                normalizedWindows: &normalizedWindows,
+                occupiedNodeIds: &occupiedNodeIds
+            )
+        }
+
+        if !windowsByColumn.isEmpty {
+            let orphanColumnIds = windowsByColumn.keys.sorted { lhs, rhs in
+                lhs.uuid.uuidString < rhs.uuid.uuidString
+            }
+            for orphanColumnId in orphanColumnIds {
+                appendColumnWithSplits(
+                    sourceColumn: defaultRuntimeColumnState(columnId: orphanColumnId),
+                    windowsByColumn: &windowsByColumn,
+                    maxPerColumn: maxPerColumn,
+                    normalizedColumns: &normalizedColumns,
+                    normalizedWindows: &normalizedWindows,
+                    occupiedNodeIds: &occupiedNodeIds
                 )
             }
+        }
 
-            let activeTileIdx: Int
-            if columnWindows.isEmpty {
-                activeTileIdx = 0
-            } else {
-                activeTileIdx = min(max(sourceColumn.activeTileIdx, 0), columnWindows.count - 1)
-            }
+        if normalizedColumns.isEmpty {
+            normalizedColumns = [defaultRuntimeColumnState(columnId: NodeId())]
+        }
 
+        return (columns: normalizedColumns, windows: normalizedWindows)
+    }
+
+    func appendColumnWithSplits(
+        sourceColumn: ZigNiriStateKernel.RuntimeColumnState,
+        windowsByColumn: inout [NodeId: [ZigNiriStateKernel.RuntimeWindowState]],
+        maxPerColumn: Int,
+        normalizedColumns: inout [ZigNiriStateKernel.RuntimeColumnState],
+        normalizedWindows: inout [ZigNiriStateKernel.RuntimeWindowState],
+        occupiedNodeIds: inout Set<NodeId>
+    ) {
+        let columnWindows = windowsByColumn[sourceColumn.columnId] ?? []
+        windowsByColumn.removeValue(forKey: sourceColumn.columnId)
+
+        if columnWindows.isEmpty {
+            let start = normalizedWindows.count
             normalizedColumns.append(
-                NiriStateZigKernel.RuntimeColumnState(
+                ZigNiriStateKernel.RuntimeColumnState(
                     columnId: sourceColumn.columnId,
                     windowStart: start,
-                    windowCount: columnWindows.count,
+                    windowCount: 0,
+                    activeTileIdx: 0,
+                    isTabbed: sourceColumn.isTabbed,
+                    sizeValue: sourceColumn.sizeValue,
+                    widthKind: sourceColumn.widthKind,
+                    isFullWidth: sourceColumn.isFullWidth,
+                    hasSavedWidth: sourceColumn.hasSavedWidth,
+                    savedWidthKind: sourceColumn.savedWidthKind,
+                    savedWidthValue: sourceColumn.savedWidthValue
+                )
+            )
+            return
+        }
+
+        let sourceActiveIndex = min(max(sourceColumn.activeTileIdx, 0), columnWindows.count - 1)
+        var chunkStart = 0
+        var chunkIndex = 0
+
+        while chunkStart < columnWindows.count {
+            let chunkEnd = min(columnWindows.count, chunkStart + maxPerColumn)
+            let chunk = columnWindows[chunkStart ..< chunkEnd]
+            let activeTileIdx: Int
+            if sourceActiveIndex >= chunkStart, sourceActiveIndex < chunkEnd {
+                activeTileIdx = sourceActiveIndex - chunkStart
+            } else {
+                activeTileIdx = 0
+            }
+
+            appendColumnChunk(
+                sourceColumn: sourceColumn,
+                chunk: chunk,
+                chunkIndex: chunkIndex,
+                activeTileIdx: activeTileIdx,
+                normalizedColumns: &normalizedColumns,
+                normalizedWindows: &normalizedWindows,
+                occupiedNodeIds: &occupiedNodeIds
+            )
+
+            chunkStart = chunkEnd
+            chunkIndex += 1
+        }
+    }
+
+    func appendColumnChunk(
+        sourceColumn: ZigNiriStateKernel.RuntimeColumnState,
+        chunk: ArraySlice<ZigNiriStateKernel.RuntimeWindowState>,
+        chunkIndex: Int,
+        activeTileIdx: Int,
+        normalizedColumns: inout [ZigNiriStateKernel.RuntimeColumnState],
+        normalizedWindows: inout [ZigNiriStateKernel.RuntimeWindowState],
+        occupiedNodeIds: inout Set<NodeId>
+    ) {
+        let isFirstChunk = chunkIndex == 0
+        let columnId: NodeId
+        if isFirstChunk {
+            columnId = sourceColumn.columnId
+        } else {
+            columnId = splitColumnId(
+                from: sourceColumn.columnId,
+                splitIndex: chunkIndex,
+                occupied: &occupiedNodeIds
+            )
+        }
+
+        let start = normalizedWindows.count
+        let columnIndex = normalizedColumns.count
+        for runtimeWindow in chunk {
+            normalizedWindows.append(
+                ZigNiriStateKernel.RuntimeWindowState(
+                    windowId: runtimeWindow.windowId,
+                    columnId: columnId,
+                    columnIndex: columnIndex,
+                    sizeValue: runtimeWindow.sizeValue,
+                    heightKind: runtimeWindow.heightKind,
+                    heightValue: runtimeWindow.heightValue
+                )
+            )
+        }
+
+        if isFirstChunk {
+            normalizedColumns.append(
+                ZigNiriStateKernel.RuntimeColumnState(
+                    columnId: columnId,
+                    windowStart: start,
+                    windowCount: chunk.count,
                     activeTileIdx: activeTileIdx,
                     isTabbed: sourceColumn.isTabbed,
                     sizeValue: sourceColumn.sizeValue,
@@ -1245,46 +2491,124 @@ private extension ZigNiriEngine {
                     savedWidthValue: sourceColumn.savedWidthValue
                 )
             )
-            windowsByColumn.removeValue(forKey: sourceColumn.columnId)
-        }
-
-        for sourceColumn in export.columns {
-            appendColumn(sourceColumn)
-        }
-
-        if !windowsByColumn.isEmpty {
-            let orphanColumnIds = windowsByColumn.keys.sorted { lhs, rhs in
-                lhs.uuid.uuidString < rhs.uuid.uuidString
-            }
-            for orphanColumnId in orphanColumnIds {
-                appendColumn(
-                    NiriStateZigKernel.RuntimeColumnState(
-                        columnId: orphanColumnId,
-                        windowStart: 0,
-                        windowCount: 0,
-                        activeTileIdx: 0,
-                        isTabbed: false,
-                        sizeValue: 1.0
-                    )
-                )
-            }
-        }
-
-        if normalizedColumns.isEmpty {
+        } else {
+            let spillColumn = defaultRuntimeColumnState(columnId: columnId)
             normalizedColumns.append(
-                NiriStateZigKernel.RuntimeColumnState(
-                    columnId: NodeId(),
-                    windowStart: 0,
-                    windowCount: 0,
-                    activeTileIdx: 0,
-                    isTabbed: false,
-                    sizeValue: 1.0
+                ZigNiriStateKernel.RuntimeColumnState(
+                    columnId: columnId,
+                    windowStart: start,
+                    windowCount: chunk.count,
+                    activeTileIdx: activeTileIdx,
+                    isTabbed: sourceColumn.isTabbed,
+                    sizeValue: spillColumn.sizeValue,
+                    widthKind: spillColumn.widthKind,
+                    isFullWidth: false,
+                    hasSavedWidth: false,
+                    savedWidthKind: spillColumn.savedWidthKind,
+                    savedWidthValue: spillColumn.savedWidthValue
                 )
             )
         }
+    }
 
-        export.columns = normalizedColumns
-        export.windows = normalizedWindows
+    func defaultRuntimeColumnState(columnId: NodeId) -> ZigNiriStateKernel.RuntimeColumnState {
+        ZigNiriStateKernel.RuntimeColumnState(
+            columnId: columnId,
+            windowStart: 0,
+            windowCount: 0,
+            activeTileIdx: 0,
+            isTabbed: false,
+            sizeValue: 1.0,
+            widthKind: ZigNiriStateKernel.sizeKindProportion,
+            isFullWidth: false,
+            hasSavedWidth: false,
+            savedWidthKind: ZigNiriStateKernel.sizeKindProportion,
+            savedWidthValue: 1.0
+        )
+    }
+
+    func splitColumnId(
+        from baseColumnId: NodeId,
+        splitIndex: Int,
+        occupied: inout Set<NodeId>
+    ) -> NodeId {
+        var salt = UInt32(max(1, splitIndex))
+        while true {
+            var raw = baseColumnId.uuid.uuid
+            var encodedSalt = salt.littleEndian
+            withUnsafeMutableBytes(of: &raw) { bytes in
+                withUnsafeBytes(of: &encodedSalt) { saltBytes in
+                    for idx in 0 ..< 4 {
+                        bytes[12 + idx] ^= saltBytes[idx]
+                    }
+                    bytes[8] ^= saltBytes[0]
+                    bytes[9] ^= saltBytes[1]
+                }
+            }
+            let candidate = NodeId(uuid: UUID(uuid: raw))
+            if candidate != baseColumnId, !occupied.contains(candidate) {
+                occupied.insert(candidate)
+                return candidate
+            }
+            salt &+= 1
+        }
+    }
+
+    func nearestNonFullColumnIndex(
+        columns: [ZigNiriStateKernel.RuntimeColumnState],
+        windowsByColumn: [NodeId: [NodeId]],
+        anchorIndex: Int,
+        maxPerColumn: Int
+    ) -> Int? {
+        guard !columns.isEmpty else { return nil }
+        let clampedAnchorIndex = min(max(anchorIndex, 0), columns.count - 1)
+
+        var bestIndex: Int?
+        var bestDistance = Int.max
+        for (index, column) in columns.enumerated() {
+            let count = windowsByColumn[column.columnId, default: []].count
+            guard count < maxPerColumn else { continue }
+            let distance = abs(index - clampedAnchorIndex)
+            if distance < bestDistance || (distance == bestDistance && index < (bestIndex ?? Int.max)) {
+                bestIndex = index
+                bestDistance = distance
+            }
+        }
+        return bestIndex
+    }
+
+    func preferredWindowId(
+        in column: ZigNiriColumnView,
+        focusedWindowId: NodeId?
+    ) -> NodeId? {
+        ZigNiriSelectionResolver.preferredWindowId(
+            in: column,
+            focusedWindowId: focusedWindowId
+        )
+    }
+
+    func activeColumnIndex(
+        in view: ZigNiriWorkspaceView,
+        selectedNodeId: NodeId?,
+        focusedWindowId: NodeId?
+    ) -> Int? {
+        if let selectedNodeId {
+            if let selectedColumnIndex = view.columns.firstIndex(where: { $0.nodeId == selectedNodeId }) {
+                return selectedColumnIndex
+            }
+            if let selectedWindowColumnIndex = view.columns.firstIndex(where: { $0.windowIds.contains(selectedNodeId) }) {
+                return selectedWindowColumnIndex
+            }
+        }
+        if let focusedWindowId,
+           let focusedColumnIndex = view.columns.firstIndex(where: { $0.windowIds.contains(focusedWindowId) })
+        {
+            return focusedColumnIndex
+        }
+        if let firstPopulated = view.columns.firstIndex(where: { !$0.windowIds.isEmpty }) {
+            return firstPopulated
+        }
+        return view.columns.isEmpty ? nil : 0
     }
 
     func cleanupWindowMappings(for nodeId: NodeId) {
@@ -1353,11 +2677,23 @@ private extension ZigNiriEngine {
 
     func applyFocusState(to view: inout ZigNiriWorkspaceView) {
         let focusedWindowId = view.selection?.focusedWindowId
-        let windowIds = Array(view.windowsById.keys)
-        for windowId in windowIds {
-            guard var window = view.windowsById[windowId] else { continue }
-            window.isFocused = windowId == focusedWindowId
-            view.windowsById[windowId] = window
+        let currentFocusedWindowId = view.windowsById.first(where: { $0.value.isFocused })?.key
+        guard currentFocusedWindowId != focusedWindowId else {
+            return
+        }
+
+        if let currentFocusedWindowId,
+           var window = view.windowsById[currentFocusedWindowId]
+        {
+            window.isFocused = false
+            view.windowsById[currentFocusedWindowId] = window
+        }
+
+        if let focusedWindowId,
+           var window = view.windowsById[focusedWindowId]
+        {
+            window.isFocused = true
+            view.windowsById[focusedWindowId] = window
         }
     }
 
@@ -1368,7 +2704,10 @@ private extension ZigNiriEngine {
         guard let view else { return nil }
         guard let selectedNodeId = selectedNodeId ?? view.selection?.selectedNodeId else {
             if let firstColumn = view.columns.first {
-                let firstWindow = firstColumn.windowIds.first
+                let firstWindow = preferredWindowId(
+                    in: firstColumn,
+                    focusedWindowId: view.selection?.focusedWindowId
+                )
                 return RuntimeSelectionAnchor(
                     windowId: firstWindow,
                     columnId: firstColumn.nodeId,
@@ -1397,13 +2736,10 @@ private extension ZigNiriEngine {
         guard let column = view.columns.first(where: { $0.nodeId == selectedNodeId }) else {
             return nil
         }
-        let activeIndex = column.activeWindowIndex ?? 0
-        let windowId: NodeId? = {
-            if column.windowIds.indices.contains(activeIndex) {
-                return column.windowIds[activeIndex]
-            }
-            return column.windowIds.first
-        }()
+        let windowId = preferredWindowId(
+            in: column,
+            focusedWindowId: view.selection?.focusedWindowId
+        )
         return RuntimeSelectionAnchor(
             windowId: windowId,
             columnId: column.nodeId,
@@ -1415,7 +2751,7 @@ private extension ZigNiriEngine {
         for request: ZigNiriNavigationRequest,
         orientation: Monitor.Orientation,
         in view: ZigNiriWorkspaceView
-    ) -> NiriStateZigKernel.NavigationRequest? {
+    ) -> ZigNiriStateKernel.NavigationRequest? {
         let anchor = runtimeSelectionAnchor(
             selectedNodeId: view.selection?.selectedNodeId,
             in: view
@@ -1424,7 +2760,7 @@ private extension ZigNiriEngine {
         switch request {
         case let .focus(direction):
             guard let anchor else { return nil }
-            return NiriStateZigKernel.NavigationRequest(
+            return ZigNiriStateKernel.NavigationRequest(
                 op: .focusTarget,
                 sourceWindowId: anchor.windowId,
                 sourceColumnId: anchor.columnId,
@@ -1436,7 +2772,7 @@ private extension ZigNiriEngine {
         case let .move(direction):
             guard let anchor else { return nil }
             if let step = direction.primaryStep(for: orientation) {
-                return NiriStateZigKernel.NavigationRequest(
+                return ZigNiriStateKernel.NavigationRequest(
                     op: .moveByColumns,
                     sourceWindowId: anchor.windowId,
                     sourceColumnId: anchor.columnId,
@@ -1448,7 +2784,7 @@ private extension ZigNiriEngine {
                 )
             }
             if direction.secondaryStep(for: orientation) != nil {
-                return NiriStateZigKernel.NavigationRequest(
+                return ZigNiriStateKernel.NavigationRequest(
                     op: .moveVertical,
                     sourceWindowId: anchor.windowId,
                     sourceColumnId: anchor.columnId,
@@ -1459,22 +2795,38 @@ private extension ZigNiriEngine {
             }
             return nil
 
+        case .focusDownOrLeft:
+            guard let anchor else { return nil }
+            return ZigNiriStateKernel.NavigationRequest(
+                op: .focusDownOrLeft,
+                sourceWindowId: anchor.windowId,
+                sourceColumnId: anchor.columnId
+            )
+
+        case .focusUpOrRight:
+            guard let anchor else { return nil }
+            return ZigNiriStateKernel.NavigationRequest(
+                op: .focusUpOrRight,
+                sourceWindowId: anchor.windowId,
+                sourceColumnId: anchor.columnId
+            )
+
         case .focusColumnFirst:
-            return NiriStateZigKernel.NavigationRequest(
+            return ZigNiriStateKernel.NavigationRequest(
                 op: .focusColumnFirst,
                 sourceWindowId: anchor?.windowId,
                 sourceColumnId: anchor?.columnId
             )
 
         case .focusColumnLast:
-            return NiriStateZigKernel.NavigationRequest(
+            return ZigNiriStateKernel.NavigationRequest(
                 op: .focusColumnLast,
                 sourceWindowId: anchor?.windowId,
                 sourceColumnId: anchor?.columnId
             )
 
         case let .focusColumn(index):
-            return NiriStateZigKernel.NavigationRequest(
+            return ZigNiriStateKernel.NavigationRequest(
                 op: .focusColumnIndex,
                 sourceWindowId: anchor?.windowId,
                 sourceColumnId: anchor?.columnId,
@@ -1483,11 +2835,27 @@ private extension ZigNiriEngine {
 
         case let .focusWindow(index):
             guard let anchor else { return nil }
-            return NiriStateZigKernel.NavigationRequest(
+            return ZigNiriStateKernel.NavigationRequest(
                 op: .focusWindowIndex,
                 sourceWindowId: anchor.windowId,
                 sourceColumnId: anchor.columnId,
                 focusWindowIndex: index
+            )
+
+        case .focusWindowTop:
+            guard let anchor else { return nil }
+            return ZigNiriStateKernel.NavigationRequest(
+                op: .focusWindowTop,
+                sourceWindowId: anchor.windowId,
+                sourceColumnId: anchor.columnId
+            )
+
+        case .focusWindowBottom:
+            guard let anchor else { return nil }
+            return ZigNiriStateKernel.NavigationRequest(
+                op: .focusWindowBottom,
+                sourceWindowId: anchor.windowId,
+                sourceColumnId: anchor.columnId
             )
         }
     }
@@ -1511,6 +2879,28 @@ private extension ZigNiriEngine {
             let orderedWindowIds = view.columns.flatMap(\.windowIds)
             guard orderedWindowIds.indices.contains(index) else { return nil }
             return orderedWindowIds[index]
+        case .focusDownOrLeft:
+            return view.columns.first?.windowIds.first ?? view.selection?.selectedNodeId
+        case .focusUpOrRight:
+            return view.columns.last?.windowIds.last ?? view.selection?.selectedNodeId
+        case .focusWindowTop:
+            guard let selected = view.selection?.selectedNodeId else { return nil }
+            guard let window = view.windowsById[selected],
+                  let columnId = window.columnId,
+                  let column = view.columns.first(where: { $0.nodeId == columnId })
+            else {
+                return view.columns.first?.windowIds.first
+            }
+            return column.windowIds.first
+        case .focusWindowBottom:
+            guard let selected = view.selection?.selectedNodeId else { return nil }
+            guard let window = view.windowsById[selected],
+                  let columnId = window.columnId,
+                  let column = view.columns.first(where: { $0.nodeId == columnId })
+            else {
+                return view.columns.first?.windowIds.last
+            }
+            return column.windowIds.last
         case .focus, .move:
             return view.selection?.selectedNodeId
         }

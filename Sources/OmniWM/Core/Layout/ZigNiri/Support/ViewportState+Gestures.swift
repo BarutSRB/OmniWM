@@ -11,29 +11,28 @@ extension ViewportState {
     mutating func updateGesture(
         deltaPixels: CGFloat,
         timestamp: TimeInterval,
-        columns: [NiriContainer],
+        columnSpans: [CGFloat],
         gap: CGFloat,
-        viewportWidth: CGFloat
+        viewportSpan: CGFloat
     ) -> Int? {
         guard case let .gesture(gesture) = viewOffsetPixels else {
             return nil
         }
 
-        let spans = columns.map { Double($0.cachedWidth) }
-        let normalizedActiveIndex: Int = if columns.isEmpty {
+        let normalizedActiveIndex: Int = if columnSpans.isEmpty {
             0
         } else {
-            activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
+            activeColumnIndex.clamped(to: 0 ... (columnSpans.count - 1))
         }
 
-        let result = NiriViewportZigMath.gestureUpdate(
+        let result = ZigNiriViewportMath.gestureUpdate(
             state: &gesture.gestureState,
-            spans: spans,
+            spans: columnSpans.map(Double.init),
             activeContainerIndex: normalizedActiveIndex,
             deltaPixels: deltaPixels,
             timestamp: timestamp,
             gap: gap,
-            viewportSpan: viewportWidth,
+            viewportSpan: viewportSpan,
             selectionProgress: selectionProgress
         )
 
@@ -42,9 +41,9 @@ extension ViewportState {
     }
 
     mutating func endGesture(
-        columns: [NiriContainer],
+        columnSpans: [CGFloat],
         gap: CGFloat,
-        viewportWidth: CGFloat,
+        viewportSpan: CGFloat,
         centerMode: CenterFocusedColumn = .never,
         alwaysCenterSingleColumn: Bool = false
     ) {
@@ -52,19 +51,18 @@ extension ViewportState {
             return
         }
 
-        let spans = columns.map { Double($0.cachedWidth) }
-        let normalizedActiveIndex: Int = if columns.isEmpty {
+        let normalizedActiveIndex: Int = if columnSpans.isEmpty {
             0
         } else {
-            activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
+            activeColumnIndex.clamped(to: 0 ... (columnSpans.count - 1))
         }
 
-        let result = NiriViewportZigMath.gestureEnd(
+        let result = ZigNiriViewportMath.gestureEnd(
             state: gesture.gestureState,
-            spans: spans,
+            spans: columnSpans.map(Double.init),
             activeContainerIndex: normalizedActiveIndex,
             gap: gap,
-            viewportSpan: viewportWidth,
+            viewportSpan: viewportSpan,
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )

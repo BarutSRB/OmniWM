@@ -19,7 +19,7 @@ final class ViewGesture {
     }
 
     init(currentViewOffset: Double, isTrackpad: Bool) {
-        gestureState = NiriViewportZigMath.gestureBegin(
+        gestureState = ZigNiriViewportMath.gestureBegin(
             currentViewOffset: CGFloat(currentViewOffset),
             isTrackpad: isTrackpad
         )
@@ -49,14 +49,14 @@ final class ViewGesture {
         if let anim = animation {
             return anim.velocity(at: CACurrentMediaTime())
         }
-        return NiriViewportZigMath.gestureVelocity(state: gestureState)
+        return ZigNiriViewportMath.gestureVelocity(state: gestureState)
     }
 
     func velocity(at time: TimeInterval) -> Double {
         if let anim = animation {
             return anim.velocity(at: time)
         }
-        return NiriViewportZigMath.gestureVelocity(state: gestureState)
+        return ZigNiriViewportMath.gestureVelocity(state: gestureState)
     }
 }
 

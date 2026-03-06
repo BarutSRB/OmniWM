@@ -33,13 +33,14 @@ LATEST_REPORT="${REPO_ROOT}/dist/benchmarks/niri-phase0-latest.json"
 BASELINE_REPORT="${REPO_ROOT}/benchmarks/niri/phase0-baseline.json"
 
 mkdir -p "$(dirname "${LATEST_REPORT}")"
+rm -f "${LATEST_REPORT}"
 
 echo "==> Running Niri Phase 0 benchmark tests (release)"
 (
     cd "${REPO_ROOT}"
     OMNI_NIRI_PHASE0_BENCH=1 \
     OMNI_NIRI_PHASE0_REPORT_PATH="${LATEST_REPORT}" \
-    swift test -c release --filter NiriPhase0BenchmarkTests
+    swift test -c release --filter ZigNiriPhase0BenchmarkTests
 )
 
 if [[ ! -f "${LATEST_REPORT}" ]]; then

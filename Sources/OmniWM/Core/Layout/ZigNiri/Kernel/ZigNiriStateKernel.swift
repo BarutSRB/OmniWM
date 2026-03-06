@@ -1,30 +1,7 @@
 import CZigLayout
 import Foundation
 
-enum NiriStateZigKernel {
-    struct Snapshot {
-        struct ColumnEntry {
-            let column: NiriContainer
-            let columnIndex: Int
-            let windowStart: Int
-            let windowCount: Int
-        }
-
-        struct WindowEntry {
-            let window: NiriWindow
-            let column: NiriContainer
-            let columnIndex: Int
-            let rowIndex: Int
-        }
-
-        var columns: [OmniNiriStateColumnInput]
-        var windows: [OmniNiriStateWindowInput]
-        var columnEntries: [ColumnEntry]
-        var windowEntries: [WindowEntry]
-        var windowIndexByNodeId: [NodeId: Int]
-        var columnIndexByNodeId: [NodeId: Int]
-    }
-
+enum ZigNiriStateKernel {
     enum NavigationOp {
         case moveByColumns
         case moveVertical
@@ -314,9 +291,9 @@ enum NiriStateZigKernel {
     }
 
     enum TxnRequest {
-        case navigation(context: NiriLayoutZigKernel.LayoutContext, request: NavigationApplyRequest)
-        case mutation(context: NiriLayoutZigKernel.LayoutContext, request: MutationApplyRequest)
-        case workspace(sourceContext: NiriLayoutZigKernel.LayoutContext, targetContext: NiriLayoutZigKernel.LayoutContext, request: WorkspaceApplyRequest)
+        case navigation(context: ZigNiriLayoutKernel.LayoutContext, request: NavigationApplyRequest)
+        case mutation(context: ZigNiriLayoutKernel.LayoutContext, request: MutationApplyRequest)
+        case workspace(sourceContext: ZigNiriLayoutKernel.LayoutContext, targetContext: ZigNiriLayoutKernel.LayoutContext, request: WorkspaceApplyRequest)
     }
 
     struct TxnOutcome {
@@ -674,99 +651,6 @@ enum NiriStateZigKernel {
         return nil
     }
 
-    static func makeSnapshot(columns: [NiriContainer]) -> Snapshot {
-        let estimatedWindowCount = columns.reduce(0) { partial, column in
-            partial + column.windowNodes.count
-        }
-
-        var columnInputs: [OmniNiriStateColumnInput] = []
-        columnInputs.reserveCapacity(columns.count)
-
-        var windowInputs: [OmniNiriStateWindowInput] = []
-        windowInputs.reserveCapacity(estimatedWindowCount)
-
-        var columnEntries: [Snapshot.ColumnEntry] = []
-        columnEntries.reserveCapacity(columns.count)
-
-        var windowEntries: [Snapshot.WindowEntry] = []
-        windowEntries.reserveCapacity(estimatedWindowCount)
-
-        var windowIndexByNodeId: [NodeId: Int] = [:]
-        windowIndexByNodeId.reserveCapacity(estimatedWindowCount)
-
-        var columnIndexByNodeId: [NodeId: Int] = [:]
-        columnIndexByNodeId.reserveCapacity(columns.count + estimatedWindowCount)
-
-        for (columnIndex, column) in columns.enumerated() {
-            let start = windowInputs.count
-            let windows = column.windowNodes
-            let columnId = omniUUID(from: column.id)
-            let encodedWidth = encodeWidth(column.width)
-            let encodedSavedWidth = column.savedWidth.map(encodeWidth)
-
-            columnEntries.append(
-                Snapshot.ColumnEntry(
-                    column: column,
-                    columnIndex: columnIndex,
-                    windowStart: start,
-                    windowCount: windows.count
-                )
-            )
-            columnIndexByNodeId[column.id] = columnIndex
-
-            for (rowIndex, window) in windows.enumerated() {
-                let windowIndex = windowInputs.count
-                windowEntries.append(
-                    Snapshot.WindowEntry(
-                        window: window,
-                        column: column,
-                        columnIndex: columnIndex,
-                        rowIndex: rowIndex
-                    )
-                )
-                windowIndexByNodeId[window.id] = windowIndex
-                columnIndexByNodeId[window.id] = columnIndex
-
-                let encodedHeight = encodeHeight(window.height)
-                windowInputs.append(
-                    OmniNiriStateWindowInput(
-                        window_id: omniUUID(from: window.id),
-                        column_id: columnId,
-                        column_index: columnIndex,
-                        size_value: Double(window.size),
-                        height_kind: encodedHeight.kind,
-                        height_value: encodedHeight.value
-                    )
-                )
-            }
-
-            columnInputs.append(
-                OmniNiriStateColumnInput(
-                    column_id: columnId,
-                    window_start: start,
-                    window_count: windows.count,
-                    active_tile_idx: max(0, column.activeTileIdx),
-                    is_tabbed: column.isTabbed ? 1 : 0,
-                    size_value: encodedWidth.value,
-                    width_kind: encodedWidth.kind,
-                    is_full_width: column.isFullWidth ? 1 : 0,
-                    has_saved_width: encodedSavedWidth == nil ? 0 : 1,
-                    saved_width_kind: encodedSavedWidth?.kind ?? sizeKindProportion,
-                    saved_width_value: encodedSavedWidth?.value ?? 1.0
-                )
-            )
-        }
-
-        return Snapshot(
-            columns: columnInputs,
-            windows: windowInputs,
-            columnEntries: columnEntries,
-            windowEntries: windowEntries,
-            windowIndexByNodeId: windowIndexByNodeId,
-            columnIndexByNodeId: columnIndexByNodeId
-        )
-    }
-
     private static func direction(from rawCode: UInt8) -> Direction? {
         switch rawCode {
         case 0:
@@ -780,35 +664,6 @@ enum NiriStateZigKernel {
         default:
             return nil
         }
-    }
-
-    static func runtimeStateExport(snapshot: Snapshot) -> RuntimeStateExport {
-        let columns = snapshot.columns.map { column in
-            RuntimeColumnState(
-                columnId: nodeId(from: column.column_id),
-                windowStart: column.window_start,
-                windowCount: column.window_count,
-                activeTileIdx: column.active_tile_idx,
-                isTabbed: column.is_tabbed != 0,
-                sizeValue: column.size_value,
-                widthKind: column.width_kind,
-                isFullWidth: column.is_full_width != 0,
-                hasSavedWidth: column.has_saved_width != 0,
-                savedWidthKind: column.saved_width_kind,
-                savedWidthValue: column.saved_width_value
-            )
-        }
-        let windows = snapshot.windows.map { window in
-            RuntimeWindowState(
-                windowId: nodeId(from: window.window_id),
-                columnId: nodeId(from: window.column_id),
-                columnIndex: window.column_index,
-                sizeValue: window.size_value,
-                heightKind: window.height_kind,
-                heightValue: window.height_value
-            )
-        }
-        return RuntimeStateExport(columns: columns, windows: windows)
     }
 
     private static func decodeRuntimeStateExport(
@@ -884,7 +739,7 @@ enum NiriStateZigKernel {
     }
 
     static func snapshotRuntimeStateResult(
-        context: NiriLayoutZigKernel.LayoutContext
+        context: ZigNiriLayoutKernel.LayoutContext
     ) -> Result<RuntimeStateExport, RuntimeExportDecodeError> {
         var rawExport = OmniNiriRuntimeStateExport(
             columns: nil,
@@ -908,17 +763,7 @@ enum NiriStateZigKernel {
     }
 
     static func seedRuntimeState(
-        context: NiriLayoutZigKernel.LayoutContext,
-        snapshot: Snapshot
-    ) -> Int32 {
-        seedRuntimeState(
-            context: context,
-            export: runtimeStateExport(snapshot: snapshot)
-        )
-    }
-
-    static func seedRuntimeState(
-        context: NiriLayoutZigKernel.LayoutContext,
+        context: ZigNiriLayoutKernel.LayoutContext,
         export: RuntimeStateExport
     ) -> Int32 {
         let rawColumns = export.columns.map { column in
@@ -973,7 +818,7 @@ enum NiriStateZigKernel {
     }
 
     static func snapshotRuntimeState(
-        context: NiriLayoutZigKernel.LayoutContext
+        context: ZigNiriLayoutKernel.LayoutContext
     ) -> (rc: Int32, export: RuntimeStateExport) {
         switch snapshotRuntimeStateResult(context: context) {
         case let .success(export):
@@ -1243,7 +1088,7 @@ enum NiriStateZigKernel {
     }
 
     static func exportDeltaResult(
-        context: NiriLayoutZigKernel.LayoutContext
+        context: ZigNiriLayoutKernel.LayoutContext
     ) -> Result<DeltaExport, RuntimeExportDecodeError> {
         var rawExport = OmniNiriTxnDeltaExport()
         let rc = context.withRawContext { raw in
@@ -1261,7 +1106,7 @@ enum NiriStateZigKernel {
     }
 
     static func exportDelta(
-        context: NiriLayoutZigKernel.LayoutContext
+        context: ZigNiriLayoutKernel.LayoutContext
     ) -> (rc: Int32, export: DeltaExport) {
         switch exportDeltaResult(context: context) {
         case let .success(export):
@@ -1272,8 +1117,8 @@ enum NiriStateZigKernel {
     }
 
     static func applyTxn(_ request: TxnRequest) -> TxnOutcome {
-        let sourceContext: NiriLayoutZigKernel.LayoutContext
-        let targetContext: NiriLayoutZigKernel.LayoutContext?
+        let sourceContext: ZigNiriLayoutKernel.LayoutContext
+        let targetContext: ZigNiriLayoutKernel.LayoutContext?
         let kind: TxnKind
         var rawNavigation = emptyNavigationTxnPayload()
         var rawMutation = emptyMutationTxnPayload()
@@ -1411,7 +1256,7 @@ enum NiriStateZigKernel {
     }
 
     static func applyMutation(
-        context: NiriLayoutZigKernel.LayoutContext,
+        context: ZigNiriLayoutKernel.LayoutContext,
         request: MutationApplyRequest
     ) -> MutationApplyOutcome {
         let exported = applyTxnAndExportSingleContext(
@@ -1437,8 +1282,8 @@ enum NiriStateZigKernel {
     }
 
     static func applyWorkspace(
-        sourceContext: NiriLayoutZigKernel.LayoutContext,
-        targetContext: NiriLayoutZigKernel.LayoutContext,
+        sourceContext: ZigNiriLayoutKernel.LayoutContext,
+        targetContext: ZigNiriLayoutKernel.LayoutContext,
         request: WorkspaceApplyRequest
     ) -> WorkspaceApplyOutcome {
         let exported = applyTxnAndExportWorkspace(
@@ -1458,7 +1303,7 @@ enum NiriStateZigKernel {
     }
 
     static func applyNavigation(
-        context: NiriLayoutZigKernel.LayoutContext,
+        context: ZigNiriLayoutKernel.LayoutContext,
         request: NavigationApplyRequest
     ) -> NavigationApplyOutcome {
         let exported = applyTxnAndExportSingleContext(
@@ -1485,7 +1330,7 @@ enum NiriStateZigKernel {
 
     private static func applyTxnAndExportSingleContext(
         _ request: TxnRequest,
-        context: NiriLayoutZigKernel.LayoutContext
+        context: ZigNiriLayoutKernel.LayoutContext
     ) -> (
         outcome: TxnOutcome,
         deltaRC: Int32,
@@ -1501,8 +1346,8 @@ enum NiriStateZigKernel {
     }
 
     private static func applyTxnAndExportWorkspace(
-        sourceContext: NiriLayoutZigKernel.LayoutContext,
-        targetContext: NiriLayoutZigKernel.LayoutContext,
+        sourceContext: ZigNiriLayoutKernel.LayoutContext,
+        targetContext: ZigNiriLayoutKernel.LayoutContext,
         request: WorkspaceApplyRequest
     ) -> (
         outcome: TxnOutcome,
