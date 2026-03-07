@@ -1,5 +1,7 @@
 import Foundation
 
+// MARK: - SettingsExport
+
 struct SettingsExport: Codable {
     var version: Int = 1
 
@@ -83,6 +85,90 @@ struct SettingsExport: Codable {
     var appearanceMode: String
 }
 
+// MARK: - Defaults & Diffing
+
+extension SettingsExport {
+    static func defaults() -> SettingsExport {
+        SettingsExport(
+            hotkeysEnabled: true,
+            focusFollowsMouse: false,
+            moveMouseToFocusedWindow: false,
+            mouseWarpEnabled: false,
+            mouseWarpMonitorOrder: [],
+            mouseWarpMargin: 2,
+            gapSize: 8,
+            outerGapLeft: 0,
+            outerGapRight: 0,
+            outerGapTop: 0,
+            outerGapBottom: 0,
+            niriMaxWindowsPerColumn: 3,
+            niriMaxVisibleColumns: 2,
+            niriInfiniteLoop: false,
+            niriCenterFocusedColumn: CenterFocusedColumn.never.rawValue,
+            niriAlwaysCenterSingleColumn: true,
+            niriSingleWindowAspectRatio: SingleWindowAspectRatio.ratio4x3.rawValue,
+            niriColumnWidthPresets: [1.0 / 3.0, 0.5, 2.0 / 3.0],
+            persistentWorkspacesRaw: "",
+            workspaceAssignmentsRaw: "",
+            workspaceConfigurations: [],
+            defaultLayoutType: LayoutType.niri.rawValue,
+            bordersEnabled: false,
+            borderWidth: 4.0,
+            borderColorRed: 0.0,
+            borderColorGreen: 0.5,
+            borderColorBlue: 1.0,
+            borderColorAlpha: 1.0,
+            hotkeyBindings: DefaultHotkeyBindings.all(),
+            workspaceBarEnabled: false,
+            workspaceBarShowLabels: true,
+            workspaceBarWindowLevel: WorkspaceBarWindowLevel.popup.rawValue,
+            workspaceBarPosition: WorkspaceBarPosition.overlappingMenuBar.rawValue,
+            workspaceBarNotchAware: false,
+            workspaceBarDeduplicateAppIcons: false,
+            workspaceBarHideEmptyWorkspaces: false,
+            workspaceBarHeight: 24.0,
+            workspaceBarBackgroundOpacity: 0.1,
+            workspaceBarXOffset: 0.0,
+            workspaceBarYOffset: 0.0,
+            monitorBarSettings: [],
+            appRules: [],
+            monitorOrientationSettings: [],
+            monitorNiriSettings: [],
+            dwindleSmartSplit: false,
+            dwindleDefaultSplitRatio: 1.0,
+            dwindleSplitWidthMultiplier: 1.0,
+            dwindleSingleWindowAspectRatio: DwindleSingleWindowAspectRatio.ratio4x3.rawValue,
+            dwindleUseGlobalGaps: true,
+            dwindleMoveToRootStable: true,
+            monitorDwindleSettings: [],
+            preventSleepEnabled: false,
+            scrollGestureEnabled: true,
+            scrollSensitivity: 1.0,
+            scrollModifierKey: ScrollModifierKey.optionShift.rawValue,
+            gestureFingerCount: GestureFingerCount.three.rawValue,
+            gestureInvertDirection: true,
+            menuAnywhereNativeEnabled: true,
+            menuAnywherePaletteEnabled: true,
+            menuAnywherePosition: MenuAnywherePosition.cursor.rawValue,
+            menuAnywhereShowShortcuts: true,
+            hiddenBarEnabled: false,
+            hiddenBarIsCollapsed: false,
+            quakeTerminalOpacity: 1.0,
+            quakeTerminalMonitorMode: QuakeTerminalMonitorMode.mouseCursor.rawValue,
+            appearanceMode: AppearanceMode.automatic.rawValue
+        )
+    }
+}
+
+private func jsonValuesEqual(_ lhs: Any, _ rhs: Any) -> Bool {
+    guard let lData = try? JSONSerialization.data(withJSONObject: ["_": lhs], options: .sortedKeys),
+          let rData = try? JSONSerialization.data(withJSONObject: ["_": rhs], options: .sortedKeys)
+    else { return false }
+    return lData == rData
+}
+
+// MARK: - Export & Import
+
 extension SettingsStore {
     static var exportURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -93,7 +179,7 @@ extension SettingsStore {
         FileManager.default.fileExists(atPath: Self.exportURL.path)
     }
 
-    func exportSettings() throws {
+    func exportSettings(incrementalOnly: Bool = true) throws {
         let export = SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
             focusFollowsMouse: focusFollowsMouse,
@@ -167,16 +253,94 @@ extension SettingsStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(export)
 
+        let outputData: Data
+        if incrementalOnly {
+            let defaultsData = try encoder.encode(SettingsExport.defaults())
+            guard let currentDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let defaultsDict = try JSONSerialization.jsonObject(with: defaultsData) as? [String: Any]
+            else {
+                outputData = data
+                let directory = Self.exportURL.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try outputData.write(to: Self.exportURL)
+                return
+            }
+            var filtered: [String: Any] = ["version": export.version]
+            for (key, value) in currentDict where key != "version" && key != "hotkeyBindings" {
+                if let defaultValue = defaultsDict[key], jsonValuesEqual(value, defaultValue) {
+                    continue
+                }
+                filtered[key] = value
+            }
+
+            // Element-wise diff for hotkeyBindings by id
+            if let currentBindings = currentDict["hotkeyBindings"] as? [[String: Any]],
+               let defaultBindings = defaultsDict["hotkeyBindings"] as? [[String: Any]] {
+                let defaultsByID = Dictionary(
+                    defaultBindings.compactMap { b in (b["id"] as? String).map { ($0, b) } },
+                    uniquingKeysWith: { _, last in last }
+                )
+                let changedBindings = currentBindings.filter { binding in
+                    guard let id = binding["id"] as? String,
+                          let defaultBinding = defaultsByID[id] else { return true }
+                    return !jsonValuesEqual(binding, defaultBinding)
+                }
+                if !changedBindings.isEmpty {
+                    filtered["hotkeyBindings"] = changedBindings
+                }
+            }
+            outputData = try JSONSerialization.data(
+                withJSONObject: filtered,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+        } else {
+            outputData = data
+        }
+
         let directory = Self.exportURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try data.write(to: Self.exportURL)
+        try outputData.write(to: Self.exportURL)
     }
 
     func importSettings() throws {
-        let data = try Data(contentsOf: Self.exportURL)
-        let export = try JSONDecoder().decode(SettingsExport.self, from: data)
+        let rawData = try Data(contentsOf: Self.exportURL)
 
-        hotkeysEnabled = export.hotkeysEnabled
+        let encoder = JSONEncoder()
+        let defaultsData = try encoder.encode(SettingsExport.defaults())
+
+        guard var defaultsDict = try JSONSerialization.jsonObject(with: defaultsData) as? [String: Any],
+              let importedDict = try JSONSerialization.jsonObject(with: rawData) as? [String: Any]
+        else {
+            let export = try JSONDecoder().decode(SettingsExport.self, from: rawData)
+            applyImport(export)
+            return
+        }
+
+        for (key, value) in importedDict where key != "hotkeyBindings" {
+            defaultsDict[key] = value
+        }
+
+        // Element-wise merge for hotkeyBindings by id
+        if let importedBindings = importedDict["hotkeyBindings"] as? [[String: Any]],
+           let defaultBindings = defaultsDict["hotkeyBindings"] as? [[String: Any]] {
+            let importedByID = Dictionary(
+                importedBindings.compactMap { b in (b["id"] as? String).map { ($0, b) } },
+                uniquingKeysWith: { _, last in last }
+            )
+            let merged = defaultBindings.map { defaultBinding -> [String: Any] in
+                guard let id = defaultBinding["id"] as? String,
+                      let imported = importedByID[id] else { return defaultBinding }
+                return imported
+            }
+            defaultsDict["hotkeyBindings"] = merged
+        }
+
+        let mergedData = try JSONSerialization.data(withJSONObject: defaultsDict)
+        let export = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+        applyImport(export)
+    }
+
+    private func applyImport(_ export: SettingsExport) {        hotkeysEnabled = export.hotkeysEnabled
         focusFollowsMouse = export.focusFollowsMouse
         moveMouseToFocusedWindow = export.moveMouseToFocusedWindow
         mouseWarpEnabled = export.mouseWarpEnabled

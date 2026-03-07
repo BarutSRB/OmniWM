@@ -187,4 +187,32 @@ enum KeySymbolMapper {
         let key = keyName(keyCode)
         return mods.isEmpty ? key : mods + "+" + key
     }
+
+    static let nameToKeyCode: [String: UInt32] = {
+        var map: [String: UInt32] = [:]
+        for code: UInt32 in 0...127 {
+            let name = keyName(code)
+            if name != "?" { map[name] = code }
+        }
+        return map
+    }()
+
+    static let nameToModifier: [String: UInt32] = [
+        "Control": UInt32(controlKey),
+        "Option": UInt32(optionKey),
+        "Shift": UInt32(shiftKey),
+        "Command": UInt32(cmdKey),
+    ]
+
+    static func fromHumanReadable(_ string: String) -> KeyBinding? {
+        if string == "Unassigned" { return .unassigned }
+        let parts = string.components(separatedBy: "+")
+        guard let keyPart = parts.last, let keyCode = nameToKeyCode[keyPart] else { return nil }
+        var modifiers: UInt32 = 0
+        for part in parts.dropLast() {
+            guard let flag = nameToModifier[part] else { return nil }
+            modifiers |= flag
+        }
+        return KeyBinding(keyCode: keyCode, modifiers: modifiers)
+    }
 }

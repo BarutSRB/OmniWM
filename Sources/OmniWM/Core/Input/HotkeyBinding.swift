@@ -1,7 +1,7 @@
 import Carbon
 import Foundation
 
-struct KeyBinding: Codable, Equatable, Hashable {
+struct KeyBinding: Equatable, Hashable {
     let keyCode: UInt32
     let modifiers: UInt32
 
@@ -28,6 +28,35 @@ struct KeyBinding: Codable, Equatable, Hashable {
     func conflicts(with other: KeyBinding) -> Bool {
         guard !isUnassigned, !other.isUnassigned else { return false }
         return keyCode == other.keyCode && modifiers == other.modifiers
+    }
+}
+
+extension KeyBinding: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case keyCode, modifiers
+    }
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let string = try? container.decode(String.self),
+           let binding = KeySymbolMapper.fromHumanReadable(string) {
+            self = binding
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        keyCode = try container.decode(UInt32.self, forKey: .keyCode)
+        modifiers = try container.decode(UInt32.self, forKey: .modifiers)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        if isUnassigned || KeySymbolMapper.keyName(keyCode) != "?" {
+            var container = encoder.singleValueContainer()
+            try container.encode(humanReadableString)
+        } else {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(keyCode, forKey: .keyCode)
+            try container.encode(modifiers, forKey: .modifiers)
+        }
     }
 }
 
