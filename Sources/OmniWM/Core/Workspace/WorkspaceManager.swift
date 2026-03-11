@@ -96,10 +96,6 @@ final class WorkspaceManager {
         sessionState.focus.focusedHandle
     }
 
-    var lastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowHandle] {
-        sessionState.focus.lastFocusedByWorkspace
-    }
-
     var isNonManagedFocusActive: Bool {
         sessionState.focus.isNonManagedFocusActive
     }
@@ -112,22 +108,6 @@ final class WorkspaceManager {
     func setInteractionMonitor(_ monitorId: Monitor.ID?, preservePrevious: Bool = true) -> Bool {
         let normalizedMonitorId = monitorId.flatMap { self.monitor(byId: $0)?.id }
         return updateInteractionMonitor(normalizedMonitorId, preservePrevious: preservePrevious, notify: true)
-    }
-
-    @discardableResult
-    func setFocusedHandle(_ handle: WindowHandle?, in workspaceId: WorkspaceDescriptor.ID? = nil) -> Bool {
-        let focusChanged = sessionState.focus.focusedHandle != handle
-        sessionState.focus.focusedHandle = handle
-
-        if let workspaceId, let handle {
-            sessionState.focus.lastFocusedByWorkspace[workspaceId] = handle
-        }
-
-        if focusChanged {
-            notifySessionStateChanged()
-        }
-
-        return focusChanged
     }
 
     @discardableResult
@@ -149,13 +129,33 @@ final class WorkspaceManager {
         if sessionState.focus.isNonManagedFocusActive {
             sessionState.focus.isNonManagedFocusActive = false
             changed = true
-        }
-        if sessionState.focus.isAppFullscreenActive {
-            sessionState.focus.isAppFullscreenActive = false
-            changed = true
+            if sessionState.focus.isAppFullscreenActive {
+                sessionState.focus.isAppFullscreenActive = false
+                changed = true
+            }
         }
         if let monitorId {
             changed = updateInteractionMonitor(monitorId, preservePrevious: true, notify: false) || changed
+        }
+
+        if changed {
+            notifySessionStateChanged()
+        }
+
+        return changed
+    }
+
+    @discardableResult
+    func setManagedAppFullscreen(_ active: Bool) -> Bool {
+        var changed = false
+
+        if sessionState.focus.isNonManagedFocusActive {
+            sessionState.focus.isNonManagedFocusActive = false
+            changed = true
+        }
+        if sessionState.focus.isAppFullscreenActive != active {
+            sessionState.focus.isAppFullscreenActive = active
+            changed = true
         }
 
         if changed {
@@ -173,10 +173,77 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func clearLastFocusedHandle(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard sessionState.focus.lastFocusedByWorkspace[workspaceId] != nil else { return false }
-        sessionState.focus.lastFocusedByWorkspace[workspaceId] = nil
-        return true
+    func syncWorkspaceFocus(
+        _ handle: WindowHandle,
+        in workspaceId: WorkspaceDescriptor.ID,
+        onMonitor monitorId: Monitor.ID? = nil,
+        promoteToManagedFocus: Bool = false
+    ) -> Bool {
+        var changed = rememberFocus(handle, in: workspaceId)
+
+        if promoteToManagedFocus {
+            let currentWorkspace = sessionState.focus.focusedHandle.flatMap {
+                entry(for: $0)?.workspaceId
+            }
+            if currentWorkspace == workspaceId || currentWorkspace == nil {
+                changed = setManagedFocus(handle, in: workspaceId, onMonitor: monitorId) || changed
+            }
+        }
+
+        return changed
+    }
+
+    @discardableResult
+    func syncWorkspaceSelection(
+        nodeId: NodeId?,
+        focusedHandle: WindowHandle?,
+        in workspaceId: WorkspaceDescriptor.ID,
+        onMonitor monitorId: Monitor.ID? = nil,
+        promoteToManagedFocus: Bool = false
+    ) -> Bool {
+        var changed = false
+
+        if let nodeId {
+            let currentSelection = niriViewportState(for: workspaceId).selectedNodeId
+            if currentSelection != nodeId {
+                withNiriViewportState(for: workspaceId) { $0.selectedNodeId = nodeId }
+                changed = true
+            }
+        }
+
+        if let focusedHandle {
+            changed = syncWorkspaceFocus(
+                focusedHandle,
+                in: workspaceId,
+                onMonitor: monitorId,
+                promoteToManagedFocus: promoteToManagedFocus
+            ) || changed
+        }
+
+        return changed
+    }
+
+    func applyNiriViewportTransfer(
+        sourceWorkspaceId: WorkspaceDescriptor.ID?,
+        sourceState: ViewportState?,
+        sourceFocusedHandle: WindowHandle?,
+        targetWorkspaceId: WorkspaceDescriptor.ID?,
+        targetState: ViewportState?,
+        targetFocusedHandle: WindowHandle?
+    ) {
+        if let sourceWorkspaceId, let sourceState {
+            updateNiriViewportState(sourceState, for: sourceWorkspaceId)
+            if let sourceFocusedHandle {
+                _ = rememberFocus(sourceFocusedHandle, in: sourceWorkspaceId)
+            }
+        }
+
+        if let targetWorkspaceId, let targetState {
+            updateNiriViewportState(targetState, for: targetWorkspaceId)
+            if let targetFocusedHandle {
+                _ = rememberFocus(targetFocusedHandle, in: targetWorkspaceId)
+            }
+        }
     }
 
     func lastFocusedHandle(in workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
@@ -218,19 +285,12 @@ final class WorkspaceManager {
         if let monitorId {
             changed = updateInteractionMonitor(monitorId, preservePrevious: true, notify: false) || changed
         }
+
         if changed {
             notifySessionStateChanged()
         }
 
         return nil
-    }
-
-    @discardableResult
-    func clearFocus() -> Bool {
-        guard sessionState.focus.focusedHandle != nil else { return false }
-        sessionState.focus.focusedHandle = nil
-        notifySessionStateChanged()
-        return true
     }
 
     @discardableResult
@@ -257,19 +317,15 @@ final class WorkspaceManager {
         return changed
     }
 
-    @discardableResult
-    func setAppFullscreen(active: Bool) -> Bool {
-        guard sessionState.focus.isAppFullscreenActive != active else { return false }
-        sessionState.focus.isAppFullscreenActive = active
-        return true
-    }
-
     func handleWindowRemoved(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID?) {
         var focusChanged = false
 
         if sessionState.focus.focusedHandle?.id == handle.id {
             sessionState.focus.focusedHandle = nil
             focusChanged = true
+            if sessionState.focus.isAppFullscreenActive {
+                sessionState.focus.isAppFullscreenActive = false
+            }
         }
 
         if let workspaceId,
@@ -921,7 +977,16 @@ final class WorkspaceManager {
     }
 
     private func captureVisibleWorkspaceRestoreSnapshots() -> [WorkspaceRestoreSnapshot] {
-        activeVisibleWorkspaceMap().compactMap { monitorId, workspaceId in
+        activeVisibleWorkspaceMap()
+            .sorted { lhs, rhs in
+                guard let lhsMonitor = monitor(byId: lhs.key), let rhsMonitor = monitor(byId: rhs.key) else {
+                    return lhs.key.displayId < rhs.key.displayId
+                }
+                let lhsKey = (lhsMonitor.frame.minX, -lhsMonitor.frame.maxY, lhsMonitor.displayId)
+                let rhsKey = (rhsMonitor.frame.minX, -rhsMonitor.frame.maxY, rhsMonitor.displayId)
+                return lhsKey < rhsKey
+            }
+            .compactMap { monitorId, workspaceId in
             guard let monitor = monitor(byId: monitorId) else { return nil }
             return WorkspaceRestoreSnapshot(
                 monitor: MonitorRestoreKey(monitor: monitor),

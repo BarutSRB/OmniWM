@@ -38,7 +38,7 @@ final class WMController {
     var isLockScreenActive: Bool = false
     let axManager = AXManager()
     let appInfoCache = AppInfoCache()
-    let focusManager: FocusManager
+    let focusCoordinator: FocusOperationCoordinator
 
     var niriEngine: NiriLayoutEngine?
     var dwindleEngine: DwindleLayoutEngine?
@@ -92,7 +92,7 @@ final class WMController {
         self.settings = settings
         self.windowFocusOperations = windowFocusOperations
         workspaceManager = WorkspaceManager(settings: settings)
-        focusManager = FocusManager()
+        focusCoordinator = FocusOperationCoordinator()
         workspaceManager.updateAnimationClock(animationClock)
         hotkeys.onCommand = { [weak self] command in
             self?.commandHandler.handleCommand(command)
@@ -458,7 +458,13 @@ final class WMController {
            let preferredNodeId,
            let node = engine.findNode(by: preferredNodeId) as? NiriWindow
         {
-            _ = workspaceManager.setManagedFocus(node.handle, in: workspaceId, onMonitor: monitorId)
+            _ = workspaceManager.syncWorkspaceSelection(
+                nodeId: node.id,
+                focusedHandle: node.handle,
+                in: workspaceId,
+                onMonitor: monitorId,
+                promoteToManagedFocus: true
+            )
             return
         }
 
@@ -469,11 +475,18 @@ final class WMController {
         if let focused = workspaceManager.focusedHandle,
            workspaceManager.entry(for: focused)?.workspaceId == workspaceId
         {
-            _ = workspaceManager.rememberFocus(focused, in: workspaceId)
             if let engine = niriEngine,
                let node = engine.findNode(for: focused)
             {
-                workspaceManager.setSelection(node.id, for: workspaceId)
+                _ = workspaceManager.syncWorkspaceSelection(
+                    nodeId: node.id,
+                    focusedHandle: focused,
+                    in: workspaceId,
+                    onMonitor: workspaceManager.monitorId(for: workspaceId),
+                    promoteToManagedFocus: true
+                )
+            } else {
+                _ = workspaceManager.rememberFocus(focused, in: workspaceId)
             }
             return
         }
@@ -488,7 +501,11 @@ final class WMController {
         if let engine = niriEngine,
            let node = engine.findNode(for: nextFocus)
         {
-            workspaceManager.setSelection(node.id, for: workspaceId)
+            _ = workspaceManager.syncWorkspaceSelection(
+                nodeId: node.id,
+                focusedHandle: nextFocus,
+                in: workspaceId
+            )
         }
         focusWindow(nextFocus)
     }
@@ -544,7 +561,9 @@ extension WMController {
         let pid = handle.pid
         let windowId = entry.windowId
         let moveMouseEnabled = moveMouseToFocusedWindowEnabled
-        focusManager.focusWindow(
+        _ = workspaceManager.setManagedAppFullscreen(AXWindowService.isFullscreen(entry.axRef))
+
+        focusCoordinator.focusWindow(
             handle,
             performFocus: {
                 // 1. Activate app first (brings process to front, may pick wrong key window)

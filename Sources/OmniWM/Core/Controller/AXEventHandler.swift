@@ -187,7 +187,7 @@ final class AXEventHandler: CGSEventDelegate {
         let needsFocusRecovery = removedHandle?.id == controller.workspaceManager.focusedHandle?.id
 
         if let removed = removedHandle {
-            controller.focusManager.discardPendingFocus(removed)
+            controller.focusCoordinator.discardPendingFocus(removed)
         }
 
         var oldFrames: [WindowHandle: CGRect] = [:]
@@ -262,6 +262,8 @@ final class AXEventHandler: CGSEventDelegate {
         }
         let winId = axRef.windowId
 
+        let appFullscreen = AXWindowService.isFullscreen(axRef)
+
         if let entry = controller.workspaceManager.entry(forPid: pid, windowId: winId) {
             let wsId = entry.workspaceId
 
@@ -277,20 +279,29 @@ final class AXEventHandler: CGSEventDelegate {
                 }
             }
 
-            handleManagedAppActivation(entry: entry, isWorkspaceActive: isWorkspaceActive)
+            handleManagedAppActivation(
+                entry: entry,
+                isWorkspaceActive: isWorkspaceActive,
+                appFullscreen: appFullscreen
+            )
             return
         }
 
-        _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
+        _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: appFullscreen)
         controller.borderManager.hideBorder()
     }
 
-    func handleManagedAppActivation(entry: WindowModel.Entry, isWorkspaceActive: Bool) {
+    func handleManagedAppActivation(
+        entry: WindowModel.Entry,
+        isWorkspaceActive: Bool,
+        appFullscreen: Bool
+    ) {
         guard let controller else { return }
         let wsId = entry.workspaceId
         let monitorId = controller.workspaceManager.monitorId(for: wsId)
 
         _ = controller.workspaceManager.setManagedFocus(entry.handle, in: wsId, onMonitor: monitorId)
+        _ = controller.workspaceManager.setManagedAppFullscreen(appFullscreen)
 
         if let engine = controller.niriEngine,
            let node = engine.findNode(for: entry.handle),

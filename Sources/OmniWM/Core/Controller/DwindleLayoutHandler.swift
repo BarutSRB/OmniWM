@@ -96,14 +96,12 @@ import QuartzCore
             if let selected = engine.selectedNode(in: wsId),
                case let .leaf(handle, _) = selected.kind,
                let handle {
-                _ = controller.workspaceManager.rememberFocus(handle, in: wsId)
-                if let currentFocused = controller.workspaceManager.focusedHandle {
-                    if controller.workspaceManager.workspace(for: currentFocused) == wsId {
-                        _ = controller.workspaceManager.setManagedFocus(handle, in: wsId, onMonitor: monitor.id)
-                    }
-                } else {
-                    _ = controller.workspaceManager.setManagedFocus(handle, in: wsId, onMonitor: monitor.id)
-                }
+                _ = controller.workspaceManager.syncWorkspaceFocus(
+                    handle,
+                    in: wsId,
+                    onMonitor: monitor.id,
+                    promoteToManagedFocus: true
+                )
             }
 
             engine.animateWindowMovements(oldFrames: oldFrames, newFrames: newFrames)

@@ -28,12 +28,6 @@ final class BorderCoordinator {
             return
         }
 
-        if let entry = controller.workspaceManager.entry(for: handle) {
-            _ = controller.workspaceManager.setAppFullscreen(active: AXWindowService.isFullscreen(entry.axRef))
-        } else {
-            _ = controller.workspaceManager.setAppFullscreen(active: false)
-        }
-
         if controller.workspaceManager.isAppFullscreenActive || isManagedWindowFullscreen(handle) {
             controller.borderManager.hideBorder()
             return

@@ -491,22 +491,13 @@ import QuartzCore
         if let selectedId = state.selectedNodeId,
            let selectedNode = pass.engine.findNode(by: selectedId) as? NiriWindow
         {
-            _ = controller.workspaceManager.rememberFocus(selectedNode.handle, in: pass.wsId)
-            if let currentFocused = controller.workspaceManager.focusedHandle {
-                if controller.workspaceManager.workspace(for: currentFocused) == pass.wsId {
-                    _ = controller.workspaceManager.setManagedFocus(
-                        selectedNode.handle,
-                        in: pass.wsId,
-                        onMonitor: controller.workspaceManager.monitorId(for: pass.wsId)
-                    )
-                }
-            } else {
-                _ = controller.workspaceManager.setManagedFocus(
-                    selectedNode.handle,
-                    in: pass.wsId,
-                    onMonitor: controller.workspaceManager.monitorId(for: pass.wsId)
-                )
-            }
+            _ = controller.workspaceManager.syncWorkspaceSelection(
+                nodeId: selectedNode.id,
+                focusedHandle: selectedNode.handle,
+                in: pass.wsId,
+                onMonitor: controller.workspaceManager.monitorId(for: pass.wsId),
+                promoteToManagedFocus: true
+            )
         }
 
         return viewportNeedsRecalc

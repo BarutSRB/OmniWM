@@ -223,13 +223,64 @@ private func makeWorkspaceManagerTestWindow(windowId: Int = 101) -> AXWindowRef 
             to: workspaceId
         )
 
-        _ = manager.setFocusedHandle(removed, in: workspaceId)
+        _ = manager.setManagedFocus(removed, in: workspaceId, onMonitor: monitor.id)
         _ = manager.removeWindow(pid: 2202, windowId: 2202)
-        _ = manager.setFocusedHandle(removed, in: workspaceId)
+        _ = manager.rememberFocus(removed, in: workspaceId)
 
         #expect(manager.resolveWorkspaceFocus(in: workspaceId) == survivor)
         #expect(manager.resolveAndSetWorkspaceFocus(in: workspaceId, onMonitor: monitor.id) == survivor)
         #expect(manager.focusedHandle == survivor)
+    }
+
+    @Test @MainActor func removeMissingClearsDeadFocusMemoryAndRecoverySelectsSurvivorAfterConsecutiveMisses() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "1", monitorAssignment: .any, isPersistent: true)
+        ]
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 30, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspaceId = manager.workspaceId(for: "1", createIfMissing: true) else {
+            Issue.record("Failed to create workspace")
+            return
+        }
+
+        let survivor = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2301),
+            pid: 2301,
+            windowId: 2301,
+            to: workspaceId
+        )
+        let removed = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2302),
+            pid: 2302,
+            windowId: 2302,
+            to: workspaceId
+        )
+
+        _ = manager.setManagedFocus(removed, in: workspaceId, onMonitor: monitor.id)
+
+        manager.removeMissing(
+            keys: Set([.init(pid: 2301, windowId: 2301)]),
+            requiredConsecutiveMisses: 2
+        )
+        #expect(manager.entry(for: removed) != nil)
+        #expect(manager.focusedHandle == removed)
+
+        manager.removeMissing(
+            keys: Set([.init(pid: 2301, windowId: 2301)]),
+            requiredConsecutiveMisses: 2
+        )
+
+        #expect(manager.entry(for: removed) == nil)
+        #expect(manager.focusedHandle == nil)
+        #expect(manager.lastFocusedHandle(in: workspaceId) == nil)
+        #expect(manager.resolveAndSetWorkspaceFocus(in: workspaceId, onMonitor: monitor.id) == survivor)
+        #expect(manager.focusedHandle == survivor)
+        #expect(manager.lastFocusedHandle(in: workspaceId) == survivor)
     }
 
     @Test @MainActor func removeWindowsForAppClearsFocusedAndRememberedHandles() {

@@ -1,7 +1,8 @@
 import Foundation
 
 @MainActor
-final class FocusManager {
+final class FocusOperationCoordinator {
+    // Transient sequencing only. Durable focus/session ownership lives in WorkspaceManager.
     private var pendingFocusHandle: WindowHandle?
     private var deferredFocusHandle: WindowHandle?
     private var isFocusOperationPending = false

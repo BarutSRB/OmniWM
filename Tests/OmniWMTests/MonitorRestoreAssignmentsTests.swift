@@ -118,4 +118,29 @@ private func makeMonitor(
         #expect(assignments[monitor2.id] == ws2)
         #expect(!assignments.values.contains(ws3))
     }
+
+    @Test func equalGeometryTiesResolveUsingStableSnapshotOrder() {
+        let oldLeft = makeMonitor(displayId: 10, name: "Old Left", x: 0, y: 0)
+        let oldRight = makeMonitor(displayId: 20, name: "Old Right", x: 2000, y: 0)
+
+        let newCenter = makeMonitor(displayId: 30, name: "New Center", x: 1000, y: 0)
+        let newFar = makeMonitor(displayId: 40, name: "New Far", x: 3000, y: 0)
+
+        let wsLeft = WorkspaceDescriptor.ID()
+        let wsRight = WorkspaceDescriptor.ID()
+
+        let snapshots = [
+            WorkspaceRestoreSnapshot(monitor: .init(monitor: oldRight), workspaceId: wsRight),
+            WorkspaceRestoreSnapshot(monitor: .init(monitor: oldLeft), workspaceId: wsLeft)
+        ]
+
+        let assignments = resolveWorkspaceRestoreAssignments(
+            snapshots: snapshots,
+            monitors: [newCenter, newFar],
+            workspaceExists: { _ in true }
+        )
+
+        #expect(assignments[newCenter.id] == wsLeft)
+        #expect(assignments[newFar.id] == wsRight)
+    }
 }

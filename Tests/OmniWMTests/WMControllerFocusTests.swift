@@ -139,6 +139,21 @@ private func waitForFocusRefresh(on controller: WMController) async {
         #expect(controller.workspaceManager.lastFocusedHandle(in: workspaceId) == handle)
     }
 
+    @Test @MainActor func focusWindowClearsFullscreenSessionWithoutBorderRefresh() {
+        let operations = WindowFocusOperations(
+            activateApp: { _ in },
+            focusSpecificWindow: { _, _, _ in },
+            raiseWindow: { _ in }
+        )
+        let (controller, _, handle) = makeFocusTestController(windowFocusOperations: operations)
+        _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: true)
+
+        controller.focusWindow(handle)
+
+        #expect(controller.workspaceManager.isAppFullscreenActive == false)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
+    }
+
     @Test @MainActor func workspaceManagerOwnsDurableControllerFocusState() {
         let operations = WindowFocusOperations(
             activateApp: { _ in },
@@ -359,7 +374,11 @@ private func waitForFocusRefresh(on controller: WMController) async {
             return
         }
 
-        fixture.controller.axEventHandler.handleManagedAppActivation(entry: entry, isWorkspaceActive: true)
+        fixture.controller.axEventHandler.handleManagedAppActivation(
+            entry: entry,
+            isWorkspaceActive: true,
+            appFullscreen: false
+        )
 
         #expect(fixture.controller.workspaceManager.focusedHandle == secondaryHandle)
         #expect(fixture.controller.workspaceManager.interactionMonitorId == fixture.secondaryMonitor.id)

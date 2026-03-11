@@ -545,7 +545,11 @@ private func prepareNiriState(
         let recorder = RefreshEventRecorder()
         installRefreshSpies(on: controller, recorder: recorder)
 
-        controller.axEventHandler.handleManagedAppActivation(entry: entry, isWorkspaceActive: false)
+        controller.axEventHandler.handleManagedAppActivation(
+            entry: entry,
+            isWorkspaceActive: false,
+            appFullscreen: false
+        )
         await waitForRefreshWork(on: controller)
 
         #expect(recorder.relayoutEvents.map(\.0) == [.appActivationTransition])
