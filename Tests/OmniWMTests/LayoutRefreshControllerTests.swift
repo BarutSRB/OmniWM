@@ -44,7 +44,7 @@ import Testing
 
         controller.layoutRefreshController.executeLayoutPlan(plan)
 
-        #expect(lastAppliedFramesForLayoutPlanTests(on: controller)[101] == frame)
+        #expect(controller.axManager.lastAppliedFrame(for: 101) == frame)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 101)
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == token)
     }
@@ -139,12 +139,10 @@ import Testing
         diff.restoreChanges = [
             LayoutRestoreChange(
                 token: token,
-                hiddenState: LayoutHiddenStateSnapshot(
-                    WindowModel.HiddenState(
-                        proportionalPosition: CGPoint(x: 0.5, y: 0.5),
-                        referenceMonitorId: monitor.id,
-                        workspaceInactive: true
-                    )
+                hiddenState: WindowModel.HiddenState(
+                    proportionalPosition: CGPoint(x: 0.5, y: 0.5),
+                    referenceMonitorId: monitor.id,
+                    workspaceInactive: true
                 )
             )
         ]
@@ -160,7 +158,7 @@ import Testing
         )
 
         #expect(controller.workspaceManager.hiddenState(for: token) == nil)
-        #expect(lastAppliedFramesForLayoutPlanTests(on: controller)[250] == frame)
+        #expect(controller.axManager.lastAppliedFrame(for: 250) == frame)
     }
 
     @Test @MainActor func executeLayoutPlanHidesBorderWhenFocusedFrameIsMissing() {
@@ -243,5 +241,73 @@ import Testing
         )
 
         #expect(controller.workspaceManager.hiddenState(for: token)?.workspaceInactive == true)
+    }
+
+    @Test @MainActor func executeLayoutPlanRestoresSecondaryWorkspaceWindowOnVisibleMonitor() {
+        let fixture = makeTwoMonitorLayoutPlanTestController()
+        let controller = fixture.controller
+
+        let token = addLayoutPlanTestWindow(
+            on: controller,
+            workspaceId: fixture.secondaryWorkspaceId,
+            windowId: 505
+        )
+        setWorkspaceInactiveHiddenStateForLayoutPlanTests(
+            on: controller,
+            token: token,
+            monitor: fixture.secondaryMonitor
+        )
+
+        let frame = CGRect(x: 2040, y: 140, width: 760, height: 520)
+        var diff = WorkspaceLayoutDiff()
+        diff.frameChanges = [LayoutFrameChange(token: token, frame: frame, forceApply: false)]
+        diff.restoreChanges = [
+            LayoutRestoreChange(
+                token: token,
+                hiddenState: WindowModel.HiddenState(
+                    proportionalPosition: CGPoint(x: 0.4, y: 0.4),
+                    referenceMonitorId: fixture.secondaryMonitor.id,
+                    workspaceInactive: true
+                )
+            )
+        ]
+        diff.borderMode = .none
+
+        controller.layoutRefreshController.executeLayoutPlan(
+            WorkspaceLayoutPlan(
+                workspaceId: fixture.secondaryWorkspaceId,
+                monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: fixture.secondaryMonitor),
+                sessionPatch: WorkspaceSessionPatch(workspaceId: fixture.secondaryWorkspaceId),
+                diff: diff
+            )
+        )
+
+        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+        #expect(controller.axManager.lastAppliedFrame(for: 505) == frame)
+    }
+
+    @Test @MainActor func hideWindowWithoutResolvedGeometryDoesNotMarkWindowHidden() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or workspace for unavailable hide test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 606)
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            Issue.record("Missing entry for unavailable hide test")
+            return
+        }
+
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+
+        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
     }
 }

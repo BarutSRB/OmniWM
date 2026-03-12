@@ -4,8 +4,7 @@ import Foundation
 struct LayoutWindowSnapshot {
     let token: WindowToken
     let constraints: WindowSizeConstraints
-    let layoutReason: LayoutReason
-    let hiddenState: LayoutHiddenStateSnapshot?
+    let hiddenState: WindowModel.HiddenState?
 }
 
 struct LayoutMonitorSnapshot {
@@ -56,32 +55,9 @@ struct LayoutFrameChange {
     let forceApply: Bool
 }
 
-struct LayoutHiddenStateSnapshot {
-    let proportionalPosition: CGPoint
-    let referenceMonitorId: Monitor.ID?
-    let workspaceInactive: Bool
-    let offscreenSide: HideSide?
-
-    init(_ state: WindowModel.HiddenState) {
-        proportionalPosition = state.proportionalPosition
-        referenceMonitorId = state.referenceMonitorId
-        workspaceInactive = state.workspaceInactive
-        offscreenSide = state.offscreenSide
-    }
-
-    var windowModelHiddenState: WindowModel.HiddenState {
-        .init(
-            proportionalPosition: proportionalPosition,
-            referenceMonitorId: referenceMonitorId,
-            workspaceInactive: workspaceInactive,
-            offscreenSide: offscreenSide
-        )
-    }
-}
-
 struct LayoutRestoreChange {
     let token: WindowToken
-    let hiddenState: LayoutHiddenStateSnapshot
+    let hiddenState: WindowModel.HiddenState
 }
 
 enum LayoutVisibilityChange {

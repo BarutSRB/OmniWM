@@ -240,6 +240,38 @@ private func configureWorkspacesAsDwindle(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 901)
     }
 
+    @Test @MainActor func visibleSecondaryWorkspacePlanRestoresInactiveHiddenWindows() async throws {
+        let fixture = makeTwoMonitorLayoutPlanTestController()
+        let controller = fixture.controller
+        configureWorkspacesAsDwindle(
+            on: controller,
+            workspaceIds: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        controller.enableDwindleLayout()
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let token = addLayoutPlanTestWindow(
+            on: controller,
+            workspaceId: fixture.secondaryWorkspaceId,
+            windowId: 905
+        )
+        setWorkspaceInactiveHiddenStateForLayoutPlanTests(
+            on: controller,
+            token: token,
+            monitor: fixture.secondaryMonitor
+        )
+
+        let plans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        guard let secondaryPlan = plans.first(where: { $0.workspaceId == fixture.secondaryWorkspaceId }) else {
+            Issue.record("Expected a plan for the visible secondary workspace")
+            return
+        }
+
+        #expect(secondaryPlan.diff.restoreChanges.contains { $0.token == token })
+    }
+
     @Test @MainActor func staleDwindleAnimationStopsBeforeRestoringInactiveWorkspaceWindows() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

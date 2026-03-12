@@ -115,32 +115,6 @@ func setWorkspaceInactiveHiddenStateForLayoutPlanTests(
 }
 
 @MainActor
-func lastAppliedFramesForLayoutPlanTests(on controller: WMController) -> [Int: CGRect] {
-    guard let value = Mirror(reflecting: controller.axManager)
-        .children
-        .first(where: { $0.label == "lastAppliedFrames" })?
-        .value as? [Int: CGRect]
-    else {
-        return [:]
-    }
-
-    return value
-}
-
-@MainActor
 func lastAppliedBorderWindowIdForLayoutPlanTests(on controller: WMController) -> Int? {
-    guard let value = Mirror(reflecting: controller.borderManager)
-        .children
-        .first(where: { $0.label == "lastAppliedWindowId" })?
-        .value
-    else {
-        return nil
-    }
-
-    let optionalMirror = Mirror(reflecting: value)
-    if optionalMirror.displayStyle == .optional {
-        return optionalMirror.children.first?.value as? Int
-    }
-
-    return value as? Int
+    controller.borderManager.lastAppliedFocusedWindowIdForTests
 }

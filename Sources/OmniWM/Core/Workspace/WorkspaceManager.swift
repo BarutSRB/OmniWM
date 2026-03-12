@@ -297,21 +297,6 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func syncWorkspaceSelection(
-        nodeId: NodeId?,
-        focusedToken: WindowToken?,
-        in workspaceId: WorkspaceDescriptor.ID,
-        onMonitor monitorId: Monitor.ID? = nil
-    ) -> Bool {
-        commitWorkspaceSelection(
-            nodeId: nodeId,
-            focusedToken: focusedToken,
-            in: workspaceId,
-            onMonitor: monitorId
-        )
-    }
-
-    @discardableResult
     func applySessionPatch(_ patch: WorkspaceSessionPatch) -> Bool {
         var changed = false
 
@@ -340,34 +325,6 @@ final class WorkspaceManager {
         }
 
         return changed
-    }
-
-    func applyNiriViewportTransfer(
-        sourceWorkspaceId: WorkspaceDescriptor.ID?,
-        sourceState: ViewportState?,
-        sourceFocusedToken: WindowToken?,
-        targetWorkspaceId: WorkspaceDescriptor.ID?,
-        targetState: ViewportState?,
-        targetFocusedToken: WindowToken?
-    ) {
-        _ = applySessionTransfer(
-            .init(
-                sourcePatch: sourceWorkspaceId.map {
-                    WorkspaceSessionPatch(
-                        workspaceId: $0,
-                        viewportState: sourceState,
-                        rememberedFocusToken: sourceFocusedToken
-                    )
-                },
-                targetPatch: targetWorkspaceId.map {
-                    WorkspaceSessionPatch(
-                        workspaceId: $0,
-                        viewportState: targetState,
-                        rememberedFocusToken: targetFocusedToken
-                    )
-                }
-            )
-        )
     }
 
     func lastFocusedToken(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {

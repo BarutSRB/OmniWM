@@ -39,20 +39,7 @@ private func makeAXEventTestController() -> WMController {
 
 @MainActor
 private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
-    guard let value = Mirror(reflecting: controller.borderManager)
-        .children
-        .first(where: { $0.label == "lastAppliedWindowId" })?
-        .value
-    else {
-        return nil
-    }
-
-    let optionalMirror = Mirror(reflecting: value)
-    if optionalMirror.displayStyle == .optional {
-        return optionalMirror.children.first?.value as? Int
-    }
-
-    return value as? Int
+    controller.borderManager.lastAppliedFocusedWindowIdForTests
 }
 
 @Suite struct AXEventHandlerTests {

@@ -1437,6 +1437,36 @@ private func hasAnyVisibilityChange(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 601)
     }
 
+    @Test @MainActor func visibleSecondaryWorkspacePlanRestoresInactiveHiddenWindows() async throws {
+        let fixture = makeTwoMonitorLayoutPlanTestController()
+        let controller = fixture.controller
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let token = addLayoutPlanTestWindow(
+            on: controller,
+            workspaceId: fixture.secondaryWorkspaceId,
+            windowId: 650
+        )
+        setWorkspaceInactiveHiddenStateForLayoutPlanTests(
+            on: controller,
+            token: token,
+            monitor: fixture.secondaryMonitor
+        )
+
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId],
+            useScrollAnimationPath: true
+        )
+        guard let secondaryPlan = plans.first(where: { $0.workspaceId == fixture.secondaryWorkspaceId }) else {
+            Issue.record("Expected a plan for the visible secondary workspace")
+            return
+        }
+
+        #expect(secondaryPlan.diff.restoreChanges.contains { $0.token == token })
+    }
+
     @Test @MainActor func staleScrollAnimationStopsBeforeRestoringInactiveWorkspaceWindows() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

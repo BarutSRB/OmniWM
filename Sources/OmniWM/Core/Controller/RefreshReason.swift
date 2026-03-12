@@ -39,7 +39,6 @@ enum RefreshReason: String, Sendable {
     case monitorConfigurationChanged
     case appRulesChanged
     case workspaceConfigChanged
-    case lightSessionCommit
     case layoutConfigChanged
     case monitorSettingsChanged
     case gapsChanged
@@ -74,8 +73,7 @@ enum RefreshReason: String, Sendable {
              .axWindowCreated,
              .axWindowChanged:
             .relayout
-        case .lightSessionCommit,
-             .workspaceTransition,
+        case .workspaceTransition,
              .appActivationTransition,
              .layoutCommand,
              .interactiveGesture,
@@ -98,7 +96,6 @@ enum RefreshReason: String, Sendable {
              .monitorConfigurationChanged,
              .appRulesChanged,
              .workspaceConfigChanged,
-             .lightSessionCommit,
              .layoutConfigChanged,
              .monitorSettingsChanged,
              .gapsChanged,

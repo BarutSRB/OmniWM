@@ -23,36 +23,15 @@ import QuartzCore
         dwindleAnimationByDisplay.values.contains { $0.0 == workspaceId }
     }
 
-    func syncWorkspaceState(workspaceId wsId: WorkspaceDescriptor.ID, monitor: Monitor) {
-        guard let controller,
-              let engine = controller.dwindleEngine,
-              let snapshot = makeWorkspaceSnapshot(
-                  workspaceId: wsId,
-                  monitor: monitor,
-                  resolveConstraints: true
-              )
-        else {
-            return
-        }
-
-        applyResolvedSettings(snapshot.settings, to: engine)
-        _ = engine.syncWindows(
-            snapshot.windows.map(\.token),
-            in: snapshot.workspaceId,
-            focusedToken: snapshot.preferredFocusToken
-        )
-        for window in snapshot.windows {
-            engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
-        }
-    }
-
     func applyFramesOnDemand(workspaceId wsId: WorkspaceDescriptor.ID, monitor: Monitor) {
         guard let controller,
+              let activeWorkspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id,
               let engine = controller.dwindleEngine,
               let snapshot = makeWorkspaceSnapshot(
                   workspaceId: wsId,
                   monitor: monitor,
-                  resolveConstraints: false
+                  resolveConstraints: false,
+                  isActiveWorkspace: activeWorkspaceId == wsId
               )
         else {
             return
@@ -86,7 +65,8 @@ import QuartzCore
         guard let snapshot = makeWorkspaceSnapshot(
             workspaceId: wsId,
             monitor: monitor,
-            resolveConstraints: false
+            resolveConstraints: false,
+            isActiveWorkspace: true
         ) else {
             return
         }
@@ -120,7 +100,8 @@ import QuartzCore
             guard let snapshot = makeWorkspaceSnapshot(
                 workspaceId: wsId,
                 monitor: monitor,
-                resolveConstraints: true
+                resolveConstraints: true,
+                isActiveWorkspace: activeWorkspaces.contains(wsId)
             ) else { continue }
 
             plans.append(
@@ -248,7 +229,8 @@ import QuartzCore
     private func makeWorkspaceSnapshot(
         workspaceId wsId: WorkspaceDescriptor.ID,
         monitor: Monitor,
-        resolveConstraints: Bool
+        resolveConstraints: Bool,
+        isActiveWorkspace: Bool
     ) -> DwindleWorkspaceSnapshot? {
         guard let controller else { return nil }
 
@@ -275,7 +257,7 @@ import QuartzCore
             confirmedFocusedToken: controller.workspaceManager.focusedToken,
             selectedToken: selectedToken,
             settings: controller.settings.resolvedDwindleSettings(for: monitor),
-            isActiveWorkspace: controller.activeWorkspace()?.id == wsId
+            isActiveWorkspace: isActiveWorkspace
         )
     }
 

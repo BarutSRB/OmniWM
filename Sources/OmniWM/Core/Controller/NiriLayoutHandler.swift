@@ -94,12 +94,14 @@ import QuartzCore
         animationTime: TimeInterval? = nil
     ) {
         guard let controller,
+              let activeWorkspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id,
               let snapshot = makeWorkspaceSnapshot(
                   workspaceId: wsId,
                   monitor: monitor,
                   viewportState: state,
                   useScrollAnimationPath: true,
-                  removalSeed: nil
+                  removalSeed: nil,
+                  isActiveWorkspace: activeWorkspaceId == wsId
               )
         else {
             return
@@ -143,32 +145,6 @@ import QuartzCore
         }
     }
 
-    func syncWorkspaceState(workspaceId wsId: WorkspaceDescriptor.ID, monitor: Monitor) {
-        guard let controller,
-              let engine = controller.niriEngine,
-              let snapshot = makeWorkspaceSnapshot(
-                  workspaceId: wsId,
-                  monitor: monitor,
-                  viewportState: nil,
-                  useScrollAnimationPath: false,
-                  removalSeed: nil
-              )
-        else {
-            return
-        }
-
-        _ = engine.syncWindows(
-            snapshot.windows.map(\.token),
-            in: snapshot.workspaceId,
-            selectedNodeId: snapshot.viewportState.selectedNodeId,
-            focusedToken: snapshot.preferredFocusToken
-        )
-
-        for window in snapshot.windows {
-            engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
-        }
-    }
-
     func layoutWithNiriEngine(
         activeWorkspaces: Set<WorkspaceDescriptor.ID>,
         useScrollAnimationPath: Bool = false,
@@ -193,7 +169,8 @@ import QuartzCore
                 monitor: monitor,
                 viewportState: nil,
                 useScrollAnimationPath: useScrollAnimationPath,
-                removalSeed: removalSeeds[wsId]
+                removalSeed: removalSeeds[wsId],
+                isActiveWorkspace: activeWorkspaces.contains(wsId)
             ) else { continue }
 
             plans.append(
@@ -217,7 +194,8 @@ import QuartzCore
         monitor: Monitor,
         viewportState: ViewportState?,
         useScrollAnimationPath: Bool,
-        removalSeed: NiriWindowRemovalSeed?
+        removalSeed: NiriWindowRemovalSeed?,
+        isActiveWorkspace: Bool
     ) -> NiriWorkspaceSnapshot? {
         guard let controller else { return nil }
 
@@ -248,7 +226,7 @@ import QuartzCore
             gap: CGFloat(controller.workspaceManager.gaps),
             outerGaps: controller.workspaceManager.outerGaps,
             displayRefreshRate: controller.layoutRefreshController.layoutState.refreshRateByDisplay[monitor.displayId] ?? 60.0,
-            isActiveWorkspace: controller.activeWorkspace()?.id == wsId
+            isActiveWorkspace: isActiveWorkspace
         )
     }
 
@@ -984,6 +962,7 @@ import QuartzCore
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
             controller.layoutRefreshController.startScrollAnimation(for: wsId)
         }
     }
@@ -1136,33 +1115,31 @@ import QuartzCore
         guard let controller else { return }
         var animatingWorkspaceId: WorkspaceDescriptor.ID?
 
-        controller.layoutRefreshController.runLightSession {
-            guard let engine = controller.niriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
+        guard let engine = controller.niriEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
 
-            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                guard let currentId = state.selectedNodeId,
-                      let currentNode = engine.findNode(by: currentId),
-                      let windowNode = currentNode as? NiriWindow
-                else { return }
+        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+            guard let currentId = state.selectedNodeId,
+                  let currentNode = engine.findNode(by: currentId),
+                  let windowNode = currentNode as? NiriWindow
+            else { return }
 
-                guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                let gaps = CGFloat(controller.workspaceManager.gaps)
+            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+            let gaps = CGFloat(controller.workspaceManager.gaps)
 
-                let ctx = NiriOperationContext(
-                    controller: controller,
-                    engine: engine,
-                    wsId: wsId,
-                    windowNode: windowNode,
-                    monitor: monitor,
-                    workingFrame: workingFrame,
-                    gaps: gaps
-                )
+            let ctx = NiriOperationContext(
+                controller: controller,
+                engine: engine,
+                wsId: wsId,
+                windowNode: windowNode,
+                monitor: monitor,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
 
-                if operation(ctx, &state) {
-                    animatingWorkspaceId = wsId
-                }
+            if operation(ctx, &state) {
+                animatingWorkspaceId = wsId
             }
         }
 
@@ -1175,15 +1152,13 @@ import QuartzCore
         perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
     ) {
         guard let controller else { return }
-        controller.layoutRefreshController.runLightSession {
-            guard let engine = controller.niriEngine else { return }
-            guard let wsId = controller.activeWorkspace()?.id else { return }
-            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(controller.workspaceManager.gaps)
-            controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-                perform(engine, wsId, &state, monitor, workingFrame, gaps)
-            }
+        guard let engine = controller.niriEngine else { return }
+        guard let wsId = controller.activeWorkspace()?.id else { return }
+        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let gaps = CGFloat(controller.workspaceManager.gaps)
+        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
+            perform(engine, wsId, &state, monitor, workingFrame, gaps)
         }
     }
 
@@ -1192,14 +1167,12 @@ import QuartzCore
         perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
     ) {
         guard let controller else { return }
-        controller.layoutRefreshController.runLightSession {
-            guard let engine = controller.niriEngine else { return }
-            guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(controller.workspaceManager.gaps)
-            controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-                perform(engine, workspaceId, &state, monitor, workingFrame, gaps)
-            }
+        guard let engine = controller.niriEngine else { return }
+        guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let gaps = CGFloat(controller.workspaceManager.gaps)
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            perform(engine, workspaceId, &state, monitor, workingFrame, gaps)
         }
     }
 
@@ -1225,6 +1198,7 @@ import QuartzCore
             )
         }
         if didMove {
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
             controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
     }
@@ -1248,6 +1222,7 @@ import QuartzCore
             )
         }
         if didMove {
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
             controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
     }

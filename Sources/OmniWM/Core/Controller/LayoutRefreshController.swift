@@ -113,7 +113,6 @@ import QuartzCore
         var activeRefreshTask: Task<Void, Never>?
         var activeRefresh: ScheduledRefresh?
         var pendingRefresh: ScheduledRefresh?
-        var isInLightSession: Bool = false
         var isImmediateLayoutInProgress: Bool = false
         var isIncrementalRefreshInProgress: Bool = false
         var isFullEnumerationInProgress: Bool = false
@@ -468,14 +467,13 @@ import QuartzCore
                 }
             }
 
-                snapshots.append(
-                    LayoutWindowSnapshot(
-                        token: entry.token,
-                        constraints: mergedConstraints,
-                        layoutReason: entry.layoutReason,
-                        hiddenState: controller.workspaceManager.hiddenState(for: entry.token).map(LayoutHiddenStateSnapshot.init)
-                    )
+            snapshots.append(
+                LayoutWindowSnapshot(
+                    token: entry.token,
+                    constraints: mergedConstraints,
+                    hiddenState: controller.workspaceManager.hiddenState(for: entry.token)
                 )
+            )
         }
 
         return snapshots
@@ -548,7 +546,6 @@ import QuartzCore
         postLayout: PostLayoutAction? = nil
     ) {
         assert(reason.requestRoute == .immediateRelayout, "Invalid immediate-relayout reason: \(reason)")
-        guard !layoutState.isInLightSession else { return }
         enqueueRefresh(.init(kind: .immediateRelayout, reason: reason, postLayout: postLayout))
     }
 
@@ -557,7 +554,6 @@ import QuartzCore
         postLayout: PostLayoutAction? = nil
     ) {
         assert(reason.requestRoute == .visibilityRefresh, "Invalid visibility-refresh reason: \(reason)")
-        guard !layoutState.isInLightSession else { return }
         enqueueRefresh(.init(kind: .visibilityRefresh, reason: reason, postLayout: postLayout))
     }
 
@@ -570,7 +566,6 @@ import QuartzCore
         postLayout: PostLayoutAction? = nil
     ) {
         assert(RefreshReason.windowDestroyed.requestRoute == .windowRemoval, "Invalid window-removal reason")
-        guard !layoutState.isInLightSession else { return }
         enqueueRefresh(
             .init(
                 kind: .windowRemoval,
@@ -596,12 +591,10 @@ import QuartzCore
     }
 
     private func scheduleFullRescan(reason: RefreshReason) {
-        guard !layoutState.isInLightSession else { return }
         enqueueRefresh(.init(kind: .fullRescan, reason: reason))
     }
 
     private func scheduleRefreshSession(_ policy: RelayoutSchedulingPolicy, reason: RefreshReason) {
-        guard !layoutState.isInLightSession else { return }
         if policy.shouldDropWhileBusy {
             if layoutState.isIncrementalRefreshInProgress || layoutState.isImmediateLayoutInProgress {
                 return
@@ -679,33 +672,6 @@ import QuartzCore
         await executeRefreshExecutionPlan(plan)
 
         return true
-    }
-
-    func runLightSession(_ body: () -> Void) {
-        layoutState.activeRefreshTask?.cancel()
-        layoutState.activeRefreshTask = nil
-        layoutState.activeRefresh = nil
-        layoutState.pendingRefresh = nil
-        layoutState.isInLightSession = true
-
-        if let controller {
-            for monitor in controller.workspaceManager.monitors {
-                if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
-                    let layoutType = controller.settings.layoutType(for: ws.name)
-
-                    switch layoutType {
-                    case .dwindle:
-                        dwindleHandler.syncWorkspaceState(workspaceId: ws.id, monitor: monitor)
-                    case .niri, .defaultLayout:
-                        niriHandler.syncWorkspaceState(workspaceId: ws.id, monitor: monitor)
-                    }
-                }
-            }
-        }
-
-        body()
-        layoutState.isInLightSession = false
-        requestImmediateRelayout(reason: .lightSessionCommit)
     }
 
     func hideInactiveWorkspacesSync() {
@@ -792,7 +758,6 @@ import QuartzCore
         layoutState.activeRefreshTask = nil
         layoutState.activeRefresh = nil
         layoutState.pendingRefresh = nil
-        layoutState.isInLightSession = false
         layoutState.didExecuteRefreshExecutionPlan = false
 
         for (_, link) in layoutState.displayLinksByDisplay {
@@ -1490,6 +1455,12 @@ import QuartzCore
         let frameSize: CGSize
     }
 
+    fileprivate enum HideOperationResolution {
+        case movable(WindowPositionPlan, hiddenState: WindowModel.HiddenState)
+        case alreadyHidden(hiddenState: WindowModel.HiddenState)
+        case unavailable
+    }
+
     fileprivate func applyPositionPlans(_ plans: [WindowPositionPlan]) {
         guard let controller, !plans.isEmpty else { return }
 
@@ -1510,17 +1481,18 @@ import QuartzCore
         }
     }
 
-    fileprivate func makeHidePositionPlan(
+    fileprivate func resolveHideOperation(
         for entry: WindowModel.Entry,
         monitor: Monitor,
         side: HideSide,
         reason: HideReason
-    ) -> WindowPositionPlan? {
-        guard let controller else { return nil }
+    ) -> HideOperationResolution {
+        guard let controller else { return .unavailable }
         guard let frame = AXWindowService.framePreferFast(entry.axRef)
             ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
+            ?? (try? AXWindowService.frame(entry.axRef))
         else {
-            return nil
+            return .unavailable
         }
         let hiddenState = updatedHiddenState(
             for: entry,
@@ -1529,7 +1501,6 @@ import QuartzCore
             side: side,
             reason: reason
         )
-        controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
 
         guard let origin = liveFrameHideOrigin(
             for: frame,
@@ -1537,20 +1508,23 @@ import QuartzCore
             side: side,
             pid: entry.handle.pid
         ) else {
-            return nil
+            return .unavailable
         }
 
         let moveEpsilon: CGFloat = 0.01
         if abs(frame.origin.x - origin.x) < moveEpsilon,
            abs(frame.origin.y - origin.y) < moveEpsilon
         {
-            return nil
+            return .alreadyHidden(hiddenState: hiddenState)
         }
 
-        return WindowPositionPlan(
-            entry: entry,
-            origin: origin,
-            frameSize: frame.size
+        return .movable(
+            WindowPositionPlan(
+                entry: entry,
+                origin: origin,
+                frameSize: frame.size
+            ),
+            hiddenState: hiddenState
         )
     }
 
@@ -1595,16 +1569,23 @@ import QuartzCore
     func hideWindow(_ entry: WindowModel.Entry, monitor: Monitor, side: HideSide, reason: HideReason) {
         guard let controller else { return }
         let frameEntry = (pid: entry.handle.pid, windowId: entry.windowId)
-        controller.axManager.cancelPendingFrameJobs([frameEntry])
-        let plan = makeHidePositionPlan(
+        switch resolveHideOperation(
             for: entry,
             monitor: monitor,
             side: side,
             reason: reason
-        )
-        controller.axManager.suppressFrameWrites([frameEntry])
-        if let plan {
+        ) {
+        case let .movable(plan, hiddenState):
+            controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+            controller.axManager.cancelPendingFrameJobs([frameEntry])
+            controller.axManager.suppressFrameWrites([frameEntry])
             applyPositionPlans([plan])
+        case let .alreadyHidden(hiddenState):
+            controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+            controller.axManager.cancelPendingFrameJobs([frameEntry])
+            controller.axManager.suppressFrameWrites([frameEntry])
+        case .unavailable:
+            break
         }
     }
 
@@ -1818,7 +1799,7 @@ final class LayoutDiffExecutor {
         var hiddenEntries: [(entry: WindowModel.Entry, side: HideSide)] = []
         var hiddenTokens: Set<WindowToken> = []
         var shownEntries: [WindowModel.Entry] = []
-        var restoreEntries: [(entry: WindowModel.Entry, hiddenState: LayoutHiddenStateSnapshot)] = []
+        var restoreEntries: [(entry: WindowModel.Entry, hiddenState: WindowModel.HiddenState)] = []
         var restoreTokens: Set<WindowToken> = []
 
         func resolveEntry(for token: WindowToken) -> WindowModel.Entry? {
@@ -1854,19 +1835,36 @@ final class LayoutDiffExecutor {
         }
 
         if !hiddenEntries.isEmpty {
-            let hiddenJobs = hiddenEntries.map { (pid: $0.entry.handle.pid, windowId: $0.entry.windowId) }
-            controller.axManager.cancelPendingFrameJobs(hiddenJobs)
+            var hiddenJobs: [(pid: pid_t, windowId: Int)] = []
+            hiddenJobs.reserveCapacity(hiddenEntries.count)
+            var hidePlans: [LayoutRefreshController.WindowPositionPlan] = []
 
-            let hidePlans = hiddenEntries.compactMap { entry, side in
-                refreshController.makeHidePositionPlan(
+            for (entry, side) in hiddenEntries {
+                switch refreshController.resolveHideOperation(
                     for: entry,
                     monitor: monitor,
                     side: side,
                     reason: .layoutTransient
-                )
+                ) {
+                case let .movable(plan, hiddenState):
+                    controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+                    hiddenJobs.append((entry.handle.pid, entry.windowId))
+                    hidePlans.append(plan)
+                case let .alreadyHidden(hiddenState):
+                    controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+                    hiddenJobs.append((entry.handle.pid, entry.windowId))
+                case .unavailable:
+                    continue
+                }
             }
-            controller.axManager.suppressFrameWrites(hiddenJobs)
-            refreshController.applyPositionPlans(hidePlans)
+
+            if !hiddenJobs.isEmpty {
+                controller.axManager.cancelPendingFrameJobs(hiddenJobs)
+                controller.axManager.suppressFrameWrites(hiddenJobs)
+            }
+            if !hidePlans.isEmpty {
+                refreshController.applyPositionPlans(hidePlans)
+            }
         }
 
         if !restoreEntries.isEmpty {
@@ -1874,7 +1872,7 @@ final class LayoutDiffExecutor {
                 refreshController.makeRestorePositionPlan(
                     for: entry,
                     monitor: monitor,
-                    hiddenState: hiddenState.windowModelHiddenState
+                    hiddenState: hiddenState
                 )
             }
             refreshController.applyPositionPlans(restorePlans)

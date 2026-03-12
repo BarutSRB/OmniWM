@@ -56,20 +56,7 @@ private func waitForRefreshWork(on controller: WMController) async {
 
 @MainActor
 private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
-    guard let value = Mirror(reflecting: controller.borderManager)
-        .children
-        .first(where: { $0.label == "lastAppliedWindowId" })?
-        .value
-    else {
-        return nil
-    }
-
-    let optionalMirror = Mirror(reflecting: value)
-    if optionalMirror.displayStyle == .optional {
-        return optionalMirror.children.first?.value as? Int
-    }
-
-    return value as? Int
+    controller.borderManager.lastAppliedFocusedWindowIdForTests
 }
 
 @MainActor
@@ -329,23 +316,6 @@ private func prepareNiriState(
         #expect(RefreshReason.windowDestroyed.requestRoute == .windowRemoval)
     }
 
-    @Test @MainActor func runLightSessionUsesImmediateRelayoutOnly() async {
-        let controller = makeRefreshTestController()
-        let recorder = RefreshEventRecorder()
-        installRefreshSpies(on: controller, recorder: recorder)
-
-        controller.layoutRefreshController.runLightSession {}
-        await waitForRefreshWork(on: controller)
-
-        #expect(controller.layoutRefreshController.debugCounters.immediateRelayoutExecutions == 1)
-        #expect(controller.layoutRefreshController.debugCounters.relayoutExecutions == 0)
-        #expect(controller.layoutRefreshController.debugCounters.fullRescanExecutions == 0)
-        #expect(recorder.relayoutEvents.map(\.0) == [.lightSessionCommit])
-        #expect(recorder.relayoutEvents.map(\.1) == [.immediateRelayout])
-        #expect(recorder.fullRescanReasons.isEmpty)
-        assertNoLegacyReasons(recorder)
-    }
-
     @Test @MainActor func niriConfigAndEnableUseRelayoutOnly() async {
         let controller = makeRefreshTestController()
         let recorder = RefreshEventRecorder()
@@ -542,6 +512,10 @@ private func prepareNiriState(
             Issue.record("Missing source workspace")
             return
         }
+        guard let targetWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true) else {
+            Issue.record("Missing target workspace")
+            return
+        }
         _ = addFocusedWindow(on: controller, workspaceId: sourceWorkspaceId, windowId: 303)
         controller.settings.workspaceConfigurations = [
             WorkspaceConfiguration(name: "2", layoutType: .dwindle)
@@ -557,6 +531,7 @@ private func prepareNiriState(
         #expect(recorder.relayoutEvents.map(\.0) == [.workspaceTransition])
         #expect(recorder.relayoutEvents.map(\.1) == [.immediateRelayout])
         #expect(recorder.fullRescanReasons.isEmpty)
+        #expect(controller.workspaceManager.lastFocusedToken(in: targetWorkspaceId)?.windowId == 303)
         assertNoLegacyReasons(recorder)
     }
 
@@ -564,6 +539,10 @@ private func prepareNiriState(
         let controller = makeRefreshTestController()
         guard let sourceWorkspaceId = controller.activeWorkspace()?.id else {
             Issue.record("Missing source workspace")
+            return
+        }
+        guard let targetWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true) else {
+            Issue.record("Missing target workspace")
             return
         }
         _ = addFocusedWindow(on: controller, workspaceId: sourceWorkspaceId, windowId: 304)
@@ -581,6 +560,7 @@ private func prepareNiriState(
         #expect(recorder.relayoutEvents.map(\.0) == [.workspaceTransition])
         #expect(recorder.relayoutEvents.map(\.1) == [.immediateRelayout])
         #expect(recorder.fullRescanReasons.isEmpty)
+        #expect(controller.workspaceManager.lastFocusedToken(in: targetWorkspaceId) == nil)
         assertNoLegacyReasons(recorder)
     }
 
