@@ -155,7 +155,7 @@ struct GeneralSettingsTab: View {
 
                     Button("Import Settings") {
                         do {
-                            try settings.importSettings()
+                            try settings.importSettings(applyingTo: controller)
                             exportStatus = .imported
                         } catch {
                             exportStatus = .error(error.localizedDescription)

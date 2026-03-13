@@ -5,65 +5,28 @@ import SwiftUI
 @main
 struct OmniWMApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var settings: SettingsStore
-    @State private var controller: WMController
+    @State private var bootstrap: AppBootstrapState
 
     init() {
-        SettingsMigration.run()
-        let settings = SettingsStore()
-        let controller = WMController(settings: settings)
-        _settings = State(wrappedValue: settings)
-        _controller = State(wrappedValue: controller)
-
-        controller.updateHotkeyBindings(settings.hotkeyBindings)
-        controller.setHotkeysEnabled(settings.hotkeysEnabled)
-        controller.setGapSize(settings.gapSize)
-        controller.setOuterGaps(
-            left: settings.outerGapLeft,
-            right: settings.outerGapRight,
-            top: settings.outerGapTop,
-            bottom: settings.outerGapBottom
-        )
-        controller.enableNiriLayout(maxWindowsPerColumn: settings.niriMaxWindowsPerColumn)
-        controller.updateNiriConfig(
-            maxVisibleColumns: settings.niriMaxVisibleColumns,
-            infiniteLoop: settings.niriInfiniteLoop,
-            centerFocusedColumn: settings.niriCenterFocusedColumn,
-            alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn,
-            singleWindowAspectRatio: settings.niriSingleWindowAspectRatio,
-            columnWidthPresets: settings.niriColumnWidthPresets
-        )
-        controller.enableDwindleLayout()
-        controller.updateDwindleConfig(
-            smartSplit: settings.dwindleSmartSplit,
-            defaultSplitRatio: settings.dwindleDefaultSplitRatio,
-            splitWidthMultiplier: settings.dwindleSplitWidthMultiplier,
-            singleWindowAspectRatio: settings.dwindleSingleWindowAspectRatio.size
-        )
-        controller.updateWorkspaceConfig()
-        controller.rebuildAppRulesCache()
-
-        controller.setEnabled(true)
-
-        controller.setBordersEnabled(settings.bordersEnabled)
-        controller.updateBorderConfig(BorderConfig.from(settings: settings))
-
-        controller.setFocusFollowsMouse(settings.focusFollowsMouse)
-        controller.setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
-
-        controller.setWorkspaceBarEnabled(settings.workspaceBarEnabled)
-        controller.setPreventSleepEnabled(settings.preventSleepEnabled)
-        controller.setHiddenBarEnabled(settings.hiddenBarEnabled)
-        controller.setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
-
-        AppDelegate.sharedSettings = settings
-        AppDelegate.sharedController = controller
+        let bootstrap = AppBootstrapState()
+        _bootstrap = State(wrappedValue: bootstrap)
+        AppDelegate.sharedBootstrap = bootstrap
     }
 
     var body: some Scene {
         Settings {
-            SettingsView(settings: settings, controller: controller)
+            if let settings = bootstrap.settings,
+               let controller = bootstrap.controller {
+                SettingsView(settings: settings, controller: controller)
+                    .frame(minWidth: 480, minHeight: 500)
+            } else {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Starting OmniWM…")
+                        .foregroundColor(.secondary)
+                }
                 .frame(minWidth: 480, minHeight: 500)
+            }
         }
     }
 }

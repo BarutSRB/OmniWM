@@ -445,4 +445,4 @@ import QuartzCore
     }
 }
 
-extension DwindleLayoutHandler: LayoutFocusable, LayoutSwappable, LayoutSizable {}
+extension DwindleLayoutHandler: LayoutFocusable, LayoutSizable {}

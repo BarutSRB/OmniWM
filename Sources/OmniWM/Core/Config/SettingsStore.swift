@@ -81,14 +81,6 @@ final class SettingsStore {
         didSet { defaults.set(niriSingleWindowAspectRatio.rawValue, forKey: Keys.niriSingleWindowAspectRatio) }
     }
 
-    var persistentWorkspacesRaw: String {
-        didSet { defaults.set(persistentWorkspacesRaw, forKey: Keys.persistentWorkspaces) }
-    }
-
-    var workspaceAssignmentsRaw: String {
-        didSet { defaults.set(workspaceAssignmentsRaw, forKey: Keys.workspaceAssignments) }
-    }
-
     var workspaceConfigurations: [WorkspaceConfiguration] {
         didSet { saveWorkspaceConfigurations() }
     }
@@ -373,9 +365,6 @@ final class SettingsStore {
         niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: defaults
             .string(forKey: Keys.niriSingleWindowAspectRatio) ?? "") ?? .ratio4x3
 
-        persistentWorkspacesRaw = defaults.string(forKey: Keys.persistentWorkspaces) ?? ""
-        workspaceAssignmentsRaw = defaults.string(forKey: Keys.workspaceAssignments) ?? ""
-
         workspaceConfigurations = Self.loadWorkspaceConfigurations(from: defaults)
         defaultLayoutType = LayoutType(rawValue: defaults.string(forKey: Keys.defaultLayoutType) ?? "") ?? .niri
 
@@ -461,35 +450,16 @@ final class SettingsStore {
 
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
         guard let data = defaults.data(forKey: Keys.hotkeyBindings),
-              let bindings = try? JSONDecoder().decode([HotkeyBinding].self, from: data)
+              let bindings = HotkeyBindingRegistry.decodePersistedBindings(from: data)
         else {
-            return DefaultHotkeyBindings.all()
+            return HotkeyBindingRegistry.defaults()
         }
 
-        let merged = mergeWithDefaults(stored: bindings)
-
-        let storedIds = Set(bindings.map(\.id))
-        let mergedIds = Set(merged.map(\.id))
-        if storedIds != mergedIds {
-            if let cleanedData = try? JSONEncoder().encode(merged) {
-                defaults.set(cleanedData, forKey: Keys.hotkeyBindings)
-            }
+        if let cleanedData = try? JSONEncoder().encode(bindings) {
+            defaults.set(cleanedData, forKey: Keys.hotkeyBindings)
         }
 
-        return merged
-    }
-
-    private static func mergeWithDefaults(stored: [HotkeyBinding]) -> [HotkeyBinding] {
-        let defaults = DefaultHotkeyBindings.all()
-        let defaultIds = Set(defaults.map(\.id))
-
-        var result = stored.filter { defaultIds.contains($0.id) }
-
-        let storedIds = Set(result.map(\.id))
-        for defaultBinding in defaults where !storedIds.contains(defaultBinding.id) {
-            result.append(defaultBinding)
-        }
-        return result
+        return bindings
     }
 
     private func saveBindings() {
@@ -498,7 +468,7 @@ final class SettingsStore {
     }
 
     func resetHotkeysToDefaults() {
-        hotkeyBindings = DefaultHotkeyBindings.all()
+        hotkeyBindings = HotkeyBindingRegistry.defaults()
     }
 
     func updateBinding(for commandId: String, newBinding: KeyBinding) {
@@ -515,62 +485,17 @@ final class SettingsStore {
     }
 
     func persistentWorkspaceNames() -> [String] {
-        if !workspaceConfigurations.isEmpty {
-            return workspaceConfigurations
-                .filter(\.isPersistent)
-                .map(\.name)
-        }
-
-        let parts = persistentWorkspacesRaw.split { $0 == "," || $0 == "\n" || $0 == "\r" }
-        var result: [String] = []
-        var seen: Set<String> = []
-        for part in parts {
-            let trimmed = String(part).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            guard case let .success(name) = WorkspaceName.parse(trimmed) else { continue }
-            guard !seen.contains(name.raw) else { continue }
-            seen.insert(name.raw)
-            result.append(name.raw)
-        }
-        return result
+        workspaceConfigurations
+            .filter(\.isPersistent)
+            .map(\.name)
     }
 
     func workspaceToMonitorAssignments() -> [String: [MonitorDescription]] {
-        if !workspaceConfigurations.isEmpty {
-            // TODO: WorkspaceConfiguration currently models a single preferred monitor.
-            // Legacy raw assignments support multiple fallback monitors per workspace.
-            var result: [String: [MonitorDescription]] = [:]
-            for config in workspaceConfigurations {
-                if let desc = config.monitorAssignment.toMonitorDescription() {
-                    result[config.name] = [desc]
-                }
-            }
-            return result
-        }
-
         var result: [String: [MonitorDescription]] = [:]
-        let lines = workspaceAssignmentsRaw.split(whereSeparator: \.isNewline)
-        for line in lines {
-            let trimmedLine = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedLine.isEmpty else { continue }
-            let parts: [Substring] = if trimmedLine.contains(":") {
-                trimmedLine.split(separator: ":", maxSplits: 1)
-            } else {
-                trimmedLine.split(separator: "=", maxSplits: 1)
+        for config in workspaceConfigurations {
+            if let desc = config.monitorAssignment.toMonitorDescription() {
+                result[config.name] = [desc]
             }
-            guard parts.count == 2 else { continue }
-            let namePart = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let monitorsPart = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard case let .success(name) = WorkspaceName.parse(namePart) else { continue }
-
-            let monitorTokens = monitorsPart.split(separator: ",")
-            let monitors: [MonitorDescription] = monitorTokens.compactMap { token in
-                let raw = token.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard case let .success(desc) = parseMonitorDescription(raw) else { return nil }
-                return desc
-            }
-            guard !monitors.isEmpty else { continue }
-            result[name.raw, default: []].append(contentsOf: monitors)
         }
         return result
     }
@@ -595,79 +520,12 @@ final class SettingsStore {
         {
             return configs
         }
-
-        let migrated = defaults.bool(forKey: Keys.workspaceSettingsMigrated)
-        if !migrated {
-            let configs = migrateFromLegacySettings(defaults: defaults)
-            if !configs.isEmpty {
-                if let data = try? JSONEncoder().encode(configs) {
-                    defaults.set(data, forKey: Keys.workspaceConfigurations)
-                }
-                defaults.set(true, forKey: Keys.workspaceSettingsMigrated)
-                return configs
-            }
-        }
-
         return []
-    }
-
-    private static func migrateFromLegacySettings(defaults: UserDefaults) -> [WorkspaceConfiguration] {
-        var result: [WorkspaceConfiguration] = []
-        var seen: Set<String> = []
-
-        let persistentRaw = defaults.string(forKey: Keys.persistentWorkspaces) ?? ""
-        let persistentNames = persistentRaw
-            .split { $0 == "," || $0 == "\n" || $0 == "\r" }
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        let assignmentsRaw = defaults.string(forKey: Keys.workspaceAssignments) ?? ""
-        var assignments: [String: MonitorAssignment] = [:]
-        for line in assignmentsRaw.split(whereSeparator: \.isNewline) {
-            let trimmed = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.contains(":")
-                ? trimmed.split(separator: ":", maxSplits: 1)
-                : trimmed.split(separator: "=", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-            let name = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let monitorStr = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-
-            let firstMonitor = monitorStr.split(separator: ",").first
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? monitorStr
-            assignments[name] = MonitorAssignment.fromString(firstMonitor)
-        }
-
-        for name in persistentNames {
-            guard !seen.contains(name) else { continue }
-            guard case .success = WorkspaceName.parse(name) else { continue }
-            seen.insert(name)
-            result.append(WorkspaceConfiguration(
-                name: name,
-                monitorAssignment: assignments[name] ?? .any,
-                layoutType: .defaultLayout,
-                isPersistent: true
-            ))
-        }
-
-        for (name, assignment) in assignments where !seen.contains(name) {
-            guard case .success = WorkspaceName.parse(name) else { continue }
-            seen.insert(name)
-            result.append(WorkspaceConfiguration(
-                name: name,
-                monitorAssignment: assignment,
-                layoutType: .defaultLayout,
-                isPersistent: false
-            ))
-        }
-
-        return result
     }
 
     private func saveWorkspaceConfigurations() {
         guard let data = try? JSONEncoder().encode(workspaceConfigurations) else { return }
         defaults.set(data, forKey: Keys.workspaceConfigurations)
-        defaults.set(true, forKey: Keys.workspaceSettingsMigrated)
     }
 
     func barSettings(for monitor: Monitor) -> MonitorBarSettings? {
@@ -921,11 +779,8 @@ private enum Keys {
     static let dwindleMoveToRootStable = "settings.dwindleMoveToRootStable"
     static let monitorDwindleSettings = "settings.monitorDwindleSettings"
 
-    static let persistentWorkspaces = "settings.persistentWorkspaces"
-    static let workspaceAssignments = "settings.workspaceAssignments"
     static let workspaceConfigurations = "settings.workspaceConfigurations"
     static let defaultLayoutType = "settings.defaultLayoutType"
-    static let workspaceSettingsMigrated = "settings.workspaceSettingsMigrated"
 
     static let bordersEnabled = "settings.bordersEnabled"
     static let borderWidth = "settings.borderWidth"

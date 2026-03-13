@@ -917,18 +917,6 @@ import QuartzCore
         )
     }
 
-    func swapWindow(direction: Direction) {
-        guard controller != nil else { return }
-        withNiriOperationContext { ctx, state in
-            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
-            guard ctx.engine.swapWindow(
-                ctx.windowNode, direction: direction, in: ctx.wsId,
-                state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
-            ) else { return false }
-            return ctx.commitWithPredictedAnimation(state: state, oldFrames: oldFrames)
-        }
-    }
-
     func toggleFullscreen() {
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
@@ -1246,6 +1234,12 @@ struct NodeActivationOptions {
     let workingFrame: CGRect
     let gaps: CGFloat
 
+    private func hasPendingAnimationWork(state: ViewportState) -> Bool {
+        state.viewOffsetPixels.isAnimating
+            || engine.hasAnyWindowAnimationsRunning(in: wsId)
+            || engine.hasAnyColumnAnimationsRunning(in: wsId)
+    }
+
     func commitWithPredictedAnimation(
         state: ViewportState,
         oldFrames: [WindowToken: CGRect]
@@ -1273,7 +1267,7 @@ struct NodeActivationOptions {
         ).frames
         _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
         controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
-        return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+        return hasPendingAnimationWork(state: state)
     }
 
     func commitWithCapturedAnimation(
@@ -1283,13 +1277,13 @@ struct NodeActivationOptions {
         controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
         let newFrames = engine.captureWindowFrames(in: wsId)
         _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
-        return state.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: wsId)
+        return hasPendingAnimationWork(state: state)
     }
 
     func commitSimple(state: ViewportState) -> Bool {
         controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
-        return state.viewOffsetPixels.isAnimating
+        return hasPendingAnimationWork(state: state)
     }
 }
 
-extension NiriLayoutHandler: LayoutFocusable, LayoutSwappable, LayoutSizable {}
+extension NiriLayoutHandler: LayoutFocusable, LayoutSizable {}

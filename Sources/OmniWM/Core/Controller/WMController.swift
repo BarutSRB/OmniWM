@@ -105,6 +105,68 @@ final class WMController {
         }
     }
 
+    func applyPersistedSettings(_ settings: SettingsStore) {
+        settings.appearanceMode.apply()
+
+        updateHotkeyBindings(settings.hotkeyBindings)
+        setHotkeysEnabled(settings.hotkeysEnabled)
+
+        setGapSize(settings.gapSize)
+        setOuterGaps(
+            left: settings.outerGapLeft,
+            right: settings.outerGapRight,
+            top: settings.outerGapTop,
+            bottom: settings.outerGapBottom
+        )
+
+        if niriEngine == nil {
+            enableNiriLayout(
+                maxWindowsPerColumn: settings.niriMaxWindowsPerColumn,
+                centerFocusedColumn: settings.niriCenterFocusedColumn,
+                alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn
+            )
+        }
+        updateNiriConfig(
+            maxWindowsPerColumn: settings.niriMaxWindowsPerColumn,
+            maxVisibleColumns: settings.niriMaxVisibleColumns,
+            infiniteLoop: settings.niriInfiniteLoop,
+            centerFocusedColumn: settings.niriCenterFocusedColumn,
+            alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn,
+            singleWindowAspectRatio: settings.niriSingleWindowAspectRatio,
+            columnWidthPresets: settings.niriColumnWidthPresets
+        )
+
+        if dwindleEngine == nil {
+            enableDwindleLayout()
+        }
+        updateDwindleConfig(
+            smartSplit: settings.dwindleSmartSplit,
+            defaultSplitRatio: settings.dwindleDefaultSplitRatio,
+            splitWidthMultiplier: settings.dwindleSplitWidthMultiplier,
+            singleWindowAspectRatio: settings.dwindleSingleWindowAspectRatio.size
+        )
+
+        updateWorkspaceConfig()
+        updateMonitorOrientations()
+        updateMonitorNiriSettings()
+        updateMonitorDwindleSettings()
+        updateAppRules()
+
+        setBordersEnabled(settings.bordersEnabled)
+        updateBorderConfig(BorderConfig.from(settings: settings))
+
+        setFocusFollowsMouse(settings.focusFollowsMouse)
+        setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
+        setMouseWarpEnabled(settings.mouseWarpEnabled)
+
+        setWorkspaceBarEnabled(settings.workspaceBarEnabled)
+        setPreventSleepEnabled(settings.preventSleepEnabled)
+        setHiddenBarEnabled(settings.hiddenBarEnabled)
+        setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
+
+        setEnabled(true)
+    }
+
     func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
         if enabled {

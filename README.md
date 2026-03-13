@@ -170,7 +170,6 @@ All shortcuts are customizable in Settings > Hotkeys.
 | Action | Shortcut |
 |--------|----------|
 | Move Left / Right / Up / Down | `Option + Shift + Arrow Keys` |
-| Swap Left / Right | `Option + Ctrl + H` / `L` |
 | Move Column Left / Right | `Option + Ctrl + Shift + ← / →` |
 
 #### Workspaces
@@ -198,8 +197,8 @@ All shortcuts are customizable in Settings > Hotkeys.
 | Toggle Full Width | `Option + Shift + F` |
 | Balance Sizes | `Option + Shift + B` |
 | Toggle Tabbed Column | `Option + T` |
-| Consume Window into Column | `Option + Ctrl + [` / `]` |
-| Expel Window from Column | `Option + Ctrl + Shift + [` / `]` |
+
+In Niri, `Move Left / Right` expels the focused window out of multi-window columns or consumes a single-window column into the adjacent column. `Move Up / Down` keeps the current in-column reorder behavior.
 
 #### Special Features
 

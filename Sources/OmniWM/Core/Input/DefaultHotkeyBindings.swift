@@ -129,29 +129,6 @@ enum DefaultHotkeyBindings {
 
         bindings.append(contentsOf: [
             HotkeyBinding(
-                id: "swap.left",
-                command: .swap(.left),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_H), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "swap.right",
-                command: .swap(.right),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "swap.up",
-                command: .swap(.up),
-                binding: .unassigned
-            ),
-            HotkeyBinding(
-                id: "swap.down",
-                command: .swap(.down),
-                binding: .unassigned
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
                 id: "moveToMonitor.left",
                 command: .moveToMonitor(.left),
                 binding: KeyBinding(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(optionKey | controlKey))
@@ -289,35 +266,6 @@ enum DefaultHotkeyBindings {
                 command: .moveColumn(.right),
                 binding: KeyBinding(
                     keyCode: UInt32(kVK_RightArrow),
-                    modifiers: UInt32(optionKey | controlKey | shiftKey)
-                )
-            )
-        ])
-
-        bindings.append(contentsOf: [
-            HotkeyBinding(
-                id: "consumeWindow.left",
-                command: .consumeWindow(.left),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_LeftBracket), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "consumeWindow.right",
-                command: .consumeWindow(.right),
-                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_RightBracket), modifiers: UInt32(optionKey | controlKey))
-            ),
-            HotkeyBinding(
-                id: "expelWindow.left",
-                command: .expelWindow(.left),
-                binding: KeyBinding(
-                    keyCode: UInt32(kVK_ANSI_LeftBracket),
-                    modifiers: UInt32(optionKey | controlKey | shiftKey)
-                )
-            ),
-            HotkeyBinding(
-                id: "expelWindow.right",
-                command: .expelWindow(.right),
-                binding: KeyBinding(
-                    keyCode: UInt32(kVK_ANSI_RightBracket),
                     modifiers: UInt32(optionKey | controlKey | shiftKey)
                 )
             )

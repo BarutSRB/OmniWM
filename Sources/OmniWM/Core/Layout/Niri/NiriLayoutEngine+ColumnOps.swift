@@ -2,18 +2,43 @@ import AppKit
 import Foundation
 
 extension NiriLayoutEngine {
-    func moveWindowToColumn(
+    private enum TargetColumnInsertionPolicy {
+        case append
+        case visualBottom
+
+        func insertionIndex(in targetColumn: NiriContainer) -> Int {
+            switch self {
+            case .append:
+                targetColumn.children.count
+            case .visualBottom:
+                visualBottomInsertionIndex(in: targetColumn)
+            }
+        }
+
+        private func visualBottomInsertionIndex(in _: NiriContainer) -> Int {
+            // Current child ordering renders index 0 at the visual bottom of a column.
+            0
+        }
+    }
+
+    @discardableResult
+    private func moveWindowToColumn(
         _ node: NiriWindow,
         from sourceColumn: NiriContainer,
         to targetColumn: NiriContainer,
         in workspaceId: WorkspaceDescriptor.ID,
-        state: inout ViewportState
-    ) {
+        state: inout ViewportState,
+        targetInsertionPolicy: TargetColumnInsertionPolicy = .append,
+        activateInsertedWindowInTabbedTarget: Bool = false
+    ) -> Int {
         let sourceWasTabbed = sourceColumn.displayMode == .tabbed
         sourceColumn.adjustActiveTileIdxForRemoval(of: node)
 
         node.detach()
-        targetColumn.appendChild(node)
+        let insertedIndex = targetInsertionPolicy
+            .insertionIndex(in: targetColumn)
+            .clamped(to: 0 ... targetColumn.children.count)
+        targetColumn.insertChild(node, at: insertedIndex)
 
         if sourceWasTabbed, !sourceColumn.children.isEmpty {
             sourceColumn.clampActiveTileIdx()
@@ -21,13 +46,16 @@ extension NiriLayoutEngine {
         }
 
         if targetColumn.displayMode == .tabbed {
-            node.isHiddenInTabbedMode = true
+            if activateInsertedWindowInTabbedTarget {
+                targetColumn.setActiveTileIdx(insertedIndex)
+            }
             updateTabbedColumnVisibility(column: targetColumn)
         } else {
             node.isHiddenInTabbedMode = false
         }
 
         cleanupEmptyColumn(sourceColumn, in: workspaceId, state: &state)
+        return insertedIndex
     }
 
     func createColumnAndMove(
@@ -288,9 +316,9 @@ extension NiriLayoutEngine {
         return true
     }
 
-    func consumeWindow(
-        into window: NiriWindow,
-        from direction: Direction,
+    func consumeOrExpelWindow(
+        _ window: NiriWindow,
+        direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID,
         state: inout ViewportState,
         workingFrame: CGRect,
@@ -304,7 +332,16 @@ extension NiriLayoutEngine {
             return false
         }
 
-        guard currentColumn.children.count < maxWindowsPerColumn else { return false }
+        if currentColumn.windowNodes.count > 1 {
+            return expelWindow(
+                window,
+                to: direction,
+                in: workspaceId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        }
 
         let cols = columns(in: workspaceId)
         let step = (direction == .right) ? 1 : -1
@@ -313,62 +350,45 @@ extension NiriLayoutEngine {
         if neighborIdx == currentIdx { return false }
 
         let neighborColumn = cols[neighborIdx]
-
-        let consumedWindow: NiriWindow? = if direction == .right {
-            neighborColumn.children.first as? NiriWindow
-        } else {
-            neighborColumn.children.last as? NiriWindow
-        }
-
-        guard let windowToConsume = consumedWindow else { return false }
+        guard neighborColumn.id != currentColumn.id else { return false }
+        guard neighborColumn.children.count < maxWindowsPerColumn else { return false }
 
         let now = animationClock?.now() ?? CACurrentMediaTime()
+        let sourceTileIdx = currentColumn.windowNodes.firstIndex(where: { $0 === window }) ?? 0
+        let sourceColX = state.columnX(at: currentIdx, columns: cols, gap: gaps)
+        let sourceColRenderOffset = currentColumn.renderOffset(at: now)
+        let sourceTileOffset = computeTileOffset(column: currentColumn, tileIdx: sourceTileIdx, gaps: gaps)
 
-        let sourceTileIdx = neighborColumn.windowNodes.firstIndex(where: { $0 === windowToConsume }) ?? 0
-        let sourceColX = state.columnX(at: neighborIdx, columns: cols, gap: gaps)
-        let sourceColRenderOffset = neighborColumn.renderOffset(at: now)
-        let sourceTileOffset = computeTileOffset(column: neighborColumn, tileIdx: sourceTileIdx, gaps: gaps)
+        let targetTileIdx = moveWindowToColumn(
+            window,
+            from: currentColumn,
+            to: neighborColumn,
+            in: workspaceId,
+            state: &state,
+            targetInsertionPolicy: .visualBottom,
+            activateInsertedWindowInTabbedTarget: neighborColumn.displayMode == .tabbed
+        )
 
-        windowToConsume.detach()
-
-        let newTileIdx: Int
-        if direction == .right {
-            currentColumn.appendChild(windowToConsume)
-            newTileIdx = currentColumn.windowNodes.count - 1
-        } else {
-            currentColumn.insertChild(windowToConsume, at: 0)
-            newTileIdx = 0
-
-            if currentColumn.displayMode == .tabbed {
-                currentColumn.setActiveTileIdx(currentColumn.activeTileIdx + 1)
-            }
-        }
+        state.selectedNodeId = window.id
 
         let newCols = columns(in: workspaceId)
-        let targetColIdx = columnIndex(of: currentColumn, in: workspaceId) ?? currentIdx
+        let targetColIdx = columnIndex(of: neighborColumn, in: workspaceId) ?? neighborIdx
         let targetColX = state.columnX(at: targetColIdx, columns: newCols, gap: gaps)
-        let targetColRenderOffset = currentColumn.renderOffset(at: now)
-        let targetTileOffset = computeTileOffset(column: currentColumn, tileIdx: newTileIdx, gaps: gaps)
+        let targetColRenderOffset = neighborColumn.renderOffset(at: now)
+        let targetTileOffset = computeTileOffset(column: neighborColumn, tileIdx: targetTileIdx, gaps: gaps)
 
         let displacement = CGPoint(
             x: sourceColX + sourceColRenderOffset.x - (targetColX + targetColRenderOffset.x),
             y: sourceTileOffset - targetTileOffset
         )
-
         if displacement.x != 0 || displacement.y != 0 {
-            windowToConsume.animateMoveFrom(
+            window.animateMoveFrom(
                 displacement: displacement,
                 clock: animationClock,
                 config: windowMovementAnimationConfig,
                 displayRefreshRate: displayRefreshRate
             )
         }
-
-        if currentColumn.displayMode == .tabbed {
-            updateTabbedColumnVisibility(column: currentColumn)
-        }
-
-        cleanupEmptyColumn(neighborColumn, in: workspaceId, state: &state)
 
         ensureSelectionVisible(
             node: window,

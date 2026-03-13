@@ -28,9 +28,7 @@ final class CommandHandler {
         case .focusPrevious:
             focusPreviousInNiri()
         case let .move(direction):
-            moveWindowInNiri(direction: direction)
-        case let .swap(direction):
-            layoutHandler(as: LayoutSwappable.self)?.swapWindow(direction: direction)
+            moveWindow(direction: direction)
         case let .moveToWorkspace(index):
             controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: index)
         case .moveWindowToWorkspaceUp:
@@ -62,15 +60,11 @@ final class CommandHandler {
         case let .moveColumnToMonitor(direction):
             controller.workspaceNavigationHandler.moveColumnToMonitorInDirection(direction)
         case .toggleFullscreen:
-            layoutHandler(as: LayoutSwappable.self)?.toggleFullscreen()
+            toggleFullscreen()
         case .toggleNativeFullscreen:
             toggleNativeFullscreenForFocused()
         case let .moveColumn(direction):
             moveColumnInNiri(direction: direction)
-        case let .consumeWindow(direction):
-            consumeWindowInNiri(direction: direction)
-        case let .expelWindow(direction):
-            expelWindowInNiri(direction: direction)
         case .toggleColumnTabbed:
             toggleColumnTabbedInNiri()
         case .focusDownOrLeft:
@@ -329,14 +323,37 @@ final class CommandHandler {
         )
     }
 
+    private func moveWindow(direction: Direction) {
+        switch currentLayoutType() {
+        case .dwindle:
+            controller?.dwindleLayoutHandler.swapWindow(direction: direction)
+        case .niri, .defaultLayout:
+            moveWindowInNiri(direction: direction)
+        }
+    }
+
+    private func toggleFullscreen() {
+        switch currentLayoutType() {
+        case .dwindle:
+            controller?.dwindleLayoutHandler.toggleFullscreen()
+        case .niri, .defaultLayout:
+            controller?.niriLayoutHandler.toggleFullscreen()
+        }
+    }
+
     private func moveWindowInNiri(direction: Direction) {
         guard let controller else { return }
         controller.niriLayoutHandler.withNiriOperationContext { ctx, state in
-            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
+            let oldFrames = direction == .left || direction == .right
+                ? [:]
+                : ctx.engine.captureWindowFrames(in: ctx.wsId)
             guard ctx.engine.moveWindow(
                 ctx.windowNode, direction: direction, in: ctx.wsId,
                 state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
             ) else { return false }
+            if direction == .left || direction == .right {
+                return ctx.commitSimple(state: state)
+            }
             return ctx.commitWithPredictedAnimation(state: state, oldFrames: oldFrames)
         }
     }
@@ -366,28 +383,6 @@ final class CommandHandler {
                 state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
             ) else { return false }
             return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
-        }
-    }
-
-    private func consumeWindowInNiri(direction: Direction) {
-        guard let controller else { return }
-        controller.niriLayoutHandler.withNiriOperationContext { ctx, state in
-            guard ctx.engine.consumeWindow(
-                into: ctx.windowNode, from: direction, in: ctx.wsId,
-                state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
-            ) else { return false }
-            return ctx.commitSimple(state: state)
-        }
-    }
-
-    private func expelWindowInNiri(direction: Direction) {
-        guard let controller else { return }
-        controller.niriLayoutHandler.withNiriOperationContext { ctx, state in
-            guard ctx.engine.expelWindow(
-                ctx.windowNode, to: direction, in: ctx.wsId,
-                state: &state, workingFrame: ctx.workingFrame, gaps: ctx.gaps
-            ) else { return false }
-            return ctx.commitSimple(state: state)
         }
     }
 

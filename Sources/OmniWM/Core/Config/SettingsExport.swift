@@ -3,7 +3,7 @@ import Foundation
 // MARK: - SettingsExport
 
 struct SettingsExport: Codable {
-    var version: Int = 1
+    var version: Int = SettingsMigration.currentSettingsEpoch
 
     var hotkeysEnabled: Bool
     var focusFollowsMouse: Bool
@@ -25,8 +25,6 @@ struct SettingsExport: Codable {
     var niriSingleWindowAspectRatio: String
     var niriColumnWidthPresets: [Double]?
 
-    var persistentWorkspacesRaw: String
-    var workspaceAssignmentsRaw: String
     var workspaceConfigurations: [WorkspaceConfiguration]
     var defaultLayoutType: String
 
@@ -108,8 +106,6 @@ extension SettingsExport {
             niriAlwaysCenterSingleColumn: true,
             niriSingleWindowAspectRatio: SingleWindowAspectRatio.ratio4x3.rawValue,
             niriColumnWidthPresets: [1.0 / 3.0, 0.5, 2.0 / 3.0],
-            persistentWorkspacesRaw: "",
-            workspaceAssignmentsRaw: "",
             workspaceConfigurations: [],
             defaultLayoutType: LayoutType.niri.rawValue,
             bordersEnabled: false,
@@ -118,7 +114,7 @@ extension SettingsExport {
             borderColorGreen: 0.5,
             borderColorBlue: 1.0,
             borderColorAlpha: 1.0,
-            hotkeyBindings: DefaultHotkeyBindings.all(),
+            hotkeyBindings: HotkeyBindingRegistry.defaults(),
             workspaceBarEnabled: false,
             workspaceBarShowLabels: true,
             workspaceBarWindowLevel: WorkspaceBarWindowLevel.popup.rawValue,
@@ -231,23 +227,8 @@ extension SettingsExport {
             defaultsDict[key] = value
         }
 
-        if let importedBindings = importedDict["hotkeyBindings"] as? [[String: Any]],
-           let defaultBindings = defaultsDict["hotkeyBindings"] as? [[String: Any]] {
-            let importedByID = Dictionary(
-                importedBindings.compactMap { binding in
-                    (binding["id"] as? String).map { ($0, binding) }
-                },
-                uniquingKeysWith: { _, last in last }
-            )
-            let mergedBindings = defaultBindings.map { defaultBinding -> [String: Any] in
-                guard let id = defaultBinding["id"] as? String,
-                      let importedBinding = importedByID[id]
-                else {
-                    return defaultBinding
-                }
-                return importedBinding
-            }
-            defaultsDict["hotkeyBindings"] = mergedBindings
+        if let importedBindings = importedDict["hotkeyBindings"] {
+            defaultsDict["hotkeyBindings"] = HotkeyBindingRegistry.canonicalizedJSONArray(from: importedBindings)
         }
 
         return try JSONSerialization.data(withJSONObject: defaultsDict, options: [.sortedKeys])
@@ -293,8 +274,6 @@ extension SettingsStore {
             niriAlwaysCenterSingleColumn: niriAlwaysCenterSingleColumn,
             niriSingleWindowAspectRatio: niriSingleWindowAspectRatio.rawValue,
             niriColumnWidthPresets: niriColumnWidthPresets,
-            persistentWorkspacesRaw: persistentWorkspacesRaw,
-            workspaceAssignmentsRaw: workspaceAssignmentsRaw,
             workspaceConfigurations: workspaceConfigurations,
             defaultLayoutType: defaultLayoutType.rawValue,
             bordersEnabled: bordersEnabled,
@@ -350,11 +329,13 @@ extension SettingsStore {
         try outputData.write(to: Self.exportURL)
     }
 
-    func importSettings() throws {
+    func importSettings(applyingTo controller: WMController) throws {
         let rawData = try Data(contentsOf: Self.exportURL)
+        try SettingsMigration.validateImportEpoch(from: rawData)
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let export = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
         applyImport(export)
+        controller.applyPersistedSettings(self)
     }
 
     private func applyImport(_ export: SettingsExport) {
@@ -380,8 +361,6 @@ extension SettingsStore {
             niriColumnWidthPresets = Self.validatedPresets(presets)
         }
 
-        persistentWorkspacesRaw = export.persistentWorkspacesRaw
-        workspaceAssignmentsRaw = export.workspaceAssignmentsRaw
         workspaceConfigurations = export.workspaceConfigurations
         defaultLayoutType = LayoutType(rawValue: export.defaultLayoutType) ?? .niri
 

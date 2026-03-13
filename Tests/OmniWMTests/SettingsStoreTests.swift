@@ -271,8 +271,6 @@ private func makeSettingsTestMonitor(
             "niriCenterFocusedColumn": "futureUnknownValue",
             "niriAlwaysCenterSingleColumn": true,
             "niriSingleWindowAspectRatio": "futureRatio",
-            "persistentWorkspacesRaw": "",
-            "workspaceAssignmentsRaw": "",
             "workspaceConfigurations": [],
             "defaultLayoutType": "futureLayout",
             "bordersEnabled": false,
@@ -346,8 +344,6 @@ private func makeSettingsTestMonitor(
             niriAlwaysCenterSingleColumn: true,
             niriSingleWindowAspectRatio: "16:9",
             niriColumnWidthPresets: [0.33, 0.5, 0.67],
-            persistentWorkspacesRaw: "ws1,ws2",
-            workspaceAssignmentsRaw: "app1=ws1",
             workspaceConfigurations: [],
             defaultLayoutType: "niri",
             bordersEnabled: true,
@@ -466,6 +462,37 @@ private func makeSettingsTestMonitor(
         #expect(json["animationsEnabled"] == nil)
         #expect((json["menuAnywherePaletteEnabled"] as? Bool) == false)
     }
+
+    @Test func sameEpochLegacyWorkspaceKeysAreIgnoredOnImportAndDroppedOnReexport() throws {
+        var export = SettingsExport.defaults()
+        export.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "ws1", monitorAssignment: .main, isPersistent: true)
+        ]
+
+        let encoded = try SettingsExport.makeEncoder().encode(export)
+        guard var json = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+            Issue.record("Expected encoded settings export to produce a JSON object")
+            return
+        }
+
+        json["persistentWorkspacesRaw"] = "ws1,ws2"
+        json["workspaceAssignmentsRaw"] = "ws1=Studio Display"
+
+        let rawData = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+        let mergedData = try SettingsExport.mergedImportData(from: rawData)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+
+        #expect(decoded.workspaceConfigurations == export.workspaceConfigurations)
+
+        let reexported = try decoded.exportData(incrementalOnly: false)
+        guard let reexportedJSON = try JSONSerialization.jsonObject(with: reexported) as? [String: Any] else {
+            Issue.record("Expected re-export to produce a JSON object")
+            return
+        }
+
+        #expect(reexportedJSON["persistentWorkspacesRaw"] == nil)
+        #expect(reexportedJSON["workspaceAssignmentsRaw"] == nil)
+    }
 }
 
 @Suite struct KeyBindingCodecTests {
@@ -494,5 +521,193 @@ private func makeSettingsTestMonitor(
         #expect((json["keyCode"] as? NSNumber)?.uint32Value == 200)
         #expect((json["modifiers"] as? NSNumber)?.uint32Value == UInt32(controlKey))
         #expect(try JSONDecoder().decode(KeyBinding.self, from: data) == binding)
+    }
+}
+
+@Suite struct HotkeySurfaceTests {
+    @Test func moveIsTheOnlyDirectionalWindowCommandFamily() {
+        let ids = Set(HotkeyBindingRegistry.defaults().map(\.id))
+
+        #expect(ids.contains("move.left"))
+        #expect(ids.contains("move.right"))
+        #expect(ids.contains("move.up"))
+        #expect(ids.contains("move.down"))
+        #expect(!ids.contains("swap.left"))
+        #expect(!ids.contains("consumeWindow.left"))
+        #expect(!ids.contains("expelWindow.left"))
+        #expect(HotkeyCommand.move(.left).layoutCompatibility == .shared)
+    }
+
+    @Test func hotkeyBindingEncodesWithoutSerializedCommand() throws {
+        let binding = HotkeyBinding(id: "move.left", command: .move(.left), binding: .unassigned)
+        let data = try JSONEncoder().encode(binding)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected hotkey binding to encode as an object")
+            return
+        }
+
+        #expect(json["id"] as? String == "move.left")
+        #expect(json["command"] == nil)
+        #expect(json["binding"] != nil)
+    }
+}
+
+@Suite @MainActor struct HotkeyBindingPersistenceTests {
+    @Test func settingsStoreSalvagesValidBindingsAndDropsUnknownRows() throws {
+        let defaults = makeTestDefaults()
+        let rawData = Data(
+            """
+            [
+              { "id": "move.left", "binding": "Control+Option+K", "command": { "focusPrevious": {} } },
+              { "id": "unknown.binding", "binding": "Option+L" },
+              { "id": 42, "binding": "Option+J" }
+            ]
+            """.utf8
+        )
+        defaults.set(rawData, forKey: "settings.hotkeyBindings")
+
+        let settings = SettingsStore(defaults: defaults)
+        let moveLeft = settings.hotkeyBindings.first { $0.id == "move.left" }
+        let moveRight = settings.hotkeyBindings.first { $0.id == "move.right" }
+
+        #expect(moveLeft?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
+        #expect(moveRight?.binding == KeyBinding(
+            keyCode: UInt32(kVK_RightArrow),
+            modifiers: UInt32(optionKey | shiftKey)
+        ))
+        #expect(settings.hotkeyBindings.map(\.id) == HotkeyBindingRegistry.defaults().map(\.id))
+    }
+
+    @Test func mergedImportDataCanonicalizesBindingsById() throws {
+        let rawData = Data(
+            """
+            {
+              "version": \(SettingsMigration.currentSettingsEpoch),
+              "hotkeyBindings": [
+                { "id": "move.left", "binding": "Control+Option+J", "command": { "focusPrevious": {} } },
+                { "id": "unknown.binding", "binding": "Option+L" },
+                { "id": "move.left", "binding": "Control+Option+K" }
+              ]
+            }
+            """.utf8
+        )
+
+        let mergedData = try SettingsExport.mergedImportData(from: rawData)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+
+        #expect(decoded.hotkeyBindings.map(\.id) == HotkeyBindingRegistry.defaults().map(\.id))
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.right" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_RightArrow),
+            modifiers: UInt32(optionKey | shiftKey)
+        ))
+    }
+}
+
+@Suite @MainActor struct WorkspaceConfigurationPersistenceTests {
+    @Test func settingsStoreIgnoresLegacyWorkspaceKeys() {
+        let defaults = makeTestDefaults()
+        defaults.set("ws1,ws2", forKey: "settings.persistentWorkspaces")
+        defaults.set("ws1=Studio Display", forKey: "settings.workspaceAssignments")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.workspaceConfigurations.isEmpty)
+        #expect(settings.persistentWorkspaceNames().isEmpty)
+        #expect(settings.workspaceToMonitorAssignments().isEmpty)
+    }
+
+    @Test func savingWorkspaceConfigurationsDoesNotRewriteLegacyWorkspaceKeys() {
+        let defaults = makeTestDefaults()
+        defaults.set("ws1,ws2", forKey: "settings.persistentWorkspaces")
+        defaults.set("ws1=Studio Display", forKey: "settings.workspaceAssignments")
+
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "ws1", monitorAssignment: .main, isPersistent: true)
+        ]
+
+        #expect(defaults.string(forKey: "settings.persistentWorkspaces") == "ws1,ws2")
+        #expect(defaults.string(forKey: "settings.workspaceAssignments") == "ws1=Studio Display")
+        #expect(settings.persistentWorkspaceNames() == ["ws1"])
+        #expect(defaults.data(forKey: "settings.workspaceConfigurations") != nil)
+    }
+}
+
+@Suite struct SettingsMigrationTests {
+    @Test func startupDecisionBootsFreshInstallWhenNoOwnedKeysExist() {
+        let defaults = makeTestDefaults()
+        #expect(SettingsMigration.startupDecision(defaults: defaults) == .boot)
+    }
+
+    @Test func startupDecisionRequiresResetWhenEpochIsMissingButOwnedKeysExist() {
+        let defaults = makeTestDefaults()
+        defaults.set(true, forKey: "settings.hotkeysEnabled")
+
+        #expect(SettingsMigration.startupDecision(defaults: defaults) == .requireReset(storedEpoch: nil))
+    }
+
+    @Test func startupDecisionRequiresResetWhenStoredEpochIsOlder() {
+        let defaults = makeTestDefaults()
+        defaults.set(1, forKey: "settings.settingsEpoch")
+
+        #expect(SettingsMigration.startupDecision(defaults: defaults) == .requireReset(storedEpoch: 1))
+    }
+
+    @Test func startupDecisionRequiresResetWhenStoredEpochIsNewer() {
+        let defaults = makeTestDefaults()
+        defaults.set(SettingsMigration.currentSettingsEpoch + 1, forKey: "settings.settingsEpoch")
+
+        #expect(
+            SettingsMigration.startupDecision(defaults: defaults) ==
+                .requireReset(storedEpoch: SettingsMigration.currentSettingsEpoch + 1)
+        )
+    }
+
+    @Test func resetOwnedSettingsClearsOwnedKeysAndWritesCurrentEpoch() {
+        let defaults = makeTestDefaults()
+        defaults.set(true, forKey: "settings.hotkeysEnabled")
+        defaults.set("ws1,ws2", forKey: "settings.persistentWorkspaces")
+        defaults.set("ws1=Studio Display", forKey: "settings.workspaceAssignments")
+        defaults.set(Data("payload".utf8), forKey: "settings.workspaceConfigurations")
+        defaults.set(7, forKey: "appliedSettingsPatches")
+
+        SettingsMigration.resetOwnedSettings(defaults: defaults)
+
+        #expect(defaults.object(forKey: "settings.hotkeysEnabled") == nil)
+        #expect(defaults.object(forKey: "settings.persistentWorkspaces") == nil)
+        #expect(defaults.object(forKey: "settings.workspaceAssignments") == nil)
+        #expect(defaults.object(forKey: "settings.workspaceConfigurations") == nil)
+        #expect(defaults.object(forKey: "appliedSettingsPatches") == nil)
+        #expect(defaults.integer(forKey: "settings.settingsEpoch") == SettingsMigration.currentSettingsEpoch)
+    }
+
+    @Test func validateImportEpochRejectsWrongEpochBeforeFullDecode() {
+        let rawData = Data("{\"version\":1,\"hotkeyBindings\":[{\"id\":\"move.left\",\"binding\":\"Option+Shift+Left\"}]}".utf8)
+
+        do {
+            try SettingsMigration.validateImportEpoch(from: rawData)
+            Issue.record("Expected import epoch validation to reject an older schema")
+        } catch let error as SettingsMigration.MigrationError {
+            guard case let .unsupportedEpoch(expected, found) = error else {
+                Issue.record("Unexpected migration error: \(error)")
+                return
+            }
+            #expect(expected == SettingsMigration.currentSettingsEpoch)
+            #expect(found == 1)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func validateImportEpochAcceptsCurrentEpoch() throws {
+        let rawData = Data("{\"version\":\(SettingsMigration.currentSettingsEpoch)}".utf8)
+        try SettingsMigration.validateImportEpoch(from: rawData)
     }
 }
