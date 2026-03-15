@@ -91,6 +91,7 @@ final class AXEventHandler: CGSEventDelegate {
     var focusedWindowValueProvider: ((pid_t) -> CFTypeRef?)?
     var windowTypeProvider: ((AXWindowRef, pid_t) -> AXWindowType)?
     var frameProvider: ((AXWindowRef) -> CGRect?)?
+    var fastFrameProvider: ((AXWindowRef) -> CGRect?)?
     var isFullscreenProvider: ((AXWindowRef) -> Bool)?
     private(set) var debugCounters = DebugCounters()
 
@@ -197,7 +198,11 @@ final class AXEventHandler: CGSEventDelegate {
               let entry = controller.workspaceManager.entry(for: token)
         else { return }
 
-        if let frame = frameProvider?(entry.axRef) ?? (try? AXWindowService.frame(entry.axRef)) {
+        if let frame = frameProvider?(entry.axRef)
+            ?? fastFrameProvider?(entry.axRef)
+            ?? AXWindowService.framePreferFast(entry.axRef)
+            ?? (try? AXWindowService.frame(entry.axRef))
+        {
             controller.borderCoordinator.updateBorderIfAllowed(token: token, frame: frame, windowId: entry.windowId)
         }
     }

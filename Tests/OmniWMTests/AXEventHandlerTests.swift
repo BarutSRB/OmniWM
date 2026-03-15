@@ -467,6 +467,50 @@ private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
         #expect(lastAppliedBorderWindowId(on: controller) == 815)
     }
 
+    @Test @MainActor func interactiveGestureUsesFastFrameProviderWhenPrimaryProviderIsMissing() {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let handle = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 816),
+            pid: getpid(),
+            windowId: 816,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            handle,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+
+        controller.axEventHandler.fastFrameProvider = { _ in
+            CGRect(x: 48, y: 36, width: 620, height: 420)
+        }
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.setBordersEnabled(true)
+        controller.mouseEventHandler.state.isResizing = true
+        controller.axEventHandler.resetDebugStateForTests()
+        defer {
+            controller.axEventHandler.fastFrameProvider = nil
+            controller.axEventHandler.windowInfoProvider = nil
+            controller.mouseEventHandler.state.isResizing = false
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: 816)
+        )
+
+        #expect(controller.axEventHandler.debugCounters.geometryRelayoutRequests == 0)
+        #expect(controller.axEventHandler.debugCounters.geometryRelayoutsSuppressedDuringGesture == 1)
+        #expect(lastAppliedBorderWindowId(on: controller) == 816)
+    }
+
     @Test @MainActor func deferredCreatedWindowsReplayExactlyOnceWhenDiscoveryEnds() async {
         let controller = makeAXEventTestController()
         guard let workspaceId = controller.activeWorkspace()?.id else {

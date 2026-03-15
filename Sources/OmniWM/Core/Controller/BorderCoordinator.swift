@@ -3,6 +3,11 @@ import Foundation
 
 @MainActor
 final class BorderCoordinator {
+    private enum UpdateEligibility {
+        case hide
+        case update(activeWorkspaceId: WorkspaceDescriptor.ID)
+    }
+
     weak var controller: WMController?
 
     init(controller: WMController) {
@@ -11,37 +16,53 @@ final class BorderCoordinator {
 
     func updateBorderIfAllowed(token: WindowToken, frame: CGRect, windowId: Int) {
         guard let controller else { return }
-
-        guard let activeWs = controller.activeWorkspace(),
-              controller.workspaceManager.workspace(for: token) == activeWs.id
-        else {
+        switch eligibilityForBorderUpdate(token: token) {
+        case .hide:
             controller.borderManager.hideBorder()
-            return
+        case let .update(activeWorkspaceId):
+            if shouldDeferBorderUpdates(for: activeWorkspaceId) {
+                return
+            }
+            controller.borderManager.updateFocusedWindow(frame: frame, windowId: windowId)
         }
+    }
 
-        if controller.workspaceManager.isNonManagedFocusActive {
+    func updateDirectBorderIfAllowed(token: WindowToken, frame: CGRect, windowId: Int) {
+        guard let controller else { return }
+
+        switch eligibilityForBorderUpdate(token: token) {
+        case .hide:
             controller.borderManager.hideBorder()
-            return
+        case .update:
+            controller.borderManager.updateFocusedWindow(frame: frame, windowId: windowId)
         }
-
-        if controller.workspaceManager.hasPendingNativeFullscreenTransition {
-            controller.borderManager.hideBorder()
-            return
-        }
-
-        if shouldDeferBorderUpdates(for: activeWs.id) {
-            return
-        }
-
-        if controller.workspaceManager.isAppFullscreenActive || isManagedWindowFullscreen(token) {
-            controller.borderManager.hideBorder()
-            return
-        }
-        controller.borderManager.updateFocusedWindow(frame: frame, windowId: windowId)
     }
 
     func updateBorderIfAllowed(handle: WindowHandle, frame: CGRect, windowId: Int) {
         updateBorderIfAllowed(token: handle.id, frame: frame, windowId: windowId)
+    }
+
+    private func eligibilityForBorderUpdate(token: WindowToken) -> UpdateEligibility {
+        guard let controller,
+              let activeWorkspace = controller.activeWorkspace(),
+              controller.workspaceManager.workspace(for: token) == activeWorkspace.id
+        else {
+            return .hide
+        }
+
+        if controller.workspaceManager.isNonManagedFocusActive {
+            return .hide
+        }
+
+        if controller.workspaceManager.hasPendingNativeFullscreenTransition {
+            return .hide
+        }
+
+        if controller.workspaceManager.isAppFullscreenActive || isManagedWindowFullscreen(token) {
+            return .hide
+        }
+
+        return .update(activeWorkspaceId: activeWorkspace.id)
     }
 
     private func shouldDeferBorderUpdates(for workspaceId: WorkspaceDescriptor.ID) -> Bool {

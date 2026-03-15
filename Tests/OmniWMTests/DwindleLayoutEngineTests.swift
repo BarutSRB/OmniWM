@@ -294,6 +294,96 @@ private func configureWorkspacesAsDwindle(
         #expect(plan.diff.visibilityChanges.isEmpty)
     }
 
+    @Test @MainActor func activeAnimationTickReappliesFocusedBorder() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Dwindle border animation test")
+            return
+        }
+
+        configureWorkspaceAsDwindle(on: controller, workspaceId: workspaceId)
+        controller.enableDwindleLayout()
+        controller.setBordersEnabled(true)
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 703)
+        _ = controller.workspaceManager.setManagedFocus(firstToken, in: workspaceId, onMonitor: monitor.id)
+
+        let initialPlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 703)
+
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 704)
+        let animationPlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(animationPlans)
+        #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId]?.0 == workspaceId)
+
+        controller.borderManager.hideBorder()
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+
+        controller.dwindleLayoutHandler.tickDwindleAnimation(
+            targetTime: controller.animationClock.now(),
+            displayId: monitor.displayId
+        )
+
+        #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId]?.0 == workspaceId)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 703)
+    }
+
+    @Test @MainActor func activeAnimationTickKeepsBorderHiddenDuringPreservedNonManagedFocus() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Dwindle preserved-focus border test")
+            return
+        }
+
+        configureWorkspaceAsDwindle(on: controller, workspaceId: workspaceId)
+        controller.enableDwindleLayout()
+        controller.setBordersEnabled(true)
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 705)
+        _ = controller.workspaceManager.setManagedFocus(firstToken, in: workspaceId, onMonitor: monitor.id)
+
+        let initialPlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 705)
+
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 706)
+        let animationPlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(animationPlans)
+        #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId]?.0 == workspaceId)
+
+        _ = controller.workspaceManager.enterNonManagedFocus(
+            appFullscreen: false,
+            preserveFocusedToken: true
+        )
+        controller.borderManager.hideBorder()
+        #expect(controller.workspaceManager.focusedToken == firstToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+
+        controller.dwindleLayoutHandler.tickDwindleAnimation(
+            targetTime: controller.animationClock.now(),
+            displayId: monitor.displayId
+        )
+
+        #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId]?.0 == workspaceId)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+    }
+
     @Test @MainActor func relayoutPlanUsesResolvedMonitorSettingsFromSnapshot() async throws {
         let monitor = makeLayoutPlanTestMonitor(name: "SquareTest")
         let controller = makeLayoutPlanTestController(monitors: [monitor])

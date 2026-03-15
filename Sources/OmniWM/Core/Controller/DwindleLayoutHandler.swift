@@ -391,9 +391,9 @@ import QuartzCore
         let diff = layoutDiff(
             windows: snapshot.windows,
             frames: animatedFrames,
-            confirmedFocusedToken: animationsActive ? nil : snapshot.confirmedFocusedToken,
-            directBorderUpdate: false,
-            borderMode: animationsActive ? BorderUpdateMode.none : .coordinated,
+            confirmedFocusedToken: snapshot.confirmedFocusedToken,
+            directBorderUpdate: animationsActive,
+            borderMode: animationsActive ? .direct : .coordinated,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
         )
 

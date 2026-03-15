@@ -563,6 +563,22 @@ final class SkyLight {
         _ = flushWindowContentRegion(cid, wid, nil)
     }
 
+    func transactionMove(_ wid: UInt32, origin: CGPoint) {
+        if let transactionMoveWindowWithGroup {
+            let cid = getMainConnectionID()
+            guard let transaction = transactionCreate(cid) else {
+                _ = moveWindow(wid, to: origin)
+                return
+            }
+            defer { cfRelease(transaction) }
+            _ = transactionMoveWindowWithGroup(transaction, wid, origin)
+            _ = transactionCommit(transaction, 0)
+            return
+        }
+
+        _ = moveWindow(wid, to: origin)
+    }
+
     func transactionMoveAndOrder(_ wid: UInt32, origin: CGPoint, level: Int32, relativeTo targetWid: UInt32, order: SkyLightWindowOrder) {
         let cid = getMainConnectionID()
         guard let transaction = transactionCreate(cid) else { return }

@@ -2008,7 +2008,8 @@ final class LayoutDiffExecutor {
             return
         }
 
-        controller.borderManager.updateFocusedWindow(
+        controller.borderCoordinator.updateDirectBorderIfAllowed(
+            token: focusedFrame.token,
             frame: focusedFrame.frame,
             windowId: entry.windowId
         )

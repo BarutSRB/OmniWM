@@ -3,29 +3,65 @@ import QuartzCore
 
 @MainActor
 final class BorderWindow {
+    struct Operations {
+        var createBorderWindow: @MainActor (CGRect) -> UInt32
+        var releaseBorderWindow: @MainActor (UInt32) -> Void
+        var configureWindow: @MainActor (UInt32, Float, Bool) -> Void
+        var setWindowTags: @MainActor (UInt32, UInt64) -> Void
+        var createWindowContext: @MainActor (UInt32) -> CGContext?
+        var setWindowShape: @MainActor (UInt32, CGRect) -> Void
+        var flushWindow: @MainActor (UInt32) -> Void
+        var transactionMove: @MainActor (UInt32, CGPoint) -> Void
+        var transactionMoveAndOrder: @MainActor (UInt32, CGPoint, Int32, UInt32, SkyLightWindowOrder) -> Void
+        var transactionHide: @MainActor (UInt32) -> Void
+
+        static let live = Self(
+            createBorderWindow: { SkyLight.shared.createBorderWindow(frame: $0) },
+            releaseBorderWindow: { SkyLight.shared.releaseBorderWindow($0) },
+            configureWindow: { SkyLight.shared.configureWindow($0, resolution: $1, opaque: $2) },
+            setWindowTags: { SkyLight.shared.setWindowTags($0, tags: $1) },
+            createWindowContext: { SkyLight.shared.createWindowContext(for: $0) },
+            setWindowShape: { SkyLight.shared.setWindowShape($0, frame: $1) },
+            flushWindow: { SkyLight.shared.flushWindow($0) },
+            transactionMove: { SkyLight.shared.transactionMove($0, origin: $1) },
+            transactionMoveAndOrder: {
+                SkyLight.shared.transactionMoveAndOrder($0, origin: $1, level: $2, relativeTo: $3, order: $4)
+            },
+            transactionHide: { SkyLight.shared.transactionHide($0) }
+        )
+    }
+
     private var wid: UInt32 = 0
     private var context: CGContext?
     private var config: BorderConfig
+    private let operations: Operations
 
     private var currentFrame: CGRect = .zero
     private var currentTargetFrame: CGRect = .zero
     private var currentTargetWid: UInt32 = 0
     private var origin: CGPoint = .zero
     private var needsRedraw = true
+    private var isVisible = false
+    private var lastOrderedTargetWid: UInt32 = 0
 
     private let padding: CGFloat = 8.0
     private let cornerRadius: CGFloat = 9.0
+    private let orderingLevel: Int32 = 3
 
-    init(config: BorderConfig) {
+    init(config: BorderConfig, operations: Operations = .live) {
         self.config = config
+        self.operations = operations
     }
 
     func destroy() {
         context = nil
         if wid != 0 {
-            SkyLight.shared.releaseBorderWindow(wid)
+            operations.releaseBorderWindow(wid)
             wid = 0
         }
+        isVisible = false
+        lastOrderedTargetWid = 0
+        currentTargetWid = 0
     }
 
     func update(frame targetFrame: CGRect, targetWid: UInt32) {
@@ -49,8 +85,13 @@ final class BorderWindow {
             height: targetFrame.height
         )
 
+        let createdWindow: Bool
         if wid == 0 {
             createWindow(frame: frame, scale: scale)
+            guard wid != 0 else { return }
+            createdWindow = true
+        } else {
+            createdWindow = false
         }
 
         if frame.size != currentFrame.size {
@@ -65,24 +106,27 @@ final class BorderWindow {
             draw(frame: frame, drawingBounds: drawingBounds)
         }
 
-        moveAndOrder(relativeTo: targetWid)
+        let needsOrdering = createdWindow || !isVisible || lastOrderedTargetWid != targetWid
+        move(relativeTo: targetWid, needsOrdering: needsOrdering)
+        isVisible = true
+        lastOrderedTargetWid = targetWid
     }
 
     private func createWindow(frame: CGRect, scale: CGFloat) {
-        wid = SkyLight.shared.createBorderWindow(frame: frame)
+        wid = operations.createBorderWindow(frame)
         guard wid != 0 else { return }
 
-        SkyLight.shared.configureWindow(wid, resolution: Float(scale), opaque: false)
+        operations.configureWindow(wid, Float(scale), false)
 
         let tags: UInt64 = (1 << 1) | (1 << 9)
-        SkyLight.shared.setWindowTags(wid, tags: tags)
+        operations.setWindowTags(wid, tags)
 
-        context = SkyLight.shared.createWindowContext(for: wid)
+        context = operations.createWindowContext(wid)
         context?.interpolationQuality = .none
     }
 
     private func reshapeWindow(frame: CGRect) {
-        SkyLight.shared.setWindowShape(wid, frame: frame)
+        operations.setWindowShape(wid, frame)
     }
 
     private func draw(frame: CGRect, drawingBounds: CGRect) {
@@ -122,22 +166,23 @@ final class BorderWindow {
 
         context.restoreGState()
         context.flush()
-        SkyLight.shared.flushWindow(wid)
+        operations.flushWindow(wid)
     }
 
-    private func moveAndOrder(relativeTo targetWid: UInt32) {
-        SkyLight.shared.transactionMoveAndOrder(
-            wid,
-            origin: origin,
-            level: 3,
-            relativeTo: targetWid,
-            order: .below
-        )
+    private func move(relativeTo targetWid: UInt32, needsOrdering: Bool) {
+        if needsOrdering {
+            operations.transactionMoveAndOrder(wid, origin, orderingLevel, targetWid, .below)
+            return
+        }
+
+        operations.transactionMove(wid, origin)
     }
 
     func hide() {
         guard wid != 0 else { return }
-        SkyLight.shared.transactionHide(wid)
+        operations.transactionHide(wid)
+        isVisible = false
+        lastOrderedTargetWid = 0
     }
 
     func updateConfig(_ newConfig: BorderConfig) {
