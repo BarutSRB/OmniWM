@@ -48,35 +48,74 @@ extension NiriLayoutEngine {
         monitors[monitorId]?.resolvedSettings = settings
     }
 
+    func globalResolvedSettings() -> ResolvedNiriSettings {
+        ResolvedNiriSettings(
+            maxVisibleColumns: maxVisibleColumns,
+            maxWindowsPerColumn: maxWindowsPerColumn,
+            centerFocusedColumn: centerFocusedColumn,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            singleWindowAspectRatio: singleWindowAspectRatio,
+            infiniteLoop: infiniteLoop
+        )
+    }
+
+    func effectiveSettings(for monitorId: Monitor.ID) -> ResolvedNiriSettings {
+        monitors[monitorId]?.resolvedSettings ?? globalResolvedSettings()
+    }
+
+    func effectiveSettings(in workspaceId: WorkspaceDescriptor.ID) -> ResolvedNiriSettings {
+        guard let monitorId = monitorContaining(workspace: workspaceId) else {
+            return globalResolvedSettings()
+        }
+        return effectiveSettings(for: monitorId)
+    }
+
     func effectiveMaxVisibleColumns(for monitorId: Monitor.ID) -> Int {
-        monitors[monitorId]?.resolvedSettings?.maxVisibleColumns ?? maxVisibleColumns
+        effectiveSettings(for: monitorId).maxVisibleColumns
+    }
+
+    func effectiveMaxVisibleColumns(in workspaceId: WorkspaceDescriptor.ID) -> Int {
+        effectiveSettings(in: workspaceId).maxVisibleColumns
     }
 
     func effectiveMaxWindowsPerColumn(for monitorId: Monitor.ID) -> Int {
-        monitors[monitorId]?.resolvedSettings?.maxWindowsPerColumn ?? maxWindowsPerColumn
+        effectiveSettings(for: monitorId).maxWindowsPerColumn
+    }
+
+    func effectiveMaxWindowsPerColumn(in workspaceId: WorkspaceDescriptor.ID) -> Int {
+        effectiveSettings(in: workspaceId).maxWindowsPerColumn
     }
 
     func effectiveCenterFocusedColumn(for monitorId: Monitor.ID) -> CenterFocusedColumn {
-        monitors[monitorId]?.resolvedSettings?.centerFocusedColumn ?? centerFocusedColumn
+        effectiveSettings(for: monitorId).centerFocusedColumn
+    }
+
+    func effectiveCenterFocusedColumn(in workspaceId: WorkspaceDescriptor.ID) -> CenterFocusedColumn {
+        effectiveSettings(in: workspaceId).centerFocusedColumn
     }
 
     func effectiveAlwaysCenterSingleColumn(for monitorId: Monitor.ID) -> Bool {
-        monitors[monitorId]?.resolvedSettings?.alwaysCenterSingleColumn ?? alwaysCenterSingleColumn
+        effectiveSettings(for: monitorId).alwaysCenterSingleColumn
+    }
+
+    func effectiveAlwaysCenterSingleColumn(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        effectiveSettings(in: workspaceId).alwaysCenterSingleColumn
     }
 
     func effectiveSingleWindowAspectRatio(for monitorId: Monitor.ID) -> SingleWindowAspectRatio {
-        monitors[monitorId]?.resolvedSettings?.singleWindowAspectRatio ?? singleWindowAspectRatio
+        effectiveSettings(for: monitorId).singleWindowAspectRatio
     }
 
     func effectiveSingleWindowAspectRatio(in workspaceId: WorkspaceDescriptor.ID) -> SingleWindowAspectRatio {
-        guard let monitorId = monitorContaining(workspace: workspaceId) else {
-            return singleWindowAspectRatio
-        }
-        return effectiveSingleWindowAspectRatio(for: monitorId)
+        effectiveSettings(in: workspaceId).singleWindowAspectRatio
     }
 
     func effectiveInfiniteLoop(for monitorId: Monitor.ID) -> Bool {
-        monitors[monitorId]?.resolvedSettings?.infiniteLoop ?? infiniteLoop
+        effectiveSettings(for: monitorId).infiniteLoop
+    }
+
+    func effectiveInfiniteLoop(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        effectiveSettings(in: workspaceId).infiniteLoop
     }
 
     func moveWorkspace(

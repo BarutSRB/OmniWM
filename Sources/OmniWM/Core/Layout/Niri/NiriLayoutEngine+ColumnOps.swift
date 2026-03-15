@@ -84,7 +84,7 @@ extension NiriLayoutEngine {
         sourceColumn.adjustActiveTileIdxForRemoval(of: node)
 
         let newColumn = NiriContainer()
-        initializeNewColumnWidth(newColumn)
+        initializeNewColumnWidth(newColumn, in: workspaceId)
 
         if direction == .right {
             root.insertAfter(newColumn, reference: sourceColumn)
@@ -133,7 +133,7 @@ extension NiriLayoutEngine {
         sourceColumn.adjustActiveTileIdxForRemoval(of: window)
 
         let newColumn = NiriContainer()
-        initializeNewColumnWidth(newColumn)
+        initializeNewColumnWidth(newColumn, in: workspaceId)
 
         let cols = columns(in: workspaceId)
         let clampedIndex = insertIndex.clamped(to: 0 ... cols.count)
@@ -169,8 +169,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
 
         return true
@@ -225,7 +224,7 @@ extension NiriLayoutEngine {
         let cols = columns(in: workspaceId)
         guard !cols.isEmpty else { return }
 
-        let balancedWidth = 1.0 / CGFloat(maxVisibleColumns)
+        let balancedWidth = 1.0 / CGFloat(effectiveMaxVisibleColumns(in: workspaceId))
         let targetPixels = (workingAreaWidth - gaps) * balancedWidth
 
         for column in cols {
@@ -263,10 +262,14 @@ extension NiriLayoutEngine {
         let currentColX = state.columnX(at: currentIdx, columns: cols, gap: gaps)
         let nextColX = currentIdx + 1 < cols.count
             ? state.columnX(at: currentIdx + 1, columns: cols, gap: gaps)
-            : currentColX + (column.cachedWidth > 0 ? column.cachedWidth : workingFrame.width / CGFloat(maxVisibleColumns)) + gaps
+            : currentColX + (
+                column.cachedWidth > 0
+                    ? column.cachedWidth
+                    : workingFrame.width / CGFloat(effectiveMaxVisibleColumns(in: workspaceId))
+            ) + gaps
 
         let step = (direction == .right) ? 1 : -1
-        guard let targetIdx = wrapIndex(currentIdx + step, total: cols.count) else { return false }
+        guard let targetIdx = wrapIndex(currentIdx + step, total: cols.count, in: workspaceId) else { return false }
 
         if targetIdx == currentIdx { return false }
 
@@ -356,13 +359,13 @@ extension NiriLayoutEngine {
 
         let cols = columns(in: workspaceId)
         let step = (direction == .right) ? 1 : -1
-        guard let neighborIdx = wrapIndex(currentIdx + step, total: cols.count) else { return false }
+        guard let neighborIdx = wrapIndex(currentIdx + step, total: cols.count, in: workspaceId) else { return false }
 
         if neighborIdx == currentIdx { return false }
 
         let neighborColumn = cols[neighborIdx]
         guard neighborColumn.id != currentColumn.id else { return false }
-        guard neighborColumn.children.count < maxWindowsPerColumn else { return false }
+        guard neighborColumn.children.count < effectiveMaxWindowsPerColumn(in: workspaceId) else { return false }
 
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let previousActiveColumnIndex = state.activeColumnIndex
@@ -426,7 +429,6 @@ extension NiriLayoutEngine {
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             fromContainerIndex: previousActiveColumnIndex,
             previousActiveContainerPosition: previousActiveColumnPosition
         )
@@ -463,7 +465,7 @@ extension NiriLayoutEngine {
         currentColumn.adjustActiveTileIdxForRemoval(of: window)
 
         let newColumn = NiriContainer()
-        initializeNewColumnWidth(newColumn)
+        initializeNewColumnWidth(newColumn, in: workspaceId)
 
         if direction == .right {
             root.insertAfter(newColumn, reference: currentColumn)
@@ -518,8 +520,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
 
         return true
@@ -541,7 +542,6 @@ extension NiriLayoutEngine {
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps,
-                alwaysCenterSingleColumn: alwaysCenterSingleColumn,
                 animationConfig: animationConfig,
                 fromContainerIndex: fromContainerIndex
             )

@@ -172,8 +172,7 @@ private func hasAnyVisibilityChange(
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gap,
-            alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+            gaps: gap
         )
         return state
     }
@@ -206,6 +205,38 @@ private func hasAnyVisibilityChange(
         for (column, width) in zip(columns, widths) {
             column.width = .fixed(width)
             column.cachedWidth = width
+        }
+    }
+
+    private func resolvedSettings(
+        for engine: NiriLayoutEngine,
+        maxVisibleColumns: Int? = nil,
+        maxWindowsPerColumn: Int? = nil,
+        centerFocusedColumn: CenterFocusedColumn? = nil,
+        alwaysCenterSingleColumn: Bool? = nil,
+        singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
+        infiniteLoop: Bool? = nil
+    ) -> ResolvedNiriSettings {
+        let global = engine.globalResolvedSettings()
+        return ResolvedNiriSettings(
+            maxVisibleColumns: maxVisibleColumns ?? global.maxVisibleColumns,
+            maxWindowsPerColumn: maxWindowsPerColumn ?? global.maxWindowsPerColumn,
+            centerFocusedColumn: centerFocusedColumn ?? global.centerFocusedColumn,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn ?? global.alwaysCenterSingleColumn,
+            singleWindowAspectRatio: singleWindowAspectRatio ?? global.singleWindowAspectRatio,
+            infiniteLoop: infiniteLoop ?? global.infiniteLoop
+        )
+    }
+
+    private func attachWorkspace(
+        _ workspaceId: WorkspaceDescriptor.ID,
+        to monitor: Monitor,
+        engine: NiriLayoutEngine,
+        resolvedSettings: ResolvedNiriSettings? = nil
+    ) {
+        engine.moveWorkspace(workspaceId, to: monitor.id, monitor: monitor)
+        if let resolvedSettings {
+            engine.updateMonitorSettings(resolvedSettings, for: monitor.id)
         }
     }
 
@@ -242,6 +273,30 @@ private func hasAnyVisibilityChange(
 
         guard let column = engine.column(of: window) else {
             Issue.record("Expected claimed column for first window")
+            return
+        }
+
+        #expect(column.width == .proportion(1.0 / 3.0))
+        #expect(column.presetWidthIdx == nil)
+    }
+
+    @Test func firstWindowUsesResolvedMonitorMaxVisibleColumnsWhenDefaultWidthIsAuto() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        engine.singleWindowAspectRatio = .none
+        let wsId = UUID()
+        let monitor = makeTestMonitor(displayId: 501, name: "Override", x: 0)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(for: engine, maxVisibleColumns: 3)
+        )
+
+        let window = engine.addWindow(handle: makeTestHandle(), to: wsId, afterSelection: nil)
+
+        guard let column = engine.column(of: window) else {
+            Issue.record("Expected claimed column for monitor-override width test")
             return
         }
 
@@ -540,8 +595,7 @@ private func hasAnyVisibilityChange(
             in: wsId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gap,
-            alwaysCenterSingleColumn: false
+            gaps: gap
         )
 
         #expect(state.activeColumnIndex == 2)
@@ -647,6 +701,105 @@ private func hasAnyVisibilityChange(
         #expect(columnOffset! > 300)
     }
 
+    @Test func moveWindowHorizontalRightConsumesSingleWindowColumnIntoNeighborWhenMonitorOverrideAllowsIt() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let wsId = UUID()
+        let monitor = makeTestMonitor(displayId: 601, name: "Override", x: 0)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(for: engine, maxWindowsPerColumn: 2)
+        )
+
+        guard let root = engine.root(for: wsId),
+              let leftColumn = root.columns.first
+        else {
+            Issue.record("Expected mapped workspace root for consume override test")
+            return
+        }
+
+        let rightColumn = NiriContainer()
+        root.appendChild(rightColumn)
+        assignFixedWidths(root.columns)
+
+        let leftHandle = makeTestHandle(pid: 181)
+        let rightHandle = makeTestHandle(pid: 182)
+        let leftWindow = NiriWindow(token: leftHandle.id)
+        let rightWindow = NiriWindow(token: rightHandle.id)
+
+        leftColumn.appendChild(leftWindow)
+        rightColumn.appendChild(rightWindow)
+
+        engine.tokenToNode[leftHandle.id] = leftWindow
+        engine.tokenToNode[rightHandle.id] = rightWindow
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+
+        let moved = engine.moveWindow(
+            leftWindow,
+            direction: .right,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        let columns = engine.columns(in: wsId)
+        #expect(moved)
+        #expect(columns.count == 1)
+        #expect(columns[0] === rightColumn)
+        #expect(columns[0].windowNodes.map(\.token) == [leftHandle.id, rightHandle.id])
+    }
+
+    @Test func moveWindowHorizontalRightDoesNotConsumeSingleWindowColumnIntoNeighborWithoutMonitorOverride() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let wsId = UUID()
+        let monitor = makeTestMonitor(displayId: 602, name: "GlobalOnly", x: 0)
+        attachWorkspace(wsId, to: monitor, engine: engine)
+
+        guard let root = engine.root(for: wsId),
+              let leftColumn = root.columns.first
+        else {
+            Issue.record("Expected mapped workspace root for consume fallback test")
+            return
+        }
+
+        let rightColumn = NiriContainer()
+        root.appendChild(rightColumn)
+        assignFixedWidths(root.columns)
+
+        let leftHandle = makeTestHandle(pid: 183)
+        let rightHandle = makeTestHandle(pid: 184)
+        let leftWindow = NiriWindow(token: leftHandle.id)
+        let rightWindow = NiriWindow(token: rightHandle.id)
+
+        leftColumn.appendChild(leftWindow)
+        rightColumn.appendChild(rightWindow)
+
+        engine.tokenToNode[leftHandle.id] = leftWindow
+        engine.tokenToNode[rightHandle.id] = rightWindow
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+
+        let moved = engine.moveWindow(
+            leftWindow,
+            direction: .right,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        let columns = engine.columns(in: wsId)
+        #expect(!moved)
+        #expect(columns.count == 2)
+        #expect(columns[0].windowNodes.map(\.token) == [leftHandle.id])
+        #expect(columns[1].windowNodes.map(\.token) == [rightHandle.id])
+    }
+
     @Test func moveWindowHorizontalLeftConsumesSingleWindowColumnIntoNeighbor() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
         let wsId = UUID()
@@ -739,7 +892,6 @@ private func hasAnyVisibilityChange(
             state: &state,
             workingFrame: CGRect(x: 0, y: 0, width: 700, height: 900),
             gaps: 8,
-            alwaysCenterSingleColumn: false,
             fromContainerIndex: 1,
             previousActiveContainerPosition: previousActivePosition
         )
@@ -834,6 +986,128 @@ private func hasAnyVisibilityChange(
         #expect(moved)
         #expect(columns.count == 1)
         #expect(columns[0].windowNodes.map(\.token) == [leftHandle.id, rightHandle.id])
+    }
+
+    @Test func moveWindowHorizontalLeftWrapsAtEdgeWhenMonitorOverrideEnablesInfiniteLoop() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, infiniteLoop: false)
+        let wsId = UUID()
+        let monitor = makeTestMonitor(displayId: 701, name: "Wrap", x: 0)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(for: engine, infiniteLoop: true)
+        )
+
+        guard let root = engine.root(for: wsId),
+              let leftColumn = root.columns.first
+        else {
+            Issue.record("Expected mapped workspace root for infinite-loop override test")
+            return
+        }
+
+        let rightColumn = NiriContainer()
+        root.appendChild(rightColumn)
+        assignFixedWidths(root.columns)
+
+        let leftHandle = makeTestHandle(pid: 191)
+        let rightHandle = makeTestHandle(pid: 192)
+        let leftWindow = NiriWindow(token: leftHandle.id)
+        let rightWindow = NiriWindow(token: rightHandle.id)
+
+        leftColumn.appendChild(leftWindow)
+        rightColumn.appendChild(rightWindow)
+
+        engine.tokenToNode[leftHandle.id] = leftWindow
+        engine.tokenToNode[rightHandle.id] = rightWindow
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+
+        let moved = engine.moveWindow(
+            leftWindow,
+            direction: .left,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        let columns = engine.columns(in: wsId)
+        #expect(moved)
+        #expect(columns.count == 1)
+        #expect(columns[0].windowNodes.map(\.token) == [leftHandle.id, rightHandle.id])
+    }
+
+    @Test func ensureSelectionVisibleUsesResolvedMonitorAlwaysCenterSingleColumn() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        engine.centerFocusedColumn = .never
+        engine.alwaysCenterSingleColumn = false
+        let wsId = UUID()
+        let monitor = makeTestMonitor(displayId: 801, name: "CenterSingle", x: 0)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                centerFocusedColumn: .never,
+                alwaysCenterSingleColumn: true
+            )
+        )
+
+        let window = engine.addWindow(handle: makeTestHandle(pid: 211), to: wsId, afterSelection: nil)
+        assignFixedWidths(engine.columns(in: wsId))
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(0)
+
+        engine.ensureSelectionVisible(
+            node: window,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        #expect(abs(state.viewOffsetPixels.target() + 400) < 0.1)
+    }
+
+    @Test func ensureSelectionVisibleUsesResolvedMonitorCenterFocusedColumn() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        engine.centerFocusedColumn = .never
+        engine.alwaysCenterSingleColumn = false
+        let wsId = UUID()
+        let monitor = makeTestMonitor(displayId: 802, name: "CenterMode", x: 0)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                centerFocusedColumn: .always,
+                alwaysCenterSingleColumn: false
+            )
+        )
+
+        let first = engine.addWindow(handle: makeTestHandle(pid: 212), to: wsId, afterSelection: nil)
+        let second = engine.addWindow(handle: makeTestHandle(pid: 213), to: wsId, afterSelection: first.id)
+        assignFixedWidths(engine.columns(in: wsId))
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(0)
+
+        engine.ensureSelectionVisible(
+            node: second,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        #expect(abs(state.viewOffsetPixels.target() + 604) < 0.1)
     }
 
     @Test func moveWindowVerticalKeepsInColumnReorderBehavior() {

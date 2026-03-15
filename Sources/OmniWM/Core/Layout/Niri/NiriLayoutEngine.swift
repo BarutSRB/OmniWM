@@ -182,12 +182,12 @@ final class NiriLayoutEngine {
         }
     }
 
-    func initializeNewColumnWidth(_ column: NiriContainer) {
+    func initializeNewColumnWidth(_ column: NiriContainer, in workspaceId: WorkspaceDescriptor.ID) {
         if let defaultColumnWidth {
             column.width = .proportion(defaultColumnWidth)
             column.presetWidthIdx = matchingPresetIndex(for: defaultColumnWidth)
         } else {
-            column.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+            column.width = .proportion(1.0 / CGFloat(effectiveMaxVisibleColumns(in: workspaceId)))
             column.presetWidthIdx = nil
         }
 
@@ -248,9 +248,9 @@ final class NiriLayoutEngine {
         )
     }
 
-    func wrapIndex(_ idx: Int, total: Int) -> Int? {
+    func wrapIndex(_ idx: Int, total: Int, in workspaceId: WorkspaceDescriptor.ID) -> Int? {
         guard total > 0 else { return nil }
-        if infiniteLoop {
+        if effectiveInfiniteLoop(in: workspaceId) {
             let modulo = total
             return ((idx % modulo) + modulo) % modulo
         } else {

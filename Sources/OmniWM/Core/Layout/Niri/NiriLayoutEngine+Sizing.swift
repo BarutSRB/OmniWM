@@ -23,8 +23,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
     }
 

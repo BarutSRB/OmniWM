@@ -35,14 +35,15 @@ extension NiriLayoutEngine {
         )
 
         let cols = columns(in: workspaceId)
+        let settings = effectiveSettings(in: workspaceId)
         state.transitionToColumn(
             colIdx,
             columns: cols,
             gap: gaps,
             viewportWidth: workingFrame.width,
             animate: false,
-            centerMode: centerFocusedColumn,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            centerMode: settings.centerFocusedColumn,
+            alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn
         )
 
         return true
@@ -217,8 +218,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
 
         return true
@@ -283,8 +283,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
 
         return true

@@ -754,8 +754,7 @@ final class WorkspaceNavigationHandler {
                     in: target.id,
                     state: &targetState,
                     workingFrame: monitor.visibleFrame,
-                    gaps: gap,
-                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                    gaps: gap
                 )
             }
             applySessionPatch(
@@ -861,8 +860,7 @@ final class WorkspaceNavigationHandler {
                     in: targetWsId,
                     state: &targetState,
                     workingFrame: monitor.visibleFrame,
-                    gaps: gap,
-                    alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                    gaps: gap
                 )
             }
             applySessionPatch(

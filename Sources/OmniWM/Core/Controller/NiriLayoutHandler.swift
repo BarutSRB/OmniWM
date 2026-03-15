@@ -520,7 +520,6 @@ import QuartzCore
                     state: &state,
                     workingFrame: pass.insetFrame,
                     gaps: pass.gap,
-                    alwaysCenterSingleColumn: pass.engine.alwaysCenterSingleColumn,
                     fromContainerIndex: removal.originalColumnIndex
                 )
             }
@@ -564,13 +563,15 @@ import QuartzCore
                     resetViewportForSingleWindowAspectRatio(state: &state)
                 } else {
                     let cols = pass.engine.columns(in: pass.wsId)
+                    let settings = pass.engine.effectiveSettings(in: pass.wsId)
                     state.transitionToColumn(
                         0,
                         columns: cols,
                         gap: pass.gap,
                         viewportWidth: pass.insetFrame.width,
                         animate: false,
-                        centerMode: pass.engine.centerFocusedColumn
+                        centerMode: settings.centerFocusedColumn,
+                        alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn
                     )
                 }
             } else if let newCol = pass.engine.column(of: newNode),
@@ -588,7 +589,6 @@ import QuartzCore
                     state: &state,
                     workingFrame: pass.insetFrame,
                     gaps: pass.gap,
-                    alwaysCenterSingleColumn: pass.engine.alwaysCenterSingleColumn,
                     fromContainerIndex: state.activeColumnIndex
                 )
 
@@ -858,8 +858,7 @@ import QuartzCore
                 in: workspaceId,
                 state: &state,
                 workingFrame: monitor.visibleFrame,
-                gaps: gap,
-                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                gaps: gap
             )
         }
         activateNode(
@@ -1087,8 +1086,7 @@ import QuartzCore
                 in: workspaceId,
                 state: &state,
                 workingFrame: workingFrame,
-                gaps: gap,
-                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                gaps: gap
             )
         }
 

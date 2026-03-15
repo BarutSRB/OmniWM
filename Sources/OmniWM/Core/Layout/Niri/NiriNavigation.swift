@@ -27,7 +27,7 @@ extension NiriLayoutEngine {
 
         updateActiveTileIdx(for: currentSelection.id, in: currentColumn)
 
-        guard let targetIdx = wrapIndex(currentIdx + steps, total: cols.count) else {
+        guard let targetIdx = wrapIndex(currentIdx + steps, total: cols.count, in: workspaceId) else {
             return nil
         }
 
@@ -89,7 +89,6 @@ extension NiriLayoutEngine {
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             orientation: orientation
         )
 
@@ -167,7 +166,6 @@ extension NiriLayoutEngine {
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
-        alwaysCenterSingleColumn: Bool,
         orientation: Monitor.Orientation = .horizontal,
         animationConfig: SpringConfig? = nil,
         fromContainerIndex: Int? = nil,
@@ -209,6 +207,7 @@ extension NiriLayoutEngine {
         state.activatePrevColumnOnRemoval = nil
         state.viewOffsetToRestore = nil
 
+        let settings = effectiveSettings(in: workspaceId)
         state.ensureContainerVisible(
             containerIndex: targetIdx,
             containers: containers,
@@ -216,8 +215,8 @@ extension NiriLayoutEngine {
             viewportSpan: viewportSpan,
             sizeKeyPath: sizeKeyPath,
             animate: true,
-            centerMode: centerFocusedColumn,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            centerMode: settings.centerFocusedColumn,
+            alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
             animationConfig: animationConfig,
             fromContainerIndex: prevIdx
         )
@@ -259,7 +258,6 @@ extension NiriLayoutEngine {
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps,
-                alwaysCenterSingleColumn: alwaysCenterSingleColumn,
                 orientation: orientation
             )
         }
@@ -282,8 +280,7 @@ extension NiriLayoutEngine {
                 in: workspaceId,
                 state: &state,
                 workingFrame: workingFrame,
-                gaps: gaps,
-                alwaysCenterSingleColumn: alwaysCenterSingleColumn
+                gaps: gaps
             )
             return target
         }
@@ -363,8 +360,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
         return target
     }
@@ -447,8 +443,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
         return target
     }
@@ -476,8 +471,7 @@ extension NiriLayoutEngine {
             in: workspaceId,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            gaps: gaps
         )
 
         return previousWindow
