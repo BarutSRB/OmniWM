@@ -464,7 +464,7 @@ final class OverviewController {
         activeInteractionMonitorId = monitorId
         mutateLayout(for: monitorId) { layout in
             let screenFrame = viewportFrame(for: monitorId)
-            let nextOffset = layout.scrollOffset - delta
+            let nextOffset = layout.scrollOffset + delta
             layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
                 nextOffset,
                 layout: layout,
