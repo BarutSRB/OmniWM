@@ -95,6 +95,42 @@ final class StatusBarController: NSObject {
         menu = menuBuilder?.buildMenu()
     }
 
+    func refreshWorkspaces() {
+        guard let controller else { return }
+
+        // Gather workspace items from the first/primary monitor
+        let monitors = controller.workspaceManager.monitors
+        guard let monitor = monitors.first else { return }
+
+        let items = controller.workspaceBarItems(for: monitor, deduplicate: true, hideEmpty: false)
+
+        // Update button title to focused workspace name
+        if let button = statusItem?.button {
+            // Always keep the icon
+            if button.image == nil {
+                button.image = NSImage(systemSymbolName: "o.circle", accessibilityDescription: "OmniWM")
+                button.image?.isTemplate = true
+            }
+            if settings.statusBarShowWorkspaceName,
+               let focused = items.first(where: \.isFocused)
+            {
+                var title = " \(focused.name)"
+                if settings.statusBarShowAppNames,
+                   let focusedApp = focused.windows.first(where: \.isFocused)?.appName
+                {
+                    let appName = focusedApp.count > 15
+                        ? String(focusedApp.prefix(15)) + "\u{2026}"
+                        : focusedApp
+                    title += " \u{2013} \(appName)"
+                }
+                button.title = title
+                button.imagePosition = .imageLeft
+            } else {
+                button.title = ""
+            }
+        }
+    }
+
     func cleanup() {
         cleanupOwnedStatusItems()
     }

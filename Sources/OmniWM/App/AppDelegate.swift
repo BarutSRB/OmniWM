@@ -65,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defaults: defaults
         )
         statusBarController?.setup()
+        controller.statusBarController = statusBarController
     }
 
     private func runStartupResetGate(storedEpoch: Int?, defaults: UserDefaults) {
