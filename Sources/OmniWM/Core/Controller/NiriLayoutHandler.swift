@@ -199,7 +199,7 @@ import QuartzCore
     ) -> NiriWorkspaceSnapshot? {
         guard let controller else { return nil }
 
-        let entries = controller.workspaceManager.entries(in: wsId)
+        let entries = controller.workspaceManager.tiledEntries(in: wsId)
         let shouldResolveConstraints = viewportState == nil
         let windows = controller.layoutRefreshController.buildWindowSnapshots(
             for: entries,
@@ -911,7 +911,7 @@ import QuartzCore
                     lastNode, in: wsId, state: &state,
                     options: .init(activateWindow: false, ensureVisible: false, layoutRefresh: false, startAnimation: false)
                 )
-            } else if let firstToken = controller.workspaceManager.entries(in: wsId).first?.token,
+            } else if let firstToken = controller.workspaceManager.tiledEntries(in: wsId).first?.token,
                       let firstNode = engine.findNode(for: firstToken)
             {
                 activateNode(

@@ -16,7 +16,8 @@ private func makeWindowRuleFacts(
     hasZoomButton: Bool = true,
     hasMinimizeButton: Bool = true,
     appPolicy: NSApplication.ActivationPolicy? = .regular,
-    attributeFetchSucceeded: Bool = true
+    attributeFetchSucceeded: Bool = true,
+    sizeConstraints: WindowSizeConstraints? = nil
 ) -> WindowRuleFacts {
     WindowRuleFacts(
         appName: appName,
@@ -32,7 +33,8 @@ private func makeWindowRuleFacts(
             appPolicy: appPolicy,
             bundleId: bundleId,
             attributeFetchSucceeded: attributeFetchSucceeded
-        )
+        ),
+        sizeConstraints: sizeConstraints
     )
 }
 
@@ -140,30 +142,69 @@ private func makeWindowRuleFacts(
         #expect(decision.ruleEffects.matchedRuleId == specificRule.id)
     }
 
-    @Test func manualOverrideWinsOverUserRule() {
+    @Test func attributeFetchFailureReturnsUndecided() {
         let engine = WindowRuleEngine()
-        let token = WindowToken(pid: 42, windowId: 77)
-        engine.rebuild(
-            rules: [
-                AppRule(
-                    bundleId: "com.example.override",
-                    layout: .float,
-                    minHeight: 640
-                )
-            ]
-        )
-        engine.setManualOverride(.forceTile, for: token)
 
         let decision = engine.decision(
-            for: makeWindowRuleFacts(bundleId: "com.example.override"),
-            token: token,
+            for: makeWindowRuleFacts(
+                bundleId: "com.example.partial-ax",
+                attributeFetchSucceeded: false
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        #expect(decision.disposition == .undecided)
+        #expect(decision.heuristicReasons == [.attributeFetchFailed])
+    }
+
+    @Test func missingFullscreenButtonAloneDoesNotFloat() {
+        let engine = WindowRuleEngine()
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "com.example.standard",
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil
+            ),
+            token: nil,
             appFullscreen: false
         )
 
         #expect(decision.disposition == .managed)
-        #expect(decision.source == .manualOverride)
-        #expect(decision.ruleEffects.minHeight == 640)
-        #expect(engine.needsWindowReevaluation)
+        #expect(decision.heuristicReasons == [.missingFullscreenButton])
+    }
+
+    @Test func fixedSizeStandardWindowDefaultsToFloating() {
+        let engine = WindowRuleEngine()
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "com.example.dialog",
+                sizeConstraints: .fixed(size: CGSize(width: 420, height: 320))
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        #expect(decision.disposition == .floating)
+        #expect(decision.heuristicReasons == [.fixedSizeWindow])
+    }
+
+    @Test func untrustedNonStandardSubroleDefaultsToUnmanaged() {
+        let engine = WindowRuleEngine()
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "com.example.weird",
+                subrole: "AXWeirdTransientWindow"
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        #expect(decision.disposition == .unmanaged)
+        #expect(decision.heuristicReasons == [.nonStandardSubrole])
     }
 
     @Test func builtInPictureInPictureRuleEnablesTitleReevaluation() {

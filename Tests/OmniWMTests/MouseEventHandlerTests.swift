@@ -83,6 +83,7 @@ private func prepareMouseResizeFixture() async -> (
         windowId: 901,
         to: workspaceId
     )
+    controller.workspaceManager.setCachedConstraints(.unconstrained, for: token)
     guard let handle = controller.workspaceManager.handle(for: token) else {
         fatalError("Missing bridge handle for mouse fixture")
     }

@@ -5,7 +5,7 @@ import Testing
 @testable import OmniWM
 
 @Suite struct AXWindowServiceTests {
-    @Test func attributeFetchFailureProducesFloatingHeuristicReason() {
+    @Test func attributeFetchFailureProducesManagedDispositionAndFailureReason() {
         let decision = AXWindowService.heuristicDisposition(
             for: AXWindowFacts(
                 role: nil,
@@ -22,11 +22,11 @@ import Testing
             )
         )
 
-        #expect(decision.windowType == AXWindowType.floating)
+        #expect(decision.disposition == .managed)
         #expect(decision.reasons == [AXWindowHeuristicReason.attributeFetchFailed])
     }
 
-    @Test func missingFullscreenButtonProducesFloatingHeuristicReason() {
+    @Test func missingFullscreenButtonProducesWeakManagedHint() {
         let decision = AXWindowService.heuristicDisposition(
             for: AXWindowFacts(
                 role: kAXWindowRole as String,
@@ -43,7 +43,7 @@ import Testing
             )
         )
 
-        #expect(decision.windowType == AXWindowType.floating)
+        #expect(decision.disposition == .managed)
         #expect(decision.reasons == [AXWindowHeuristicReason.missingFullscreenButton])
     }
 
@@ -64,7 +64,7 @@ import Testing
             )
         )
 
-        #expect(decision.windowType == AXWindowType.tiling)
+        #expect(decision.disposition == .managed)
         #expect(decision.reasons.isEmpty)
     }
 
@@ -86,8 +86,72 @@ import Testing
             overriddenWindowType: AXWindowType.tiling
         )
 
-        #expect(decision.windowType == AXWindowType.tiling)
+        #expect(decision.disposition == .managed)
         #expect(decision.reasons.isEmpty)
+    }
+
+    @Test func fixedSizeStandardWindowDefaultsToFloating() {
+        let decision = AXWindowService.heuristicDisposition(
+            for: AXWindowFacts(
+                role: kAXWindowRole as String,
+                subrole: kAXStandardWindowSubrole as String,
+                title: "Dialog",
+                hasCloseButton: true,
+                hasFullscreenButton: true,
+                fullscreenButtonEnabled: true,
+                hasZoomButton: true,
+                hasMinimizeButton: true,
+                appPolicy: .regular,
+                bundleId: "com.example.dialog",
+                attributeFetchSucceeded: true
+            ),
+            sizeConstraints: .fixed(size: CGSize(width: 440, height: 320))
+        )
+
+        #expect(decision.disposition == .floating)
+        #expect(decision.reasons == [.fixedSizeWindow])
+    }
+
+    @Test func trustedFloatingSubroleDefaultsToFloating() {
+        let decision = AXWindowService.heuristicDisposition(
+            for: AXWindowFacts(
+                role: kAXWindowRole as String,
+                subrole: "AXDialog",
+                title: "Save",
+                hasCloseButton: true,
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil,
+                hasZoomButton: false,
+                hasMinimizeButton: false,
+                appPolicy: .regular,
+                bundleId: "com.example.dialog",
+                attributeFetchSucceeded: true
+            )
+        )
+
+        #expect(decision.disposition == .floating)
+        #expect(decision.reasons == [.trustedFloatingSubrole])
+    }
+
+    @Test func untrustedNonStandardSubroleDefaultsToUnmanaged() {
+        let decision = AXWindowService.heuristicDisposition(
+            for: AXWindowFacts(
+                role: kAXWindowRole as String,
+                subrole: "AXWeirdPopover",
+                title: "Transient",
+                hasCloseButton: true,
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil,
+                hasZoomButton: false,
+                hasMinimizeButton: false,
+                appPolicy: .regular,
+                bundleId: "com.example.popover",
+                attributeFetchSucceeded: true
+            )
+        )
+
+        #expect(decision.disposition == .unmanaged)
+        #expect(decision.reasons == [.nonStandardSubrole])
     }
 
     @Test func fullscreenEntryFromRightColumnUsesPositionThenSize() {

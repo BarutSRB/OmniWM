@@ -56,7 +56,8 @@ final class WorkspaceManager {
 
             var focusedToken: WindowToken?
             var pendingManagedFocus = PendingManagedFocusRequest()
-            var lastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
+            var lastTiledFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
+            var lastFloatingFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
             var isNonManagedFocusActive: Bool = false
             var isAppFullscreenActive: Bool = false
         }
@@ -555,9 +556,13 @@ final class WorkspaceManager {
 
     @discardableResult
     func rememberFocus(_ token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard sessionState.focus.lastFocusedByWorkspace[workspaceId] != token else { return false }
-        sessionState.focus.lastFocusedByWorkspace[workspaceId] = token
-        return true
+        let mode = windowMode(for: token) ?? .tiling
+        return setRememberedFocus(
+            token,
+            in: workspaceId,
+            mode: mode,
+            focus: &sessionState.focus
+        )
     }
 
     @discardableResult
@@ -629,39 +634,59 @@ final class WorkspaceManager {
     }
 
     func lastFocusedToken(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
-        sessionState.focus.lastFocusedByWorkspace[workspaceId]
+        sessionState.focus.lastTiledFocusedByWorkspace[workspaceId]
+    }
+
+    func lastFloatingFocusedToken(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
+        sessionState.focus.lastFloatingFocusedByWorkspace[workspaceId]
     }
 
     func preferredFocusToken(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
         if let pendingToken = sessionState.focus.pendingManagedFocus.token,
            sessionState.focus.pendingManagedFocus.workspaceId == workspaceId,
+           windowMode(for: pendingToken) == .tiling,
            entry(for: pendingToken)?.workspaceId == workspaceId
         {
             return pendingToken
         }
 
-        if let remembered = sessionState.focus.lastFocusedByWorkspace[workspaceId],
+        if let remembered = sessionState.focus.lastTiledFocusedByWorkspace[workspaceId],
            entry(for: remembered)?.workspaceId == workspaceId
         {
             return remembered
         }
 
         if let confirmed = sessionState.focus.focusedToken,
+           windowMode(for: confirmed) == .tiling,
            entry(for: confirmed)?.workspaceId == workspaceId
         {
             return confirmed
         }
 
-        return entries(in: workspaceId).first?.token
+        return tiledEntries(in: workspaceId).first?.token
     }
 
     func resolveWorkspaceFocusToken(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
-        if let remembered = sessionState.focus.lastFocusedByWorkspace[workspaceId],
+        if let remembered = sessionState.focus.lastTiledFocusedByWorkspace[workspaceId],
            entry(for: remembered)?.workspaceId == workspaceId
         {
             return remembered
         }
-        return entries(in: workspaceId).first?.token
+        if let preferredTiled = preferredFocusToken(in: workspaceId) {
+            return preferredTiled
+        }
+        if let rememberedFloating = sessionState.focus.lastFloatingFocusedByWorkspace[workspaceId],
+           entry(for: rememberedFloating)?.workspaceId == workspaceId
+        {
+            return rememberedFloating
+        }
+        if let confirmed = sessionState.focus.focusedToken,
+           windowMode(for: confirmed) == .floating,
+           entry(for: confirmed)?.workspaceId == workspaceId
+        {
+            return confirmed
+        }
+        return floatingEntries(in: workspaceId).first?.token
     }
 
     @discardableResult
@@ -737,11 +762,11 @@ final class WorkspaceManager {
                 focus: &focus
             ) || focusChanged
 
-            if let workspaceId,
-               focus.lastFocusedByWorkspace[workspaceId] == token
-            {
-                focus.lastFocusedByWorkspace[workspaceId] = nil
-            }
+            focusChanged = self.clearRememberedFocus(
+                token,
+                workspaceId: workspaceId,
+                focus: &focus
+            ) || focusChanged
 
             return focusChanged
         }
@@ -766,15 +791,13 @@ final class WorkspaceManager {
         focus: inout SessionState.FocusSession
     ) -> Bool {
         var changed = false
+        let mode = windowMode(for: token) ?? .tiling
 
         if focus.focusedToken != token {
             focus.focusedToken = token
             changed = true
         }
-        if focus.lastFocusedByWorkspace[workspaceId] != token {
-            focus.lastFocusedByWorkspace[workspaceId] = token
-            changed = true
-        }
+        changed = setRememberedFocus(token, in: workspaceId, mode: mode, focus: &focus) || changed
         if focus.isNonManagedFocusActive {
             focus.isNonManagedFocusActive = false
             changed = true
@@ -836,6 +859,142 @@ final class WorkspaceManager {
         guard request.token != nil || request.workspaceId != nil || request.monitorId != nil else { return false }
         focus.pendingManagedFocus = .init()
         return true
+    }
+
+    private func setRememberedFocus(
+        _ token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID,
+        mode: TrackedWindowMode,
+        focus: inout SessionState.FocusSession
+    ) -> Bool {
+        switch mode {
+        case .tiling:
+            guard focus.lastTiledFocusedByWorkspace[workspaceId] != token else { return false }
+            focus.lastTiledFocusedByWorkspace[workspaceId] = token
+            return true
+        case .floating:
+            guard focus.lastFloatingFocusedByWorkspace[workspaceId] != token else { return false }
+            focus.lastFloatingFocusedByWorkspace[workspaceId] = token
+            return true
+        }
+    }
+
+    private func clearRememberedFocus(
+        _ token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID?,
+        focus: inout SessionState.FocusSession
+    ) -> Bool {
+        var changed = false
+
+        if let workspaceId {
+            if focus.lastTiledFocusedByWorkspace[workspaceId] == token {
+                focus.lastTiledFocusedByWorkspace[workspaceId] = nil
+                changed = true
+            }
+            if focus.lastFloatingFocusedByWorkspace[workspaceId] == token {
+                focus.lastFloatingFocusedByWorkspace[workspaceId] = nil
+                changed = true
+            }
+            return changed
+        }
+
+        for (id, rememberedToken) in focus.lastTiledFocusedByWorkspace where rememberedToken == token {
+            focus.lastTiledFocusedByWorkspace[id] = nil
+            changed = true
+        }
+        for (id, rememberedToken) in focus.lastFloatingFocusedByWorkspace where rememberedToken == token {
+            focus.lastFloatingFocusedByWorkspace[id] = nil
+            changed = true
+        }
+
+        return changed
+    }
+
+    private func replaceRememberedFocus(
+        from oldToken: WindowToken,
+        to newToken: WindowToken,
+        focus: inout SessionState.FocusSession
+    ) -> Bool {
+        var changed = false
+
+        for (workspaceId, token) in focus.lastTiledFocusedByWorkspace where token == oldToken {
+            focus.lastTiledFocusedByWorkspace[workspaceId] = newToken
+            changed = true
+        }
+        for (workspaceId, token) in focus.lastFloatingFocusedByWorkspace where token == oldToken {
+            focus.lastFloatingFocusedByWorkspace[workspaceId] = newToken
+            changed = true
+        }
+
+        return changed
+    }
+
+    private func reconcileRememberedFocusAfterModeChange(
+        _ token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        oldMode: TrackedWindowMode,
+        newMode: TrackedWindowMode,
+        focus: inout SessionState.FocusSession
+    ) -> Bool {
+        guard oldMode != newMode else { return false }
+
+        var changed = false
+        switch oldMode {
+        case .tiling:
+            if focus.lastTiledFocusedByWorkspace[workspaceId] == token {
+                focus.lastTiledFocusedByWorkspace[workspaceId] = nil
+                changed = true
+            }
+        case .floating:
+            if focus.lastFloatingFocusedByWorkspace[workspaceId] == token {
+                focus.lastFloatingFocusedByWorkspace[workspaceId] = nil
+                changed = true
+            }
+        }
+
+        if focus.focusedToken == token || focus.pendingManagedFocus.token == token {
+            changed = setRememberedFocus(token, in: workspaceId, mode: newMode, focus: &focus) || changed
+        }
+
+        return changed
+    }
+
+    private func normalizedFloatingOrigin(
+        for frame: CGRect,
+        in visibleFrame: CGRect
+    ) -> CGPoint {
+        let availableWidth = max(1, visibleFrame.width - frame.width)
+        let availableHeight = max(1, visibleFrame.height - frame.height)
+        let normalizedX = (frame.origin.x - visibleFrame.minX) / availableWidth
+        let normalizedY = (frame.origin.y - visibleFrame.minY) / availableHeight
+        return CGPoint(
+            x: min(max(0, normalizedX), 1),
+            y: min(max(0, normalizedY), 1)
+        )
+    }
+
+    private func floatingOrigin(
+        from normalizedOrigin: CGPoint,
+        windowSize: CGSize,
+        in visibleFrame: CGRect
+    ) -> CGPoint {
+        let availableWidth = max(0, visibleFrame.width - windowSize.width)
+        let availableHeight = max(0, visibleFrame.height - windowSize.height)
+        return CGPoint(
+            x: visibleFrame.minX + min(max(0, normalizedOrigin.x), 1) * availableWidth,
+            y: visibleFrame.minY + min(max(0, normalizedOrigin.y), 1) * availableHeight
+        )
+    }
+
+    private func clampedFloatingFrame(
+        _ frame: CGRect,
+        in visibleFrame: CGRect
+    ) -> CGRect {
+        let maxX = visibleFrame.maxX - frame.width
+        let maxY = visibleFrame.maxY - frame.height
+        let clampedX = min(max(frame.origin.x, visibleFrame.minX), maxX >= visibleFrame.minX ? maxX : visibleFrame.minX)
+        let clampedY = min(max(frame.origin.y, visibleFrame.minY), maxY >= visibleFrame.minY ? maxY : visibleFrame.minY)
+        return CGRect(origin: CGPoint(x: clampedX, y: clampedY), size: frame.size)
     }
 
     private func rebuildMonitorIndexes() {
@@ -1027,6 +1186,7 @@ final class WorkspaceManager {
         pid: pid_t,
         windowId: Int,
         to workspace: WorkspaceDescriptor.ID,
+        mode: TrackedWindowMode = .tiling,
         ruleEffects: ManagedWindowRuleEffects = .none
     ) -> WindowToken {
         windows.upsert(
@@ -1034,6 +1194,7 @@ final class WorkspaceManager {
             pid: pid,
             windowId: windowId,
             workspace: workspace,
+            mode: mode,
             ruleEffects: ruleEffects
         )
     }
@@ -1065,12 +1226,7 @@ final class WorkspaceManager {
                 changed = true
             }
 
-            if !focus.lastFocusedByWorkspace.isEmpty {
-                for (workspaceId, token) in focus.lastFocusedByWorkspace where token == oldToken {
-                    focus.lastFocusedByWorkspace[workspaceId] = newToken
-                    changed = true
-                }
-            }
+            changed = self.replaceRememberedFocus(from: oldToken, to: newToken, focus: &focus) || changed
 
             return changed
         }
@@ -1084,6 +1240,14 @@ final class WorkspaceManager {
 
     func entries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
         windows.windows(in: workspace)
+    }
+
+    func tiledEntries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
+        windows.windows(in: workspace, mode: .tiling)
+    }
+
+    func floatingEntries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
+        windows.windows(in: workspace, mode: .floating)
     }
 
     func handle(for token: WindowToken) -> WindowHandle? {
@@ -1119,6 +1283,117 @@ final class WorkspaceManager {
 
     func allEntries() -> [WindowModel.Entry] {
         windows.allEntries()
+    }
+
+    func allTiledEntries() -> [WindowModel.Entry] {
+        windows.allEntries(mode: .tiling)
+    }
+
+    func allFloatingEntries() -> [WindowModel.Entry] {
+        windows.allEntries(mode: .floating)
+    }
+
+    func windowMode(for token: WindowToken) -> TrackedWindowMode? {
+        windows.mode(for: token)
+    }
+
+    @discardableResult
+    func setWindowMode(_ mode: TrackedWindowMode, for token: WindowToken) -> Bool {
+        guard let entry = entry(for: token) else { return false }
+        let oldMode = entry.mode
+        guard oldMode != mode else { return false }
+
+        windows.setMode(mode, for: token)
+        let workspaceId = entry.workspaceId
+        let focusChanged = updateFocusSession(notify: false) { focus in
+            self.reconcileRememberedFocusAfterModeChange(
+                token,
+                workspaceId: workspaceId,
+                oldMode: oldMode,
+                newMode: mode,
+                focus: &focus
+            )
+        }
+        if focusChanged {
+            notifySessionStateChanged()
+        }
+        return true
+    }
+
+    func floatingState(for token: WindowToken) -> WindowModel.FloatingState? {
+        windows.floatingState(for: token)
+    }
+
+    func setFloatingState(_ state: WindowModel.FloatingState?, for token: WindowToken) {
+        windows.setFloatingState(state, for: token)
+    }
+
+    func manualLayoutOverride(for token: WindowToken) -> ManualWindowOverride? {
+        windows.manualLayoutOverride(for: token)
+    }
+
+    func setManualLayoutOverride(_ override: ManualWindowOverride?, for token: WindowToken) {
+        windows.setManualLayoutOverride(override, for: token)
+    }
+
+    func updateFloatingGeometry(
+        frame: CGRect,
+        for token: WindowToken,
+        referenceMonitor: Monitor? = nil,
+        restoreToFloating: Bool = true
+    ) {
+        guard let entry = entry(for: token) else { return }
+
+        let resolvedReferenceMonitor = referenceMonitor
+            ?? frame.center.monitorApproximation(in: monitors)
+            ?? monitor(for: entry.workspaceId)
+        let referenceVisibleFrame = resolvedReferenceMonitor?.visibleFrame ?? frame
+        let normalizedOrigin = normalizedFloatingOrigin(
+            for: frame,
+            in: referenceVisibleFrame
+        )
+
+        windows.setFloatingState(
+            .init(
+                lastFrame: frame,
+                normalizedOrigin: normalizedOrigin,
+                referenceMonitorId: resolvedReferenceMonitor?.id,
+                restoreToFloating: restoreToFloating
+            ),
+            for: token
+        )
+    }
+
+    func resolvedFloatingFrame(
+        for token: WindowToken,
+        preferredMonitor: Monitor? = nil
+    ) -> CGRect? {
+        guard let entry = entry(for: token),
+              let floatingState = floatingState(for: token)
+        else {
+            return nil
+        }
+
+        let targetMonitor = preferredMonitor
+            ?? monitor(for: entry.workspaceId)
+            ?? floatingState.referenceMonitorId.flatMap { monitor(byId: $0) }
+        let visibleFrame = targetMonitor?.visibleFrame ?? floatingState.lastFrame
+
+        if let targetMonitor,
+           floatingState.referenceMonitorId == targetMonitor.id || floatingState.normalizedOrigin == nil
+        {
+            return clampedFloatingFrame(floatingState.lastFrame, in: visibleFrame)
+        }
+
+        let origin = floatingOrigin(
+            from: floatingState.normalizedOrigin ?? .zero,
+            windowSize: floatingState.lastFrame.size,
+            in: visibleFrame
+        )
+        return clampedFloatingFrame(
+            CGRect(origin: origin, size: floatingState.lastFrame.size),
+            in: visibleFrame
+        )
     }
 
     func removeMissing(keys activeKeys: Set<WindowModel.WindowKey>, requiredConsecutiveMisses: Int = 1) {
@@ -1363,7 +1638,8 @@ final class WorkspaceManager {
         for id in toRemove {
             workspacesById.removeValue(forKey: id)
             sessionState.workspaceSessions.removeValue(forKey: id)
-            sessionState.focus.lastFocusedByWorkspace.removeValue(forKey: id)
+            sessionState.focus.lastTiledFocusedByWorkspace.removeValue(forKey: id)
+            sessionState.focus.lastFloatingFocusedByWorkspace.removeValue(forKey: id)
         }
         if !toRemove.isEmpty {
             _cachedSortedWorkspaces = nil
@@ -1564,7 +1840,8 @@ final class WorkspaceManager {
         for id in ids {
             workspacesById.removeValue(forKey: id)
             sessionState.workspaceSessions.removeValue(forKey: id)
-            sessionState.focus.lastFocusedByWorkspace.removeValue(forKey: id)
+            sessionState.focus.lastTiledFocusedByWorkspace.removeValue(forKey: id)
+            sessionState.focus.lastFloatingFocusedByWorkspace.removeValue(forKey: id)
         }
 
         _cachedSortedWorkspaces = nil

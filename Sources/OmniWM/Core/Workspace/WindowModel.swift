@@ -1,10 +1,15 @@
 import CoreGraphics
 import Foundation
 
+enum TrackedWindowMode: Equatable, Sendable {
+    case tiling
+    case floating
+}
+
 final class WindowModel {
     typealias WindowKey = WindowToken
 
-    struct HiddenState {
+    struct HiddenState: Equatable {
         let proportionalPosition: CGPoint
         let referenceMonitorId: Monitor.ID?
         let workspaceInactive: Bool
@@ -23,10 +28,32 @@ final class WindowModel {
         }
     }
 
+    struct FloatingState: Equatable {
+        var lastFrame: CGRect
+        var normalizedOrigin: CGPoint?
+        var referenceMonitorId: Monitor.ID?
+        var restoreToFloating: Bool
+
+        init(
+            lastFrame: CGRect,
+            normalizedOrigin: CGPoint?,
+            referenceMonitorId: Monitor.ID?,
+            restoreToFloating: Bool
+        ) {
+            self.lastFrame = lastFrame
+            self.normalizedOrigin = normalizedOrigin
+            self.referenceMonitorId = referenceMonitorId
+            self.restoreToFloating = restoreToFloating
+        }
+    }
+
     final class Entry {
         let handle: WindowHandle
         var axRef: AXWindowRef
         var workspaceId: WorkspaceDescriptor.ID
+        var mode: TrackedWindowMode
+        var floatingState: FloatingState?
+        var manualLayoutOverride: ManualWindowOverride?
         var ruleEffects: ManagedWindowRuleEffects = .none
         var hiddenProportionalPosition: CGPoint?
         var hiddenReferenceMonitorId: Monitor.ID?
@@ -47,12 +74,18 @@ final class WindowModel {
             handle: WindowHandle,
             axRef: AXWindowRef,
             workspaceId: WorkspaceDescriptor.ID,
+            mode: TrackedWindowMode,
+            floatingState: FloatingState?,
+            manualLayoutOverride: ManualWindowOverride?,
             ruleEffects: ManagedWindowRuleEffects,
             hiddenProportionalPosition: CGPoint?
         ) {
             self.handle = handle
             self.axRef = axRef
             self.workspaceId = workspaceId
+            self.mode = mode
+            self.floatingState = floatingState
+            self.manualLayoutOverride = manualLayoutOverride
             self.ruleEffects = ruleEffects
             self.hiddenProportionalPosition = hiddenProportionalPosition
         }
@@ -102,12 +135,14 @@ final class WindowModel {
         pid: pid_t,
         windowId: Int,
         workspace: WorkspaceDescriptor.ID,
+        mode: TrackedWindowMode = .tiling,
         ruleEffects: ManagedWindowRuleEffects = .none
     ) -> WindowToken {
         let token = WindowToken(pid: pid, windowId: windowId)
         if let entry = entries[token] {
             entry.axRef = window
             updateWorkspace(for: token, workspace: workspace)
+            entry.mode = mode
             if entry.ruleEffects != ruleEffects {
                 entry.ruleEffects = ruleEffects
                 entry.cachedConstraints = nil
@@ -122,6 +157,9 @@ final class WindowModel {
             handle: handle,
             axRef: window,
             workspaceId: workspace,
+            mode: mode,
+            floatingState: nil,
+            manualLayoutOverride: nil,
             ruleEffects: ruleEffects,
             hiddenProportionalPosition: nil
         )
@@ -184,6 +222,13 @@ final class WindowModel {
         return tokens.compactMap { entries[$0] }
     }
 
+    func windows(
+        in workspace: WorkspaceDescriptor.ID,
+        mode: TrackedWindowMode
+    ) -> [Entry] {
+        windows(in: workspace).filter { $0.mode == mode }
+    }
+
     func workspace(for token: WindowToken) -> WorkspaceDescriptor.ID? {
         entries[token]?.workspaceId
     }
@@ -216,6 +261,34 @@ final class WindowModel {
 
     func allEntries() -> [Entry] {
         Array(entries.values)
+    }
+
+    func allEntries(mode: TrackedWindowMode) -> [Entry] {
+        entries.values.filter { $0.mode == mode }
+    }
+
+    func mode(for token: WindowToken) -> TrackedWindowMode? {
+        entries[token]?.mode
+    }
+
+    func setMode(_ mode: TrackedWindowMode, for token: WindowToken) {
+        entries[token]?.mode = mode
+    }
+
+    func floatingState(for token: WindowToken) -> FloatingState? {
+        entries[token]?.floatingState
+    }
+
+    func setFloatingState(_ state: FloatingState?, for token: WindowToken) {
+        entries[token]?.floatingState = state
+    }
+
+    func manualLayoutOverride(for token: WindowToken) -> ManualWindowOverride? {
+        entries[token]?.manualLayoutOverride
+    }
+
+    func setManualLayoutOverride(_ override: ManualWindowOverride?, for token: WindowToken) {
+        entries[token]?.manualLayoutOverride = override
     }
 
     func setHiddenState(_ state: HiddenState?, for token: WindowToken) {

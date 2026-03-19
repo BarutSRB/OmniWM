@@ -259,7 +259,7 @@ import QuartzCore
     ) -> DwindleWorkspaceSnapshot? {
         guard let controller else { return nil }
 
-        let entries = controller.workspaceManager.entries(in: wsId)
+        let entries = controller.workspaceManager.tiledEntries(in: wsId)
         let windows = controller.layoutRefreshController.buildWindowSnapshots(
             for: entries,
             resolveConstraints: resolveConstraints

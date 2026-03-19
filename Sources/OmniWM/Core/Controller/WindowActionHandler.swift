@@ -61,67 +61,52 @@ final class WindowActionHandler {
     func raiseAllFloatingWindows() {
         guard let controller else { return }
         guard let monitor = controller.monitorForInteraction() else { return }
+        guard let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id else { return }
 
-        let allWindows = SkyLight.shared.queryAllVisibleWindows()
+        let floatingEntries = controller.workspaceManager.floatingEntries(in: workspaceId).filter { entry in
+            entry.layoutReason == .standard && !controller.workspaceManager.isHiddenInCorner(entry.token)
+        }
+        guard !floatingEntries.isEmpty else { return }
 
-        let windowsOnMonitor = allWindows.filter { info in
-            let center = ScreenCoordinateSpace.toAppKit(rect: info.frame).center
-            return monitor.visibleFrame.contains(center)
+        let lastFloatingFocusedToken = controller.workspaceManager.lastFloatingFocusedToken(in: workspaceId)
+        let orderedEntries = floatingEntries.sorted { lhs, rhs in
+            switch (lhs.token == lastFloatingFocusedToken, rhs.token == lastFloatingFocusedToken) {
+            case (true, false):
+                return false
+            case (false, true):
+                return true
+            default:
+                if lhs.pid != rhs.pid {
+                    return lhs.pid < rhs.pid
+                }
+                return lhs.windowId < rhs.windowId
+            }
         }
 
-        let windowsByPid = Dictionary(grouping: windowsOnMonitor) { $0.pid }
-        let windowIdSet = Set(windowsOnMonitor.map(\.id))
+        for entry in orderedEntries {
+            SkyLight.shared.orderWindow(UInt32(entry.windowId), relativeTo: 0, order: .above)
+        }
 
-        var lastRaisedPid: pid_t?
-        var lastRaisedWindowId: UInt32?
-        var ownAppHasFloatingWindows = false
+        guard let focusEntry = orderedEntries.last else { return }
         let ownPid = ProcessInfo.processInfo.processIdentifier
 
-        for (pid, _) in windowsByPid {
-            guard let appInfo = controller.appInfoCache.info(for: pid),
-                  appInfo.activationPolicy != .prohibited else { continue }
-
-            let axApp = AXUIElementCreateApplication(pid)
-            var windowsRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-                  let windows = windowsRef as? [AXUIElement] else { continue }
-
-            for window in windows {
-                guard let axRef = try? AXWindowRef(element: window),
-                      windowIdSet.contains(UInt32(axRef.windowId)) else { continue }
-                let windowId = axRef.windowId
-
-                let decision = controller.decideWindowDisposition(
-                    axRef: axRef,
-                    pid: pid
-                )
-                guard decision.disposition == WindowDecisionDisposition.floating else { continue }
-
-                SkyLight.shared.orderWindow(UInt32(windowId), relativeTo: 0, order: .above)
-
-                if pid == ownPid {
-                    ownAppHasFloatingWindows = true
-                } else {
-                    lastRaisedPid = pid
-                    lastRaisedWindowId = UInt32(windowId)
-                }
-            }
-        }
-
-        if let pid = lastRaisedPid,
-           let windowId = lastRaisedWindowId,
-           let app = NSRunningApplication(processIdentifier: pid)
-        {
-            app.activate()
-            var psn = ProcessSerialNumber()
-            if GetProcessForPID(app.processIdentifier, &psn) == noErr {
-                _ = _SLPSSetFrontProcessWithOptions(&psn, windowId, kCPSUserGenerated)
-                makeKeyWindow(psn: &psn, windowId: windowId)
-            }
-        }
-
-        if ownAppHasFloatingWindows {
+        if focusEntry.pid == ownPid {
             NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        guard let appInfo = controller.appInfoCache.info(for: focusEntry.pid),
+              appInfo.activationPolicy != .prohibited,
+              let app = NSRunningApplication(processIdentifier: focusEntry.pid)
+        else {
+            return
+        }
+
+        app.activate()
+        var psn = ProcessSerialNumber()
+        if GetProcessForPID(app.processIdentifier, &psn) == noErr {
+            _ = _SLPSSetFrontProcessWithOptions(&psn, UInt32(focusEntry.windowId), kCPSUserGenerated)
+            makeKeyWindow(psn: &psn, windowId: UInt32(focusEntry.windowId))
         }
     }
 

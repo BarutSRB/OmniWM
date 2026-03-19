@@ -14,6 +14,7 @@ final class AXEventHandler: CGSEventDelegate {
         let bundleId: String?
         let axRef: AXWindowRef
         let workspaceId: WorkspaceDescriptor.ID
+        let mode: TrackedWindowMode
         let ruleEffects: ManagedWindowRuleEffects
     }
 
@@ -213,10 +214,22 @@ final class AXEventHandler: CGSEventDelegate {
     private func handleFrameChanged(windowId: UInt32) {
         guard let controller else { return }
         guard let token = resolveTrackedToken(windowId) else { return }
+        guard let entry = controller.workspaceManager.entry(for: token) else { return }
 
         updateFocusedBorderForFrameChange(token: token)
 
         guard isWindowDisplayable(token: token) else {
+            return
+        }
+
+        if entry.mode == .floating {
+            if let frame = frameProvider?(entry.axRef)
+                ?? fastFrameProvider?(entry.axRef)
+                ?? AXWindowService.framePreferFast(entry.axRef)
+                ?? (try? AXWindowService.frame(entry.axRef))
+            {
+                controller.workspaceManager.updateFloatingGeometry(frame: frame, for: token)
+            }
             return
         }
 
@@ -310,8 +323,22 @@ final class AXEventHandler: CGSEventDelegate {
             pid: candidate.token.pid,
             windowId: candidate.token.windowId,
             to: candidate.workspaceId,
+            mode: candidate.mode,
             ruleEffects: candidate.ruleEffects
         )
+
+        if candidate.mode == .floating,
+           let frame = frameProvider?(candidate.axRef)
+            ?? fastFrameProvider?(candidate.axRef)
+            ?? AXWindowService.framePreferFast(candidate.axRef)
+            ?? (try? AXWindowService.frame(candidate.axRef))
+        {
+            controller.workspaceManager.updateFloatingGeometry(
+                frame: frame,
+                for: candidate.token,
+                referenceMonitor: controller.workspaceManager.monitor(for: candidate.workspaceId)
+            )
+        }
 
         Task { @MainActor [weak self] in
             guard let self, let controller = self.controller else { return }
@@ -701,7 +728,12 @@ final class AXEventHandler: CGSEventDelegate {
             pid: token.pid,
             appFullscreen: appFullscreen
         )
-        guard evaluation.decision.managesWindow else { return nil }
+        guard let trackedMode = controller.trackedModeForLifecycle(
+            decision: evaluation.decision,
+            existingEntry: nil
+        ) else {
+            return nil
+        }
 
         let workspaceId = controller.resolveWorkspaceForNewWindow(
             workspaceName: evaluation.decision.workspaceName,
@@ -716,6 +748,7 @@ final class AXEventHandler: CGSEventDelegate {
             bundleId: bundleId,
             axRef: axRef,
             workspaceId: workspaceId,
+            mode: trackedMode,
             ruleEffects: evaluation.decision.ruleEffects
         )
     }

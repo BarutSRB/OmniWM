@@ -464,6 +464,12 @@ private func workspaceConfigurations(
             workspaceInactive: true,
             offscreenSide: .left
         )
+        let floatingState = WindowModel.FloatingState(
+            lastFrame: CGRect(x: 100, y: 120, width: 500, height: 380),
+            normalizedOrigin: CGPoint(x: 0.2, y: 0.3),
+            referenceMonitorId: monitor.id,
+            restoreToFloating: true
+        )
         let constraints = WindowSizeConstraints(
             minSize: CGSize(width: 320, height: 240),
             maxSize: CGSize(width: 960, height: 720),
@@ -474,6 +480,8 @@ private func workspaceConfigurations(
         _ = manager.beginManagedFocusRequest(handle, in: workspaceId, onMonitor: monitor.id)
         _ = manager.rememberFocus(handle, in: workspaceId)
         manager.setHiddenState(hiddenState, for: handle)
+        manager.setFloatingState(floatingState, for: handle.id)
+        manager.setManualLayoutOverride(.forceFloat, for: handle.id)
         manager.setLayoutReason(.macosHiddenApp, for: handle)
         manager.setCachedConstraints(constraints, for: handle.id)
 
@@ -505,8 +513,117 @@ private func workspaceConfigurations(
         #expect(rekeyedHiddenState.referenceMonitorId == hiddenState.referenceMonitorId)
         #expect(rekeyedHiddenState.workspaceInactive == hiddenState.workspaceInactive)
         #expect(rekeyedHiddenState.offscreenSide == hiddenState.offscreenSide)
+        #expect(manager.floatingState(for: newToken) == floatingState)
+        #expect(manager.manualLayoutOverride(for: newToken) == .forceFloat)
         #expect(manager.layoutReason(for: newToken) == .macosHiddenApp)
         #expect(manager.cachedConstraints(for: newToken) == constraints)
+    }
+
+    @Test @MainActor func floatingFocusDoesNotPoisonTiledPreferredFocus() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "1", monitorAssignment: .main)
+        ]
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 12, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspaceId = manager.workspaceId(for: "1", createIfMissing: true) else {
+            Issue.record("Failed to create workspace")
+            return
+        }
+
+        let tiledToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2201),
+            pid: 2201,
+            windowId: 2201,
+            to: workspaceId
+        )
+        let floatingToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2202),
+            pid: 2202,
+            windowId: 2202,
+            to: workspaceId,
+            mode: .floating
+        )
+
+        _ = manager.setManagedFocus(tiledToken, in: workspaceId, onMonitor: monitor.id)
+        _ = manager.setManagedFocus(floatingToken, in: workspaceId, onMonitor: monitor.id)
+
+        #expect(manager.lastFocusedToken(in: workspaceId) == tiledToken)
+        #expect(manager.lastFloatingFocusedToken(in: workspaceId) == floatingToken)
+        #expect(manager.preferredFocusToken(in: workspaceId) == tiledToken)
+        #expect(manager.resolveWorkspaceFocusToken(in: workspaceId) == tiledToken)
+    }
+
+    @Test @MainActor func resolveWorkspaceFocusFallsBackToFloatingWhenNoTiledWindowExists() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "1", monitorAssignment: .main)
+        ]
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 13, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspaceId = manager.workspaceId(for: "1", createIfMissing: true) else {
+            Issue.record("Failed to create workspace")
+            return
+        }
+
+        let floatingToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2203),
+            pid: 2203,
+            windowId: 2203,
+            to: workspaceId,
+            mode: .floating
+        )
+        _ = manager.setManagedFocus(floatingToken, in: workspaceId, onMonitor: monitor.id)
+
+        #expect(manager.preferredFocusToken(in: workspaceId) == nil)
+        #expect(manager.resolveWorkspaceFocusToken(in: workspaceId) == floatingToken)
+    }
+
+    @Test @MainActor func resolvedFloatingFrameUsesNormalizedOriginOnMonitorChange() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "1", monitorAssignment: .main)
+        ]
+
+        let manager = WorkspaceManager(settings: settings)
+        let left = makeWorkspaceManagerTestMonitor(displayId: 14, name: "Left", x: 0, y: 0)
+        let right = makeWorkspaceManagerTestMonitor(displayId: 15, name: "Right", x: 1920, y: 0)
+        manager.applyMonitorConfigurationChange([left, right])
+
+        guard let workspaceId = manager.workspaceId(for: "1", createIfMissing: true) else {
+            Issue.record("Failed to create workspace")
+            return
+        }
+
+        let token = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2204),
+            pid: 2204,
+            windowId: 2204,
+            to: workspaceId,
+            mode: .floating
+        )
+        manager.setFloatingState(
+            .init(
+                lastFrame: CGRect(x: 200, y: 150, width: 400, height: 300),
+                normalizedOrigin: CGPoint(x: 0.75, y: 0.5),
+                referenceMonitorId: left.id,
+                restoreToFloating: true
+            ),
+            for: token
+        )
+
+        let resolved = manager.resolvedFloatingFrame(for: token, preferredMonitor: right)
+
+        #expect(resolved == CGRect(x: 3060, y: 390, width: 400, height: 300))
     }
 
     @Test @MainActor func resolveWorkspaceFocusIgnoresDeadRememberedHandles() {

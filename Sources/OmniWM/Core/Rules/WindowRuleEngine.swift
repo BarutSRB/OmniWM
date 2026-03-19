@@ -39,6 +39,21 @@ struct WindowDecision: Equatable, Sendable {
         disposition == .managed
     }
 
+    var trackedMode: TrackedWindowMode? {
+        switch disposition {
+        case .managed:
+            .tiling
+        case .floating:
+            .floating
+        case .unmanaged, .undecided:
+            nil
+        }
+    }
+
+    var tracksWindow: Bool {
+        trackedMode != nil
+    }
+
     var isResolved: Bool {
         disposition != .undecided
     }
@@ -47,6 +62,7 @@ struct WindowDecision: Equatable, Sendable {
 struct WindowRuleFacts: Equatable, Sendable {
     let appName: String?
     let ax: AXWindowFacts
+    let sizeConstraints: WindowSizeConstraints?
 }
 
 enum WindowRuleReevaluationTarget: Hashable, Sendable {
@@ -180,7 +196,6 @@ final class WindowRuleEngine {
         }
     }
 
-    private(set) var manualOverrides: [WindowToken: ManualWindowOverride] = [:]
     private var compiledUserRules: [CompiledRule] = []
     private let builtInRules: [CompiledRule]
     private var titleFetchBundleIds: Set<String> = []
@@ -196,12 +211,8 @@ final class WindowRuleEngine {
         hasDynamicReevaluationRules = builtInRules.contains { $0.requiresDynamicReevaluation }
     }
 
-    var hasManualOverrides: Bool {
-        !manualOverrides.isEmpty
-    }
-
     var needsWindowReevaluation: Bool {
-        hasDynamicReevaluationRules || hasManualOverrides
+        hasDynamicReevaluationRules
     }
 
     func requiresTitle(for bundleId: String?) -> Bool {
@@ -229,18 +240,6 @@ final class WindowRuleEngine {
             || builtInRules.contains { $0.requiresDynamicReevaluation }
     }
 
-    func manualOverride(for token: WindowToken) -> ManualWindowOverride? {
-        manualOverrides[token]
-    }
-
-    func setManualOverride(_ override: ManualWindowOverride?, for token: WindowToken) {
-        manualOverrides[token] = override
-    }
-
-    func clearManualOverride(for token: WindowToken) {
-        manualOverrides.removeValue(forKey: token)
-    }
-
     func decision(
         for facts: WindowRuleFacts,
         token: WindowToken?,
@@ -255,16 +254,6 @@ final class WindowRuleEngine {
             minHeight: userRule?.rule.minHeight,
             matchedRuleId: userRule?.rule.id
         )
-
-        if let token, let override = manualOverrides[token] {
-            return WindowDecision(
-                disposition: override == .forceTile ? .managed : .floating,
-                source: .manualOverride,
-                workspaceName: workspaceName,
-                ruleEffects: effects,
-                heuristicReasons: []
-            )
-        }
 
         if let userRule,
            let userDecision = explicitDecision(
@@ -308,10 +297,13 @@ final class WindowRuleEngine {
             )
         }
 
-        let heuristic = AXWindowService.heuristicDisposition(for: facts.ax)
+        let heuristic = AXWindowService.heuristicDisposition(
+            for: facts.ax,
+            sizeConstraints: facts.sizeConstraints
+        )
 
         return WindowDecision(
-            disposition: heuristic.windowType == .tiling ? .managed : .floating,
+            disposition: heuristic.disposition,
             source: userRule.map { .userRule($0.rule.id) } ?? .heuristic,
             workspaceName: workspaceName,
             ruleEffects: effects,

@@ -999,37 +999,21 @@ import QuartzCore
             let decision = evaluation.decision
             let existingEntry = controller.workspaceManager.entry(for: token)
 
-            if let existingEntry, !decision.isResolved {
-                if appFullscreen {
-                    _ = controller.workspaceManager.markNativeFullscreenSuspended(existingEntry.token)
-                } else if controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token) != nil
-                    || existingEntry.layoutReason == .nativeFullscreen
-                {
-                    _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
-                }
-
-                _ = controller.workspaceManager.addWindow(
-                    ax,
-                    pid: pid,
-                    windowId: winId,
-                    to: existingEntry.workspaceId,
-                    ruleEffects: existingEntry.ruleEffects
-                )
-                seenKeys.insert(token)
-                continue
-            }
-
-            guard decision.managesWindow else {
+            guard let trackedMode = controller.trackedModeForLifecycle(
+                decision: decision,
+                existingEntry: existingEntry
+            ) else {
                 if existingEntry != nil {
                     decisionBasedRemovals.append(token)
                 }
                 continue
             }
 
-            let defaultWorkspace = controller.resolveWorkspaceForNewWindow(
-                workspaceName: decision.workspaceName,
+            let defaultWorkspace = controller.resolvedWorkspaceId(
+                for: evaluation,
                 axRef: ax,
                 pid: pid,
+                existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId
             )
             if controller.workspaceAssignment(pid: pid, windowId: winId) == nil {
@@ -1053,14 +1037,30 @@ import QuartzCore
             }
             let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
             let wsForWindow = existingAssignment ?? defaultWorkspace
+            let oldMode = existingEntry?.mode
 
             _ = controller.workspaceManager.addWindow(
                 ax,
                 pid: pid,
                 windowId: winId,
                 to: wsForWindow,
+                mode: oldMode ?? trackedMode,
                 ruleEffects: decision.ruleEffects
             )
+
+            if let oldMode, oldMode != trackedMode {
+                _ = controller.transitionWindowMode(
+                    for: token,
+                    to: trackedMode,
+                    preferredMonitor: controller.workspaceManager.monitor(for: wsForWindow),
+                    applyFloatingFrame: false
+                )
+            } else if trackedMode == .floating {
+                controller.seedFloatingGeometryIfNeeded(
+                    for: token,
+                    preferredMonitor: controller.workspaceManager.monitor(for: wsForWindow)
+                )
+            }
             seenKeys.insert(token)
         }
 
@@ -1792,6 +1792,19 @@ import QuartzCore
         monitor: Monitor,
         hiddenState: WindowModel.HiddenState
     ) {
+        if entry.mode == .floating,
+           hiddenState.workspaceInactive,
+           let controller,
+           let frame = controller.workspaceManager.resolvedFloatingFrame(
+               for: entry.token,
+               preferredMonitor: monitor
+           )
+        {
+            controller.axManager.forceApplyNextFrame(for: entry.windowId)
+            controller.axManager.applyFramesParallel([(entry.pid, entry.windowId, frame)])
+            return
+        }
+
         if let plan = makeRestorePositionPlan(
             for: entry,
             monitor: monitor,
@@ -1890,7 +1903,7 @@ import QuartzCore
         updateEngine: (WindowToken, WindowSizeConstraints) -> Void
     ) {
         guard let controller else { return }
-        let snapshots = buildWindowSnapshots(for: controller.workspaceManager.entries(in: wsId))
+        let snapshots = buildWindowSnapshots(for: controller.workspaceManager.tiledEntries(in: wsId))
         for snapshot in snapshots {
             updateEngine(snapshot.token, snapshot.constraints)
         }

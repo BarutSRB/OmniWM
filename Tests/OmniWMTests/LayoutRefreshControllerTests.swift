@@ -420,6 +420,47 @@ import Testing
         #expect(controller.axManager.lastAppliedFrame(for: 505) == frame)
     }
 
+    @Test @MainActor func unhideWorkspaceRestoresFloatingWindowFromOwnedFloatingState() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for floating restore test")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 560),
+            pid: 560,
+            windowId: 560,
+            to: workspaceId,
+            mode: .floating
+        )
+        let floatingFrame = CGRect(x: 180, y: 140, width: 520, height: 360)
+        controller.workspaceManager.setFloatingState(
+            .init(
+                lastFrame: floatingFrame,
+                normalizedOrigin: CGPoint(x: 0.3, y: 0.25),
+                referenceMonitorId: monitor.id,
+                restoreToFloating: true
+            ),
+            for: token
+        )
+        controller.workspaceManager.setHiddenState(
+            .init(
+                proportionalPosition: CGPoint(x: 0.9, y: 0.9),
+                referenceMonitorId: monitor.id,
+                workspaceInactive: true
+            ),
+            for: token
+        )
+
+        controller.layoutRefreshController.unhideWorkspace(workspaceId, monitor: monitor)
+
+        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+        #expect(controller.axManager.lastAppliedFrame(for: 560) == floatingFrame)
+    }
+
     @Test @MainActor func hideWindowWithoutResolvedGeometryDoesNotMarkWindowHidden() {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
