@@ -3,12 +3,48 @@ import Foundation
 import ScreenCaptureKit
 
 @MainActor
+struct OverviewEnvironment {
+    var frontmostApplicationPID: () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+    var currentProcessID: () -> pid_t = { getpid() }
+    var activateOmniWM: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
+    var activateApplication: (pid_t) -> Void = { pid in
+        NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+    }
+    var addLocalEventMonitor: (
+        NSEvent.EventTypeMask,
+        @escaping (NSEvent) -> NSEvent?
+    ) -> Any? = { mask, handler in
+        NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+    }
+    var removeEventMonitor: (Any) -> Void = { monitor in
+        NSEvent.removeMonitor(monitor)
+    }
+    var notificationCenter: NotificationCenter = .default
+    var selectionDismissDelayNanoseconds: UInt64 = 50_000_000
+}
+
+@MainActor
 final class OverviewController {
     private enum ScrollTuning {
         static let preciseScrollMultiplier: CGFloat = 3.5
         static let nonPreciseScrollMultiplier: CGFloat = 2.0
         static let zoomStep: CGFloat = 0.05
         static let zoomEpsilon: CGFloat = 0.0001
+    }
+
+    enum OverviewDismissReason {
+        case cancel
+        case selection
+        case externalDeactivation
+
+        var shouldRestorePreviousApplication: Bool {
+            switch self {
+            case .cancel:
+                true
+            case .selection, .externalDeactivation:
+                false
+            }
+        }
     }
 
     private struct OverviewSnapshot {
@@ -21,6 +57,8 @@ final class OverviewController {
     }
 
     private weak var wmController: WMController?
+    private let environment: OverviewEnvironment
+    private let ownedWindowRegistry: OwnedWindowRegistry
 
     private(set) var state: OverviewState = .closed
     private var overviewSnapshot = OverviewSnapshot()
@@ -34,6 +72,12 @@ final class OverviewController {
     private var animator: OverviewAnimator?
     private var thumbnailCache: [Int: CGImage] = [:]
     private var thumbnailCaptureTask: Task<Void, Never>?
+    private var keyEventMonitor: Any?
+    private var flagsEventMonitor: Any?
+    private var applicationDidResignObserver: NSObjectProtocol?
+    private var previousFrontmostApplicationPID: pid_t?
+    private var pendingDismissReason: OverviewDismissReason = .cancel
+    private var pendingFocusTargetWindow: WindowHandle?
 
     private var inputHandler: OverviewInputHandler?
     private var dragGhostController: DragGhostController?
@@ -43,8 +87,14 @@ final class OverviewController {
     var onCloseWindow: ((WindowHandle) -> Void)?
     var isOpen: Bool { state.isOpen }
 
-    init(wmController: WMController) {
+    init(
+        wmController: WMController,
+        environment: OverviewEnvironment = .init(),
+        ownedWindowRegistry: OwnedWindowRegistry = .shared
+    ) {
         self.wmController = wmController
+        self.environment = environment
+        self.ownedWindowRegistry = ownedWindowRegistry
         animator = OverviewAnimator(controller: self)
         inputHandler = OverviewInputHandler(controller: self)
     }
@@ -54,7 +104,7 @@ final class OverviewController {
         case .closed:
             open()
         case .open:
-            dismiss()
+            dismiss(reason: .cancel)
         case .opening, .closing:
             break
         }
@@ -66,6 +116,7 @@ final class OverviewController {
 
         buildOverviewState()
         createWindows()
+        beginOwnedSession()
         startThumbnailCapture()
 
         let monitor = animationMonitor()
@@ -76,26 +127,48 @@ final class OverviewController {
         animator?.startOpenAnimation(displayId: displayId, refreshRate: refreshRate)
 
         updateWindowDisplays()
-
-        for window in windows {
-            window.show()
-        }
+        showWindows()
+        activateOwnedSession()
+        primaryOverviewWindow()?.show(asKeyWindow: true)
     }
 
-    func dismiss() {
-        guard state.isOpen else { return }
+    func dismiss(
+        reason: OverviewDismissReason = .cancel,
+        targetWindow: WindowHandle? = nil,
+        animated: Bool = true
+    ) {
+        switch state {
+        case .closed:
+            return
+        case .closing:
+            if reason == .externalDeactivation {
+                pendingDismissReason = .externalDeactivation
+                pendingFocusTargetWindow = nil
+            }
+            return
+        case .opening, .open:
+            break
+        }
 
-        let targetWindow = selectedWindowHandle
+        let resolvedTargetWindow = reason == .selection ? targetWindow : nil
+        pendingDismissReason = reason
+        pendingFocusTargetWindow = resolvedTargetWindow
+
         let monitor = animationMonitor()
         let displayId = monitor?.displayId ?? CGMainDisplayID()
         let refreshRate = detectRefreshRate(for: displayId)
 
-        state = .closing(targetWindow: targetWindow, progress: 0)
-        animator?.startCloseAnimation(
-            targetWindow: targetWindow,
-            displayId: displayId,
-            refreshRate: refreshRate
-        )
+        state = .closing(targetWindow: resolvedTargetWindow, progress: 0)
+
+        if animated {
+            animator?.startCloseAnimation(
+                targetWindow: resolvedTargetWindow,
+                displayId: displayId,
+                refreshRate: refreshRate
+            )
+        } else {
+            completeCloseTransition(targetWindow: resolvedTargetWindow)
+        }
     }
 
     private func buildOverviewState() {
@@ -240,20 +313,17 @@ final class OverviewController {
         for monitor in wmController.workspaceManager.monitors {
             let window = OverviewWindow(monitor: monitor)
 
-            window.onWindowSelected = { [weak self] handle in
+            window.onWindowSelected = { [weak self] monitorId, handle in
+                self?.activeInteractionMonitorId = monitorId
                 self?.selectAndActivateWindow(handle)
             }
-            window.onWindowClosed = { [weak self] handle in
+            window.onWindowClosed = { [weak self] monitorId, handle in
+                self?.activeInteractionMonitorId = monitorId
                 self?.closeWindow(handle)
             }
-            window.onDismiss = { [weak self] in
-                self?.dismiss()
-            }
-            window.onSearchChanged = { [weak self] query in
-                self?.updateSearchQuery(query)
-            }
-            window.onNavigate = { [weak self] monitorId, direction in
-                self?.navigateSelection(direction, on: monitorId)
+            window.onDismiss = { [weak self] monitorId in
+                self?.activeInteractionMonitorId = monitorId
+                self?.dismiss(reason: .cancel)
             }
             window.onScroll = { [weak self] monitorId, delta in
                 self?.adjustScrollOffset(by: delta, on: monitorId)
@@ -283,8 +353,28 @@ final class OverviewController {
         }
     }
 
+    private func showWindows() {
+        let primaryWindow = primaryOverviewWindow()
+
+        if let primaryWindow {
+            primaryWindow.show(asKeyWindow: true)
+            ownedWindowRegistry.register(primaryWindow)
+        }
+
+        for window in windows where primaryWindow == nil || window !== primaryWindow {
+            window.show(asKeyWindow: false)
+            ownedWindowRegistry.register(window)
+        }
+    }
+
+    private func primaryOverviewWindow() -> OverviewWindow? {
+        guard let primaryMonitorId = activeInteractionMonitorId ?? windows.first?.monitorId else { return nil }
+        return windows.first(where: { $0.monitorId == primaryMonitorId })
+    }
+
     private func closeWindows() {
         for window in windows {
+            ownedWindowRegistry.unregister(window)
             window.hide()
             window.close()
         }
@@ -403,9 +493,27 @@ final class OverviewController {
 
     func onAnimationComplete(state: OverviewState) {
         self.state = state
+        updateWindowDisplays()
+    }
 
-        if case .closed = state {
-            cleanup()
+    func completeCloseTransition(targetWindow: WindowHandle?) {
+        let dismissReason = pendingDismissReason
+        let previousFrontmostApplicationPID = previousFrontmostApplicationPID
+        let resolvedTargetWindow = pendingFocusTargetWindow == targetWindow ? targetWindow : pendingFocusTargetWindow
+
+        animator?.cancelAnimation()
+        state = .closed
+        cleanup()
+        endOwnedSession()
+
+        if dismissReason.shouldRestorePreviousApplication,
+           let previousFrontmostApplicationPID
+        {
+            environment.activateApplication(previousFrontmostApplicationPID)
+        } else if dismissReason == .selection,
+                  let resolvedTargetWindow
+        {
+            focusTargetWindow(resolvedTargetWindow)
         }
 
         updateWindowDisplays()
@@ -423,8 +531,9 @@ final class OverviewController {
         updateWindowDisplays()
 
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            self.dismiss()
+            try? await Task.sleep(nanoseconds: self.environment.selectionDismissDelayNanoseconds)
+            guard self.state.isOpen else { return }
+            self.dismiss(reason: .selection, targetWindow: handle)
         }
     }
 
@@ -527,6 +636,23 @@ final class OverviewController {
         adjustScrollOffset(by: delta * multiplier, on: monitorId)
     }
 
+    func beginOwnedSession() {
+        capturePreviousFrontmostApplication()
+        installEventMonitors()
+        installApplicationDidResignObserver()
+        pendingDismissReason = .cancel
+        pendingFocusTargetWindow = nil
+    }
+
+    func activateOwnedSession() {
+        environment.activateOmniWM()
+    }
+
+    func handleApplicationDidResignActive() {
+        guard state.isOpen else { return }
+        dismiss(reason: .externalDeactivation)
+    }
+
     private func cleanup() {
         thumbnailCaptureTask?.cancel()
         thumbnailCaptureTask = nil
@@ -542,6 +668,76 @@ final class OverviewController {
         dragGhostController = nil
         dragSession = nil
         closeWindows()
+    }
+
+    private func capturePreviousFrontmostApplication() {
+        guard let frontmostPID = environment.frontmostApplicationPID(),
+              frontmostPID != environment.currentProcessID()
+        else {
+            previousFrontmostApplicationPID = nil
+            return
+        }
+
+        previousFrontmostApplicationPID = frontmostPID
+    }
+
+    private func installEventMonitors() {
+        removeEventMonitors()
+        keyEventMonitor = environment.addLocalEventMonitor([.keyDown]) { [weak self] event in
+            guard let self else { return event }
+            return self.inputHandler?.handleKeyDown(event) == true ? nil : event
+        }
+        flagsEventMonitor = environment.addLocalEventMonitor([.flagsChanged]) { [weak self] event in
+            self?.handleModifierFlagsChanged(event.modifierFlags)
+            return event
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let keyEventMonitor {
+            environment.removeEventMonitor(keyEventMonitor)
+            self.keyEventMonitor = nil
+        }
+        if let flagsEventMonitor {
+            environment.removeEventMonitor(flagsEventMonitor)
+            self.flagsEventMonitor = nil
+        }
+    }
+
+    private func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {
+        guard state.isOpen else { return }
+        let optionPressed = modifierFlags.contains(.option)
+        for window in windows {
+            window.cancelPendingDragIfNeeded(optionPressed: optionPressed)
+        }
+    }
+
+    private func installApplicationDidResignObserver() {
+        removeApplicationDidResignObserver()
+        applicationDidResignObserver = environment.notificationCenter.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleApplicationDidResignActive()
+            }
+        }
+    }
+
+    private func removeApplicationDidResignObserver() {
+        if let applicationDidResignObserver {
+            environment.notificationCenter.removeObserver(applicationDidResignObserver)
+            self.applicationDidResignObserver = nil
+        }
+    }
+
+    private func endOwnedSession() {
+        removeEventMonitors()
+        removeApplicationDidResignObserver()
+        previousFrontmostApplicationPID = nil
+        pendingDismissReason = .cancel
+        pendingFocusTargetWindow = nil
     }
 
     private func detectRefreshRate(for displayId: CGDirectDisplayID) -> Double {
@@ -650,6 +846,7 @@ final class OverviewController {
 
     deinit {
         MainActor.assumeIsolated {
+            endOwnedSession()
             cleanup()
         }
     }

@@ -8,11 +8,9 @@ final class OverviewWindow: NSPanel {
 
     var monitorId: Monitor.ID { monitor.id }
 
-    var onWindowSelected: ((WindowHandle) -> Void)?
-    var onWindowClosed: ((WindowHandle) -> Void)?
-    var onDismiss: (() -> Void)?
-    var onSearchChanged: ((String) -> Void)?
-    var onNavigate: ((Monitor.ID, Direction) -> Void)?
+    var onWindowSelected: ((Monitor.ID, WindowHandle) -> Void)?
+    var onWindowClosed: ((Monitor.ID, WindowHandle) -> Void)?
+    var onDismiss: ((Monitor.ID) -> Void)?
     var onScroll: ((Monitor.ID, CGFloat) -> Void)?
     var onScrollWithModifiers: ((Monitor.ID, CGFloat, NSEvent.ModifierFlags, Bool) -> Void)?
     var onDragBegin: ((Monitor.ID, WindowHandle, CGPoint) -> Void)?
@@ -26,7 +24,7 @@ final class OverviewWindow: NSPanel {
 
         super.init(
             contentRect: monitor.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -49,20 +47,16 @@ final class OverviewWindow: NSPanel {
         overlayView.frame = CGRect(origin: .zero, size: monitor.frame.size)
 
         overlayView.onWindowSelected = { [weak self] handle in
-            self?.onWindowSelected?(handle)
+            guard let self else { return }
+            self.onWindowSelected?(self.monitor.id, handle)
         }
         overlayView.onWindowClosed = { [weak self] handle in
-            self?.onWindowClosed?(handle)
+            guard let self else { return }
+            self.onWindowClosed?(self.monitor.id, handle)
         }
         overlayView.onDismiss = { [weak self] in
-            self?.onDismiss?()
-        }
-        overlayView.onSearchChanged = { [weak self] query in
-            self?.onSearchChanged?(query)
-        }
-        overlayView.onNavigate = { [weak self] direction in
             guard let self else { return }
-            self.onNavigate?(self.monitor.id, direction)
+            self.onDismiss?(self.monitor.id)
         }
         overlayView.onScroll = { [weak self] delta in
             guard let self else { return }
@@ -92,14 +86,23 @@ final class OverviewWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    func show() {
+    func show(asKeyWindow: Bool) {
         setFrame(monitor.frame, display: false)
         overlayView.frame = CGRect(origin: .zero, size: monitor.frame.size)
-        makeKeyAndOrderFront(nil)
+        if asKeyWindow {
+            makeKeyAndOrderFront(nil)
+            makeFirstResponder(overlayView)
+        } else {
+            orderFrontRegardless()
+        }
     }
 
     func hide() {
         orderOut(nil)
+    }
+
+    func cancelPendingDragIfNeeded(optionPressed: Bool) {
+        overlayView.cancelPendingDragIfNeeded(optionPressed: optionPressed)
     }
 
     func updateLayout(_ layout: OverviewLayout, state: OverviewState, searchQuery: String) {
@@ -125,8 +128,6 @@ final class OverviewView: NSView {
     var onWindowSelected: ((WindowHandle) -> Void)?
     var onWindowClosed: ((WindowHandle) -> Void)?
     var onDismiss: (() -> Void)?
-    var onSearchChanged: ((String) -> Void)?
-    var onNavigate: ((Direction) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
     var onScrollWithModifiers: ((CGFloat, NSEvent.ModifierFlags, Bool) -> Void)?
     var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
@@ -135,8 +136,6 @@ final class OverviewView: NSView {
     var onDragCancel: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?
-    private var keyMonitor: Any?
-    private var flagsMonitor: Any?
     private var dragCandidateHandle: WindowHandle?
     private var dragStartPoint: CGPoint = .zero
     private var isDragging: Bool = false
@@ -146,94 +145,11 @@ final class OverviewView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        setupKeyMonitor()
     }
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        MainActor.assumeIsolated {
-            if let monitor = keyMonitor {
-                NSEvent.removeMonitor(monitor)
-            }
-            if let monitor = flagsMonitor {
-                NSEvent.removeMonitor(monitor)
-            }
-        }
-    }
-
-    private func setupKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard let self else { return event }
-            return handleKeyDown(event) ? nil : event
-        }
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            guard let self else { return event }
-            if (self.isDragging || self.dragCandidateHandle != nil),
-               !event.modifierFlags.contains(.option)
-            {
-                self.cancelDrag()
-            }
-            return event
-        }
-    }
-
-    private func handleKeyDown(_ event: NSEvent) -> Bool {
-        guard overviewState.isOpen else { return false }
-
-        switch event.keyCode {
-        case 53:
-            if !searchQuery.isEmpty {
-                searchQuery = ""
-                onSearchChanged?("")
-            } else {
-                onDismiss?()
-            }
-            return true
-        case 36, 76:
-            if let selected = layout.selectedWindow() {
-                onWindowSelected?(selected.handle)
-            }
-            return true
-        case 123:
-            onNavigate?(.left)
-            return true
-        case 124:
-            onNavigate?(.right)
-            return true
-        case 125:
-            onNavigate?(.down)
-            return true
-        case 126:
-            onNavigate?(.up)
-            return true
-        case 48:
-            let direction: Direction = event.modifierFlags.contains(.shift) ? .left : .right
-            onNavigate?(direction)
-            return true
-        case 51:
-            if !searchQuery.isEmpty {
-                searchQuery = String(searchQuery.dropLast())
-                onSearchChanged?(searchQuery)
-            }
-            return true
-        default:
-            if let characters = event.charactersIgnoringModifiers,
-               !characters.isEmpty,
-               event.modifierFlags.intersection([.command, .control, .option]).isEmpty
-            {
-                let char = characters.first!
-                if char.isLetter || char.isNumber || char == " " {
-                    searchQuery += String(char)
-                    onSearchChanged?(searchQuery)
-                    return true
-                }
-            }
-        }
-        return false
     }
 
     override func updateTrackingAreas() {
@@ -350,6 +266,12 @@ final class OverviewView: NSView {
             onDragCancel?()
         }
         cancelDragState()
+    }
+
+    func cancelPendingDragIfNeeded(optionPressed: Bool) {
+        if (isDragging || dragCandidateHandle != nil), !optionPressed {
+            cancelDrag()
+        }
     }
 
     private func cancelDragState() {

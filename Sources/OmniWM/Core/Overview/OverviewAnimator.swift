@@ -125,11 +125,7 @@ final class OverviewAnimator {
                 closeAnimation = nil
                 targetWindowHandle = nil
                 stopDisplayLink()
-                controller?.onAnimationComplete(state: .closed)
-
-                if let target {
-                    controller?.focusTargetWindow(target)
-                }
+                controller?.completeCloseTransition(targetWindow: target)
             }
             return
         }

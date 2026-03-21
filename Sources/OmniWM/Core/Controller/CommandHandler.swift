@@ -16,6 +16,7 @@ final class CommandHandler {
     func handleCommand(_ command: HotkeyCommand) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
+        guard !Self.shouldIgnoreCommand(command, isOverviewOpen: controller.isOverviewOpen()) else { return }
 
         let layoutType = currentLayoutType()
 
@@ -129,6 +130,10 @@ final class CommandHandler {
         case .toggleOverview:
             controller.toggleOverview()
         }
+    }
+
+    static func shouldIgnoreCommand(_ command: HotkeyCommand, isOverviewOpen: Bool) -> Bool {
+        isOverviewOpen && command != .toggleOverview
     }
 
     private func layoutHandler<T>(as capability: T.Type) -> T? {

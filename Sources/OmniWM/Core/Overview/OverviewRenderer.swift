@@ -5,7 +5,7 @@ import Foundation
 enum OverviewRenderer {
 
     private enum Colors {
-        static let background = CGColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 0.85)
+        static let background = CGColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1.0)
         static let windowBackground = CGColor(red: 0.15, green: 0.15, blue: 0.18, alpha: 1.0)
         static let windowBorder = CGColor(red: 0.3, green: 0.3, blue: 0.35, alpha: 1.0)
         static let windowHoverBorder = CGColor(red: 0.4, green: 0.6, blue: 1.0, alpha: 1.0)
@@ -60,7 +60,7 @@ enum OverviewRenderer {
         let alpha = CGFloat(progress)
 
         context.saveGState()
-        context.setFillColor(Colors.background.copy(alpha: alpha * 0.85)!)
+        context.setFillColor(Colors.background.copy(alpha: alpha)!)
         context.fill(bounds)
         context.restoreGState()
 
