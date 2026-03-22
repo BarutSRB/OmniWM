@@ -5,9 +5,11 @@ final class StatusBarController: NSObject {
     nonisolated static let mainAutosaveName = "omniwm_main"
 
     private var statusItem: NSStatusItem?
-    private var menuBuilder: StatusBarMenuBuilder?
-    private var menu: NSMenu?
+    private var menuViewModel: StatusBarMenuViewModel?
+    private var panelController: StatusBarPanelController?
     private var isRebuildingOwnedItems = false
+    private var eventMonitor: Any?
+    private var restoreApplication: NSRunningApplication?
 
     private let defaults: UserDefaults
     private let hiddenBarController: HiddenBarController
@@ -55,8 +57,17 @@ final class StatusBarController: NSObject {
 
         statusItem?.autosaveName = Self.mainAutosaveName
 
-        menuBuilder = StatusBarMenuBuilder(settings: settings, controller: controller)
-        rebuildMenu()
+        let menuViewModel = StatusBarMenuViewModel(settings: settings, controller: controller)
+        let panelController = StatusBarPanelController()
+        panelController.onDismiss = { [weak self] restoreFocus in
+            self?.dismissMenu(restoreFocus: restoreFocus)
+        }
+        menuViewModel.setDismissHandler { [weak self] restoreFocus in
+            self?.dismissMenu(restoreFocus: restoreFocus)
+        }
+
+        self.menuViewModel = menuViewModel
+        self.panelController = panelController
 
         hiddenBarController.bind(
             omniButton: button,
@@ -78,21 +89,33 @@ final class StatusBarController: NSObject {
     }
 
     private func showMenu() {
-        rebuildMenu()
-        guard let button = statusItem?.button, let menu else { return }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
+        guard let button = statusItem?.button,
+              let menuViewModel,
+              let panelController
+        else {
+            return
+        }
+
+        if panelController.panel?.isVisible == true {
+            dismissMenu(restoreFocus: true)
+            return
+        }
+
+        restoreApplication = NSWorkspace.shared.frontmostApplication
+        installEventMonitor()
+        panelController.show(using: menuViewModel, anchoredTo: button)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func handleRightClick() {
+        dismissMenu(restoreFocus: false)
         controller?.toggleHiddenBar()
     }
 
     func refreshMenu() {
-        menuBuilder?.updateToggles()
-    }
-
-    func rebuildMenu() {
-        menu = menuBuilder?.buildMenu()
+        if panelController?.panel?.isVisible == true {
+            menuViewModel?.resetFocus()
+        }
     }
 
     func cleanup() {
@@ -100,13 +123,16 @@ final class StatusBarController: NSObject {
     }
 
     private func cleanupOwnedStatusItems() {
+        removeEventMonitor()
+        panelController?.hideWithoutCallbacks()
         hiddenBarController.cleanup()
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
         }
-        menuBuilder = nil
-        menu = nil
+        menuViewModel = nil
+        panelController = nil
+        restoreApplication = nil
     }
 
     private func rebuildOwnedStatusItemsAfterUnsafeOrdering() {
@@ -118,5 +144,50 @@ final class StatusBarController: NSObject {
         Self.clearOwnedPreferredPositions(defaults: defaults)
         cleanupOwnedStatusItems()
         installOwnedStatusItems()
+    }
+
+    private func installEventMonitor() {
+        removeEventMonitor()
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  self.panelController?.panel?.isVisible == true,
+                  let menuViewModel
+            else {
+                return event
+            }
+
+            return menuViewModel.handleKeyDown(event) ? nil : event
+        }
+    }
+
+    private func removeEventMonitor() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
+    }
+
+    private func dismissMenu(restoreFocus: Bool) {
+        removeEventMonitor()
+        panelController?.hideWithoutCallbacks()
+        menuViewModel?.resetFocus()
+
+        if restoreFocus {
+            restorePreviousApplicationFocusIfNeeded()
+        } else {
+            restoreApplication = nil
+        }
+    }
+
+    private func restorePreviousApplicationFocusIfNeeded() {
+        defer { restoreApplication = nil }
+        guard let restoreApplication,
+              !restoreApplication.isTerminated,
+              restoreApplication.bundleIdentifier != Bundle.main.bundleIdentifier
+        else {
+            return
+        }
+
+        restoreApplication.activate(options: [])
     }
 }
