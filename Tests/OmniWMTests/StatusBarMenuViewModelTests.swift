@@ -112,4 +112,22 @@ private func makeKeyEvent(
         #expect(viewModel.handleKeyDown(makeKeyEvent(keyCode: 0, characters: "a")) == false)
         #expect(viewModel.focusedItemID == .focusFollowsMouse)
     }
+
+    @Test func modifiedAccessibilityShortcutsPassThrough() {
+        let defaults = makeStatusBarMenuTestDefaults()
+        let controller = makeStatusBarMenuTestController(defaults: defaults)
+        let viewModel = StatusBarMenuViewModel(settings: controller.settings, controller: controller)
+
+        #expect(
+            viewModel.handleKeyDown(
+                makeKeyEvent(keyCode: 126, characters: "", modifierFlags: [.control, .option])
+            ) == false
+        )
+        #expect(
+            viewModel.handleKeyDown(
+                makeKeyEvent(keyCode: 49, characters: " ", modifierFlags: [.control, .option])
+            ) == false
+        )
+        #expect(viewModel.focusedItemID == .focusFollowsMouse)
+    }
 }

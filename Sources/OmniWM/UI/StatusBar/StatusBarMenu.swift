@@ -86,6 +86,11 @@ final class StatusBarMenuViewModel {
     @discardableResult
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
+        let allowsNavigationShortcut = modifiers.isEmpty || modifiers == [.shift]
+
+        guard allowsNavigationShortcut else {
+            return false
+        }
 
         switch event.keyCode {
         case 48:
