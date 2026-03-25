@@ -36,6 +36,7 @@ import Testing
 
         #expect(labels.contains("Export Editable Config"))
         #expect(labels.contains("Export Compact Backup"))
+        #expect(labels.contains("Import Settings"))
         #expect(labels.contains("Reveal Settings File"))
         #expect(labels.contains("Open Settings File"))
     }
@@ -72,6 +73,28 @@ import Testing
         #expect(settings.settingsFileExists == true)
         #expect(received.count == 1)
         #expect(received.first?.0 == "Settings File Created")
+        #expect(received.first?.1 == SettingsStore.exportURL.path)
+    }
+
+    @Test func importActionReportsSuccessAlert() throws {
+        let sourceController = makeLayoutPlanTestController()
+        sourceController.settings.focusFollowsWindowToMonitor = true
+        try sourceController.settings.exportSettings(mode: .full)
+        defer { try? FileManager.default.removeItem(at: SettingsStore.exportURL) }
+
+        let targetController = makeLayoutPlanTestController()
+        targetController.settings.focusFollowsWindowToMonitor = false
+        let builder = StatusBarMenuBuilder(settings: targetController.settings, controller: targetController)
+        var received: [(String, String)] = []
+        builder.infoAlertPresenter = { title, message in
+            received.append((title, message))
+        }
+
+        builder.performSettingsMenuAction(.import)
+
+        #expect(targetController.settings.focusFollowsWindowToMonitor == true)
+        #expect(received.count == 1)
+        #expect(received.first?.0 == "Settings Imported")
         #expect(received.first?.1 == SettingsStore.exportURL.path)
     }
 

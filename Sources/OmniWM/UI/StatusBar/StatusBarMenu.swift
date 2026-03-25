@@ -4,6 +4,7 @@ private let menuWidth: CGFloat = 280
 
 enum SettingsMenuAction {
     case export(SettingsExportMode)
+    case `import`
     case revealSettingsFile
     case openSettingsFile
 }
@@ -221,6 +222,16 @@ final class StatusBarMenuBuilder {
         exportCompactItem.view = exportCompactRow
         menu.addItem(exportCompactItem)
 
+        let importSettingsRow = MenuActionRowView(
+            icon: "square.and.arrow.down",
+            label: "Import Settings"
+        ) { [weak self] in
+            self?.performSettingsMenuAction(.import)
+        }
+        let importSettingsItem = NSMenuItem()
+        importSettingsItem.view = importSettingsRow
+        menu.addItem(importSettingsItem)
+
         let revealSettingsFileRow = MenuActionRowView(
             icon: "folder",
             label: "Reveal Settings File"
@@ -246,6 +257,8 @@ final class StatusBarMenuBuilder {
         switch action {
         case .export(let mode):
             exportSettings(mode: mode)
+        case .import:
+            importSettings()
         case .revealSettingsFile:
             revealSettingsFile()
         case .openSettingsFile:
@@ -272,6 +285,24 @@ final class StatusBarMenuBuilder {
         guard !settings.settingsFileExists else { return false }
         try settings.exportSettings(mode: .full)
         return true
+    }
+
+    private func importSettings() {
+        do {
+            guard let controller else {
+                throw CocoaError(.coderInvalidValue)
+            }
+            try settings.importSettings(applyingTo: controller)
+            presentInfoAlert(
+                title: "Settings Imported",
+                message: SettingsStore.exportURL.path
+            )
+        } catch {
+            presentInfoAlert(
+                title: "Could Not Import Settings",
+                message: error.localizedDescription
+            )
+        }
     }
 
     private func revealSettingsFile() {
