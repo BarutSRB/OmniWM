@@ -36,11 +36,29 @@ private func configureWorkspacesAsDwindle(
     on controller: WMController,
     workspaceIds: [WorkspaceDescriptor.ID]
 ) {
-    let configurations = workspaceIds.compactMap { workspaceId -> WorkspaceConfiguration? in
-        guard let workspace = controller.workspaceManager.descriptor(for: workspaceId) else { return nil }
+    let targetNames = Set(
+        workspaceIds.compactMap { workspaceId in
+            controller.workspaceManager.descriptor(for: workspaceId)?.name
+        }
+    )
+    guard !targetNames.isEmpty else { return }
+
+    var configurations = controller.settings.workspaceConfigurations.map { configuration in
+        targetNames.contains(configuration.name)
+            ? configuration.with(layoutType: .dwindle)
+            : configuration
+    }
+    let configuredNames = Set(configurations.map(\.name))
+    let missingConfigurations = workspaceIds.compactMap { workspaceId -> WorkspaceConfiguration? in
+        guard let workspace = controller.workspaceManager.descriptor(for: workspaceId),
+              !configuredNames.contains(workspace.name)
+        else {
+            return nil
+        }
         return WorkspaceConfiguration(name: workspace.name, layoutType: .dwindle)
     }
-    guard !configurations.isEmpty else { return }
+
+    configurations.append(contentsOf: missingConfigurations)
     controller.settings.workspaceConfigurations = configurations
 }
 
@@ -473,6 +491,10 @@ private func configureWorkspacesAsDwindle(
             on: controller,
             workspaceIds: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
         )
+        guard controller.workspaceManager.monitor(for: fixture.secondaryWorkspaceId)?.id == fixture.secondaryMonitor.id else {
+            Issue.record("Expected the secondary workspace to remain assigned to the visible secondary monitor")
+            return
+        }
         controller.enableDwindleLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
 
