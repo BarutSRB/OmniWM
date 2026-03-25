@@ -61,6 +61,7 @@ enum WorkspaceBarDataSource {
             return WorkspaceBarItem(
                 id: snapshot.workspace.id,
                 name: settings.displayName(for: snapshot.workspace.name),
+                rawName: snapshot.workspace.name,
                 isFocused: snapshot.workspace.id == activeWorkspaceId,
                 windows: windows
             )

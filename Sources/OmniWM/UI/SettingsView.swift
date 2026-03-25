@@ -43,10 +43,15 @@ struct GeneralSettingsTab: View {
             }
 
             Section("Status Bar") {
-                Toggle("Show Workspace Name", isOn: $settings.statusBarShowWorkspaceName)
+                Toggle("Show Workspace", isOn: $settings.statusBarShowWorkspaceName)
                     .onChange(of: settings.statusBarShowWorkspaceName) { _, _ in
                         controller.refreshStatusBar()
                     }
+                Toggle("Use Workspace Number", isOn: $settings.statusBarUseWorkspaceId)
+                    .onChange(of: settings.statusBarUseWorkspaceId) { _, _ in
+                        controller.refreshStatusBar()
+                    }
+                    .disabled(!settings.statusBarShowWorkspaceName)
                 Toggle("Show Focused App", isOn: $settings.statusBarShowAppNames)
                     .onChange(of: settings.statusBarShowAppNames) { _, _ in
                         controller.refreshStatusBar()

@@ -114,7 +114,8 @@ final class StatusBarController: NSObject {
             if settings.statusBarShowWorkspaceName,
                let focused = items.first(where: \.isFocused)
             {
-                var title = " \(focused.name)"
+                let workspaceLabel = settings.statusBarUseWorkspaceId ? focused.rawName : focused.name
+                var title = " \(workspaceLabel)"
                 if settings.statusBarShowAppNames,
                    let focusedApp = focused.windows.first(where: \.isFocused)?.appName
                 {

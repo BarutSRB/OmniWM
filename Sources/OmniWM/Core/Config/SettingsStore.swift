@@ -252,6 +252,10 @@ final class SettingsStore {
         didSet { defaults.set(statusBarShowAppNames, forKey: Keys.statusBarShowAppNames) }
     }
 
+    var statusBarUseWorkspaceId: Bool {
+        didSet { defaults.set(statusBarUseWorkspaceId, forKey: Keys.statusBarUseWorkspaceId) }
+    }
+
     var commandPaletteLastMode: CommandPaletteMode {
         didSet { defaults.set(commandPaletteLastMode.rawValue, forKey: Keys.commandPaletteLastMode) }
     }
@@ -436,6 +440,7 @@ final class SettingsStore {
 
         statusBarShowWorkspaceName = defaults.object(forKey: Keys.statusBarShowWorkspaceName) as? Bool ?? true
         statusBarShowAppNames = defaults.object(forKey: Keys.statusBarShowAppNames) as? Bool ?? true
+        statusBarUseWorkspaceId = defaults.object(forKey: Keys.statusBarUseWorkspaceId) as? Bool ?? false
 
         commandPaletteLastMode = CommandPaletteMode(
             rawValue: defaults.string(forKey: Keys.commandPaletteLastMode) ?? ""
@@ -912,6 +917,7 @@ private enum Keys {
 
     static let statusBarShowWorkspaceName = "settings.statusBarShowWorkspaceName"
     static let statusBarShowAppNames = "settings.statusBarShowAppNames"
+    static let statusBarUseWorkspaceId = "settings.statusBarUseWorkspaceId"
 
     static let commandPaletteLastMode = "settings.commandPalette.lastMode"
 

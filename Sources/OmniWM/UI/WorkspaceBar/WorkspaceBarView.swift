@@ -5,6 +5,8 @@ import SwiftUI
 struct WorkspaceBarItem: Identifiable {
     let id: WorkspaceDescriptor.ID
     let name: String
+    /// The raw workspace name (e.g. "3") before display-name mapping.
+    let rawName: String
     let isFocused: Bool
     let windows: [WorkspaceBarWindowItem]
 }
