@@ -330,7 +330,7 @@ import QuartzCore
             }
 
             let frame = animation.currentFrame(at: targetTime)
-            if (try? AXWindowService.setFrame(animation.axRef, frame: frame)) == nil {
+            if !AXWindowService.setFrame(animation.axRef, frame: frame).isVerifiedSuccess {
                 continue
             }
             remaining[windowId] = animation
@@ -1647,7 +1647,7 @@ import QuartzCore
                 || abs(observedOrigin.y - plan.origin.y) > verifyEpsilon
             {
                 let fallbackFrame = CGRect(origin: plan.origin, size: plan.frameSize)
-                try? AXWindowService.setFrame(plan.entry.axRef, frame: fallbackFrame)
+                _ = AXWindowService.setFrame(plan.entry.axRef, frame: fallbackFrame)
             }
         }
     }
@@ -2205,9 +2205,14 @@ final class LayoutDiffExecutor {
     private func applyDirectBorderUpdate(_ focusedFrame: LayoutFocusedFrame?) {
         guard let controller = refreshController.controller else { return }
         let target = controller.currentKeyboardFocusTargetForRendering()
+        guard !shouldIgnoreStaleManagedBorderUpdate(target: target, focusedFrame: focusedFrame) else {
+            return
+        }
         let preferredFrame: CGRect? = if let target,
                                          target.isManaged,
-                                         focusedFrame?.token == target.token {
+                                         focusedFrame?.token == target.token,
+                                         let entry = controller.workspaceManager.entry(for: target.token),
+                                         !controller.axManager.shouldPreferObservedFrame(for: entry.windowId) {
             focusedFrame?.frame
         } else {
             nil
@@ -2222,9 +2227,14 @@ final class LayoutDiffExecutor {
     private func applyCoordinatedBorderUpdate(_ focusedFrame: LayoutFocusedFrame?) {
         guard let controller = refreshController.controller else { return }
         let target = controller.currentKeyboardFocusTargetForRendering()
+        guard !shouldIgnoreStaleManagedBorderUpdate(target: target, focusedFrame: focusedFrame) else {
+            return
+        }
         let preferredFrame: CGRect? = if let target,
                                          target.isManaged,
-                                         focusedFrame?.token == target.token {
+                                         focusedFrame?.token == target.token,
+                                         let entry = controller.workspaceManager.entry(for: target.token),
+                                         !controller.axManager.shouldPreferObservedFrame(for: entry.windowId) {
             focusedFrame?.frame
         } else {
             nil
@@ -2234,5 +2244,19 @@ final class LayoutDiffExecutor {
             preferredFrame: preferredFrame,
             policy: .coordinated
         )
+    }
+
+    private func shouldIgnoreStaleManagedBorderUpdate(
+        target: KeyboardFocusTarget?,
+        focusedFrame: LayoutFocusedFrame?
+    ) -> Bool {
+        guard let target,
+              target.isManaged,
+              let focusedFrame
+        else {
+            return false
+        }
+
+        return focusedFrame.token != target.token
     }
 }

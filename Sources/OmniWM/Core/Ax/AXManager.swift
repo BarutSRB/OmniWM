@@ -17,9 +17,13 @@ final class AXManager {
     var onAppLaunched: ((NSRunningApplication) -> Void)?
     var onAppTerminated: ((pid_t) -> Void)?
     var currentWindowsAsyncOverride: (@MainActor () async -> [(AXWindowRef, pid_t, Int)])?
+    var frameApplyOverrideForTests: (([(pid: pid_t, windowId: Int, frame: CGRect, currentFrameHint: CGRect?)]) -> [AXFrameApplyResult])?
 
     private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect, currentFrameHint: CGRect?)]] = [:]
     private var lastAppliedFrames: [Int: CGRect] = [:]
+    private var pendingFrameWrites: [Int: CGRect] = [:]
+    private var recentFrameWriteFailures: [Int: AXFrameWriteFailureReason] = [:]
+    private var retryBudgetByWindowId: [Int: Int] = [:]
     private var forceApplyWindowIds: Set<Int> = []
 
     /// Window IDs belonging to inactive workspaces — checked LIVE in applyFramesParallel.
@@ -90,6 +94,14 @@ final class AXManager {
         lastAppliedFrames[windowId]
     }
 
+    func hasPendingFrameWrite(for windowId: Int) -> Bool {
+        pendingFrameWrites[windowId] != nil
+    }
+
+    func shouldPreferObservedFrame(for windowId: Int) -> Bool {
+        pendingFrameWrites[windowId] != nil || recentFrameWriteFailures[windowId] != nil
+    }
+
     func clearInactiveWorkspaceWindows() {
         inactiveWorkspaceWindowIds.removeAll()
     }
@@ -104,6 +116,18 @@ final class AXManager {
 
         if let frame = lastAppliedFrames.removeValue(forKey: oldWindowId) {
             lastAppliedFrames[newWindowId] = frame
+        }
+
+        if let frame = pendingFrameWrites.removeValue(forKey: oldWindowId) {
+            pendingFrameWrites[newWindowId] = frame
+        }
+
+        if let failure = recentFrameWriteFailures.removeValue(forKey: oldWindowId) {
+            recentFrameWriteFailures[newWindowId] = failure
+        }
+
+        if let retryBudget = retryBudgetByWindowId.removeValue(forKey: oldWindowId) {
+            retryBudgetByWindowId[newWindowId] = retryBudget
         }
 
         if forceApplyWindowIds.remove(oldWindowId) != nil {
@@ -196,6 +220,13 @@ final class AXManager {
     }
 
     func applyFramesParallel(_ frames: [(pid: pid_t, windowId: Int, frame: CGRect)]) {
+        enqueueFrameApplications(frames, isRetry: false)
+    }
+
+    private func enqueueFrameApplications(
+        _ frames: [(pid: pid_t, windowId: Int, frame: CGRect)],
+        isRetry: Bool
+    ) {
         for key in framesByPidBuffer.keys {
             framesByPidBuffer[key]?.removeAll(keepingCapacity: true)
         }
@@ -205,16 +236,28 @@ final class AXManager {
                 continue
             }
             let cachedFrame = lastAppliedFrames[windowId]
+            let pendingFrame = pendingFrameWrites[windowId]
+            let hasRecentFailure = recentFrameWriteFailures[windowId] != nil
             let shouldForceApply = forceApplyWindowIds.remove(windowId) != nil
-            if let cached = cachedFrame,
-               abs(cached.origin.x - frame.origin.x) < 0.5,
-               abs(cached.origin.y - frame.origin.y) < 0.5,
-               abs(cached.size.width - frame.size.width) < 0.5,
-               abs(cached.size.height - frame.size.height) < 0.5,
-                !shouldForceApply {
-                continue
+            if !shouldForceApply {
+                if let pendingFrame,
+                   pendingFrame.approximatelyEqual(to: frame, tolerance: 0.5)
+                {
+                    continue
+                }
+                if let cached = cachedFrame,
+                   cached.approximatelyEqual(to: frame, tolerance: 0.5),
+                   !hasRecentFailure
+                {
+                    continue
+                }
             }
-            lastAppliedFrames[windowId] = frame
+
+            pendingFrameWrites[windowId] = frame
+            recentFrameWriteFailures.removeValue(forKey: windowId)
+            if !isRetry {
+                retryBudgetByWindowId[windowId] = 1
+            }
             if framesByPidBuffer[pid] == nil {
                 framesByPidBuffer[pid] = []
                 framesByPidBuffer[pid]?.reserveCapacity(8)
@@ -222,9 +265,36 @@ final class AXManager {
             framesByPidBuffer[pid]?.append((windowId, frame, cachedFrame))
         }
 
+        let requestsForTests = framesByPidBuffer.flatMap { pid, appFrames in
+            appFrames.map { (pid: pid, windowId: $0.windowId, frame: $0.frame, currentFrameHint: $0.currentFrameHint) }
+        }
+        if let frameApplyOverrideForTests, !requestsForTests.isEmpty {
+            handleFrameApplyResults(frameApplyOverrideForTests(requestsForTests))
+            return
+        }
+
         for (pid, appFrames) in framesByPidBuffer where !appFrames.isEmpty {
-            guard let context = AppAXContext.contexts[pid] else { continue }
-            context.setFramesBatch(appFrames)
+            guard let context = AppAXContext.contexts[pid] else {
+                handleFrameApplyResults(
+                    appFrames.map {
+                        AXFrameApplyResult(
+                            pid: pid,
+                            windowId: $0.windowId,
+                            targetFrame: $0.frame,
+                            currentFrameHint: $0.currentFrameHint,
+                            writeResult: .skipped(
+                                targetFrame: $0.frame,
+                                currentFrameHint: $0.currentFrameHint,
+                                failureReason: .contextUnavailable
+                            )
+                        )
+                    }
+                )
+                continue
+            }
+            context.setFramesBatch(appFrames) { [weak self] results in
+                self?.handleFrameApplyResults(results)
+            }
         }
     }
 
@@ -237,6 +307,10 @@ final class AXManager {
     func suppressFrameWrites(_ entries: [(pid: pid_t, windowId: Int)]) {
         for (_, windowId) in entries {
             lastAppliedFrames.removeValue(forKey: windowId)
+            pendingFrameWrites.removeValue(forKey: windowId)
+            recentFrameWriteFailures.removeValue(forKey: windowId)
+            retryBudgetByWindowId.removeValue(forKey: windowId)
+            forceApplyWindowIds.remove(windowId)
         }
         for (pid, windowIds) in groupedWindowIdsByPid(entries) {
             AppAXContext.contexts[pid]?.suppressFrameWrites(for: windowIds)
@@ -302,5 +376,58 @@ final class AXManager {
             grouped[pid, default: []].append(windowId)
         }
         return grouped
+    }
+
+    private func handleFrameApplyResults(_ results: [AXFrameApplyResult]) {
+        for result in results {
+            guard let pendingFrame = pendingFrameWrites[result.windowId],
+                  pendingFrame.approximatelyEqual(to: result.targetFrame, tolerance: 0.5)
+            else {
+                continue
+            }
+
+            pendingFrameWrites.removeValue(forKey: result.windowId)
+
+            if let confirmedFrame = result.confirmedFrame {
+                lastAppliedFrames[result.windowId] = confirmedFrame
+                recentFrameWriteFailures.removeValue(forKey: result.windowId)
+                retryBudgetByWindowId.removeValue(forKey: result.windowId)
+                continue
+            }
+
+            if let failureReason = result.writeResult.failureReason {
+                recentFrameWriteFailures[result.windowId] = failureReason
+            }
+
+            let remainingRetries = retryBudgetByWindowId[result.windowId] ?? 0
+            guard remainingRetries > 0,
+                  shouldRetryFrameWrite(after: result)
+            else {
+                retryBudgetByWindowId.removeValue(forKey: result.windowId)
+                continue
+            }
+
+            retryBudgetByWindowId[result.windowId] = remainingRetries - 1
+            forceApplyWindowIds.insert(result.windowId)
+
+            let pid = result.pid
+            let windowId = result.windowId
+            let frame = result.targetFrame
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.pendingFrameWrites[windowId] == nil else { return }
+                self.enqueueFrameApplications([(pid, windowId, frame)], isRetry: true)
+            }
+        }
+    }
+
+    private func shouldRetryFrameWrite(after result: AXFrameApplyResult) -> Bool {
+        guard let failureReason = result.writeResult.failureReason else { return false }
+        switch failureReason {
+        case .cancelled, .suppressed:
+            return false
+        default:
+            return true
+        }
     }
 }

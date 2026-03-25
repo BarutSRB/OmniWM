@@ -79,6 +79,7 @@ private func makeRefreshTestController(
         settings: settings,
         windowFocusOperations: operations
     )
+    installSynchronousFrameApplySuccessOverride(on: controller)
     let monitor = makeRefreshTestMonitor()
     controller.workspaceManager.applyMonitorConfigurationChange([monitor])
     controller.axEventHandler.windowFactsProvider = { _, _ in
@@ -93,6 +94,7 @@ private func cleanupRefreshTestController(_ controller: WMController) {
     controller.layoutRefreshController.resetState()
     controller.resetWorkspaceBarRefreshDebugStateForTests()
     controller.axManager.currentWindowsAsyncOverride = nil
+    controller.axManager.frameApplyOverrideForTests = nil
     controller.axEventHandler.resetDebugStateForTests()
     controller.axEventHandler.isFullscreenProvider = nil
 }

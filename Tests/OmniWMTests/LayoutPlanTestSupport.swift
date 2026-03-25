@@ -33,6 +33,31 @@ func makeLayoutPlanTestWindow(windowId: Int = 101) -> AXWindowRef {
 }
 
 @MainActor
+func installSynchronousFrameApplySuccessOverride(on controller: WMController) {
+    controller.axManager.frameApplyOverrideForTests = { requests in
+        requests.map { request in
+            AXFrameApplyResult(
+                pid: request.pid,
+                windowId: request.windowId,
+                targetFrame: request.frame,
+                currentFrameHint: request.currentFrameHint,
+                writeResult: AXFrameWriteResult(
+                    targetFrame: request.frame,
+                    observedFrame: request.frame,
+                    writeOrder: AXWindowService.frameWriteOrder(
+                        currentFrame: request.currentFrameHint,
+                        targetFrame: request.frame
+                    ),
+                    sizeError: .success,
+                    positionError: .success,
+                    failureReason: nil
+                )
+            )
+        }
+    }
+}
+
+@MainActor
 func makeLayoutPlanTestController(
     monitors: [Monitor] = [makeLayoutPlanTestMonitor()],
     workspaceConfigurations: [WorkspaceConfiguration] = [
@@ -51,6 +76,7 @@ func makeLayoutPlanTestController(
         settings: settings,
         windowFocusOperations: operations
     )
+    installSynchronousFrameApplySuccessOverride(on: controller)
     controller.workspaceManager.applyMonitorConfigurationChange(monitors)
     return controller
 }

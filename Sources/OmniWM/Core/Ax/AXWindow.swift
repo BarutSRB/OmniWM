@@ -39,6 +39,65 @@ enum AXFrameWriteOrder {
     case positionThenSize
 }
 
+enum AXFrameWriteFailureReason: Equatable, Sendable {
+    case valueCreationFailed
+    case sizeWriteFailed(AXError)
+    case positionWriteFailed(AXError)
+    case staleElement
+    case cacheMiss
+    case contextUnavailable
+    case readbackFailed
+    case verificationMismatch
+    case cancelled
+    case suppressed
+}
+
+struct AXFrameWriteResult: Equatable, Sendable {
+    let targetFrame: CGRect
+    let observedFrame: CGRect?
+    let writeOrder: AXFrameWriteOrder
+    let sizeError: AXError
+    let positionError: AXError
+    let failureReason: AXFrameWriteFailureReason?
+
+    var isVerifiedSuccess: Bool {
+        failureReason == nil
+    }
+
+    var shouldRetryAfterRefresh: Bool {
+        failureReason == .staleElement || failureReason == .cacheMiss
+    }
+
+    static func skipped(
+        targetFrame: CGRect,
+        currentFrameHint: CGRect?,
+        failureReason: AXFrameWriteFailureReason,
+        observedFrame: CGRect? = nil
+    ) -> Self {
+        Self(
+            targetFrame: targetFrame,
+            observedFrame: observedFrame,
+            writeOrder: AXWindowService.frameWriteOrder(currentFrame: currentFrameHint, targetFrame: targetFrame),
+            sizeError: .success,
+            positionError: .success,
+            failureReason: failureReason
+        )
+    }
+}
+
+struct AXFrameApplyResult: Equatable, Sendable {
+    let pid: pid_t
+    let windowId: Int
+    let targetFrame: CGRect
+    let currentFrameHint: CGRect?
+    let writeResult: AXFrameWriteResult
+
+    var confirmedFrame: CGRect? {
+        guard writeResult.isVerifiedSuccess else { return nil }
+        return writeResult.observedFrame ?? targetFrame
+    }
+}
+
 enum AXWindowHeuristicReason: String, Sendable {
     case attributeFetchFailed
     case browserPictureInPicture
@@ -80,6 +139,9 @@ enum AXWindowService {
         case minimizeButton
         case title
     }
+
+    nonisolated(unsafe) static var axWindowRefProviderForTests: ((UInt32, pid_t) -> AXWindowRef?)?
+    nonisolated(unsafe) static var setFrameResultProviderForTests: ((AXWindowRef, CGRect, CGRect?) -> AXFrameWriteResult)?
 
     @MainActor
     static func titlePreferFast(windowId: UInt32) -> String? {
@@ -133,7 +195,11 @@ enum AXWindowService {
         _ window: AXWindowRef,
         frame: CGRect,
         currentFrameHint: CGRect? = nil
-    ) throws(AXErrorWrapper) {
+    ) -> AXFrameWriteResult {
+        if let setFrameResultProviderForTests {
+            return setFrameResultProviderForTests(window, frame, currentFrameHint)
+        }
+
         let writeOrder = frameWriteOrder(
             currentFrame: currentFrameHint ?? (try? self.frame(window)),
             targetFrame: frame
@@ -143,7 +209,13 @@ enum AXWindowService {
         var size = CGSize(width: axFrame.size.width, height: axFrame.size.height)
         guard let positionValue = AXValueCreate(.cgPoint, &position),
               let sizeValue = AXValueCreate(.cgSize, &size)
-        else { throw .cannotSetFrame }
+        else {
+            return .skipped(
+                targetFrame: frame,
+                currentFrameHint: currentFrameHint,
+                failureReason: .valueCreationFailed
+            )
+        }
 
         let positionError: AXError
         let sizeError: AXError
@@ -155,7 +227,27 @@ enum AXWindowService {
             positionError = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, positionValue)
             sizeError = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
         }
-        guard sizeError == .success, positionError == .success else { throw .cannotSetFrame }
+
+        let observedFrame = try? self.frame(window)
+
+        let failureReason: AXFrameWriteFailureReason? = if sizeError != .success {
+            mapFrameWriteFailure(sizeError, attribute: .size)
+        } else if positionError != .success {
+            mapFrameWriteFailure(positionError, attribute: .position)
+        } else if let observedFrame {
+            observedFrame.approximatelyEqual(to: frame, tolerance: 1.0) ? nil : .verificationMismatch
+        } else {
+            .readbackFailed
+        }
+
+        return AXFrameWriteResult(
+            targetFrame: frame,
+            observedFrame: observedFrame,
+            writeOrder: writeOrder,
+            sizeError: sizeError,
+            positionError: positionError,
+            failureReason: failureReason
+        )
     }
 
     private static func convertFromAX(_ rect: CGRect) -> CGRect {
@@ -468,6 +560,9 @@ enum AXWindowService {
     }
 
     static func axWindowRef(for windowId: UInt32, pid: pid_t) -> AXWindowRef? {
+        if let axWindowRefProviderForTests {
+            return axWindowRefProviderForTests(windowId, pid)
+        }
         let appElement = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(
@@ -488,6 +583,27 @@ enum AXWindowService {
         }
 
         return nil
+    }
+
+    private enum FrameWriteAttribute {
+        case size
+        case position
+    }
+
+    private static func mapFrameWriteFailure(
+        _ error: AXError,
+        attribute: FrameWriteAttribute
+    ) -> AXFrameWriteFailureReason {
+        if error == .invalidUIElement || error == .cannotComplete {
+            return .staleElement
+        }
+
+        return switch attribute {
+        case .size:
+            .sizeWriteFailed(error)
+        case .position:
+            .positionWriteFailed(error)
+        }
     }
 }
 

@@ -120,23 +120,29 @@ final class BorderCoordinator {
         for target: KeyboardFocusTarget,
         preferredFrame: CGRect?
     ) -> CGRect? {
-        if let preferredFrame {
-            return preferredFrame
-        }
-
         guard let controller else { return nil }
 
         if target.isManaged,
            let entry = controller.workspaceManager.entry(for: target.token)
         {
-            return controller.niriEngine?.findNode(for: target.token).flatMap { $0.renderedFrame ?? $0.frame }
+            let shouldPreferObservedFrame = controller.axManager.shouldPreferObservedFrame(for: entry.windowId)
+            if !shouldPreferObservedFrame, let preferredFrame {
+                return preferredFrame
+            }
+
+            return observedFrame(for: entry.axRef)
                 ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
-                ?? AXWindowService.framePreferFast(entry.axRef)
-                ?? (try? AXWindowService.frame(entry.axRef))
+                ?? (!shouldPreferObservedFrame
+                    ? controller.niriEngine?.findNode(for: target.token).flatMap { $0.renderedFrame ?? $0.frame }
+                    : nil)
+                ?? preferredFrame
         }
 
-        return AXWindowService.framePreferFast(target.axRef)
-            ?? (try? AXWindowService.frame(target.axRef))
+        if let preferredFrame {
+            return preferredFrame
+        }
+
+        return observedFrame(for: target.axRef)
     }
 
     private func resolveGhosttyObservedFrame(
@@ -151,6 +157,10 @@ final class BorderCoordinator {
 
         let axRef = controller.workspaceManager.entry(for: target.token)?.axRef ?? target.axRef
 
+        return observedFrame(for: axRef) ?? providedFrame
+    }
+
+    private func observedFrame(for axRef: AXWindowRef) -> CGRect? {
         if let observedFrameProviderForTests,
            let frame = observedFrameProviderForTests(axRef)
         {
@@ -161,11 +171,7 @@ final class BorderCoordinator {
             return frame
         }
 
-        if let frame = try? AXWindowService.frame(axRef) {
-            return frame
-        }
-
-        return providedFrame
+        return try? AXWindowService.frame(axRef)
     }
 
     private func shouldDeferBorderUpdates(for workspaceId: WorkspaceDescriptor.ID) -> Bool {
