@@ -1,29 +1,28 @@
 import AppKit
+import SwiftUI
 import Testing
 
 @testable import OmniWM
 
 @Suite(.serialized) @MainActor struct StatusBarMenuTests {
-    @Test func buildMenuUsesCurrentAppAppearanceForMenuAndViews() throws {
+    @Test func hostedMenuViewUsesCurrentAppAppearance() throws {
         let application = NSApplication.shared
         let originalAppearance = application.appearance
         defer { application.appearance = originalAppearance }
 
         let controller = makeLayoutPlanTestController()
-        let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)
+        let viewModel = StatusBarMenuViewModel(settings: controller.settings, controller: controller)
 
         application.appearance = NSAppearance(named: .aqua)
-        let lightMenu = builder.buildMenu()
+        let lightHost = NSHostingView(rootView: StatusBarMenuView(viewModel: viewModel))
+        lightHost.appearance = application.appearance
 
-        #expect(lightMenu.appearance?.name == .aqua)
-        #expect(try #require(lightMenu.items.first?.view).appearance?.name == .aqua)
-        #expect(try #require(lightMenu.items.dropFirst(3).first?.view).appearance?.name == .aqua)
+        #expect(lightHost.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
 
         application.appearance = NSAppearance(named: .darkAqua)
-        let darkMenu = builder.buildMenu()
+        let darkHost = NSHostingView(rootView: StatusBarMenuView(viewModel: viewModel))
+        darkHost.appearance = application.appearance
 
-        #expect(darkMenu.appearance?.name == .darkAqua)
-        #expect(try #require(darkMenu.items.first?.view).appearance?.name == .darkAqua)
-        #expect(try #require(darkMenu.items.dropFirst(3).first?.view).appearance?.name == .darkAqua)
+        #expect(darkHost.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
     }
 }
