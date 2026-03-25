@@ -316,6 +316,12 @@ killall OmniWM
 Access settings by clicking the **O** menu bar icon and selecting **Settings** or **App Rules**.
 Mouse and gesture settings are available in Settings.
 
+OmniWM stores its editable config at `~/.config/omniwm/settings.json`.
+
+- **Editable Config** writes the full canonical settings file, including hotkeys and monitor overrides, so it can be edited directly.
+- **Compact Backup** writes only values that differ from defaults. Import still merges that backup back into the full canonical settings model.
+- **Reveal Settings File** and **Open Settings File** create `settings.json` on first use if it does not exist yet.
+
 ## App Rules
 
 Configure per-application behavior in Settings > App Rules:
