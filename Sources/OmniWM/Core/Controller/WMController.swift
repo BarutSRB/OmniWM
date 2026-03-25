@@ -1546,6 +1546,30 @@ final class WMController {
         guard !shouldSuppressManagedFocusRecovery else { return }
         guard !workspaceManager.hasPendingNativeFullscreenTransition else { return }
 
+        if let pendingFocusedToken = workspaceManager.pendingFocusedToken,
+           workspaceManager.pendingFocusedWorkspaceId == workspaceId
+        {
+            if let engine = niriEngine,
+               let node = engine.findNode(for: pendingFocusedToken)
+            {
+                _ = workspaceManager.commitWorkspaceSelection(
+                    nodeId: node.id,
+                    focusedToken: pendingFocusedToken,
+                    in: workspaceId,
+                    onMonitor: workspaceManager.monitorId(for: workspaceId)
+                )
+            } else {
+                _ = workspaceManager.applySessionPatch(
+                    .init(
+                        workspaceId: workspaceId,
+                        viewportState: nil,
+                        rememberedFocusToken: pendingFocusedToken
+                    )
+                )
+            }
+            return
+        }
+
         if let focusedToken = workspaceManager.focusedToken,
            workspaceManager.entry(for: focusedToken)?.workspaceId == workspaceId
         {
@@ -1668,6 +1692,12 @@ extension WMController {
             in: entry.workspaceId,
             onMonitor: workspaceManager.monitorId(for: entry.workspaceId)
         )
+        recordNiriCreateFocusTrace(
+            .pendingFocusStarted(
+                token: token,
+                workspaceId: entry.workspaceId
+            )
+        )
 
         let axRef = entry.axRef
         let pid = entry.pid
@@ -1684,18 +1714,10 @@ extension WMController {
                     self.moveMouseToWindow(token)
                 }
 
-                if let entry = self.workspaceManager.entry(for: token) {
-                    if let engine = self.niriEngine,
-                       let node = engine.findNode(for: token),
-                       let frame = node.renderedFrame ?? node.frame
-                    {
-                        self.borderCoordinator.updateBorderIfAllowed(token: token, frame: frame, windowId: entry.windowId)
-                    } else if let frame = self.axManager.lastAppliedFrame(for: entry.windowId) {
-                        self.borderCoordinator.updateBorderIfAllowed(token: token, frame: frame, windowId: entry.windowId)
-                    } else if let frame = try? AXWindowService.frame(entry.axRef) {
-                        self.borderCoordinator.updateBorderIfAllowed(token: token, frame: frame, windowId: entry.windowId)
-                    }
-                }
+                _ = self.refreshBorderForManagedWindow(
+                    token,
+                    allowPendingFocus: true
+                )
             },
             onDeferredFocus: { [weak self] deferred in
                 guard let self, self.workspaceManager.entry(for: deferred) != nil else { return }
@@ -1706,6 +1728,41 @@ extension WMController {
 
     func focusWindow(_ handle: WindowHandle) {
         focusWindow(handle.id)
+    }
+
+    func refreshBorderForManagedWindow(
+        _ token: WindowToken,
+        preferredFrame: CGRect? = nil,
+        allowPendingFocus: Bool = false
+    ) -> Bool {
+        guard let entry = workspaceManager.entry(for: token) else { return false }
+
+        let resolvedFrame = preferredFrame
+            ?? niriEngine?.findNode(for: token).flatMap { $0.renderedFrame ?? $0.frame }
+            ?? axManager.lastAppliedFrame(for: entry.windowId)
+            ?? (try? AXWindowService.frame(entry.axRef))
+
+        guard let resolvedFrame else { return false }
+
+        if allowPendingFocus {
+            borderCoordinator.updateDirectBorderIfAllowed(
+                token: token,
+                frame: resolvedFrame,
+                windowId: entry.windowId
+            )
+        } else {
+            borderCoordinator.updateBorderIfAllowed(
+                token: token,
+                frame: resolvedFrame,
+                windowId: entry.windowId
+            )
+        }
+
+        return true
+    }
+
+    func recordNiriCreateFocusTrace(_ kind: NiriCreateFocusTraceEvent.Kind) {
+        axEventHandler.recordNiriCreateFocusTrace(.init(kind: kind))
     }
 
     var isDiscoveryInProgress: Bool {

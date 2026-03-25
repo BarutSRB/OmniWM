@@ -41,10 +41,11 @@ private func makeAXEventOwnedWindow(
 
 @MainActor
 private func makeAXEventTestController(
+    windowFocusOperations: WindowFocusOperations? = nil,
     trackedBundleId: String? = nil,
     workspaceConfigurations: [WorkspaceConfiguration]? = nil
 ) -> WMController {
-    let operations = WindowFocusOperations(
+    let operations = windowFocusOperations ?? WindowFocusOperations(
         activateApp: { _ in },
         focusSpecificWindow: { _, _, _ in },
         raiseWindow: { _ in }
@@ -151,6 +152,11 @@ private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
 @MainActor
 private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
     controller.borderManager.lastAppliedFocusedFrameForTests
+}
+
+@MainActor
+private func createFocusTraceEvents(on controller: WMController) -> [NiriCreateFocusTraceEvent] {
+    controller.axEventHandler.niriCreateFocusTraceSnapshotForTests()
 }
 
 @MainActor
@@ -388,6 +394,69 @@ private func waitUntilAXEventTest(
         #expect(relayoutReasons == [.windowRuleReevaluation])
     }
 
+    @Test @MainActor func createdWindowRetriesWhenAXWindowRefIsInitiallyUnavailableWithoutRuleReevaluation() async {
+        let controller = makeAXEventTestController()
+        var relayoutReasons: [RefreshReason] = []
+        var axWindowRefReady = false
+        var axWindowRefLookupCount = 0
+
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == 817 else { return nil }
+            return WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            guard windowId == 817 else { return nil }
+            axWindowRefLookupCount += 1
+            guard axWindowRefReady else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: "com.example.ax-retry")
+        }
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 817, spaceId: 0)
+        )
+        axWindowRefReady = true
+
+        #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 817) == nil)
+
+        await waitUntilAXEventTest(iterations: 300) {
+            controller.workspaceManager.entry(forPid: getpid(), windowId: 817) != nil &&
+                relayoutReasons == [.axWindowCreated]
+        }
+
+        let trace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 817)?.mode == .tiling)
+        #expect(relayoutReasons == [.axWindowCreated])
+        #expect(controller.layoutRefreshController.debugCounters.executedByReason[.windowRuleReevaluation, default: 0] == 0)
+        #expect(axWindowRefLookupCount >= 2)
+        #expect(trace.contains { event in
+            if case .createSeen(windowId: 817) = event.kind {
+                return true
+            }
+            return false
+        })
+        #expect(trace.contains { event in
+            if case let .createRetryScheduled(windowId, pid, attempt) = event.kind {
+                return windowId == 817 && pid == getpid() && attempt == 1
+            }
+            return false
+        })
+        #expect(trace.contains { event in
+            if case let .candidateTracked(token, _) = event.kind {
+                return token == WindowToken(pid: getpid(), windowId: 817)
+            }
+            return false
+        })
+    }
+
     @Test @MainActor func malformedActivationPayloadFallsBackToNonManagedFocus() {
         let controller = makeAXEventTestController()
         let registry = OwnedWindowRegistry.shared
@@ -419,6 +488,331 @@ private func waitUntilAXEventTest(
         #expect(controller.workspaceManager.focusedHandle == nil)
         #expect(controller.workspaceManager.isNonManagedFocusActive)
         #expect(controller.workspaceManager.isAppFullscreenActive == false)
+    }
+
+    @Test @MainActor func sameAppNewWindowCreateDefersAppActivationUntilAuthoritativeFocusConfirmation() async throws {
+        var focusedWindows: [(pid_t, UInt32)] = []
+        let operations = WindowFocusOperations(
+            activateApp: { _ in },
+            focusSpecificWindow: { pid, windowId, _ in
+                focusedWindows.append((pid, windowId))
+            },
+            raiseWindow: { _ in }
+        )
+        let controller = makeAXEventTestController(windowFocusOperations: operations)
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or workspace for same-app new-window focus regression test")
+            return
+        }
+
+        controller.hasStartedServices = true
+        controller.setBordersEnabled(true)
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.updateNiriConfig(
+            maxVisibleColumns: 1,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        controller.syncMonitorsToNiriEngine()
+        controller.niriEngine?.presetColumnWidths = [.proportion(1.0), .proportion(1.0)]
+
+        let oldToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 881),
+            pid: getpid(),
+            windowId: 881,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            oldToken,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+
+        focusedWindows.removeAll()
+        controller.axEventHandler.resetDebugStateForTests()
+
+        let newWindowId: UInt32 = 882
+        let newToken = WindowToken(pid: getpid(), windowId: Int(newWindowId))
+        let newWindowInfo = WindowServerInfo(
+            id: newWindowId,
+            pid: getpid(),
+            level: 0,
+            frame: CGRect(x: 120, y: 80, width: 1400, height: 900)
+        )
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == newWindowId else { return nil }
+            return newWindowInfo
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, pid in
+            guard windowId == newWindowId, pid == getpid() else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            guard axRef.windowId == Int(newWindowId) else {
+                return makeAXEventWindowRuleFacts(bundleId: "com.example.same-app")
+            }
+            return makeAXEventWindowRuleFacts(
+                bundleId: "com.example.same-app",
+                title: "Same PID new window",
+                windowServer: newWindowInfo
+            )
+        }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == getpid() else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: oldToken.windowId)
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: newWindowId, spaceId: 0)
+        )
+
+        await waitUntilAXEventTest(iterations: 300) {
+            guard let nodeId = controller.niriEngine?.findNode(for: newToken)?.id else {
+                return false
+            }
+            let state = controller.workspaceManager.niriViewportState(for: workspaceId)
+            return controller.workspaceManager.entry(for: newToken) != nil &&
+                controller.workspaceManager.pendingFocusedToken == newToken &&
+                state.selectedNodeId == nodeId &&
+                state.activeColumnIndex == 1 &&
+                lastAppliedBorderWindowId(on: controller) == Int(newWindowId)
+        }
+
+        guard let newNode = controller.niriEngine?.findNode(for: newToken) else {
+            Issue.record("Expected Niri node for same-app new-window focus regression test")
+            return
+        }
+
+        #expect(focusedWindows.contains { $0.0 == getpid() && $0.1 == newWindowId })
+        #expect(controller.workspaceManager.focusedToken == oldToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == newToken)
+        #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == newToken)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == newNode.id)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).activeColumnIndex == 1)
+        #expect(lastAppliedBorderWindowId(on: controller) == Int(newWindowId))
+
+        controller.axEventHandler.handleAppActivation(
+            pid: getpid(),
+            source: .workspaceDidActivateApplication
+        )
+
+        let deferredTrace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.focusedToken == oldToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == newToken)
+        #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == newToken)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == newNode.id)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).activeColumnIndex == 1)
+        #expect(lastAppliedBorderWindowId(on: controller) == Int(newWindowId))
+        #expect(deferredTrace.contains { event in
+            if case let .activationDeferred(pid, source, reason, attempt) = event.kind {
+                return pid == getpid() &&
+                    source == .workspaceDidActivateApplication &&
+                    reason == "pending_focus_mismatch" &&
+                    attempt == 1
+            }
+            return false
+        })
+
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == getpid() else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(newWindowId))
+        }
+        controller.axEventHandler.handleAppActivation(
+            pid: getpid(),
+            source: .focusedWindowChanged
+        )
+
+        let confirmedTrace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.focusedToken == newToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == nil)
+        #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == newToken)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == newNode.id)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).activeColumnIndex == 1)
+        #expect(lastAppliedBorderWindowId(on: controller) == Int(newWindowId))
+        #expect(confirmedTrace.contains { event in
+            if case let .focusConfirmed(token, confirmedWorkspaceId, source) = event.kind {
+                return token == newToken &&
+                    confirmedWorkspaceId == workspaceId &&
+                    source == .focusedWindowChanged
+            }
+            return false
+        })
+    }
+
+    @Test @MainActor func newAppActivationWaitsForFocusedWindowBeforeLeavingManagedFocus() async throws {
+        var focusedWindows: [(pid_t, UInt32)] = []
+        let operations = WindowFocusOperations(
+            activateApp: { _ in },
+            focusSpecificWindow: { pid, windowId, _ in
+                focusedWindows.append((pid, windowId))
+            },
+            raiseWindow: { _ in }
+        )
+        let controller = makeAXEventTestController(windowFocusOperations: operations)
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or workspace for new-app focus regression test")
+            return
+        }
+
+        controller.hasStartedServices = true
+        controller.setBordersEnabled(true)
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.updateNiriConfig(
+            maxVisibleColumns: 1,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        controller.syncMonitorsToNiriEngine()
+        controller.niriEngine?.presetColumnWidths = [.proportion(1.0), .proportion(1.0)]
+
+        let oldToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 891),
+            pid: 9_501,
+            windowId: 891,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            oldToken,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+
+        focusedWindows.removeAll()
+        controller.axEventHandler.resetDebugStateForTests()
+
+        let newPid: pid_t = 9_502
+        let newWindowId: UInt32 = 892
+        let newToken = WindowToken(pid: newPid, windowId: Int(newWindowId))
+        let newWindowInfo = WindowServerInfo(
+            id: newWindowId,
+            pid: newPid,
+            level: 0,
+            frame: CGRect(x: 100, y: 60, width: 1400, height: 900)
+        )
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == newWindowId else { return nil }
+            return newWindowInfo
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, pid in
+            guard windowId == newWindowId, pid == newPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, pid in
+            guard axRef.windowId == Int(newWindowId), pid == newPid else {
+                return makeAXEventWindowRuleFacts(bundleId: "com.example.old-app")
+            }
+            return makeAXEventWindowRuleFacts(
+                bundleId: "com.example.new-app",
+                title: "New app window",
+                windowServer: newWindowInfo
+            )
+        }
+        controller.axEventHandler.focusedWindowRefProvider = { _ in nil }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: newWindowId, spaceId: 0)
+        )
+
+        await waitUntilAXEventTest(iterations: 300) {
+            guard let nodeId = controller.niriEngine?.findNode(for: newToken)?.id else {
+                return false
+            }
+            let state = controller.workspaceManager.niriViewportState(for: workspaceId)
+            return controller.workspaceManager.entry(for: newToken) != nil &&
+                controller.workspaceManager.pendingFocusedToken == newToken &&
+                state.selectedNodeId == nodeId &&
+                state.activeColumnIndex == 1 &&
+                lastAppliedBorderWindowId(on: controller) == Int(newWindowId)
+        }
+
+        guard let newNode = controller.niriEngine?.findNode(for: newToken) else {
+            Issue.record("Expected Niri node for new-app focus regression test")
+            return
+        }
+
+        #expect(focusedWindows.contains { $0.0 == newPid && $0.1 == newWindowId })
+        #expect(controller.workspaceManager.focusedToken == oldToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == newToken)
+        #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == newToken)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == newNode.id)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).activeColumnIndex == 1)
+        #expect(lastAppliedBorderWindowId(on: controller) == Int(newWindowId))
+
+        controller.axEventHandler.handleAppActivation(
+            pid: newPid,
+            source: .workspaceDidActivateApplication
+        )
+
+        let deferredTrace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.focusedToken == oldToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == newToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
+        #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == newToken)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == newNode.id)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).activeColumnIndex == 1)
+        #expect(lastAppliedBorderWindowId(on: controller) == Int(newWindowId))
+        #expect(deferredTrace.contains { event in
+            if case let .activationDeferred(pid, source, reason, attempt) = event.kind {
+                return pid == newPid &&
+                    source == .workspaceDidActivateApplication &&
+                    reason == "missing_focused_window" &&
+                    attempt == 1
+            }
+            return false
+        })
+        #expect(!deferredTrace.contains { event in
+            if case let .nonManagedFallbackEntered(pid, source) = event.kind {
+                return pid == newPid && source == .workspaceDidActivateApplication
+            }
+            return false
+        })
+
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == newPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(newWindowId))
+        }
+        controller.axEventHandler.handleAppActivation(
+            pid: newPid,
+            source: .focusedWindowChanged
+        )
+
+        let confirmedTrace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.focusedToken == newToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == nil)
+        #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == newToken)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == newNode.id)
+        #expect(controller.workspaceManager.niriViewportState(for: workspaceId).activeColumnIndex == 1)
+        #expect(lastAppliedBorderWindowId(on: controller) == Int(newWindowId))
+        #expect(confirmedTrace.contains { event in
+            if case let .focusConfirmed(token, confirmedWorkspaceId, source) = event.kind {
+                return token == newToken &&
+                    confirmedWorkspaceId == workspaceId &&
+                    source == .focusedWindowChanged
+            }
+            return false
+        })
     }
 
     @Test @MainActor func ownedUtilityWindowActivationPreservesManagedFocus() {

@@ -1,6 +1,16 @@
 import AppKit
 import Foundation
 
+enum ActivationEventSource: String, Sendable {
+    case focusedWindowChanged
+    case workspaceDidActivateApplication
+    case cgsFrontAppChanged
+
+    var isAuthoritative: Bool {
+        self == .focusedWindowChanged
+    }
+}
+
 @MainActor
 final class ServiceLifecycleManager {
     weak var controller: WMController?
@@ -57,7 +67,10 @@ final class ServiceLifecycleManager {
             controller.axEventHandler.handleRemoved(pid: pid, winId: windowId)
         }
         AppAXContext.onFocusedWindowChanged = { [weak controller] pid in
-            controller?.axEventHandler.handleAppActivation(pid: pid)
+            controller?.axEventHandler.handleAppActivation(
+                pid: pid,
+                source: .focusedWindowChanged
+            )
         }
         setupWorkspaceObservation()
         controller.mouseEventHandler.setup()
@@ -225,7 +238,10 @@ final class ServiceLifecycleManager {
             }
             let pid = app.processIdentifier
             MainActor.assumeIsolated {
-                controller?.axEventHandler.handleAppActivation(pid: pid)
+                controller?.axEventHandler.handleAppActivation(
+                    pid: pid,
+                    source: .workspaceDidActivateApplication
+                )
             }
         }
     }

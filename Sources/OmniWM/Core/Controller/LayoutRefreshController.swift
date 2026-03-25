@@ -520,6 +520,14 @@ import QuartzCore
                 guard !controller.shouldSuppressManagedFocusRecovery,
                       !controller.workspaceManager.hasPendingNativeFullscreenTransition
                 else { continue }
+                if let workspaceId = controller.workspaceManager.workspace(for: token) {
+                    controller.recordNiriCreateFocusTrace(
+                        .relayoutActivatedWindow(
+                            token: token,
+                            workspaceId: workspaceId
+                        )
+                    )
+                }
                 controller.focusWindow(token)
             case .updateTabbedOverlays:
                 niriHandler.updateTabbedColumnOverlays()

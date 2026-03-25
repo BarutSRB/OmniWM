@@ -1,6 +1,56 @@
 import AppKit
 import Foundation
 
+struct NiriCreateFocusTraceEvent: Equatable {
+    enum Kind: Equatable {
+        case createSeen(windowId: UInt32)
+        case createRetryScheduled(windowId: UInt32, pid: pid_t, attempt: Int)
+        case candidateTracked(token: WindowToken, workspaceId: WorkspaceDescriptor.ID)
+        case relayoutActivatedWindow(token: WindowToken, workspaceId: WorkspaceDescriptor.ID)
+        case pendingFocusStarted(token: WindowToken, workspaceId: WorkspaceDescriptor.ID)
+        case activationSourceObserved(pid: pid_t, source: ActivationEventSource)
+        case activationDeferred(pid: pid_t, source: ActivationEventSource, reason: String, attempt: Int)
+        case focusConfirmed(token: WindowToken, workspaceId: WorkspaceDescriptor.ID, source: ActivationEventSource)
+        case nonManagedFallbackEntered(pid: pid_t, source: ActivationEventSource)
+    }
+
+    let timestamp: Date
+    let kind: Kind
+
+    init(
+        timestamp: Date = Date(),
+        kind: Kind
+    ) {
+        self.timestamp = timestamp
+        self.kind = kind
+    }
+}
+
+extension NiriCreateFocusTraceEvent: CustomStringConvertible {
+    var description: String {
+        switch kind {
+        case let .createSeen(windowId):
+            "create_seen window=\(windowId)"
+        case let .createRetryScheduled(windowId, pid, attempt):
+            "create_retry_scheduled window=\(windowId) pid=\(pid) attempt=\(attempt)"
+        case let .candidateTracked(token, workspaceId):
+            "candidate_tracked token=\(token) workspace=\(workspaceId.uuidString)"
+        case let .relayoutActivatedWindow(token, workspaceId):
+            "relayout_activated_window token=\(token) workspace=\(workspaceId.uuidString)"
+        case let .pendingFocusStarted(token, workspaceId):
+            "pending_focus_started token=\(token) workspace=\(workspaceId.uuidString)"
+        case let .activationSourceObserved(pid, source):
+            "activation_source_observed pid=\(pid) source=\(source.rawValue)"
+        case let .activationDeferred(pid, source, reason, attempt):
+            "activation_deferred pid=\(pid) source=\(source.rawValue) reason=\(reason) attempt=\(attempt)"
+        case let .focusConfirmed(token, workspaceId, source):
+            "focus_confirmed token=\(token) workspace=\(workspaceId.uuidString) source=\(source.rawValue)"
+        case let .nonManagedFallbackEntered(pid, source):
+            "non_managed_fallback_entered pid=\(pid) source=\(source.rawValue)"
+        }
+    }
+}
+
 @MainActor
 final class AXEventHandler: CGSEventDelegate {
     struct DebugCounters {
@@ -111,6 +161,11 @@ final class AXEventHandler: CGSEventDelegate {
     private static let managedReplacementGraceDelay: Duration = .milliseconds(150)
     private static let nativeFullscreenReplacementGraceDelay: Duration = .seconds(1)
     private static let stabilizationRetryDelay: Duration = .milliseconds(100)
+    private static let createdWindowRetryLimit = 5
+    private static let activationRetryLimit = 5
+    private static let createFocusTraceLimit = 128
+    private static let createFocusTraceLoggingEnabled =
+        ProcessInfo.processInfo.environment["OMNIWM_DEBUG_NIRI_CREATE_FOCUS"] == "1"
 
     weak var controller: WMController?
     private var deferredCreatedWindowIds: Set<UInt32> = []
@@ -121,12 +176,18 @@ final class AXEventHandler: CGSEventDelegate {
     private var pendingWindowRuleReevaluationTask: Task<Void, Never>?
     private var pendingWindowRuleReevaluationTargets: Set<WindowRuleReevaluationTarget> = []
     private var pendingWindowStabilizationTasks: [WindowToken: Task<Void, Never>] = [:]
+    private var pendingCreatedWindowRetryTasks: [UInt32: Task<Void, Never>] = [:]
+    private var createdWindowRetryCountById: [UInt32: Int] = [:]
+    private var pendingActivationRetryTasks: [pid_t: Task<Void, Never>] = [:]
+    private var activationRetryCountByPid: [pid_t: Int] = [:]
+    private var createFocusTrace: [NiriCreateFocusTraceEvent] = []
     private var nextManagedReplacementEventSequence: UInt64 = 0
     var windowInfoProvider: ((UInt32) -> WindowServerInfo?)?
     var axWindowRefProvider: ((UInt32, pid_t) -> AXWindowRef?)?
     var bundleIdProvider: ((pid_t) -> String?)?
     var windowSubscriptionHandler: (([UInt32]) -> Void)?
     var focusedWindowValueProvider: ((pid_t) -> CFTypeRef?)?
+    var focusedWindowRefProvider: ((pid_t) -> AXWindowRef?)?
     var windowFactsProvider: ((AXWindowRef, pid_t) -> WindowRuleFacts?)?
     var frameProvider: ((AXWindowRef) -> CGRect?)?
     var fastFrameProvider: ((AXWindowRef) -> CGRect?)?
@@ -148,6 +209,8 @@ final class AXEventHandler: CGSEventDelegate {
         resetManagedReplacementState()
         resetNativeFullscreenReplacementState()
         resetWindowStabilizationState()
+        resetCreatedWindowRetryState()
+        resetActivationRetryState()
         pendingWindowRuleReevaluationTask?.cancel()
         pendingWindowRuleReevaluationTask = nil
         pendingWindowRuleReevaluationTargets.removeAll()
@@ -172,7 +235,7 @@ final class AXEventHandler: CGSEventDelegate {
             handleFrameChanged(windowId: windowId)
 
         case let .frontAppChanged(pid):
-            handleAppActivation(pid: pid)
+            handleAppActivation(pid: pid, source: .cgsFrontAppChanged)
 
         case let .titleChanged(windowId):
             controller.requestWorkspaceBarRefresh()
@@ -213,6 +276,11 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func handleCGSWindowCreated(windowId: UInt32) {
+        recordNiriCreateFocusTrace(.init(kind: .createSeen(windowId: windowId)))
+        processCreatedWindow(windowId: windowId)
+    }
+
+    private func processCreatedWindow(windowId: UInt32) {
         guard let controller else { return }
         if controller.isDiscoveryInProgress {
             deferCreatedWindow(windowId)
@@ -225,11 +293,16 @@ final class AXEventHandler: CGSEventDelegate {
             windowInfo: windowInfo
         ) else {
             if let windowInfo {
+                _ = scheduleCreatedWindowRetryIfNeeded(
+                    windowId: windowId,
+                    pid: pid_t(windowInfo.pid)
+                )
                 scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(pid_t(windowInfo.pid))])
             }
             return
         }
 
+        cancelCreatedWindowRetry(windowId: windowId)
         if shouldDelayManagedReplacementCreate(candidate) {
             enqueueManagedReplacementCreate(candidate)
             return
@@ -243,9 +316,27 @@ final class AXEventHandler: CGSEventDelegate {
         resetManagedReplacementState()
         resetNativeFullscreenReplacementState()
         resetWindowStabilizationState()
+        resetCreatedWindowRetryState()
+        resetActivationRetryState()
+        createFocusTrace.removeAll(keepingCapacity: true)
         pendingWindowRuleReevaluationTask?.cancel()
         pendingWindowRuleReevaluationTask = nil
         pendingWindowRuleReevaluationTargets.removeAll()
+    }
+
+    func niriCreateFocusTraceSnapshotForTests() -> [NiriCreateFocusTraceEvent] {
+        createFocusTrace
+    }
+
+    func recordNiriCreateFocusTrace(_ event: NiriCreateFocusTraceEvent) {
+        if createFocusTrace.count == Self.createFocusTraceLimit {
+            createFocusTrace.removeFirst()
+        }
+        createFocusTrace.append(event)
+
+        if Self.createFocusTraceLoggingEnabled {
+            fputs("[NiriCreateFocus] \(event.description)\n", stderr)
+        }
     }
 
     private func handleFrameChanged(windowId: UInt32) {
@@ -296,6 +387,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func handleCGSWindowDestroyed(windowId: UInt32) {
+        cancelCreatedWindowRetry(windowId: windowId)
         removeDeferredCreatedWindow(windowId)
         handleWindowDestroyed(windowId: windowId, pidHint: nil)
     }
@@ -327,8 +419,15 @@ final class AXEventHandler: CGSEventDelegate {
                 windowId: windowId,
                 windowInfo: resolveWindowInfo(windowId)
             ) else {
+                if let windowInfo = resolveWindowInfo(windowId) {
+                    _ = scheduleCreatedWindowRetryIfNeeded(
+                        windowId: windowId,
+                        pid: pid_t(windowInfo.pid)
+                    )
+                }
                 continue
             }
+            cancelCreatedWindowRetry(windowId: windowId)
             if shouldDelayManagedReplacementCreate(candidate) {
                 enqueueManagedReplacementCreate(candidate)
             } else {
@@ -339,6 +438,15 @@ final class AXEventHandler: CGSEventDelegate {
 
     private func trackPreparedCreate(_ candidate: PreparedCreate) {
         guard let controller else { return }
+        cancelCreatedWindowRetry(windowId: candidate.windowId)
+        recordNiriCreateFocusTrace(
+            .init(
+                kind: .candidateTracked(
+                    token: candidate.token,
+                    workspaceId: candidate.workspaceId
+                )
+            )
+        )
 
         if restoreNativeFullscreenReplacementIfNeeded(
             token: candidate.token,
@@ -399,6 +507,7 @@ final class AXEventHandler: CGSEventDelegate {
 
     func handleRemoved(pid: pid_t, winId: Int) {
         guard let windowId = UInt32(exactly: winId) else { return }
+        cancelCreatedWindowRetry(windowId: windowId)
         removeDeferredCreatedWindow(windowId)
         handleWindowDestroyed(windowId: windowId, pidHint: pid)
     }
@@ -465,11 +574,23 @@ final class AXEventHandler: CGSEventDelegate {
         scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(token.pid)])
     }
 
-    func handleAppActivation(pid: pid_t) {
+    func handleAppActivation(
+        pid: pid_t,
+        source: ActivationEventSource = .workspaceDidActivateApplication
+    ) {
         guard let controller else { return }
+        recordNiriCreateFocusTrace(
+            .init(
+                kind: .activationSourceObserved(
+                    pid: pid,
+                    source: source
+                )
+            )
+        )
         guard controller.hasStartedServices else { return }
 
         if pid == getpid(), (controller.hasFrontmostOwnedWindow || controller.hasVisibleOwnedWindow) {
+            cancelActivationRetry(for: pid)
             _ = controller.workspaceManager.enterNonManagedFocus(
                 appFullscreen: false,
                 preserveFocusedToken: true
@@ -478,16 +599,54 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
+        let pendingTokenForPID = pendingManagedFocusToken(for: pid)
+
         guard let axRef = resolveFocusedAXWindowRef(pid: pid) else {
+            if pendingTokenForPID != nil || source.isAuthoritative {
+                if scheduleActivationRetryIfNeeded(
+                    pid: pid,
+                    source: source,
+                    reason: "missing_focused_window"
+                ) {
+                    return
+                }
+            }
+            if pendingTokenForPID != nil {
+                return
+            }
+            cancelActivationRetry(for: pid)
             _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
+            recordNiriCreateFocusTrace(
+                .init(
+                    kind: .nonManagedFallbackEntered(
+                        pid: pid,
+                        source: source
+                    )
+                )
+            )
             controller.borderManager.hideBorder()
             return
         }
         let token = WindowToken(pid: pid, windowId: axRef.windowId)
 
+        if !source.isAuthoritative,
+           let pendingTokenForPID,
+           token != pendingTokenForPID
+        {
+            if scheduleActivationRetryIfNeeded(
+                pid: pid,
+                source: source,
+                reason: "pending_focus_mismatch"
+            ) {
+                return
+            }
+            return
+        }
+
         let appFullscreen = isFullscreenProvider?(axRef) ?? AXWindowService.isFullscreen(axRef)
 
         if let entry = controller.workspaceManager.entry(for: token) {
+            cancelActivationRetry(for: pid)
             if appFullscreen {
                 suspendManagedWindowForNativeFullscreen(entry)
                 return
@@ -503,7 +662,8 @@ final class AXEventHandler: CGSEventDelegate {
             handleManagedAppActivation(
                 entry: entry,
                 isWorkspaceActive: isWorkspaceActive,
-                appFullscreen: appFullscreen
+                appFullscreen: appFullscreen,
+                source: source
             )
             return
         }
@@ -523,22 +683,47 @@ final class AXEventHandler: CGSEventDelegate {
                 controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
             } ?? false
 
+            cancelActivationRetry(for: pid)
             handleManagedAppActivation(
                 entry: restoredEntry,
                 isWorkspaceActive: isWorkspaceActive,
-                appFullscreen: appFullscreen
+                appFullscreen: appFullscreen,
+                source: source
             )
             return
         }
 
+        if !source.isAuthoritative,
+           pendingTokenForPID != nil
+        {
+            if scheduleActivationRetryIfNeeded(
+                pid: pid,
+                source: source,
+                reason: "pending_focus_unmanaged_token"
+            ) {
+                return
+            }
+            return
+        }
+
+        cancelActivationRetry(for: pid)
         _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: appFullscreen)
+        recordNiriCreateFocusTrace(
+            .init(
+                kind: .nonManagedFallbackEntered(
+                    pid: pid,
+                    source: source
+                )
+            )
+        )
         controller.borderManager.hideBorder()
     }
 
     func handleManagedAppActivation(
         entry: WindowModel.Entry,
         isWorkspaceActive: Bool,
-        appFullscreen: Bool
+        appFullscreen: Bool,
+        source: ActivationEventSource = .focusedWindowChanged
     ) {
         guard let controller else { return }
         if appFullscreen {
@@ -558,6 +743,15 @@ final class AXEventHandler: CGSEventDelegate {
             appFullscreen: appFullscreen,
             activateWorkspaceOnMonitor: shouldActivateWorkspace
         )
+        recordNiriCreateFocusTrace(
+            .init(
+                kind: .focusConfirmed(
+                    token: entry.token,
+                    workspaceId: wsId,
+                    source: source
+                )
+            )
+        )
 
         if let engine = controller.niriEngine,
            let node = engine.findNode(for: entry.handle),
@@ -576,13 +770,12 @@ final class AXEventHandler: CGSEventDelegate {
                 )
             )
 
-            if let frame = node.renderedFrame ?? node.frame {
-                controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-            } else if let frame = try? AXWindowService.frame(entry.axRef) {
-                controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
-            }
-        } else if let frame = try? AXWindowService.frame(entry.axRef) {
-            controller.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
+            _ = controller.refreshBorderForManagedWindow(
+                entry.token,
+                preferredFrame: node.renderedFrame ?? node.frame
+            )
+        } else {
+            _ = controller.refreshBorderForManagedWindow(entry.token)
         }
         controller.niriLayoutHandler.updateTabbedColumnOverlays()
         if shouldActivateWorkspace {
@@ -1193,25 +1386,12 @@ final class AXEventHandler: CGSEventDelegate {
         guard let controller else { return }
         guard controller.workspaceManager.focusedToken == entry.token else { return }
 
-        if let engine = controller.niriEngine,
-           let node = engine.findNode(for: entry.token),
-           let frame = node.renderedFrame ?? node.frame
-        {
-            controller.borderCoordinator.updateBorderIfAllowed(
-                token: entry.token,
-                frame: frame,
-                windowId: entry.windowId
-            )
-            return
-        }
-
-        if let frame = frameProvider?(entry.axRef) ?? (try? AXWindowService.frame(entry.axRef)) {
-            controller.borderCoordinator.updateBorderIfAllowed(
-                token: entry.token,
-                frame: frame,
-                windowId: entry.windowId
-            )
-        }
+        let preferredFrame = controller.niriEngine?.findNode(for: entry.token).flatMap { $0.renderedFrame ?? $0.frame }
+            ?? frameProvider?(entry.axRef)
+        _ = controller.refreshBorderForManagedWindow(
+            entry.token,
+            preferredFrame: preferredFrame
+        )
     }
 
     private func resetNativeFullscreenReplacementState() {
@@ -1327,6 +1507,122 @@ final class AXEventHandler: CGSEventDelegate {
         pendingWindowStabilizationTasks.removeValue(forKey: token)?.cancel()
     }
 
+    private func scheduleCreatedWindowRetryIfNeeded(
+        windowId: UInt32,
+        pid: pid_t
+    ) -> Bool {
+        guard let controller else { return false }
+        let token = WindowToken(pid: pid, windowId: Int(windowId))
+        guard controller.workspaceManager.entry(for: token) == nil else {
+            cancelCreatedWindowRetry(windowId: windowId)
+            return false
+        }
+        guard !controller.isOwnedWindow(windowNumber: Int(windowId)) else {
+            cancelCreatedWindowRetry(windowId: windowId)
+            return false
+        }
+        guard resolveAXWindowRef(windowId: windowId, pid: pid) == nil else {
+            return false
+        }
+
+        let attempt = createdWindowRetryCountById[windowId, default: 0] + 1
+        guard attempt <= Self.createdWindowRetryLimit else { return false }
+
+        createdWindowRetryCountById[windowId] = attempt
+        pendingCreatedWindowRetryTasks.removeValue(forKey: windowId)?.cancel()
+        recordNiriCreateFocusTrace(
+            .init(
+                kind: .createRetryScheduled(
+                    windowId: windowId,
+                    pid: pid,
+                    attempt: attempt
+                )
+            )
+        )
+        pendingCreatedWindowRetryTasks[windowId] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.stabilizationRetryDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingCreatedWindowRetryTasks.removeValue(forKey: windowId)
+            self.processCreatedWindow(windowId: windowId)
+        }
+        return true
+    }
+
+    private func cancelCreatedWindowRetry(windowId: UInt32) {
+        pendingCreatedWindowRetryTasks.removeValue(forKey: windowId)?.cancel()
+        createdWindowRetryCountById.removeValue(forKey: windowId)
+    }
+
+    private func resetCreatedWindowRetryState() {
+        for (_, task) in pendingCreatedWindowRetryTasks {
+            task.cancel()
+        }
+        pendingCreatedWindowRetryTasks.removeAll()
+        createdWindowRetryCountById.removeAll()
+    }
+
+    private func pendingManagedFocusToken(for pid: pid_t) -> WindowToken? {
+        guard let controller,
+              let pendingToken = controller.workspaceManager.pendingFocusedToken,
+              pendingToken.pid == pid
+        else {
+            return nil
+        }
+        return pendingToken
+    }
+
+    private func hasManagedFocusInterest(for pid: pid_t) -> Bool {
+        guard let controller else { return false }
+        if pendingManagedFocusToken(for: pid) != nil {
+            return true
+        }
+        return !controller.workspaceManager.entries(forPid: pid).isEmpty
+    }
+
+    private func scheduleActivationRetryIfNeeded(
+        pid: pid_t,
+        source: ActivationEventSource,
+        reason: String
+    ) -> Bool {
+        guard hasManagedFocusInterest(for: pid) else { return false }
+
+        let attempt = activationRetryCountByPid[pid, default: 0] + 1
+        guard attempt <= Self.activationRetryLimit else { return false }
+
+        activationRetryCountByPid[pid] = attempt
+        pendingActivationRetryTasks.removeValue(forKey: pid)?.cancel()
+        recordNiriCreateFocusTrace(
+            .init(
+                kind: .activationDeferred(
+                    pid: pid,
+                    source: source,
+                    reason: reason,
+                    attempt: attempt
+                )
+            )
+        )
+        pendingActivationRetryTasks[pid] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.stabilizationRetryDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingActivationRetryTasks.removeValue(forKey: pid)
+            self.handleAppActivation(pid: pid, source: source)
+        }
+        return true
+    }
+
+    private func cancelActivationRetry(for pid: pid_t) {
+        pendingActivationRetryTasks.removeValue(forKey: pid)?.cancel()
+        activationRetryCountByPid.removeValue(forKey: pid)
+    }
+
+    private func resetActivationRetryState() {
+        for (_, task) in pendingActivationRetryTasks {
+            task.cancel()
+        }
+        pendingActivationRetryTasks.removeAll()
+        activationRetryCountByPid.removeAll()
+    }
+
     private func deferCreatedWindow(_ windowId: UInt32) {
         guard deferredCreatedWindowIds.insert(windowId).inserted else { return }
         deferredCreatedWindowOrder.append(windowId)
@@ -1381,6 +1677,9 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func resolveFocusedAXWindowRef(pid: pid_t) -> AXWindowRef? {
+        if let focusedWindowRefProvider {
+            return focusedWindowRefProvider(pid)
+        }
         guard let windowElement = resolveFocusedWindowValue(pid: pid) else {
             return nil
         }
