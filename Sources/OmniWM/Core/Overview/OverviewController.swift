@@ -434,9 +434,9 @@ final class OverviewController {
 
                 if let thumbnail = await captureWindowThumbnail(scWindow: scWindow, request: request) {
                     thumbnailCache[request.windowId] = thumbnail
-                    updateWindowDisplays()
                 }
             }
+            updateWindowDisplays()
         } catch {
             return
         }
