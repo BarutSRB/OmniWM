@@ -67,7 +67,8 @@ final class BorderCoordinator {
             break
         }
 
-        guard let frame = resolveFrame(for: target, preferredFrame: preferredFrame) else {
+        let isGhostty = controller.appInfoCache.bundleId(for: target.pid) == Self.ghosttyBundleId
+        guard let frame = resolveFrame(for: target, preferredFrame: preferredFrame, preferObservedForGhostty: isGhostty) else {
             if target.isManaged, policy == .coordinated {
                 return false
             }
@@ -83,7 +84,7 @@ final class BorderCoordinator {
         }
 
         controller.borderManager.updateFocusedWindow(
-            frame: resolveGhosttyObservedFrame(for: target, fallback: frame),
+            frame: frame,
             windowId: target.windowId
         )
         return true
@@ -121,7 +122,8 @@ final class BorderCoordinator {
 
     private func resolveFrame(
         for target: KeyboardFocusTarget,
-        preferredFrame: CGRect?
+        preferredFrame: CGRect?,
+        preferObservedForGhostty: Bool = false
     ) -> CGRect? {
         guard let controller else { return nil }
 
@@ -129,6 +131,7 @@ final class BorderCoordinator {
            let entry = controller.workspaceManager.entry(for: target.token)
         {
             let shouldPreferObservedFrame = controller.axManager.shouldPreferObservedFrame(for: entry.windowId)
+                || preferObservedForGhostty
             if !shouldPreferObservedFrame, let preferredFrame {
                 return preferredFrame
             }
@@ -146,21 +149,6 @@ final class BorderCoordinator {
         }
 
         return observedFrame(for: target.axRef)
-    }
-
-    private func resolveGhosttyObservedFrame(
-        for target: KeyboardFocusTarget,
-        fallback providedFrame: CGRect
-    ) -> CGRect {
-        guard let controller,
-              controller.appInfoCache.bundleId(for: target.pid) == Self.ghosttyBundleId
-        else {
-            return providedFrame
-        }
-
-        let axRef = controller.workspaceManager.entry(for: target.token)?.axRef ?? target.axRef
-
-        return observedFrame(for: axRef) ?? providedFrame
     }
 
     private func observedFrame(for axRef: AXWindowRef) -> CGRect? {
