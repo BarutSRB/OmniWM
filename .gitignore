@@ -29,14 +29,11 @@ Frameworks/
 
 # Codex
 .codex-home/
+.codex-docs/
 .tmp/
 .cache/
 .codex-cache/
-LOCAL_SESSION_NOTES.md
 
 # Claude Code
 CLAUDE.md
 TODO.md
-PERFORMANCE_IMPROVEMENTS.md
-PERFORMANCE_CACHE_PLAN.md
-REFRESH_FRAME_MEMOIZATION_PLAN.md
