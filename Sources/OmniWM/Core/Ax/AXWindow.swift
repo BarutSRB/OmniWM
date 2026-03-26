@@ -142,10 +142,63 @@ enum AXWindowService {
 
     nonisolated(unsafe) static var axWindowRefProviderForTests: ((UInt32, pid_t) -> AXWindowRef?)?
     nonisolated(unsafe) static var setFrameResultProviderForTests: ((AXWindowRef, CGRect, CGRect?) -> AXFrameWriteResult)?
+    @MainActor static var titleLookupProviderForTests: ((UInt32) -> String?)?
+    @MainActor static var timeSourceForTests: (() -> TimeInterval)?
+
+    private struct CachedTitle {
+        let title: String?
+        let fetchedAt: TimeInterval
+    }
+
+    private static let titleTTL: TimeInterval = 0.5
+    private static let titleCacheCap = 512
+    @MainActor private static var titleCache: [UInt32: CachedTitle] = [:]
+    @MainActor private static var titleInsertionOrder: [UInt32] = []
 
     @MainActor
     static func titlePreferFast(windowId: UInt32) -> String? {
-        SkyLight.shared.getWindowTitle(windowId)
+        let now = timeSourceForTests?() ?? ProcessInfo.processInfo.systemUptime
+        if let cached = titleCache[windowId],
+           now - cached.fetchedAt < titleTTL
+        {
+            return cached.title
+        }
+        let title = titleLookupProviderForTests?(windowId) ?? SkyLight.shared.getWindowTitle(windowId)
+        storeTitleCacheEntry(windowId: windowId, title: title, at: now)
+        return title
+    }
+
+    @MainActor
+    static func invalidateCachedTitle(windowId: UInt32) {
+        titleCache.removeValue(forKey: windowId)
+        titleInsertionOrder.removeAll { $0 == windowId }
+    }
+
+    @MainActor
+    static func invalidateCachedTitles(windowIds: [UInt32]) {
+        for windowId in windowIds {
+            titleCache.removeValue(forKey: windowId)
+        }
+        let windowIdSet = Set(windowIds)
+        titleInsertionOrder.removeAll { windowIdSet.contains($0) }
+    }
+
+    @MainActor
+    static func clearTitleCacheForTests() {
+        titleCache.removeAll()
+        titleInsertionOrder.removeAll()
+    }
+
+    @MainActor
+    private static func storeTitleCacheEntry(windowId: UInt32, title: String?, at time: TimeInterval) {
+        if titleCache[windowId] == nil {
+            titleInsertionOrder.append(windowId)
+        }
+        titleCache[windowId] = CachedTitle(title: title, fetchedAt: time)
+        while titleCache.count > titleCacheCap, let oldest = titleInsertionOrder.first {
+            titleInsertionOrder.removeFirst()
+            titleCache.removeValue(forKey: oldest)
+        }
     }
 
     static func windowId(_ window: AXWindowRef) -> Int {

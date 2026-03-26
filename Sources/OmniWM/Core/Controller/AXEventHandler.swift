@@ -270,6 +270,7 @@ final class AXEventHandler: CGSEventDelegate {
             handleAppActivation(pid: pid, source: .cgsFrontAppChanged)
 
         case let .titleChanged(windowId):
+            AXWindowService.invalidateCachedTitle(windowId: windowId)
             controller.requestWorkspaceBarRefresh()
             if let token = resolveWindowToken(windowId) ?? resolveTrackedToken(windowId) {
                 updateManagedReplacementTitle(windowId: windowId, token: token)
@@ -445,6 +446,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func handleCGSWindowDestroyed(windowId: UInt32) {
+        AXWindowService.invalidateCachedTitle(windowId: windowId)
         cancelCreatedWindowRetry(windowId: windowId)
         removeDeferredCreatedWindow(windowId)
         handleWindowDestroyed(windowId: windowId, pidHint: nil)
@@ -1032,6 +1034,7 @@ final class AXEventHandler: CGSEventDelegate {
             oldWindowId: oldToken.windowId,
             newWindow: axRef
         )
+        AXWindowService.invalidateCachedTitles(windowIds: [UInt32(oldToken.windowId), windowId])
         subscribeToWindows([windowId])
         controller.requestWorkspaceBarRefresh()
         controller.niriLayoutHandler.updateTabbedColumnOverlays()
