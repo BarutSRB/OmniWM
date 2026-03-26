@@ -206,16 +206,26 @@ enum AXWindowService {
     }
 
     static func frame(_ window: AXWindowRef) throws(AXErrorWrapper) -> CGRect {
-        var positionValue: CFTypeRef?
-        var sizeValue: CFTypeRef?
-        let posResult = AXUIElementCopyAttributeValue(window.element, kAXPositionAttribute as CFString, &positionValue)
-        let sizeResult = AXUIElementCopyAttributeValue(window.element, kAXSizeAttribute as CFString, &sizeValue)
-        guard posResult == .success,
-              sizeResult == .success,
-              let posRaw = positionValue,
-              let sizeRaw = sizeValue,
-              CFGetTypeID(posRaw) == AXValueGetTypeID(),
-              CFGetTypeID(sizeRaw) == AXValueGetTypeID() else { throw .cannotGetAttribute }
+        let attributes = [
+            kAXPositionAttribute as CFString,
+            kAXSizeAttribute as CFString,
+        ] as CFArray
+        var valuesPtr: CFArray?
+        let result = AXUIElementCopyMultipleAttributeValues(
+            window.element,
+            attributes,
+            .init(),
+            &valuesPtr
+        )
+        guard result == .success,
+              let values = valuesPtr as? [Any],
+              values.count == 2
+        else { throw .cannotGetAttribute }
+        let posRaw = values[0] as CFTypeRef
+        let sizeRaw = values[1] as CFTypeRef
+        guard CFGetTypeID(posRaw) == AXValueGetTypeID(),
+              CFGetTypeID(sizeRaw) == AXValueGetTypeID()
+        else { throw .cannotGetAttribute }
         var pos = CGPoint.zero
         var size = CGSize.zero
         guard AXValueGetValue(posRaw as! AXValue, .cgPoint, &pos),
