@@ -29,11 +29,6 @@ Frameworks/
 
 # Codex
 .codex-home/
-.codex-docs/
 .tmp/
 .cache/
 .codex-cache/
-
-# Claude Code
-CLAUDE.md
-TODO.md
