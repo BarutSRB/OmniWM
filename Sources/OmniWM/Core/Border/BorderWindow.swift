@@ -43,6 +43,7 @@ final class BorderWindow {
     private var needsRedraw = true
     private var isVisible = false
     private var lastOrderedTargetWid: UInt32 = 0
+    private var lastConfiguredScale: CGFloat = 0
 
     private let padding: CGFloat = 8.0
     private let cornerRadius: CGFloat = 9.0
@@ -94,6 +95,12 @@ final class BorderWindow {
             createdWindow = false
         }
 
+        if scale != lastConfiguredScale, wid != 0 {
+            operations.configureWindow(wid, Float(scale), false)
+            lastConfiguredScale = scale
+            needsRedraw = true
+        }
+
         if frame.size != currentFrame.size {
             reshapeWindow(frame: frame)
             needsRedraw = true
@@ -117,6 +124,7 @@ final class BorderWindow {
         guard wid != 0 else { return }
 
         operations.configureWindow(wid, Float(scale), false)
+        lastConfiguredScale = scale
 
         let tags: UInt64 = (1 << 1) | (1 << 9)
         operations.setWindowTags(wid, tags)
