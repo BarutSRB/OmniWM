@@ -279,6 +279,40 @@ private func makeCommandPaletteAppSnapshot(
         #expect(resolved == nil)
     }
 
+    @Test func menuModeCachesMenuItemsPerPidWithinVisibleSession() async {
+        var fetchCount = 0
+        var environment = CommandPaletteEnvironment()
+        environment.fetchMenuItems = { pid in
+            fetchCount += 1
+            return [
+                MenuItemModel(
+                    title: "Reload \(pid)",
+                    fullPath: "File > Reload",
+                    keyboardShortcut: nil,
+                    axElement: AXUIElementCreateSystemWide(),
+                    parentTitles: ["File"]
+                )
+            ]
+        }
+
+        let controller = CommandPaletteController(environment: environment)
+        let wmController = makeCommandPaletteTestWMController()
+        let target = makeCommandPaletteAppSnapshot(
+            pid: 410,
+            bundleIdentifier: "com.apple.Safari",
+            localizedName: "Safari"
+        )
+
+        controller.setMenuLoadingStateForTests(wmController: wmController, target: target)
+        controller.loadMenuItemsForTests()
+        try? await Task.sleep(for: .milliseconds(5))
+        controller.loadMenuItemsForTests()
+        try? await Task.sleep(for: .milliseconds(5))
+
+        #expect(fetchCount == 1)
+        #expect(controller.menuItems.count == 1)
+    }
+
     @Test func command2SwitchesOnlyWhenMenuModeIsAvailable() {
         let controller = CommandPaletteController()
         controller.selectedMode = .windows

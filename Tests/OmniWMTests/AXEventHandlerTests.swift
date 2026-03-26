@@ -3385,6 +3385,7 @@ private func waitUntilAXEventTest(
         #expect(entry.workspaceId == workspaceId)
         #expect(entry.mode == .floating)
         #expect(controller.workspaceManager.floatingState(for: entry.token) != nil)
+        #expect(controller.axManager.lastAppliedFrame(for: 822) == nil)
         #expect(subscriptions == [[822]])
         #expect(relayoutReasons == [.axWindowCreated])
     }
@@ -3399,6 +3400,7 @@ private func waitUntilAXEventTest(
         let primaryMonitor = makeAXEventTestMonitor()
         let secondaryMonitor = makeAXEventSecondaryMonitor()
         controller.workspaceManager.applyMonitorConfigurationChange([primaryMonitor, secondaryMonitor])
+        installSynchronousFrameApplySuccessOverride(on: controller)
         controller.windowRuleEngine.rebuild(
             rules: [
                 AppRule(
@@ -3444,6 +3446,116 @@ private func waitUntilAXEventTest(
         #expect(entry.workspaceId == workspaceId)
         #expect(entry.mode == .floating)
         #expect(secondaryMonitor.visibleFrame.contains(appliedFrame.center))
+    }
+
+    @Test @MainActor func activeFloatingCreateRetriesFrameApplyAfterContextUnavailable() async {
+        let controller = makeAXEventTestController()
+        controller.windowRuleEngine.rebuild(
+            rules: [
+                AppRule(
+                    bundleId: "com.example.retry",
+                    layout: .float,
+                    assignToWorkspace: "1"
+                )
+            ]
+        )
+
+        var applyAttempts = 0
+        controller.axManager.frameApplyOverrideForTests = { requests in
+            applyAttempts += 1
+            let shouldFail = applyAttempts == 1
+            return requests.map { request in
+                AXFrameApplyResult(
+                    pid: request.pid,
+                    windowId: request.windowId,
+                    targetFrame: request.frame,
+                    currentFrameHint: request.currentFrameHint,
+                    writeResult: AXFrameWriteResult(
+                        targetFrame: request.frame,
+                        observedFrame: shouldFail ? nil : request.frame,
+                        writeOrder: AXWindowService.frameWriteOrder(
+                            currentFrame: request.currentFrameHint,
+                            targetFrame: request.frame
+                        ),
+                        sizeError: .success,
+                        positionError: .success,
+                        failureReason: shouldFail ? .contextUnavailable : nil
+                    )
+                )
+            }
+        }
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.frameProvider = { _ in
+            CGRect(x: 120, y: 160, width: 420, height: 300)
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: "com.example.retry")
+        }
+        defer { controller.axEventHandler.frameProvider = nil }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 828, spaceId: 0)
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        await waitUntilAXEventTest {
+            controller.axManager.lastAppliedFrame(for: 828) != nil
+        }
+
+        #expect(applyAttempts >= 2)
+        #expect(controller.axManager.lastAppliedFrame(for: 828) != nil)
+    }
+
+    @Test @MainActor func floatingCreateWithDegradedAxFactsStillAppliesFloatRule() async {
+        let controller = makeAXEventTestController()
+        controller.windowRuleEngine.rebuild(
+            rules: [
+                AppRule(
+                    bundleId: "com.example.float",
+                    layout: .float,
+                    assignToWorkspace: "2"
+                )
+            ]
+        )
+
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.frameProvider = { _ in
+            CGRect(x: 160, y: 180, width: 500, height: 320)
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.example.float",
+                attributeFetchSucceeded: false
+            )
+        }
+        defer { controller.axEventHandler.frameProvider = nil }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 829, spaceId: 0)
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        guard let workspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false),
+              let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 829)
+        else {
+            Issue.record("Expected degraded-AX floating entry")
+            return
+        }
+
+        #expect(entry.workspaceId == workspaceId)
+        #expect(entry.mode == .floating)
+        #expect(controller.workspaceManager.floatingState(for: entry.token) != nil)
     }
 
     @Test @MainActor func browserHelperSurfaceWithAutoAssignRuleStaysTrackedAtCreateTime() async {
@@ -3915,6 +4027,43 @@ private func waitUntilAXEventTest(
 
         #expect(controller.workspaceManager.entry(for: staleToken) == nil)
         #expect(controller.workspaceManager.entry(for: liveToken) != nil)
+    }
+
+    @Test @MainActor func handleRemovedPidPathInvalidatesCachedTitle() {
+        AXWindowService.clearTitleCacheForTests()
+        defer {
+            AXWindowService.titleLookupProviderForTests = nil
+            AXWindowService.timeSourceForTests = nil
+            AXWindowService.clearTitleCacheForTests()
+        }
+
+        var lookupCount = 0
+        AXWindowService.timeSourceForTests = { 100 }
+        AXWindowService.titleLookupProviderForTests = { _ in
+            lookupCount += 1
+            return lookupCount == 1 ? "Before Remove" : "After Remove"
+        }
+
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 905),
+            pid: getpid(),
+            windowId: 905,
+            to: workspaceId
+        )
+
+        #expect(AXWindowService.titlePreferFast(windowId: 905) == "Before Remove")
+
+        controller.axEventHandler.handleRemoved(pid: getpid(), winId: 905)
+
+        #expect(controller.workspaceManager.entry(for: token) == nil)
+        #expect(AXWindowService.titlePreferFast(windowId: 905) == "After Remove")
+        #expect(lookupCount == 2)
     }
 
     @Test @MainActor func frameChangedUsesResolvedTokenWhenWindowIdsCollideAcrossPids() {

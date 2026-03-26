@@ -21,9 +21,6 @@ let package = Package(
             name: "OmniWM",
             dependencies: ["GhosttyKit"],
             path: "Sources/OmniWM",
-            exclude: [
-                "Core/AGENTS.md"
-            ],
             resources: [
                 .process("Resources")
             ],

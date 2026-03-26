@@ -146,27 +146,8 @@ struct WorkspaceLayoutPlan {
 
 typealias RefreshPostLayoutAction = @MainActor () -> Void
 
-@MainActor
-final class RefreshFrameContext {
-    private var cache: [WindowToken: CGRect?] = [:]
-    private(set) var requests = 0
-    private(set) var hits = 0
-
-    func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
-        requests += 1
-        if let cached = cache[token] {
-            hits += 1
-            return cached
-        }
-        let frame = AXWindowService.framePreferFast(axRef)
-        cache[token] = .some(frame)
-        return frame
-    }
-}
-
 struct RefreshExecutionPlan {
     var workspacePlans: [WorkspaceLayoutPlan] = []
     var effects: RefreshExecutionEffects = .init()
     var postLayoutActions: [RefreshPostLayoutAction] = []
-    var frameContext: RefreshFrameContext?
 }

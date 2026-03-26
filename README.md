@@ -1,40 +1,14 @@
-# OmniWM (Fork)
+# OmniWM
 
 A powerful tiling window manager for macOS.
 
-> This is a development fork of [BarutSRB/OmniWM](https://github.com/BarutSRB/OmniWM).
-> For installation, usage, and general documentation see the [upstream README](https://github.com/BarutSRB/OmniWM#readme).
-
-## Fork Changes
-
-### Full Settings JSON Export
+## Config File Workflow
 
 Editable config workflow for `~/.config/omniwm/settings.json`:
 - **Editable Config** writes the full canonical settings file (hotkeys, monitor overrides) for direct editing
 - **Compact Backup** writes only values that differ from defaults; import merges back into the full model
 - **Create / Reveal / Open** settings file actions in the status bar menu
 - Import action with user feedback for config workflows
-
-### Bug Fixes
-
-- **Blank spaces on workspace switch** -- rebuilt inactive workspace window set before layout plan execution so frame writes are no longer silently skipped for newly-active workspaces
-- **Layout instability from tooltips and auxiliary windows** -- tile/auto rules now defer when AX attributes are unavailable, preventing tooltips, dialogs, and auxiliary windows from cycling in and out of the tiling layout
-
-### Performance Improvements
-
-- Refresh-scoped frame memoization (avoids repeated SkyLight lookups during a single layout refresh)
-- Batched AX position+size reads (single `CopyMultipleAttributeValues` call instead of two)
-- Central window title cache with 500ms TTL and event-driven invalidation
-- Command palette menu tree cache per PID within a session
-- Overview thumbnail display batching (one UI refresh after all captures)
-- Workspace bar snapshot equality check (skips redundant SwiftUI diff)
-- Status bar menu reuse (update toggles instead of full rebuild)
-- Ghostty config write suppression (skip disk I/O when unchanged)
-
-### App Rules
-
-- Accept nonstandard app identifiers in app rules
-- Tighten rule-driven workspace transitions on window create
 
 ---
 

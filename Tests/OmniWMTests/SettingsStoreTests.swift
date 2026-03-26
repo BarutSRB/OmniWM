@@ -1338,11 +1338,19 @@ private func makeSettingsTestMonitor(
         try settings.exportSettings(to: exportURL, mode: .full)
 
         let imported = SettingsStore(defaults: makeTestDefaults())
-        try imported.importSettings(from: exportURL)
+        let reboundMonitor = makeSettingsTestMonitor(displayId: 501, name: "Studio Display")
+        try imported.importSettings(from: exportURL, monitors: [reboundMonitor])
 
-        #expect(imported.monitorBarSettings == [barOverride])
-        #expect(imported.monitorNiriSettings == [niriOverride])
-        #expect(imported.monitorDwindleSettings == [dwindleOverride])
+        var expectedBarOverride = barOverride
+        expectedBarOverride.monitorDisplayId = reboundMonitor.displayId
+        var expectedNiriOverride = niriOverride
+        expectedNiriOverride.monitorDisplayId = reboundMonitor.displayId
+        var expectedDwindleOverride = dwindleOverride
+        expectedDwindleOverride.monitorDisplayId = reboundMonitor.displayId
+
+        #expect(imported.monitorBarSettings == [expectedBarOverride])
+        #expect(imported.monitorNiriSettings == [expectedNiriOverride])
+        #expect(imported.monitorDwindleSettings == [expectedDwindleOverride])
         #expect(imported.appRules == BuiltInSettingsDefaults.appRules + [customRule])
     }
 
@@ -1391,11 +1399,19 @@ private func makeSettingsTestMonitor(
         try settings.exportSettings(to: exportURL, mode: .compact)
 
         let imported = SettingsStore(defaults: makeTestDefaults())
-        try imported.importSettings(from: exportURL)
+        let reboundMonitor = makeSettingsTestMonitor(displayId: 909, name: "LG UltraFine")
+        try imported.importSettings(from: exportURL, monitors: [reboundMonitor])
 
-        #expect(imported.monitorBarSettings == [barOverride])
-        #expect(imported.monitorNiriSettings == [niriOverride])
-        #expect(imported.monitorDwindleSettings == [dwindleOverride])
+        var expectedBarOverride = barOverride
+        expectedBarOverride.monitorDisplayId = reboundMonitor.displayId
+        var expectedNiriOverride = niriOverride
+        expectedNiriOverride.monitorDisplayId = reboundMonitor.displayId
+        var expectedDwindleOverride = dwindleOverride
+        expectedDwindleOverride.monitorDisplayId = reboundMonitor.displayId
+
+        #expect(imported.monitorBarSettings == [expectedBarOverride])
+        #expect(imported.monitorNiriSettings == [expectedNiriOverride])
+        #expect(imported.monitorDwindleSettings == [expectedDwindleOverride])
         #expect(imported.appRules == BuiltInSettingsDefaults.appRules + [customRule])
 
         let reexported = try SettingsExport(
@@ -1481,6 +1497,61 @@ private func makeSettingsTestMonitor(
         #expect((json["monitorNiriSettings"] as? [[String: Any]])?.count == 1)
         #expect((json["monitorDwindleSettings"] as? [[String: Any]])?.count == 1)
         #expect((json["appRules"] as? [[String: Any]])?.count == BuiltInSettingsDefaults.appRules.count + 1)
+    }
+
+    @Test func importNormalizesWorkspaceConfigurationsAndRebindsSpecificDisplayAssignments() throws {
+        let exportURL = makeTestSettingsURL()
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+
+        let settings = SettingsStore(defaults: makeTestDefaults())
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(
+                name: "2",
+                displayName: "Code",
+                monitorAssignment: .specificDisplay(OutputId(displayId: 10, name: "Studio Display")),
+                layoutType: .dwindle
+            ),
+            WorkspaceConfiguration(name: "10", monitorAssignment: .main),
+            WorkspaceConfiguration(name: "2", displayName: "Duplicate", monitorAssignment: .secondary)
+        ]
+
+        try settings.exportSettings(to: exportURL, mode: .full)
+
+        let imported = SettingsStore(defaults: makeTestDefaults())
+        let reboundMonitor = makeSettingsTestMonitor(displayId: 77, name: "Studio Display")
+        try imported.importSettings(from: exportURL, monitors: [reboundMonitor])
+
+        #expect(imported.workspaceConfigurations.count == 1)
+        #expect(imported.workspaceConfigurations.first?.name == "2")
+        #expect(imported.workspaceConfigurations.first?.displayName == "Code")
+        #expect(
+            imported.workspaceConfigurations.first?.monitorAssignment
+                == .specificDisplay(OutputId(displayId: reboundMonitor.displayId, name: reboundMonitor.name))
+        )
+    }
+
+    @Test func importClearsStaleMonitorDisplayIdsWhenNoCurrentMatchExists() throws {
+        let exportURL = makeTestSettingsURL()
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+
+        let settings = SettingsStore(defaults: makeTestDefaults())
+        settings.monitorBarSettings = [
+            MonitorBarSettings(
+                monitorName: "Detached",
+                monitorDisplayId: 404,
+                reserveLayoutSpace: true
+            )
+        ]
+
+        try settings.exportSettings(to: exportURL, mode: .full)
+
+        let imported = SettingsStore(defaults: makeTestDefaults())
+        let currentMonitor = makeSettingsTestMonitor(displayId: 12, name: "Current")
+        try imported.importSettings(from: exportURL, monitors: [currentMonitor])
+
+        #expect(imported.monitorBarSettings.count == 1)
+        #expect(imported.monitorBarSettings.first?.monitorDisplayId == nil)
+        #expect(imported.monitorBarSettings.first?.monitorName == "Detached")
     }
 }
 
@@ -1756,8 +1827,17 @@ private func makeSettingsTestMonitor(
     }
 
     @Test func validateImportEpochRejectsWrongEpochBeforeFullDecode() {
+        let previousEpochJSON =
+            """
+            {
+              "version": \(SettingsMigration.currentSettingsEpoch - 1),
+              "hotkeyBindings": [
+                { "id": "move.left", "binding": "Option+Shift+Left" }
+              ]
+            }
+            """
         let rawData = Data(
-            "{\"version\":\(SettingsMigration.currentSettingsEpoch - 1),\"hotkeyBindings\":[{\"id\":\"move.left\",\"binding\":\"Option+Shift+Left\"}]}".utf8
+            previousEpochJSON.utf8
         )
 
         do {

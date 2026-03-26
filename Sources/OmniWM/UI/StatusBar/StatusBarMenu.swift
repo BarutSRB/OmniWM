@@ -12,7 +12,8 @@ final class StatusBarMenuBuilder {
     private let settings: SettingsStore
     private weak var controller: WMController?
     var infoAlertPresenter: (String, String) -> Void
-    var configFileActionPerformer: (ConfigFileAction, SettingsStore, WMController) throws -> ExportStatus
+    var configFileURL = SettingsStore.exportURL
+    var configFileActionPerformer: (ConfigFileAction, URL, SettingsStore, WMController) throws -> ExportStatus
 
     private var toggleViews: [String: MenuToggleRowView] = [:]
 
@@ -28,8 +29,13 @@ final class StatusBarMenuBuilder {
             NSApplication.shared.activate(ignoringOtherApps: true)
             _ = alert.runModal()
         }
-        configFileActionPerformer = { action, settings, controller in
-            try ConfigFileWorkflow.perform(action, settings: settings, controller: controller)
+        configFileActionPerformer = { action, targetURL, settings, controller in
+            try ConfigFileWorkflow.perform(
+                action,
+                targetURL: targetURL,
+                settings: settings,
+                controller: controller
+            )
         }
     }
 
@@ -259,11 +265,12 @@ final class StatusBarMenuBuilder {
             }
             let status = try configFileActionPerformer(
                 action,
+                configFileURL,
                 settings,
                 controller
             )
             if let title = status.successAlertTitle {
-                presentInfoAlert(title: title, message: SettingsStore.exportURL.path)
+                presentInfoAlert(title: title, message: configFileURL.path)
             }
         } catch {
             presentInfoAlert(

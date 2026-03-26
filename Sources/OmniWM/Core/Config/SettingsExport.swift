@@ -295,7 +295,11 @@ extension SettingsStore {
     }
 
     var settingsFileExists: Bool {
-        FileManager.default.fileExists(atPath: Self.exportURL.path)
+        settingsFileExists(at: Self.exportURL)
+    }
+
+    func settingsFileExists(at url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
     }
 
     func exportSettings(mode: SettingsExportMode = .full) throws {
@@ -388,16 +392,26 @@ extension SettingsStore {
         try importSettings(from: Self.exportURL, applyingTo: controller)
     }
 
-    func importSettings(from url: URL, applyingTo controller: WMController? = nil) throws {
+    func importSettings(
+        from url: URL,
+        applyingTo controller: WMController? = nil,
+        monitors: [Monitor]? = nil
+    ) throws {
         let rawData = try Data(contentsOf: url)
         try SettingsMigration.validateImportEpoch(from: rawData)
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let export = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
-        applyImport(export)
+        applyImport(
+            export,
+            monitors: monitors ?? controller?.workspaceManager.monitors ?? Monitor.current()
+        )
         controller?.applyPersistedSettings(self)
     }
 
-    private func applyImport(_ export: SettingsExport) {
+    private func applyImport(
+        _ export: SettingsExport,
+        monitors: [Monitor]
+    ) {
         hotkeysEnabled = export.hotkeysEnabled
         focusFollowsMouse = export.focusFollowsMouse
         moveMouseToFocusedWindow = export.moveMouseToFocusedWindow
@@ -422,7 +436,10 @@ extension SettingsStore {
         }
         niriDefaultColumnWidth = Self.validatedDefaultColumnWidth(export.niriDefaultColumnWidth)
 
-        workspaceConfigurations = export.workspaceConfigurations
+        workspaceConfigurations = Self.normalizedImportedWorkspaceConfigurations(
+            export.workspaceConfigurations,
+            monitors: monitors
+        )
         defaultLayoutType = LayoutType(rawValue: export.defaultLayoutType) ?? .niri
 
         bordersEnabled = export.bordersEnabled
@@ -446,19 +463,33 @@ extension SettingsStore {
         workspaceBarBackgroundOpacity = export.workspaceBarBackgroundOpacity
         workspaceBarXOffset = export.workspaceBarXOffset
         workspaceBarYOffset = export.workspaceBarYOffset
-        monitorBarSettings = export.monitorBarSettings
+        monitorBarSettings = Self.reboundMonitorBarSettings(
+            export.monitorBarSettings,
+            monitors: monitors
+        )
 
         appRules = export.appRules
-        monitorOrientationSettings = export.monitorOrientationSettings
-        monitorNiriSettings = export.monitorNiriSettings
+        monitorOrientationSettings = Self.reboundMonitorOrientationSettings(
+            export.monitorOrientationSettings,
+            monitors: monitors
+        )
+        monitorNiriSettings = Self.reboundMonitorNiriSettings(
+            export.monitorNiriSettings,
+            monitors: monitors
+        )
 
         dwindleSmartSplit = export.dwindleSmartSplit
         dwindleDefaultSplitRatio = export.dwindleDefaultSplitRatio
         dwindleSplitWidthMultiplier = export.dwindleSplitWidthMultiplier
-        dwindleSingleWindowAspectRatio = DwindleSingleWindowAspectRatio(rawValue: export.dwindleSingleWindowAspectRatio) ?? .ratio4x3
+        dwindleSingleWindowAspectRatio = DwindleSingleWindowAspectRatio(
+            rawValue: export.dwindleSingleWindowAspectRatio
+        ) ?? .ratio4x3
         dwindleUseGlobalGaps = export.dwindleUseGlobalGaps
         dwindleMoveToRootStable = export.dwindleMoveToRootStable
-        monitorDwindleSettings = export.monitorDwindleSettings
+        monitorDwindleSettings = Self.reboundMonitorDwindleSettings(
+            export.monitorDwindleSettings,
+            monitors: monitors
+        )
 
         preventSleepEnabled = export.preventSleepEnabled
         scrollGestureEnabled = export.scrollGestureEnabled
@@ -487,5 +518,110 @@ extension SettingsStore {
         quakeTerminalCustomFrame = export.quakeTerminalCustomFrame?.frame
 
         appearanceMode = AppearanceMode(rawValue: export.appearanceMode) ?? .automatic
+    }
+
+    private static func normalizedImportedWorkspaceConfigurations(
+        _ configs: [WorkspaceConfiguration],
+        monitors: [Monitor]
+    ) -> [WorkspaceConfiguration] {
+        var seen: Set<String> = []
+        let rebound = configs.map { config in
+            guard case let .specificDisplay(output) = config.monitorAssignment,
+                  let resolvedMonitor = output.resolveMonitor(in: monitors)
+            else {
+                return config
+            }
+
+            var updated = config
+            updated.monitorAssignment = .specificDisplay(OutputId(from: resolvedMonitor))
+            return updated
+        }
+
+        let normalized = rebound
+            .filter { WorkspaceConfiguration.allowedNames.contains($0.name) }
+            .filter { seen.insert($0.name).inserted }
+            .sorted { $0.sortOrder < $1.sortOrder }
+
+        if normalized.isEmpty {
+            return BuiltInSettingsDefaults.workspaceConfigurations
+        }
+
+        return normalized
+    }
+
+    private static func reboundMonitorBarSettings(
+        _ settings: [MonitorBarSettings],
+        monitors: [Monitor]
+    ) -> [MonitorBarSettings] {
+        settings.map { setting in
+            var rebound = setting
+            rebound.monitorDisplayId = reboundMonitorDisplayId(
+                rebound.monitorDisplayId,
+                monitorName: rebound.monitorName,
+                monitors: monitors
+            )
+            return rebound
+        }
+    }
+
+    private static func reboundMonitorOrientationSettings(
+        _ settings: [MonitorOrientationSettings],
+        monitors: [Monitor]
+    ) -> [MonitorOrientationSettings] {
+        settings.map { setting in
+            var rebound = setting
+            rebound.monitorDisplayId = reboundMonitorDisplayId(
+                rebound.monitorDisplayId,
+                monitorName: rebound.monitorName,
+                monitors: monitors
+            )
+            return rebound
+        }
+    }
+
+    private static func reboundMonitorNiriSettings(
+        _ settings: [MonitorNiriSettings],
+        monitors: [Monitor]
+    ) -> [MonitorNiriSettings] {
+        settings.map { setting in
+            var rebound = setting
+            rebound.monitorDisplayId = reboundMonitorDisplayId(
+                rebound.monitorDisplayId,
+                monitorName: rebound.monitorName,
+                monitors: monitors
+            )
+            return rebound
+        }
+    }
+
+    private static func reboundMonitorDwindleSettings(
+        _ settings: [MonitorDwindleSettings],
+        monitors: [Monitor]
+    ) -> [MonitorDwindleSettings] {
+        settings.map { setting in
+            var rebound = setting
+            rebound.monitorDisplayId = reboundMonitorDisplayId(
+                rebound.monitorDisplayId,
+                monitorName: rebound.monitorName,
+                monitors: monitors
+            )
+            return rebound
+        }
+    }
+
+    private static func reboundMonitorDisplayId(
+        _ displayId: CGDirectDisplayID?,
+        monitorName: String,
+        monitors: [Monitor]
+    ) -> CGDirectDisplayID? {
+        if let displayId,
+           monitors.contains(where: { $0.displayId == displayId })
+        {
+            return displayId
+        }
+
+        let matches = monitors.filter { $0.name.caseInsensitiveCompare(monitorName) == .orderedSame }
+        guard matches.count == 1 else { return nil }
+        return matches[0].displayId
     }
 }

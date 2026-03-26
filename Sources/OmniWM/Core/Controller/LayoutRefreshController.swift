@@ -80,6 +80,24 @@ import QuartzCore
         var onWindowRemoval: ((RefreshReason, [WindowRemovalPayload]) -> Bool)?
     }
 
+    @MainActor
+    private final class RefreshFrameContext {
+        private var cache: [WindowToken: CGRect?] = [:]
+        private(set) var requests = 0
+        private(set) var hits = 0
+
+        func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
+            requests += 1
+            if let cached = cache[token] {
+                hits += 1
+                return cached
+            }
+            let frame = AXWindowService.framePreferFast(axRef)
+            cache[token] = .some(frame)
+            return frame
+        }
+    }
+
     weak var controller: WMController?
     static let hiddenWindowEdgeRevealEpsilon: CGFloat = 1.0
 
@@ -132,7 +150,7 @@ import QuartzCore
     var layoutState = LayoutState()
     var debugCounters = RefreshDebugCounters()
     var debugHooks = RefreshDebugHooks()
-    private(set) var activeFrameContext: RefreshFrameContext?
+    private var activeFrameContext: RefreshFrameContext?
 
     func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
         activeFrameContext?.fastFrame(for: token, axRef: axRef)
@@ -412,7 +430,7 @@ import QuartzCore
         guard let controller else { return }
 
         layoutState.didExecuteRefreshExecutionPlan = true
-        activeFrameContext = plan.frameContext
+        activeFrameContext = RefreshFrameContext()
         defer { activeFrameContext = nil }
 
         // Rebuild the inactive-workspace window set BEFORE executing layout plans
@@ -905,7 +923,7 @@ import QuartzCore
         effects.requestWorkspaceBarRefresh = true
         effects.updateTabbedOverlays = true
         effects.refreshFocusedBorderForVisibilityState = true
-        return RefreshExecutionPlan(effects: effects, frameContext: RefreshFrameContext())
+        return RefreshExecutionPlan(effects: effects)
     }
 
     private func buildRelayoutExecutionPlan(
@@ -954,7 +972,7 @@ import QuartzCore
             effects.focusValidationWorkspaceIds = [focusedWorkspaceId]
         }
 
-        return RefreshExecutionPlan(workspacePlans: workspacePlans, effects: effects, frameContext: RefreshFrameContext())
+        return RefreshExecutionPlan(workspacePlans: workspacePlans, effects: effects)
     }
 
     private func buildWindowRemovalExecutionPlan(
@@ -1029,7 +1047,7 @@ import QuartzCore
         effects.updateTabbedOverlays = updateTabbedOverlays
         effects.focusValidationWorkspaceIds = focusValidationWorkspaceIds
 
-        return RefreshExecutionPlan(workspacePlans: workspacePlans, effects: effects, frameContext: RefreshFrameContext())
+        return RefreshExecutionPlan(workspacePlans: workspacePlans, effects: effects)
     }
 
     private func buildFullRefreshExecutionPlan() async throws -> RefreshExecutionPlan {
@@ -1235,7 +1253,7 @@ import QuartzCore
         effects.drainDeferredCreatedWindows = true
         effects.subscribeManagedWindows = true
 
-        return RefreshExecutionPlan(workspacePlans: workspacePlans, effects: effects, frameContext: RefreshFrameContext())
+        return RefreshExecutionPlan(workspacePlans: workspacePlans, effects: effects)
     }
 
     private func shouldPreserveMissingWindowsDuringNativeFullscreen(

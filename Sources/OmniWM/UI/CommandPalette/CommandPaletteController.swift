@@ -852,6 +852,23 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         menuFocusTarget = target.map { CommandPaletteFocusTarget(app: $0, focusedWindow: nil) }
     }
 
+    func setMenuLoadingStateForTests(
+        wmController: WMController,
+        target: CommandPaletteAppSnapshot
+    ) {
+        self.wmController = wmController
+        isVisible = true
+        menuFocusTarget = CommandPaletteFocusTarget(app: target, focusedWindow: nil)
+        menuItems = []
+        hasLoadedMenuItems = false
+        menuLoadGeneration &+= 1
+        selectedMode = .menu
+    }
+
+    func loadMenuItemsForTests() {
+        loadMenuItemsIfNeeded()
+    }
+
     @discardableResult
     func handleModeShortcutForTests(_ characters: String) -> Bool {
         handleModeShortcut(characters)

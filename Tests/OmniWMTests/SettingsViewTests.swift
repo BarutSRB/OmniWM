@@ -3,6 +3,13 @@ import Testing
 
 @testable import OmniWM
 
+private func makeSettingsWorkflowTestURL() -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("omniwm-settings-workflow-tests", isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appendingPathComponent("settings-\(UUID().uuidString).json")
+}
+
 @Suite(.serialized) @MainActor struct SettingsViewTests {
     @Test func exportStatusMessagesMatchConfigWorkflowCopy() {
         #expect(ExportStatus.exported(.full).message == "Editable config exported")
@@ -16,46 +23,53 @@ import Testing
     @Test func createActionWritesCanonicalSettingsFile() throws {
         let controller = makeLayoutPlanTestController()
         let settings = controller.settings
-        let exportURL = SettingsStore.exportURL
+        let exportURL = makeSettingsWorkflowTestURL()
         defer { try? FileManager.default.removeItem(at: exportURL) }
         try? FileManager.default.removeItem(at: exportURL)
 
-        let status = try ConfigFileWorkflow.perform(.create, settings: settings, controller: controller)
+        let status = try ConfigFileWorkflow.perform(
+            .create,
+            targetURL: exportURL,
+            settings: settings,
+            controller: controller
+        )
 
         #expect(status == .created)
-        #expect(settings.settingsFileExists == true)
+        #expect(FileManager.default.fileExists(atPath: exportURL.path) == true)
     }
 
     @Test func revealActionCreatesMissingFileAndReportsRevealed() throws {
         let controller = makeLayoutPlanTestController()
         let settings = controller.settings
-        let exportURL = SettingsStore.exportURL
+        let exportURL = makeSettingsWorkflowTestURL()
         defer { try? FileManager.default.removeItem(at: exportURL) }
         try? FileManager.default.removeItem(at: exportURL)
         var revealedURLs: [[URL]] = []
 
         let status = try ConfigFileWorkflow.perform(
             .reveal,
+            targetURL: exportURL,
             settings: settings,
             controller: controller,
             revealFile: { revealedURLs.append($0) }
         )
 
         #expect(status == .revealed)
-        #expect(settings.settingsFileExists == true)
-        #expect(revealedURLs == [[SettingsStore.exportURL]])
+        #expect(FileManager.default.fileExists(atPath: exportURL.path) == true)
+        #expect(revealedURLs == [[exportURL]])
     }
 
     @Test func openActionUsesInjectedOpenHandler() throws {
         let controller = makeLayoutPlanTestController()
         let settings = controller.settings
-        let exportURL = SettingsStore.exportURL
+        let exportURL = makeSettingsWorkflowTestURL()
         defer { try? FileManager.default.removeItem(at: exportURL) }
         try? FileManager.default.removeItem(at: exportURL)
         var openedURLs: [URL] = []
 
         let status = try ConfigFileWorkflow.perform(
             .open,
+            targetURL: exportURL,
             settings: settings,
             controller: controller,
             openFile: {
@@ -65,16 +79,18 @@ import Testing
         )
 
         #expect(status == .opened)
-        #expect(settings.settingsFileExists == true)
-        #expect(openedURLs == [SettingsStore.exportURL])
+        #expect(FileManager.default.fileExists(atPath: exportURL.path) == true)
+        #expect(openedURLs == [exportURL])
     }
 
     @Test func importActionMergesSettingsFileIntoControllerSettings() throws {
+        let exportURL = makeSettingsWorkflowTestURL()
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+
         let sourceController = makeLayoutPlanTestController()
         sourceController.settings.focusFollowsWindowToMonitor = true
         sourceController.settings.commandPaletteLastMode = .menu
-        try sourceController.settings.exportSettings(mode: .full)
-        defer { try? FileManager.default.removeItem(at: SettingsStore.exportURL) }
+        try sourceController.settings.exportSettings(to: exportURL, mode: .full)
 
         let targetController = makeLayoutPlanTestController()
         targetController.settings.focusFollowsWindowToMonitor = false
@@ -82,6 +98,7 @@ import Testing
 
         let status = try ConfigFileWorkflow.perform(
             .import,
+            targetURL: exportURL,
             settings: targetController.settings,
             controller: targetController
         )

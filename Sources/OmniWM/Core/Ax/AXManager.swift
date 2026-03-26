@@ -94,6 +94,18 @@ final class AXManager {
         lastAppliedFrames[windowId]
     }
 
+    func recentFrameWriteFailure(for windowId: Int) -> AXFrameWriteFailureReason? {
+        recentFrameWriteFailures[windowId]
+    }
+
+    func hasContext(for pid: pid_t) -> Bool {
+        AppAXContext.contexts[pid] != nil
+    }
+
+    var usesFrameApplyOverrideForTests: Bool {
+        frameApplyOverrideForTests != nil
+    }
+
     func hasPendingFrameWrite(for windowId: Int) -> Bool {
         pendingFrameWrites[windowId] != nil
     }
