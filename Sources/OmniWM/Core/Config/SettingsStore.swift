@@ -5,6 +5,8 @@ import Foundation
 final class SettingsStore {
     private let defaults: UserDefaults
 
+    var onIPCEnabledChanged: (@MainActor (Bool) -> Void)?
+
     var hotkeysEnabled: Bool {
         didSet { defaults.set(hotkeysEnabled, forKey: Keys.hotkeysEnabled) }
     }
@@ -222,6 +224,14 @@ final class SettingsStore {
 
     var preventSleepEnabled: Bool {
         didSet { defaults.set(preventSleepEnabled, forKey: Keys.preventSleepEnabled) }
+    }
+
+    var ipcEnabled: Bool {
+        didSet {
+            defaults.set(ipcEnabled, forKey: Keys.ipcEnabled)
+            guard oldValue != ipcEnabled else { return }
+            onIPCEnabledChanged?(ipcEnabled)
+        }
     }
 
     var scrollGestureEnabled: Bool {
@@ -449,6 +459,7 @@ final class SettingsStore {
         monitorDwindleSettings = MonitorSettingsStore.load(from: defaults, key: Keys.monitorDwindleSettings)
 
         preventSleepEnabled = defaults.object(forKey: Keys.preventSleepEnabled) as? Bool ?? baseline.preventSleepEnabled
+        ipcEnabled = defaults.object(forKey: Keys.ipcEnabled) as? Bool ?? baseline.ipcEnabled
         scrollGestureEnabled = defaults.object(forKey: Keys.scrollGestureEnabled) as? Bool ??
             baseline.scrollGestureEnabled
         scrollSensitivity = defaults.object(forKey: Keys.scrollSensitivity) as? Double ?? baseline.scrollSensitivity
@@ -938,6 +949,7 @@ private enum Keys {
     static let appRules = "settings.appRules"
     static let monitorOrientationSettings = "settings.monitorOrientationSettings"
     static let preventSleepEnabled = "settings.preventSleepEnabled"
+    static let ipcEnabled = "settings.ipcEnabled"
     static let scrollGestureEnabled = "settings.scrollGestureEnabled"
     static let scrollSensitivity = "settings.scrollSensitivity"
     static let scrollModifierKey = "settings.scrollModifierKey"

@@ -72,17 +72,28 @@ private func waitForSemaphore(
 
 @Suite(.serialized) struct AppAXContextTests {
     @Test @MainActor func getOrCreateSharesSingleInFlightCreationTaskPerPid() async throws {
-        guard let expectedContext = await AppAXContext.makeForTests(processIdentifier: getpid()) else {
+        guard let targetApp = NSWorkspace.shared.runningApplications.first(where: {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated
+        }) else {
+            Issue.record("Failed to locate a secondary running application for AppAXContext concurrency test")
+            return
+        }
+
+        guard let expectedContext = await AppAXContext.makeForTests(processIdentifier: targetApp.processIdentifier) else {
             Issue.record("Failed to create AppAXContext test fixture")
             return
         }
         let app = expectedContext.nsApp
 
         let factoryCalls = LockedCounter()
-        AppAXContext.contextFactoryForTests = { _ in
-            _ = factoryCalls.increment()
-            try await Task.sleep(for: .milliseconds(50))
-            return expectedContext
+        AppAXContext.contextFactoryForTests = { requestedApp in
+            if requestedApp.processIdentifier == app.processIdentifier {
+                _ = factoryCalls.increment()
+                try await Task.sleep(for: .milliseconds(50))
+                return expectedContext
+            }
+
+            return await AppAXContext.makeForTests(processIdentifier: requestedApp.processIdentifier)
         }
 
         defer {

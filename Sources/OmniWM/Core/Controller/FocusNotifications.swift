@@ -25,6 +25,12 @@ extension Notification.Name {
 
 @MainActor
 final class FocusNotificationDispatcher {
+    struct ChangeSet: Equatable {
+        let focusChanged: Bool
+        let workspaceChanged: Bool
+        let monitorChanged: Bool
+    }
+
     weak var controller: WMController?
 
     private var lastNotifiedWorkspaceId: WorkspaceDescriptor.ID?
@@ -36,8 +42,12 @@ final class FocusNotificationDispatcher {
         self.controller = controller
     }
 
-    func notifyFocusChangesIfNeeded() {
-        guard let controller else { return }
+    @discardableResult
+    func notifyFocusChangesIfNeeded() -> ChangeSet {
+        guard let controller else {
+            return ChangeSet(focusChanged: false, workspaceChanged: false, monitorChanged: false)
+        }
+        var focusChanged = false
 
         let currentMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?.id
         let currentWorkspaceId = controller.workspaceManager.focusedToken
@@ -64,6 +74,7 @@ final class FocusNotificationDispatcher {
             NotificationCenter.default.post(name: .omniwmFocusChanged, object: controller, userInfo: info.isEmpty ? nil : info)
             lastNotifiedFocusedToken = currentToken
             lastNotifiedFocusedWindowId = currentWindowId
+            focusChanged = true
         }
 
         var workspaceInfo: [AnyHashable: Any] = [:]
@@ -75,7 +86,13 @@ final class FocusNotificationDispatcher {
             workspaceInfo[OmniWMFocusNotificationKey.newWorkspaceId] = newId
             if let name = controller.workspaceManager.descriptor(for: newId)?.name { workspaceInfo[OmniWMFocusNotificationKey.newWorkspaceName] = name }
         }
-        postNotificationIfChanged(name: .omniwmFocusedWorkspaceChanged, current: currentWorkspaceId, last: &lastNotifiedWorkspaceId, info: workspaceInfo, sender: controller)
+        let workspaceChanged = postNotificationIfChanged(
+            name: .omniwmFocusedWorkspaceChanged,
+            current: currentWorkspaceId,
+            last: &lastNotifiedWorkspaceId,
+            info: workspaceInfo,
+            sender: controller
+        )
 
         var monitorInfo: [AnyHashable: Any] = [:]
         if let oldId = lastNotifiedMonitorId {
@@ -86,7 +103,19 @@ final class FocusNotificationDispatcher {
             monitorInfo[OmniWMFocusNotificationKey.newMonitorIndex] = newId.displayId
             if let name = controller.workspaceManager.monitor(byId: newId)?.name { monitorInfo[OmniWMFocusNotificationKey.newMonitorName] = name }
         }
-        postNotificationIfChanged(name: .omniwmFocusedMonitorChanged, current: currentMonitorId, last: &lastNotifiedMonitorId, info: monitorInfo, sender: controller)
+        let monitorChanged = postNotificationIfChanged(
+            name: .omniwmFocusedMonitorChanged,
+            current: currentMonitorId,
+            last: &lastNotifiedMonitorId,
+            info: monitorInfo,
+            sender: controller
+        )
+
+        return ChangeSet(
+            focusChanged: focusChanged,
+            workspaceChanged: workspaceChanged,
+            monitorChanged: monitorChanged
+        )
     }
 
     private func postNotificationIfChanged<T: Equatable>(
@@ -95,13 +124,14 @@ final class FocusNotificationDispatcher {
         last: inout T?,
         info: [AnyHashable: Any],
         sender: AnyObject
-    ) {
-        guard current != last else { return }
+    ) -> Bool {
+        guard current != last else { return false }
         NotificationCenter.default.post(
             name: name,
             object: sender,
             userInfo: info.isEmpty ? nil : info
         )
         last = current
+        return true
     }
 }

@@ -149,6 +149,138 @@ brew install omniwm
 4. Log out of macOS and log back in for that change to take effect
 5. Launch OmniWM and grant Accessibility permissions when prompted
 
+## IPC and CLI
+
+OmniWM includes a bundled CLI, `omniwmctl`, for scripting the IPC server exposed by the running app.
+
+IPC is disabled by default. To use automation:
+
+1. Launch OmniWM
+2. Turn off `Displays have separate Spaces` if prompted, then log out and back in
+3. Grant Accessibility permissions
+4. Open the menu bar icon and turn on `Enable IPC`
+
+### Homebrew Install
+
+Homebrew exposes `omniwmctl` automatically. After enabling IPC in the menu bar app, you can run:
+
+```bash
+omniwmctl ping
+omniwmctl version
+omniwmctl query capabilities
+```
+
+### GitHub Release Install
+
+GitHub release installs bundle the CLI inside the app, but do not add it to your shell automatically.
+
+After enabling IPC in the menu bar app:
+
+1. Open the menu bar icon
+2. Choose `Install CLI to PATH…`
+3. Confirm the install location
+4. If OmniWM warns that the directory is not already in `PATH`, add it to your shell config before using `omniwmctl`
+
+Fallback bundled CLI path:
+
+```bash
+/Applications/OmniWM.app/Contents/MacOS/omniwmctl ping
+```
+
+### Socket Path
+
+- Default socket: `~/Library/Caches/com.barut.OmniWM/ipc.sock`
+- Authorization token: `~/Library/Caches/com.barut.OmniWM/ipc.sock.secret`
+- Override for development and tests: `OMNIWM_SOCKET=/tmp/omniwm-ipc.sock`
+
+Custom scripts that talk to the socket directly must send the token from the `.secret` file as `authorizationToken`.
+
+### Examples
+
+```bash
+omniwmctl ping
+omniwmctl version
+omniwmctl completion zsh
+omniwmctl query workspace-bar --json
+omniwmctl query active-workspace
+omniwmctl query focused-monitor
+omniwmctl query apps
+omniwmctl query focused-window --format table
+omniwmctl query queries --format table
+omniwmctl query rule-actions --format table
+omniwmctl query commands --format table
+omniwmctl query subscriptions --format table
+omniwmctl query capabilities
+omniwmctl query windows --fields id,title,workspace,display --format table
+omniwmctl query windows --fields id,pid,title,workspace,display --format table
+omniwmctl query displays --format table
+omniwmctl query monitors --monitor "Built-in Retina Display" --format tsv
+omniwmctl query rules --format table
+omniwmctl rule add --bundle-id com.apple.Terminal --title-substring Shell --layout float
+omniwmctl rule replace <rule-id> --bundle-id com.apple.Terminal --title-regex '^Shell' --layout tile
+omniwmctl rule apply
+omniwmctl rule apply --window <opaque-id>
+omniwmctl rule apply --pid <pid>
+omniwmctl rule move <rule-id> 1
+omniwmctl rule remove <rule-id>
+omniwmctl subscribe focus,workspace-bar,focused-monitor
+omniwmctl watch focused-monitor --no-send-initial --exec /usr/bin/tee /tmp/omniwm-events.ndjson
+```
+
+Queries default to JSON for backward compatibility. Non-streaming commands also support `--format json|table|tsv|text`, and `--json` remains an alias for `--format json`. `query monitors` is a CLI alias for `query displays`, and `--monitor` is a selector alias for `--display`. For targeted rule reevaluation, use `query windows --fields id,...` before `rule apply --window <opaque-id>`, or `query windows --fields pid,...` before `rule apply --pid <pid>`.
+
+Mutating commands, workspace actions, window actions, and rule actions reuse the same controller flows as OmniWM hotkeys and UI actions. `watch --exec` is a client-side helper: it subscribes once, then executes the provided argv directly for each event, writes the full NDJSON event envelope to child stdin, and sets `OMNIWM_EVENT_CHANNEL`, `OMNIWM_EVENT_KIND`, and `OMNIWM_EVENT_ID` for convenience. When `--json` is present, `omniwmctl` always prints machine-readable JSON for local parse and transport failures. On protocol mismatches, the CLI now reports the server protocol and app version so clients can recover without a second probe.
+
+### Automation Example
+
+The following example records every focused-monitor change as newline-delimited JSON:
+
+```bash
+omniwmctl watch focused-monitor --exec /usr/bin/tee ~/omniwm-focused-monitor.ndjson
+```
+
+### Scope
+
+The current IPC surface is intentionally focused on:
+- semantic commands
+- persisted rule queries and typed rule mutations
+- `workspace focus-name <name>`
+- `window focus <id>`, `window navigate <id>`, and `window summon-right <id>`
+- canonical window, workspace, display, and focused-monitor queries for automation
+- focused window and focused window decision/debug queries
+- manifest-driven discovery via `query queries`, `query rule-actions`, `query commands`, `query subscriptions`, `query capabilities`, and `omniwmctl completion <shell>`
+- subscriptions for focus, active workspace, focused monitor, display changes, layout changes, windows changes, and workspace bar refreshes
+- client-side subscription automation via `watch --exec`
+- typed JSON-over-socket IPC only; URL-scheme bridges remain out of scope for now
+
+### Raw IPC Shape
+
+Requests are newline-delimited JSON. A minimal direct request looks like:
+
+```json
+{"version":3,"id":"req-1","kind":"ping","authorizationToken":"<token>","payload":{}}
+```
+
+For scripted discovery, start with:
+
+```bash
+omniwmctl query capabilities
+omniwmctl query commands --format table
+omniwmctl query subscriptions --format table
+```
+
+### Development Builds
+
+- Development build: `.build/debug/omniwmctl`
+- Release build: `.build/release/omniwmctl`
+
+Build them with:
+
+```bash
+swift build --product omniwmctl
+swift build -c release --product omniwmctl
+```
+
 ## Quick Start
 
 1. Launch OmniWM from your Applications folder

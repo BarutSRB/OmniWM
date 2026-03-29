@@ -3,12 +3,6 @@ import Foundation
 
 @MainActor
 enum WorkspaceBarDataSource {
-    private struct SortKey {
-        let group: Int
-        let primary: Int
-        let secondary: Int
-    }
-
     private struct WorkspaceSnapshot {
         let workspace: WorkspaceDescriptor
         let barEntries: [WindowModel.Entry]
@@ -40,9 +34,12 @@ enum WorkspaceBarDataSource {
         let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
 
         return workspaces.map { snapshot in
-            let orderMap = orderMap(for: snapshot.workspace.id, engine: niriEngine)
-            let orderedEntries = sortEntries(snapshot.barEntries, orderMap: orderMap)
-            let useLayoutOrder = !(orderMap?.isEmpty ?? true)
+            let orderedEntries = WorkspaceEntryOrdering.orderedEntries(
+                snapshot.barEntries,
+                in: snapshot.workspace.id,
+                engine: niriEngine
+            )
+            let useLayoutOrder = niriEngine.map { !$0.columns(in: snapshot.workspace.id).isEmpty } ?? false
             let windows: [WorkspaceBarWindowItem] = if deduplicate {
                 createDedupedWindowItems(
                     entries: orderedEntries,
@@ -65,46 +62,6 @@ enum WorkspaceBarDataSource {
                 isFocused: snapshot.workspace.id == activeWorkspaceId,
                 windows: windows
             )
-        }
-    }
-
-    private static func orderMap(
-        for workspaceId: WorkspaceDescriptor.ID,
-        engine: NiriLayoutEngine?
-    ) -> [WindowToken: SortKey]? {
-        guard let engine else { return nil }
-
-        var order: [WindowToken: SortKey] = [:]
-        let columns = engine.columns(in: workspaceId)
-
-        for (colIdx, column) in columns.enumerated() {
-            for (rowIdx, window) in column.windowNodes.enumerated() {
-                order[window.handle.id] = SortKey(group: 0, primary: colIdx, secondary: rowIdx)
-            }
-        }
-
-        return order
-    }
-
-    private static func sortEntries(
-        _ entries: [WindowModel.Entry],
-        orderMap: [WindowToken: SortKey]?
-    ) -> [WindowModel.Entry] {
-        guard let orderMap else { return entries }
-        let fallbackOrder = Dictionary(uniqueKeysWithValues: entries.enumerated()
-            .map { ($0.element.handle.id, $0.offset) })
-
-        return entries.sorted { lhs, rhs in
-            let lhsKey = orderMap[lhs.handle.id] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
-            let rhsKey = orderMap[rhs.handle.id] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
-
-            if lhsKey.group != rhsKey.group { return lhsKey.group < rhsKey.group }
-            if lhsKey.primary != rhsKey.primary { return lhsKey.primary < rhsKey.primary }
-            if lhsKey.secondary != rhsKey.secondary { return lhsKey.secondary < rhsKey.secondary }
-
-            let lhsFallback = fallbackOrder[lhs.handle.id] ?? 0
-            let rhsFallback = fallbackOrder[rhs.handle.id] ?? 0
-            return lhsFallback < rhsFallback
         }
     }
 

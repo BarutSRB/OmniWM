@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_CAPITALIZED="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIG:0:1}")${CONFIG:1}"
 BUILD_DIR="$ROOT_DIR/.build/apple/Products/$CONFIG_CAPITALIZED"
 EXECUTABLE="$BUILD_DIR/OmniWM"
+CLI_EXECUTABLE="$BUILD_DIR/omniwmctl"
 APP_DIR="$ROOT_DIR/dist/OmniWM.app"
 
 # Signing identity and notarization profile
@@ -19,6 +20,7 @@ swift build -c "$CONFIG" --arch arm64 --arch x86_64
 
 echo "Verifying universal binary..."
 lipo -info "$EXECUTABLE"
+lipo -info "$CLI_EXECUTABLE"
 
 echo "Packaging $APP_DIR"
 rm -rf "$APP_DIR"
@@ -26,6 +28,7 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/OmniWM"
+cp "$CLI_EXECUTABLE" "$APP_DIR/Contents/MacOS/omniwmctl"
 cp "$ROOT_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$BUILD_DIR/OmniWM_OmniWM.bundle" "$APP_DIR/Contents/Resources/"
@@ -36,6 +39,7 @@ fi
 
 if [ "$SIGN_AND_NOTARIZE" = "true" ]; then
   echo "Signing $APP_DIR with hardened runtime..."
+  codesign --force --options runtime --sign "$SIGNING_IDENTITY" --timestamp "$APP_DIR/Contents/MacOS/omniwmctl"
   codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGNING_IDENTITY" --timestamp "$APP_DIR/Contents/MacOS/OmniWM"
   codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGNING_IDENTITY" --timestamp "$APP_DIR"
 

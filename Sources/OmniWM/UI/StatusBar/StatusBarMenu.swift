@@ -12,8 +12,11 @@ final class StatusBarMenuBuilder {
     private let settings: SettingsStore
     private weak var controller: WMController?
     var infoAlertPresenter: (String, String) -> Void
+    var confirmationAlertPresenter: (String, String, String, String) -> Bool
     var configFileURL = SettingsStore.exportURL
     var configFileActionPerformer: (ConfigFileAction, URL, SettingsStore, WMController) throws -> ExportStatus
+    var ipcMenuEnabled = false
+    var cliManager: AppCLIManager?
 
     private var toggleViews: [String: MenuToggleRowView] = [:]
 
@@ -28,6 +31,16 @@ final class StatusBarMenuBuilder {
             alert.addButton(withTitle: "OK")
             NSApplication.shared.activate(ignoringOtherApps: true)
             _ = alert.runModal()
+        }
+        confirmationAlertPresenter = { title, message, confirmTitle, cancelTitle in
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = title
+            alert.informativeText = message
+            alert.addButton(withTitle: confirmTitle)
+            alert.addButton(withTitle: cancelTitle)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return alert.runModal() == .alertFirstButtonReturn
         }
         configFileActionPerformer = { action, targetURL, settings, controller in
             try ConfigFileWorkflow.perform(
@@ -57,6 +70,12 @@ final class StatusBarMenuBuilder {
 
         menu.addItem(createDivider())
 
+        if ipcMenuEnabled {
+            menu.addItem(createSectionLabel("IPC / CLI"))
+            addIPCSection(to: menu)
+            menu.addItem(createDivider())
+        }
+
         menu.addItem(createSectionLabel("SETTINGS"))
         addSettingsSection(to: menu)
 
@@ -83,6 +102,7 @@ final class StatusBarMenuBuilder {
         toggleViews["bordersEnabled"]?.isOn = settings.bordersEnabled
         toggleViews["workspaceBarEnabled"]?.isOn = settings.workspaceBarEnabled
         toggleViews["preventSleepEnabled"]?.isOn = settings.preventSleepEnabled
+        toggleViews["ipcEnabled"]?.isOn = settings.ipcEnabled
     }
 
     private func createHeaderView() -> NSView {
@@ -178,6 +198,51 @@ final class StatusBarMenuBuilder {
         let keepAwakeItem = NSMenuItem()
         keepAwakeItem.view = keepAwakeToggle
         menu.addItem(keepAwakeItem)
+    }
+
+    private func addIPCSection(to menu: NSMenu) {
+        let ipcToggle = MenuToggleRowView(
+            icon: "point.3.connected.trianglepath.dotted",
+            label: "Enable IPC",
+            isOn: settings.ipcEnabled
+        ) { [weak self] newValue in
+            self?.settings.ipcEnabled = newValue
+        }
+        toggleViews["ipcEnabled"] = ipcToggle
+        let ipcItem = NSMenuItem()
+        ipcItem.view = ipcToggle
+        menu.addItem(ipcItem)
+
+        guard let cliManager else { return }
+
+        let item = NSMenuItem()
+        switch cliManager.exposureStatus() {
+        case .homebrewManaged:
+            item.view = MenuInfoRowView(
+                icon: "checkmark.circle.fill",
+                label: "CLI available via Homebrew"
+            )
+        case .appManaged:
+            item.view = MenuActionRowView(
+                icon: "trash",
+                label: "Remove CLI from PATH…"
+            ) { [weak self] in
+                self?.removeCLIFromPath()
+            }
+        case .notInstalled:
+            item.view = MenuActionRowView(
+                icon: "terminal",
+                label: "Install CLI to PATH…"
+            ) { [weak self] in
+                self?.installCLIIntoPath()
+            }
+        case .conflict:
+            item.view = MenuInfoRowView(
+                icon: "exclamationmark.triangle.fill",
+                label: "CLI path is already occupied"
+            )
+        }
+        menu.addItem(item)
     }
 
     private func addSettingsSection(to menu: NSMenu) {
@@ -282,6 +347,76 @@ final class StatusBarMenuBuilder {
 
     private func presentInfoAlert(title: String, message: String) {
         infoAlertPresenter(title, message)
+    }
+
+    private func installCLIIntoPath() {
+        guard let cliManager else { return }
+        let status = cliManager.exposureStatus()
+        guard case let .notInstalled(linkURL, directoryOnPath) = status else {
+            controller?.statusBarController?.rebuildMenu()
+            return
+        }
+
+        let directoryURL = linkURL.deletingLastPathComponent()
+        var message =
+            "OmniWM will create a symlink at \(linkURL.path) pointing to its bundled omniwmctl binary."
+        if !directoryOnPath {
+            message += "\n\n\(directoryURL.path) is not currently in your PATH, so Terminal may not find `omniwmctl` until you add that directory."
+        }
+
+        guard confirmationAlertPresenter(
+            "Install CLI to PATH?",
+            message,
+            "Install",
+            "Cancel"
+        ) else {
+            return
+        }
+
+        do {
+            let result = try cliManager.installCLIToPATH()
+            controller?.statusBarController?.rebuildMenu()
+            presentInfoAlert(title: "CLI Installed", message: installResultMessage(result))
+        } catch {
+            presentInfoAlert(title: "CLI Install Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func removeCLIFromPath() {
+        guard let cliManager else { return }
+        guard confirmationAlertPresenter(
+            "Remove CLI from PATH?",
+            "OmniWM will remove the symlink it created for `omniwmctl`.",
+            "Remove",
+            "Cancel"
+        ) else {
+            return
+        }
+
+        do {
+            let result = try cliManager.removeInstalledCLI()
+            controller?.statusBarController?.rebuildMenu()
+            presentInfoAlert(title: "CLI Link Updated", message: installResultMessage(result))
+        } catch {
+            presentInfoAlert(title: "CLI Removal Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func installResultMessage(_ result: AppCLIInstallResult) -> String {
+        switch result {
+        case let .installed(linkURL, directoryOnPath),
+             let .alreadyInstalled(linkURL, directoryOnPath):
+            let state = directoryOnPath
+                ? "You can now run `omniwmctl` from Terminal."
+                : "Add \(linkURL.deletingLastPathComponent().path) to PATH before using `omniwmctl` in Terminal."
+            return "\(linkURL.path)\n\n\(state)"
+        case let .removed(linkURL):
+            return "Removed OmniWM's CLI symlink at \(linkURL.path)."
+        case let .notInstalled(linkURL):
+            return "No OmniWM-managed CLI symlink was found at \(linkURL.path)."
+        case let .homebrewManaged(linkURL):
+            return "Homebrew already manages `omniwmctl` at \(linkURL.path)."
+        }
     }
 
     private func addLinksSection(to menu: NSMenu) {
@@ -428,6 +563,32 @@ final class MenuDividerView: NSView {
         let divider = NSBox(frame: NSRect(x: 8, y: 4, width: menuWidth - 16, height: 1))
         divider.boxType = .separator
         addSubview(divider)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class MenuInfoRowView: NSView {
+    init(icon: String, label: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
+        applyCurrentAppAppearance(to: self)
+
+        if let iconImage = NSImage(systemSymbolName: icon, accessibilityDescription: nil) {
+            let iconView = NSImageView(frame: NSRect(x: 12, y: 6, width: 16, height: 16))
+            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+            iconView.image = iconImage.withSymbolConfiguration(config)
+            iconView.contentTintColor = .tertiaryLabelColor
+            addSubview(iconView)
+        }
+
+        let labelField = NSTextField(labelWithString: label)
+        labelField.font = .systemFont(ofSize: 13)
+        labelField.textColor = .secondaryLabelColor
+        labelField.frame = NSRect(x: 38, y: 5, width: menuWidth - 52, height: 18)
+        addSubview(labelField)
     }
 
     @available(*, unavailable)

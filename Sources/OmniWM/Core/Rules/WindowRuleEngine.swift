@@ -103,6 +103,18 @@ enum WindowRuleReevaluationTarget: Hashable, Sendable {
     case pid(pid_t)
 }
 
+struct WindowRuleReevaluationOutcome: Equatable, Sendable {
+    let resolvedAnyTarget: Bool
+    let evaluatedAnyWindow: Bool
+    let relayoutNeeded: Bool
+
+    static let none = WindowRuleReevaluationOutcome(
+        resolvedAnyTarget: false,
+        evaluatedAnyWindow: false,
+        relayoutNeeded: false
+    )
+}
+
 struct WindowDecisionDebugSnapshot: Equatable, Sendable {
     let token: WindowToken?
     let appName: String?

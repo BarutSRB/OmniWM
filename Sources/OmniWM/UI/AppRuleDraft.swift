@@ -1,4 +1,5 @@
 import Foundation
+import OmniWMIPC
 
 enum TitleMatcherMode: String, CaseIterable, Identifiable {
     case none
@@ -134,29 +135,14 @@ struct AppRuleDraft: Identifiable, Equatable {
 }
 
 enum AppRuleDraftValidation {
-    private static let appIdentifierPattern = try! NSRegularExpression(
-        pattern: "^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$"
-    )
-
     static func bundleIdError(for bundleId: String) -> String? {
         let trimmed = bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-
-        let range = NSRange(trimmed.startIndex..., in: trimmed)
-        guard appIdentifierPattern.firstMatch(in: trimmed, range: range) != nil else {
-            return "Invalid bundle ID format"
-        }
-        return nil
+        return IPCRuleValidator.bundleIdError(for: trimmed)
     }
 
     static func titleRegexError(for pattern: String?) -> String? {
-        guard let pattern = pattern?.trimmedNonEmpty else { return nil }
-        do {
-            _ = try NSRegularExpression(pattern: pattern)
-            return nil
-        } catch {
-            return error.localizedDescription
-        }
+        IPCRuleValidator.invalidRegexMessage(for: pattern?.trimmedNonEmpty)
     }
 }
 

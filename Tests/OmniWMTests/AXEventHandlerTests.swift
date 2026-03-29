@@ -3783,10 +3783,12 @@ private func waitUntilAXEventTest(
             return true
         }
 
-        let changed = await controller.reevaluateWindowRules(for: [.window(token)])
+        let outcome = await controller.reevaluateWindowRules(for: [.window(token)])
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
-        #expect(changed)
+        #expect(outcome.resolvedAnyTarget)
+        #expect(outcome.evaluatedAnyWindow)
+        #expect(outcome.relayoutNeeded)
         guard let entry = controller.workspaceManager.entry(for: token) else {
             Issue.record("Expected reevaluated CleanShot entry")
             return

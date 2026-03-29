@@ -142,6 +142,7 @@ enum AXWindowService {
 
     nonisolated(unsafe) static var axWindowRefProviderForTests: ((UInt32, pid_t) -> AXWindowRef?)?
     nonisolated(unsafe) static var setFrameResultProviderForTests: ((AXWindowRef, CGRect, CGRect?) -> AXFrameWriteResult)?
+    @MainActor static var fastFrameProviderForTests: ((AXWindowRef) -> CGRect?)?
     @MainActor static var titleLookupProviderForTests: ((UInt32) -> String?)?
     @MainActor static var timeSourceForTests: (() -> TimeInterval)?
 
@@ -235,6 +236,9 @@ enum AXWindowService {
 
     @MainActor
     static func fastFrame(_ window: AXWindowRef) -> CGRect? {
+        if let fastFrameProviderForTests {
+            return fastFrameProviderForTests(window)
+        }
         guard let frame = SkyLight.shared.getWindowBounds(UInt32(windowId(window))) else { return nil }
         return ScreenCoordinateSpace.toAppKit(rect: frame)
     }

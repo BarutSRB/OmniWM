@@ -56,7 +56,8 @@ private func setScratchpadTestFrame(
             return
         }
 
-        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 710)
+        let windowId = 71_010
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: windowId)
         let initialFrame = CGRect(x: 180, y: 140, width: 700, height: 460)
         setScratchpadTestFrame(on: controller, token: token, frame: initialFrame)
 
@@ -65,7 +66,7 @@ private func setScratchpadTestFrame(
         controller.toggleScratchpadWindow()
 
         #expect(controller.workspaceManager.hiddenState(for: token) == nil)
-        #expect(controller.axManager.lastAppliedFrame(for: 710) == initialFrame)
+        #expect(controller.axManager.lastAppliedFrame(for: windowId) == initialFrame)
         #expect(controller.workspaceManager.pendingFocusedToken == token)
 
         let movedFrame = initialFrame.offsetBy(dx: 120, dy: 90)
@@ -77,7 +78,7 @@ private func setScratchpadTestFrame(
 
         controller.toggleScratchpadWindow()
         #expect(controller.workspaceManager.hiddenState(for: token) == nil)
-        #expect(controller.axManager.lastAppliedFrame(for: 710) == movedFrame)
+        #expect(controller.axManager.lastAppliedFrame(for: windowId) == movedFrame)
     }
 
     @Test @MainActor func assignFocusedWindowToScratchpadClearsVisibleScratchpadSlotWhenRepeated() {

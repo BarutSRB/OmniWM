@@ -11,6 +11,14 @@ private func makeStatusBarConfigWorkflowTestURL() -> URL {
     return directory.appendingPathComponent("settings-\(UUID().uuidString).json")
 }
 
+private func makeStatusBarMenuTestDirectory() -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("omniwm-status-bar-menu-tests", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+}
+
 @Suite(.serialized) @MainActor struct StatusBarMenuTests {
     @Test func buildMenuUsesCurrentAppAppearanceForMenuAndViews() throws {
         let application = NSApplication.shared
@@ -48,6 +56,38 @@ private func makeStatusBarConfigWorkflowTestURL() -> URL {
         #expect(labels.contains("Import Settings"))
         #expect(labels.contains("Reveal Settings File"))
         #expect(labels.contains("Open Settings File"))
+    }
+
+    @Test func buildMenuIncludesIPCSectionAndCLIInstallActionWhenEnabled() throws {
+        let root = makeStatusBarMenuTestDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let homeDirectory = root.appendingPathComponent("home", isDirectory: true)
+        let userBin = homeDirectory.appendingPathComponent("bin", isDirectory: true)
+        let appURL = root.appendingPathComponent("OmniWM.app", isDirectory: true)
+        let macOSDirectory = appURL.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        let bundledCLIURL = macOSDirectory.appendingPathComponent("omniwmctl", isDirectory: false)
+        try FileManager.default.createDirectory(at: userBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: macOSDirectory, withIntermediateDirectories: true)
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: bundledCLIURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledCLIURL.path)
+
+        let controller = makeLayoutPlanTestController()
+        let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)
+        builder.ipcMenuEnabled = true
+        builder.cliManager = AppCLIManager(
+            environmentProvider: { ["PATH": userBin.path] },
+            bundleURLProvider: { appURL },
+            homeDirectoryURLProvider: { homeDirectory },
+            homebrewLinkURLsProvider: { [] }
+        )
+
+        let menu = builder.buildMenu()
+        let labels = menu.items.compactMap(\.view).flatMap(textLabels(in:))
+
+        #expect(labels.contains("IPC / CLI"))
+        #expect(labels.contains("Enable IPC"))
+        #expect(labels.contains("Install CLI to PATH…"))
     }
 
     @Test func exportActionReportsSuccessAlert() {

@@ -14,15 +14,22 @@ final class CommandHandler {
     }
 
     func handleCommand(_ command: HotkeyCommand) {
-        guard let controller else { return }
-        guard controller.isEnabled else { return }
-        guard !Self.shouldIgnoreCommand(command, isOverviewOpen: controller.isOverviewOpen()) else { return }
+        _ = performCommand(command)
+    }
+
+    @discardableResult
+    func performCommand(_ command: HotkeyCommand) -> ExternalCommandResult {
+        guard let controller else { return .notFound }
+        guard controller.isEnabled else { return .ignoredDisabled }
+        guard !Self.shouldIgnoreCommand(command, isOverviewOpen: controller.isOverviewOpen()) else {
+            return .ignoredOverview
+        }
 
         let layoutType = currentLayoutType()
 
         switch (command.layoutCompatibility, layoutType) {
         case (.niri, .dwindle), (.dwindle, .niri), (.dwindle, .defaultLayout):
-            return
+            return .ignoredLayoutMismatch
         default:
             break
         }
@@ -130,6 +137,8 @@ final class CommandHandler {
         case .toggleOverview:
             controller.toggleOverview()
         }
+
+        return .executed
     }
 
     static func shouldIgnoreCommand(_ command: HotkeyCommand, isOverviewOpen: Bool) -> Bool {
@@ -474,11 +483,28 @@ final class CommandHandler {
         case .dwindle: .niri
         }
 
-        var configs = controller.settings.workspaceConfigurations
-        guard let index = configs.firstIndex(where: { $0.name == workspaceName }) else { return }
-        configs[index] = configs[index].with(layoutType: newLayout)
+        _ = setWorkspaceLayout(newLayout, forWorkspaceNamed: workspaceName)
+    }
 
+    @discardableResult
+    func setWorkspaceLayout(_ newLayout: LayoutType, forWorkspaceNamed workspaceName: String? = nil) -> Bool {
+        guard let controller else { return false }
+        let resolvedWorkspaceName = workspaceName ?? controller.activeWorkspace()?.name
+        guard let resolvedWorkspaceName else { return false }
+
+        var configs = controller.settings.workspaceConfigurations
+        guard let index = configs.firstIndex(where: { $0.name == resolvedWorkspaceName }) else { return false }
+
+        guard configs[index].layoutType != newLayout else { return false }
+
+        configs[index] = configs[index].with(layoutType: newLayout)
         controller.settings.workspaceConfigurations = configs
         controller.layoutRefreshController.requestRelayout(reason: .workspaceLayoutToggled)
+        if let ipcApplicationBridge = controller.ipcApplicationBridge {
+            Task {
+                await ipcApplicationBridge.publishEvent(.layoutChanged)
+            }
+        }
+        return true
     }
 }
