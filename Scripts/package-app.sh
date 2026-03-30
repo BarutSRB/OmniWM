@@ -9,14 +9,29 @@ BUILD_DIR="$ROOT_DIR/.build/apple/Products/$CONFIG_CAPITALIZED"
 EXECUTABLE="$BUILD_DIR/OmniWM"
 CLI_EXECUTABLE="$BUILD_DIR/omniwmctl"
 APP_DIR="$ROOT_DIR/dist/OmniWM.app"
+GHOSTTY_LIBRARY="$ROOT_DIR/Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a"
+GHOSTTY_LIBRARY_DIR="$(dirname "$GHOSTTY_LIBRARY")"
 
 # Signing identity and notarization profile
 SIGNING_IDENTITY="Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
 NOTARIZE_PROFILE="OmniWM-Notarize"
 ENTITLEMENTS="$ROOT_DIR/OmniWM.entitlements"
 
+if [ ! -f "$GHOSTTY_LIBRARY" ]; then
+  echo "Missing Ghostty archive at $GHOSTTY_LIBRARY" >&2
+  echo "Build Ghostty and copy a universal libghostty.a into Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/ before packaging OmniWM." >&2
+  exit 1
+fi
+
+if ! lipo "$GHOSTTY_LIBRARY" -verify_arch arm64 x86_64 >/dev/null 2>&1; then
+  echo "Ghostty archive is not universal: $GHOSTTY_LIBRARY" >&2
+  lipo -info "$GHOSTTY_LIBRARY" >&2 || true
+  echo "Rebuild or recopy Ghostty so libghostty.a includes both arm64 and x86_64 before packaging OmniWM." >&2
+  exit 1
+fi
+
 echo "Building OmniWM universal binary ($CONFIG)..."
-swift build -c "$CONFIG" --arch arm64 --arch x86_64
+LIBRARY_PATH="$GHOSTTY_LIBRARY_DIR${LIBRARY_PATH:+:$LIBRARY_PATH}" swift build -c "$CONFIG" --arch arm64 --arch x86_64
 
 echo "Verifying universal binary..."
 lipo -info "$EXECUTABLE"

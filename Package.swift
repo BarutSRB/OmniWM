@@ -1,5 +1,9 @@
 // swift-tools-version: 6.2
+import Foundation
 import PackageDescription
+
+let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let ghosttyMacOSLibraryDirectory = "\(packageDirectory)/Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64"
 
 let package = Package(
     name: "OmniWM",
@@ -49,6 +53,7 @@ let package = Package(
                 .linkedFramework("QuartzCore"),
                 .linkedLibrary("z"),
                 .linkedLibrary("c++"),
+                .unsafeFlags(["-L\(ghosttyMacOSLibraryDirectory)"]),
                 .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
             ]
         ),

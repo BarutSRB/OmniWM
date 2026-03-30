@@ -405,7 +405,7 @@ Configure per-application behavior in Settings > App Rules:
 Requirements:
 - SwiftPM with Swift 6.2+
 - macOS 15.0+
-- Ghostty's libghostty (must compile ghostty and copy it's libghostty to OmniWM's framework subfolder)
+- Ghostty's universal `libghostty.a` (build Ghostty and copy it to `Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a` so it includes both `arm64` and `x86_64`)
 
 ## Support
 

@@ -112,7 +112,7 @@ OmniWM has **zero third-party package dependencies**. All functionality is built
 
 - **System frameworks**: AppKit, ApplicationServices, Carbon, Metal, MetalKit, QuartzCore
 - **SkyLight**: A private Apple framework for low-latency window server access, linked via `-framework SkyLight` unsafe flag
-- **GhosttyKit**: A vendored binary xcframework (`Frameworks/GhosttyKit.xcframework`) providing terminal emulation for the Quake Terminal feature
+- **GhosttyKit**: A local binary xcframework at `Frameworks/GhosttyKit.xcframework` prepared outside git, providing terminal emulation for the Quake Terminal feature
 - **System libraries**: libz, libc++
 
 ### Building & Running
