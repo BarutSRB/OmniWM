@@ -1712,9 +1712,11 @@ final class WMController {
         guard !isLockScreenActive else { return 0 }
 
         var candidates: [RestorePlanner.FloatingRescueCandidate] = []
+        let visibleWorkspaceIds = workspaceManager.visibleWorkspaceIds()
 
         for entry in workspaceManager.allFloatingEntries() {
             guard entry.layoutReason == .standard else { continue }
+            guard visibleWorkspaceIds.contains(entry.workspaceId) else { continue }
             guard let targetMonitor = workspaceManager.monitor(for: entry.workspaceId)
                 ?? monitorForInteraction()
                 ?? workspaceManager.monitors.first
@@ -1736,22 +1738,20 @@ final class WMController {
                     windowId: entry.windowId,
                     workspaceId: entry.workspaceId,
                     targetMonitor: targetMonitor,
-                    currentFrame: liveFrame(for: entry) ?? workspaceManager.floatingState(for: entry.token)?.lastFrame,
+                    currentFrame: liveFrame(for: entry),
                     targetFrame: targetFrame,
-                    hiddenState: workspaceManager.hiddenState(for: entry.token)
+                    isScratchpadHidden: workspaceManager.hiddenState(for: entry.token)?.isScratchpad == true,
+                    isWorkspaceInactiveHidden: workspaceManager.hiddenState(for: entry.token)?.workspaceInactive == true
                 )
             )
         }
 
         let rescuePlan = restorePlanner.planFloatingRescue(candidates)
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+        var rescuedEntries: [WindowModel.Entry] = []
 
         for operation in rescuePlan.operations {
             guard let entry = workspaceManager.entry(for: operation.token) else { continue }
-            if operation.shouldUnhideWorkspaceInactiveWindow {
-                layoutRefreshController.unhideWindow(entry, monitor: operation.targetMonitor)
-            }
-
             workspaceManager.updateFloatingGeometry(
                 frame: operation.targetFrame,
                 for: operation.token,
@@ -1760,10 +1760,14 @@ final class WMController {
             )
             axManager.forceApplyNextFrame(for: operation.windowId)
             frameUpdates.append((operation.pid, operation.windowId, operation.targetFrame))
+            rescuedEntries.append(entry)
         }
 
         if !frameUpdates.isEmpty {
             axManager.applyFramesParallel(frameUpdates)
+            for entry in rescuedEntries {
+                windowFocusOperations.raiseWindow(entry.axRef.element)
+            }
         }
 
         return rescuePlan.rescuedCount

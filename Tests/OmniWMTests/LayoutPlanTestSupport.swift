@@ -114,10 +114,11 @@ func makeLayoutPlanTestController(
     workspaceConfigurations: [WorkspaceConfiguration] = [
         WorkspaceConfiguration(name: "1", monitorAssignment: .main),
         WorkspaceConfiguration(name: "2", monitorAssignment: .main)
-    ]
+    ],
+    windowFocusOperations: WindowFocusOperations? = nil
 ) -> WMController {
     resetSharedControllerStateForTests()
-    let operations = WindowFocusOperations(
+    let operations = windowFocusOperations ?? WindowFocusOperations(
         activateApp: { _ in },
         focusSpecificWindow: { _, _, _ in },
         raiseWindow: { _ in }

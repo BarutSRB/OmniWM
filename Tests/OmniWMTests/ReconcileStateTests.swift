@@ -176,11 +176,20 @@ private func makeReconcilePersistedRestoreCatalog(
         #expect(observedLeaseOwners == [.nativeMenu, nil])
     }
 
-    @Test func rescueOffscreenWindowsClampsTrackedFloatingFrames() throws {
+    @Test func rescueOffscreenWindowsClampsTrackedFloatingFramesWhenLiveFrameUnavailableAndRaisesWindow() throws {
+        var raiseCount = 0
+        let operations = WindowFocusOperations(
+            activateApp: { _ in },
+            focusSpecificWindow: { _, _, _ in },
+            raiseWindow: { _ in
+                raiseCount += 1
+            }
+        )
         let controller = makeLayoutPlanTestController(
             workspaceConfigurations: [
                 WorkspaceConfiguration(name: "1", monitorAssignment: .main)
-            ]
+            ],
+            windowFocusOperations: operations
         )
         let workspaceId = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: false))
         let monitor = try #require(controller.workspaceManager.monitor(for: workspaceId))
@@ -198,15 +207,20 @@ private func makeReconcilePersistedRestoreCatalog(
             referenceMonitor: monitor
         )
 
+        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == nil)
+
         let rescued = controller.rescueOffscreenWindows()
         let appliedFrame = try #require(controller.axManager.lastAppliedFrame(for: token.windowId))
 
         #expect(rescued == 1)
         #expect(monitor.visibleFrame.contains(appliedFrame))
         #expect(controller.workspaceManager.resolvedFloatingFrame(for: token, preferredMonitor: monitor) == appliedFrame)
+        #expect(raiseCount == 1)
+        #expect(controller.rescueOffscreenWindows() == 0)
+        #expect(raiseCount == 1)
     }
 
-    @Test func rescueOffscreenWindowsRescuesWorkspaceInactiveFloatingWindowOnHiddenWorkspace() throws {
+    @Test func rescueOffscreenWindowsDoesNotSurfaceWorkspaceInactiveFloatingWindowOnHiddenWorkspace() throws {
         let controller = makeLayoutPlanTestController(
             workspaceConfigurations: [
                 WorkspaceConfiguration(name: "1", monitorAssignment: .main),
@@ -240,12 +254,10 @@ private func makeReconcilePersistedRestoreCatalog(
         )
 
         let rescued = controller.rescueOffscreenWindows()
-        let appliedFrame = try #require(controller.axManager.lastAppliedFrame(for: token.windowId))
 
-        #expect(rescued == 1)
-        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
-        #expect(monitor.visibleFrame.contains(appliedFrame))
-        #expect(controller.workspaceManager.resolvedFloatingFrame(for: token, preferredMonitor: monitor) == appliedFrame)
+        #expect(rescued == 0)
+        #expect(controller.workspaceManager.hiddenState(for: token)?.workspaceInactive == true)
+        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == nil)
     }
 
     @Test func bootstrapHydratesPersistedRestoreAndAppliesFloatingModeWhenInitialModeDiffers() throws {

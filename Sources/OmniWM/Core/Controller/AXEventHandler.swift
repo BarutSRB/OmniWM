@@ -508,15 +508,6 @@ final class AXEventHandler: CGSEventDelegate {
             )
         )
 
-        if candidate.mode == .floating {
-            controller.focusPolicyEngine.beginLease(
-                owner: .ruleCreatedFloatingWindow,
-                reason: "floating_window_create",
-                suppressesFocusFollowsMouse: true,
-                duration: 0.35
-            )
-        }
-
         if restoreNativeFullscreenReplacementIfNeeded(
             token: candidate.token,
             windowId: candidate.windowId,
@@ -528,7 +519,7 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
-        _ = controller.workspaceManager.addWindow(
+        let trackedToken = controller.workspaceManager.addWindow(
             candidate.axRef,
             pid: candidate.token.pid,
             windowId: candidate.token.windowId,
@@ -537,44 +528,64 @@ final class AXEventHandler: CGSEventDelegate {
             ruleEffects: candidate.ruleEffects,
             managedReplacementMetadata: candidate.replacementMetadata
         )
+        guard let trackedEntry = controller.workspaceManager.entry(for: trackedToken) else {
+            scheduleAXContextWarmup(for: candidate.token.pid)
+            return
+        }
+
+        if trackedEntry.mode == .floating {
+            controller.focusPolicyEngine.beginLease(
+                owner: .ruleCreatedFloatingWindow,
+                reason: "floating_window_create",
+                suppressesFocusFollowsMouse: true,
+                duration: 0.35
+            )
+        }
 
         var floatingTargetFrame: CGRect?
-        if candidate.mode == .floating,
-           let frame = frameProvider?(candidate.axRef)
-            ?? fastFrameProvider?(candidate.axRef)
-            ?? AXWindowService.framePreferFast(candidate.axRef)
-            ?? (try? AXWindowService.frame(candidate.axRef))
-        {
-            if let entry = controller.workspaceManager.entry(for: candidate.token) {
-                updateManagedReplacementFrame(frame, for: entry)
+        if trackedEntry.mode == .floating {
+            let observedFrame = frameProvider?(candidate.axRef)
+                ?? fastFrameProvider?(candidate.axRef)
+                ?? AXWindowService.framePreferFast(candidate.axRef)
+                ?? (try? AXWindowService.frame(candidate.axRef))
+            let preferredMonitor = controller.workspaceManager.monitor(for: trackedEntry.workspaceId)
+
+            if let observedFrame {
+                updateManagedReplacementFrame(observedFrame, for: trackedEntry)
+                if controller.workspaceManager.floatingState(for: trackedToken) == nil {
+                    controller.workspaceManager.updateFloatingGeometry(
+                        frame: observedFrame,
+                        for: trackedToken,
+                        referenceMonitor: preferredMonitor
+                    )
+                }
             }
-            controller.workspaceManager.updateFloatingGeometry(
-                frame: frame,
-                for: candidate.token,
-                referenceMonitor: controller.workspaceManager.monitor(for: candidate.workspaceId)
-            )
+
             floatingTargetFrame = controller.workspaceManager.resolvedFloatingFrame(
-                for: candidate.token,
-                preferredMonitor: controller.workspaceManager.monitor(for: candidate.workspaceId)
+                for: trackedToken,
+                preferredMonitor: preferredMonitor
             )
         }
 
         if let floatingTargetFrame,
-           shouldApplyFloatingCreateFrameImmediately(for: candidate.workspaceId)
+           shouldApplyFloatingCreateFrameImmediately(for: trackedEntry.workspaceId)
         {
             scheduleFloatingCreateFrameApplication(
                 floatingTargetFrame,
-                for: candidate
+                token: trackedToken,
+                pid: trackedEntry.pid,
+                windowId: trackedEntry.windowId,
+                workspaceId: trackedEntry.workspaceId
             )
         } else {
-            scheduleAXContextWarmup(for: candidate.token.pid)
+            scheduleAXContextWarmup(for: trackedEntry.pid)
         }
 
         controller.layoutRefreshController.requestRelayout(
             reason: .axWindowCreated,
-            affectedWorkspaceIds: [candidate.workspaceId]
+            affectedWorkspaceIds: [trackedEntry.workspaceId]
         )
-        scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(candidate.token.pid)])
+        scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(trackedEntry.pid)])
     }
 
     private func shouldApplyFloatingCreateFrameImmediately(
@@ -605,20 +616,34 @@ final class AXEventHandler: CGSEventDelegate {
 
     private func scheduleFloatingCreateFrameApplication(
         _ targetFrame: CGRect,
-        for candidate: PreparedCreate
+        token: WindowToken,
+        pid: pid_t,
+        windowId: Int,
+        workspaceId: WorkspaceDescriptor.ID
     ) {
         guard let controller else { return }
-        let windowId = Int(candidate.windowId)
-        let canApplySynchronously = controller.axManager.hasContext(for: candidate.token.pid)
+        let canApplySynchronously = controller.axManager.hasContext(for: pid)
             || controller.axManager.usesFrameApplyOverrideForTests
 
         if canApplySynchronously {
-            applyFloatingCreateFrame(targetFrame, for: candidate)
+            applyFloatingCreateFrame(
+                targetFrame,
+                token: token,
+                pid: pid,
+                windowId: windowId,
+                workspaceId: workspaceId
+            )
             if controller.axManager.recentFrameWriteFailure(for: windowId) == .contextUnavailable {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    await self.warmAXContextIfNeeded(for: candidate.token.pid)
-                    self.applyFloatingCreateFrame(targetFrame, for: candidate)
+                    await self.warmAXContextIfNeeded(for: pid)
+                    self.applyFloatingCreateFrame(
+                        targetFrame,
+                        token: token,
+                        pid: pid,
+                        windowId: windowId,
+                        workspaceId: workspaceId
+                    )
                 }
             }
             return
@@ -626,29 +651,43 @@ final class AXEventHandler: CGSEventDelegate {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.warmAXContextIfNeeded(for: candidate.token.pid)
-            self.applyFloatingCreateFrame(targetFrame, for: candidate)
+            await self.warmAXContextIfNeeded(for: pid)
+            self.applyFloatingCreateFrame(
+                targetFrame,
+                token: token,
+                pid: pid,
+                windowId: windowId,
+                workspaceId: workspaceId
+            )
             if self.controller?.axManager.recentFrameWriteFailure(for: windowId) == .contextUnavailable {
-                await self.warmAXContextIfNeeded(for: candidate.token.pid)
-                self.applyFloatingCreateFrame(targetFrame, for: candidate)
+                await self.warmAXContextIfNeeded(for: pid)
+                self.applyFloatingCreateFrame(
+                    targetFrame,
+                    token: token,
+                    pid: pid,
+                    windowId: windowId,
+                    workspaceId: workspaceId
+                )
             }
         }
     }
 
     private func applyFloatingCreateFrame(
         _ targetFrame: CGRect,
-        for candidate: PreparedCreate
+        token: WindowToken,
+        pid: pid_t,
+        windowId: Int,
+        workspaceId: WorkspaceDescriptor.ID
     ) {
         guard let controller,
-              controller.workspaceManager.entry(for: candidate.token) != nil,
-              shouldApplyFloatingCreateFrameImmediately(for: candidate.workspaceId)
+              controller.workspaceManager.entry(for: token) != nil,
+              shouldApplyFloatingCreateFrameImmediately(for: workspaceId)
         else {
             return
         }
 
-        let windowId = Int(candidate.windowId)
         controller.axManager.forceApplyNextFrame(for: windowId)
-        controller.axManager.applyFramesParallel([(candidate.token.pid, windowId, targetFrame)])
+        controller.axManager.applyFramesParallel([(pid, windowId, targetFrame)])
     }
 
     func handleRemoved(pid: pid_t, winId: Int) {

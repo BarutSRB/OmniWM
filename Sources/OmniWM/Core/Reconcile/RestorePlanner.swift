@@ -64,7 +64,8 @@ struct RestorePlanner {
         let targetMonitor: Monitor
         let currentFrame: CGRect?
         let targetFrame: CGRect
-        let hiddenState: WindowModel.HiddenState?
+        let isScratchpadHidden: Bool
+        let isWorkspaceInactiveHidden: Bool
     }
 
     struct FloatingRescueOperation: Equatable {
@@ -74,7 +75,6 @@ struct RestorePlanner {
         let workspaceId: WorkspaceDescriptor.ID
         let targetMonitor: Monitor
         let targetFrame: CGRect
-        let shouldUnhideWorkspaceInactiveWindow: Bool
     }
 
     struct FloatingRescuePlan: Equatable {
@@ -281,14 +281,8 @@ struct RestorePlanner {
         var plan = FloatingRescuePlan()
 
         for candidate in candidates {
-            if let hiddenState = candidate.hiddenState {
-                if hiddenState.isScratchpad {
-                    continue
-                }
-                if !hiddenState.workspaceInactive {
-                    continue
-                }
-            }
+            guard !candidate.isScratchpadHidden else { continue }
+            guard !candidate.isWorkspaceInactiveHidden else { continue }
 
             let needsRescue = candidate.currentFrame.map {
                 !$0.approximatelyEqual(to: candidate.targetFrame, tolerance: 1.0)
@@ -302,8 +296,7 @@ struct RestorePlanner {
                     windowId: candidate.windowId,
                     workspaceId: candidate.workspaceId,
                     targetMonitor: candidate.targetMonitor,
-                    targetFrame: candidate.targetFrame,
-                    shouldUnhideWorkspaceInactiveWindow: candidate.hiddenState?.workspaceInactive == true
+                    targetFrame: candidate.targetFrame
                 )
             )
         }
