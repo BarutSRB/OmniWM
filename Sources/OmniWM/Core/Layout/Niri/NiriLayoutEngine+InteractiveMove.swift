@@ -8,6 +8,7 @@ extension NiriLayoutEngine {
         startLocation: CGPoint,
         isInsertMode: Bool = false,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -41,6 +42,7 @@ extension NiriLayoutEngine {
             columns: cols,
             gap: gaps,
             viewportWidth: workingFrame.width,
+            motion: motion,
             animate: false,
             centerMode: settings.centerFocusedColumn,
             alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn
@@ -79,6 +81,7 @@ extension NiriLayoutEngine {
     func interactiveMoveEnd(
         at _: CGPoint,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -98,6 +101,7 @@ extension NiriLayoutEngine {
                     sourceWindowId: move.windowId,
                     targetWindowId: targetNodeId,
                     in: workspaceId,
+                    motion: motion,
                     state: &state,
                     workingFrame: workingFrame,
                     gaps: gaps
@@ -108,6 +112,7 @@ extension NiriLayoutEngine {
                     targetWindowId: targetNodeId,
                     position: position,
                     in: workspaceId,
+                    motion: motion,
                     state: &state,
                     workingFrame: workingFrame,
                     gaps: gaps
@@ -159,6 +164,7 @@ extension NiriLayoutEngine {
         sourceWindowId: NodeId,
         targetWindowId: NodeId,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -216,6 +222,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: sourceWindow,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -229,6 +236,7 @@ extension NiriLayoutEngine {
         targetWindowId: NodeId,
         position: InsertPosition,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -281,6 +289,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: sourceWindow,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps

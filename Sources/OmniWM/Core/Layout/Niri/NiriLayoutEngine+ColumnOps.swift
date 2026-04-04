@@ -74,6 +74,7 @@ extension NiriLayoutEngine {
         from sourceColumn: NiriContainer,
         direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         gaps: CGFloat,
         workingAreaWidth: CGFloat
@@ -99,6 +100,7 @@ extension NiriLayoutEngine {
             animateColumnsForAddition(
                 columnIndex: newColIdx,
                 in: workspaceId,
+                motion: motion,
                 state: state,
                 gaps: gaps,
                 workingAreaWidth: workingAreaWidth
@@ -122,6 +124,7 @@ extension NiriLayoutEngine {
         _ window: NiriWindow,
         insertIndex: Int,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -147,6 +150,7 @@ extension NiriLayoutEngine {
             animateColumnsForAddition(
                 columnIndex: newColIdx,
                 in: workspaceId,
+                motion: motion,
                 state: state,
                 gaps: gaps,
                 workingAreaWidth: workingFrame.width
@@ -167,6 +171,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: window,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -218,6 +223,7 @@ extension NiriLayoutEngine {
 
     func balanceSizes(
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         workingAreaWidth: CGFloat,
         gaps: CGFloat
     ) {
@@ -238,7 +244,8 @@ extension NiriLayoutEngine {
                 newWidth: targetPixels,
                 clock: animationClock,
                 config: windowMovementAnimationConfig,
-                displayRefreshRate: displayRefreshRate
+                displayRefreshRate: displayRefreshRate,
+                animated: motion.animationsEnabled
             )
 
             for window in column.windowNodes {
@@ -251,6 +258,7 @@ extension NiriLayoutEngine {
         _ column: NiriContainer,
         direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -288,7 +296,8 @@ extension NiriLayoutEngine {
             displacement: CGPoint(x: currentColX - newColX, y: 0),
             clock: animationClock,
             config: windowMovementAnimationConfig,
-            displayRefreshRate: displayRefreshRate
+            displayRefreshRate: displayRefreshRate,
+            animated: motion.animationsEnabled
         )
 
         let othersXOffset = nextColX - currentColX
@@ -300,7 +309,8 @@ extension NiriLayoutEngine {
                         displacement: CGPoint(x: othersXOffset, y: 0),
                         clock: animationClock,
                         config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate
+                        displayRefreshRate: displayRefreshRate,
+                        animated: motion.animationsEnabled
                     )
                 }
             }
@@ -312,7 +322,8 @@ extension NiriLayoutEngine {
                         displacement: CGPoint(x: -othersXOffset, y: 0),
                         clock: animationClock,
                         config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate
+                        displayRefreshRate: displayRefreshRate,
+                        animated: motion.animationsEnabled
                     )
                 }
             }
@@ -321,6 +332,7 @@ extension NiriLayoutEngine {
         ensureColumnVisible(
             column,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
@@ -335,6 +347,7 @@ extension NiriLayoutEngine {
         _ window: NiriWindow,
         direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -352,6 +365,7 @@ extension NiriLayoutEngine {
                 window,
                 to: direction,
                 in: workspaceId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps
@@ -395,6 +409,7 @@ extension NiriLayoutEngine {
             _ = animateColumnsForRemoval(
                 columnIndex: transfer.sourceColumnIndexBeforeCleanup,
                 in: workspaceId,
+                motion: motion,
                 state: &state,
                 gaps: gaps
             )
@@ -420,13 +435,15 @@ extension NiriLayoutEngine {
                 displacement: displacement,
                 clock: animationClock,
                 config: windowMovementAnimationConfig,
-                displayRefreshRate: displayRefreshRate
+                displayRefreshRate: displayRefreshRate,
+                animated: motion.animationsEnabled
             )
         }
 
         ensureSelectionVisible(
             node: window,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
@@ -441,6 +458,7 @@ extension NiriLayoutEngine {
         _ window: NiriWindow,
         to direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -478,6 +496,7 @@ extension NiriLayoutEngine {
             animateColumnsForAddition(
                 columnIndex: newColIdx,
                 in: workspaceId,
+                motion: motion,
                 state: state,
                 gaps: gaps,
                 workingAreaWidth: workingFrame.width
@@ -504,7 +523,8 @@ extension NiriLayoutEngine {
                     displacement: displacement,
                     clock: animationClock,
                     config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate
+                    displayRefreshRate: displayRefreshRate,
+                    animated: motion.animationsEnabled
                 )
             }
         }
@@ -519,6 +539,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: window,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -530,6 +551,7 @@ extension NiriLayoutEngine {
     private func ensureColumnVisible(
         _ column: NiriContainer,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -540,6 +562,7 @@ extension NiriLayoutEngine {
             ensureSelectionVisible(
                 node: firstWindow,
                 in: workspaceId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps,

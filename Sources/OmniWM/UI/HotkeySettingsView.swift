@@ -78,6 +78,7 @@ struct HotkeySettingsView: View {
                             HotkeyCategorySection(
                                 category: category,
                                 bindings: actions,
+                                motionPolicy: controller.motionPolicy,
                                 recordingActionId: $recordingActionId,
                                 registrationFailures: controller.hotkeyRegistrationFailures,
                                 onStartRecording: startRecording,
@@ -178,6 +179,7 @@ struct ConflictAlert: Identifiable {
 struct HotkeyCategorySection: View {
     let category: HotkeyCategory
     let bindings: [HotkeyBinding]
+    let motionPolicy: MotionPolicy
     @Binding var recordingActionId: String?
     let registrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason]
     let onStartRecording: (String) -> Void
@@ -195,6 +197,7 @@ struct HotkeyCategorySection: View {
             ForEach(bindings) { binding in
                 HotkeyBindingRow(
                     binding: binding,
+                    motionPolicy: motionPolicy,
                     recordingActionId: $recordingActionId,
                     failureReason: registrationFailures[binding.command],
                     onStartRecording: onStartRecording,
@@ -209,6 +212,7 @@ struct HotkeyCategorySection: View {
 
 struct HotkeyBindingRow: View {
     let binding: HotkeyBinding
+    let motionPolicy: MotionPolicy
     @Binding var recordingActionId: String?
     let failureReason: HotkeyRegistrationFailureReason?
     let onStartRecording: (String) -> Void
@@ -276,7 +280,7 @@ struct HotkeyBindingRow: View {
         }
         .padding(.vertical, 2)
         .zIndex(showHotkeyHelp ? 1 : 0)
-        .animation(.easeOut(duration: 0.1), value: showHotkeyHelp)
+        .animation(motionPolicy.animationsEnabled ? .easeOut(duration: 0.1) : nil, value: showHotkeyHelp)
         .onDisappear {
             cancelHotkeyHelpTask()
         }

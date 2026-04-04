@@ -7,6 +7,7 @@ extension ViewportState {
         columns: [NiriContainer],
         gap: CGFloat,
         viewportWidth: CGFloat,
+        motion: MotionSnapshot,
         animate: Bool = false
     ) {
         guard !columns.isEmpty else { return }
@@ -26,7 +27,7 @@ extension ViewportState {
         )
 
         if animate {
-            animateToOffset(targetOffset)
+            animateToOffset(targetOffset, motion: motion)
         } else {
             viewOffsetPixels = .static(targetOffset)
         }
@@ -41,6 +42,7 @@ extension ViewportState {
         columns: [NiriContainer],
         gap: CGFloat,
         viewportWidth: CGFloat,
+        motion: MotionSnapshot,
         animate: Bool,
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false,
@@ -82,7 +84,7 @@ extension ViewportState {
         }
 
         if animate {
-            animateToOffset(targetOffset)
+            animateToOffset(targetOffset, motion: motion)
         } else {
             viewOffsetPixels = .static(targetOffset)
         }
@@ -96,6 +98,7 @@ extension ViewportState {
         containers: [NiriContainer],
         gap: CGFloat,
         viewportSpan: CGFloat,
+        motion: MotionSnapshot,
         sizeKeyPath: KeyPath<NiriContainer, CGFloat>,
         animate: Bool = true,
         centerMode: CenterFocusedColumn = .never,
@@ -106,7 +109,6 @@ extension ViewportState {
     ) {
         guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return }
 
-        let currentOffset = viewOffsetPixels.current()
         let stationaryOffset = stationary()
         let activePos = containerPosition(at: activeColumnIndex, containers: containers, gap: gap, sizeKeyPath: sizeKeyPath)
         let stationaryViewStart = activePos + stationaryOffset
@@ -130,18 +132,12 @@ extension ViewportState {
         }
 
         if animate {
-            let now = animationClock?.now() ?? CACurrentMediaTime()
-            let currentVelocity = viewOffsetPixels.currentVelocity()
-            let config = animationConfig ?? springConfig
-            let animation = SpringAnimation(
-                from: Double(currentOffset),
-                to: Double(targetOffset),
-                initialVelocity: currentVelocity,
-                startTime: now,
-                config: config,
-                displayRefreshRate: displayRefreshRate
+            animateToOffset(
+                targetOffset,
+                motion: motion,
+                config: animationConfig,
+                scale: scale
             )
-            viewOffsetPixels = .spring(animation)
         } else {
             viewOffsetPixels = .static(targetOffset)
         }

@@ -10,6 +10,7 @@ extension NiriLayoutEngine {
     func animateColumnsForRemoval(
         columnIndex removedIdx: Int,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         gaps: CGFloat
     ) -> ColumnRemovalResult {
@@ -35,7 +36,8 @@ extension NiriLayoutEngine {
                         displacement: CGPoint(x: offset, y: 0),
                         clock: animationClock,
                         config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate
+                        displayRefreshRate: displayRefreshRate,
+                        animated: motion.animationsEnabled
                     )
                 }
             }
@@ -48,7 +50,8 @@ extension NiriLayoutEngine {
                         displacement: CGPoint(x: -offset, y: 0),
                         clock: animationClock,
                         config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate
+                        displayRefreshRate: displayRefreshRate,
+                        animated: motion.animationsEnabled
                     )
                 }
             }
@@ -94,6 +97,7 @@ extension NiriLayoutEngine {
     func animateColumnsForAddition(
         columnIndex addedIdx: Int,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: ViewportState,
         gaps: CGFloat,
         workingAreaWidth: CGFloat
@@ -119,7 +123,8 @@ extension NiriLayoutEngine {
                         displacement: CGPoint(x: -offset, y: 0),
                         clock: animationClock,
                         config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate
+                        displayRefreshRate: displayRefreshRate,
+                        animated: motion.animationsEnabled
                     )
                 }
             }
@@ -132,7 +137,8 @@ extension NiriLayoutEngine {
                         displacement: CGPoint(x: offset, y: 0),
                         clock: animationClock,
                         config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate
+                        displayRefreshRate: displayRefreshRate,
+                        animated: motion.animationsEnabled
                     )
                 }
             }
@@ -367,6 +373,7 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         oldFrames: [WindowToken: CGRect],
         newFrames: [WindowToken: CGRect],
+        motion: MotionSnapshot,
         threshold: CGFloat = 1.0
     ) -> Bool {
         guard let root = root(for: workspaceId) else { return false }
@@ -387,7 +394,8 @@ extension NiriLayoutEngine {
                     displacement: CGPoint(x: dx, y: dy),
                     clock: animationClock,
                     config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate
+                    displayRefreshRate: displayRefreshRate,
+                    animated: motion.animationsEnabled
                 )
                 anyAnimationStarted = true
             }

@@ -92,10 +92,15 @@ extension NiriMonitor {
     func startWorkspaceSwitch(
         orderedWorkspaceIds: [WorkspaceDescriptor.ID],
         from fromWorkspaceId: WorkspaceDescriptor.ID,
-        to toWorkspaceId: WorkspaceDescriptor.ID
+        to toWorkspaceId: WorkspaceDescriptor.ID,
+        animated: Bool
     ) {
         guard let targetIdx = orderedWorkspaceIds.firstIndex(of: toWorkspaceId),
               let fromIdx = orderedWorkspaceIds.firstIndex(of: fromWorkspaceId) else {
+            return
+        }
+        guard animated else {
+            workspaceSwitch = nil
             return
         }
         guard targetIdx != fromIdx || workspaceSwitch != nil else { return }

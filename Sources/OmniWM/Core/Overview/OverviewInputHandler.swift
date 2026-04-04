@@ -56,7 +56,7 @@ final class OverviewInputHandler {
                 searchQuery = ""
                 controller.updateSearchQuery("")
             } else {
-                controller.dismiss(reason: .cancel)
+                controller.dismiss(reason: .cancel, animated: true)
             }
         case .activateSelection:
             controller.activateSelectedWindow()
@@ -147,7 +147,7 @@ final class OverviewInputHandler {
             return
         }
 
-        controller.dismiss(reason: .cancel)
+        controller.dismiss(reason: .cancel, animated: true)
     }
 
     func handleScroll(delta: CGFloat) {

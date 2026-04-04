@@ -1072,7 +1072,8 @@ final class DwindleLayoutEngine {
 
     func animateWindowMovements(
         oldFrames: [WindowToken: CGRect],
-        newFrames: [WindowToken: CGRect]
+        newFrames: [WindowToken: CGRect],
+        motion: MotionSnapshot
     ) {
         for (handle, newFrame) in newFrames {
             guard let oldFrame = oldFrames[handle],
@@ -1088,7 +1089,8 @@ final class DwindleLayoutEngine {
                     oldFrame: oldFrame,
                     newFrame: newFrame,
                     clock: animationClock,
-                    config: windowMovementAnimationConfig
+                    config: windowMovementAnimationConfig,
+                    animated: motion.animationsEnabled
                 )
             }
         }

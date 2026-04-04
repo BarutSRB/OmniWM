@@ -43,6 +43,7 @@ extension NiriLayoutEngine {
         direction: Direction,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -52,6 +53,7 @@ extension NiriLayoutEngine {
             direction: direction,
             currentSelection: currentSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
@@ -64,6 +66,7 @@ extension NiriLayoutEngine {
         direction: Direction,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -86,6 +89,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: newSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
@@ -163,6 +167,7 @@ extension NiriLayoutEngine {
     func ensureSelectionVisible(
         node: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -215,6 +220,7 @@ extension NiriLayoutEngine {
             containers: containers,
             gap: gaps,
             viewportSpan: viewportSpan,
+            motion: motion,
             sizeKeyPath: sizeKeyPath,
             animate: true,
             centerMode: settings.centerFocusedColumn,
@@ -231,6 +237,7 @@ extension NiriLayoutEngine {
         direction: Direction,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -241,6 +248,7 @@ extension NiriLayoutEngine {
                 direction: direction,
                 currentSelection: currentSelection,
                 in: workspaceId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps,
@@ -258,6 +266,7 @@ extension NiriLayoutEngine {
             ensureSelectionVisible(
                 node: target,
                 in: workspaceId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps,
@@ -272,6 +281,7 @@ extension NiriLayoutEngine {
         horizontalDirection: Direction,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -281,6 +291,7 @@ extension NiriLayoutEngine {
             ensureSelectionVisible(
                 node: target,
                 in: workspaceId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps
@@ -292,6 +303,7 @@ extension NiriLayoutEngine {
             direction: horizontalDirection,
             currentSelection: currentSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
@@ -302,6 +314,7 @@ extension NiriLayoutEngine {
     func focusDownOrLeft(
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -311,6 +324,7 @@ extension NiriLayoutEngine {
             horizontalDirection: .left,
             currentSelection: currentSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps,
@@ -321,6 +335,7 @@ extension NiriLayoutEngine {
     func focusUpOrRight(
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -330,6 +345,7 @@ extension NiriLayoutEngine {
             horizontalDirection: .right,
             currentSelection: currentSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -340,6 +356,7 @@ extension NiriLayoutEngine {
         _ targetIndex: Int,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -361,6 +378,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: target,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -371,6 +389,7 @@ extension NiriLayoutEngine {
     func focusColumnFirst(
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -379,6 +398,7 @@ extension NiriLayoutEngine {
             0,
             currentSelection: currentSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -388,6 +408,7 @@ extension NiriLayoutEngine {
     func focusColumnLast(
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -398,6 +419,7 @@ extension NiriLayoutEngine {
             cols.count - 1,
             currentSelection: currentSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -408,6 +430,7 @@ extension NiriLayoutEngine {
         _ columnIndex: Int,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -416,6 +439,7 @@ extension NiriLayoutEngine {
             columnIndex,
             currentSelection: currentSelection,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -426,6 +450,7 @@ extension NiriLayoutEngine {
         _ windowIndex: Int,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -444,6 +469,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: target,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -454,6 +480,7 @@ extension NiriLayoutEngine {
     func focusPrevious(
         currentNodeId: NodeId?,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
@@ -472,6 +499,7 @@ extension NiriLayoutEngine {
         ensureSelectionVisible(
             node: previousWindow,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps

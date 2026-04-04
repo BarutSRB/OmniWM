@@ -238,6 +238,7 @@ import QuartzCore
     }
 
     func startScrollAnimation(for workspaceId: WorkspaceDescriptor.ID) {
+        guard controller?.motionPolicy.animationsEnabled != false else { return }
         guard let controller else { return }
         let targetDisplayId: CGDirectDisplayID
         if let monitor = controller.workspaceManager.monitor(for: workspaceId) {
@@ -269,6 +270,7 @@ import QuartzCore
     }
 
     func startDwindleAnimation(for workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
+        guard controller?.motionPolicy.animationsEnabled != false else { return }
         let targetDisplayId = monitor.displayId
 
         guard dwindleHandler.registerDwindleAnimation(workspaceId, monitor: monitor, on: targetDisplayId) else { return }
@@ -279,6 +281,7 @@ import QuartzCore
     }
 
     func startWindowCloseAnimation(entry: WindowModel.Entry, monitor: Monitor) {
+        guard controller?.motionPolicy.animationsEnabled != false else { return }
         guard controller != nil else { return }
         guard let frame = fastFrame(for: entry.token, axRef: entry.axRef) else { return }
 
@@ -350,6 +353,10 @@ import QuartzCore
 
         for (windowId, animation) in animations {
             if animation.isComplete(at: targetTime) {
+                _ = AXWindowService.setFrame(
+                    animation.axRef,
+                    frame: animation.currentFrame(at: targetTime)
+                )
                 continue
             }
 
@@ -830,7 +837,7 @@ import QuartzCore
         }
     }
 
-    func settleAllAnimationsForTests() {
+    private func settleAllAnimations() {
         let settleTime = CACurrentMediaTime() + 10.0
 
         for displayId in Array(niriHandler.scrollAnimationByDisplay.keys) {
@@ -844,6 +851,10 @@ import QuartzCore
         for displayId in Array(layoutState.closingAnimationsByDisplay.keys) {
             tickClosingAnimations(targetTime: settleTime, displayId: displayId)
         }
+    }
+
+    func settleAllAnimationsForTests() {
+        settleAllAnimations()
     }
 
     func waitForSettledRefreshWorkForTests() async {

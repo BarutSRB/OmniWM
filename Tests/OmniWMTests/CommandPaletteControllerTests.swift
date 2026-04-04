@@ -112,6 +112,50 @@ private func makeCommandPaletteAppSnapshot(
         #expect(controller.filteredWindowItems.isEmpty)
     }
 
+    @Test func motionToggleKeepsLivePanelAndSelectionState() throws {
+        var environment = CommandPaletteEnvironment()
+        environment.activateOmniWM = {}
+        let motionPolicy = MotionPolicy()
+        let controller = CommandPaletteController(motionPolicy: motionPolicy, environment: environment)
+        let wmController = makeCommandPaletteTestWMController()
+
+        guard let workspaceId = wmController.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace for command palette motion test")
+            return
+        }
+
+        _ = wmController.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 808),
+            pid: 4343,
+            windowId: 808,
+            to: workspaceId
+        )
+
+        defer {
+            if controller.isVisible {
+                controller.toggle(wmController: wmController)
+            }
+        }
+
+        controller.toggle(wmController: wmController)
+        let panel = try #require(controller.panelForTests)
+        let contentView = try #require(panel.contentView)
+
+        controller.searchText = "Window"
+        let expectedSelection = CommandPaletteSelectionID.window(WindowToken(pid: 4343, windowId: 808))
+        controller.selectedItemID = expectedSelection
+
+        #expect(controller.selectedItemID == expectedSelection)
+
+        motionPolicy.animationsEnabled = false
+
+        #expect(controller.isVisible)
+        #expect(controller.searchText == "Window")
+        #expect(controller.selectedItemID == expectedSelection)
+        #expect(controller.panelForTests === panel)
+        #expect(controller.panelForTests?.contentView === contentView)
+    }
+
     @Test func selectCurrentNavigatesSelectedWindowAfterDismiss() {
         var navigatedHandle: WindowHandle?
         var environment = CommandPaletteEnvironment()

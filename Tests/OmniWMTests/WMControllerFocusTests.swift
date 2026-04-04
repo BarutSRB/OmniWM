@@ -206,6 +206,80 @@ private func waitForFocusRefresh(on controller: WMController) async {
         #expect(settings.hiddenBarIsCollapsed == true)
     }
 
+    @Test @MainActor func applyPersistedSettingsDisablesViewportAnimationsOnColdStart() {
+        let settings = SettingsStore(defaults: makeFocusTestDefaults())
+        settings.animationsEnabled = false
+        let controller = WMController(settings: settings)
+
+        controller.applyPersistedSettings(settings)
+
+        guard let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(
+            on: controller.workspaceManager.monitors[0].id
+        )?.id else {
+            Issue.record("Missing active workspace for cold-start animation policy test")
+            return
+        }
+
+        let handle = addManagedTestWindow(
+            on: controller,
+            pid: 7_401,
+            windowId: 901,
+            workspaceId: workspaceId
+        )
+        _ = controller.workspaceManager.rememberFocus(handle, in: workspaceId)
+
+        guard let engine = controller.niriEngine,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        else {
+            Issue.record("Expected Niri window state for cold-start animation policy test")
+            return
+        }
+
+        let handles = controller.workspaceManager.entries(in: workspaceId).map(\.handle)
+        _ = engine.syncWindows(
+            handles,
+            in: workspaceId,
+            selectedNodeId: nil,
+            focusedHandle: handle
+        )
+
+        guard let node = engine.findNode(for: handle),
+              let column = engine.findColumn(containing: node, in: workspaceId)
+        else {
+            Issue.record("Expected Niri window state for cold-start animation policy test")
+            return
+        }
+
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        state.selectedNodeId = node.id
+        engine.toggleFullWidth(
+            column,
+            in: workspaceId,
+            motion: controller.motionPolicy.snapshot(),
+            state: &state,
+            workingFrame: controller.insetWorkingFrame(for: monitor),
+            gaps: CGFloat(controller.workspaceManager.gaps)
+        )
+
+        #expect(controller.motionPolicy.animationsEnabled == false)
+        #expect(!column.hasWidthAnimationRunning)
+        #expect(!state.viewOffsetPixels.isAnimating)
+    }
+
+    @Test @MainActor func turningAnimationsOffDoesNotForceQuakeTransitionCompletion() {
+        let settings = SettingsStore(defaults: makeFocusTestDefaults())
+        let controller = WMController(settings: settings)
+
+        controller.configureQuakeTransitionForTests(visible: true, isTransitioning: true)
+
+        #expect(controller.quakeTerminalIsTransitioningForTests())
+
+        controller.setAnimationsEnabled(false)
+
+        #expect(controller.motionPolicy.animationsEnabled == false)
+        #expect(controller.quakeTerminalIsTransitioningForTests())
+    }
+
     @Test @MainActor func toggleWorkspaceBarVisibilityHidesOnlyInteractionMonitorAndPreservesSettings() async {
         let primaryMonitor = Monitor(
             id: Monitor.ID(displayId: 31),

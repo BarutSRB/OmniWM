@@ -30,25 +30,40 @@ extension NiriLayoutEngine {
         _ column: NiriContainer,
         targetWidth: CGFloat,
         previousWidth: CGFloat,
+        restorePreviousWidthAfterFit: Bool,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
     ) {
         guard let window = column.windowNodes.first else { return }
 
-        // Expose the target width only for viewport-fit math, then restore the
-        // animated width source so the spring still runs from the old span.
-        column.cachedWidth = targetWidth
-        defer { column.cachedWidth = previousWidth }
-
-        ensureSelectionVisible(
-            node: window,
-            in: workspaceId,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps
-        )
+        // Expose the target width only for viewport-fit math. Animated width
+        // changes restore the previous cache so the spring can continue from
+        // the old span; immediate width changes keep the new target cached.
+        if restorePreviousWidthAfterFit {
+            column.cachedWidth = targetWidth
+            defer { column.cachedWidth = previousWidth }
+            ensureSelectionVisible(
+                node: window,
+                in: workspaceId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        } else {
+            column.cachedWidth = targetWidth
+            ensureSelectionVisible(
+                node: window,
+                in: workspaceId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        }
     }
 
     func calculateVerticalPixelsPerWeightUnit(
@@ -70,6 +85,7 @@ extension NiriLayoutEngine {
 
     func setWindowSizingMode(
         _ window: NiriWindow,
+        motion: MotionSnapshot,
         mode: SizingMode,
         state: inout ViewportState
     ) {
@@ -86,7 +102,7 @@ extension NiriLayoutEngine {
             }
 
             if let savedOffset = state.viewOffsetToRestore {
-                state.animateViewOffsetRestore(savedOffset)
+                state.animateViewOffsetRestore(savedOffset, motion: motion)
             }
         }
 
@@ -101,16 +117,18 @@ extension NiriLayoutEngine {
 
     func toggleFullscreen(
         _ window: NiriWindow,
+        motion: MotionSnapshot,
         state: inout ViewportState
     ) {
         let newMode: SizingMode = window.sizingMode == .fullscreen ? .normal : .fullscreen
-        setWindowSizingMode(window, mode: newMode, state: &state)
+        setWindowSizingMode(window, motion: motion, mode: newMode, state: &state)
     }
 
     func toggleColumnWidth(
         _ column: NiriContainer,
         forwards: Bool,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -174,18 +192,21 @@ extension NiriLayoutEngine {
             targetPixels = f
         }
 
-        column.animateWidthTo(
+        let didStartWidthAnimation = column.animateWidthTo(
             newWidth: targetPixels,
             clock: animationClock,
             config: windowMovementAnimationConfig,
-            displayRefreshRate: displayRefreshRate
+            displayRefreshRate: displayRefreshRate,
+            animated: motion.animationsEnabled
         )
 
         ensureSelectionVisibleForPendingWidth(
             column,
             targetWidth: targetPixels,
             previousWidth: previousWidth,
+            restorePreviousWidthAfterFit: didStartWidthAnimation,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps
@@ -195,6 +216,7 @@ extension NiriLayoutEngine {
     func toggleFullWidth(
         _ column: NiriContainer,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -228,18 +250,21 @@ extension NiriLayoutEngine {
             targetPixels = workingAreaWidth
         }
 
-        column.animateWidthTo(
+        let didStartWidthAnimation = column.animateWidthTo(
             newWidth: targetPixels,
             clock: animationClock,
             config: windowMovementAnimationConfig,
-            displayRefreshRate: displayRefreshRate
+            displayRefreshRate: displayRefreshRate,
+            animated: motion.animationsEnabled
         )
 
         ensureSelectionVisibleForPendingWidth(
             column,
             targetWidth: targetPixels,
             previousWidth: previousWidth,
+            restorePreviousWidthAfterFit: didStartWidthAnimation,
             in: workspaceId,
+            motion: motion,
             state: &state,
             workingFrame: workingFrame,
             gaps: gaps

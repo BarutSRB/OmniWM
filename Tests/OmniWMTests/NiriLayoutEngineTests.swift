@@ -509,6 +509,117 @@ private func makeCenteredCrossMonitorFixture(
         return (engine, workspaceId, windows, monitor, gap, gaps, area)
     }
 
+    @MainActor
+    private func makeDisabledMotionWidthCommandFixture(
+        visibleCount: Int = 2,
+        extraColumns: Int = 3
+    ) async throws -> (
+        controller: WMController,
+        engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        columns: [NiriContainer],
+        windows: [NiriWindow],
+        gap: CGFloat,
+        workingFrame: CGRect
+    ) {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            fatalError("Missing monitor or active workspace for disabled-motion width command fixture")
+        }
+
+        controller.enableNiriLayout(
+            maxWindowsPerColumn: 1,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        controller.updateNiriConfig(
+            maxVisibleColumns: visibleCount,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        guard let engine = controller.niriEngine else {
+            fatalError("Expected Niri engine for disabled-motion width command fixture")
+        }
+
+        for windowId in 700 ..< 700 + visibleCount + extraColumns {
+            _ = addLayoutPlanTestWindow(
+                on: controller,
+                workspaceId: workspaceId,
+                windowId: windowId
+            )
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let fixedWidth = (
+            workingFrame.width - gap * CGFloat(visibleCount - 1)
+        ) / CGFloat(visibleCount)
+
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(fixedWidth)
+            column.cachedWidth = fixedWidth
+        }
+
+        let columns = engine.columns(in: workspaceId)
+        let windows = columns.compactMap(\.windowNodes.first)
+        guard windows.count >= visibleCount else {
+            fatalError("Expected enough windows for disabled-motion width command fixture")
+        }
+
+        let activeIndex = visibleCount - 1
+        let selectedWindow = windows[activeIndex]
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.animationClock = engine.animationClock
+            state.selectedNodeId = selectedWindow.id
+            state.activeColumnIndex = activeIndex
+            state.viewOffsetPixels = .static(0)
+            engine.ensureSelectionVisible(
+                node: selectedWindow,
+                in: workspaceId,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gap
+            )
+        }
+        _ = controller.workspaceManager.setManagedFocus(selectedWindow.token, in: workspaceId, onMonitor: monitor.id)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: selectedWindow.id,
+            focusedToken: selectedWindow.token,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+
+        let refreshedPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(refreshedPlans)
+
+        controller.layoutRefreshController.stopAllScrollAnimations()
+        controller.setAnimationsEnabled(false)
+
+        return (
+            controller,
+            engine,
+            workspaceId,
+            monitor,
+            columns,
+            windows,
+            gap,
+            workingFrame
+        )
+    }
+
     private func makeViewportStateForVisibleColumn(
         targetWindow: NiriWindow,
         engine: NiriLayoutEngine,
@@ -2625,7 +2736,8 @@ private func makeCenteredCrossMonitorFixture(
         niriMonitor.startWorkspaceSwitch(
             orderedWorkspaceIds: [ws1, ws2],
             from: ws1,
-            to: ws2
+            to: ws2,
+            animated: true
         )
 
         guard let time = niriMonitor.animationClock?.now() else {
@@ -3370,6 +3482,7 @@ private func makeCenteredCrossMonitorFixture(
                 targetColumn,
                 forwards: true,
                 in: fixture.workspaceId,
+                motion: .disabled,
                 state: &state,
                 workingFrame: fixture.monitor.visibleFrame,
                 gaps: fixture.gap
@@ -3404,6 +3517,256 @@ private func makeCenteredCrossMonitorFixture(
             #expect(widenedFrame.width > originalFrame.width)
             #expect(widenedFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
         }
+    }
+
+    @Test func toggleColumnWidthForwardWithAnimationsDisabledAppliesWidthImmediately() {
+        for visibleCount in 2 ... 5 {
+            let fixture = makeVisibleColumnFixture(visibleCount: visibleCount)
+            let targetWindow = fixture.windows[visibleCount - 1]
+            guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+                Issue.record("Expected a target column for disabled cycle-width forward test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            let originalWidth = targetColumn.cachedWidth
+            fixture.engine.presetColumnWidths = [
+                .fixed(originalWidth),
+                .fixed(originalWidth * 1.5)
+            ]
+
+            var state = makeViewportStateForVisibleColumn(
+                targetWindow: targetWindow,
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                workingFrame: fixture.monitor.visibleFrame,
+                gap: fixture.gap
+            )
+            let originalLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: state,
+                workingArea: fixture.area,
+                animationTime: nil
+            )
+
+            fixture.engine.toggleColumnWidth(
+                targetColumn,
+                forwards: true,
+                in: fixture.workspaceId,
+                motion: .disabled,
+                state: &state,
+                workingFrame: fixture.monitor.visibleFrame,
+                gaps: fixture.gap
+            )
+
+            let immediateLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: state,
+                workingArea: fixture.area,
+                animationTime: nil
+            )
+
+            guard let originalFrame = originalLayout.frames[targetWindow.token],
+                  let updatedFrame = immediateLayout.frames[targetWindow.token]
+            else {
+                Issue.record("Expected original and updated frames for disabled cycle-width forward test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            #expect(abs(targetColumn.cachedWidth - (originalWidth * 1.5)) < 0.1)
+            #expect(!targetColumn.hasWidthAnimationRunning)
+            #expect(!state.viewOffsetPixels.isAnimating)
+            #expect(immediateLayout.hiddenHandles[targetWindow.token] == nil)
+            #expect(updatedFrame.width > originalFrame.width)
+            #expect(updatedFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
+        }
+    }
+
+    @Test func toggleColumnWidthBackwardWithAnimationsDisabledAppliesWidthImmediately() {
+        for visibleCount in 2 ... 5 {
+            let fixture = makeVisibleColumnFixture(visibleCount: visibleCount)
+            let targetWindow = fixture.windows[visibleCount - 1]
+            guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+                Issue.record("Expected a target column for disabled cycle-width backward test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            let originalWidth = targetColumn.cachedWidth
+            let targetWidth = originalWidth * 0.75
+            fixture.engine.presetColumnWidths = [
+                .fixed(targetWidth),
+                .fixed(originalWidth)
+            ]
+            targetColumn.width = .fixed(originalWidth)
+            targetColumn.presetWidthIdx = 1
+
+            var state = makeViewportStateForVisibleColumn(
+                targetWindow: targetWindow,
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                workingFrame: fixture.monitor.visibleFrame,
+                gap: fixture.gap
+            )
+            let originalLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: state,
+                workingArea: fixture.area,
+                animationTime: nil
+            )
+
+            fixture.engine.toggleColumnWidth(
+                targetColumn,
+                forwards: false,
+                in: fixture.workspaceId,
+                motion: .disabled,
+                state: &state,
+                workingFrame: fixture.monitor.visibleFrame,
+                gaps: fixture.gap
+            )
+
+            let immediateLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: state,
+                workingArea: fixture.area,
+                animationTime: nil
+            )
+
+            guard let originalFrame = originalLayout.frames[targetWindow.token],
+                  let updatedFrame = immediateLayout.frames[targetWindow.token]
+            else {
+                Issue.record("Expected original and updated frames for disabled cycle-width backward test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            #expect(abs(targetColumn.cachedWidth - targetWidth) < 0.1)
+            #expect(!targetColumn.hasWidthAnimationRunning)
+            #expect(!state.viewOffsetPixels.isAnimating)
+            #expect(immediateLayout.hiddenHandles[targetWindow.token] == nil)
+            #expect(updatedFrame.width < originalFrame.width)
+            #expect(updatedFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
+        }
+    }
+
+    @Test func toggleFullWidthWithAnimationsDisabledAppliesWidthImmediately() {
+        for visibleCount in 2 ... 5 {
+            let fixture = makeVisibleColumnFixture(visibleCount: visibleCount)
+            let targetWindow = fixture.windows[visibleCount - 1]
+            guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+                Issue.record("Expected a target column for disabled full-width test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            var state = makeViewportStateForVisibleColumn(
+                targetWindow: targetWindow,
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                workingFrame: fixture.monitor.visibleFrame,
+                gap: fixture.gap
+            )
+            fixture.engine.toggleFullWidth(
+                targetColumn,
+                in: fixture.workspaceId,
+                motion: .disabled,
+                state: &state,
+                workingFrame: fixture.monitor.visibleFrame,
+                gaps: fixture.gap
+            )
+
+            let immediateLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: state,
+                workingArea: fixture.area,
+                animationTime: nil
+            )
+
+            guard let updatedFrame = immediateLayout.frames[targetWindow.token] else {
+                Issue.record("Expected updated frame for disabled full-width test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            #expect(abs(targetColumn.cachedWidth - fixture.monitor.visibleFrame.width) < 0.1)
+            #expect(!targetColumn.hasWidthAnimationRunning)
+            #expect(!state.viewOffsetPixels.isAnimating)
+            #expect(immediateLayout.hiddenHandles[targetWindow.token] == nil)
+            #expect(abs(updatedFrame.minX - fixture.monitor.visibleFrame.minX) < 1.0)
+            #expect(abs(updatedFrame.maxX - fixture.monitor.visibleFrame.maxX) < 1.0)
+        }
+    }
+
+    @Test @MainActor func cycleColumnWidthCommandWithAnimationsDisabledAppliesFrameWithoutStartingScrollAnimation() async throws {
+        let fixture = try await makeDisabledMotionWidthCommandFixture()
+        let targetWindow = fixture.windows[1]
+        guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+            Issue.record("Expected target column for disabled cycle-width command test")
+            return
+        }
+
+        let originalWidth = targetColumn.cachedWidth
+        fixture.engine.presetColumnWidths = [
+            .fixed(originalWidth),
+            .fixed(originalWidth * 1.5)
+        ]
+
+        guard let originalFrame = fixture.controller.axManager.lastAppliedFrame(for: targetWindow.token.windowId) else {
+            Issue.record("Expected an initial applied frame for disabled cycle-width command test")
+            return
+        }
+
+        fixture.controller.commandHandler.handleCommand(.cycleColumnWidthForward)
+        await waitForLayoutPlanRefreshWork(on: fixture.controller)
+
+        guard let updatedFrame = fixture.controller.axManager.lastAppliedFrame(for: targetWindow.token.windowId) else {
+            Issue.record("Expected an updated applied frame for disabled cycle-width command test")
+            return
+        }
+
+        #expect(abs(targetColumn.cachedWidth - (originalWidth * 1.5)) < 0.1)
+        #expect(!targetColumn.hasWidthAnimationRunning)
+        #expect(updatedFrame.width > originalFrame.width)
+        #expect(updatedFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
+        #expect(
+            fixture.controller.niriLayoutHandler.scrollAnimationByDisplay[fixture.monitor.displayId] == nil
+        )
+    }
+
+    @Test @MainActor func toggleColumnFullWidthCommandWithAnimationsDisabledAppliesFrameWithoutStartingScrollAnimation() async throws {
+        let fixture = try await makeDisabledMotionWidthCommandFixture()
+        let targetWindow = fixture.windows[1]
+        guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+            Issue.record("Expected target column for disabled full-width command test")
+            return
+        }
+
+        guard let originalFrame = fixture.controller.axManager.lastAppliedFrame(for: targetWindow.token.windowId) else {
+            Issue.record("Expected an initial applied frame for disabled full-width command test")
+            return
+        }
+
+        fixture.controller.commandHandler.handleCommand(.toggleColumnFullWidth)
+        await waitForLayoutPlanRefreshWork(on: fixture.controller)
+
+        guard let updatedFrame = fixture.controller.axManager.lastAppliedFrame(for: targetWindow.token.windowId) else {
+            Issue.record("Expected an updated applied frame for disabled full-width command test")
+            return
+        }
+
+        #expect(abs(targetColumn.cachedWidth - fixture.workingFrame.width) < 0.1)
+        #expect(!targetColumn.hasWidthAnimationRunning)
+        #expect(updatedFrame.width > originalFrame.width)
+        #expect(abs(updatedFrame.minX - fixture.monitor.visibleFrame.minX) < 1.0)
+        #expect(abs(updatedFrame.maxX - fixture.monitor.visibleFrame.maxX) < 1.0)
+        #expect(
+            fixture.controller.niriLayoutHandler.scrollAnimationByDisplay[fixture.monitor.displayId] == nil
+        )
     }
 
     @Test func splitAndExpelColumnCreationUseExplicitDefaultWidth() {
@@ -5156,6 +5519,229 @@ private func makeCenteredCrossMonitorFixture(
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[1].token)
         #expect(!firstReverseState.viewOffsetPixels.isAnimating)
         #expect(abs(viewportStart(for: firstReverseState, columns: columns, gap: gap) - columnStride) < 0.1)
+    }
+
+    @Test @MainActor func focusNeighborWithAnimationsDisabledUsesExactVisibleColumnOffsets() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for disabled focus-neighbor regression test")
+            return
+        }
+
+        controller.enableNiriLayout(
+            maxWindowsPerColumn: 1,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for disabled focus-neighbor regression test")
+            return
+        }
+
+        for windowId in 651 ... 656 {
+            _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: windowId)
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+
+        struct Scenario {
+            let visibleCount: Int
+            let startingActiveIndex: Int
+        }
+
+        let scenarios = [
+            Scenario(visibleCount: 2, startingActiveIndex: 1),
+            Scenario(visibleCount: 3, startingActiveIndex: 2),
+        ]
+
+        controller.setAnimationsEnabled(false)
+
+        for scenario in scenarios {
+            let comment = Comment(rawValue: "maxVisibleColumns=\(scenario.visibleCount)")
+            engine.maxVisibleColumns = scenario.visibleCount
+            engine.centerFocusedColumn = .never
+            engine.alwaysCenterSingleColumn = false
+
+            let fixedWidth = (
+                workingFrame.width - gap * CGFloat(scenario.visibleCount - 1)
+            ) / CGFloat(scenario.visibleCount)
+            for column in engine.columns(in: workspaceId) {
+                column.width = .fixed(fixedWidth)
+                column.cachedWidth = fixedWidth
+            }
+
+            let columns = engine.columns(in: workspaceId)
+            let windows = columns.compactMap(\.windowNodes.first)
+            guard windows.count >= scenario.visibleCount + 2 else {
+                Issue.record("Expected enough columns for disabled focus-neighbor regression test")
+                return
+            }
+
+            let columnStride = fixedWidth + gap
+
+            func setSelection(activeIndex: Int, visibleStartIndex: Int) {
+                let node = windows[activeIndex]
+                let expectedViewStart = CGFloat(visibleStartIndex) * columnStride
+                controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+                    state.selectedNodeId = node.id
+                    state.activeColumnIndex = activeIndex
+                    state.viewOffsetPixels = .static(
+                        expectedViewStart
+                            - state.columnX(at: activeIndex, columns: columns, gap: gap)
+                    )
+                }
+                _ = controller.workspaceManager.setManagedFocus(node.token, in: workspaceId, onMonitor: monitor.id)
+                _ = controller.workspaceManager.commitWorkspaceSelection(
+                    nodeId: node.id,
+                    focusedToken: node.token,
+                    in: workspaceId,
+                    onMonitor: monitor.id
+                )
+                controller.layoutRefreshController.stopAllScrollAnimations()
+            }
+
+            setSelection(activeIndex: scenario.startingActiveIndex, visibleStartIndex: 0)
+
+            controller.niriLayoutHandler.focusNeighbor(direction: .right)
+            await waitForLayoutPlanRefreshWork(on: controller)
+
+            let movedState = controller.workspaceManager.niriViewportState(for: workspaceId)
+            #expect(
+                controller.workspaceManager.preferredFocusToken(in: workspaceId)
+                    == windows[scenario.startingActiveIndex + 1].token,
+                comment
+            )
+            #expect(!movedState.viewOffsetPixels.isAnimating, comment)
+            #expect(abs(viewportStart(for: movedState, columns: columns, gap: gap) - columnStride) < 0.1, comment)
+
+            for _ in 0..<windows.count {
+                if controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[0].token {
+                    break
+                }
+
+                controller.niriLayoutHandler.focusNeighbor(direction: .left)
+                await waitForLayoutPlanRefreshWork(on: controller)
+
+                let stepState = controller.workspaceManager.niriViewportState(for: workspaceId)
+                #expect(!stepState.viewOffsetPixels.isAnimating, comment)
+            }
+
+            let finalState = controller.workspaceManager.niriViewportState(for: workspaceId)
+            #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[0].token, comment)
+            #expect(abs(viewportStart(for: finalState, columns: columns, gap: gap)) < 0.1, comment)
+        }
+    }
+
+    @Test @MainActor func turningAnimationsOffLeavesInFlightViewportMotionAloneAndMakesNextNavigationInstant() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for animation-toggle viewport semantics test")
+            return
+        }
+
+        controller.enableNiriLayout(
+            maxWindowsPerColumn: 1,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        controller.updateNiriConfig(
+            maxVisibleColumns: 2,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for animation-toggle viewport semantics test")
+            return
+        }
+
+        for windowId in 661 ... 665 {
+            _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: windowId)
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let fixedWidth = (workingFrame.width - gap) / 2
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(fixedWidth)
+            column.cachedWidth = fixedWidth
+        }
+
+        let columns = engine.columns(in: workspaceId)
+        let windows = columns.compactMap(\.windowNodes.first)
+        guard windows.count >= 5 else {
+            Issue.record("Expected five columns for animation-toggle viewport semantics test")
+            return
+        }
+
+        let columnStride = fixedWidth + gap
+
+        func setSelection(activeIndex: Int, visibleStartIndex: Int) {
+            let node = windows[activeIndex]
+            let expectedViewStart = CGFloat(visibleStartIndex) * columnStride
+            controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+                state.selectedNodeId = node.id
+                state.activeColumnIndex = activeIndex
+                state.viewOffsetPixels = .static(
+                    expectedViewStart
+                        - state.columnX(at: activeIndex, columns: columns, gap: gap)
+                )
+            }
+            _ = controller.workspaceManager.setManagedFocus(node.token, in: workspaceId, onMonitor: monitor.id)
+            _ = controller.workspaceManager.commitWorkspaceSelection(
+                nodeId: node.id,
+                focusedToken: node.token,
+                in: workspaceId,
+                onMonitor: monitor.id
+            )
+            controller.layoutRefreshController.stopAllScrollAnimations()
+        }
+
+        setSelection(activeIndex: 1, visibleStartIndex: 0)
+        controller.niriLayoutHandler.focusNeighbor(direction: .right)
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let animatingState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(animatingState.viewOffsetPixels.isAnimating)
+
+        controller.setAnimationsEnabled(false)
+
+        let midToggleState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(midToggleState.viewOffsetPixels.isAnimating)
+
+        controller.layoutRefreshController.settleAllAnimationsForTests()
+
+        let settledState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(!settledState.viewOffsetPixels.isAnimating)
+        #expect(abs(viewportStart(for: settledState, columns: columns, gap: gap) - columnStride) < 0.1)
+
+        controller.niriLayoutHandler.focusNeighbor(direction: .left)
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let nextState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[1].token)
+        #expect(!nextState.viewOffsetPixels.isAnimating)
+        #expect(abs(viewportStart(for: nextState, columns: columns, gap: gap) - columnStride) < 0.1)
     }
 
     @Test @MainActor func visibleSecondaryWorkspacePlanRestoresInactiveHiddenWindows() async throws {

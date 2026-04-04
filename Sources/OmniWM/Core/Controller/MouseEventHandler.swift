@@ -610,6 +610,7 @@ final class MouseEventHandler {
                         startLocation: location,
                         isInsertMode: isInsertMode,
                         in: wsId,
+                        motion: controller.motionPolicy.snapshot(),
                         state: &vstate,
                         workingFrame: workingFrame,
                         gaps: gaps
@@ -750,6 +751,7 @@ final class MouseEventHandler {
                     didEnd = engine.interactiveMoveEnd(
                         at: location,
                         in: wsId,
+                        motion: controller.motionPolicy.snapshot(),
                         state: &vstate,
                         workingFrame: workingFrame,
                         gaps: gaps
@@ -779,6 +781,7 @@ final class MouseEventHandler {
 
             controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
                 engine.interactiveResizeEnd(
+                    motion: controller.motionPolicy.snapshot(),
                     state: &vstate,
                     workingFrame: workingFrame,
                     gaps: gaps
@@ -1141,6 +1144,7 @@ final class MouseEventHandler {
                 columns: columns,
                 gap: gap,
                 viewportWidth: insetFrame.width,
+                motion: controller.motionPolicy.snapshot(),
                 centerMode: engine.centerFocusedColumn,
                 alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
             )

@@ -56,7 +56,17 @@ extension ViewportState {
         }
     }
 
-    mutating func animateToOffset(_ offset: CGFloat, config: SpringConfig? = nil, scale: CGFloat = 2.0) {
+    mutating func animateToOffset(
+        _ offset: CGFloat,
+        motion: MotionSnapshot,
+        config: SpringConfig? = nil,
+        scale: CGFloat = 2.0
+    ) {
+        guard motion.animationsEnabled else {
+            viewOffsetPixels = .static(offset)
+            return
+        }
+
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let pixel: CGFloat = 1.0 / scale
 
@@ -81,8 +91,7 @@ extension ViewportState {
     }
 
     mutating func cancelAnimation() {
-        let current = viewOffsetPixels.current()
-        viewOffsetPixels = .static(current)
+        viewOffsetPixels = .static(viewOffsetPixels.target())
     }
 
     mutating func reset() {
@@ -106,8 +115,14 @@ extension ViewportState {
         viewOffsetToRestore = nil
     }
 
-    mutating func animateViewOffsetRestore(_ offset: CGFloat) {
+    mutating func animateViewOffsetRestore(_ offset: CGFloat, motion: MotionSnapshot) {
         guard !viewOffsetPixels.isGesture else {
+            viewOffsetToRestore = nil
+            return
+        }
+
+        guard motion.animationsEnabled else {
+            viewOffsetPixels = .static(offset)
             viewOffsetToRestore = nil
             return
         }

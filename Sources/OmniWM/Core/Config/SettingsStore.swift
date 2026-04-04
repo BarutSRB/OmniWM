@@ -275,6 +275,10 @@ final class SettingsStore {
         didSet { defaults.set(commandPaletteLastMode.rawValue, forKey: Keys.commandPaletteLastMode) }
     }
 
+    var animationsEnabled: Bool {
+        didSet { defaults.set(animationsEnabled, forKey: Keys.animationsEnabled) }
+    }
+
     var hiddenBarIsCollapsed: Bool {
         didSet { defaults.set(hiddenBarIsCollapsed, forKey: Keys.hiddenBarIsCollapsed) }
     }
@@ -503,6 +507,8 @@ final class SettingsStore {
         commandPaletteLastMode = CommandPaletteMode(
             rawValue: defaults.string(forKey: Keys.commandPaletteLastMode) ?? ""
         ) ?? CommandPaletteMode(rawValue: baseline.commandPaletteLastMode) ?? .windows
+
+        animationsEnabled = defaults.object(forKey: Keys.animationsEnabled) as? Bool ?? baseline.animationsEnabled
 
         hiddenBarIsCollapsed = defaults.object(forKey: Keys.hiddenBarIsCollapsed) as? Bool ??
             baseline.hiddenBarIsCollapsed
@@ -1000,6 +1006,7 @@ private enum Keys {
     static let statusBarUseWorkspaceId = "settings.statusBarUseWorkspaceId"
 
     static let commandPaletteLastMode = "settings.commandPalette.lastMode"
+    static let animationsEnabled = "settings.animationsEnabled"
 
     static let hiddenBarIsCollapsed = "settings.hiddenBar.isCollapsed"
 

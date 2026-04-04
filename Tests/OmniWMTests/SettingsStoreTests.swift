@@ -616,6 +616,7 @@ private func makePersistedRestoreCatalogFixture(
             statusBarShowAppNames: true,
             statusBarUseWorkspaceId: true,
             commandPaletteLastMode: "menu",
+            animationsEnabled: false,
             hiddenBarIsCollapsed: true,
             quakeTerminalEnabled: true,
             quakeTerminalPosition: "bottom",
@@ -717,7 +718,7 @@ private func makePersistedRestoreCatalogFixture(
 }
 
 @Suite struct CompactSettingsExportTests {
-    @Test func compactExportOmitsRemovedAnimationsKeyAndDefaultHotkeys() throws {
+    @Test func compactExportOmitsDefaultAnimationsKeyAndDefaultHotkeys() throws {
         var export = SettingsExport.defaults()
         export.hiddenBarIsCollapsed = false
 
@@ -730,6 +731,19 @@ private func makePersistedRestoreCatalogFixture(
         #expect(json["animationsEnabled"] == nil)
         #expect((json["hiddenBarIsCollapsed"] as? Bool) == false)
         #expect(json["hotkeyBindings"] == nil)
+    }
+
+    @Test func compactExportIncludesAnimationsKeyWhenDisabled() throws {
+        var export = SettingsExport.defaults()
+        export.animationsEnabled = false
+
+        let data = try export.exportData(mode: .compact)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected compact export to produce a JSON object")
+            return
+        }
+
+        #expect((json["animationsEnabled"] as? Bool) == false)
     }
 
     @Test func compactExportIncludesReadableAdditionalPersistedSettings() throws {
@@ -828,7 +842,7 @@ private func makePersistedRestoreCatalogFixture(
         #expect(merged.hotkeyBindings[1].binding == defaults.hotkeyBindings[1].binding)
     }
 
-    @Test func legacyAnimationsEnabledKeyIsIgnoredOnImportAndOmittedOnReexport() throws {
+    @Test func animationsEnabledKeyIsHonoredOnImportAndPreservedOnReexport() throws {
         let rawData = Data(
             """
             {
@@ -841,6 +855,7 @@ private func makePersistedRestoreCatalogFixture(
 
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+        #expect(decoded.animationsEnabled == false)
         #expect(decoded.hiddenBarIsCollapsed == true)
 
         let reexported = try decoded.exportData(mode: .full)
@@ -849,7 +864,7 @@ private func makePersistedRestoreCatalogFixture(
             return
         }
 
-        #expect(json["animationsEnabled"] == nil)
+        #expect((json["animationsEnabled"] as? Bool) == false)
         #expect((json["hiddenBarIsCollapsed"] as? Bool) == true)
     }
 
@@ -901,6 +916,7 @@ private func makePersistedRestoreCatalogFixture(
         #expect(decoded.mouseWarpAxis == MouseWarpAxis.horizontal.rawValue)
         #expect(decoded.focusFollowsWindowToMonitor == false)
         #expect(decoded.commandPaletteLastMode == CommandPaletteMode.windows.rawValue)
+        #expect(decoded.animationsEnabled == true)
         #expect(decoded.workspaceBarEnabled == true)
         #expect(decoded.workspaceBarNotchAware == true)
         #expect(decoded.workspaceBarReserveLayoutSpace == false)
@@ -1677,6 +1693,7 @@ private func makePersistedRestoreCatalogFixture(
             statusBarShowAppNames: imported.statusBarShowAppNames,
             statusBarUseWorkspaceId: imported.statusBarUseWorkspaceId,
             commandPaletteLastMode: imported.commandPaletteLastMode.rawValue,
+            animationsEnabled: imported.animationsEnabled,
             hiddenBarIsCollapsed: imported.hiddenBarIsCollapsed,
             quakeTerminalEnabled: imported.quakeTerminalEnabled,
             quakeTerminalPosition: imported.quakeTerminalPosition.rawValue,

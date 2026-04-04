@@ -62,6 +62,7 @@ extension ViewportState {
         columns: [NiriContainer],
         gap: CGFloat,
         viewportWidth: CGFloat,
+        motion: MotionSnapshot,
         centerMode: CenterFocusedColumn = .never,
         alwaysCenterSingleColumn: Bool = false
     ) {
@@ -103,6 +104,14 @@ extension ViewportState {
         let maxOffset: Double = 0
         let minOffset = Double(viewportWidth - totalW)
         let clampedTarget = min(max(targetOffset, minOffset), maxOffset)
+
+        guard motion.animationsEnabled else {
+            viewOffsetPixels = .static(CGFloat(clampedTarget))
+            activatePrevColumnOnRemoval = nil
+            viewOffsetToRestore = nil
+            selectionProgress = 0.0
+            return
+        }
 
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let animation = SpringAnimation(

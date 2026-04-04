@@ -57,6 +57,7 @@ final class OverviewController {
     }
 
     private weak var wmController: WMController?
+    private let motionPolicy: MotionPolicy
     private let environment: OverviewEnvironment
     private let ownedWindowRegistry: OwnedWindowRegistry
 
@@ -89,10 +90,12 @@ final class OverviewController {
 
     init(
         wmController: WMController,
+        motionPolicy: MotionPolicy,
         environment: OverviewEnvironment = .init(),
         ownedWindowRegistry: OwnedWindowRegistry = .shared
     ) {
         self.wmController = wmController
+        self.motionPolicy = motionPolicy
         self.environment = environment
         self.ownedWindowRegistry = ownedWindowRegistry
         animator = OverviewAnimator(controller: self)
@@ -104,7 +107,7 @@ final class OverviewController {
         case .closed:
             open()
         case .open:
-            dismiss(reason: .cancel)
+            dismiss(reason: .cancel, animated: true)
         case .opening, .closing:
             break
         }
@@ -123,8 +126,13 @@ final class OverviewController {
         let displayId = monitor?.displayId ?? CGMainDisplayID()
         let refreshRate = detectRefreshRate(for: displayId)
 
-        state = .opening(progress: 0)
-        animator?.startOpenAnimation(displayId: displayId, refreshRate: refreshRate)
+        if motionPolicy.animationsEnabled {
+            state = .opening(progress: 0)
+            animator?.startOpenAnimation(displayId: displayId, refreshRate: refreshRate)
+        } else {
+            state = .open
+            animator?.cancelAnimation()
+        }
 
         updateWindowDisplays()
         showWindows()
@@ -150,7 +158,7 @@ final class OverviewController {
     func dismiss(
         reason: OverviewDismissReason = .cancel,
         targetWindow: WindowHandle? = nil,
-        animated: Bool = true
+        animated: Bool
     ) {
         switch state {
         case .closed:
@@ -175,7 +183,7 @@ final class OverviewController {
 
         state = .closing(targetWindow: resolvedTargetWindow, progress: 0)
 
-        if animated {
+        if animated && motionPolicy.animationsEnabled {
             animator?.startCloseAnimation(
                 targetWindow: resolvedTargetWindow,
                 displayId: displayId,
@@ -338,7 +346,7 @@ final class OverviewController {
             }
             window.onDismiss = { [weak self] monitorId in
                 self?.activeInteractionMonitorId = monitorId
-                self?.dismiss(reason: .cancel)
+                self?.dismiss(reason: .cancel, animated: true)
             }
             window.onScroll = { [weak self] monitorId, delta in
                 self?.adjustScrollOffset(by: delta, on: monitorId)
@@ -571,7 +579,7 @@ final class OverviewController {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: self.environment.selectionDismissDelayNanoseconds)
             guard self.state.isOpen else { return }
-            self.dismiss(reason: .selection, targetWindow: handle)
+            self.dismiss(reason: .selection, targetWindow: handle, animated: true)
         }
     }
 
@@ -688,7 +696,7 @@ final class OverviewController {
 
     func handleApplicationDidResignActive() {
         guard state.isOpen else { return }
-        dismiss(reason: .externalDeactivation)
+        dismiss(reason: .externalDeactivation, animated: true)
     }
 
     private func cleanup() {

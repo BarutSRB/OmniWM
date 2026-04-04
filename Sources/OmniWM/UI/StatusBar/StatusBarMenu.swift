@@ -10,6 +10,7 @@ private func applyCurrentAppAppearance(to view: NSView) {
 @MainActor
 final class StatusBarMenuBuilder {
     private let settings: SettingsStore
+    private let motionPolicy: MotionPolicy
     private weak var controller: WMController?
     var infoAlertPresenter: (String, String) -> Void
     var confirmationAlertPresenter: (String, String, String, String) -> Bool
@@ -24,6 +25,7 @@ final class StatusBarMenuBuilder {
 
     init(settings: SettingsStore, controller: WMController) {
         self.settings = settings
+        motionPolicy = controller.motionPolicy
         self.controller = controller
         infoAlertPresenter = { title, message in
             let alert = NSAlert()
@@ -127,7 +129,8 @@ final class StatusBarMenuBuilder {
         let focusToggle = MenuToggleRowView(
             icon: "cursorarrow.motionlines",
             label: "Focus Follows Mouse",
-            isOn: settings.focusFollowsMouse
+            isOn: settings.focusFollowsMouse,
+            motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.focusFollowsMouse = newValue
             self?.controller?.setFocusFollowsMouse(newValue)
@@ -140,7 +143,8 @@ final class StatusBarMenuBuilder {
         let followMoveToggle = MenuToggleRowView(
             icon: "arrow.right.square",
             label: "Follow Window to Workspace",
-            isOn: settings.focusFollowsWindowToMonitor
+            isOn: settings.focusFollowsWindowToMonitor,
+            motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.focusFollowsWindowToMonitor = newValue
         }
@@ -152,7 +156,8 @@ final class StatusBarMenuBuilder {
         let mouseToFocusedToggle = MenuToggleRowView(
             icon: "arrow.up.left.and.down.right.magnifyingglass",
             label: "Mouse to Focused",
-            isOn: settings.moveMouseToFocusedWindow
+            isOn: settings.moveMouseToFocusedWindow,
+            motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.moveMouseToFocusedWindow = newValue
             self?.controller?.setMoveMouseToFocusedWindow(newValue)
@@ -165,7 +170,8 @@ final class StatusBarMenuBuilder {
         let bordersToggle = MenuToggleRowView(
             icon: "square.dashed",
             label: "Window Borders",
-            isOn: settings.bordersEnabled
+            isOn: settings.bordersEnabled,
+            motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.bordersEnabled = newValue
             self?.controller?.setBordersEnabled(newValue)
@@ -178,7 +184,8 @@ final class StatusBarMenuBuilder {
         let workspaceBarToggle = MenuToggleRowView(
             icon: "menubar.rectangle",
             label: "Workspace Bar",
-            isOn: settings.workspaceBarEnabled
+            isOn: settings.workspaceBarEnabled,
+            motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.workspaceBarEnabled = newValue
             self?.controller?.setWorkspaceBarEnabled(newValue)
@@ -191,7 +198,8 @@ final class StatusBarMenuBuilder {
         let keepAwakeToggle = MenuToggleRowView(
             icon: "moon.zzz",
             label: "Keep Awake",
-            isOn: settings.preventSleepEnabled
+            isOn: settings.preventSleepEnabled,
+            motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.preventSleepEnabled = newValue
             self?.controller?.setPreventSleepEnabled(newValue)
@@ -206,7 +214,8 @@ final class StatusBarMenuBuilder {
         let ipcToggle = MenuToggleRowView(
             icon: "point.3.connected.trianglepath.dotted",
             label: "Enable IPC",
-            isOn: settings.ipcEnabled
+            isOn: settings.ipcEnabled,
+            motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.ipcEnabled = newValue
         }
@@ -227,14 +236,16 @@ final class StatusBarMenuBuilder {
         case .appManaged:
             item.view = MenuActionRowView(
                 icon: "trash",
-                label: "Remove CLI from PATH…"
+                label: "Remove CLI from PATH…",
+                motionPolicy: motionPolicy
             ) { [weak self] in
                 self?.removeCLIFromPath()
             }
         case .notInstalled:
             item.view = MenuActionRowView(
                 icon: "terminal",
-                label: "Install CLI to PATH…"
+                label: "Install CLI to PATH…",
+                motionPolicy: motionPolicy
             ) { [weak self] in
                 self?.installCLIIntoPath()
             }
@@ -251,7 +262,8 @@ final class StatusBarMenuBuilder {
         if checkForUpdatesAction != nil {
             let updatesRow = MenuActionRowView(
                 icon: "arrow.down.circle",
-                label: "Check for Updates..."
+                label: "Check for Updates...",
+                motionPolicy: motionPolicy
             ) { [weak self] in
                 self?.performCheckForUpdatesAction()
             }
@@ -263,7 +275,8 @@ final class StatusBarMenuBuilder {
         let appRulesRow = MenuActionRowView(
             icon: "slider.horizontal.3",
             label: "App Rules",
-            showChevron: true
+            showChevron: true,
+            motionPolicy: motionPolicy
         ) { [weak self] in
             guard let self, let controller = self.controller else { return }
             AppRulesWindowController.shared.show(settings: self.settings, controller: controller)
@@ -275,7 +288,8 @@ final class StatusBarMenuBuilder {
         let settingsRow = MenuActionRowView(
             icon: "gearshape",
             label: "Settings",
-            showChevron: true
+            showChevron: true,
+            motionPolicy: motionPolicy
         ) { [weak self] in
             guard let self, let controller = self.controller else { return }
             SettingsWindowController.shared.show(
@@ -292,7 +306,8 @@ final class StatusBarMenuBuilder {
 
         let exportEditableRow = MenuActionRowView(
             icon: "square.and.arrow.up",
-            label: "Export Editable Config"
+            label: "Export Editable Config",
+            motionPolicy: motionPolicy
         ) { [weak self] in
             self?.performConfigFileAction(.export(.full))
         }
@@ -302,7 +317,8 @@ final class StatusBarMenuBuilder {
 
         let exportCompactRow = MenuActionRowView(
             icon: "archivebox",
-            label: "Export Compact Backup"
+            label: "Export Compact Backup",
+            motionPolicy: motionPolicy
         ) { [weak self] in
             self?.performConfigFileAction(.export(.compact))
         }
@@ -312,7 +328,8 @@ final class StatusBarMenuBuilder {
 
         let importSettingsRow = MenuActionRowView(
             icon: "square.and.arrow.down",
-            label: "Import Settings"
+            label: "Import Settings",
+            motionPolicy: motionPolicy
         ) { [weak self] in
             self?.performConfigFileAction(.import)
         }
@@ -322,7 +339,8 @@ final class StatusBarMenuBuilder {
 
         let revealSettingsFileRow = MenuActionRowView(
             icon: "folder",
-            label: "Reveal Settings File"
+            label: "Reveal Settings File",
+            motionPolicy: motionPolicy
         ) { [weak self] in
             self?.performConfigFileAction(.reveal)
         }
@@ -332,7 +350,8 @@ final class StatusBarMenuBuilder {
 
         let openSettingsFileRow = MenuActionRowView(
             icon: "doc.text",
-            label: "Open Settings File"
+            label: "Open Settings File",
+            motionPolicy: motionPolicy
         ) { [weak self] in
             self?.performConfigFileAction(.open)
         }
@@ -445,7 +464,8 @@ final class StatusBarMenuBuilder {
         let githubRow = MenuActionRowView(
             icon: "link",
             label: "GitHub",
-            isExternal: true
+            isExternal: true,
+            motionPolicy: motionPolicy
         ) {
             if let url = URL(string: "https://github.com/BarutSRB/OmniWM") {
                 NSWorkspace.shared.open(url)
@@ -458,7 +478,8 @@ final class StatusBarMenuBuilder {
         let sponsorGithubRow = MenuActionRowView(
             icon: "heart",
             label: "Sponsor on GitHub",
-            isExternal: true
+            isExternal: true,
+            motionPolicy: motionPolicy
         ) {
             if let url = URL(string: "https://github.com/sponsors/BarutSRB") {
                 NSWorkspace.shared.open(url)
@@ -471,7 +492,8 @@ final class StatusBarMenuBuilder {
         let sponsorPaypalRow = MenuActionRowView(
             icon: "heart",
             label: "Sponsor on PayPal",
-            isExternal: true
+            isExternal: true,
+            motionPolicy: motionPolicy
         ) {
             if let url = URL(string: "https://paypal.me/beacon2024") {
                 NSWorkspace.shared.open(url)
@@ -485,9 +507,10 @@ final class StatusBarMenuBuilder {
     private func addSponsorsSection(to menu: NSMenu) {
         let sponsorsRow = MenuActionRowView(
             icon: "sparkles",
-            label: "Omni Sponsors"
-        ) {
-            SponsorsWindowController.shared.show()
+            label: "Omni Sponsors",
+            motionPolicy: motionPolicy
+        ) { [weak self] in
+            self?.controller?.openSponsorsWindow()
         }
         let sponsorsItem = NSMenuItem()
         sponsorsItem.view = sponsorsRow
@@ -498,7 +521,8 @@ final class StatusBarMenuBuilder {
         let quitRow = MenuActionRowView(
             icon: "power",
             label: "Quit OmniWM",
-            isDestructive: true
+            isDestructive: true,
+            motionPolicy: motionPolicy
         ) {
             NSApplication.shared.terminate(nil)
         }
@@ -619,7 +643,10 @@ final class MenuInfoRowView: NSView {
     }
 }
 
+@MainActor
 final class MenuToggleSwitchView: NSView {
+    private let motionPolicy: MotionPolicy
+
     var isOn: Bool {
         didSet {
             guard oldValue != isOn else { return }
@@ -636,8 +663,9 @@ final class MenuToggleSwitchView: NSView {
 
     override var isFlipped: Bool { true }
 
-    init(isOn: Bool) {
+    init(isOn: Bool, motionPolicy: MotionPolicy) {
         self.isOn = isOn
+        self.motionPolicy = motionPolicy
         super.init(frame: NSRect(x: 0, y: 0, width: 42, height: 22))
         applyCurrentAppAppearance(to: self)
         wantsLayer = true
@@ -705,6 +733,7 @@ final class MenuToggleSwitchView: NSView {
     }
 
     private func updateAppearance(animated: Bool) {
+        let shouldAnimate = animated && motionPolicy.animationsEnabled
         let inset: CGFloat = 2
         let thumbSize = max(0, bounds.height - inset * 2)
         let thumbX = isOn
@@ -716,8 +745,8 @@ final class MenuToggleSwitchView: NSView {
         let targetTrack = isOn ? onColor : offColor
 
         CATransaction.begin()
-        CATransaction.setDisableActions(!animated)
-        CATransaction.setAnimationDuration(animated ? 0.14 : 0)
+        CATransaction.setDisableActions(!shouldAnimate)
+        CATransaction.setAnimationDuration(shouldAnimate ? 0.14 : 0)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         trackLayer.frame = bounds
         trackLayer.cornerRadius = bounds.height / 2
@@ -729,7 +758,9 @@ final class MenuToggleSwitchView: NSView {
     }
 }
 
+@MainActor
 final class MenuToggleRowView: NSView {
+    private let motionPolicy: MotionPolicy
     var isOn: Bool {
         get { toggle.isOn }
         set {
@@ -744,9 +775,16 @@ final class MenuToggleRowView: NSView {
     private var iconView: NSImageView?
     private var labelField: NSTextField?
 
-    init(icon: String, label: String, isOn: Bool, onChange: @escaping (Bool) -> Void) {
+    init(
+        icon: String,
+        label: String,
+        isOn: Bool,
+        motionPolicy: MotionPolicy,
+        onChange: @escaping (Bool) -> Void
+    ) {
         self.onChange = onChange
-        self.toggle = MenuToggleSwitchView(isOn: isOn)
+        self.motionPolicy = motionPolicy
+        self.toggle = MenuToggleSwitchView(isOn: isOn, motionPolicy: motionPolicy)
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
         applyCurrentAppAppearance(to: self)
 
@@ -824,9 +862,11 @@ final class MenuToggleRowView: NSView {
         let targetBackground = hovered
             ? NSColor.controlAccentColor.withAlphaComponent(0.34).cgColor
             : NSColor.clear.cgColor
+        let shouldAnimate = motionPolicy.animationsEnabled
 
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.12)
+        CATransaction.setDisableActions(!shouldAnimate)
+        CATransaction.setAnimationDuration(shouldAnimate ? 0.12 : 0)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         backgroundLayer?.backgroundColor = targetBackground
         CATransaction.commit()
@@ -836,9 +876,11 @@ final class MenuToggleRowView: NSView {
     }
 }
 
+@MainActor
 final class MenuActionRowView: NSView {
     private let action: () -> Void
     private let isDestructive: Bool
+    private let motionPolicy: MotionPolicy
     private var trackingArea: NSTrackingArea?
     private var backgroundLayer: CALayer?
     private var iconView: NSImageView?
@@ -851,10 +893,12 @@ final class MenuActionRowView: NSView {
         showChevron: Bool = false,
         isExternal: Bool = false,
         isDestructive: Bool = false,
+        motionPolicy: MotionPolicy,
         action: @escaping () -> Void
     ) {
         self.action = action
         self.isDestructive = isDestructive
+        self.motionPolicy = motionPolicy
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
         applyCurrentAppAppearance(to: self)
 
@@ -972,7 +1016,8 @@ final class MenuActionRowView: NSView {
         }
 
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.12)
+        CATransaction.setDisableActions(!motionPolicy.animationsEnabled)
+        CATransaction.setAnimationDuration(motionPolicy.animationsEnabled ? 0.12 : 0)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         backgroundLayer?.backgroundColor = background
         CATransaction.commit()

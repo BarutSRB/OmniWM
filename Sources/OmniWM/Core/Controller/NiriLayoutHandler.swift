@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 import QuartzCore
 
+private func hasPendingNiriAnimationWork(
+    state: ViewportState,
+    engine: NiriLayoutEngine,
+    workspaceId: WorkspaceDescriptor.ID
+) -> Bool {
+    state.viewOffsetPixels.isAnimating
+        || engine.hasAnyWindowAnimationsRunning(in: workspaceId)
+        || engine.hasAnyColumnAnimationsRunning(in: workspaceId)
+}
+
 @MainActor final class NiriLayoutHandler {
     weak var controller: WMController?
 
@@ -25,6 +35,18 @@ import QuartzCore
 
     init(controller: WMController?) {
         self.controller = controller
+    }
+
+    private func startScrollAnimationIfNeeded(
+        for workspaceId: WorkspaceDescriptor.ID,
+        state: ViewportState,
+        engine: NiriLayoutEngine
+    ) {
+        guard let controller else { return }
+        guard hasPendingNiriAnimationWork(state: state, engine: engine, workspaceId: workspaceId) else {
+            return
+        }
+        controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
     }
 
     func registerScrollAnimation(_ workspaceId: WorkspaceDescriptor.ID, on displayId: CGDirectDisplayID) -> Bool {
@@ -302,6 +324,7 @@ import QuartzCore
         engine: NiriLayoutEngine,
         monitor: Monitor
     ) -> WorkspaceLayoutPlan {
+        let motion = controller?.motionPolicy.snapshot() ?? .enabled
         var state = snapshot.viewportState
         let pass = NiriLayoutPass(
             wsId: snapshot.workspaceId,
@@ -315,6 +338,7 @@ import QuartzCore
 
         let removal = processWindowRemovals(
             pass: pass,
+            motion: motion,
             state: &state,
             windowTokens: windowTokens,
             currentSelection: currentSelection,
@@ -323,6 +347,7 @@ import QuartzCore
 
         let newTokens = syncAndInsert(
             pass: pass,
+            motion: motion,
             state: &state,
             windowTokens: windowTokens,
             removal: removal,
@@ -335,6 +360,7 @@ import QuartzCore
 
         let selection = resolveSelection(
             pass: pass,
+            motion: motion,
             state: &state,
             windowTokens: windowTokens,
             removal: removal,
@@ -343,6 +369,7 @@ import QuartzCore
 
         let arrival = handleNewWindowArrival(
             pass: pass,
+            motion: motion,
             state: &state,
             newTokens: newTokens,
             existingHandleIds: removal.existingHandleIds,
@@ -351,6 +378,7 @@ import QuartzCore
 
         return computeLayoutPlan(
             pass: pass,
+            motion: motion,
             state: state,
             rememberedFocusToken: arrival.rememberedFocusToken ?? selection.rememberedFocusToken,
             newWindowToken: arrival.newWindowToken,
@@ -361,6 +389,7 @@ import QuartzCore
 
     private func processWindowRemovals(
         pass: NiriLayoutPass,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         windowTokens: [WindowToken],
         currentSelection: NodeId?,
@@ -391,6 +420,7 @@ import QuartzCore
                 columnRemovalResult = pass.engine.animateColumnsForRemoval(
                     columnIndex: colIdx,
                     in: pass.wsId,
+                    motion: motion,
                     state: &state,
                     gaps: pass.gap
                 )
@@ -420,6 +450,7 @@ import QuartzCore
 
     private func syncAndInsert(
         pass: NiriLayoutPass,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         windowTokens: [WindowToken],
         removal: RemovalContext,
@@ -468,6 +499,7 @@ import QuartzCore
                 pass.engine.animateColumnsForAddition(
                     columnIndex: addedData.colIdx,
                     in: pass.wsId,
+                    motion: motion,
                     state: state,
                     gaps: pass.gap,
                     workingAreaWidth: pass.insetFrame.width
@@ -480,6 +512,7 @@ import QuartzCore
 
     private func resolveSelection(
         pass: NiriLayoutPass,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         windowTokens: [WindowToken],
         removal: RemovalContext,
@@ -544,6 +577,7 @@ import QuartzCore
                 pass.engine.ensureSelectionVisible(
                     node: selectedNode,
                     in: pass.wsId,
+                    motion: motion,
                     state: &state,
                     workingFrame: pass.insetFrame,
                     gaps: pass.gap,
@@ -569,6 +603,7 @@ import QuartzCore
 
     private func handleNewWindowArrival(
         pass: NiriLayoutPass,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         newTokens: [WindowToken],
         existingHandleIds: Set<WindowToken>,
@@ -596,6 +631,7 @@ import QuartzCore
                         columns: cols,
                         gap: pass.gap,
                         viewportWidth: pass.insetFrame.width,
+                        motion: motion,
                         animate: false,
                         centerMode: settings.centerFocusedColumn,
                         alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn
@@ -613,6 +649,7 @@ import QuartzCore
                 pass.engine.ensureSelectionVisible(
                     node: newNode,
                     in: pass.wsId,
+                    motion: motion,
                     state: &state,
                     workingFrame: pass.insetFrame,
                     gaps: pass.gap,
@@ -644,7 +681,8 @@ import QuartzCore
                         displacement: CGPoint(x: 0, y: -appearOffset),
                         clock: pass.engine.animationClock,
                         config: pass.engine.windowMovementAnimationConfig,
-                        displayRefreshRate: state.displayRefreshRate
+                        displayRefreshRate: state.displayRefreshRate,
+                        animated: motion.animationsEnabled
                     )
                 }
             }
@@ -663,6 +701,7 @@ import QuartzCore
 
     private func computeLayoutPlan(
         pass: NiriLayoutPass,
+        motion: MotionSnapshot,
         state: ViewportState,
         rememberedFocusToken: WindowToken?,
         newWindowToken: WindowToken?,
@@ -711,7 +750,8 @@ import QuartzCore
             let animationsTriggered = pass.engine.triggerMoveAnimations(
                 in: pass.wsId,
                 oldFrames: removalSeed.oldFrames,
-                newFrames: newFrames
+                newFrames: newFrames,
+                motion: motion
             )
             let hasWindowAnimations = pass.engine.hasAnyWindowAnimationsRunning(in: pass.wsId)
             let hasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
@@ -911,6 +951,7 @@ import QuartzCore
             engine.ensureSelectionVisible(
                 node: target,
                 in: workspaceId,
+                motion: controller.motionPolicy.snapshot(),
                 state: &state,
                 workingFrame: monitor.visibleFrame,
                 gaps: gap
@@ -982,6 +1023,7 @@ import QuartzCore
             direction: direction,
             currentSelection: currentNode,
             in: wsId,
+            motion: controller.motionPolicy.snapshot(),
             state: &state,
             workingFrame: workingFrame,
             gaps: gap
@@ -1002,24 +1044,22 @@ import QuartzCore
 
     func toggleFullscreen() {
         guard let controller else { return }
-        withNiriWorkspaceContext { engine, wsId, state, _, _, _ in
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, _, _ in
             guard let currentId = state.selectedNodeId,
                   let currentNode = engine.findNode(by: currentId),
                   let windowNode = currentNode as? NiriWindow
             else { return }
 
-            engine.toggleFullscreen(windowNode, state: &state)
+            engine.toggleFullscreen(windowNode, motion: motion, state: &state)
 
             controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
-            if state.viewOffsetPixels.isAnimating {
-                controller.layoutRefreshController.startScrollAnimation(for: wsId)
-            }
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
     }
 
     func cycleSize(forward: Bool) {
         guard let controller else { return }
-        withNiriWorkspaceContext { engine, wsId, state, monitor, workingFrame, gaps in
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
                   let windowNode = engine.findNode(by: currentId) as? NiriWindow,
                   let column = engine.findColumn(containing: windowNode, in: wsId)
@@ -1029,20 +1069,43 @@ import QuartzCore
                 column,
                 forwards: forward,
                 in: wsId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps
             )
             controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
-            controller.layoutRefreshController.startScrollAnimation(for: wsId)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func toggleColumnFullWidth() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let column = engine.findColumn(containing: windowNode, in: wsId)
+            else { return }
+
+            engine.toggleFullWidth(
+                column,
+                in: wsId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
     }
 
     func balanceSizes() {
         guard let controller else { return }
-        withNiriWorkspaceContext { engine, wsId, _, _, workingFrame, gaps in
+        withNiriWorkspaceContext { engine, wsId, motion, _, _, workingFrame, gaps in
             engine.balanceSizes(
                 in: wsId,
+                motion: motion,
                 workingAreaWidth: workingFrame.width,
                 gaps: gaps
             )
@@ -1141,6 +1204,7 @@ import QuartzCore
             engine.ensureSelectionVisible(
                 node: node,
                 in: workspaceId,
+                motion: controller.motionPolicy.snapshot(),
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gap
@@ -1212,6 +1276,7 @@ import QuartzCore
             let ctx = NiriOperationContext(
                 controller: controller,
                 engine: engine,
+                motion: controller.motionPolicy.snapshot(),
                 wsId: wsId,
                 windowNode: windowNode,
                 monitor: monitor,
@@ -1230,30 +1295,32 @@ import QuartzCore
     }
 
     func withNiriWorkspaceContext(
-        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
+        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, MotionSnapshot, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
     ) {
         guard let controller else { return }
         guard let engine = controller.niriEngine else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
         guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
+        let motion = controller.motionPolicy.snapshot()
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let gaps = CGFloat(controller.workspaceManager.gaps)
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-            perform(engine, wsId, &state, monitor, workingFrame, gaps)
+            perform(engine, wsId, motion, &state, monitor, workingFrame, gaps)
         }
     }
 
     func withNiriWorkspaceContext(
         for workspaceId: WorkspaceDescriptor.ID,
-        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
+        perform: (NiriLayoutEngine, WorkspaceDescriptor.ID, MotionSnapshot, inout ViewportState, Monitor, CGRect, CGFloat) -> Void
     ) {
         guard let controller else { return }
         guard let engine = controller.niriEngine else { return }
         guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
+        let motion = controller.motionPolicy.snapshot()
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let gaps = CGFloat(controller.workspaceManager.gaps)
         controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-            perform(engine, workspaceId, &state, monitor, workingFrame, gaps)
+            perform(engine, workspaceId, motion, &state, monitor, workingFrame, gaps)
         }
     }
 
@@ -1265,7 +1332,7 @@ import QuartzCore
         in workspaceId: WorkspaceDescriptor.ID
     ) -> Bool {
         var didMove = false
-        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, state, monitor, workingFrame, gaps in
+        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, monitor, workingFrame, gaps in
             guard let source = engine.findNode(for: handle) else { return }
             guard let target = engine.findNode(for: targetHandle) else { return }
             didMove = engine.insertWindowByMove(
@@ -1273,6 +1340,7 @@ import QuartzCore
                 targetWindowId: target.id,
                 position: position,
                 in: wsId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps
@@ -1288,12 +1356,13 @@ import QuartzCore
         in workspaceId: WorkspaceDescriptor.ID
     ) -> Bool {
         var didMove = false
-        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, state, monitor, workingFrame, gaps in
+        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, monitor, workingFrame, gaps in
             guard let window = engine.findNode(for: handle) else { return }
             didMove = engine.insertWindowInNewColumn(
                 window,
                 insertIndex: insertIndex,
                 in: wsId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps
@@ -1315,6 +1384,7 @@ struct NodeActivationOptions {
 @MainActor struct NiriOperationContext {
     let controller: WMController
     let engine: NiriLayoutEngine
+    let motion: MotionSnapshot
     let wsId: WorkspaceDescriptor.ID
     let windowNode: NiriWindow
     let monitor: Monitor
@@ -1322,9 +1392,7 @@ struct NodeActivationOptions {
     let gaps: CGFloat
 
     private func hasPendingAnimationWork(state: ViewportState) -> Bool {
-        state.viewOffsetPixels.isAnimating
-            || engine.hasAnyWindowAnimationsRunning(in: wsId)
-            || engine.hasAnyColumnAnimationsRunning(in: wsId)
+        hasPendingNiriAnimationWork(state: state, engine: engine, workspaceId: wsId)
     }
 
     func commitWithPredictedAnimation(
@@ -1352,7 +1420,12 @@ struct NodeActivationOptions {
             workingArea: workingArea,
             animationTime: animationTime
         ).frames
-        _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
+        _ = engine.triggerMoveAnimations(
+            in: wsId,
+            oldFrames: oldFrames,
+            newFrames: newFrames,
+            motion: motion
+        )
         controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
         return hasPendingAnimationWork(state: state)
     }
@@ -1363,7 +1436,12 @@ struct NodeActivationOptions {
     ) -> Bool {
         controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
         let newFrames = engine.captureWindowFrames(in: wsId)
-        _ = engine.triggerMoveAnimations(in: wsId, oldFrames: oldFrames, newFrames: newFrames)
+        _ = engine.triggerMoveAnimations(
+            in: wsId,
+            oldFrames: oldFrames,
+            newFrames: newFrames,
+            motion: motion
+        )
         return hasPendingAnimationWork(state: state)
     }
 

@@ -93,9 +93,11 @@ final class WorkspaceBarManager {
     private var pendingReconfigureTask: Task<Void, Never>?
     private weak var controller: WMController?
     private weak var settings: SettingsStore?
+    private let motionPolicy: MotionPolicy
     private let surfaceCoordinator = SurfaceCoordinator.shared
 
-    init() {
+    init(motionPolicy: MotionPolicy) {
+        self.motionPolicy = motionPolicy
         setupScreenChangeObserver()
         setupSleepWakeObserver()
     }
@@ -194,6 +196,7 @@ final class WorkspaceBarManager {
         let hostingView = NSHostingView(
             rootView: WorkspaceBarView(
                 model: model,
+                motionPolicy: motionPolicy,
                 onFocusWorkspace: { [weak controller] item in
                     controller?.focusWorkspaceFromBar(named: item.name)
                 },

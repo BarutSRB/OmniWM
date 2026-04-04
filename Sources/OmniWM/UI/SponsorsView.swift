@@ -23,6 +23,7 @@ private let sponsors: [Sponsor] = [
 
 struct SponsorsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Bindable var motionPolicy: MotionPolicy
     @State private var appeared = false
     @State private var currentIndex = 0
     let onClose: () -> Void
@@ -78,14 +79,22 @@ struct SponsorsView: View {
 
     private func navigateLeft() {
         guard canNavigateLeft else { return }
-        withAnimation(.easeInOut(duration: 0.3)) {
+        if motionPolicy.animationsEnabled {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                currentIndex -= 1
+            }
+        } else {
             currentIndex -= 1
         }
     }
 
     private func navigateRight() {
         guard canNavigateRight else { return }
-        withAnimation(.easeInOut(duration: 0.3)) {
+        if motionPolicy.animationsEnabled {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                currentIndex += 1
+            }
+        } else {
             currentIndex += 1
         }
     }
@@ -126,6 +135,7 @@ struct SponsorsView: View {
                 HStack(spacing: 0) {
                     ForEach(Array(Array(visibleSponsors).enumerated()), id: \.element.id) { offset, sponsor in
                         SponsorCardView(
+                            motionPolicy: motionPolicy,
                             name: sponsor.name,
                             githubUsername: sponsor.githubUsername,
                             imageName: sponsor.imageName,
@@ -163,7 +173,16 @@ struct SponsorsView: View {
         .scaleEffect(appeared ? 1.0 : 0.95)
         .opacity(appeared ? 1.0 : 0.0)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.2)) {
+            if motionPolicy.animationsEnabled {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    appeared = true
+                }
+            } else {
+                appeared = true
+            }
+        }
+        .onChange(of: motionPolicy.animationsEnabled) { _, enabled in
+            if !enabled {
                 appeared = true
             }
         }
@@ -239,6 +258,7 @@ enum SponsorTier {
 }
 
 struct SponsorCardView: View {
+    @Bindable var motionPolicy: MotionPolicy
     let name: String
     let githubUsername: String
     let imageName: String
@@ -260,6 +280,7 @@ struct SponsorCardView: View {
         }) {
             VStack(spacing: 16) {
                 GlowingAvatarView(
+                    motionPolicy: motionPolicy,
                     imageName: imageName,
                     imageExtension: imageExtension,
                     tier: tier
@@ -309,10 +330,7 @@ struct SponsorCardView: View {
                     .shadow(color: tier.glowColor.opacity(isHovered ? 0.3 : 0.1), radius: isHovered ? 12 : 6)
             )
             .scaleEffect(isHovered ? 1.02 : 1.0)
-            .animation(
-                .easeOut(duration: 0.15),
-                value: isHovered
-            )
+            .animation(motionPolicy.animationsEnabled ? .easeOut(duration: 0.15) : nil, value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -322,6 +340,7 @@ struct SponsorCardView: View {
 }
 
 struct GlowingAvatarView: View {
+    @Bindable var motionPolicy: MotionPolicy
     let imageName: String
     let imageExtension: String
     let tier: SponsorTier
@@ -371,9 +390,22 @@ struct GlowingAvatarView: View {
             }
         }
         .onAppear {
-            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                isAnimating = true
-            }
+            updateAnimationState()
+        }
+        .onChange(of: motionPolicy.animationsEnabled) { _, _ in
+            updateAnimationState()
+        }
+    }
+
+    private func updateAnimationState() {
+        guard motionPolicy.animationsEnabled else {
+            isAnimating = false
+            return
+        }
+
+        isAnimating = false
+        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+            isAnimating = true
         }
     }
 }

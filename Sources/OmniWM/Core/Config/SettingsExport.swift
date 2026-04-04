@@ -109,6 +109,7 @@ struct SettingsExport: Codable {
     var statusBarShowAppNames: Bool
     var statusBarUseWorkspaceId: Bool
     var commandPaletteLastMode: String
+    var animationsEnabled: Bool
 
     var hiddenBarIsCollapsed: Bool
 
@@ -195,6 +196,7 @@ extension SettingsExport {
             statusBarShowAppNames: false,
             statusBarUseWorkspaceId: false,
             commandPaletteLastMode: CommandPaletteMode.windows.rawValue,
+            animationsEnabled: true,
             hiddenBarIsCollapsed: true,
             quakeTerminalEnabled: true,
             quakeTerminalPosition: QuakeTerminalPosition.center.rawValue,
@@ -383,6 +385,7 @@ extension SettingsStore {
             statusBarShowAppNames: statusBarShowAppNames,
             statusBarUseWorkspaceId: statusBarUseWorkspaceId,
             commandPaletteLastMode: commandPaletteLastMode.rawValue,
+            animationsEnabled: animationsEnabled,
             hiddenBarIsCollapsed: hiddenBarIsCollapsed,
             quakeTerminalEnabled: quakeTerminalEnabled,
             quakeTerminalPosition: quakeTerminalPosition.rawValue,
@@ -519,6 +522,7 @@ extension SettingsStore {
         statusBarShowAppNames = export.statusBarShowAppNames
         statusBarUseWorkspaceId = export.statusBarUseWorkspaceId
         commandPaletteLastMode = CommandPaletteMode(rawValue: export.commandPaletteLastMode) ?? .windows
+        animationsEnabled = export.animationsEnabled
 
         hiddenBarIsCollapsed = export.hiddenBarIsCollapsed
 

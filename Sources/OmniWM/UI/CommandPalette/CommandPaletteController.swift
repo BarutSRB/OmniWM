@@ -99,7 +99,6 @@ struct CommandPaletteEnvironment {
 
 @MainActor
 final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelegate {
-    static let shared = CommandPaletteController()
     static let unavailableMenuStatusText = "Open the palette while another app is frontmost to search its menus."
 
     struct InlineHint: Equatable {
@@ -128,6 +127,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
     @Published private(set) var isMenuLoading = false
 
     private let environment: CommandPaletteEnvironment
+    private let motionPolicy: MotionPolicy
     private var panel: NSPanel?
     private var eventMonitor: Any?
 
@@ -154,7 +154,11 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         case pressMenu(CommandPaletteFocusTarget, AXUIElement)
     }
 
-    init(environment: CommandPaletteEnvironment = .init()) {
+    init(
+        motionPolicy: MotionPolicy,
+        environment: CommandPaletteEnvironment = .init()
+    ) {
+        self.motionPolicy = motionPolicy
         self.environment = environment
         super.init()
     }
@@ -797,10 +801,14 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = false
 
-        let hostingView = NSHostingView(rootView: CommandPaletteView(controller: self))
+        let hostingView = NSHostingView(rootView: makeRootView())
         panel.contentView = hostingView
 
         self.panel = panel
+    }
+
+    private func makeRootView() -> CommandPaletteView {
+        CommandPaletteView(controller: self, motionPolicy: motionPolicy)
     }
 
     private func positionPanel(_ panel: NSPanel) {
@@ -880,10 +888,15 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
     ) -> CommandPaletteSelectionTrigger? {
         Self.selectionTrigger(forKeyCode: keyCode, modifierFlags: modifierFlags)
     }
+
+    var panelForTests: NSPanel? {
+        panel
+    }
 }
 
 private struct CommandPaletteView: View {
     @ObservedObject var controller: CommandPaletteController
+    @Bindable var motionPolicy: MotionPolicy
 
     var body: some View {
         VStack(spacing: 0) {
@@ -961,7 +974,11 @@ private struct CommandPaletteView: View {
                     }
                     .onChange(of: controller.selectedItemID) { _, newValue in
                         if let newValue {
-                            withAnimation(.easeInOut(duration: 0.1)) {
+                            if motionPolicy.animationsEnabled {
+                                withAnimation(.easeInOut(duration: 0.1)) {
+                                    proxy.scrollTo(newValue, anchor: .center)
+                                }
+                            } else {
                                 proxy.scrollTo(newValue, anchor: .center)
                             }
                         }

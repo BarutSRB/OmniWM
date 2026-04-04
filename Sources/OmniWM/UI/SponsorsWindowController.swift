@@ -3,10 +3,18 @@ import SwiftUI
 
 @MainActor
 final class SponsorsWindowController {
-    static let shared = SponsorsWindowController()
-
     private var window: NSWindow?
-    private let ownedWindowRegistry = OwnedWindowRegistry.shared
+    private var hostingController: NSHostingController<SponsorsView>?
+    private let motionPolicy: MotionPolicy
+    private let ownedWindowRegistry: OwnedWindowRegistry
+
+    init(
+        motionPolicy: MotionPolicy,
+        ownedWindowRegistry: OwnedWindowRegistry = .shared
+    ) {
+        self.motionPolicy = motionPolicy
+        self.ownedWindowRegistry = ownedWindowRegistry
+    }
 
     func show() {
         if let window {
@@ -15,11 +23,7 @@ final class SponsorsWindowController {
             return
         }
 
-        let sponsorsView = SponsorsView(onClose: { [weak self] in
-            self?.window?.close()
-        })
-
-        let hosting = NSHostingController(rootView: sponsorsView)
+        let hosting = NSHostingController(rootView: makeSponsorsView())
         let window = NSWindow(contentViewController: hosting)
         window.title = "Omni Sponsors"
         window.styleMask = [.titled, .fullSizeContentView]
@@ -38,9 +42,11 @@ final class SponsorsWindowController {
             .addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.ownedWindowRegistry.unregister(window)
+                    self?.hostingController = nil
                     self?.window = nil
                 }
             }
+        hostingController = hosting
         self.window = window
     }
 
@@ -51,5 +57,14 @@ final class SponsorsWindowController {
     func isPointInside(_ point: CGPoint) -> Bool {
         guard let window, window.isVisible else { return false }
         return window.frame.contains(point)
+    }
+
+    private func makeSponsorsView() -> SponsorsView {
+        SponsorsView(
+            motionPolicy: motionPolicy,
+            onClose: { [weak self] in
+                self?.window?.close()
+            }
+        )
     }
 }

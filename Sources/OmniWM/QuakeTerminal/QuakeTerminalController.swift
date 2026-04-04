@@ -24,14 +24,18 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
     private(set) var visible: Bool = false
     private var previousApp: NSRunningApplication?
     private var isHandlingResize: Bool = false
+    private var isTransitioning = false
+    private var animationGeneration: UInt64 = 0
 
     private let settings: SettingsStore
+    private let motionPolicy: MotionPolicy
     private let surfaceCoordinator = SurfaceCoordinator.shared
 
     private static var ghosttyInitialized = false
 
-    init(settings: SettingsStore) {
+    init(settings: SettingsStore, motionPolicy: MotionPolicy) {
         self.settings = settings
+        self.motionPolicy = motionPolicy
         super.init()
     }
 
@@ -476,36 +480,31 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
     private func animateWindowIn(window: NSWindow) {
         let quakeWindow = window as? QuakeTerminalWindow
         let screen = targetScreen()
+        let generation = beginAnimationTransition()
 
         if settings.quakeTerminalUseCustomFrame,
            let customFrame = settings.quakeTerminalCustomFrame,
            screen.visibleFrame.intersects(customFrame) {
             window.setFrame(customFrame, display: false)
-            window.alphaValue = 0
             window.level = .popUpMenu
             window.makeKeyAndOrderFront(nil)
 
-            let finishAnimation: @Sendable () -> Void = { [weak self] in
-                Task { @MainActor in
-                    guard let self, self.visible else { return }
-                    window.level = .floating
-                    self.makeWindowKey(window)
-
-                    if !NSApp.isActive {
-                        NSApp.activate(ignoringOtherApps: true)
-                        DispatchQueue.main.async {
-                            guard !window.isKeyWindow else { return }
-                            self.makeWindowKey(window, retries: 10)
-                        }
-                    }
-                }
+            if !motionPolicy.animationsEnabled {
+                finishWindowIn(window)
+                return
             }
 
+            window.alphaValue = 0
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = settings.quakeTerminalAnimationDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 window.animator().alphaValue = 1
-            }, completionHandler: finishAnimation)
+            }, completionHandler: { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.animationGeneration == generation, self.visible else { return }
+                    self.finishWindowIn(window)
+                }
+            })
             return
         }
 
@@ -523,21 +522,15 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         window.level = .popUpMenu
         window.makeKeyAndOrderFront(nil)
 
-        let finishAnimation: @Sendable () -> Void = { [weak self] in
-            Task { @MainActor in
-                guard let self, self.visible else { return }
-                quakeWindow?.isAnimating = false
-                window.level = .floating
-                self.makeWindowKey(window)
-
-                if !NSApp.isActive {
-                    NSApp.activate(ignoringOtherApps: true)
-                    DispatchQueue.main.async {
-                        guard !window.isKeyWindow else { return }
-                        self.makeWindowKey(window, retries: 10)
-                    }
-                }
-            }
+        if !motionPolicy.animationsEnabled {
+            position.setFinal(
+                in: window,
+                on: screen,
+                widthPercent: widthPercent,
+                heightPercent: heightPercent
+            )
+            finishWindowIn(window)
+            return
         }
 
         quakeWindow?.isAnimating = true
@@ -550,11 +543,17 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
                 widthPercent: widthPercent,
                 heightPercent: heightPercent
             )
-        }, completionHandler: finishAnimation)
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.animationGeneration == generation, self.visible else { return }
+                self.finishWindowIn(window)
+            }
+        })
     }
 
     private func animateWindowOut(window: NSWindow) {
         let quakeWindow = window as? QuakeTerminalWindow
+        let generation = beginAnimationTransition()
 
         if let previousApp = self.previousApp {
             self.previousApp = nil
@@ -565,19 +564,22 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
         window.level = .popUpMenu
 
-        let finishAnimation: @Sendable () -> Void = {
-            Task { @MainActor in
-                window.orderOut(nil)
-                window.alphaValue = 1
-            }
-        }
-
         if settings.quakeTerminalUseCustomFrame {
+            if !motionPolicy.animationsEnabled {
+                finishWindowOut(window)
+                return
+            }
+
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = settings.quakeTerminalAnimationDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 window.animator().alphaValue = 0
-            }, completionHandler: finishAnimation)
+            }, completionHandler: { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.animationGeneration == generation, !self.visible else { return }
+                    self.finishWindowOut(window)
+                }
+            })
             return
         }
 
@@ -585,6 +587,17 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         let position = settings.quakeTerminalPosition
         let widthPercent = settings.quakeTerminalWidthPercent
         let heightPercent = settings.quakeTerminalHeightPercent
+
+        if !motionPolicy.animationsEnabled {
+            position.setInitial(
+                in: window,
+                on: screen,
+                widthPercent: widthPercent,
+                heightPercent: heightPercent
+            )
+            finishWindowOut(window)
+            return
+        }
 
         quakeWindow?.isAnimating = true
         NSAnimationContext.runAnimationGroup({ context in
@@ -596,12 +609,44 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
                 widthPercent: widthPercent,
                 heightPercent: heightPercent
             )
-        }, completionHandler: {
+        }, completionHandler: { [weak self] in
             Task { @MainActor in
+                guard let self, self.animationGeneration == generation, !self.visible else { return }
                 quakeWindow?.isAnimating = false
+                self.finishWindowOut(window)
             }
-            finishAnimation()
         })
+    }
+
+    private func beginAnimationTransition() -> UInt64 {
+        animationGeneration &+= 1
+        isTransitioning = true
+        return animationGeneration
+    }
+
+    private func finishWindowIn(_ window: NSWindow) {
+        let quakeWindow = window as? QuakeTerminalWindow
+        quakeWindow?.isAnimating = false
+        isTransitioning = false
+        window.alphaValue = 1
+        window.level = .floating
+        makeWindowKey(window)
+
+        if !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.visible, !window.isKeyWindow else { return }
+                self.makeWindowKey(window, retries: 10)
+            }
+        }
+    }
+
+    private func finishWindowOut(_ window: NSWindow) {
+        let quakeWindow = window as? QuakeTerminalWindow
+        quakeWindow?.isAnimating = false
+        isTransitioning = false
+        window.orderOut(nil)
+        window.alphaValue = 1
     }
 
     private func makeWindowKey(_ window: NSWindow, retries: UInt8 = 0) {
@@ -617,6 +662,20 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(25)) { [weak self] in
             self?.makeWindowKey(window, retries: retries - 1)
         }
+    }
+
+    func configureTransitionStateForTests(
+        window: QuakeTerminalWindow = QuakeTerminalWindow(),
+        visible: Bool,
+        isTransitioning: Bool
+    ) {
+        self.window = window
+        self.visible = visible
+        self.isTransitioning = isTransitioning
+    }
+
+    var isTransitioningForTests: Bool {
+        isTransitioning
     }
 
     private func readClipboard(location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {

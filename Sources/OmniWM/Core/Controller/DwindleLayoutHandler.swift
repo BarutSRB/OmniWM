@@ -320,7 +320,11 @@ import QuartzCore
             rememberedFocusToken = nil
         }
 
-        engine.animateWindowMovements(oldFrames: oldFrames, newFrames: newFrames)
+        engine.animateWindowMovements(
+            oldFrames: oldFrames,
+            newFrames: newFrames,
+            motion: controller?.motionPolicy.snapshot() ?? .enabled
+        )
 
         let now = CACurrentMediaTime()
         let animationsActive = engine.hasActiveAnimations(in: snapshot.workspaceId, at: now)

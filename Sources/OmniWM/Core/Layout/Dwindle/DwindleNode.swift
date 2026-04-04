@@ -173,7 +173,18 @@ final class DwindleNode {
         collectAllLeaves().compactMap { $0.windowToken }
     }
 
-    func animateFrom(oldFrame: CGRect, newFrame: CGRect, clock: AnimationClock?, config: CubicConfig) {
+    func animateFrom(
+        oldFrame: CGRect,
+        newFrame: CGRect,
+        clock: AnimationClock?,
+        config: CubicConfig,
+        animated: Bool
+    ) {
+        guard animated else {
+            clearAnimations()
+            return
+        }
+
         let now = clock?.now() ?? CACurrentMediaTime()
 
         let velX = moveXAnimation?.currentVelocity(at: now) ?? 0
@@ -278,5 +289,12 @@ final class DwindleNode {
         if let anim = sizeWAnimation, !anim.isComplete(at: time) { return true }
         if let anim = sizeHAnimation, !anim.isComplete(at: time) { return true }
         return false
+    }
+
+    func clearAnimations() {
+        moveXAnimation = nil
+        moveYAnimation = nil
+        sizeWAnimation = nil
+        sizeHAnimation = nil
     }
 }

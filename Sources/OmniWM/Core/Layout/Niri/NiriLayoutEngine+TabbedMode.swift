@@ -3,7 +3,11 @@ import Foundation
 
 extension NiriLayoutEngine {
     @discardableResult
-    func toggleColumnTabbed(in workspaceId: WorkspaceDescriptor.ID, state: ViewportState) -> Bool {
+    func toggleColumnTabbed(
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: ViewportState,
+        motion: MotionSnapshot
+    ) -> Bool {
         guard let selectedId = state.selectedNodeId,
               let selectedNode = findNode(by: selectedId),
               let column = column(of: selectedNode)
@@ -12,11 +16,16 @@ extension NiriLayoutEngine {
         }
 
         let newMode: ColumnDisplay = column.displayMode == .normal ? .tabbed : .normal
-        return setColumnDisplay(newMode, for: column)
+        return setColumnDisplay(newMode, for: column, motion: motion)
     }
 
     @discardableResult
-    func setColumnDisplay(_ mode: ColumnDisplay, for column: NiriContainer, gaps: CGFloat = 0) -> Bool {
+    func setColumnDisplay(
+        _ mode: ColumnDisplay,
+        for column: NiriContainer,
+        motion: MotionSnapshot,
+        gaps: CGFloat = 0
+    ) -> Bool {
         guard column.displayMode != mode else { return false }
 
         if let resize = interactiveResize,
@@ -56,7 +65,8 @@ extension NiriLayoutEngine {
                     displacement: delta,
                     clock: animationClock,
                     config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate
+                    displayRefreshRate: displayRefreshRate,
+                    animated: motion.animationsEnabled
                 )
             }
         }

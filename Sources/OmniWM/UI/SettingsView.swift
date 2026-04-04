@@ -30,6 +30,11 @@ struct GeneralSettingsTab: View {
     @State private var exportStatus: ExportStatus?
 
     var body: some View {
+        let animationsEnabled = Binding(
+            get: { controller.motionPolicy.animationsEnabled },
+            set: { controller.setAnimationsEnabled($0) }
+        )
+
         Form {
             Section("Appearance") {
                 Picker("Theme", selection: $settings.appearanceMode) {
@@ -42,6 +47,12 @@ struct GeneralSettingsTab: View {
                 }
 
                 Text("Controls the appearance of menus and workspace bar")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Enable Animations", isOn: animationsEnabled)
+
+                Text("Turns OmniWM-authored animations on or off live without relaunching.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

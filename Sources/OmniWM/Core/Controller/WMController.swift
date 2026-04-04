@@ -72,7 +72,7 @@ final class WMController {
     @ObservationIgnored
     lazy var borderManager: BorderManager = .init()
     @ObservationIgnored
-    private lazy var workspaceBarManager: WorkspaceBarManager = .init()
+    private lazy var workspaceBarManager: WorkspaceBarManager = .init(motionPolicy: motionPolicy)
     @ObservationIgnored
     private var workspaceBarRefreshGeneration: UInt64 = 0
     @ObservationIgnored
@@ -82,7 +82,17 @@ final class WMController {
     @ObservationIgnored
     private let hiddenBarController: HiddenBarController
     @ObservationIgnored
-    private lazy var quakeTerminalController: QuakeTerminalController = .init(settings: settings)
+    private lazy var quakeTerminalController: QuakeTerminalController = .init(
+        settings: settings,
+        motionPolicy: motionPolicy
+    )
+    @ObservationIgnored
+    private lazy var commandPaletteController: CommandPaletteController = .init(motionPolicy: motionPolicy)
+    @ObservationIgnored
+    private lazy var sponsorsWindowController: SponsorsWindowController = .init(
+        motionPolicy: motionPolicy,
+        ownedWindowRegistry: ownedWindowRegistry
+    )
 
     var isTransferringWindow: Bool = false
     var hiddenAppPIDs: Set<pid_t> = []
@@ -123,6 +133,7 @@ final class WMController {
     weak var ipcApplicationBridge: IPCApplicationBridge?
 
     let animationClock = AnimationClock()
+    let motionPolicy: MotionPolicy
     private let windowFocusOperations: WindowFocusOperations
     weak var statusBarController: StatusBarController?
 
@@ -132,6 +143,7 @@ final class WMController {
         windowFocusOperations: WindowFocusOperations = .live
     ) {
         self.settings = settings
+        motionPolicy = MotionPolicy(animationsEnabled: settings.animationsEnabled)
         self.hiddenBarController = hiddenBarController ?? HiddenBarController(settings: settings)
         self.windowFocusOperations = windowFocusOperations
         workspaceManager = WorkspaceManager(settings: settings)
@@ -175,6 +187,7 @@ final class WMController {
     }
 
     func applyPersistedSettings(_ settings: SettingsStore) {
+        setAnimationsEnabled(settings.animationsEnabled, persist: false)
         applyCurrentAppearanceMode()
 
         updateHotkeyBindings(settings.hotkeyBindings)
@@ -234,6 +247,20 @@ final class WMController {
 
         setEnabled(true)
         refreshStatusBar()
+    }
+
+    func setAnimationsEnabled(_ enabled: Bool, persist: Bool = true) {
+        if persist, settings.animationsEnabled != enabled {
+            settings.animationsEnabled = enabled
+        }
+
+        guard motionPolicy.animationsEnabled != enabled else {
+            statusBarController?.rebuildMenu()
+            return
+        }
+
+        motionPolicy.animationsEnabled = enabled
+        statusBarController?.rebuildMenu()
     }
 
     func applyCurrentAppearanceMode() {
@@ -635,6 +662,20 @@ final class WMController {
     func configureWorkspaceBarManagerForTests(monitors: [Monitor]) {
         workspaceBarManager.monitorProvider = { monitors }
         workspaceBarManager.screenProvider = { _ in nil }
+    }
+
+    func configureQuakeTransitionForTests(
+        visible: Bool,
+        isTransitioning: Bool
+    ) {
+        quakeTerminalController.configureTransitionStateForTests(
+            visible: visible,
+            isTransitioning: isTransitioning
+        )
+    }
+
+    func quakeTerminalIsTransitioningForTests() -> Bool {
+        quakeTerminalController.isTransitioningForTests
     }
 
     func enableNiriLayout(
@@ -1649,7 +1690,8 @@ final class WMController {
         workspaceManager.entry(forPid: pid, windowId: windowId)?.workspaceId
     }
 
-    func openCommandPalette() { CommandPaletteController.shared.toggle(wmController: self) }
+    func openCommandPalette() { commandPaletteController.toggle(wmController: self) }
+    func openSponsorsWindow() { sponsorsWindowController.show() }
     func openMenuAnywhere() { windowActionHandler.openMenuAnywhere() }
     func navigateToCommandPaletteWindow(_ handle: WindowHandle) { windowActionHandler.navigateToWindow(handle: handle) }
     func summonCommandPaletteWindowRight(

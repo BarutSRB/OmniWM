@@ -6,6 +6,7 @@ extension NiriLayoutEngine {
         _ node: NiriWindow,
         direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
@@ -18,6 +19,7 @@ extension NiriLayoutEngine {
                 node,
                 direction: direction,
                 in: workspaceId,
+                motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps

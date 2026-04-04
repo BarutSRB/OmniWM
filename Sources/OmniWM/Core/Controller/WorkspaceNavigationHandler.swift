@@ -99,7 +99,8 @@ final class WorkspaceNavigationHandler {
         niriMonitor.startWorkspaceSwitch(
             orderedWorkspaceIds: controller.workspaceManager.workspaces(on: monitor.id).map(\.id),
             from: previousWorkspace.id,
-            to: targetWorkspace.id
+            to: targetWorkspace.id,
+            animated: controller.motionPolicy.animationsEnabled
         )
         return niriMonitor.isWorkspaceSwitchAnimating
     }
@@ -793,6 +794,7 @@ final class WorkspaceNavigationHandler {
                 engine.ensureSelectionVisible(
                     node: movedNode,
                     in: target.id,
+                    motion: controller.motionPolicy.snapshot(),
                     state: &targetState,
                     workingFrame: monitor.visibleFrame,
                     gaps: gap
@@ -899,6 +901,7 @@ final class WorkspaceNavigationHandler {
                 engine.ensureSelectionVisible(
                     node: movedNode,
                     in: targetWsId,
+                    motion: controller.motionPolicy.snapshot(),
                     state: &targetState,
                     workingFrame: monitor.visibleFrame,
                     gaps: gap

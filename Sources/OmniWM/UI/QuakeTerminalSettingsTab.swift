@@ -58,6 +58,12 @@ struct QuakeTerminalSettingsTab: View {
                     VStack(alignment: .leading) {
                         Text("Animation Duration: \(String(format: "%.1f", settings.quakeTerminalAnimationDuration))s")
                         Slider(value: $settings.quakeTerminalAnimationDuration, in: 0...1, step: 0.1)
+                            .disabled(!controller.motionPolicy.animationsEnabled)
+                        if !controller.motionPolicy.animationsEnabled {
+                            Text("Ignored while global animations are disabled.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
 
                     Toggle("Auto-hide on Focus Loss", isOn: $settings.quakeTerminalAutoHide)
