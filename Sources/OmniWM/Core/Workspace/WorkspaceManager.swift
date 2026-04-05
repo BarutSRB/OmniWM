@@ -1996,16 +1996,34 @@ final class WorkspaceManager {
         windows.windows(in: workspace, mode: .tiling)
     }
 
-    func barVisibleEntries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
-        tiledEntries(in: workspace)
+    func barVisibleEntries(
+        in workspace: WorkspaceDescriptor.ID,
+        showFloatingWindows: Bool = false
+    ) -> [WindowModel.Entry] {
+        var entries = tiledEntries(in: workspace)
+        if showFloatingWindows {
+            entries.append(contentsOf: barVisibleFloatingEntries(in: workspace))
+        }
+        return entries
     }
 
     func hasTiledOccupancy(in workspace: WorkspaceDescriptor.ID) -> Bool {
         !tiledEntries(in: workspace).isEmpty
     }
 
+    func hasBarVisibleOccupancy(
+        in workspace: WorkspaceDescriptor.ID,
+        showFloatingWindows: Bool = false
+    ) -> Bool {
+        !barVisibleEntries(in: workspace, showFloatingWindows: showFloatingWindows).isEmpty
+    }
+
     func floatingEntries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
         windows.windows(in: workspace, mode: .floating)
+    }
+
+    private func barVisibleFloatingEntries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
+        floatingEntries(in: workspace).filter { hiddenState(for: $0.token)?.isScratchpad != true }
     }
 
     func handle(for token: WindowToken) -> WindowHandle? {

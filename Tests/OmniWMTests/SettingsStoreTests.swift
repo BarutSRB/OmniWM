@@ -318,6 +318,7 @@ private func makePersistedRestoreCatalogFixture(
             monitorName: "Roundtrip",
             enabled: true,
             showLabels: false,
+            showFloatingWindows: true,
             reserveLayoutSpace: true,
             position: .belowMenuBar,
             windowLevel: .status,
@@ -438,6 +439,7 @@ private func makePersistedRestoreCatalogFixture(
         #expect(defaults.borderColorBlue == 0.97930003794467602)
         #expect(defaults.hotkeyBindings == HotkeyBindingRegistry.defaults())
         #expect(defaults.workspaceBarEnabled == true)
+        #expect(defaults.workspaceBarShowFloatingWindows == false)
         #expect(defaults.workspaceBarNotchAware == true)
         #expect(defaults.workspaceBarReserveLayoutSpace == false)
         #expect(defaults.appRules == BuiltInSettingsDefaults.appRules)
@@ -493,6 +495,7 @@ private func makePersistedRestoreCatalogFixture(
             "hotkeyBindings": [],
             "workspaceBarEnabled": false,
             "workspaceBarShowLabels": true,
+            "workspaceBarShowFloatingWindows": false,
             "workspaceBarWindowLevel": "futureLevel",
             "workspaceBarPosition": "futurePosition",
             "workspaceBarNotchAware": false,
@@ -583,6 +586,7 @@ private func makePersistedRestoreCatalogFixture(
             hotkeyBindings: [],
             workspaceBarEnabled: true,
             workspaceBarShowLabels: false,
+            workspaceBarShowFloatingWindows: true,
             workspaceBarWindowLevel: "status",
             workspaceBarPosition: "belowMenuBar",
             workspaceBarNotchAware: true,
@@ -918,6 +922,7 @@ private func makePersistedRestoreCatalogFixture(
         #expect(decoded.commandPaletteLastMode == CommandPaletteMode.windows.rawValue)
         #expect(decoded.animationsEnabled == true)
         #expect(decoded.workspaceBarEnabled == true)
+        #expect(decoded.workspaceBarShowFloatingWindows == false)
         #expect(decoded.workspaceBarNotchAware == true)
         #expect(decoded.workspaceBarReserveLayoutSpace == false)
         #expect(decoded.workspaceConfigurations == BuiltInSettingsDefaults.workspaceConfigurations)
@@ -952,6 +957,22 @@ private func makePersistedRestoreCatalogFixture(
         )
 
         #expect(settings.resolvedBarSettings(for: monitor).reserveLayoutSpace == true)
+    }
+
+    @Test func monitorOverrideCanEnableFloatingWindowsIndependently() {
+        let settings = SettingsStore(defaults: makeTestDefaults())
+        let monitor = makeLayoutPlanTestMonitor(name: "Floating Test")
+
+        settings.workspaceBarShowFloatingWindows = false
+        settings.updateBarSettings(
+            MonitorBarSettings(
+                monitorName: monitor.name,
+                monitorDisplayId: monitor.displayId,
+                showFloatingWindows: true
+            )
+        )
+
+        #expect(settings.resolvedBarSettings(for: monitor).showFloatingWindows == true)
     }
 }
 
@@ -1493,6 +1514,7 @@ private func makePersistedRestoreCatalogFixture(
             monitorDisplayId: 101,
             enabled: false,
             showLabels: false,
+            showFloatingWindows: true,
             deduplicateAppIcons: true,
             hideEmptyWorkspaces: true,
             reserveLayoutSpace: true,
@@ -1577,6 +1599,7 @@ private func makePersistedRestoreCatalogFixture(
             id: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
             monitorName: "LG UltraFine",
             monitorDisplayId: 202,
+            showFloatingWindows: true,
             reserveLayoutSpace: true,
             backgroundOpacity: 0.42
         )
@@ -1660,6 +1683,7 @@ private func makePersistedRestoreCatalogFixture(
             hotkeyBindings: imported.hotkeyBindings,
             workspaceBarEnabled: imported.workspaceBarEnabled,
             workspaceBarShowLabels: imported.workspaceBarShowLabels,
+            workspaceBarShowFloatingWindows: imported.workspaceBarShowFloatingWindows,
             workspaceBarWindowLevel: imported.workspaceBarWindowLevel.rawValue,
             workspaceBarPosition: imported.workspaceBarPosition.rawValue,
             workspaceBarNotchAware: imported.workspaceBarNotchAware,
@@ -1820,6 +1844,7 @@ private func makePersistedRestoreCatalogFixture(
         #expect(settings.borderColorBlue == 0.97930003794467602)
         #expect(settings.hotkeyBindings == HotkeyBindingRegistry.defaults())
         #expect(settings.workspaceBarEnabled == true)
+        #expect(settings.workspaceBarShowFloatingWindows == false)
         #expect(settings.workspaceBarNotchAware == true)
         #expect(settings.workspaceBarReserveLayoutSpace == false)
         #expect(settings.appRules == BuiltInSettingsDefaults.appRules)
@@ -1858,6 +1883,7 @@ private func makePersistedRestoreCatalogFixture(
         #expect(settings.niriMaxVisibleColumns == exportDefaults.niriMaxVisibleColumns)
         #expect(settings.defaultLayoutType.rawValue == exportDefaults.defaultLayoutType)
         #expect(settings.borderWidth == exportDefaults.borderWidth)
+        #expect(settings.workspaceBarShowFloatingWindows == exportDefaults.workspaceBarShowFloatingWindows)
         #expect(settings.workspaceBarPosition.rawValue == exportDefaults.workspaceBarPosition)
         #expect(settings.dwindleDefaultSplitRatio == exportDefaults.dwindleDefaultSplitRatio)
         #expect(settings.scrollModifierKey.rawValue == exportDefaults.scrollModifierKey)

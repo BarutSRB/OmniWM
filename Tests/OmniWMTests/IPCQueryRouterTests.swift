@@ -67,7 +67,7 @@ private func prepareIPCQueryRouterNiriState(
 }
 
 @Suite(.serialized) @MainActor struct IPCQueryRouterTests {
-    @Test func workspaceBarQueryPreservesBarProjectionSemantics() throws {
+    @Test func workspaceBarQueryKeepsLegacyTiledOnlyProjectionWhenFloatingWindowsAreDisabled() throws {
         let controller = makeLayoutPlanTestController()
         defer { resetSharedControllerStateForTests() }
         controller.settings.workspaceBarHideEmptyWorkspaces = true
@@ -116,6 +116,63 @@ private func prepareIPCQueryRouterNiriState(
         #expect(workspace.windows.count == 1)
         #expect(workspace.windows.map(\.appName) == ["Tiled App"])
         #expect(IPCWindowOpaqueID.decode(app.id, expectingSessionToken: ipcQueryRouterSessionToken)?.pid == 7001)
+    }
+
+    @Test func workspaceBarQueryIncludesFloatingWindowsWhenEnabled() throws {
+        let controller = makeLayoutPlanTestController()
+        defer { resetSharedControllerStateForTests() }
+        controller.settings.workspaceBarHideEmptyWorkspaces = true
+        controller.settings.workspaceBarShowFloatingWindows = true
+
+        guard let workspace1 = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
+              let workspace2 = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
+            Issue.record("Missing workspace fixture")
+            return
+        }
+
+        controller.appInfoCache.storeInfoForTests(pid: 7101, name: "Tiled App", bundleId: "com.example.tiled")
+        controller.appInfoCache.storeInfoForTests(pid: 7102, name: "Floating App", bundleId: "com.example.floating")
+        controller.appInfoCache.storeInfoForTests(pid: 7103, name: "Floating Only App", bundleId: "com.example.floating-only")
+
+        _ = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 1101),
+            pid: 7101,
+            windowId: 1101,
+            to: workspace1,
+            mode: .tiling
+        )
+        _ = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 1102),
+            pid: 7102,
+            windowId: 1102,
+            to: workspace1,
+            mode: .floating
+        )
+        _ = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 1103),
+            pid: 7103,
+            windowId: 1103,
+            to: workspace2,
+            mode: .floating
+        )
+
+        let router = IPCQueryRouter(controller: controller, sessionToken: ipcQueryRouterSessionToken)
+        let result = router.workspaceBarResult()
+        let monitor = try #require(result.monitors.first)
+        let workspaceOne = try #require(monitor.workspaces.first(where: { $0.rawName == "1" }))
+        let workspaceTwo = try #require(monitor.workspaces.first(where: { $0.rawName == "2" }))
+
+        #expect(monitor.workspaces.map(\.rawName).contains("1"))
+        #expect(monitor.workspaces.map(\.rawName).contains("2"))
+        #expect(workspaceOne.windows.map(\.appName) == ["Tiled App", "Floating App"])
+        #expect(workspaceTwo.windows.map(\.appName) == ["Floating Only App"])
+        #expect(
+            IPCWindowOpaqueID.decode(workspaceOne.windows[0].id, expectingSessionToken: ipcQueryRouterSessionToken)?.pid == 7101
+        )
+        #expect(
+            IPCWindowOpaqueID.decode(workspaceOne.windows[1].id, expectingSessionToken: ipcQueryRouterSessionToken)?.pid == 7102
+        )
     }
 
     @Test func activeWorkspaceQueryUsesInteractionMonitorSemantics() throws {
@@ -367,8 +424,11 @@ private func prepareIPCQueryRouterNiriState(
         )
         let barItems = WorkspaceBarDataSource.workspaceBarItems(
             for: monitor,
-            deduplicate: false,
-            hideEmpty: false,
+            options: WorkspaceBarProjectionOptions(
+                deduplicateAppIcons: false,
+                hideEmptyWorkspaces: false,
+                showFloatingWindows: false
+            ),
             workspaceManager: controller.workspaceManager,
             appInfoCache: controller.appInfoCache,
             niriEngine: controller.niriEngine,

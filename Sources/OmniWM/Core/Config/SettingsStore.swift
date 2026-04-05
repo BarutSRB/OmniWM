@@ -139,6 +139,10 @@ final class SettingsStore {
         didSet { defaults.set(workspaceBarShowLabels, forKey: Keys.workspaceBarShowLabels) }
     }
 
+    var workspaceBarShowFloatingWindows: Bool {
+        didSet { defaults.set(workspaceBarShowFloatingWindows, forKey: Keys.workspaceBarShowFloatingWindows) }
+    }
+
     var workspaceBarWindowLevel: WorkspaceBarWindowLevel {
         didSet { defaults.set(workspaceBarWindowLevel.rawValue, forKey: Keys.workspaceBarWindowLevel) }
     }
@@ -442,6 +446,8 @@ final class SettingsStore {
         workspaceBarEnabled = defaults.object(forKey: Keys.workspaceBarEnabled) as? Bool ?? baseline.workspaceBarEnabled
         workspaceBarShowLabels = defaults.object(forKey: Keys.workspaceBarShowLabels) as? Bool ??
             baseline.workspaceBarShowLabels
+        workspaceBarShowFloatingWindows = defaults.object(forKey: Keys.workspaceBarShowFloatingWindows) as? Bool ??
+            baseline.workspaceBarShowFloatingWindows
         workspaceBarWindowLevel = WorkspaceBarWindowLevel(
             rawValue: defaults.string(forKey: Keys.workspaceBarWindowLevel) ?? ""
         ) ?? WorkspaceBarWindowLevel(rawValue: baseline.workspaceBarWindowLevel) ?? .popup
@@ -730,6 +736,7 @@ final class SettingsStore {
         return ResolvedBarSettings(
             enabled: override?.enabled ?? workspaceBarEnabled,
             showLabels: override?.showLabels ?? workspaceBarShowLabels,
+            showFloatingWindows: override?.showFloatingWindows ?? workspaceBarShowFloatingWindows,
             deduplicateAppIcons: override?.deduplicateAppIcons ?? workspaceBarDeduplicateAppIcons,
             hideEmptyWorkspaces: override?.hideEmptyWorkspaces ?? workspaceBarHideEmptyWorkspaces,
             reserveLayoutSpace: override?.reserveLayoutSpace ?? workspaceBarReserveLayoutSpace,
@@ -979,6 +986,7 @@ private enum Keys {
 
     static let workspaceBarEnabled = "settings.workspaceBar.enabled"
     static let workspaceBarShowLabels = "settings.workspaceBar.showLabels"
+    static let workspaceBarShowFloatingWindows = "settings.workspaceBar.showFloatingWindows"
     static let workspaceBarWindowLevel = "settings.workspaceBar.windowLevel"
     static let workspaceBarPosition = "settings.workspaceBar.position"
     static let workspaceBarNotchAware = "settings.workspaceBar.notchAware"

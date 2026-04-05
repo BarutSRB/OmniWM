@@ -8,6 +8,7 @@ struct MonitorBarSettings: MonitorSettingsType {
 
     var enabled: Bool?
     var showLabels: Bool?
+    var showFloatingWindows: Bool?
     var deduplicateAppIcons: Bool?
     var hideEmptyWorkspaces: Bool?
     var reserveLayoutSpace: Bool?
@@ -25,6 +26,7 @@ struct MonitorBarSettings: MonitorSettingsType {
         monitorDisplayId: CGDirectDisplayID? = nil,
         enabled: Bool? = nil,
         showLabels: Bool? = nil,
+        showFloatingWindows: Bool? = nil,
         deduplicateAppIcons: Bool? = nil,
         hideEmptyWorkspaces: Bool? = nil,
         reserveLayoutSpace: Bool? = nil,
@@ -41,6 +43,7 @@ struct MonitorBarSettings: MonitorSettingsType {
         self.monitorDisplayId = monitorDisplayId
         self.enabled = enabled
         self.showLabels = showLabels
+        self.showFloatingWindows = showFloatingWindows
         self.deduplicateAppIcons = deduplicateAppIcons
         self.hideEmptyWorkspaces = hideEmptyWorkspaces
         self.reserveLayoutSpace = reserveLayoutSpace
@@ -54,7 +57,7 @@ struct MonitorBarSettings: MonitorSettingsType {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, monitorName, monitorDisplayId, enabled, showLabels, deduplicateAppIcons
+        case id, monitorName, monitorDisplayId, enabled, showLabels, showFloatingWindows, deduplicateAppIcons
         case hideEmptyWorkspaces, reserveLayoutSpace, notchAware, position, windowLevel
         case height, backgroundOpacity, xOffset, yOffset
     }
@@ -66,6 +69,7 @@ struct MonitorBarSettings: MonitorSettingsType {
         monitorDisplayId = try container.decodeIfPresent(CGDirectDisplayID.self, forKey: .monitorDisplayId)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
         showLabels = try container.decodeIfPresent(Bool.self, forKey: .showLabels)
+        showFloatingWindows = try container.decodeIfPresent(Bool.self, forKey: .showFloatingWindows)
         deduplicateAppIcons = try container.decodeIfPresent(Bool.self, forKey: .deduplicateAppIcons)
         hideEmptyWorkspaces = try container.decodeIfPresent(Bool.self, forKey: .hideEmptyWorkspaces)
         reserveLayoutSpace = try container.decodeIfPresent(Bool.self, forKey: .reserveLayoutSpace)
@@ -87,6 +91,7 @@ struct MonitorBarSettings: MonitorSettingsType {
         try container.encodeIfPresent(monitorDisplayId, forKey: .monitorDisplayId)
         try container.encodeIfPresent(enabled, forKey: .enabled)
         try container.encodeIfPresent(showLabels, forKey: .showLabels)
+        try container.encodeIfPresent(showFloatingWindows, forKey: .showFloatingWindows)
         try container.encodeIfPresent(deduplicateAppIcons, forKey: .deduplicateAppIcons)
         try container.encodeIfPresent(hideEmptyWorkspaces, forKey: .hideEmptyWorkspaces)
         try container.encodeIfPresent(reserveLayoutSpace, forKey: .reserveLayoutSpace)
@@ -103,6 +108,7 @@ struct MonitorBarSettings: MonitorSettingsType {
 struct ResolvedBarSettings {
     let enabled: Bool
     let showLabels: Bool
+    let showFloatingWindows: Bool
     let deduplicateAppIcons: Bool
     let hideEmptyWorkspaces: Bool
     let reserveLayoutSpace: Bool

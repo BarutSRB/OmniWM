@@ -73,6 +73,7 @@ struct SettingsExport: Codable {
 
     var workspaceBarEnabled: Bool
     var workspaceBarShowLabels: Bool
+    var workspaceBarShowFloatingWindows: Bool
     var workspaceBarWindowLevel: String
     var workspaceBarPosition: String
     var workspaceBarNotchAware: Bool
@@ -163,6 +164,7 @@ extension SettingsExport {
             hotkeyBindings: HotkeyBindingRegistry.defaults(),
             workspaceBarEnabled: true,
             workspaceBarShowLabels: true,
+            workspaceBarShowFloatingWindows: false,
             workspaceBarWindowLevel: WorkspaceBarWindowLevel.popup.rawValue,
             workspaceBarPosition: WorkspaceBarPosition.overlappingMenuBar.rawValue,
             workspaceBarNotchAware: true,
@@ -352,6 +354,7 @@ extension SettingsStore {
             hotkeyBindings: hotkeyBindings,
             workspaceBarEnabled: workspaceBarEnabled,
             workspaceBarShowLabels: workspaceBarShowLabels,
+            workspaceBarShowFloatingWindows: workspaceBarShowFloatingWindows,
             workspaceBarWindowLevel: workspaceBarWindowLevel.rawValue,
             workspaceBarPosition: workspaceBarPosition.rawValue,
             workspaceBarNotchAware: workspaceBarNotchAware,
@@ -472,6 +475,7 @@ extension SettingsStore {
 
         workspaceBarEnabled = export.workspaceBarEnabled
         workspaceBarShowLabels = export.workspaceBarShowLabels
+        workspaceBarShowFloatingWindows = export.workspaceBarShowFloatingWindows
         workspaceBarWindowLevel = WorkspaceBarWindowLevel(rawValue: export.workspaceBarWindowLevel) ?? .popup
         workspaceBarPosition = WorkspaceBarPosition(rawValue: export.workspaceBarPosition) ?? .overlappingMenuBar
         workspaceBarNotchAware = export.workspaceBarNotchAware

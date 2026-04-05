@@ -458,11 +458,13 @@ final class WMController {
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
 
-    func workspaceBarItems(for monitor: Monitor, deduplicate: Bool, hideEmpty: Bool) -> [WorkspaceBarItem] {
+    func workspaceBarItems(
+        for monitor: Monitor,
+        projection options: WorkspaceBarProjectionOptions
+    ) -> [WorkspaceBarItem] {
         WorkspaceBarDataSource.workspaceBarItems(
             for: monitor,
-            deduplicate: deduplicate,
-            hideEmpty: hideEmpty,
+            options: options,
             workspaceManager: workspaceManager,
             appInfoCache: appInfoCache,
             niriEngine: niriEngine,

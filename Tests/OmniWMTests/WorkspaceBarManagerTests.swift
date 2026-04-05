@@ -127,6 +127,84 @@ private func makeRecordingPanelFactory(
         #expect(updatedFrame.width > initialFrame.width)
     }
 
+    @Test @MainActor func enablingFloatingWindowsRemeasuresWhenFloatingOnlyWorkspaceBecomesVisible() throws {
+        let monitor = makeLayoutPlanTestMonitor(displayId: 781, width: 3200)
+        let workspaceConfigurations = (1...9).map {
+            WorkspaceConfiguration(
+                name: "\($0)",
+                displayName: "Workspace \($0)",
+                monitorAssignment: .main
+            )
+        }
+        let controller = makeLayoutPlanTestController(
+            monitors: [monitor],
+            workspaceConfigurations: workspaceConfigurations
+        )
+        controller.settings.workspaceBarHideEmptyWorkspaces = true
+        controller.settings.workspaceBarShowFloatingWindows = false
+        controller.workspaceManager.applySettings()
+
+        guard let workspace1 = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false) else {
+            Issue.record("Missing workspace bar fixture")
+            return
+        }
+
+        controller.appInfoCache.storeInfoForTests(pid: 8101, name: "Tiled App", bundleId: "com.example.tiled")
+        _ = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 1201),
+            pid: 8101,
+            windowId: 1201,
+            to: workspace1,
+            mode: .tiling
+        )
+        for index in 2...9 {
+            guard let workspaceId = controller.workspaceManager.workspaceId(for: "\(index)", createIfMissing: false) else {
+                Issue.record("Missing floating workspace fixture \(index)")
+                return
+            }
+            let pid: pid_t = 8100 + pid_t(index)
+            let windowId = 1200 + index
+            controller.appInfoCache.storeInfoForTests(
+                pid: pid,
+                name: "Floating \(index)",
+                bundleId: "com.example.floating.\(index)"
+            )
+            _ = controller.workspaceManager.addWindow(
+                makeLayoutPlanTestWindow(windowId: windowId),
+                pid: pid,
+                windowId: windowId,
+                to: workspaceId,
+                mode: .floating
+            )
+        }
+
+        let manager = WorkspaceBarManager()
+        let panelStore = RecordingPanelStore()
+        let frameRecorder = FrameApplyRecorder()
+
+        manager.monitorProvider = { [monitor] }
+        manager.screenProvider = { _ in nil }
+        manager.panelFactory = makeRecordingPanelFactory(store: panelStore)
+        manager.frameApplier = { panel, frame in
+            frameRecorder.apply(frame: frame, to: panel)
+        }
+
+        manager.setup(controller: controller, settings: controller.settings)
+        defer { manager.cleanup() }
+
+        let panel = try #require(panelStore.panels.first)
+        let initialFrame = try #require(manager.lastAppliedFrameForTests(on: monitor.id))
+        let initialHostingView = try #require(manager.hostingViewIdentifierForTests(on: monitor.id))
+
+        controller.settings.workspaceBarShowFloatingWindows = true
+        manager.updateSettings()
+
+        let updatedFrame = try #require(manager.lastAppliedFrameForTests(on: monitor.id))
+        #expect(manager.hostingViewIdentifierForTests(on: monitor.id) == initialHostingView)
+        #expect(frameRecorder.setFrameCallCount(for: panel) == 2)
+        #expect(updatedFrame.width > initialFrame.width)
+    }
+
     @Test @MainActor func updateSettingsRemeasuresWithoutReplacingTheLiveHost() throws {
         let monitor = makeLayoutPlanTestMonitor(displayId: 79)
         let controller = makeLayoutPlanTestController(monitors: [monitor])

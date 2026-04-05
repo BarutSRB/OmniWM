@@ -21,6 +21,7 @@ private func makeBarSettings(
     ResolvedBarSettings(
         enabled: true,
         showLabels: true,
+        showFloatingWindows: false,
         deduplicateAppIcons: false,
         hideEmptyWorkspaces: false,
         reserveLayoutSpace: reserveLayoutSpace,

@@ -94,6 +94,11 @@ private struct GlobalBarSettingsSection: View {
                             controller.updateWorkspaceBarSettings()
                         }
 
+                    Toggle("Show Floating Windows", isOn: $settings.workspaceBarShowFloatingWindows)
+                        .onChange(of: settings.workspaceBarShowFloatingWindows) { _, _ in
+                            controller.updateWorkspaceBarSettings()
+                        }
+
                     Toggle("Deduplicate App Icons", isOn: $settings.workspaceBarDeduplicateAppIcons)
                         .onChange(of: settings.workspaceBarDeduplicateAppIcons) { _, _ in
                             controller.updateWorkspaceBarSettings()
@@ -283,6 +288,14 @@ private struct MonitorBarSettingsSection: View {
                     globalValue: settings.workspaceBarShowLabels,
                     onChange: { newValue in updateSetting { $0.showLabels = newValue } },
                     onReset: { updateSetting { $0.showLabels = nil } }
+                )
+
+                OverridableToggle(
+                    label: "Show Floating Windows",
+                    value: ms.showFloatingWindows,
+                    globalValue: settings.workspaceBarShowFloatingWindows,
+                    onChange: { newValue in updateSetting { $0.showFloatingWindows = newValue } },
+                    onReset: { updateSetting { $0.showFloatingWindows = nil } }
                 )
 
                 OverridableToggle(

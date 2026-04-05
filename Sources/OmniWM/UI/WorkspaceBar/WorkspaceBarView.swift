@@ -7,7 +7,12 @@ struct WorkspaceBarItem: Identifiable, Equatable {
     let name: String
     let rawName: String
     let isFocused: Bool
-    let windows: [WorkspaceBarWindowItem]
+    let tiledWindows: [WorkspaceBarWindowItem]
+    let floatingWindows: [WorkspaceBarWindowItem]
+
+    var windows: [WorkspaceBarWindowItem] {
+        tiledWindows + floatingWindows
+    }
 }
 
 struct WorkspaceBarWindowItem: Identifiable, Equatable {
@@ -161,7 +166,24 @@ private struct WorkspaceItemView: View {
                 }
             }
 
-            ForEach(item.windows, id: \.id) { window in
+            ForEach(item.tiledWindows, id: \.id) { window in
+                WindowIconView(
+                    window: window,
+                    iconSize: iconSize,
+                    isFocused: window.isFocused,
+                    isInFocusedWorkspace: item.isFocused,
+                    animationsEnabled: animationsEnabled,
+                    onFocusWindow: onFocusWindow
+                )
+            }
+
+            if !item.tiledWindows.isEmpty && !item.floatingWindows.isEmpty {
+                Divider()
+                    .frame(height: iconSize)
+                    .padding(.horizontal, 2)
+            }
+
+            ForEach(item.floatingWindows, id: \.id) { window in
                 WindowIconView(
                     window: window,
                     iconSize: iconSize,

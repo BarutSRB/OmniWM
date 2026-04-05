@@ -5,14 +5,14 @@ import Foundation
 enum WorkspaceBarDataSource {
     private struct WorkspaceSnapshot {
         let workspace: WorkspaceDescriptor
-        let barEntries: [WindowModel.Entry]
-        let hasTiledOccupancy: Bool
+        let tiledEntries: [WindowModel.Entry]
+        let floatingEntries: [WindowModel.Entry]
+        let hasBarOccupancy: Bool
     }
 
     static func workspaceBarItems(
         for monitor: Monitor,
-        deduplicate: Bool,
-        hideEmpty: Bool,
+        options: WorkspaceBarProjectionOptions,
         workspaceManager: WorkspaceManager,
         appInfoCache: AppInfoCache,
         niriEngine: NiriLayoutEngine?,
@@ -20,49 +20,86 @@ enum WorkspaceBarDataSource {
         settings: SettingsStore
     ) -> [WorkspaceBarItem] {
         var workspaces = workspaceManager.workspaces(on: monitor.id).map { workspace in
+            let projectedEntries = workspaceManager.barVisibleEntries(
+                in: workspace.id,
+                showFloatingWindows: options.showFloatingWindows
+            )
             return WorkspaceSnapshot(
                 workspace: workspace,
-                barEntries: workspaceManager.barVisibleEntries(in: workspace.id),
-                hasTiledOccupancy: workspaceManager.hasTiledOccupancy(in: workspace.id)
+                tiledEntries: projectedEntries.filter { $0.mode == .tiling },
+                floatingEntries: projectedEntries.filter { $0.mode == .floating },
+                hasBarOccupancy: workspaceManager.hasBarVisibleOccupancy(
+                    in: workspace.id,
+                    showFloatingWindows: options.showFloatingWindows
+                )
             )
         }
 
-        if hideEmpty {
-            workspaces = workspaces.filter(\.hasTiledOccupancy)
+        if options.hideEmptyWorkspaces {
+            workspaces = workspaces.filter(\.hasBarOccupancy)
         }
 
         let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
 
         return workspaces.map { snapshot in
-            let orderedEntries = WorkspaceEntryOrdering.orderedEntries(
-                snapshot.barEntries,
+            let orderedTiledEntries = WorkspaceEntryOrdering.orderedEntries(
+                snapshot.tiledEntries,
+                in: snapshot.workspace.id,
+                engine: niriEngine
+            )
+            let orderedFloatingEntries = WorkspaceEntryOrdering.orderedEntries(
+                snapshot.floatingEntries,
                 in: snapshot.workspace.id,
                 engine: niriEngine
             )
             let useLayoutOrder = niriEngine.map { !$0.columns(in: snapshot.workspace.id).isEmpty } ?? false
-            let windows: [WorkspaceBarWindowItem] = if deduplicate {
-                createDedupedWindowItems(
-                    entries: orderedEntries,
-                    useLayoutOrder: useLayoutOrder,
-                    appInfoCache: appInfoCache,
-                    focusedToken: focusedToken
-                )
-            } else {
-                createIndividualWindowItems(
-                    entries: orderedEntries,
-                    appInfoCache: appInfoCache,
-                    focusedToken: focusedToken
-                )
-            }
+            let tiledWindows = createWindowItems(
+                entries: orderedTiledEntries,
+                deduplicate: options.deduplicateAppIcons,
+                useLayoutOrder: useLayoutOrder,
+                appInfoCache: appInfoCache,
+                focusedToken: focusedToken
+            )
+            let floatingWindows = createWindowItems(
+                entries: orderedFloatingEntries,
+                deduplicate: options.deduplicateAppIcons,
+                useLayoutOrder: useLayoutOrder,
+                appInfoCache: appInfoCache,
+                focusedToken: focusedToken
+            )
 
             return WorkspaceBarItem(
                 id: snapshot.workspace.id,
                 name: settings.displayName(for: snapshot.workspace.name),
                 rawName: snapshot.workspace.name,
                 isFocused: snapshot.workspace.id == activeWorkspaceId,
-                windows: windows
+                tiledWindows: tiledWindows,
+                floatingWindows: floatingWindows
             )
         }
+    }
+
+    private static func createWindowItems(
+        entries: [WindowModel.Entry],
+        deduplicate: Bool,
+        useLayoutOrder: Bool,
+        appInfoCache: AppInfoCache,
+        focusedToken: WindowToken?
+    ) -> [WorkspaceBarWindowItem] {
+        if deduplicate {
+            return createDedupedWindowItems(
+                entries: entries,
+                useLayoutOrder: useLayoutOrder,
+                appInfoCache: appInfoCache,
+                focusedToken: focusedToken
+            )
+        }
+
+        return createIndividualWindowItems(
+            entries: entries,
+            appInfoCache: appInfoCache,
+            focusedToken: focusedToken
+        )
     }
 
     private static func createDedupedWindowItems(

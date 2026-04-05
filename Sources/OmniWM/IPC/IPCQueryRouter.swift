@@ -36,8 +36,7 @@ final class IPCQueryRouter {
             )
             let items = controller.workspaceBarItems(
                 for: monitor,
-                deduplicate: resolved.deduplicateAppIcons,
-                hideEmpty: resolved.hideEmptyWorkspaces
+                projection: resolved.projectionOptions
             )
 
             return IPCWorkspaceBarMonitor(

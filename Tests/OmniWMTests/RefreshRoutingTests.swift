@@ -164,8 +164,11 @@ private func workspaceBarWindowCount(
     }
     return controller.workspaceBarItems(
         for: monitor,
-        deduplicate: false,
-        hideEmpty: false
+        projection: WorkspaceBarProjectionOptions(
+            deduplicateAppIcons: false,
+            hideEmptyWorkspaces: false,
+            showFloatingWindows: controller.settings.workspaceBarShowFloatingWindows
+        )
     )
     .first { $0.id == workspaceId }?
     .windows.count

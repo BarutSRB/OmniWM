@@ -358,8 +358,7 @@ final class WorkspaceBarManager {
         let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
         let items = controller?.workspaceBarItems(
             for: monitor,
-            deduplicate: resolved.deduplicateAppIcons,
-            hideEmpty: resolved.hideEmptyWorkspaces
+            projection: resolved.projectionOptions
         ) ?? []
 
         return WorkspaceBarSnapshot(
