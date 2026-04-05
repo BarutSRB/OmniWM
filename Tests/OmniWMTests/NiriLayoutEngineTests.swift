@@ -1427,6 +1427,40 @@ private func makeCenteredCrossMonitorFixture(
         #expect(abs(outputs[2].value - 700) < 0.001)
     }
 
+    @Test func solverFixedOverflowDoesNotOverallocateAutoWindows() {
+        let outputs = NiriAxisSolver.solve(
+            windows: [
+                .init(
+                    weight: 0,
+                    minConstraint: 80,
+                    maxConstraint: 0,
+                    hasMaxConstraint: false,
+                    isConstraintFixed: false,
+                    hasFixedValue: true,
+                    fixedValue: 80
+                ),
+                .init(
+                    weight: 1,
+                    minConstraint: 0,
+                    maxConstraint: 0,
+                    hasMaxConstraint: false,
+                    isConstraintFixed: false,
+                    hasFixedValue: false,
+                    fixedValue: nil
+                ),
+            ],
+            availableSpace: 50,
+            gapSize: 0
+        )
+
+        #expect(outputs.count == 2)
+        #expect(abs(outputs[0].value - 50) < 0.001)
+        #expect(outputs[0].wasConstrained == true)
+        #expect(outputs[1].value == 0)
+        #expect(outputs[1].wasConstrained == false)
+        #expect(abs(outputs.map(\.value).reduce(0, +) - 50) < 0.001)
+    }
+
     @Test func columnWidthDoesNotShrinkBelowRequiredFixedChildWidth() {
         let column = NiriContainer()
 

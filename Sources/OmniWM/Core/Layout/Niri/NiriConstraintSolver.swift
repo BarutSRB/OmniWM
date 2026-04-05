@@ -62,7 +62,7 @@ enum NiriAxisSolver {
             let scale = usableSpace / fixedSum
             return fixedValues.map { fixedValue in
                 Output(
-                    value: max(1, (fixedValue ?? 0) * scale),
+                    value: fixedValue.map { max(1, $0 * scale) } ?? 0,
                     wasConstrained: fixedValue != nil
                 )
             }
