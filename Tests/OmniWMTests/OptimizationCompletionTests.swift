@@ -68,7 +68,7 @@ private func makeOverviewWindowItem(
         #expect(model.windows(in: ws1).map(\.token) == [handle2, handle1])
     }
 
-    @Test func windowModelRemoveMissingMaintainsIndexConsistency() {
+    @Test func windowModelConfirmedMissingKeysMaintainIndexConsistency() {
         let model = WindowModel()
         let ws1 = WorkspaceDescriptor.ID()
         let ws2 = WorkspaceDescriptor.ID()
@@ -77,7 +77,13 @@ private func makeOverviewWindowItem(
         let _ = model.upsert(window: makeAXWindowRef(windowId: 202), pid: 99, windowId: 202, workspace: ws1)
         let h3 = model.upsert(window: makeAXWindowRef(windowId: 203), pid: 99, windowId: 203, workspace: ws1)
 
-        model.removeMissing(keys: Set([.init(pid: 99, windowId: 201), .init(pid: 99, windowId: 203)]))
+        let confirmedMissing = model.confirmedMissingKeys(
+            keys: Set([.init(pid: 99, windowId: 201), .init(pid: 99, windowId: 203)])
+        )
+        #expect(confirmedMissing == [.init(pid: 99, windowId: 202)])
+        for key in confirmedMissing {
+            _ = model.removeWindow(key: key)
+        }
         #expect(model.entry(forWindowId: 202) == nil)
         #expect(model.windows(in: ws1).map(\.windowId) == [201, 203])
 
@@ -86,25 +92,42 @@ private func makeOverviewWindowItem(
         #expect(model.windows(in: ws2).map(\.token) == [h3])
     }
 
-    @Test func windowModelRemoveMissingRequiresConsecutiveMissesWhenConfigured() {
+    @Test func windowModelConfirmedMissingKeysRequireConsecutiveMissesWhenConfigured() {
         let model = WindowModel()
         let ws = WorkspaceDescriptor.ID()
 
         let _ = model.upsert(window: makeAXWindowRef(windowId: 301), pid: 45, windowId: 301, workspace: ws)
         let _ = model.upsert(window: makeAXWindowRef(windowId: 302), pid: 45, windowId: 302, workspace: ws)
 
-        model.removeMissing(keys: [.init(pid: 45, windowId: 301)], requiredConsecutiveMisses: 2)
+        let firstConfirmedMissing = model.confirmedMissingKeys(
+            keys: [.init(pid: 45, windowId: 301)],
+            requiredConsecutiveMisses: 2
+        )
+        #expect(firstConfirmedMissing.isEmpty)
         #expect(model.entry(forWindowId: 302) != nil)
 
-        model.removeMissing(keys: [.init(pid: 45, windowId: 301)], requiredConsecutiveMisses: 2)
+        let secondConfirmedMissing = model.confirmedMissingKeys(
+            keys: [.init(pid: 45, windowId: 301)],
+            requiredConsecutiveMisses: 2
+        )
+        #expect(secondConfirmedMissing == [.init(pid: 45, windowId: 302)])
+        for key in secondConfirmedMissing {
+            _ = model.removeWindow(key: key)
+        }
         #expect(model.entry(forWindowId: 302) == nil)
 
         let _ = model.upsert(window: makeAXWindowRef(windowId: 303), pid: 45, windowId: 303, workspace: ws)
-        model.removeMissing(keys: [], requiredConsecutiveMisses: 2)
+        let resetDetection = model.confirmedMissingKeys(keys: [], requiredConsecutiveMisses: 2)
+        #expect(resetDetection.isEmpty)
         #expect(model.entry(forWindowId: 303) != nil)
 
-        model.removeMissing(keys: [.init(pid: 45, windowId: 303)], requiredConsecutiveMisses: 2)
-        model.removeMissing(keys: [], requiredConsecutiveMisses: 2)
+        let seenWindowReset = model.confirmedMissingKeys(
+            keys: [.init(pid: 45, windowId: 303)],
+            requiredConsecutiveMisses: 2
+        )
+        #expect(seenWindowReset.isEmpty)
+        let missAfterReset = model.confirmedMissingKeys(keys: [], requiredConsecutiveMisses: 2)
+        #expect(missAfterReset.isEmpty)
         #expect(model.entry(forWindowId: 303) != nil)
     }
 

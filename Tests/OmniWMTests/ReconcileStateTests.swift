@@ -40,6 +40,37 @@ private func makeReconcilePersistedRestoreCatalog(
     )
 }
 
+@MainActor
+private func makeReconcileRemovalTestManager() -> (
+    manager: WorkspaceManager,
+    monitor: Monitor,
+    workspaceId: WorkspaceDescriptor.ID
+) {
+    let settings = SettingsStore(defaults: makeLayoutPlanTestDefaults())
+    settings.workspaceConfigurations = [
+        WorkspaceConfiguration(name: "1", monitorAssignment: .main)
+    ]
+    let manager = WorkspaceManager(settings: settings)
+    let monitor = makeLayoutPlanPrimaryTestMonitor()
+    manager.applyMonitorConfigurationChange([monitor])
+
+    guard let workspaceId = manager.workspaceId(for: "1", createIfMissing: true) else {
+        fatalError("Failed to create reconcile removal test workspace")
+    }
+
+    return (manager, monitor, workspaceId)
+}
+
+@MainActor
+private func lastWindowRemovedTrace(in manager: WorkspaceManager) -> ReconcileTraceRecord? {
+    manager.reconcileTraceSnapshotForTests().last { record in
+        if case .windowRemoved = record.normalizedEvent {
+            return true
+        }
+        return false
+    }
+}
+
 @Suite @MainActor struct ReconcileStateTests {
     @Test func windowAdmissionSeedsReconcileSlicesAndTrace() throws {
         let settings = SettingsStore(defaults: makeLayoutPlanTestDefaults())
@@ -118,6 +149,65 @@ private func makeReconcilePersistedRestoreCatalog(
         #expect(entry.replacementCorrelation?.previousToken == token)
         #expect(entry.replacementCorrelation?.nextToken == newToken)
         #expect(entry.replacementCorrelation?.reason == .managedReplacement)
+    }
+
+    @Test func omissionRemovalMatchesExplicitRemovalReconcileTrace() throws {
+        func assertWindowRemovedTrace(
+            _ trace: ReconcileTraceRecord,
+            token: WindowToken,
+            workspaceId: WorkspaceDescriptor.ID
+        ) throws {
+            #expect(trace.plan.lifecyclePhase == .destroyed)
+            let restoreIntent = try #require(trace.plan.restoreIntent)
+            #expect(restoreIntent.workspaceId == workspaceId)
+
+            if case let .windowRemoved(recordedToken, recordedWorkspaceId, _) = trace.normalizedEvent {
+                #expect(recordedToken == token)
+                #expect(recordedWorkspaceId == workspaceId)
+            } else {
+                Issue.record("Expected normalized window removed event")
+            }
+        }
+
+        let explicitFixture = makeReconcileRemovalTestManager()
+        let explicitToken = explicitFixture.manager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 9151),
+            pid: 9_151,
+            windowId: 9151,
+            to: explicitFixture.workspaceId,
+            mode: .floating
+        )
+        #expect(explicitFixture.manager.restoreIntent(for: explicitToken) != nil)
+
+        _ = explicitFixture.manager.removeWindow(pid: explicitToken.pid, windowId: explicitToken.windowId)
+
+        let explicitTrace = try #require(lastWindowRemovedTrace(in: explicitFixture.manager))
+        try assertWindowRemovedTrace(
+            explicitTrace,
+            token: explicitToken,
+            workspaceId: explicitFixture.workspaceId
+        )
+        #expect(explicitFixture.manager.entry(for: explicitToken) == nil)
+
+        let omissionFixture = makeReconcileRemovalTestManager()
+        let omissionToken = omissionFixture.manager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 9152),
+            pid: 9_152,
+            windowId: 9152,
+            to: omissionFixture.workspaceId,
+            mode: .floating
+        )
+        #expect(omissionFixture.manager.restoreIntent(for: omissionToken) != nil)
+
+        omissionFixture.manager.removeMissing(keys: [], requiredConsecutiveMisses: 1)
+
+        let omissionTrace = try #require(lastWindowRemovedTrace(in: omissionFixture.manager))
+        try assertWindowRemovedTrace(
+            omissionTrace,
+            token: omissionToken,
+            workspaceId: omissionFixture.workspaceId
+        )
+        #expect(omissionFixture.manager.entry(for: omissionToken) == nil)
     }
 
     @Test func focusPolicyBlocksFocusFollowsMouseDuringNativeMenuLease() {

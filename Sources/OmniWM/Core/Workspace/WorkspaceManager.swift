@@ -2271,21 +2271,17 @@ final class WorkspaceManager {
     }
 
     func removeMissing(keys activeKeys: Set<WindowModel.WindowKey>, requiredConsecutiveMisses: Int = 1) {
-        let removedEntries = windows.removeMissing(keys: activeKeys, requiredConsecutiveMisses: requiredConsecutiveMisses)
-        for entry in removedEntries {
-            _ = removeNativeFullscreenRecord(containing: entry.token)
-            handleWindowRemoved(entry.token, in: entry.workspaceId)
-            _ = runtimeStore.record(
-                event: .windowRemoved(
-                    token: entry.token,
-                    workspaceId: entry.workspaceId,
-                    source: .workspaceManager
-                ),
-                plan: ActionPlan(lifecyclePhase: .destroyed),
-                snapshot: reconcileSnapshot()
-            )
+        let confirmedMissingKeys = windows.confirmedMissingKeys(
+            keys: activeKeys,
+            requiredConsecutiveMisses: requiredConsecutiveMisses
+        )
+        var removedAny = false
+        for key in confirmedMissingKeys {
+            guard let entry = windows.entry(for: key) else { continue }
+            _ = removeTrackedWindow(entry)
+            removedAny = true
         }
-        if !removedEntries.isEmpty {
+        if removedAny {
             schedulePersistedWindowRestoreCatalogSave()
         }
     }
@@ -2293,18 +2289,9 @@ final class WorkspaceManager {
     @discardableResult
     func removeWindow(pid: pid_t, windowId: Int) -> WindowModel.Entry? {
         guard let entry = windows.entry(forPid: pid, windowId: windowId) else { return nil }
-        recordReconcileEvent(
-            .windowRemoved(
-                token: entry.token,
-                workspaceId: entry.workspaceId,
-                source: .workspaceManager
-            )
-        )
-        _ = removeNativeFullscreenRecord(containing: entry.token)
-        handleWindowRemoved(entry.token, in: entry.workspaceId)
-        _ = windows.removeWindow(key: .init(pid: pid, windowId: windowId))
+        let removedEntry = removeTrackedWindow(entry)
         schedulePersistedWindowRestoreCatalogSave()
-        return entry
+        return removedEntry
     }
 
     @discardableResult
@@ -2314,16 +2301,7 @@ final class WorkspaceManager {
 
         for entry in entriesToRemove {
             affectedWorkspaces.insert(entry.workspaceId)
-            recordReconcileEvent(
-                .windowRemoved(
-                    token: entry.token,
-                    workspaceId: entry.workspaceId,
-                    source: .workspaceManager
-                )
-            )
-            _ = removeNativeFullscreenRecord(containing: entry.token)
-            handleWindowRemoved(entry.token, in: entry.workspaceId)
-            _ = windows.removeWindow(key: .init(pid: pid, windowId: entry.windowId))
+            _ = removeTrackedWindow(entry)
         }
 
         if !entriesToRemove.isEmpty {
@@ -2331,6 +2309,21 @@ final class WorkspaceManager {
         }
 
         return affectedWorkspaces
+    }
+
+    @discardableResult
+    private func removeTrackedWindow(_ entry: WindowModel.Entry) -> WindowModel.Entry {
+        recordReconcileEvent(
+            .windowRemoved(
+                token: entry.token,
+                workspaceId: entry.workspaceId,
+                source: .workspaceManager
+            )
+        )
+        _ = removeNativeFullscreenRecord(containing: entry.token)
+        handleWindowRemoved(entry.token, in: entry.workspaceId)
+        _ = windows.removeWindow(key: entry.token)
+        return entry
     }
 
     func setWorkspace(for token: WindowToken, to workspace: WorkspaceDescriptor.ID) {

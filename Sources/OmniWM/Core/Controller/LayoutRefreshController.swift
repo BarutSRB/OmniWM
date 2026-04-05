@@ -1065,7 +1065,8 @@ import QuartzCore
     private func buildFullRefreshExecutionPlan() async throws -> RefreshExecutionPlan {
         guard let controller else { return .init() }
 
-        let windows = await controller.axManager.currentWindowsAsync()
+        let enumerationSnapshot = await controller.axManager.fullRescanEnumerationSnapshot()
+        let windows = enumerationSnapshot.windows
         try Task.checkCancellation()
         var seenKeys: Set<WindowModel.WindowKey> = []
         var decisionBasedRemovals: [WindowToken] = []
@@ -1218,6 +1219,12 @@ import QuartzCore
             {
                 seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
             }
+
+            for entry in controller.workspaceManager.allEntries()
+            where enumerationSnapshot.failedPIDs.contains(entry.handle.pid)
+            {
+                seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
+            }
         }
 
         controller.workspaceManager.removeMissing(keys: seenKeys, requiredConsecutiveMisses: 1)
@@ -1326,8 +1333,12 @@ import QuartzCore
         switch (activeRefresh.kind, refresh.kind) {
         case (.fullRescan, .fullRescan):
             mergePendingRefresh(refresh)
-        case (.fullRescan, _):
+        case (.fullRescan, .visibilityRefresh):
             absorbIntoActiveFullRescan(refresh)
+        case (.fullRescan, .windowRemoval),
+             (.fullRescan, .immediateRelayout),
+             (.fullRescan, .relayout):
+            mergePendingRefresh(refresh)
         case (.visibilityRefresh, .visibilityRefresh):
             mergePendingRefresh(refresh)
         case (.visibilityRefresh, .fullRescan),

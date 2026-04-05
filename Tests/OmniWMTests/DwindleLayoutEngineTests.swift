@@ -131,6 +131,25 @@ private func configureWorkspacesAsDwindle(
         #expect(engine.findNode(for: handle2.id) == nil)
     }
 
+    @Test func selectionSurvivesSiblingCollapseAfterRemoval() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let left = makeTestHandle(pid: 81)
+        let right = makeTestHandle(pid: 82)
+
+        _ = engine.syncWindows([left, right], in: wsId, focusedHandle: left)
+        guard let rightNode = engine.findNode(for: right.id) else {
+            Issue.record("Expected surviving sibling node for Dwindle removal regression test")
+            return
+        }
+
+        engine.setSelectedNode(rightNode, in: wsId)
+        engine.removeWindow(token: left.id, from: wsId)
+
+        #expect(engine.selectedNode(in: wsId)?.windowToken == right.id)
+        #expect(engine.toggleFullscreen(in: wsId) == right.id)
+    }
+
     @Test func focusHitTestMissesEmptyWorkspace() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()

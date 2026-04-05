@@ -6,6 +6,13 @@ private let perAppTimeout: TimeInterval = 0.5
 
 @MainActor
 final class AXManager {
+    struct FullRescanEnumerationSnapshot {
+        let windows: [(AXWindowRef, pid_t, Int)]
+        let failedPIDs: Set<pid_t>
+
+        static let empty = FullRescanEnumerationSnapshot(windows: [], failedPIDs: [])
+    }
+
     private static let systemUIBundleIds: Set<String> = [
         "com.apple.notificationcenterui",
         "com.apple.controlcenter",
@@ -17,6 +24,7 @@ final class AXManager {
     var onAppLaunched: ((NSRunningApplication) -> Void)?
     var onAppTerminated: ((pid_t) -> Void)?
     var currentWindowsAsyncOverride: (@MainActor () async -> [(AXWindowRef, pid_t, Int)])?
+    var fullRescanEnumerationOverrideForTests: (@MainActor () async -> FullRescanEnumerationSnapshot)?
     var frameApplyOverrideForTests: (([(pid: pid_t, windowId: Int, frame: CGRect, currentFrameHint: CGRect?)]) -> [AXFrameApplyResult])?
 
     private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect, currentFrameHint: CGRect?)]] = [:]
@@ -190,9 +198,16 @@ final class AXManager {
     }
 
     func currentWindowsAsync() async -> [(AXWindowRef, pid_t, Int)] {
+        return await fullRescanEnumerationSnapshot().windows
+    }
+
+    func fullRescanEnumerationSnapshot() async -> FullRescanEnumerationSnapshot {
         AppAXContext.garbageCollect()
+        if let fullRescanEnumerationOverrideForTests {
+            return await fullRescanEnumerationOverrideForTests()
+        }
         if let currentWindowsAsyncOverride {
-            return await currentWindowsAsyncOverride()
+            return .init(windows: await currentWindowsAsyncOverride(), failedPIDs: [])
         }
 
         let visibleWindows = SkyLight.shared.queryAllVisibleWindows()
@@ -202,12 +217,14 @@ final class AXManager {
             shouldTrack($0) && pidsWithWindows.contains($0.processIdentifier)
         }
 
-        return await withTaskGroup(of: [(AXWindowRef, pid_t, Int)].self) { group in
+        return await withTaskGroup(
+            of: (pid: pid_t, windows: [(AXWindowRef, pid_t, Int)], failed: Bool).self
+        ) { group in
             for app in apps {
                 group.addTask {
                     do {
                         guard let context = try await AppAXContext.getOrCreate(app) else {
-                            return []
+                            return (app.processIdentifier, [], true)
                         }
 
                         let appWindows = try await self.withTimeoutOrNil(seconds: perAppTimeout) {
@@ -215,19 +232,27 @@ final class AXManager {
                         }
 
                         if let windows = appWindows {
-                            return windows.map { ($0.0, app.processIdentifier, $0.1) }
+                            return (
+                                app.processIdentifier,
+                                windows.map { ($0.0, app.processIdentifier, $0.1) },
+                                false
+                            )
                         }
                     } catch {
                     }
-                    return []
+                    return (app.processIdentifier, [], true)
                 }
             }
 
             var results: [(AXWindowRef, pid_t, Int)] = []
-            for await appWindows in group {
-                results.append(contentsOf: appWindows)
+            var failedPIDs: Set<pid_t> = []
+            for await result in group {
+                results.append(contentsOf: result.windows)
+                if result.failed {
+                    failedPIDs.insert(result.pid)
+                }
             }
-            return results
+            return .init(windows: results, failedPIDs: failedPIDs)
         }
     }
 

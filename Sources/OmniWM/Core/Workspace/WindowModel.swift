@@ -639,11 +639,9 @@ final class WindowModel {
         return prevKind
     }
 
-    @discardableResult
-    func removeMissing(keys activeKeys: Set<WindowKey>, requiredConsecutiveMisses: Int = 1) -> [Entry] {
+    func confirmedMissingKeys(keys activeKeys: Set<WindowKey>, requiredConsecutiveMisses: Int = 1) -> [WindowKey] {
         let threshold = max(1, requiredConsecutiveMisses)
         let knownTokens = Array(entries.keys)
-        var removedEntries: [Entry] = []
 
         for token in knownTokens where activeKeys.contains(token) {
             missingDetectionCountByToken.removeValue(forKey: token)
@@ -667,19 +665,11 @@ final class WindowModel {
             }
         }
 
-        for token in confirmedMissing {
-            if let entry = entries[token] {
-                removedEntries.append(entry)
-                removeIndexes(for: entry, token: token, windowId: token.windowId)
-            }
-            entries.removeValue(forKey: token)
-        }
-
         if !missingDetectionCountByToken.isEmpty {
             missingDetectionCountByToken = missingDetectionCountByToken.filter { entries[$0.key] != nil }
         }
 
-        return removedEntries
+        return confirmedMissing
     }
 
     @discardableResult

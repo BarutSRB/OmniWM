@@ -310,8 +310,11 @@ final class DwindleLayoutEngine {
         }
 
         if let selectedId = selectedNodeId[workspaceId], selectedId == node.id {
-            let newSelected = parent.descendToFirstLeaf()
-            selectedNodeId[workspaceId] = newSelected.id
+            selectedNodeId[workspaceId] = parent.descendToFirstLeaf().id
+        }
+
+        if selectedNode(in: workspaceId) == nil {
+            selectedNodeId[workspaceId] = parent.descendToFirstLeaf().id
         }
     }
 

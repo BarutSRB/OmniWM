@@ -95,6 +95,7 @@ private func cleanupRefreshTestController(_ controller: WMController) {
     controller.layoutRefreshController.resetState()
     controller.resetWorkspaceBarRefreshDebugStateForTests()
     controller.axManager.currentWindowsAsyncOverride = nil
+    controller.axManager.fullRescanEnumerationOverrideForTests = nil
     controller.axManager.frameApplyOverrideForTests = nil
     controller.axEventHandler.resetDebugStateForTests()
     controller.axEventHandler.isFullscreenProvider = nil
@@ -142,6 +143,30 @@ private func niriColumnTokenSnapshot(
     return engine.columns(in: workspaceId).map { column in
         column.windowNodes.map(\.token)
     }
+}
+
+@MainActor
+private func workspaceManagerTokenSet(
+    controller: WMController,
+    workspaceId: WorkspaceDescriptor.ID
+) -> Set<WindowToken> {
+    Set(controller.workspaceManager.entries(in: workspaceId).map(\.token))
+}
+
+@MainActor
+private func niriTokenSet(
+    controller: WMController,
+    workspaceId: WorkspaceDescriptor.ID
+) -> Set<WindowToken> {
+    controller.niriEngine?.root(for: workspaceId)?.windowIdSet ?? []
+}
+
+@MainActor
+private func dwindleTokenSet(
+    controller: WMController,
+    workspaceId: WorkspaceDescriptor.ID
+) -> Set<WindowToken> {
+    Set(controller.dwindleEngine?.root(for: workspaceId)?.collectAllWindows() ?? [])
 }
 
 private func replacingToken(
@@ -281,11 +306,13 @@ private func configureWorkspaceLayouts(
     on controller: WMController,
     layoutsByName: [String: LayoutType]
 ) {
+    let existingConfigurationsByName = Dictionary(
+        uniqueKeysWithValues: controller.settings.workspaceConfigurations.map { ($0.name, $0) }
+    )
     controller.settings.workspaceConfigurations = layoutsByName.keys.sorted().map { name in
-        WorkspaceConfiguration(
-            name: name,
-            layoutType: layoutsByName[name] ?? .defaultLayout
-        )
+        let layoutType = layoutsByName[name] ?? .defaultLayout
+        return existingConfigurationsByName[name]?.with(layoutType: layoutType)
+            ?? WorkspaceConfiguration(name: name, layoutType: layoutType)
     }
 }
 
@@ -2667,13 +2694,18 @@ private func prepareNiriState(
         assertNoLegacyReasons(recorder)
     }
 
-    @Test @MainActor func fullRescanRemainsStickyUnderLowerPriorityRequests() async {
+    @Test @MainActor func fullRescanQueuesLowerPriorityRequestsAsFollowUps() async {
         let controller = makeRefreshTestController()
         let gate = AsyncGate()
         var fullRescanReasons: [RefreshReason] = []
+        var relayoutEvents: [(RefreshReason, LayoutRefreshController.RefreshRoute)] = []
         var postLayoutRuns = 0
 
         controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, route in
+            relayoutEvents.append((reason, route))
+            return true
+        }
         controller.layoutRefreshController.debugHooks.onFullRescan = { reason in
             fullRescanReasons.append(reason)
             await gate.wait()
@@ -2692,9 +2724,11 @@ private func prepareNiriState(
         await waitForRefreshWork(on: controller)
 
         #expect(controller.layoutRefreshController.debugCounters.fullRescanExecutions == 1)
-        #expect(controller.layoutRefreshController.debugCounters.relayoutExecutions == 0)
-        #expect(controller.layoutRefreshController.debugCounters.immediateRelayoutExecutions == 0)
+        #expect(controller.layoutRefreshController.debugCounters.relayoutExecutions == 1)
+        #expect(controller.layoutRefreshController.debugCounters.immediateRelayoutExecutions == 1)
         #expect(fullRescanReasons == [.startup])
+        #expect(relayoutEvents.map(\.0) == [.workspaceTransition, .gapsChanged])
+        #expect(relayoutEvents.map(\.1) == [.immediateRelayout, .relayout])
         #expect(postLayoutRuns == 1)
     }
 
@@ -2747,6 +2781,207 @@ private func prepareNiriState(
         await waitForRefreshWork(on: controller)
 
         #expect(controller.workspaceManager.entry(forPid: pid, windowId: windowId) == nil)
+    }
+
+    @Test @MainActor func fullRescanPreservesTrackedWindowsForFailedEnumerationPIDs() async {
+        let controller = makeRefreshTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let liveHandle = addWindow(on: controller, workspaceId: workspaceId, pid: 6_101, windowId: 6_101)
+        let failedHandle = addWindow(on: controller, workspaceId: workspaceId, pid: 6_102, windowId: 6_102)
+        let missingHandle = addWindow(on: controller, workspaceId: workspaceId, pid: 6_103, windowId: 6_103)
+
+        controller.axManager.fullRescanEnumerationOverrideForTests = {
+            AXManager.FullRescanEnumerationSnapshot(
+                windows: [(makeRefreshTestWindow(windowId: 6_101), 6_101, 6_101)],
+                failedPIDs: [6_102]
+            )
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.workspaceManager.entry(for: liveHandle) != nil)
+        #expect(controller.workspaceManager.entry(for: failedHandle) != nil)
+        #expect(controller.workspaceManager.entry(for: missingHandle) == nil)
+    }
+
+    @Test @MainActor func activeFullRescanQueuesFollowUpRelayoutForLateNiriCreate() async {
+        let fixture = makeTwoMonitorRefreshTestController()
+        let controller = fixture.controller
+        defer { cleanupRefreshTestController(controller) }
+        let fullRescanGate = AsyncGate()
+        var fullRescanReasons: [RefreshReason] = []
+        var relayoutEvents: [(RefreshReason, LayoutRefreshController.RefreshRoute)] = []
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        let primaryHandle = addWindow(on: controller, workspaceId: fixture.primaryWorkspaceId, pid: getpid(), windowId: 6_501)
+        let secondaryHandle = addWindow(on: controller, workspaceId: fixture.secondaryWorkspaceId, pid: getpid(), windowId: 6_502)
+        controller.axManager.currentWindowsAsyncOverride = {
+            [
+                (makeRefreshTestWindow(windowId: 6_501), getpid(), 6_501),
+                (makeRefreshTestWindow(windowId: 6_502), getpid(), 6_502)
+            ]
+        }
+        await waitForRefreshWork(on: controller)
+
+        controller.niriEngine?.roots.removeValue(forKey: fixture.primaryWorkspaceId)
+        controller.niriEngine?.roots.removeValue(forKey: fixture.secondaryWorkspaceId)
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, route in
+            relayoutEvents.append((reason, route))
+            return false
+        }
+        controller.layoutRefreshController.debugHooks.onFullRescan = { reason in
+            fullRescanReasons.append(reason)
+            await fullRescanGate.wait()
+            return false
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitUntil { fullRescanReasons == [.startup] }
+        fullRescanGate.open()
+        await waitUntil {
+            let primaryTokenCount = niriTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId).count
+            let secondaryTokenCount = niriTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId).count
+            let populatedCount = [
+                primaryTokenCount,
+                secondaryTokenCount
+            ]
+            .filter { $0 > 0 }
+            .count
+            return populatedCount == 1
+        }
+
+        let builtWorkspaceId: WorkspaceDescriptor.ID
+        if !niriTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId).isEmpty,
+           niriTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId).isEmpty
+        {
+            builtWorkspaceId = fixture.primaryWorkspaceId
+        } else if !niriTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId).isEmpty,
+                  niriTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId).isEmpty
+        {
+            builtWorkspaceId = fixture.secondaryWorkspaceId
+        } else {
+            Issue.record("Expected exactly one Niri workspace to be built before follow-up relayout injection")
+            return
+        }
+
+        let newWindowId = builtWorkspaceId == fixture.primaryWorkspaceId ? 6_503 : 6_504
+        let newToken = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: newWindowId),
+            pid: getpid(),
+            windowId: newWindowId,
+            to: builtWorkspaceId
+        )
+        controller.layoutRefreshController.requestRelayout(
+            reason: .axWindowCreated,
+            affectedWorkspaceIds: [builtWorkspaceId]
+        )
+        await waitForRefreshWork(on: controller)
+
+        #expect(fullRescanReasons == [.startup])
+        #expect(relayoutEvents.map(\.0) == [.axWindowCreated])
+        #expect(relayoutEvents.map(\.1) == [.relayout])
+        #expect(controller.workspaceManager.entry(for: newToken) != nil)
+        #expect(niriTokenSet(controller: controller, workspaceId: builtWorkspaceId).contains(newToken))
+        #expect(niriTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId) == workspaceManagerTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId))
+        #expect(niriTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId) == workspaceManagerTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId))
+        #expect(niriTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId).contains(primaryHandle.id))
+        #expect(niriTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId).contains(secondaryHandle.id))
+    }
+
+    @Test @MainActor func activeFullRescanQueuesFollowUpWindowRemovalForLateDwindleDestroy() async {
+        let fixture = makeTwoMonitorRefreshTestController()
+        let controller = fixture.controller
+        defer { cleanupRefreshTestController(controller) }
+        let fullRescanGate = AsyncGate()
+        var fullRescanReasons: [RefreshReason] = []
+        var windowRemovalReasons: [RefreshReason] = []
+
+        configureWorkspaceLayouts(on: controller, layoutsByName: ["1": .dwindle, "2": .dwindle])
+        controller.enableDwindleLayout()
+
+        let primaryFirst = addWindow(on: controller, workspaceId: fixture.primaryWorkspaceId, pid: getpid(), windowId: 6_601)
+        let primarySecond = addWindow(on: controller, workspaceId: fixture.primaryWorkspaceId, pid: getpid(), windowId: 6_602)
+        let secondaryFirst = addWindow(on: controller, workspaceId: fixture.secondaryWorkspaceId, pid: getpid(), windowId: 6_611)
+        let secondarySecond = addWindow(on: controller, workspaceId: fixture.secondaryWorkspaceId, pid: getpid(), windowId: 6_612)
+        controller.axManager.currentWindowsAsyncOverride = {
+            [
+                (makeRefreshTestWindow(windowId: 6_601), getpid(), 6_601),
+                (makeRefreshTestWindow(windowId: 6_602), getpid(), 6_602),
+                (makeRefreshTestWindow(windowId: 6_611), getpid(), 6_611),
+                (makeRefreshTestWindow(windowId: 6_612), getpid(), 6_612)
+            ]
+        }
+        await waitForRefreshWork(on: controller)
+
+        controller.dwindleEngine?.removeLayout(for: fixture.primaryWorkspaceId)
+        controller.dwindleEngine?.removeLayout(for: fixture.secondaryWorkspaceId)
+        controller.layoutRefreshController.debugHooks.onWindowRemoval = { reason, _ in
+            windowRemovalReasons.append(reason)
+            return false
+        }
+        controller.layoutRefreshController.debugHooks.onFullRescan = { reason in
+            fullRescanReasons.append(reason)
+            await fullRescanGate.wait()
+            return false
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitUntil { fullRescanReasons == [.startup] }
+        fullRescanGate.open()
+        await waitUntil {
+            let primaryTokenCount = dwindleTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId).count
+            let secondaryTokenCount = dwindleTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId).count
+            let populatedCount = [
+                primaryTokenCount,
+                secondaryTokenCount
+            ]
+            .filter { $0 > 0 }
+            .count
+            return populatedCount == 1
+        }
+
+        let builtWorkspaceId: WorkspaceDescriptor.ID
+        let removedToken: WindowToken
+        let survivingToken: WindowToken
+        if !dwindleTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId).isEmpty,
+           dwindleTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId).isEmpty
+        {
+            builtWorkspaceId = fixture.primaryWorkspaceId
+            removedToken = primarySecond.id
+            survivingToken = primaryFirst.id
+        } else if !dwindleTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId).isEmpty,
+                  dwindleTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId).isEmpty
+        {
+            builtWorkspaceId = fixture.secondaryWorkspaceId
+            removedToken = secondarySecond.id
+            survivingToken = secondaryFirst.id
+        } else {
+            Issue.record("Expected exactly one Dwindle workspace to be built before follow-up removal injection")
+            return
+        }
+
+        _ = controller.workspaceManager.removeWindow(pid: removedToken.pid, windowId: removedToken.windowId)
+        controller.layoutRefreshController.requestWindowRemoval(
+            workspaceId: builtWorkspaceId,
+            layoutType: .dwindle,
+            removedNodeId: nil,
+            niriOldFrames: [:],
+            shouldRecoverFocus: false
+        )
+        await waitForRefreshWork(on: controller)
+
+        #expect(fullRescanReasons == [.startup])
+        #expect(windowRemovalReasons == [.windowDestroyed])
+        #expect(controller.workspaceManager.entry(for: removedToken) == nil)
+        #expect(!dwindleTokenSet(controller: controller, workspaceId: builtWorkspaceId).contains(removedToken))
+        #expect(dwindleTokenSet(controller: controller, workspaceId: builtWorkspaceId).contains(survivingToken))
+        #expect(dwindleTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId) == workspaceManagerTokenSet(controller: controller, workspaceId: fixture.primaryWorkspaceId))
+        #expect(dwindleTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId) == workspaceManagerTokenSet(controller: controller, workspaceId: fixture.secondaryWorkspaceId))
     }
 
     @Test @MainActor func sameWorkspaceWindowRemovalPreservesMultiplePayloads() async {

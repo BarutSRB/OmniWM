@@ -1244,6 +1244,7 @@ private func workspaceConfigurations(
         let removed = addWorkspaceManagerTestHandle(manager: manager, windowId: 2302, pid: 2302, workspaceId: workspaceId)
 
         _ = manager.setManagedFocus(removed, in: workspaceId, onMonitor: monitor.id)
+        _ = manager.beginManagedFocusRequest(removed, in: workspaceId, onMonitor: monitor.id)
 
         manager.removeMissing(
             keys: Set([.init(pid: 2301, windowId: 2301)]),
@@ -1251,6 +1252,7 @@ private func workspaceConfigurations(
         )
         #expect(manager.entry(for: removed) != nil)
         #expect(manager.focusedHandle == removed)
+        #expect(manager.pendingFocusedToken == removed.id)
 
         manager.removeMissing(
             keys: Set([.init(pid: 2301, windowId: 2301)]),
@@ -1258,6 +1260,8 @@ private func workspaceConfigurations(
         )
 
         #expect(manager.entry(for: removed) == nil)
+        #expect(manager.focusedToken == nil)
+        #expect(manager.pendingFocusedToken == nil)
         #expect(manager.focusedHandle == nil)
         #expect(manager.lastFocusedHandle(in: workspaceId) == nil)
         #expect(manager.resolveAndSetWorkspaceFocus(in: workspaceId, onMonitor: monitor.id) == survivor)
