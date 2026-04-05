@@ -385,6 +385,8 @@ final class WindowModel {
         if oldToken == newToken {
             guard let entry = entries[oldToken] else { return nil }
             entry.axRef = newAXRef
+            entry.cachedConstraints = nil
+            entry.constraintsCacheTime = nil
             if let managedReplacementMetadata {
                 entry.managedReplacementMetadata = managedReplacementMetadata
             }
@@ -399,6 +401,8 @@ final class WindowModel {
 
         entry.handle.id = newToken
         entry.axRef = newAXRef
+        entry.cachedConstraints = nil
+        entry.constraintsCacheTime = nil
         if let managedReplacementMetadata {
             entry.managedReplacementMetadata = managedReplacementMetadata
         }
@@ -700,7 +704,7 @@ final class WindowModel {
 
     func setCachedConstraints(_ constraints: WindowSizeConstraints, for token: WindowToken) {
         guard let entry = entries[token] else { return }
-        entry.cachedConstraints = constraints
+        entry.cachedConstraints = constraints.normalized()
         entry.constraintsCacheTime = Date()
     }
 }

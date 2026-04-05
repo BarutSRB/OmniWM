@@ -185,8 +185,13 @@ extension NiriLayoutEngine {
                 dx = -dx
             }
 
-            let minWidth = column.windowNodes.map(\.constraints.minSize.width).max() ?? 50
-            let maxWidth = monitorFrame.width - gaps.horizontal
+            let widthBounds = column.widthBounds()
+            let minWidth = widthBounds.min
+            let viewportMaxWidth = monitorFrame.width - gaps.horizontal
+            let maxWidth = max(
+                minWidth,
+                min(viewportMaxWidth, widthBounds.max ?? viewportMaxWidth)
+            )
 
             let newWidth = originalWidth + dx
             column.cachedWidth = newWidth.clamped(to: minWidth ... maxWidth)

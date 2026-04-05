@@ -143,4 +143,42 @@ private func makeMonitor(
         #expect(assignments[newCenter.id] == wsLeft)
         #expect(assignments[newFar.id] == wsRight)
     }
+
+    @Test func insertedMonitorDoesNotStealLaterExactGeometryMatch() {
+        let oldCenter = makeMonitor(displayId: 10, name: "Center", x: 1000, y: 0)
+        let oldRight = makeMonitor(displayId: 20, name: "Right", x: 3000, y: 0)
+        let wsCenter = WorkspaceDescriptor.ID()
+        let wsRight = WorkspaceDescriptor.ID()
+
+        let snapshots = [
+            WorkspaceRestoreSnapshot(monitor: .init(monitor: oldRight), workspaceId: wsRight),
+            WorkspaceRestoreSnapshot(monitor: .init(monitor: oldCenter), workspaceId: wsCenter)
+        ]
+
+        let newLeft = makeMonitor(displayId: 30, name: "Left", x: 0, y: 0)
+        let newCenter = makeMonitor(displayId: 40, name: "Center", x: 1000, y: 0)
+        let newRight = makeMonitor(displayId: 50, name: "Right", x: 3000, y: 0)
+
+        let assignments = resolveWorkspaceRestoreAssignments(
+            snapshots: snapshots,
+            monitors: [newLeft, newCenter, newRight],
+            workspaceExists: { _ in true }
+        )
+
+        #expect(assignments[newLeft.id] == nil)
+        #expect(assignments[newCenter.id] == wsCenter)
+        #expect(assignments[newRight.id] == wsRight)
+    }
+}
+
+@Suite struct MonitorGeometryTests {
+    @Test func sharedCornerUsesHalfOpenBoundsForFallbackMonitorApproximation() {
+        let left = makeMonitor(displayId: 10, name: "Left", x: 0, y: 0, width: 100, height: 100)
+        let right = makeMonitor(displayId: 20, name: "Right", x: 100, y: 0, width: 100, height: 100)
+
+        let point = CGPoint(x: 100, y: 100)
+        let approximated = point.monitorApproximation(in: [left, right])
+
+        #expect(approximated?.id == right.id)
+    }
 }

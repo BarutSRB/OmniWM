@@ -20,6 +20,13 @@ struct WorkspaceRestoreSnapshot: Hashable {
     let workspaceId: WorkspaceDescriptor.ID
 }
 
+private struct RestoreMatchingResult {
+    var assignmentsBySnapshotIndex: [Int: Monitor.ID] = [:]
+    var assignedCount = 0
+    var totalNamePenalty = 0
+    var totalGeometryDelta: CGFloat = 0
+}
+
 func resolveWorkspaceRestoreAssignments(
     snapshots: [WorkspaceRestoreSnapshot],
     monitors: [Monitor],
@@ -47,6 +54,7 @@ func resolveWorkspaceRestoreAssignments(
 
     var assignments: [Monitor.ID: WorkspaceDescriptor.ID] = [:]
     var usedMonitorIds: Set<Monitor.ID> = []
+    var assignedWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
 
     for snapshot in filteredSnapshots {
         guard let exactMonitor = sortedMonitors.first(where: { $0.displayId == snapshot.monitor.displayId }) else {
@@ -54,34 +62,102 @@ func resolveWorkspaceRestoreAssignments(
         }
         guard usedMonitorIds.insert(exactMonitor.id).inserted else { continue }
         assignments[exactMonitor.id] = snapshot.workspaceId
+        assignedWorkspaceIds.insert(snapshot.workspaceId)
     }
 
-    for snapshot in filteredSnapshots where !assignments.values.contains(snapshot.workspaceId) {
-        let remaining = sortedMonitors.filter { !usedMonitorIds.contains($0.id) }
-        guard let best = remaining.min(by: { lhs, rhs in
-            isBetterRestoreCandidate(lhs, than: rhs, for: snapshot.monitor)
-        }) else {
-            continue
-        }
-
-        usedMonitorIds.insert(best.id)
-        assignments[best.id] = snapshot.workspaceId
+    let remainingSnapshots = filteredSnapshots.filter { !assignedWorkspaceIds.contains($0.workspaceId) }
+    let remainingMonitors = sortedMonitors.filter { !usedMonitorIds.contains($0.id) }
+    let remainingAssignments = resolveBestRestoreMatches(
+        snapshots: remainingSnapshots,
+        monitors: remainingMonitors
+    )
+    for (snapshotIndex, monitorId) in remainingAssignments {
+        assignments[monitorId] = remainingSnapshots[snapshotIndex].workspaceId
     }
 
     return assignments
 }
 
-private func isBetterRestoreCandidate(_ lhs: Monitor, than rhs: Monitor, for snapshot: MonitorRestoreKey) -> Bool {
-    let lhsScore = restoreMatchScore(snapshot: snapshot, monitor: lhs)
-    let rhsScore = restoreMatchScore(snapshot: snapshot, monitor: rhs)
+private func resolveBestRestoreMatches(
+    snapshots: [WorkspaceRestoreSnapshot],
+    monitors: [Monitor]
+) -> [Int: Monitor.ID] {
+    guard !snapshots.isEmpty, !monitors.isEmpty else { return [:] }
 
-    if lhsScore.namePenalty != rhsScore.namePenalty {
-        return lhsScore.namePenalty < rhsScore.namePenalty
+    let monitorsById = Dictionary(uniqueKeysWithValues: monitors.map { ($0.id, $0) })
+
+    func prefersAssignments(_ lhs: RestoreMatchingResult, over rhs: RestoreMatchingResult) -> Bool {
+        if lhs.assignedCount != rhs.assignedCount {
+            return lhs.assignedCount > rhs.assignedCount
+        }
+        if lhs.totalNamePenalty != rhs.totalNamePenalty {
+            return lhs.totalNamePenalty < rhs.totalNamePenalty
+        }
+        if lhs.totalGeometryDelta != rhs.totalGeometryDelta {
+            return lhs.totalGeometryDelta < rhs.totalGeometryDelta
+        }
+
+        for index in snapshots.indices {
+            let lhsMonitorId = lhs.assignmentsBySnapshotIndex[index]
+            let rhsMonitorId = rhs.assignmentsBySnapshotIndex[index]
+
+            switch (lhsMonitorId, rhsMonitorId) {
+            case (nil, nil):
+                continue
+            case (.some, nil):
+                return true
+            case (nil, .some):
+                return false
+            case let (.some(lhsMonitorId), .some(rhsMonitorId)):
+                guard lhsMonitorId != rhsMonitorId else { continue }
+                guard let lhsMonitor = monitorsById[lhsMonitorId],
+                      let rhsMonitor = monitorsById[rhsMonitorId]
+                else {
+                    return lhsMonitorId.displayId < rhsMonitorId.displayId
+                }
+                return monitorRestoreSortKey(lhsMonitor) < monitorRestoreSortKey(rhsMonitor)
+            }
+        }
+
+        return false
     }
-    if lhsScore.geometryDelta != rhsScore.geometryDelta {
-        return lhsScore.geometryDelta < rhsScore.geometryDelta
+
+    func search(snapshotIndex: Int, availableMonitors: [Monitor]) -> RestoreMatchingResult {
+        guard snapshotIndex < snapshots.count, !availableMonitors.isEmpty else {
+            return RestoreMatchingResult()
+        }
+
+        let currentSnapshot = snapshots[snapshotIndex]
+        // Monitor counts are small, so an exact search keeps restore matching
+        // stable when a newly inserted display collides with a later exact fit.
+        var bestResult = search(
+            snapshotIndex: snapshotIndex + 1,
+            availableMonitors: availableMonitors
+        )
+
+        for (monitorIndex, monitor) in availableMonitors.enumerated() {
+            var nextMonitors = availableMonitors
+            nextMonitors.remove(at: monitorIndex)
+
+            let score = restoreMatchScore(snapshot: currentSnapshot.monitor, monitor: monitor)
+            var candidate = search(
+                snapshotIndex: snapshotIndex + 1,
+                availableMonitors: nextMonitors
+            )
+            candidate.assignmentsBySnapshotIndex[snapshotIndex] = monitor.id
+            candidate.assignedCount += 1
+            candidate.totalNamePenalty += score.namePenalty
+            candidate.totalGeometryDelta += score.geometryDelta
+
+            if prefersAssignments(candidate, over: bestResult) {
+                bestResult = candidate
+            }
+        }
+
+        return bestResult
     }
-    return monitorRestoreSortKey(lhs) < monitorRestoreSortKey(rhs)
+
+    return search(snapshotIndex: 0, availableMonitors: monitors).assignmentsBySnapshotIndex
 }
 
 private func restoreMatchScore(snapshot: MonitorRestoreKey, monitor: Monitor) -> (namePenalty: Int, geometryDelta: CGFloat) {

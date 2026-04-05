@@ -70,6 +70,31 @@ struct WindowSizeConstraints: Equatable {
 
     var isFixed: Bool
 
+    init(minSize: CGSize, maxSize: CGSize, isFixed: Bool) {
+        let normalizedMinWidth = Self.normalizedMinDimension(minSize.width)
+        let normalizedMinHeight = Self.normalizedMinDimension(minSize.height)
+        let normalizedMaxWidth = Self.normalizedMaxDimension(
+            maxSize.width,
+            minimum: normalizedMinWidth
+        )
+        let normalizedMaxHeight = Self.normalizedMaxDimension(
+            maxSize.height,
+            minimum: normalizedMinHeight
+        )
+
+        if isFixed {
+            let fixedWidth = normalizedMaxWidth > 0 ? normalizedMaxWidth : normalizedMinWidth
+            let fixedHeight = normalizedMaxHeight > 0 ? normalizedMaxHeight : normalizedMinHeight
+            self.minSize = CGSize(width: fixedWidth, height: fixedHeight)
+            self.maxSize = CGSize(width: fixedWidth, height: fixedHeight)
+        } else {
+            self.minSize = CGSize(width: normalizedMinWidth, height: normalizedMinHeight)
+            self.maxSize = CGSize(width: normalizedMaxWidth, height: normalizedMaxHeight)
+        }
+
+        self.isFixed = isFixed
+    }
+
     static let unconstrained = WindowSizeConstraints(
         minSize: CGSize(width: 1, height: 1),
         maxSize: .zero,
@@ -82,6 +107,10 @@ struct WindowSizeConstraints: Equatable {
             maxSize: size,
             isFixed: true
         )
+    }
+
+    func normalized() -> WindowSizeConstraints {
+        WindowSizeConstraints(minSize: minSize, maxSize: maxSize, isFixed: isFixed)
     }
 
     var hasMinWidth: Bool {
@@ -120,6 +149,16 @@ struct WindowSizeConstraints: Equatable {
             result = min(result, maxSize.width)
         }
         return result
+    }
+
+    private static func normalizedMinDimension(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return 1 }
+        return max(1, value)
+    }
+
+    private static func normalizedMaxDimension(_ value: CGFloat, minimum: CGFloat) -> CGFloat {
+        guard value.isFinite, value > 0 else { return 0 }
+        return max(value, minimum)
     }
 }
 
@@ -466,28 +505,66 @@ class NiriContainer: NiriNode {
         case let .fixed(f):
             result = f
         }
+        let effectiveMaxConstraint = maxConstraint.map { max($0, minConstraint) }
         if result < minConstraint { result = minConstraint }
-        if let maxConstraint, result > maxConstraint { result = maxConstraint }
+        if let effectiveMaxConstraint, result > effectiveMaxConstraint { result = effectiveMaxConstraint }
         return result
     }
 
-    func resolveAndCacheWidth(workingAreaWidth: CGFloat, gaps: CGFloat) {
-        var minW: CGFloat = 0
-        var maxW: CGFloat?
+    func widthBounds() -> (min: CGFloat, max: CGFloat?) {
+        var minWidth: CGFloat = 1
+        var maxWidth: CGFloat?
+
         for window in windowNodes {
-            minW = max(minW, window.constraints.minSize.width)
-            if window.constraints.hasMaxWidth {
-                let candidateMax = window.constraints.maxSize.width
-                maxW = min(maxW ?? candidateMax, candidateMax)
+            let constraints = window.constraints.normalized()
+            minWidth = max(minWidth, constraints.minSize.width)
+            if constraints.hasMaxWidth {
+                let candidateMax = constraints.maxSize.width
+                maxWidth = min(maxWidth ?? candidateMax, candidateMax)
             }
         }
-        cachedWidth = resolveSpan(spec: width, isFull: isFullWidth, availableSpace: workingAreaWidth, gaps: gaps, minConstraint: minW, maxConstraint: maxW)
+
+        return (minWidth, maxWidth.map { max($0, minWidth) })
+    }
+
+    func heightBounds() -> (min: CGFloat, max: CGFloat?) {
+        var minHeight: CGFloat = 1
+        var maxHeight: CGFloat?
+
+        for window in windowNodes {
+            let constraints = window.constraints.normalized()
+            minHeight = max(minHeight, constraints.minSize.height)
+            if constraints.hasMaxHeight {
+                let candidateMax = constraints.maxSize.height
+                maxHeight = min(maxHeight ?? candidateMax, candidateMax)
+            }
+        }
+
+        return (minHeight, maxHeight.map { max($0, minHeight) })
+    }
+
+    func resolveAndCacheWidth(workingAreaWidth: CGFloat, gaps: CGFloat) {
+        let bounds = widthBounds()
+        cachedWidth = resolveSpan(
+            spec: width,
+            isFull: isFullWidth,
+            availableSpace: workingAreaWidth,
+            gaps: gaps,
+            minConstraint: bounds.min,
+            maxConstraint: bounds.max
+        )
     }
 
     func resolveAndCacheHeight(workingAreaHeight: CGFloat, gaps: CGFloat) {
-        let minH = windowNodes.map(\.constraints.minSize.height).max() ?? 0
-        let maxH = windowNodes.compactMap { $0.constraints.hasMaxHeight ? $0.constraints.maxSize.height : nil }.min()
-        cachedHeight = resolveSpan(spec: height, isFull: isFullHeight, availableSpace: workingAreaHeight, gaps: gaps, minConstraint: minH, maxConstraint: maxH)
+        let bounds = heightBounds()
+        cachedHeight = resolveSpan(
+            spec: height,
+            isFull: isFullHeight,
+            availableSpace: workingAreaHeight,
+            gaps: gaps,
+            minConstraint: bounds.min,
+            maxConstraint: bounds.max
+        )
     }
 
     override var size: CGFloat {

@@ -520,6 +520,7 @@ import QuartzCore
                 if let minH = entry.ruleEffects.minHeight {
                     mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, minH)
                 }
+                mergedConstraints = mergedConstraints.normalized()
             }
 
             snapshots.append(

@@ -1386,6 +1386,68 @@ private func makeCenteredCrossMonitorFixture(
         #expect(window.constraints.maxSize.width == 800)
     }
 
+    @Test func solverRedistributesSpaceAfterMaxCapsWithoutReviolatingThem() {
+        let outputs = NiriAxisSolver.solve(
+            windows: [
+                .init(
+                    weight: 1,
+                    minConstraint: 0,
+                    maxConstraint: 100,
+                    hasMaxConstraint: true,
+                    isConstraintFixed: false,
+                    hasFixedValue: false,
+                    fixedValue: nil
+                ),
+                .init(
+                    weight: 1,
+                    minConstraint: 0,
+                    maxConstraint: 400,
+                    hasMaxConstraint: true,
+                    isConstraintFixed: false,
+                    hasFixedValue: false,
+                    fixedValue: nil
+                ),
+                .init(
+                    weight: 1,
+                    minConstraint: 0,
+                    maxConstraint: 0,
+                    hasMaxConstraint: false,
+                    isConstraintFixed: false,
+                    hasFixedValue: false,
+                    fixedValue: nil
+                ),
+            ],
+            availableSpace: 1200,
+            gapSize: 0
+        )
+
+        #expect(outputs.count == 3)
+        #expect(abs(outputs[0].value - 100) < 0.001)
+        #expect(abs(outputs[1].value - 400) < 0.001)
+        #expect(abs(outputs[2].value - 700) < 0.001)
+    }
+
+    @Test func columnWidthDoesNotShrinkBelowRequiredFixedChildWidth() {
+        let column = NiriContainer()
+
+        let locked = NiriWindow(token: WindowToken(pid: 41, windowId: 4101))
+        locked.constraints = .fixed(size: CGSize(width: 700, height: 320))
+
+        let capped = NiriWindow(token: WindowToken(pid: 41, windowId: 4102))
+        capped.constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 1, height: 1),
+            maxSize: CGSize(width: 500, height: 0),
+            isFixed: false
+        )
+
+        column.appendChild(locked)
+        column.appendChild(capped)
+        column.width = .proportion(1.0)
+        column.resolveAndCacheWidth(workingAreaWidth: 1200, gaps: 0)
+
+        #expect(abs(column.cachedWidth - 700) < 0.001)
+    }
+
     @Test func syncWindowsIdempotency() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
         let wsId = UUID()

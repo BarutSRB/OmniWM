@@ -111,8 +111,12 @@ extension CGRect {
 
 extension CGRect {
     func distanceSquared(to point: CGPoint) -> CGFloat {
-        let clampedX = min(max(point.x, minX), maxX)
-        let clampedY = min(max(point.y, minY), maxY)
+        // Keep fallback distance calculations aligned with CGRect.contains(_:),
+        // which treats maxX/maxY as exclusive bounds.
+        let maxInclusiveX = maxX > minX ? maxX.nextDown : minX
+        let maxInclusiveY = maxY > minY ? maxY.nextDown : minY
+        let clampedX = min(max(point.x, minX), maxInclusiveX)
+        let clampedY = min(max(point.y, minY), maxInclusiveY)
         let dx = point.x - clampedX
         let dy = point.y - clampedY
         return dx * dx + dy * dy

@@ -15,6 +15,9 @@ final class LockScreenObserver {
 
     var onLockDetected: (() -> Void)?
     var onUnlockDetected: (() -> Void)?
+    var frontmostApplicationProvider: @MainActor () -> NSRunningApplication? = {
+        NSWorkspace.shared.frontmostApplication
+    }
 
     private var activationObserver: NSObjectProtocol?
     private var screenLockObserver: NSObjectProtocol?
@@ -98,7 +101,7 @@ final class LockScreenObserver {
     }
 
     func isFrontmostAppLockScreen() -> Bool {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.lockScreenAppBundleId
+        frontmostApplicationProvider()?.bundleIdentifier == Self.lockScreenAppBundleId
     }
 
     func cleanup() {

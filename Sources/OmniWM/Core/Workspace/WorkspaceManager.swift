@@ -3031,9 +3031,7 @@ final class WorkspaceManager {
         previousMonitorSessions: [Monitor.ID: SessionState.MonitorSession]? = nil,
         notify: Bool = true
     ) {
-        // Keep traversal deterministic so startup workspace mapping is stable.
         let sortedNewMonitors = Monitor.sortedByPosition(monitors)
-
         let oldForward = activeVisibleWorkspaceMap(from: previousMonitorSessions ?? sessionState.monitorSessions)
         var oldMonitorById: [Monitor.ID: Monitor] = [:]
 
@@ -3041,32 +3039,18 @@ final class WorkspaceManager {
         for monitor in oldCandidates {
             oldMonitorById[monitor.id] = monitor
         }
-
-        var remainingOldMonitorIds = Set(oldForward.keys.filter { oldMonitorById[$0] != nil })
-        var newToOld: [Monitor.ID: Monitor.ID] = [:]
-
-        for newMonitor in sortedNewMonitors where remainingOldMonitorIds.contains(newMonitor.id) {
-            newToOld[newMonitor.id] = newMonitor.id
-            remainingOldMonitorIds.remove(newMonitor.id)
+        let visibleSnapshots = oldForward.compactMap { monitorId, workspaceId -> WorkspaceRestoreSnapshot? in
+            guard let monitor = oldMonitorById[monitorId] else { return nil }
+            return WorkspaceRestoreSnapshot(
+                monitor: MonitorRestoreKey(monitor: monitor),
+                workspaceId: workspaceId
+            )
         }
-
-        for newMonitor in sortedNewMonitors where newToOld[newMonitor.id] == nil {
-            guard let bestOldId = remainingOldMonitorIds.min(by: { lhs, rhs in
-                guard let lhsMonitor = oldMonitorById[lhs], let rhsMonitor = oldMonitorById[rhs] else {
-                    return lhs.displayId < rhs.displayId
-                }
-                let lhsDistance = lhsMonitor.frame.center.distanceSquared(to: newMonitor.frame.center)
-                let rhsDistance = rhsMonitor.frame.center.distanceSquared(to: newMonitor.frame.center)
-                if lhsDistance != rhsDistance {
-                    return lhsDistance < rhsDistance
-                }
-                return monitorSortKey(lhsMonitor) < monitorSortKey(rhsMonitor)
-            }) else {
-                continue
-            }
-            remainingOldMonitorIds.remove(bestOldId)
-            newToOld[newMonitor.id] = bestOldId
-        }
+        let restoredAssignments = resolveWorkspaceRestoreAssignments(
+            snapshots: visibleSnapshots,
+            monitors: monitors,
+            workspaceExists: { descriptor(for: $0) != nil }
+        )
 
         sessionState.monitorSessions = sessionState.monitorSessions.mapValues { session in
             var pruned = session
@@ -3076,8 +3060,7 @@ final class WorkspaceManager {
         invalidateWorkspaceProjectionCaches()
 
         for newMonitor in sortedNewMonitors {
-            if let oldId = newToOld[newMonitor.id],
-               let existingWorkspaceId = oldForward[oldId],
+            if let existingWorkspaceId = restoredAssignments[newMonitor.id],
                workspaceMonitorId(for: existingWorkspaceId) == newMonitor.id,
                setActiveWorkspaceInternal(
                    existingWorkspaceId,

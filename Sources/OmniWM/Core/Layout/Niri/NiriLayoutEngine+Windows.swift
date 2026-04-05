@@ -60,7 +60,7 @@ extension NiriLayoutEngine {
 
     func updateWindowConstraints(for token: WindowToken, constraints: WindowSizeConstraints) {
         guard let node = tokenToNode[token] else { return }
-        node.constraints = constraints
+        node.constraints = constraints.normalized()
     }
 
     func addWindow(

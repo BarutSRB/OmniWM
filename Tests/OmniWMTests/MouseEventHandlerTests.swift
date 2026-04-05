@@ -45,6 +45,7 @@ private func makeMouseEventTestController(
         settings.workspaceConfigurations = workspaceConfigurations
     }
     let controller = WMController(settings: settings, windowFocusOperations: operations)
+    controller.lockScreenObserver.frontmostApplicationProvider = { nil }
     let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
     let monitor = Monitor(
         id: Monitor.ID(displayId: 1),
@@ -59,7 +60,9 @@ private func makeMouseEventTestController(
 }
 
 @MainActor
-private func prepareMouseResizeFixture() async -> (
+private func prepareMouseResizeFixture(
+    constraints: WindowSizeConstraints = .unconstrained
+) async -> (
     controller: WMController,
     handler: MouseEventHandler,
     handle: WindowHandle,
@@ -83,7 +86,7 @@ private func prepareMouseResizeFixture() async -> (
         windowId: 901,
         to: workspaceId
     )
-    controller.workspaceManager.setCachedConstraints(.unconstrained, for: token)
+    controller.workspaceManager.setCachedConstraints(constraints, for: token)
     guard let handle = controller.workspaceManager.handle(for: token) else {
         fatalError("Missing bridge handle for mouse fixture")
     }
@@ -258,6 +261,117 @@ private func prepareMouseResizeFixture() async -> (
         #expect(debugSnapshot.flushedBeforeImmediateDispatch == 1)
         #expect(abs(column.cachedWidth - expectedWidth) < 0.001)
         #expect(fixture.handler.state.isResizing == false)
+    }
+
+    @Test @MainActor func queuedResizeDragClampsToColumnMaxWidthConstraint() async {
+        let fixture = await prepareMouseResizeFixture()
+        guard let engine = fixture.controller.niriEngine,
+              let resizeWindow = engine.findNode(for: fixture.handle),
+              let column = engine.findColumn(containing: resizeWindow, in: fixture.workspaceId)
+        else {
+            Issue.record("Missing Niri resize state for max-width regression test")
+            return
+        }
+
+        let originalWidth = column.cachedWidth
+        let cappedWidth = originalWidth + 12
+        let constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 1, height: 1),
+            maxSize: CGSize(width: cappedWidth, height: 0),
+            isFixed: false
+        )
+
+        fixture.controller.workspaceManager.setCachedConstraints(constraints, for: fixture.handle.id)
+        engine.updateWindowConstraints(for: fixture.handle, constraints: constraints)
+
+        #expect(engine.interactiveResizeBegin(
+            windowId: fixture.nodeId,
+            edges: [.right],
+            startLocation: fixture.location,
+            in: fixture.workspaceId
+        ))
+
+        fixture.handler.state.isResizing = true
+        fixture.handler.receiveTapMouseDragged(
+            at: CGPoint(x: fixture.location.x + 24, y: fixture.location.y)
+        )
+        fixture.handler.pressedMouseButtonsProvider = { 0 }
+        fixture.handler.receiveTapMouseUp(
+            at: CGPoint(x: fixture.location.x + 24, y: fixture.location.y)
+        )
+        await fixture.controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(abs(column.cachedWidth - cappedWidth) < 0.001)
+        #expect(fixture.handler.state.isResizing == false)
+    }
+
+    @Test @MainActor func offMainThreadMouseTapCallbackFailsOpenWithoutQueueingState() {
+        let controller = makeMouseEventTestController()
+        let handler = controller.mouseEventHandler
+
+        guard let event = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: CGPoint(x: 50, y: 50),
+            mouseButton: .left
+        ) else {
+            Issue.record("Failed to create CGEvent")
+            return
+        }
+
+        let processed = handler.handleTapCallbackForTests(
+            type: .mouseMoved,
+            event: event,
+            isMainThread: false
+        )
+
+        #expect(processed == false)
+        #expect(handler.mouseTapDebugSnapshot() == .init())
+        #expect(handler.state.pendingTapEvents.hasPendingEvents == false)
+        #expect(handler.state.currentHoveredEdges == [])
+    }
+
+    @Test @MainActor func offMainThreadGestureTapCallbackFailsOpenWithoutMutatingGestureState() {
+        let controller = makeMouseEventTestController()
+        let handler = controller.mouseEventHandler
+
+        guard let event = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: CGPoint(x: 50, y: 50),
+            mouseButton: .left
+        ) else {
+            Issue.record("Failed to create CGEvent")
+            return
+        }
+
+        guard let gestureType = CGEventType(rawValue: UInt32(NSEvent.EventType.gesture.rawValue)) else {
+            Issue.record("Failed to create gesture CGEventType")
+            return
+        }
+
+        let processed = handler.handleGestureTapCallbackForTests(
+            type: gestureType,
+            event: event,
+            isMainThread: false
+        )
+
+        #expect(processed == false)
+        #expect(handler.state.pendingTapEvents.hasPendingEvents == false)
+    }
+
+    @Test @MainActor func gestureTouchAverageRejectsInvalidTouchPositions() {
+        let touches: [MouseEventHandler.GestureTouchSample] = [
+            .init(phase: .touching, normalizedPosition: CGPoint(x: 0.25, y: 0.5)),
+            .init(phase: .touching, normalizedPosition: nil),
+        ]
+
+        let average = MouseEventHandler.averageGestureTouchPosition(
+            requiredFingers: 2,
+            touches: touches
+        )
+
+        #expect(average == nil)
     }
 
     @Test @MainActor func scrollBurstOnlyMergesWithinMatchingModifierAndPhaseGroups() {

@@ -15,7 +15,7 @@ final class DwindleLayoutEngine {
     var displayRefreshRate: Double = 60.0
 
     func updateWindowConstraints(for token: WindowToken, constraints: WindowSizeConstraints) {
-        windowConstraints[token] = constraints
+        windowConstraints[token] = constraints.normalized()
     }
 
     func constraints(for token: WindowToken) -> WindowSizeConstraints {

@@ -460,6 +460,57 @@ private func workspaceConfigurations(
         #expect(manager.activeWorkspace(on: newFar.id)?.id == ws2)
     }
 
+    @Test @MainActor func applyMonitorConfigurationChangeMatchesRestoreAssignmentsWhenMonitorIsInserted() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = workspaceConfigurations([
+            ("1", .specificDisplay(OutputId(displayId: 10, name: "Center"))),
+            ("2", .specificDisplay(OutputId(displayId: 20, name: "Right"))),
+            ("3", .specificDisplay(OutputId(displayId: 20, name: "Right")))
+        ])
+
+        let manager = WorkspaceManager(settings: settings)
+        let oldCenter = makeWorkspaceManagerTestMonitor(displayId: 10, name: "Center", x: 1000, y: 0)
+        let oldRight = makeWorkspaceManagerTestMonitor(displayId: 20, name: "Right", x: 3000, y: 0)
+        manager.applyMonitorConfigurationChange([oldCenter, oldRight])
+
+        guard let ws1 = manager.workspaceId(for: "1", createIfMissing: true),
+              let ws2 = manager.workspaceId(for: "2", createIfMissing: true),
+              let ws3 = manager.workspaceId(for: "3", createIfMissing: true)
+        else {
+            Issue.record("Failed to create expected workspaces")
+            return
+        }
+
+        #expect(manager.setActiveWorkspace(ws1, on: oldCenter.id))
+        #expect(manager.setActiveWorkspace(ws2, on: oldRight.id))
+        #expect(manager.setActiveWorkspace(ws3, on: oldRight.id))
+
+        let newLeft = makeWorkspaceManagerTestMonitor(displayId: 30, name: "Left", x: 0, y: 0)
+        let newCenter = makeWorkspaceManagerTestMonitor(displayId: 40, name: "Replacement Center", x: 1000, y: 0)
+        let newRight = makeWorkspaceManagerTestMonitor(displayId: 50, name: "Replacement Right", x: 3000, y: 0)
+        let newMonitors = [newLeft, newCenter, newRight]
+
+        let expectedAssignments = resolveWorkspaceRestoreAssignments(
+            snapshots: [
+                WorkspaceRestoreSnapshot(monitor: .init(monitor: oldCenter), workspaceId: ws1),
+                WorkspaceRestoreSnapshot(monitor: .init(monitor: oldRight), workspaceId: ws3)
+            ],
+            monitors: newMonitors,
+            workspaceExists: { $0 == ws1 || $0 == ws3 }
+        )
+
+        manager.applyMonitorConfigurationChange(newMonitors)
+
+        #expect(expectedAssignments[newLeft.id] == nil)
+        #expect(expectedAssignments[newCenter.id] == ws1)
+        #expect(expectedAssignments[newRight.id] == ws3)
+        #expect(manager.activeWorkspace(on: newLeft.id) == nil)
+        #expect(manager.activeWorkspace(on: newCenter.id)?.id == expectedAssignments[newCenter.id])
+        #expect(manager.activeWorkspace(on: newRight.id)?.id == expectedAssignments[newRight.id])
+        #expect(manager.workspaces(on: newRight.id).map(\.id) == [ws2, ws3])
+    }
+
     @Test @MainActor func adjacentMonitorPrefersClosestDirectionalCandidate() {
         let defaults = makeWorkspaceManagerTestDefaults()
         let settings = SettingsStore(defaults: defaults)
@@ -922,7 +973,7 @@ private func workspaceConfigurations(
         #expect(manager.floatingState(for: newToken) == floatingState)
         #expect(manager.manualLayoutOverride(for: newToken) == .forceFloat)
         #expect(manager.layoutReason(for: newToken) == .macosHiddenApp)
-        #expect(manager.cachedConstraints(for: newToken) == constraints)
+        #expect(manager.cachedConstraints(for: newToken) == nil)
     }
 
     @Test @MainActor func floatingFocusDoesNotPoisonTiledPreferredFocus() {

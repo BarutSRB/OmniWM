@@ -78,13 +78,7 @@ final class MouseWarpHandler: NSObject {
                 return Unmanaged.passUnretained(event)
             }
 
-            let location = event.location
-            let screenLocation = ScreenCoordinateSpace.toAppKit(point: location)
-            precondition(Thread.isMainThread, "Mouse warp taps are expected on the main run loop")
-
-            MainActor.assumeIsolated {
-                MouseWarpHandler._instance?.receiveTapMouseWarpMoved(at: screenLocation)
-            }
+            _ = MouseWarpHandler.processTapCallback(event: event)
 
             return Unmanaged.passUnretained(event)
         }
@@ -138,8 +132,25 @@ final class MouseWarpHandler: NSObject {
         state.pendingWarpEvents.clear()
     }
 
+    func handleTapCallbackForTests(event: CGEvent, isMainThread: Bool) -> Bool {
+        Self.processTapCallback(event: event, isMainThread: isMainThread)
+    }
+
     func receiveTapMouseWarpMoved(at location: CGPoint) {
         enqueuePendingWarpMove(at: location)
+    }
+
+    nonisolated private static func processTapCallback(
+        event: CGEvent,
+        isMainThread: Bool = Thread.isMainThread
+    ) -> Bool {
+        guard isMainThread else { return false }
+
+        let screenLocation = ScreenCoordinateSpace.toAppKit(point: event.location)
+        MainActor.assumeIsolated {
+            MouseWarpHandler._instance?.receiveTapMouseWarpMoved(at: screenLocation)
+        }
+        return true
     }
 
     private func handleMouseWarpMoved(at location: CGPoint) {

@@ -56,6 +56,7 @@ private func makeMouseWarpTestFixture() -> (
         settings: settings,
         windowFocusOperations: operations
     )
+    controller.lockScreenObserver.frontmostApplicationProvider = { nil }
     let leftMonitor = makeMouseWarpTestMonitor(displayId: 1, name: "Left", x: 0)
     let rightMonitor = makeMouseWarpTestMonitor(displayId: 2, name: "Right", x: 1920)
     controller.workspaceManager.applyMonitorConfigurationChange([leftMonitor, rightMonitor])
@@ -90,6 +91,7 @@ private func makeVerticalMouseWarpTestFixture() -> (
         settings: settings,
         windowFocusOperations: operations
     )
+    controller.lockScreenObserver.frontmostApplicationProvider = { nil }
     let bottomMonitor = makeMouseWarpTestMonitor(displayId: 1, name: "Bottom", x: 0, y: 0, width: 1728)
     let topMonitor = makeMouseWarpTestMonitor(displayId: 2, name: "Top", x: 320, y: 1080, width: 2560)
     controller.workspaceManager.applyMonitorConfigurationChange([bottomMonitor, topMonitor])
@@ -205,6 +207,31 @@ private func waitUntilMouseWarpDrain(
 
         #expect(fixture.handler.state.lastMonitorId == fixture.rightMonitor.id)
         #expect(fixture.recorder.postedPoints == [expectedPoint])
+    }
+
+    @Test @MainActor func offMainThreadWarpTapCallbackFailsOpenWithoutQueueingState() {
+        let fixture = makeMouseWarpTestFixture()
+        defer { fixture.handler.cleanup() }
+
+        guard let event = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: CGPoint(x: 80, y: 90),
+            mouseButton: .left
+        ) else {
+            Issue.record("Failed to create CGEvent")
+            return
+        }
+
+        let processed = fixture.handler.handleTapCallbackForTests(
+            event: event,
+            isMainThread: false
+        )
+
+        #expect(processed == false)
+        #expect(fixture.handler.mouseWarpDebugSnapshot() == .init())
+        #expect(fixture.handler.state.pendingWarpEvents.hasPendingEvents == false)
+        #expect(fixture.recorder.postedPoints.isEmpty)
     }
 
     @Test @MainActor func policySeedsDefaultOrderBeforeWarpingFreshMultiMonitorSetup() {
