@@ -4623,6 +4623,62 @@ private func waitUntilAXEventTest(
         #expect(relayoutReasons == [.axWindowCreated])
     }
 
+    @Test @MainActor func builtInFloatingCreatePreservesUserWorkspaceAssignmentAndRuleEffects() async {
+        let controller = makeAXEventTestController(trackedBundleId: "com.apple.calculator")
+        controller.windowRuleEngine.rebuild(
+            rules: [
+                AppRule(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000164")!,
+                    bundleId: "com.apple.calculator",
+                    assignToWorkspace: "2",
+                    minWidth: 510,
+                    minHeight: 410
+                )
+            ]
+        )
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.apple.calculator",
+                appName: "Calculator",
+                title: "Calculator"
+            )
+        }
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 824, spaceId: 0)
+        )
+        await waitUntilAXEventTest {
+            controller.workspaceManager.entry(forPid: getpid(), windowId: 824) != nil &&
+                relayoutReasons == [.axWindowCreated]
+        }
+
+        guard let workspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false),
+              let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 824)
+        else {
+            Issue.record("Missing managed Calculator entry for built-in floating rule test")
+            return
+        }
+
+        #expect(entry.workspaceId == workspaceId)
+        #expect(entry.mode == .floating)
+        #expect(entry.ruleEffects.minWidth == 510)
+        #expect(entry.ruleEffects.minHeight == 410)
+        #expect(relayoutReasons == [.axWindowCreated])
+    }
+
     @Test @MainActor func cleanShotCaptureOverlayCreateIsTrackedAsFloating() async {
         let controller = makeAXEventTestController()
         let pid: pid_t = 5821

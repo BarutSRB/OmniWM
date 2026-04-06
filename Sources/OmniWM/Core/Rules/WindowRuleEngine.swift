@@ -319,11 +319,13 @@ final class WindowRuleEngine {
             return userDecision
         }
 
+        // Built-in layout can still inherit workspace assignment and sizing effects
+        // from a matching user auto rule.
         if let builtInRule,
            let builtInDecision = explicitDecision(
                builtInRule,
-               workspaceName: nil,
-               effects: .none
+               workspaceName: workspaceName,
+               effects: effects
            )
         {
             return builtInDecision

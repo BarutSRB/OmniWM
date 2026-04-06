@@ -131,6 +131,37 @@ private func configureWorkspacesAsDwindle(
         #expect(engine.findNode(for: handle2.id) == nil)
     }
 
+    @Test func syncWindowsPreservesCallerOrderForFreshLayouts() {
+        let forwardEngine = DwindleLayoutEngine()
+        let reverseEngine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let handleA = makeTestHandle(pid: 141)
+        let handleB = makeTestHandle(pid: 142)
+        let handleC = makeTestHandle(pid: 143)
+        let forwardOrder = [handleA, handleB, handleC]
+        let reverseOrder = [handleC, handleB, handleA]
+
+        _ = forwardEngine.syncWindows(forwardOrder, in: wsId, focusedHandle: nil)
+        _ = reverseEngine.syncWindows(reverseOrder, in: wsId, focusedHandle: nil)
+
+        guard let forwardRoot = forwardEngine.root(for: wsId),
+              let reverseRoot = reverseEngine.root(for: wsId)
+        else {
+            Issue.record("Expected Dwindle roots for fresh sync order test")
+            return
+        }
+
+        #expect(forwardRoot.collectAllWindows() == forwardOrder.map(\.id))
+        #expect(reverseRoot.collectAllWindows() == reverseOrder.map(\.id))
+        #expect(forwardEngine.selectedNode(in: wsId)?.windowToken == handleC.id)
+        #expect(reverseEngine.selectedNode(in: wsId)?.windowToken == handleA.id)
+
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        let forwardFrames = forwardEngine.calculateLayout(for: wsId, screen: screen)
+        let reverseFrames = reverseEngine.calculateLayout(for: wsId, screen: screen)
+        #expect(forwardFrames != reverseFrames)
+    }
+
     @Test func selectionSurvivesSiblingCollapseAfterRemoval() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()

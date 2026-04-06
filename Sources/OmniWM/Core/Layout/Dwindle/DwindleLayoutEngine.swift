@@ -339,7 +339,13 @@ final class DwindleLayoutEngine {
         let newWindows = Set(tokens)
 
         let toRemove = existingWindows.subtracting(newWindows)
-        let toAdd = newWindows.subtracting(existingWindows)
+        var queuedAdditions: Set<WindowToken> = []
+        var toAdd: [WindowToken] = []
+        toAdd.reserveCapacity(tokens.count)
+        for token in tokens where !existingWindows.contains(token) {
+            guard queuedAdditions.insert(token).inserted else { continue }
+            toAdd.append(token)
+        }
 
         for token in toRemove {
             removeWindow(token: token, from: workspaceId)

@@ -352,6 +352,41 @@ private func makeWindowRuleFacts(
         }
     }
 
+    @Test func builtInFloatingRulePreservesMatchedUserWorkspaceAndEffects() {
+        let engine = WindowRuleEngine()
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000132")!,
+            bundleId: "com.apple.calculator",
+            assignToWorkspace: "2",
+            minWidth: 510,
+            minHeight: 410
+        )
+        engine.rebuild(rules: [rule])
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "com.apple.calculator",
+                appName: "Calculator",
+                title: "Calculator"
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        #expect(decision.disposition == .floating)
+        #expect(decision.layoutDecisionKind == .explicitLayout)
+        #expect(decision.workspaceName == "2")
+        #expect(decision.ruleEffects.minWidth == 510)
+        #expect(decision.ruleEffects.minHeight == 410)
+        // The built-in rule supplies disposition, but the matched user rule still
+        // owns workspace assignment and sizing metadata.
+        #expect(decision.ruleEffects.matchedRuleId == rule.id)
+        if case .builtInRule("defaultFloatingApp") = decision.source {
+        } else {
+            Issue.record("Expected Calculator to use the built-in floating rule")
+        }
+    }
+
     @Test func invalidRegexIsTrackedAndExcludedFromCompiledRules() {
         let engine = WindowRuleEngine()
         let rule = AppRule(
