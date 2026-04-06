@@ -642,10 +642,18 @@ import QuartzCore
 
     func requestImmediateRelayout(
         reason: RefreshReason,
+        affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = [],
         postLayout: PostLayoutAction? = nil
     ) {
         assert(reason.requestRoute == .immediateRelayout, "Invalid immediate-relayout reason: \(reason)")
-        enqueueRefresh(.init(kind: .immediateRelayout, reason: reason, postLayout: postLayout))
+        enqueueRefresh(
+            .init(
+                kind: .immediateRelayout,
+                reason: reason,
+                affectedWorkspaceIds: affectedWorkspaceIds,
+                postLayout: postLayout
+            )
+        )
     }
 
     func requestVisibilityRefresh(
@@ -682,11 +690,15 @@ import QuartzCore
     }
 
     func commitWorkspaceTransition(
-        affectedWorkspaces _: Set<WorkspaceDescriptor.ID> = [],
+        affectedWorkspaces: Set<WorkspaceDescriptor.ID> = [],
         reason: RefreshReason = .workspaceTransition,
         postLayout: PostLayoutAction? = nil
     ) {
-        requestImmediateRelayout(reason: reason, postLayout: postLayout)
+        requestImmediateRelayout(
+            reason: reason,
+            affectedWorkspaceIds: affectedWorkspaces,
+            postLayout: postLayout
+        )
     }
 
     private func scheduleFullRescan(reason: RefreshReason) {

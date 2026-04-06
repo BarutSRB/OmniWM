@@ -78,6 +78,17 @@ final class WorkspaceNavigationHandler {
         controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?.id
     }
 
+    private func affectedWorkspaceIds(
+        sourceWorkspaceId: WorkspaceDescriptor.ID?,
+        targetWorkspaceId: WorkspaceDescriptor.ID
+    ) -> Set<WorkspaceDescriptor.ID> {
+        var ids: Set<WorkspaceDescriptor.ID> = [targetWorkspaceId]
+        if let sourceWorkspaceId {
+            ids.insert(sourceWorkspaceId)
+        }
+        return ids
+    }
+
     private func startWorkspaceSwitchAnimation(
         from previousWorkspace: WorkspaceDescriptor?,
         to targetWorkspace: WorkspaceDescriptor,
@@ -623,7 +634,13 @@ final class WorkspaceNavigationHandler {
         controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: sourceState.selectedNodeId)
         let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: wsId)
 
-        controller.layoutRefreshController.commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            affectedWorkspaces: affectedWorkspaceIds(
+                sourceWorkspaceId: wsId,
+                targetWorkspaceId: targetWorkspace.id
+            ),
+            reason: .workspaceTransition
+        ) { [weak controller] in
             if let focusToken {
                 controller?.focusWindow(focusToken)
             }
@@ -681,7 +698,13 @@ final class WorkspaceNavigationHandler {
         controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
         let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: wsId)
 
-        controller.layoutRefreshController.commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            affectedWorkspaces: affectedWorkspaceIds(
+                sourceWorkspaceId: wsId,
+                targetWorkspaceId: targetWorkspace.id
+            ),
+            reason: .workspaceTransition
+        ) { [weak controller] in
             if let focusToken {
                 controller?.focusWindow(focusToken)
             }
@@ -744,7 +767,13 @@ final class WorkspaceNavigationHandler {
         controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
         let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: wsId)
 
-        controller.layoutRefreshController.commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            affectedWorkspaces: affectedWorkspaceIds(
+                sourceWorkspaceId: wsId,
+                targetWorkspaceId: targetWsId
+            ),
+            reason: .workspaceTransition
+        ) { [weak controller] in
             if let focusToken {
                 controller?.focusWindow(focusToken)
             }
@@ -806,6 +835,10 @@ final class WorkspaceNavigationHandler {
                 rememberedFocusToken: token
             )
             controller.layoutRefreshController.commitWorkspaceTransition(
+                affectedWorkspaces: affectedWorkspaceIds(
+                    sourceWorkspaceId: currentWorkspaceId,
+                    targetWorkspaceId: target.id
+                ),
                 reason: .workspaceTransition
             ) { [weak controller] in
                 controller?.focusWindow(token)
@@ -822,6 +855,10 @@ final class WorkspaceNavigationHandler {
                 controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
             }
             controller.layoutRefreshController.commitWorkspaceTransition(
+                affectedWorkspaces: affectedWorkspaceIds(
+                    sourceWorkspaceId: currentWorkspaceId,
+                    targetWorkspaceId: target.id
+                ),
                 reason: .workspaceTransition
             ) { [weak controller] in
                 if let focusToken {
@@ -914,6 +951,10 @@ final class WorkspaceNavigationHandler {
             )
 
             controller.layoutRefreshController.commitWorkspaceTransition(
+                affectedWorkspaces: affectedWorkspaceIds(
+                    sourceWorkspaceId: currentWorkspaceId,
+                    targetWorkspaceId: targetWsId
+                ),
                 reason: .workspaceTransition
             ) { [weak controller] in
                 controller?.focusWindow(token)
@@ -923,7 +964,13 @@ final class WorkspaceNavigationHandler {
             controller.recoverSourceFocusAfterMove(in: currentWorkspaceId, preferredNodeId: sourceState.selectedNodeId)
             let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: currentWorkspaceId)
 
-            controller.layoutRefreshController.commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
+            controller.layoutRefreshController.commitWorkspaceTransition(
+                affectedWorkspaces: affectedWorkspaceIds(
+                    sourceWorkspaceId: currentWorkspaceId,
+                    targetWorkspaceId: targetWsId
+                ),
+                reason: .workspaceTransition
+            ) { [weak controller] in
                 if let focusToken {
                     controller?.focusWindow(focusToken)
                 }

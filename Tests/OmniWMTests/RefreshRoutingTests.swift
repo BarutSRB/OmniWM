@@ -1198,19 +1198,110 @@ private func prepareNiriState(
         controller.settings.workspaceConfigurations = [
             WorkspaceConfiguration(name: "2", layoutType: .dwindle)
         ]
+        controller.enableDwindleLayout()
+        await waitForRefreshWork(on: controller)
         controller.settings.focusFollowsWindowToMonitor = false
 
-        let recorder = RefreshEventRecorder()
-        installRefreshSpies(on: controller, recorder: recorder)
+        var relayoutEvents: [(RefreshReason, LayoutRefreshController.RefreshRoute)] = []
+        var fullRescanReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, route in
+            relayoutEvents.append((reason, route))
+            return false
+        }
+        controller.layoutRefreshController.debugHooks.onFullRescan = { reason in
+            fullRescanReasons.append(reason)
+            return false
+        }
 
         controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: 1)
         await waitForRefreshWork(on: controller)
 
-        #expect(recorder.relayoutEvents.map(\.0) == [.workspaceTransition])
-        #expect(recorder.relayoutEvents.map(\.1) == [.immediateRelayout])
-        #expect(recorder.fullRescanReasons.isEmpty)
-        #expect(controller.workspaceManager.lastFocusedToken(in: targetWorkspaceId) == nil)
-        assertNoLegacyReasons(recorder)
+        #expect(relayoutEvents.map(\.0) == [.workspaceTransition])
+        #expect(relayoutEvents.map(\.1) == [.immediateRelayout])
+        #expect(fullRescanReasons.isEmpty)
+        #expect(controller.workspaceManager.lastFocusedToken(in: targetWorkspaceId) == WindowToken(pid: getpid(), windowId: 304))
+        #expect(
+            dwindleTokenSet(controller: controller, workspaceId: targetWorkspaceId)
+                == Set([WindowToken(pid: getpid(), windowId: 304)])
+        )
+        let observedReasons = relayoutEvents.map(\.0.rawValue) + fullRescanReasons.map(\.rawValue)
+        #expect(!observedReasons.contains("legacyImmediateCallsite"))
+        #expect(!observedReasons.contains("legacyCallsite"))
+    }
+
+    @Test @MainActor func moveFocusedWindowsToInactiveDwindleWorkspaceBootstrapsRecursiveLayout() async {
+        let controller = makeRefreshTestController()
+        guard let sourceWorkspaceId = controller.activeWorkspace()?.id,
+              let targetWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
+        else {
+            Issue.record("Missing source or target workspace for Dwindle bootstrap test")
+            return
+        }
+
+        configureWorkspaceLayouts(
+            on: controller,
+            layoutsByName: [
+                "1": .defaultLayout,
+                "2": .dwindle
+            ]
+        )
+        controller.enableDwindleLayout()
+        await waitForRefreshWork(on: controller)
+
+        let handlesByWindowId = await prepareNiriState(
+            on: controller,
+            assignments: [
+                (sourceWorkspaceId, 3_401),
+                (sourceWorkspaceId, 3_402),
+                (sourceWorkspaceId, 3_403)
+            ],
+            focusedWindowId: 3_401,
+            ensureWorkspaces: [targetWorkspaceId]
+        )
+        let movedTokens = Set(
+            [3_401, 3_402, 3_403].compactMap { handlesByWindowId[$0]?.id }
+        )
+        controller.settings.focusFollowsWindowToMonitor = false
+
+        controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: 1)
+        await waitForRefreshWork(on: controller)
+        guard let secondHandle = controller.workspaceManager.resolveWorkspaceFocus(in: sourceWorkspaceId) else {
+            Issue.record("Missing second source focus after first background send")
+            return
+        }
+        _ = controller.workspaceManager.setManagedFocus(
+            secondHandle,
+            in: sourceWorkspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: sourceWorkspaceId)
+        )
+
+        controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: 1)
+        await waitForRefreshWork(on: controller)
+        guard let thirdHandle = controller.workspaceManager.resolveWorkspaceFocus(in: sourceWorkspaceId) else {
+            Issue.record("Missing third source focus after second background send")
+            return
+        }
+        _ = controller.workspaceManager.setManagedFocus(
+            thirdHandle,
+            in: sourceWorkspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: sourceWorkspaceId)
+        )
+
+        controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: 1)
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.activeWorkspace()?.id == sourceWorkspaceId)
+        #expect(dwindleTokenSet(controller: controller, workspaceId: targetWorkspaceId) == movedTokens)
+
+        controller.workspaceNavigationHandler.switchWorkspace(index: 1)
+        await waitForSettledRefreshWork(on: controller)
+
+        let frames = controller.dwindleEngine?.currentFrames(in: targetWorkspaceId) ?? [:]
+        let roundedHeights = Set(frames.values.map { Int($0.height.rounded()) })
+
+        #expect(Set(frames.keys) == movedTokens)
+        #expect(roundedHeights.count > 1)
     }
 
     @Test @MainActor func summonWindowRightIntoNiriUsesImmediateRelayoutOnly() async {
