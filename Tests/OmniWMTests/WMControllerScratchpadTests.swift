@@ -269,11 +269,9 @@ private func setScratchpadTestFrame(
             return
         }
 
-        let startedWrite = DispatchSemaphore(value: 0)
         let releaseWrite = DispatchSemaphore(value: 0)
         AXWindowService.setFrameResultProviderForTests = { axRef, frame, currentFrameHint in
             if axRef.windowId == token.windowId {
-                startedWrite.signal()
                 _ = releaseWrite.wait(timeout: .now() + 1)
             }
 
@@ -291,11 +289,12 @@ private func setScratchpadTestFrame(
 
         controller.toggleScratchpadWindow()
 
-        let sawWriteStart = await Task.detached {
-            waitForSemaphoreForTests(startedWrite, timeout: .now() + 1) == .success
-        }.value
+        let observedPendingReveal = await waitForConditionForTests {
+            controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true
+                && controller.axManager.hasPendingFrameWrite(for: token.windowId)
+        }
 
-        #expect(sawWriteStart)
+        #expect(observedPendingReveal)
         #expect(recorder.events.isEmpty)
         #expect(controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true)
         #expect(controller.axManager.hasPendingFrameWrite(for: token.windowId))
