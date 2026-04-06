@@ -122,27 +122,29 @@ OmniWM has **zero third-party package dependencies**. All functionality is built
 
 - **System frameworks**: AppKit, ApplicationServices, Carbon, Metal, MetalKit, QuartzCore
 - **SkyLight**: A private Apple framework for low-latency window server access, linked via `-framework SkyLight` unsafe flag
-- **GhosttyKit**: A local binary xcframework at `Frameworks/GhosttyKit.xcframework` prepared outside git, providing terminal emulation for the Quake Terminal feature
+- **GhosttyKit**: A local binary xcframework at `Frameworks/GhosttyKit.xcframework`, validated against the pinned path and SHA-256 in `Scripts/build-metadata.env`, providing terminal emulation for the Quake Terminal feature
 - **System libraries**: libz, libc++
-- **Zig kernels**: `Zig/omniwm_kernels/src/`, built into `.build/zig-kernels/lib/libomniwm_kernels.a` by `./Scripts/build-zig-kernels.sh`
-- **Zig toolchain**: required to rebuild the leaf-kernel static library via `./Scripts/build-zig-kernels.sh`
+- **Zig kernels**: `Zig/omniwm_kernels/src/`, built into `.build/zig-kernels/lib/libomniwm_kernels.a` by `./Scripts/build-zig-kernels.sh` and statically linked into the `OmniWM` executable, so official releases remain a single signed/notarized app bundle
+- **Zig toolchain**: required to rebuild the leaf-kernel static library and pinned via `Scripts/build-metadata.env`
 
 ### Building & Running
 
 ```bash
 # Debug build
-./Scripts/build-zig-kernels.sh debug
-swift build
+make build
 
 # Run tests
-./Scripts/build-zig-kernels.sh debug
-zig test Zig/omniwm_kernels/src/root.zig
-swift test
+make test
+make kernels-test
 
-# Code quality
+# Code quality and pre-PR verification
 make lint          # SwiftLint check
 make format        # SwiftFormat
-make check         # Verify formatting
+make verify        # Lint + build + tests with pinned build inputs
+make check         # Compatibility alias for make verify
+
+# Release preflight
+make release-check # Release-grade preflight before packaging or /release use
 
 # Create distributable app bundle
 ./Scripts/package-app.sh release true    # Build, sign, notarize
@@ -1006,9 +1008,11 @@ OmniWM uses SkyLight (private macOS framework) for low-latency window operations
 
 ## 7. Testing
 
-**Runner:** `./Scripts/build-zig-kernels.sh debug && swift test` via SwiftPM. Requires macOS 15+ and the Zig toolchain to rebuild the leaf kernels from source.
+**Runner:** `make test` via SwiftPM. Requires macOS 15+ and the pinned Zig toolchain in `Scripts/build-metadata.env`.
 
-**Kernel tests:** `cd Zig/omniwm_kernels && zig build test`
+**Kernel tests:** `make kernels-test`
+
+**Release preflight:** `make release-check`
 
 **Test directory:** `Tests/OmniWMTests/`
 
