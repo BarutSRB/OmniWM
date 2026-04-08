@@ -158,7 +158,10 @@ private func hasPendingNiriAnimationWork(
                 policy: .coordinated
             )
         } else {
-            _ = controller.renderKeyboardFocusBorder(policy: .coordinated)
+            _ = controller.renderKeyboardFocusBorder(
+                policy: .coordinated,
+                source: .borderReapplyAnimationSettled
+            )
         }
 
         if controller.moveMouseToFocusedWindowEnabled,

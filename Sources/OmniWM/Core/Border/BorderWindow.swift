@@ -1,6 +1,31 @@
 import AppKit
 import QuartzCore
 
+struct BorderOrderingMetadata: Equatable {
+    let level: Int32
+    let relativeTo: UInt32
+    let order: SkyLightWindowOrder
+    let cornerRadius: CGFloat?
+
+    static func fallback(
+        relativeTo targetWid: UInt32,
+        level: Int32 = 3,
+        cornerRadius: CGFloat? = nil
+    ) -> Self {
+        Self(
+            level: level,
+            relativeTo: targetWid,
+            order: .below,
+            cornerRadius: cornerRadius
+        )
+    }
+
+    var resolvedCornerRadius: CGFloat? {
+        guard let cornerRadius, cornerRadius >= 0 else { return nil }
+        return cornerRadius
+    }
+}
+
 @MainActor
 final class BorderWindow {
     struct Operations {
@@ -46,15 +71,17 @@ final class BorderWindow {
     private var currentFrame: CGRect = .zero
     private var currentTargetFrame: CGRect = .zero
     private var currentTargetWid: UInt32 = 0
+    private var currentOrderingMetadata: BorderOrderingMetadata?
     private var origin: CGPoint = .zero
     private var needsRedraw = true
     private var isVisible = false
-    private var lastOrderedTargetWid: UInt32 = 0
+    private var hasLiveOwner = false
+    private var lastAppliedOrderingMetadata: BorderOrderingMetadata?
     private var lastConfiguredScale: CGFloat = 0
 
     private let padding: CGFloat = 8.0
-    private let cornerRadius: CGFloat = 9.0
-    private let orderingLevel: Int32 = 3
+    private let defaultCornerRadius: CGFloat = 9.0
+    private let fallbackOrderingLevel: Int32 = 3
 
     init(config: BorderConfig, operations: Operations = .live) {
         self.config = config
@@ -67,14 +94,19 @@ final class BorderWindow {
             operations.releaseBorderWindow(wid)
             wid = 0
         }
-        isVisible = false
-        lastOrderedTargetWid = 0
-        currentTargetWid = 0
+        clearOwnerDerivedState()
+        lastConfiguredScale = 0
     }
 
-    func update(frame targetFrame: CGRect, targetWid: UInt32) {
+    func update(
+        frame targetFrame: CGRect,
+        targetWid: UInt32,
+        ordering orderingMetadata: BorderOrderingMetadata? = nil
+    ) {
         let borderWidth = config.width
         let scale = operations.backingScaleForFrame(targetFrame)
+        let resolvedOrderingMetadata = orderingMetadata
+            ?? .fallback(relativeTo: targetWid, level: fallbackOrderingLevel)
 
         let borderOffset = -borderWidth - padding
         var frame = targetFrame.insetBy(dx: borderOffset, dy: borderOffset)
@@ -109,18 +141,25 @@ final class BorderWindow {
             reshapeWindow(frame: frame)
             needsRedraw = true
         }
+        if currentOrderingMetadata?.resolvedCornerRadius != resolvedOrderingMetadata.resolvedCornerRadius {
+            needsRedraw = true
+        }
         currentTargetFrame = targetFrame
         currentTargetWid = targetWid
         currentFrame = frame
+        currentOrderingMetadata = resolvedOrderingMetadata
+        hasLiveOwner = true
 
         if needsRedraw {
             draw(frame: frame, drawingBounds: drawingBounds)
         }
 
-        let needsOrdering = createdWindow || !isVisible || lastOrderedTargetWid != targetWid
-        move(relativeTo: targetWid, needsOrdering: needsOrdering)
+        let needsOrdering = createdWindow
+            || !isVisible
+            || lastAppliedOrderingMetadata != resolvedOrderingMetadata
+        move(ordering: resolvedOrderingMetadata, needsOrdering: needsOrdering)
         isVisible = true
-        lastOrderedTargetWid = targetWid
+        lastAppliedOrderingMetadata = resolvedOrderingMetadata
     }
 
     private func createWindow(frame: CGRect, scale: CGFloat) {
@@ -146,6 +185,7 @@ final class BorderWindow {
         needsRedraw = false
 
         let borderWidth = config.width
+        let cornerRadius = currentOrderingMetadata?.resolvedCornerRadius ?? defaultCornerRadius
         let outerRadius = cornerRadius + borderWidth
 
         context.saveGState()
@@ -181,9 +221,15 @@ final class BorderWindow {
         operations.flushWindow(wid)
     }
 
-    private func move(relativeTo targetWid: UInt32, needsOrdering: Bool) {
+    private func move(ordering: BorderOrderingMetadata, needsOrdering: Bool) {
         if needsOrdering {
-            operations.transactionMoveAndOrder(wid, origin, orderingLevel, targetWid, .below)
+            operations.transactionMoveAndOrder(
+                wid,
+                origin,
+                ordering.level,
+                ordering.relativeTo,
+                ordering.order
+            )
             return
         }
 
@@ -191,25 +237,48 @@ final class BorderWindow {
     }
 
     func hide() {
-        guard wid != 0 else { return }
-        operations.transactionHide(wid)
-        isVisible = false
-        lastOrderedTargetWid = 0
+        if wid != 0 {
+            operations.transactionHide(wid)
+        }
+        clearOwnerDerivedState()
     }
 
     func updateConfig(_ newConfig: BorderConfig) {
         let needsRedrawForColor = config.color != newConfig.color
         let needsRedrawForWidth = config.width != newConfig.width
         config = newConfig
-        if needsRedrawForColor || needsRedrawForWidth {
-            if wid != 0, currentTargetWid != 0 {
-                needsRedraw = true
-                update(frame: currentTargetFrame, targetWid: currentTargetWid)
-            }
+        guard needsRedrawForColor || needsRedrawForWidth else { return }
+
+        needsRedraw = true
+
+        guard isVisible,
+              hasLiveOwner,
+              wid != 0,
+              currentTargetWid != 0,
+              !currentTargetFrame.isEmpty
+        else {
+            return
         }
+
+        update(
+            frame: currentTargetFrame,
+            targetWid: currentTargetWid,
+            ordering: currentOrderingMetadata
+        )
     }
 
     var windowId: UInt32? {
         wid == 0 ? nil : wid
+    }
+
+    private func clearOwnerDerivedState() {
+        currentFrame = .zero
+        currentTargetFrame = .zero
+        currentTargetWid = 0
+        currentOrderingMetadata = nil
+        origin = .zero
+        isVisible = false
+        hasLiveOwner = false
+        lastAppliedOrderingMetadata = nil
     }
 }

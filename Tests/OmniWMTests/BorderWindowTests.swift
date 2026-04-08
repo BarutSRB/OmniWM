@@ -23,6 +23,7 @@ private func makeBorderTestContext() -> CGContext? {
         var flushCount = 0
         var moveOnlyOrigins: [CGPoint] = []
         var orderedTargets: [UInt32] = []
+        var orderedLevels: [Int32] = []
 
         let operations = BorderWindow.Operations(
             createBorderWindow: { _ in 900 },
@@ -33,7 +34,10 @@ private func makeBorderTestContext() -> CGContext? {
             setWindowShape: { _, frame in reshapeFrames.append(frame) },
             flushWindow: { _ in flushCount += 1 },
             transactionMove: { _, origin in moveOnlyOrigins.append(origin) },
-            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionMoveAndOrder: { _, _, level, targetWid, _ in
+                orderedLevels.append(level)
+                orderedTargets.append(targetWid)
+            },
             transactionHide: { _ in },
             backingScaleForFrame: { _ in 2.0 }
         )
@@ -66,6 +70,7 @@ private func makeBorderTestContext() -> CGContext? {
         #expect(flushCount == 2)
         #expect(moveOnlyOrigins.count == 2)
         #expect(orderedTargets == [101])
+        #expect(orderedLevels == [3])
     }
 
     @Test @MainActor func hiddenBorderReordersOnNextShow() {
@@ -99,6 +104,85 @@ private func makeBorderTestContext() -> CGContext? {
         #expect(moveOnlyCount == 0)
         #expect(orderedTargets == [111, 111])
         #expect(hideCount == 1)
+    }
+
+    @Test @MainActor func hiddenConfigChangeDoesNotReplayStaleTargetState() {
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+        var hideCount = 0
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 903 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, _ in },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in hideCount += 1 },
+            backingScaleForFrame: { _ in 2.0 }
+        )
+        let borderWindow = BorderWindow(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            operations: operations
+        )
+
+        let frame = CGRect(x: 100, y: 70, width: 700, height: 480)
+        borderWindow.update(frame: frame, targetWid: 121)
+        borderWindow.hide()
+        borderWindow.updateConfig(
+            BorderConfig(enabled: true, width: 10, color: .systemRed)
+        )
+
+        #expect(flushCount == 1)
+        #expect(moveOnlyCount == 0)
+        #expect(orderedTargets == [121])
+        #expect(hideCount == 1)
+    }
+
+    @Test @MainActor func hiddenConfigChangeAppliesNewWidthAndTriggersRedrawOnNextShow() {
+        var reshapeFrames: [CGRect] = []
+        var flushCount = 0
+        var orderedTargets: [UInt32] = []
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 904 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, frame in reshapeFrames.append(frame) },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in 2.0 }
+        )
+        let borderWindow = BorderWindow(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            operations: operations
+        )
+
+        let initialFrame = CGRect(x: 150, y: 110, width: 640, height: 360)
+        borderWindow.update(frame: initialFrame, targetWid: 131)
+        borderWindow.hide()
+        borderWindow.updateConfig(
+            BorderConfig(enabled: true, width: 10, color: .systemRed)
+        )
+
+        let nextFrame = initialFrame.offsetBy(dx: 32, dy: 18)
+        borderWindow.update(frame: nextFrame, targetWid: 132)
+
+        let expectedInset = -10.0 - 8.0
+        let expectedFrameSize = nextFrame.insetBy(dx: expectedInset, dy: expectedInset)
+            .roundedToPhysicalPixels(scale: 2.0)
+            .size
+        #expect(reshapeFrames.last?.size == expectedFrameSize)
+        #expect(flushCount == 2)
+        #expect(orderedTargets == [131, 132])
     }
 
     @Test @MainActor func reconfiguresExistingWindowWhenBackingScaleChanges() {

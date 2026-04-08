@@ -315,10 +315,22 @@ final class WMController {
     }
 
     func setBordersEnabled(_ enabled: Bool) {
+        if !enabled {
+            _ = borderCoordinator.hideBorder(
+                source: .cleanup,
+                reason: "borders disabled"
+            )
+        }
         borderManager.setEnabled(enabled)
     }
 
     func updateBorderConfig(_ config: BorderConfig) {
+        if !config.enabled {
+            _ = borderCoordinator.hideBorder(
+                source: .cleanup,
+                reason: "border config disabled"
+            )
+        }
         borderManager.updateConfig(config)
     }
 
@@ -1129,7 +1141,10 @@ final class WMController {
 
         _ = workspaceManager.resolveAndSetWorkspaceFocusToken(in: workspaceId, onMonitor: monitorId)
         if workspaceManager.focusedToken == nil {
-            borderManager.hideBorder()
+            hideKeyboardFocusBorder(
+                source: .focusClear,
+                reason: "scratchpad hide cleared focused token"
+            )
         }
     }
 
@@ -1230,7 +1245,8 @@ final class WMController {
                     if currentKeyboardFocusTargetForRendering()?.token == token {
                         _ = renderKeyboardFocusBorder(
                             preferredFrame: targetFrame,
-                            policy: .coordinated
+                            policy: .coordinated,
+                            source: .replacementSettle
                         )
                     }
                 }
@@ -2105,12 +2121,31 @@ extension WMController {
     func renderKeyboardFocusBorder(
         for target: KeyboardFocusTarget? = nil,
         preferredFrame: CGRect? = nil,
-        policy: KeyboardFocusBorderRenderPolicy = .coordinated
+        policy: KeyboardFocusBorderRenderPolicy = .coordinated,
+        source: BorderReconcileSource = .manualRender
     ) -> Bool {
         borderCoordinator.renderBorder(
             for: target ?? currentKeyboardFocusTargetForRendering(),
             preferredFrame: preferredFrame,
-            policy: policy
+            policy: policy,
+            source: source
+        )
+    }
+
+    @discardableResult
+    func hideKeyboardFocusBorder(
+        source: BorderReconcileSource,
+        reason: String,
+        matchingToken: WindowToken? = nil,
+        matchingPid: pid_t? = nil,
+        matchingWindowId: Int? = nil
+    ) -> Bool {
+        borderCoordinator.hideBorder(
+            source: source,
+            reason: reason,
+            matchingToken: matchingToken,
+            matchingPid: matchingPid,
+            matchingWindowId: matchingWindowId
         )
     }
 
@@ -2123,7 +2158,19 @@ extension WMController {
     ) -> Bool {
         guard currentKeyboardFocusTargetForRendering()?.token == token else { return false }
         recordNiriCreateFocusTrace(.borderReapplied(token: token, phase: phase))
-        return renderKeyboardFocusBorder(preferredFrame: preferredFrame, policy: policy)
+        let source: BorderReconcileSource = switch phase {
+        case .postLayout:
+            .borderReapplyPostLayout
+        case .animationSettled:
+            .borderReapplyAnimationSettled
+        case .retryExhaustedFallback:
+            .borderReapplyRetryExhaustedFallback
+        }
+        return renderKeyboardFocusBorder(
+            preferredFrame: preferredFrame,
+            policy: policy,
+            source: source
+        )
     }
 
     func clearKeyboardFocusTarget(
@@ -2133,7 +2180,10 @@ extension WMController {
     ) {
         focusBridge.clearFocusedTarget(matching: token, pid: pid)
         guard restoreCurrentBorder else { return }
-        _ = renderKeyboardFocusBorder(policy: .direct)
+        _ = renderKeyboardFocusBorder(
+            policy: .direct,
+            source: .focusClear
+        )
     }
 
     func recordNiriCreateFocusTrace(_ kind: NiriCreateFocusTraceEvent.Kind) {

@@ -7,10 +7,16 @@ final class BorderManager {
     private var config: BorderConfig
     private var lastAppliedFrame: CGRect?
     private var lastAppliedWindowId: Int?
+    private var lastAppliedOrderingMetadata: BorderOrderingMetadata?
     private let surfaceCoordinator = SurfaceCoordinator.shared
+    private let borderWindowFactory: @MainActor (BorderConfig) -> BorderWindow
 
-    init(config: BorderConfig = BorderConfig()) {
+    init(
+        config: BorderConfig = BorderConfig(),
+        borderWindowFactory: @escaping @MainActor (BorderConfig) -> BorderWindow = { BorderWindow(config: $0) }
+    ) {
         self.config = config
+        self.borderWindowFactory = borderWindowFactory
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -31,7 +37,11 @@ final class BorderManager {
         }
     }
 
-    func updateFocusedWindow(frame: CGRect, windowId: Int?) {
+    func updateFocusedWindow(
+        frame: CGRect,
+        windowId: Int?,
+        ordering: BorderOrderingMetadata? = nil
+    ) {
         guard config.enabled else { return }
         guard frame.width > 0, frame.height > 0 else {
             hideBorder()
@@ -41,25 +51,28 @@ final class BorderManager {
         if let last = lastAppliedFrame,
            let lastWid = lastAppliedWindowId,
            lastWid == windowId,
+           lastAppliedOrderingMetadata == ordering,
            frame.approximatelyEqual(to: last, tolerance: 0.5) {
             return
         }
 
         if borderWindow == nil {
-            borderWindow = BorderWindow(config: config)
+            borderWindow = borderWindowFactory(config)
         }
 
         guard let windowId else {
             borderWindow?.hide()
             lastAppliedFrame = nil
             lastAppliedWindowId = nil
+            lastAppliedOrderingMetadata = nil
             return
         }
 
         let targetWid = UInt32(windowId)
-        borderWindow?.update(frame: frame, targetWid: targetWid)
+        borderWindow?.update(frame: frame, targetWid: targetWid, ordering: ordering)
         lastAppliedFrame = frame
         lastAppliedWindowId = windowId
+        lastAppliedOrderingMetadata = ordering
         syncSurfaceRegistration()
     }
 
@@ -67,6 +80,7 @@ final class BorderManager {
         borderWindow?.hide()
         lastAppliedFrame = nil
         lastAppliedWindowId = nil
+        lastAppliedOrderingMetadata = nil
         surfaceCoordinator.unregister(id: surfaceID)
     }
 

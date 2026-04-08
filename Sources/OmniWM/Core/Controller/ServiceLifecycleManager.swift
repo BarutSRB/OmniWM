@@ -173,7 +173,10 @@ final class ServiceLifecycleManager {
         guard let controller else { return }
         // Invalidate border cache so it gets fully recomputed after monitor change
         // (prevents stale geometry when display ID or coordinate space changes, e.g. KVM switch)
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .monitorConfigurationChanged,
+            reason: "monitor configuration changed"
+        )
         guard !currentMonitors.isEmpty else { return }
         guard currentMonitors.allSatisfy({ $0.frame.width > 1 && $0.frame.height > 1 }) else { return }
 
@@ -201,7 +204,10 @@ final class ServiceLifecycleManager {
                 controller.ensureFocusedTokenValid(in: workspaceId)
             }
         }
-        _ = controller.renderKeyboardFocusBorder(policy: .direct)
+        _ = controller.renderKeyboardFocusBorder(
+            policy: .direct,
+            source: .appTerminated
+        )
         controller.appInfoCache.evict(pid: pid)
         controller.layoutRefreshController.requestFullRescan(reason: .appTerminated)
     }
@@ -225,7 +231,10 @@ final class ServiceLifecycleManager {
 
     func handleActiveSpaceDidChange() {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .activeSpaceChanged,
+            reason: "active space changed"
+        )
         controller.workspaceManager.recordReconcileEvent(.activeSpaceChanged(source: .service))
         controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
     }
@@ -333,7 +342,7 @@ final class ServiceLifecycleManager {
         controller.axEventHandler.cleanup()
 
         controller.tabbedOverlayManager.removeAll()
-        controller.borderManager.cleanup()
+        controller.borderCoordinator.cleanup()
         controller.cleanupUIOnStop()
 
         controller.axManager.cleanup()

@@ -869,7 +869,10 @@ import QuartzCore
     }
 
     private func refreshFocusedBorderForVisibilityState(on controller: WMController) {
-        _ = controller.renderKeyboardFocusBorder(policy: .coordinated)
+        _ = controller.renderKeyboardFocusBorder(
+            policy: .coordinated,
+            source: .borderReapplyPostLayout
+        )
     }
 
     func waitForRefreshWorkForTests() async {
@@ -2820,7 +2823,10 @@ final class LayoutDiffExecutor {
            focusedFrame == nil,
            fallbackPreferredFrame == nil
         {
-            controller.borderManager.hideBorder()
+            controller.hideKeyboardFocusBorder(
+                source: .borderReapplyPostLayout,
+                reason: "managed direct border update had no frame"
+            )
             return
         }
         guard !shouldIgnoreStaleManagedBorderUpdate(target: target, focusedFrame: focusedFrame) else {
@@ -2836,7 +2842,8 @@ final class LayoutDiffExecutor {
         _ = controller.renderKeyboardFocusBorder(
             for: target,
             preferredFrame: preferredFrame,
-            policy: .direct
+            policy: .direct,
+            source: .borderReapplyPostLayout
         )
     }
 
@@ -2853,7 +2860,10 @@ final class LayoutDiffExecutor {
            focusedFrame == nil,
            fallbackPreferredFrame == nil
         {
-            controller.borderManager.hideBorder()
+            controller.hideKeyboardFocusBorder(
+                source: .borderReapplyPostLayout,
+                reason: "managed coordinated border update had no frame"
+            )
             return
         }
         guard !shouldIgnoreStaleManagedBorderUpdate(target: target, focusedFrame: focusedFrame) else {
@@ -2869,7 +2879,8 @@ final class LayoutDiffExecutor {
         _ = controller.renderKeyboardFocusBorder(
             for: target,
             preferredFrame: preferredFrame,
-            policy: .coordinated
+            policy: .coordinated,
+            source: .borderReapplyPostLayout
         )
     }
 

@@ -275,9 +275,11 @@ final class AXEventHandler: CGSEventDelegate {
             handleCGSWindowCreated(windowId: windowId)
 
         case let .destroyed(windowId, _):
+            _ = controller.borderCoordinator.reconcile(event: .cgsDestroyed(windowId: windowId))
             handleCGSWindowDestroyed(windowId: windowId)
 
         case let .closed(windowId):
+            _ = controller.borderCoordinator.reconcile(event: .cgsClosed(windowId: windowId))
             handleCGSWindowDestroyed(windowId: windowId)
 
         case let .frameChanged(windowId):
@@ -448,6 +450,7 @@ final class AXEventHandler: CGSEventDelegate {
 
     private func handleFrameChanged(windowId: UInt32) {
         guard let controller else { return }
+        _ = controller.borderCoordinator.reconcile(event: .cgsFrameChanged(windowId: windowId))
         guard let token = resolveTrackedToken(windowId) else { return }
         guard let entry = controller.workspaceManager.entry(for: token) else { return }
 
@@ -455,7 +458,13 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
-        updateFocusedBorderForFrameChange(token: token)
+        if let frame = frameProvider?(entry.axRef)
+            ?? fastFrameProvider?(entry.axRef)
+            ?? AXWindowService.framePreferFast(entry.axRef)
+            ?? (try? AXWindowService.frame(entry.axRef))
+        {
+            updateManagedReplacementFrame(frame, for: entry)
+        }
 
         if entry.mode == .floating {
             if let frame = frameProvider?(entry.axRef)
@@ -475,27 +484,6 @@ final class AXEventHandler: CGSEventDelegate {
 
         debugCounters.geometryRelayoutRequests += 1
         controller.layoutRefreshController.requestRelayout(reason: .axWindowChanged)
-    }
-
-    private func updateFocusedBorderForFrameChange(token: WindowToken) {
-        guard let controller else { return }
-        guard let target = controller.currentKeyboardFocusTargetForRendering(),
-              target.token == token,
-              let entry = controller.workspaceManager.entry(for: token)
-        else { return }
-
-        if let frame = frameProvider?(entry.axRef)
-            ?? fastFrameProvider?(entry.axRef)
-            ?? AXWindowService.framePreferFast(entry.axRef)
-            ?? (try? AXWindowService.frame(entry.axRef))
-        {
-            updateManagedReplacementFrame(frame, for: entry)
-            _ = controller.renderKeyboardFocusBorder(
-                for: target,
-                preferredFrame: frame,
-                policy: .coordinated
-            )
-        }
     }
 
     private func handleCGSWindowDestroyed(windowId: UInt32) {
@@ -796,7 +784,10 @@ final class AXEventHandler: CGSEventDelegate {
 
         _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         controller.clearManualWindowOverride(for: token)
-        _ = controller.renderKeyboardFocusBorder(policy: .direct)
+        _ = controller.renderKeyboardFocusBorder(
+            policy: .direct,
+            source: .cgsDestroyed
+        )
 
         if let wsId = affectedWorkspaceId {
             controller.layoutRefreshController.requestWindowRemoval(
@@ -852,7 +843,11 @@ final class AXEventHandler: CGSEventDelegate {
                 appFullscreen: false,
                 preserveFocusedToken: true
             )
-            controller.borderManager.hideBorder()
+            controller.hideKeyboardFocusBorder(
+                source: .frontmostAppChanged,
+                reason: "owned window became frontmost",
+                matchingPid: pid
+            )
             return
         }
 
@@ -1014,7 +1009,11 @@ final class AXEventHandler: CGSEventDelegate {
             observedAppFullscreen: appFullscreen
         )
         _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: fallbackFullscreen)
-        _ = controller.renderKeyboardFocusBorder(for: target, policy: .direct)
+        _ = controller.renderKeyboardFocusBorder(
+            for: target,
+            policy: .direct,
+            source: borderReconcileSource(for: source)
+        )
 
         recordNiriCreateFocusTrace(
             .init(
@@ -1112,12 +1111,14 @@ final class AXEventHandler: CGSEventDelegate {
             _ = controller.renderKeyboardFocusBorder(
                 for: target,
                 preferredFrame: node.renderedFrame ?? node.frame,
-                policy: .direct
+                policy: .direct,
+                source: borderReconcileSource(for: source)
             )
         } else {
             _ = controller.renderKeyboardFocusBorder(
                 for: target,
-                policy: .direct
+                policy: .direct,
+                source: borderReconcileSource(for: source)
             )
         }
 
@@ -1147,7 +1148,11 @@ final class AXEventHandler: CGSEventDelegate {
         guard let controller else { return false }
         cancelNativeFullscreenLifecycleTasks(containing: entry.token)
         let changed = controller.workspaceManager.markNativeFullscreenSuspended(entry.token)
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .nativeFullscreenEnter,
+            reason: "managed window entered native fullscreen",
+            matchingToken: entry.token
+        )
         return changed
     }
 
@@ -1250,7 +1255,7 @@ final class AXEventHandler: CGSEventDelegate {
         subscribeToWindows([windowId])
         controller.requestWorkspaceBarRefresh()
         controller.niriLayoutHandler.updateTabbedColumnOverlays()
-        refreshBorderAfterManagedRekey(entry: entry)
+        refreshBorderAfterManagedRekey(from: oldToken, entry: entry)
 
         Task { @MainActor [weak self] in
             guard let self, let controller = self.controller else { return }
@@ -1276,7 +1281,11 @@ final class AXEventHandler: CGSEventDelegate {
             return false
         }
 
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .nativeFullscreenEnter,
+            reason: "native fullscreen window destroyed",
+            matchingToken: token
+        )
         scheduleNativeFullscreenFollowup(for: unavailableRecord.originalToken)
         return true
     }
@@ -1298,7 +1307,11 @@ final class AXEventHandler: CGSEventDelegate {
                 appFullscreen: false,
                 preserveFocusedToken: true
             )
-            controller.borderManager.hideBorder()
+            controller.hideKeyboardFocusBorder(
+                source: .appHide,
+                reason: "focused app hidden",
+                matchingPid: pid
+            )
         }
 
         for entry in controller.workspaceManager.entries(forPid: pid) {
@@ -1316,6 +1329,10 @@ final class AXEventHandler: CGSEventDelegate {
                 _ = controller.workspaceManager.restoreFromNativeState(for: entry.token)
             }
         }
+        _ = controller.renderKeyboardFocusBorder(
+            policy: .direct,
+            source: .appUnhide
+        )
         controller.layoutRefreshController.requestVisibilityRefresh(reason: .appUnhidden)
     }
 
@@ -1844,15 +1861,24 @@ final class AXEventHandler: CGSEventDelegate {
             && abs(lhs.height - rhs.height) <= 64
     }
 
-    private func refreshBorderAfterManagedRekey(entry: WindowModel.Entry) {
+    private func refreshBorderAfterManagedRekey(
+        from oldToken: WindowToken,
+        entry: WindowModel.Entry
+    ) {
         guard let controller else { return }
         guard controller.currentKeyboardFocusTargetForRendering()?.token == entry.token else { return }
 
         let preferredFrame = controller.niriEngine?.findNode(for: entry.token).flatMap { $0.renderedFrame ?? $0.frame }
             ?? frameProvider?(entry.axRef)
-        _ = controller.renderKeyboardFocusBorder(
-            preferredFrame: preferredFrame,
-            policy: .coordinated
+        _ = controller.borderCoordinator.reconcile(
+            event: .managedRekey(
+                from: oldToken,
+                to: entry.token,
+                workspaceId: entry.workspaceId,
+                axRef: entry.axRef,
+                preferredFrame: preferredFrame,
+                policy: .coordinated
+            )
         )
     }
 
@@ -2119,7 +2145,11 @@ final class AXEventHandler: CGSEventDelegate {
                 )
             )
         )
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: borderReconcileSource(for: source),
+            reason: "missing focused window during fallback transition",
+            matchingPid: pid
+        )
     }
 
     private func appFullscreenForFallbackLifecyclePreservation(
@@ -2168,6 +2198,17 @@ final class AXEventHandler: CGSEventDelegate {
         origin: ActivationCallOrigin
     ) -> Bool {
         source.isAuthoritative && origin == .external
+    }
+
+    private func borderReconcileSource(for source: ActivationEventSource) -> BorderReconcileSource {
+        switch source {
+        case .focusedWindowChanged:
+            .focusedWindowChanged
+        case .workspaceDidActivateApplication:
+            .frontmostAppChanged
+        case .cgsFrontAppChanged:
+            .frontmostAppChanged
+        }
     }
 
     func cleanupFocusStateForTerminatedApp(pid: pid_t) {
@@ -2311,7 +2352,8 @@ final class AXEventHandler: CGSEventDelegate {
            controller.renderKeyboardFocusBorder(
                for: target,
                preferredFrame: controller.preferredKeyboardFocusFrame(for: target.token),
-               policy: .direct
+               policy: .direct,
+               source: .borderReapplyRetryExhaustedFallback
            )
         {
             recordNiriCreateFocusTrace(
@@ -2331,7 +2373,11 @@ final class AXEventHandler: CGSEventDelegate {
                     )
                 )
             )
-            controller.borderManager.hideBorder()
+            controller.hideKeyboardFocusBorder(
+                source: .borderReapplyRetryExhaustedFallback,
+                reason: "retry exhausted without renderable target",
+                matchingPid: request.token.pid
+            )
         }
     }
 
@@ -2389,6 +2435,10 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
         CGSEventObserver.shared.subscribeToWindows(windowIds)
+    }
+
+    func requestWindowNotificationSubscription(_ windowIds: [UInt32]) {
+        subscribeToWindows(windowIds)
     }
 
     private func resolveFocusedWindowValue(pid: pid_t) -> CFTypeRef? {

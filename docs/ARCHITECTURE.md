@@ -790,14 +790,23 @@ Used for: viewport scrolling (Niri), workspace switch transitions, window moveme
 
 ### 4.11 Border System
 
-**Files:** `Sources/OmniWM/Core/Border/BorderManager.swift`, `BorderWindow.swift`
+**Files:** `Sources/OmniWM/Core/Border/BorderManager.swift`, `BorderWindow.swift`, `Sources/OmniWM/Core/Controller/BorderCoordinator.swift`
 
 A lightweight `NSWindow` overlay that draws a rounded rectangle around the focused window:
 
-- `BorderManager` tracks the current focused window's frame and windowId
+- `WMController` remains the raw focus source, but `BorderCoordinator` is the only component that reconciles border ownership, lifecycle events, eligibility, ordering, and fallback lease state
+- `BorderOwner` is internal-only: managed borders use `(token, windowId, workspaceId)`, fallback borders use `(pid, windowId)`. `AXWindowRef` is resolved lazily and cached only for the current generation instead of acting as durable identity
+- All border lifecycle inputs flow through `BorderCoordinator.reconcile(event:)` with normalized sources such as focus changes, CGS frame/teardown events, managed rekeys, workspace transitions, fullscreen transitions, and cleanup
+- `BorderManager` stays a thin renderer/cache wrapper around `BorderWindow`
 - `BorderWindow` renders the border using SkyLight private APIs for window ordering (stays above managed windows but below floating panels)
 - Deduplication: skips updates if windowId and frame haven't changed (0.5pt tolerance)
 - Configurable: enable/disable, width (points), color (RGBA)
+
+**Renderer cache invalidation:** Hidden borders must never be resurrected from stale target state. `BorderWindow.hide()` clears cached owner-derived render state (target window, cached frame, visibility/order metadata), and hidden config changes only mark the border dirty. A hidden border becomes visible again only when a fresh owner-driven render path calls back into the coordinator.
+
+**Live motion vs. coordinated updates:** Interactive move/resize events for the current owner render directly from observed frames so unmanaged overlays and popups stay real-time. Layout-driven steady-state updates still go through the coordinated/deferred path so workspace and column animations do not fight the border renderer.
+
+**Tracing:** Border reconciliation keeps a bounded in-memory trace ring for tests and optional env-gated logging. The trace intentionally records source, owner, action, reason, generation, frame, and ordering decisions without window titles, and it is not exposed through IPC or clipboard/debug commands.
 
 ### 4.12 Additional Features
 

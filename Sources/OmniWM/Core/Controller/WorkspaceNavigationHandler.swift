@@ -160,7 +160,10 @@ final class WorkspaceNavigationHandler {
         }
         controller.clearKeyboardFocusTarget()
         _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .workspaceActivation,
+            reason: "cleared focus after empty workspace switch"
+        )
     }
 
     private func commitWorkspaceTransitionFocusHandoff(
@@ -295,7 +298,10 @@ final class WorkspaceNavigationHandler {
             return
         }
 
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .workspaceActivation,
+            reason: "switch workspace"
+        )
 
         if let currentWorkspace {
             saveNiriViewportState(for: currentWorkspace.id)
@@ -327,7 +333,10 @@ final class WorkspaceNavigationHandler {
 
     func switchWorkspaceRelative(isNext: Bool, wrapAround: Bool = true) {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .workspaceActivation,
+            reason: "switch workspace relative"
+        )
 
         guard let currentMonitorId = interactionMonitorId(for: controller)
         else { return }
@@ -394,7 +403,10 @@ final class WorkspaceNavigationHandler {
 
     func focusWorkspaceAnywhere(rawWorkspaceID: String) {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .workspaceActivation,
+            reason: "focus workspace anywhere"
+        )
 
         let currentWorkspace = controller.activeWorkspace()
 
@@ -437,7 +449,10 @@ final class WorkspaceNavigationHandler {
 
     func workspaceBackAndForth() {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.hideKeyboardFocusBorder(
+            source: .workspaceActivation,
+            reason: "workspace back and forth"
+        )
 
         guard let currentMonitorId = interactionMonitorId(for: controller)
         else { return }
