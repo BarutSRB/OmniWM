@@ -84,6 +84,7 @@ struct OverviewLayout {
     }
     var searchBarFrame: CGRect
     var totalContentHeight: CGFloat
+    var resolvedScrollOffsetBounds: ClosedRange<CGFloat>?
     var scrollOffset: CGFloat
     var scale: CGFloat
     var niriColumnDropZonesByWorkspace: [WorkspaceDescriptor.ID: [OverviewColumnDropZone]]
@@ -97,6 +98,7 @@ struct OverviewLayout {
         workspaceSections = []
         searchBarFrame = .zero
         totalContentHeight = 0
+        resolvedScrollOffsetBounds = nil
         scrollOffset = 0
         scale = 1.0
         niriColumnDropZonesByWorkspace = [:]

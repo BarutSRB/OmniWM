@@ -342,6 +342,77 @@ private func makeNiriOverviewLayout(
         ))
     }
 
+    @Test @MainActor func genericProjectionHandlesSingleWindowWithoutLeavingViewport() {
+        let workspaceId = WorkspaceDescriptor.ID()
+        let model = WindowModel()
+        let workspaces: [OverviewWorkspaceLayoutItem] = [
+            (id: workspaceId, name: "1", isActive: true)
+        ]
+        let viewport = CGRect(x: 0, y: 0, width: 1440, height: 900)
+
+        let window = makeOverviewProjectionWindow(
+            model: model,
+            workspaceId: workspaceId,
+            windowId: 480,
+            frame: CGRect(x: 220, y: 140, width: 960, height: 640),
+            title: "Solo"
+        )
+
+        let layout = OverviewLayoutCalculator.calculateLayout(
+            workspaces: workspaces,
+            windows: [window.handle: window.data],
+            screenFrame: viewport,
+            searchQuery: "",
+            scale: 1.0
+        )
+
+        guard let projectedFrame = layout.window(for: window.handle)?.overviewFrame else {
+            Issue.record("Expected projected single window")
+            return
+        }
+
+        #expect(layout.allWindows.count == 1)
+        #expect(frameIsWithinViewport(projectedFrame, viewport: viewport))
+        #expect(projectedFrame.width > 0)
+        #expect(projectedFrame.height > 0)
+    }
+
+    @Test @MainActor func genericProjectionBreaksNearEqualFrameTiesByTitle() {
+        let workspaceId = WorkspaceDescriptor.ID()
+        let model = WindowModel()
+        let workspaces: [OverviewWorkspaceLayoutItem] = [
+            (id: workspaceId, name: "1", isActive: true)
+        ]
+
+        let beta = makeOverviewProjectionWindow(
+            model: model,
+            workspaceId: workspaceId,
+            windowId: 490,
+            frame: CGRect(x: 120.4, y: 100, width: 800, height: 520),
+            title: "Beta"
+        )
+        let alpha = makeOverviewProjectionWindow(
+            model: model,
+            workspaceId: workspaceId,
+            windowId: 491,
+            frame: CGRect(x: 120.0, y: 100, width: 800, height: 520),
+            title: "Alpha"
+        )
+
+        let layout = OverviewLayoutCalculator.calculateLayout(
+            workspaces: workspaces,
+            windows: [
+                beta.handle: beta.data,
+                alpha.handle: alpha.data
+            ],
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            searchQuery: "",
+            scale: 1.0
+        )
+
+        #expect(layout.workspaceSections.first?.windows.map(\.handle) == [alpha.handle, beta.handle])
+    }
+
     @Test @MainActor func niriProjectionFollowsEngineTileOrderWhenFramesDisagree() {
         let workspaceId = WorkspaceDescriptor.ID()
         let model = WindowModel()

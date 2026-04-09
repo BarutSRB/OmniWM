@@ -17,6 +17,7 @@ omniwm_load_build_metadata "$ROOT_DIR"
 omniwm_require_zig_build_config "$CONFIG"
 omniwm_require_zig_version
 omniwm_require_command lipo
+omniwm_require_command ranlib
 omniwm_require_file "$ZIG_ROOT/build.zig"
 omniwm_require_file "$ZIG_ROOT/src/root.zig"
 
@@ -44,5 +45,7 @@ lipo -create \
   "$ARM64_DIR/lib/libomniwm_kernels.a" \
   "$X86_64_DIR/lib/libomniwm_kernels.a" \
   -output "$UNIVERSAL_LIB"
+
+ranlib "$UNIVERSAL_LIB"
 
 echo "Built $UNIVERSAL_LIB"

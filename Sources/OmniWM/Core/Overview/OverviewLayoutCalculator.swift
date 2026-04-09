@@ -1,4 +1,5 @@
 import AppKit
+import COmniWMKernels
 import Foundation
 
 typealias OverviewWorkspaceLayoutItem = (
@@ -44,14 +45,50 @@ struct OverviewLayoutCalculator {
         let scaledWindowSpacing: CGFloat
         let thumbnailWidth: CGFloat
         let initialContentY: CGFloat
-        let contentTopPadding: CGFloat
         let contentBottomPadding: CGFloat
     }
 
-    struct NiriWorkspaceProjection {
-        let section: OverviewWorkspaceSection
-        let columns: [OverviewNiriColumn]
-        let columnDropZones: [OverviewColumnDropZone]
+    private struct ProjectionSnapshot {
+        struct WorkspaceRecord {
+            let workspace: OverviewWorkspaceLayoutItem
+            let genericWindowRange: Range<Int>
+            let niriColumnRange: Range<Int>
+        }
+
+        struct GenericWindowRecord {
+            let workspaceIndex: Int
+            let handle: WindowHandle
+            let windowData: OverviewWindowLayoutData
+            let titleSortRank: UInt32
+        }
+
+        struct NiriTileRecord {
+            let handle: WindowHandle
+            let windowData: OverviewWindowLayoutData
+            let preferredHeight: CGFloat
+        }
+
+        struct NiriColumnRecord {
+            let workspaceIndex: Int
+            let columnIndex: Int
+            let widthWeight: CGFloat
+            let preferredWidth: CGFloat?
+            let tileRange: Range<Int>
+        }
+
+        let workspaces: [WorkspaceRecord]
+        let genericWindows: [GenericWindowRecord]
+        let niriColumns: [NiriColumnRecord]
+        let niriTiles: [NiriTileRecord]
+    }
+
+    private struct KernelProjection {
+        let sectionOutputs: [omniwm_overview_section_output]
+        let genericWindowOutputs: [omniwm_overview_generic_window_output]
+        let niriColumnOutputs: [omniwm_overview_niri_column_output]
+        let niriTileOutputs: [omniwm_overview_niri_tile_output]
+        let dropZoneOutputs: [omniwm_overview_drop_zone_output]
+        let result: omniwm_overview_result
     }
 
     static func clampedScale(_ scale: CGFloat) -> CGFloat {
@@ -92,69 +129,19 @@ struct OverviewLayoutCalculator {
         scale: CGFloat
     ) -> OverviewLayout {
         let context = buildContext(screenFrame: screenFrame, scale: scale)
-        var layout = OverviewLayout()
-        layout.scale = scale
-        layout.searchBarFrame = context.searchBarFrame
-
-        var windowsByWorkspace: [WorkspaceDescriptor.ID: [(WindowHandle, OverviewWindowLayoutData)]] = [:]
-        windowsByWorkspace.reserveCapacity(workspaces.count)
-
-        var windowsByToken: [WindowToken: (WindowHandle, OverviewWindowLayoutData)] = [:]
-        windowsByToken.reserveCapacity(windows.count)
-
-        for (handle, windowData) in windows {
-            windowsByWorkspace[windowData.entry.workspaceId, default: []].append((handle, windowData))
-            windowsByToken[windowData.entry.token] = (handle, windowData)
-        }
-
-        var sections: [OverviewWorkspaceSection] = []
-        sections.reserveCapacity(workspaces.count)
-
-        var niriColumnsByWorkspace: [WorkspaceDescriptor.ID: [OverviewNiriColumn]] = [:]
-        var niriColumnDropZonesByWorkspace: [WorkspaceDescriptor.ID: [OverviewColumnDropZone]] = [:]
-        var currentY = context.initialContentY
-
-        for workspace in workspaces {
-            guard let workspaceWindows = windowsByWorkspace[workspace.id], !workspaceWindows.isEmpty else {
-                continue
-            }
-
-            if let snapshot = niriSnapshotsByWorkspace[workspace.id],
-               let projection = buildNiriWorkspaceProjection(
-                   workspace: workspace,
-                   snapshot: snapshot,
-                   windowsByToken: windowsByToken,
-                   searchQuery: searchQuery,
-                   currentY: &currentY,
-                   context: context
-               )
-            {
-                sections.append(projection.section)
-                if !projection.columns.isEmpty {
-                    niriColumnsByWorkspace[workspace.id] = projection.columns
-                }
-                if !projection.columnDropZones.isEmpty {
-                    niriColumnDropZonesByWorkspace[workspace.id] = projection.columnDropZones
-                }
-                continue
-            }
-
-            if let section = buildGenericWorkspaceSection(
-                workspace: workspace,
-                windows: workspaceWindows,
-                searchQuery: searchQuery,
-                currentY: &currentY,
-                context: context
-            ) {
-                sections.append(section)
-            }
-        }
-
-        layout.workspaceSections = sections
-        layout.niriColumnsByWorkspace = niriColumnsByWorkspace
-        layout.niriColumnDropZonesByWorkspace = niriColumnDropZonesByWorkspace
-        layout.totalContentHeight = totalContentHeight(currentY: currentY, context: context)
-        return layout
+        let snapshot = buildProjectionSnapshot(
+            workspaces: workspaces,
+            windows: windows,
+            niriSnapshotsByWorkspace: niriSnapshotsByWorkspace
+        )
+        let projection = solveProjection(snapshot: snapshot, context: context)
+        return applyProjection(
+            projection,
+            snapshot: snapshot,
+            searchQuery: searchQuery,
+            scale: scale,
+            context: context
+        )
     }
 
     private static func buildContext(screenFrame: CGRect, scale: CGFloat) -> BuildContext {
@@ -187,412 +174,528 @@ struct OverviewLayoutCalculator {
             scaledWindowSpacing: OverviewLayoutMetrics.windowSpacing * metricsScale,
             thumbnailWidth: thumbnailWidth,
             initialContentY: searchBarY - OverviewLayoutMetrics.contentTopPadding * metricsScale,
-            contentTopPadding: OverviewLayoutMetrics.contentTopPadding * metricsScale,
             contentBottomPadding: OverviewLayoutMetrics.contentBottomPadding * metricsScale
         )
     }
 
-    private static func buildGenericWorkspaceSection(
-        workspace: OverviewWorkspaceLayoutItem,
-        windows: [(WindowHandle, OverviewWindowLayoutData)],
-        searchQuery: String,
-        currentY: inout CGFloat,
-        context: BuildContext
-    ) -> OverviewWorkspaceSection? {
-        guard !windows.isEmpty else { return nil }
+    private static func buildProjectionSnapshot(
+        workspaces: [OverviewWorkspaceLayoutItem],
+        windows: [WindowHandle: OverviewWindowLayoutData],
+        niriSnapshotsByWorkspace: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot]
+    ) -> ProjectionSnapshot {
+        var windowsByWorkspace: [WorkspaceDescriptor.ID: [(WindowHandle, OverviewWindowLayoutData)]] = [:]
+        windowsByWorkspace.reserveCapacity(workspaces.count)
 
-        let orderedWindows = windows.sorted { lhs, rhs in
-            compareWindowsForPreview(lhs.1, rhs.1)
+        var windowsByToken: [WindowToken: (WindowHandle, OverviewWindowLayoutData)] = [:]
+        windowsByToken.reserveCapacity(windows.count)
+
+        for (handle, windowData) in windows {
+            windowsByWorkspace[windowData.entry.workspaceId, default: []].append((handle, windowData))
+            windowsByToken[windowData.entry.token] = (handle, windowData)
         }
 
-        currentY -= context.scaledWorkspaceLabelHeight
+        var workspaceRecords: [ProjectionSnapshot.WorkspaceRecord] = []
+        workspaceRecords.reserveCapacity(workspaces.count)
 
-        let labelFrame = CGRect(
-            x: context.screenFrame.minX + context.scaledWindowPadding,
-            y: currentY,
-            width: context.availableWidth,
-            height: context.scaledWorkspaceLabelHeight
-        )
+        var genericWindows: [ProjectionSnapshot.GenericWindowRecord] = []
+        genericWindows.reserveCapacity(windows.count)
 
-        currentY -= context.scaledWorkspaceSectionPadding
+        var niriColumns: [ProjectionSnapshot.NiriColumnRecord] = []
+        var niriTiles: [ProjectionSnapshot.NiriTileRecord] = []
 
-        var windowItems: [OverviewWindowItem] = []
-        windowItems.reserveCapacity(orderedWindows.count)
+        for (workspaceIndex, workspace) in workspaces.enumerated() {
+            let genericStart = genericWindows.count
+            let niriColumnStart = niriColumns.count
 
-        let normalizedFrames = orderedWindows.map { normalizedSourceFrame($0.1.frame) }
-        let sourceBounds = boundingRect(for: normalizedFrames)
-        let previewScale = workspacePreviewScale(for: sourceBounds.size, context: context)
-        let projectedSize = CGSize(
-            width: sourceBounds.width * previewScale,
-            height: sourceBounds.height * previewScale
-        )
-        let previewOrigin = CGPoint(
-            x: context.screenFrame.minX + (context.screenFrame.width - projectedSize.width) / 2,
-            y: currentY - projectedSize.height
-        )
+            if let workspaceWindows = windowsByWorkspace[workspace.id], !workspaceWindows.isEmpty {
+                if let snapshot = niriSnapshotsByWorkspace[workspace.id], !snapshot.columns.isEmpty {
+                    for columnSnapshot in snapshot.columns {
+                        let tileStart = niriTiles.count
+                        for tile in columnSnapshot.tiles {
+                            guard let (handle, windowData) = windowsByToken[tile.token] else {
+                                continue
+                            }
+                            niriTiles.append(
+                                ProjectionSnapshot.NiriTileRecord(
+                                    handle: handle,
+                                    windowData: windowData,
+                                    preferredHeight: tile.preferredHeight
+                                )
+                            )
+                        }
 
-        for ((handle, windowData), sourceFrame) in zip(orderedWindows, normalizedFrames) {
-            let overviewFrame = projectFrame(
-                sourceFrame,
-                from: sourceBounds,
-                previewOrigin: previewOrigin,
-                scale: previewScale
-            )
+                        niriColumns.append(
+                            ProjectionSnapshot.NiriColumnRecord(
+                                workspaceIndex: workspaceIndex,
+                                columnIndex: columnSnapshot.index,
+                                widthWeight: columnSnapshot.widthWeight,
+                                preferredWidth: columnSnapshot.preferredWidth,
+                                tileRange: tileStart ..< niriTiles.count
+                            )
+                        )
+                    }
+                } else {
+                    let orderedInputs = workspaceWindows.sorted { lhs, rhs in
+                        if lhs.1.entry.windowId != rhs.1.entry.windowId {
+                            return lhs.1.entry.windowId < rhs.1.entry.windowId
+                        }
+                        if lhs.1.entry.token.pid != rhs.1.entry.token.pid {
+                            return lhs.1.entry.token.pid < rhs.1.entry.token.pid
+                        }
+                        return lhs.1.title < rhs.1.title
+                    }
+                    let titleSortRanks = previewTitleSortRanks(for: orderedInputs)
 
-            windowItems.append(
-                makeWindowItem(
-                    handle: handle,
-                    workspaceId: workspace.id,
-                    windowData: windowData,
-                    overviewFrame: overviewFrame,
-                    searchQuery: searchQuery
-                )
-            )
-        }
-
-        let gridFrame = CGRect(
-            origin: previewOrigin,
-            size: projectedSize
-        )
-
-        let section = makeWorkspaceSection(
-            workspace: workspace,
-            windows: windowItems,
-            labelFrame: labelFrame,
-            gridFrame: gridFrame,
-            currentY: currentY,
-            context: context
-        )
-
-        currentY = section.sectionFrame.minY - context.scaledWorkspaceSectionPadding
-        return section
-    }
-
-    private static func buildNiriWorkspaceProjection(
-        workspace: OverviewWorkspaceLayoutItem,
-        snapshot: NiriOverviewWorkspaceSnapshot,
-        windowsByToken: [WindowToken: (WindowHandle, OverviewWindowLayoutData)],
-        searchQuery: String,
-        currentY: inout CGFloat,
-        context: BuildContext
-    ) -> NiriWorkspaceProjection? {
-        guard !snapshot.columns.isEmpty else { return nil }
-
-        currentY -= context.scaledWorkspaceLabelHeight
-
-        let labelFrame = CGRect(
-            x: context.screenFrame.minX + context.scaledWindowPadding,
-            y: currentY,
-            width: context.availableWidth,
-            height: context.scaledWorkspaceLabelHeight
-        )
-
-        currentY -= context.scaledWorkspaceSectionPadding
-
-        let columnCount = snapshot.columns.count
-        let totalWeight = snapshot.columns.reduce(CGFloat(0)) { partial, column in
-            partial + max(column.widthWeight, 0.001)
-        }
-        let rawColumnWidths = snapshot.columns.map { column in
-            preferredNiriColumnWidth(
-                for: column,
-                totalWeight: totalWeight,
-                columnCount: columnCount,
-                context: context
-            )
-        }
-        let rawColumnHeights = snapshot.columns.map { column in
-            preferredNiriColumnHeight(for: column, spacing: context.scaledWindowSpacing)
-        }
-        let rawTotalWidth = rawColumnWidths.reduce(CGFloat(0), +) +
-            context.scaledWindowSpacing * CGFloat(max(0, columnCount - 1))
-        let rawMaxHeight = max(rawColumnHeights.max() ?? 1, 1)
-        let workspaceScale = workspacePreviewScale(
-            for: CGSize(width: rawTotalWidth, height: rawMaxHeight),
-            context: context
-        )
-        let columnWidths = rawColumnWidths.map { $0 * workspaceScale }
-        let columnHeights = rawColumnHeights.map { $0 * workspaceScale }
-        let totalGridWidth = rawTotalWidth * workspaceScale
-        let gridHeight = rawMaxHeight * workspaceScale
-        let gridStartX = context.screenFrame.minX + (context.screenFrame.width - totalGridWidth) / 2
-        let gridFrame = CGRect(
-            x: gridStartX,
-            y: currentY - gridHeight,
-            width: totalGridWidth,
-            height: gridHeight
-        )
-
-        var windowItems: [OverviewWindowItem] = []
-        windowItems.reserveCapacity(snapshot.columns.reduce(0) { $0 + $1.tiles.count })
-
-        var projectedColumns: [OverviewNiriColumn] = []
-        projectedColumns.reserveCapacity(snapshot.columns.count)
-
-        var currentX = gridStartX
-        for (columnIndex, columnSnapshot) in snapshot.columns.enumerated() {
-            let columnWidth = columnWidths.indices.contains(columnIndex) ? columnWidths[columnIndex] : 0
-            let columnHeight = columnHeights.indices.contains(columnIndex) ? columnHeights[columnIndex] : gridHeight
-            let columnFrame = CGRect(
-                x: currentX,
-                y: gridFrame.minY,
-                width: columnWidth,
-                height: columnHeight
-            )
-
-            let mappedWindows = columnSnapshot.tiles.compactMap { windowsByToken[$0.token] }
-            let projectedTileHeights = columnSnapshot.tiles.map { max($0.preferredHeight, 1) * workspaceScale }
-
-            var handles: [WindowHandle] = []
-            handles.reserveCapacity(mappedWindows.count)
-
-            var nextTileY = columnFrame.maxY
-            for (tileIndex, (handle, windowData)) in mappedWindows.enumerated() {
-                let tileHeight = projectedTileHeights.indices.contains(tileIndex)
-                    ? projectedTileHeights[tileIndex]
-                    : max(windowData.frame.height * workspaceScale, 1)
-                let tileY = nextTileY - tileHeight
-                let tileFrame = CGRect(
-                    x: columnFrame.minX,
-                    y: tileY,
-                    width: columnFrame.width,
-                    height: tileHeight
-                )
-
-                windowItems.append(
-                    makeWindowItem(
-                        handle: handle,
-                        workspaceId: workspace.id,
-                        windowData: windowData,
-                        overviewFrame: tileFrame,
-                        searchQuery: searchQuery
-                    )
-                )
-                handles.append(handle)
-                nextTileY = tileY - context.scaledWindowSpacing
+                    for (handle, windowData) in orderedInputs {
+                        genericWindows.append(
+                            ProjectionSnapshot.GenericWindowRecord(
+                                workspaceIndex: workspaceIndex,
+                                handle: handle,
+                                windowData: windowData,
+                                titleSortRank: titleSortRanks[ObjectIdentifier(handle)] ?? 0
+                            )
+                        )
+                    }
+                }
             }
 
-            projectedColumns.append(
-                OverviewNiriColumn(
-                    workspaceId: workspace.id,
-                    columnIndex: columnSnapshot.index,
-                    frame: columnFrame,
-                    windowHandles: handles
+            workspaceRecords.append(
+                ProjectionSnapshot.WorkspaceRecord(
+                    workspace: workspace,
+                    genericWindowRange: genericStart ..< genericWindows.count,
+                    niriColumnRange: niriColumnStart ..< niriColumns.count
                 )
             )
-
-            currentX += columnWidth + context.scaledWindowSpacing
         }
 
-        let section = makeWorkspaceSection(
-            workspace: workspace,
-            windows: windowItems,
-            labelFrame: labelFrame,
-            gridFrame: gridFrame,
-            currentY: currentY,
-            context: context
-        )
-
-        currentY = section.sectionFrame.minY - context.scaledWorkspaceSectionPadding
-
-        return NiriWorkspaceProjection(
-            section: section,
-            columns: projectedColumns,
-            columnDropZones: buildNiriColumnDropZones(
-                workspaceId: workspace.id,
-                gridFrame: gridFrame,
-                columns: projectedColumns,
-                context: context
-            )
+        return ProjectionSnapshot(
+            workspaces: workspaceRecords,
+            genericWindows: genericWindows,
+            niriColumns: niriColumns,
+            niriTiles: niriTiles
         )
     }
 
-    private static func preferredNiriColumnWidth(
-        for column: NiriOverviewColumnSnapshot,
-        totalWeight: CGFloat,
-        columnCount: Int,
+    private static func previewTitleSortRanks(
+        for windows: [(WindowHandle, OverviewWindowLayoutData)]
+    ) -> [ObjectIdentifier: UInt32] {
+        let sorted = windows.sorted { lhs, rhs in
+            if lhs.1.title != rhs.1.title {
+                return lhs.1.title < rhs.1.title
+            }
+            if lhs.1.entry.windowId != rhs.1.entry.windowId {
+                return lhs.1.entry.windowId < rhs.1.entry.windowId
+            }
+            return lhs.1.entry.token.pid < rhs.1.entry.token.pid
+        }
+
+        var ranks: [ObjectIdentifier: UInt32] = [:]
+        ranks.reserveCapacity(sorted.count)
+
+        for (index, item) in sorted.enumerated() {
+            ranks[ObjectIdentifier(item.0)] = numericCast(index)
+        }
+        return ranks
+    }
+
+    private static func solveProjection(
+        snapshot: ProjectionSnapshot,
         context: BuildContext
-    ) -> CGFloat {
-        if let preferredWidth = column.preferredWidth, preferredWidth > 0 {
-            return preferredWidth
-        }
+    ) -> KernelProjection {
+        var rawContext = omniwm_overview_context(context: context)
 
-        let normalizedWeight = max(column.widthWeight, 0.001) / max(totalWeight, 0.001)
-        return context.thumbnailWidth * CGFloat(columnCount) * normalizedWeight
-    }
-
-    private static func preferredNiriColumnHeight(
-        for column: NiriOverviewColumnSnapshot,
-        spacing: CGFloat
-    ) -> CGFloat {
-        guard !column.tiles.isEmpty else { return 1 }
-
-        let preferredHeight = column.tiles.reduce(CGFloat(0)) { partial, tile in
-            partial + max(tile.preferredHeight, 1)
-        }
-        return preferredHeight + spacing * CGFloat(max(0, column.tiles.count - 1))
-    }
-
-    private static func compareWindowsForPreview(
-        _ lhs: OverviewWindowLayoutData,
-        _ rhs: OverviewWindowLayoutData
-    ) -> Bool {
-        let lhsFrame = normalizedSourceFrame(lhs.frame)
-        let rhsFrame = normalizedSourceFrame(rhs.frame)
-        if abs(lhsFrame.maxY - rhsFrame.maxY) > 1 {
-            return lhsFrame.maxY > rhsFrame.maxY
-        }
-        if abs(lhsFrame.minX - rhsFrame.minX) > 1 {
-            return lhsFrame.minX < rhsFrame.minX
-        }
-        return lhs.title < rhs.title
-    }
-
-    private static func normalizedSourceFrame(_ frame: CGRect) -> CGRect {
-        let standardized = frame.standardized
-        return CGRect(
-            x: standardized.minX,
-            y: standardized.minY,
-            width: max(standardized.width, 1),
-            height: max(standardized.height, 1)
-        )
-    }
-
-    private static func boundingRect(for frames: [CGRect]) -> CGRect {
-        let bounds = frames.reduce(into: CGRect.null) { partial, frame in
-            partial = partial.union(frame)
-        }
-        if bounds.isNull {
-            return CGRect(x: 0, y: 0, width: 1, height: 1)
-        }
-
-        return CGRect(
-            x: bounds.minX,
-            y: bounds.minY,
-            width: max(bounds.width, 1),
-            height: max(bounds.height, 1)
-        )
-    }
-
-    private static func workspacePreviewScale(
-        for sourceSize: CGSize,
-        context: BuildContext
-    ) -> CGFloat {
-        let safeWidth = max(sourceSize.width, 1)
-        let safeHeight = max(sourceSize.height, 1)
-        let maxPreviewWidth = min(
-            context.availableWidth,
-            context.screenFrame.width * 0.72 * context.metricsScale
-        )
-        let maxPreviewHeight = max(
-            context.thumbnailWidth / OverviewLayoutMetrics.thumbnailAspectRatio,
-            context.screenFrame.height * 0.42 * context.metricsScale
-        )
-        return max(
-            0.01,
-            min(maxPreviewWidth / safeWidth, maxPreviewHeight / safeHeight)
-        )
-    }
-
-    private static func projectFrame(
-        _ sourceFrame: CGRect,
-        from sourceBounds: CGRect,
-        previewOrigin: CGPoint,
-        scale: CGFloat
-    ) -> CGRect {
-        CGRect(
-            x: previewOrigin.x + (sourceFrame.minX - sourceBounds.minX) * scale,
-            y: previewOrigin.y + (sourceFrame.minY - sourceBounds.minY) * scale,
-            width: sourceFrame.width * scale,
-            height: sourceFrame.height * scale
-        )
-    }
-
-    private static func buildNiriColumnDropZones(
-        workspaceId: WorkspaceDescriptor.ID,
-        gridFrame: CGRect,
-        columns: [OverviewNiriColumn],
-        context: BuildContext
-    ) -> [OverviewColumnDropZone] {
-        guard !columns.isEmpty else { return [] }
-
-        let edgeZoneWidth = max(12 * context.metricsScale, min(30 * context.metricsScale, context.scaledWindowSpacing))
-        var zones: [OverviewColumnDropZone] = []
-        zones.reserveCapacity(columns.count + 1)
-
-        zones.append(
-            OverviewColumnDropZone(
-                workspaceId: workspaceId,
-                insertIndex: 0,
-                frame: CGRect(
-                    x: gridFrame.minX - edgeZoneWidth,
-                    y: gridFrame.minY,
-                    width: edgeZoneWidth,
-                    height: gridFrame.height
+        var workspaceInputs = ContiguousArray<omniwm_overview_workspace_input>()
+        workspaceInputs.reserveCapacity(snapshot.workspaces.count)
+        for workspace in snapshot.workspaces {
+            workspaceInputs.append(
+                omniwm_overview_workspace_input(
+                    generic_window_start_index: numericCast(workspace.genericWindowRange.lowerBound),
+                    generic_window_count: numericCast(workspace.genericWindowRange.count),
+                    niri_column_start_index: numericCast(workspace.niriColumnRange.lowerBound),
+                    niri_column_count: numericCast(workspace.niriColumnRange.count)
                 )
             )
+        }
+
+        var genericWindowInputs = ContiguousArray<omniwm_overview_generic_window_input>()
+        genericWindowInputs.reserveCapacity(snapshot.genericWindows.count)
+        for window in snapshot.genericWindows {
+            let frame = window.windowData.frame
+            genericWindowInputs.append(
+                omniwm_overview_generic_window_input(
+                    workspace_index: numericCast(window.workspaceIndex),
+                    source_x: frame.minX,
+                    source_y: frame.minY,
+                    source_width: frame.width,
+                    source_height: frame.height,
+                    title_sort_rank: window.titleSortRank
+                )
+            )
+        }
+
+        var niriColumnInputs = ContiguousArray<omniwm_overview_niri_column_input>()
+        niriColumnInputs.reserveCapacity(snapshot.niriColumns.count)
+        for column in snapshot.niriColumns {
+            niriColumnInputs.append(
+                omniwm_overview_niri_column_input(
+                    workspace_index: numericCast(column.workspaceIndex),
+                    column_index: numericCast(column.columnIndex),
+                    width_weight: column.widthWeight,
+                    preferred_width: column.preferredWidth ?? 0,
+                    tile_start_index: numericCast(column.tileRange.lowerBound),
+                    tile_count: numericCast(column.tileRange.count),
+                    has_preferred_width: (column.preferredWidth ?? 0) > 0 ? 1 : 0
+                )
+            )
+        }
+
+        var niriTileInputs = ContiguousArray<omniwm_overview_niri_tile_input>()
+        niriTileInputs.reserveCapacity(snapshot.niriTiles.count)
+        for tile in snapshot.niriTiles {
+            niriTileInputs.append(
+                omniwm_overview_niri_tile_input(preferred_height: tile.preferredHeight)
+            )
+        }
+
+        let dropZoneCapacity = snapshot.workspaces.reduce(into: 0) { count, workspace in
+            if !workspace.niriColumnRange.isEmpty {
+                count += workspace.niriColumnRange.count + 1
+            }
+        }
+
+        var sectionOutputs = ContiguousArray(
+            repeating: zeroSectionOutput(),
+            count: snapshot.workspaces.count
+        )
+        var genericWindowOutputs = ContiguousArray(
+            repeating: zeroGenericWindowOutput(),
+            count: snapshot.genericWindows.count
+        )
+        var niriColumnOutputs = ContiguousArray(
+            repeating: zeroNiriColumnOutput(),
+            count: snapshot.niriColumns.count
+        )
+        var niriTileOutputs = ContiguousArray(
+            repeating: zeroNiriTileOutput(),
+            count: snapshot.niriTiles.count
+        )
+        var dropZoneOutputs = ContiguousArray(
+            repeating: zeroDropZoneOutput(),
+            count: dropZoneCapacity
+        )
+        var result = zeroOverviewResult()
+
+        let status = workspaceInputs.withUnsafeBufferPointer { workspaceBuffer in
+            genericWindowInputs.withUnsafeBufferPointer { genericWindowBuffer in
+                niriColumnInputs.withUnsafeBufferPointer { niriColumnBuffer in
+                    niriTileInputs.withUnsafeBufferPointer { niriTileBuffer in
+                        sectionOutputs.withUnsafeMutableBufferPointer { sectionOutputBuffer in
+                            genericWindowOutputs.withUnsafeMutableBufferPointer { genericWindowOutputBuffer in
+                                niriColumnOutputs.withUnsafeMutableBufferPointer { niriColumnOutputBuffer in
+                                    niriTileOutputs.withUnsafeMutableBufferPointer { niriTileOutputBuffer in
+                                        dropZoneOutputs.withUnsafeMutableBufferPointer { dropZoneOutputBuffer in
+                                            omniwm_overview_projection_solve(
+                                                &rawContext,
+                                                workspaceBuffer.baseAddress,
+                                                workspaceBuffer.count,
+                                                genericWindowBuffer.baseAddress,
+                                                genericWindowBuffer.count,
+                                                niriColumnBuffer.baseAddress,
+                                                niriColumnBuffer.count,
+                                                niriTileBuffer.baseAddress,
+                                                niriTileBuffer.count,
+                                                sectionOutputBuffer.baseAddress,
+                                                sectionOutputBuffer.count,
+                                                genericWindowOutputBuffer.baseAddress,
+                                                genericWindowOutputBuffer.count,
+                                                niriColumnOutputBuffer.baseAddress,
+                                                niriColumnOutputBuffer.count,
+                                                niriTileOutputBuffer.baseAddress,
+                                                niriTileOutputBuffer.count,
+                                                dropZoneOutputBuffer.baseAddress,
+                                                dropZoneOutputBuffer.count,
+                                                &result
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        precondition(
+            status == OMNIWM_KERNELS_STATUS_OK,
+            "omniwm_overview_projection_solve returned \(status)"
         )
 
-        if columns.count > 1 {
-            for index in 0 ..< (columns.count - 1) {
-                let left = columns[index].frame.maxX
-                let right = columns[index + 1].frame.minX
-                zones.append(
-                    OverviewColumnDropZone(
-                        workspaceId: workspaceId,
-                        insertIndex: index + 1,
-                        frame: CGRect(
-                            x: left,
-                            y: gridFrame.minY,
-                            width: max(0, right - left),
-                            height: gridFrame.height
+        return KernelProjection(
+            sectionOutputs: Array(sectionOutputs.prefix(result.section_count)),
+            genericWindowOutputs: Array(genericWindowOutputs.prefix(result.generic_window_output_count)),
+            niriColumnOutputs: Array(niriColumnOutputs.prefix(result.niri_column_output_count)),
+            niriTileOutputs: Array(niriTileOutputs.prefix(result.niri_tile_output_count)),
+            dropZoneOutputs: Array(dropZoneOutputs.prefix(result.drop_zone_output_count)),
+            result: result
+        )
+    }
+
+    private static func applyProjection(
+        _ projection: KernelProjection,
+        snapshot: ProjectionSnapshot,
+        searchQuery: String,
+        scale: CGFloat,
+        context: BuildContext
+    ) -> OverviewLayout {
+        var layout = OverviewLayout()
+        layout.scale = scale
+        layout.searchBarFrame = context.searchBarFrame
+        layout.totalContentHeight = projection.result.total_content_height
+        layout.resolvedScrollOffsetBounds = projection.result.scrollOffsetBounds
+
+        var sections: [OverviewWorkspaceSection] = []
+        sections.reserveCapacity(projection.sectionOutputs.count)
+
+        var niriColumnsByWorkspace: [WorkspaceDescriptor.ID: [OverviewNiriColumn]] = [:]
+        var niriColumnDropZonesByWorkspace: [WorkspaceDescriptor.ID: [OverviewColumnDropZone]] = [:]
+
+        for sectionOutput in projection.sectionOutputs {
+            let workspaceRecord = snapshot.workspaces[Int(sectionOutput.workspace_index)]
+            let workspaceId = workspaceRecord.workspace.id
+
+            var windows: [OverviewWindowItem] = []
+            if sectionOutput.generic_window_output_count > 0 {
+                windows.reserveCapacity(Int(sectionOutput.generic_window_output_count))
+                for output in projection.genericWindowOutputs[
+                    Int(sectionOutput.generic_window_output_start_index)
+                        ..< Int(sectionOutput.generic_window_output_start_index + sectionOutput.generic_window_output_count)
+                ] {
+                    let input = snapshot.genericWindows[Int(output.input_index)]
+                    windows.append(
+                        makeWindowItem(
+                            handle: input.handle,
+                            workspaceId: workspaceId,
+                            windowData: input.windowData,
+                            overviewFrame: output.frame,
+                            searchQuery: searchQuery
                         )
                     )
+                }
+            } else if sectionOutput.niri_tile_output_count > 0 {
+                windows.reserveCapacity(Int(sectionOutput.niri_tile_output_count))
+                for output in projection.niriTileOutputs[
+                    Int(sectionOutput.niri_tile_output_start_index)
+                        ..< Int(sectionOutput.niri_tile_output_start_index + sectionOutput.niri_tile_output_count)
+                ] {
+                    let input = snapshot.niriTiles[Int(output.input_index)]
+                    windows.append(
+                        makeWindowItem(
+                            handle: input.handle,
+                            workspaceId: workspaceId,
+                            windowData: input.windowData,
+                            overviewFrame: output.frame,
+                            searchQuery: searchQuery
+                        )
+                    )
+                }
+            }
+
+            sections.append(
+                OverviewWorkspaceSection(
+                    workspaceId: workspaceId,
+                    name: workspaceRecord.workspace.name,
+                    windows: windows,
+                    sectionFrame: sectionOutput.sectionFrame,
+                    labelFrame: sectionOutput.labelFrame,
+                    gridFrame: sectionOutput.gridFrame,
+                    isActive: workspaceRecord.workspace.isActive
                 )
+            )
+
+            if sectionOutput.niri_column_output_count > 0 {
+                var projectedColumns: [OverviewNiriColumn] = []
+                projectedColumns.reserveCapacity(Int(sectionOutput.niri_column_output_count))
+
+                for output in projection.niriColumnOutputs[
+                    Int(sectionOutput.niri_column_output_start_index)
+                        ..< Int(sectionOutput.niri_column_output_start_index + sectionOutput.niri_column_output_count)
+                ] {
+                    let windowHandles = projection.niriTileOutputs[
+                        Int(output.tile_output_start_index)
+                            ..< Int(output.tile_output_start_index + output.tile_output_count)
+                    ].map { snapshot.niriTiles[Int($0.input_index)].handle }
+
+                    projectedColumns.append(
+                        OverviewNiriColumn(
+                            workspaceId: workspaceId,
+                            columnIndex: Int(output.column_index),
+                            frame: output.frame,
+                            windowHandles: windowHandles
+                        )
+                    )
+                }
+
+                niriColumnsByWorkspace[workspaceId] = projectedColumns
+            }
+
+            if sectionOutput.drop_zone_output_count > 0 {
+                niriColumnDropZonesByWorkspace[workspaceId] = projection.dropZoneOutputs[
+                    Int(sectionOutput.drop_zone_output_start_index)
+                        ..< Int(sectionOutput.drop_zone_output_start_index + sectionOutput.drop_zone_output_count)
+                ].map { output in
+                    OverviewColumnDropZone(
+                        workspaceId: workspaceId,
+                        insertIndex: Int(output.insert_index),
+                        frame: output.frame
+                    )
+                }
             }
         }
 
-        zones.append(
-            OverviewColumnDropZone(
-                workspaceId: workspaceId,
-                insertIndex: columns.count,
-                frame: CGRect(
-                    x: gridFrame.maxX,
-                    y: gridFrame.minY,
-                    width: edgeZoneWidth,
-                    height: gridFrame.height
-                )
-            )
-        )
-
-        return zones
+        layout.workspaceSections = sections
+        layout.niriColumnsByWorkspace = niriColumnsByWorkspace
+        layout.niriColumnDropZonesByWorkspace = niriColumnDropZonesByWorkspace
+        return layout
     }
 
-    private static func makeWorkspaceSection(
-        workspace: OverviewWorkspaceLayoutItem,
-        windows: [OverviewWindowItem],
-        labelFrame: CGRect,
-        gridFrame: CGRect,
-        currentY: CGFloat,
-        context: BuildContext
-    ) -> OverviewWorkspaceSection {
-        let sectionBottom = gridFrame.minY
-        let sectionFrame = CGRect(
-            x: context.screenFrame.minX,
-            y: sectionBottom,
-            width: context.screenFrame.width,
-            height: currentY + context.scaledWorkspaceLabelHeight - sectionBottom
+    private static func zeroSectionOutput() -> omniwm_overview_section_output {
+        omniwm_overview_section_output(
+            workspace_index: 0,
+            section_x: 0,
+            section_y: 0,
+            section_width: 0,
+            section_height: 0,
+            label_x: 0,
+            label_y: 0,
+            label_width: 0,
+            label_height: 0,
+            grid_x: 0,
+            grid_y: 0,
+            grid_width: 0,
+            grid_height: 0,
+            generic_window_output_start_index: 0,
+            generic_window_output_count: 0,
+            niri_column_output_start_index: 0,
+            niri_column_output_count: 0,
+            niri_tile_output_start_index: 0,
+            niri_tile_output_count: 0,
+            drop_zone_output_start_index: 0,
+            drop_zone_output_count: 0
+        )
+    }
+
+    private static func zeroGenericWindowOutput() -> omniwm_overview_generic_window_output {
+        omniwm_overview_generic_window_output(
+            input_index: 0,
+            frame_x: 0,
+            frame_y: 0,
+            frame_width: 0,
+            frame_height: 0
+        )
+    }
+
+    private static func zeroNiriTileOutput() -> omniwm_overview_niri_tile_output {
+        omniwm_overview_niri_tile_output(
+            input_index: 0,
+            frame_x: 0,
+            frame_y: 0,
+            frame_width: 0,
+            frame_height: 0
+        )
+    }
+
+    private static func zeroNiriColumnOutput() -> omniwm_overview_niri_column_output {
+        omniwm_overview_niri_column_output(
+            input_index: 0,
+            column_index: 0,
+            frame_x: 0,
+            frame_y: 0,
+            frame_width: 0,
+            frame_height: 0,
+            tile_output_start_index: 0,
+            tile_output_count: 0
+        )
+    }
+
+    private static func zeroDropZoneOutput() -> omniwm_overview_drop_zone_output {
+        omniwm_overview_drop_zone_output(
+            workspace_index: 0,
+            insert_index: 0,
+            frame_x: 0,
+            frame_y: 0,
+            frame_width: 0,
+            frame_height: 0
+        )
+    }
+
+    private static func zeroOverviewResult() -> omniwm_overview_result {
+        omniwm_overview_result(
+            total_content_height: 0,
+            min_scroll_offset: 0,
+            max_scroll_offset: 0,
+            section_count: 0,
+            generic_window_output_count: 0,
+            niri_column_output_count: 0,
+            niri_tile_output_count: 0,
+            drop_zone_output_count: 0
+        )
+    }
+
+    private static func scrollBoundsFromKernel(
+        layout: OverviewLayout,
+        screenFrame: CGRect
+    ) -> ClosedRange<CGFloat> {
+        let metricsScale = clampedScale(layout.scale)
+        let scaledWindowPadding = OverviewLayoutMetrics.windowPadding * metricsScale
+        var rawContext = omniwm_overview_context(
+            screen_x: screenFrame.minX,
+            screen_y: screenFrame.minY,
+            screen_width: screenFrame.width,
+            screen_height: screenFrame.height,
+            metrics_scale: metricsScale,
+            available_width: screenFrame.width - (scaledWindowPadding * 2),
+            scaled_window_padding: scaledWindowPadding,
+            scaled_workspace_label_height: OverviewLayoutMetrics.workspaceLabelHeight * metricsScale,
+            scaled_workspace_section_padding: OverviewLayoutMetrics.workspaceSectionPadding * metricsScale,
+            scaled_window_spacing: OverviewLayoutMetrics.windowSpacing * metricsScale,
+            thumbnail_width: 0,
+            initial_content_y: layout.searchBarFrame.minY - OverviewLayoutMetrics.contentTopPadding * metricsScale,
+            content_bottom_padding: OverviewLayoutMetrics.contentBottomPadding * metricsScale,
+            total_content_height_override: layout.totalContentHeight,
+            has_total_content_height_override: 1
+        )
+        var result = zeroOverviewResult()
+
+        let status = omniwm_overview_projection_solve(
+            &rawContext,
+            nil,
+            0,
+            nil,
+            0,
+            nil,
+            0,
+            nil,
+            0,
+            nil,
+            0,
+            nil,
+            0,
+            nil,
+            0,
+            nil,
+            0,
+            nil,
+            0,
+            &result
         )
 
-        return OverviewWorkspaceSection(
-            workspaceId: workspace.id,
-            name: workspace.name,
-            windows: windows,
-            sectionFrame: sectionFrame,
-            labelFrame: labelFrame,
-            gridFrame: gridFrame,
-            isActive: workspace.isActive
+        precondition(
+            status == OMNIWM_KERNELS_STATUS_OK,
+            "omniwm_overview_projection_solve returned \(status)"
         )
+
+        return result.scrollOffsetBounds
     }
 
     private static func makeWindowItem(
@@ -623,12 +726,6 @@ struct OverviewLayoutCalculator {
         )
     }
 
-    private static func totalContentHeight(currentY: CGFloat, context: BuildContext) -> CGFloat {
-        let contentTop = context.searchBarFrame.minY - context.contentTopPadding
-        let contentBottom = currentY + context.scaledWorkspaceSectionPadding - context.contentBottomPadding
-        return contentTop - contentBottom
-    }
-
     static func updateSearchFilter(layout: inout OverviewLayout, searchQuery: String) {
         for sectionIndex in layout.workspaceSections.indices {
             for windowIndex in layout.workspaceSections[sectionIndex].windows.indices {
@@ -642,11 +739,7 @@ struct OverviewLayoutCalculator {
     }
 
     static func scrollOffsetBounds(layout: OverviewLayout, screenFrame: CGRect) -> ClosedRange<CGFloat> {
-        let metricsScale = clampedScale(layout.scale)
-        let contentTop = layout.searchBarFrame.minY - OverviewLayoutMetrics.contentTopPadding * metricsScale
-        let contentBottom = contentTop - layout.totalContentHeight
-        let minOffset = min(0, contentBottom - screenFrame.minY)
-        return minOffset ... 0
+        layout.resolvedScrollOffsetBounds ?? scrollBoundsFromKernel(layout: layout, screenFrame: screenFrame)
     }
 
     static func clampedScrollOffset(
@@ -740,5 +833,71 @@ struct OverviewLayoutCalculator {
     private static func findWrappedPrevious(in windows: [OverviewWindowItem], from index: Int) -> WindowHandle? {
         let prevIndex = (index - 1 + windows.count) % windows.count
         return windows[prevIndex].handle
+    }
+}
+
+private extension omniwm_overview_context {
+    init(context: OverviewLayoutCalculator.BuildContext) {
+        self.init(
+            screen_x: context.screenFrame.minX,
+            screen_y: context.screenFrame.minY,
+            screen_width: context.screenFrame.width,
+            screen_height: context.screenFrame.height,
+            metrics_scale: context.metricsScale,
+            available_width: context.availableWidth,
+            scaled_window_padding: context.scaledWindowPadding,
+            scaled_workspace_label_height: context.scaledWorkspaceLabelHeight,
+            scaled_workspace_section_padding: context.scaledWorkspaceSectionPadding,
+            scaled_window_spacing: context.scaledWindowSpacing,
+            thumbnail_width: context.thumbnailWidth,
+            initial_content_y: context.initialContentY,
+            content_bottom_padding: context.contentBottomPadding,
+            total_content_height_override: 0,
+            has_total_content_height_override: 0
+        )
+    }
+}
+
+private extension omniwm_overview_result {
+    var scrollOffsetBounds: ClosedRange<CGFloat> {
+        min_scroll_offset ... max_scroll_offset
+    }
+}
+
+private extension omniwm_overview_section_output {
+    var sectionFrame: CGRect {
+        CGRect(x: section_x, y: section_y, width: section_width, height: section_height)
+    }
+
+    var labelFrame: CGRect {
+        CGRect(x: label_x, y: label_y, width: label_width, height: label_height)
+    }
+
+    var gridFrame: CGRect {
+        CGRect(x: grid_x, y: grid_y, width: grid_width, height: grid_height)
+    }
+}
+
+private extension omniwm_overview_generic_window_output {
+    var frame: CGRect {
+        CGRect(x: frame_x, y: frame_y, width: frame_width, height: frame_height)
+    }
+}
+
+private extension omniwm_overview_niri_tile_output {
+    var frame: CGRect {
+        CGRect(x: frame_x, y: frame_y, width: frame_width, height: frame_height)
+    }
+}
+
+private extension omniwm_overview_niri_column_output {
+    var frame: CGRect {
+        CGRect(x: frame_x, y: frame_y, width: frame_width, height: frame_height)
+    }
+}
+
+private extension omniwm_overview_drop_zone_output {
+    var frame: CGRect {
+        CGRect(x: frame_x, y: frame_y, width: frame_width, height: frame_height)
     }
 }

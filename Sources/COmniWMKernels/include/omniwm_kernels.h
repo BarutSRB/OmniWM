@@ -251,6 +251,148 @@ double omniwm_geometry_visible_offset(
 );
 
 typedef struct {
+    double screen_x;
+    double screen_y;
+    double screen_width;
+    double screen_height;
+    double metrics_scale;
+    double available_width;
+    double scaled_window_padding;
+    double scaled_workspace_label_height;
+    double scaled_workspace_section_padding;
+    double scaled_window_spacing;
+    double thumbnail_width;
+    double initial_content_y;
+    double content_bottom_padding;
+    double total_content_height_override;
+    uint8_t has_total_content_height_override;
+} omniwm_overview_context;
+
+typedef struct {
+    uint32_t generic_window_start_index;
+    uint32_t generic_window_count;
+    uint32_t niri_column_start_index;
+    uint32_t niri_column_count;
+} omniwm_overview_workspace_input;
+
+typedef struct {
+    uint32_t workspace_index;
+    double source_x;
+    double source_y;
+    double source_width;
+    double source_height;
+    uint32_t title_sort_rank;
+} omniwm_overview_generic_window_input;
+
+typedef struct {
+    double preferred_height;
+} omniwm_overview_niri_tile_input;
+
+typedef struct {
+    uint32_t workspace_index;
+    int32_t column_index;
+    double width_weight;
+    double preferred_width;
+    uint32_t tile_start_index;
+    uint32_t tile_count;
+    uint8_t has_preferred_width;
+} omniwm_overview_niri_column_input;
+
+typedef struct {
+    uint32_t workspace_index;
+    double section_x;
+    double section_y;
+    double section_width;
+    double section_height;
+    double label_x;
+    double label_y;
+    double label_width;
+    double label_height;
+    double grid_x;
+    double grid_y;
+    double grid_width;
+    double grid_height;
+    uint32_t generic_window_output_start_index;
+    uint32_t generic_window_output_count;
+    uint32_t niri_column_output_start_index;
+    uint32_t niri_column_output_count;
+    uint32_t niri_tile_output_start_index;
+    uint32_t niri_tile_output_count;
+    uint32_t drop_zone_output_start_index;
+    uint32_t drop_zone_output_count;
+} omniwm_overview_section_output;
+
+typedef struct {
+    uint32_t input_index;
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+} omniwm_overview_generic_window_output;
+
+typedef struct {
+    uint32_t input_index;
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+} omniwm_overview_niri_tile_output;
+
+typedef struct {
+    uint32_t input_index;
+    int32_t column_index;
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+    uint32_t tile_output_start_index;
+    uint32_t tile_output_count;
+} omniwm_overview_niri_column_output;
+
+typedef struct {
+    uint32_t workspace_index;
+    uint32_t insert_index;
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+} omniwm_overview_drop_zone_output;
+
+typedef struct {
+    double total_content_height;
+    double min_scroll_offset;
+    double max_scroll_offset;
+    size_t section_count;
+    size_t generic_window_output_count;
+    size_t niri_column_output_count;
+    size_t niri_tile_output_count;
+    size_t drop_zone_output_count;
+} omniwm_overview_result;
+
+int32_t omniwm_overview_projection_solve(
+    const omniwm_overview_context *context,
+    const omniwm_overview_workspace_input *workspaces,
+    size_t workspace_count,
+    const omniwm_overview_generic_window_input *generic_windows,
+    size_t generic_window_count,
+    const omniwm_overview_niri_column_input *niri_columns,
+    size_t niri_column_count,
+    const omniwm_overview_niri_tile_input *niri_tiles,
+    size_t niri_tile_count,
+    omniwm_overview_section_output *section_outputs,
+    size_t section_output_capacity,
+    omniwm_overview_generic_window_output *generic_window_outputs,
+    size_t generic_window_output_capacity,
+    omniwm_overview_niri_column_output *niri_column_outputs,
+    size_t niri_column_output_capacity,
+    omniwm_overview_niri_tile_output *niri_tile_outputs,
+    size_t niri_tile_output_capacity,
+    omniwm_overview_drop_zone_output *drop_zone_outputs,
+    size_t drop_zone_output_capacity,
+    omniwm_overview_result *result
+);
+
+typedef struct {
     uint32_t display_id;
     double anchor_x;
     double anchor_y;
