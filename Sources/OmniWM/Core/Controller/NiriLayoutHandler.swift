@@ -76,7 +76,6 @@ private func hasPendingNiriAnimationWork(
 
         let windowAnimationsRunning = engine.tickAllWindowAnimations(in: wsId, at: targetTime)
         let columnAnimationsRunning = engine.tickAllColumnAnimations(in: wsId, at: targetTime)
-        let workspaceSwitchRunning = engine.tickWorkspaceSwitchAnimation(for: wsId, at: targetTime)
 
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
             let viewportAnimationRunning = state.advanceAnimations(at: targetTime)
@@ -92,7 +91,6 @@ private func hasPendingNiriAnimationWork(
             let animationsOngoing = viewportAnimationRunning
                 || windowAnimationsRunning
                 || columnAnimationsRunning
-                || workspaceSwitchRunning
 
             if !animationsOngoing {
                 self.finalizeAnimation()
@@ -1181,14 +1179,8 @@ private func hasPendingNiriAnimationWork(
             controller.workspaceManager.workspaces.compactMap { workspace in
                 guard let monitor = controller.workspaceManager.monitor(for: workspace.id) else { return nil }
                 return (workspaceId: workspace.id, monitor: monitor)
-            }
-        engine.syncWorkspaceAssignments(workspaceAssignments)
-
-        for monitor in currentMonitors {
-            if let niriMonitor = engine.monitor(for: monitor.id) {
-                niriMonitor.animationClock = controller.animationClock
-            }
         }
+        engine.syncWorkspaceAssignments(workspaceAssignments)
 
         refreshResolvedMonitorSettings()
     }

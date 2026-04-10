@@ -913,13 +913,6 @@ private func makeCenteredCrossMonitorFixture(
         expectConfig(engine.windowMovementAnimationConfig, matches: .snappy)
     }
 
-    @Test func niriWorkspaceSwitchUsesExactSnappyConfig() {
-        let monitor = makeTestMonitor(displayId: 1, name: "Main", x: 0)
-        let niriMonitor = NiriMonitor(monitor: monitor)
-
-        expectConfig(niriMonitor.workspaceSwitchConfig, matches: .snappy)
-    }
-
     @Test func selectionFallbackAfterRemoval_sameSibling() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
         let wsId = UUID()
@@ -2849,58 +2842,6 @@ private func makeCenteredCrossMonitorFixture(
         #expect(moved != nil)
         #expect(targetColumn.width == .proportion(0.7))
         #expect(targetColumn.presetWidthIdx == nil)
-    }
-
-    @Test func workspaceSwitchAnimationUsesSnapshotOrdering() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
-        let monitor = makeTestMonitor(displayId: 300, name: "Main", x: 0)
-        let ws1 = UUID()
-        let ws2 = UUID()
-        let handle1 = makeTestHandle(pid: 11)
-        let handle2 = makeTestHandle(pid: 12)
-
-        let niriMonitor = engine.ensureMonitor(for: monitor.id, monitor: monitor)
-        niriMonitor.animationClock = AnimationClock()
-
-        _ = engine.addWindow(handle: handle1, to: ws1, afterSelection: nil)
-        _ = engine.addWindow(handle: handle2, to: ws2, afterSelection: nil)
-        engine.moveWorkspace(ws1, to: monitor.id, monitor: monitor)
-        engine.moveWorkspace(ws2, to: monitor.id, monitor: monitor)
-
-        niriMonitor.startWorkspaceSwitch(
-            orderedWorkspaceIds: [ws1, ws2],
-            from: ws1,
-            to: ws2,
-            animated: true
-        )
-
-        guard let time = niriMonitor.animationClock?.now() else {
-            Issue.record("Expected animation clock for workspace switch test")
-            return
-        }
-        let state = ViewportState()
-        let gaps = LayoutGaps(horizontal: 8, vertical: 8)
-
-        let layout1 = engine.calculateCombinedLayoutWithVisibility(
-            in: ws1,
-            monitor: monitor,
-            gaps: gaps,
-            state: state,
-            animationTime: time
-        )
-        let layout2 = engine.calculateCombinedLayoutWithVisibility(
-            in: ws2,
-            monitor: monitor,
-            gaps: gaps,
-            state: state,
-            animationTime: time
-        )
-
-        #expect(niriMonitor.workspaceSwitch?.fromWorkspaceId == ws1)
-        #expect(niriMonitor.workspaceSwitch?.toWorkspaceId == ws2)
-        #expect(niriMonitor.workspaceSwitch?.orderedWorkspaceIds == [ws1, ws2])
-        #expect(layout1.frames[handle1.id]?.minX == 0)
-        #expect((layout2.frames[handle2.id]?.minX ?? 0) > 0)
     }
 
     @Test @MainActor func relayoutPlanUsesResolvedMonitorSingleWindowAspectRatio() async throws {

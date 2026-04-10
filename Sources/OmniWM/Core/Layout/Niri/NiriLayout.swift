@@ -137,28 +137,6 @@ struct NiriLayoutKernelProjection {
 }
 
 extension NiriLayoutEngine {
-    private func workspaceSwitchOffset(
-        workspaceId: WorkspaceDescriptor.ID,
-        monitorFrame: CGRect,
-        time: TimeInterval
-    ) -> CGFloat {
-        guard let monitorId = monitorContaining(workspace: workspaceId),
-              let monitor = monitors[monitorId],
-              let workspaceSwitch = monitor.workspaceSwitch,
-              let workspaceIndex = workspaceSwitch.index(of: workspaceId) else {
-            return 0
-        }
-
-        let renderIndex = workspaceSwitch.currentIndex(at: time)
-        let delta = Double(workspaceIndex) - renderIndex
-        if abs(delta) < 0.001 {
-            return 0
-        }
-
-        let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
-        return CGFloat(delta) * monitorFrame.width * reduceMotionScale
-    }
-
     func calculateLayout(
         state: ViewportState,
         workspaceId: WorkspaceDescriptor.ID,
@@ -233,11 +211,6 @@ extension NiriLayoutEngine {
         let viewFrame = workingArea?.viewFrame ?? screenFrame ?? monitorFrame
         let effectiveScale = workingArea?.scale ?? scale
         let time = animationTime ?? CACurrentMediaTime()
-        let workspaceOffset = workspaceSwitchOffset(
-            workspaceId: workspaceId,
-            monitorFrame: monitorFrame,
-            time: time
-        )
 
         guard let projection = projectKernelLayout(
             state: state,
@@ -250,7 +223,7 @@ extension NiriLayoutEngine {
             gaps: gaps,
             orientation: orientation,
             animationTime: time,
-            workspaceOffset: workspaceOffset,
+            workspaceOffset: 0,
             includeRenderOffsets: true,
             hiddenPlacementMonitor: hiddenPlacementMonitor,
             hiddenPlacementMonitors: hiddenPlacementMonitors

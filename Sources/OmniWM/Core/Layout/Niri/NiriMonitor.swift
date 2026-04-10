@@ -19,12 +19,6 @@ final class NiriMonitor {
 
     var workspaceRoots: [WorkspaceDescriptor.ID: NiriRoot] = [:]
 
-    var workspaceSwitch: WorkspaceSwitch?
-
-    var animationClock: AnimationClock?
-
-    var workspaceSwitchConfig: SpringConfig = .snappy
-
     var resolvedSettings: ResolvedNiriSettings?
 
     var workspaceCount: Int {
@@ -82,56 +76,5 @@ extension NiriMonitor {
 
     func containsWorkspace(_ workspaceId: WorkspaceDescriptor.ID) -> Bool {
         workspaceRoots[workspaceId] != nil
-    }
-}
-
-extension NiriMonitor {
-    func startWorkspaceSwitch(
-        orderedWorkspaceIds: [WorkspaceDescriptor.ID],
-        from fromWorkspaceId: WorkspaceDescriptor.ID,
-        to toWorkspaceId: WorkspaceDescriptor.ID,
-        animated: Bool
-    ) {
-        guard let targetIdx = orderedWorkspaceIds.firstIndex(of: toWorkspaceId),
-              let fromIdx = orderedWorkspaceIds.firstIndex(of: fromWorkspaceId) else {
-            return
-        }
-        guard animated else {
-            workspaceSwitch = nil
-            return
-        }
-        guard targetIdx != fromIdx || workspaceSwitch != nil else { return }
-
-        let now = animationClock?.now() ?? CACurrentMediaTime()
-        let currentRenderIdx = workspaceSwitch?.currentIndex(at: now) ?? Double(fromIdx)
-
-        let animation = SpringAnimation(
-            from: currentRenderIdx,
-            to: Double(targetIdx),
-            startTime: now,
-            config: workspaceSwitchConfig
-        )
-        workspaceSwitch = WorkspaceSwitch(
-            orderedWorkspaceIds: orderedWorkspaceIds,
-            fromWorkspaceId: fromWorkspaceId,
-            toWorkspaceId: toWorkspaceId,
-            animation: animation
-        )
-    }
-
-    func tickWorkspaceSwitchAnimation(at time: TimeInterval) -> Bool {
-        guard var workspaceSwitch = workspaceSwitch else { return false }
-
-        let running = workspaceSwitch.tick(at: time)
-        if running {
-            self.workspaceSwitch = workspaceSwitch
-        } else {
-            self.workspaceSwitch = nil
-        }
-        return running
-    }
-
-    var isWorkspaceSwitchAnimating: Bool {
-        workspaceSwitch?.isAnimating() ?? false
     }
 }

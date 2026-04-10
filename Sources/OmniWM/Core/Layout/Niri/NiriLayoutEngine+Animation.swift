@@ -155,14 +155,6 @@ extension NiriLayoutEngine {
         return anyRunning
     }
 
-    func tickWorkspaceSwitchAnimation(for workspaceId: WorkspaceDescriptor.ID, at time: TimeInterval) -> Bool {
-        guard let monitorId = monitorContaining(workspace: workspaceId),
-              let monitor = monitors[monitorId] else {
-            return false
-        }
-        return monitor.tickWorkspaceSwitchAnimation(at: time)
-    }
-
     func hasAnyColumnAnimationsRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let root = roots[workspaceId] else { return false }
         return root.columns.contains { $0.hasMoveAnimationRunning || $0.hasWidthAnimationRunning }

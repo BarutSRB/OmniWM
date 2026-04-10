@@ -1250,9 +1250,8 @@ import QuartzCore
             let ruleEffects: ManagedWindowRuleEffects
             if let existingEntry {
                 if shouldPreservePreFullscreenState {
-                    if let record = controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token),
-                       record.restoreSnapshot != nil
-                    {
+                    // Missing geometry keeps the record alive to protect Niri topology and missing-window preservation.
+                    if controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token) != nil {
                         _ = controller.workspaceManager.beginNativeFullscreenRestore(for: existingEntry.token)
                     } else {
                         _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
