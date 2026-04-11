@@ -261,8 +261,12 @@ private struct GlobalBarSettingsSection: View {
                             .frame(width: 48, alignment: .trailing)
                     }
                     .onChange(of: settings.workspaceBarLabelFontSize) { _, _ in
-                        controller.updateWorkspaceBarSettings()
+                        controller.updateWorkspaceBarAppearance()
                     }
+
+                    Text("Theme settings apply globally to every workspace bar. Per-monitor overrides only affect layout and visibility.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -295,7 +299,7 @@ private struct WorkspaceBarAccentColorPicker: View {
                     settings.workspaceBarAccentColorGreen = Double(components.greenComponent)
                     settings.workspaceBarAccentColorBlue = Double(components.blueComponent)
                     settings.workspaceBarAccentColorAlpha = Double(components.alphaComponent)
-                    controller.updateWorkspaceBarSettings()
+                    controller.updateWorkspaceBarAppearance()
                 }
             }
         )
@@ -318,7 +322,7 @@ private struct WorkspaceBarAccentColorPicker: View {
                         settings.workspaceBarAccentColorBlue = -1
                         settings.workspaceBarAccentColorAlpha = 1
                     }
-                    controller.updateWorkspaceBarSettings()
+                    controller.updateWorkspaceBarAppearance()
                 }
             ))
             Spacer()
@@ -355,7 +359,7 @@ private struct WorkspaceBarTextColorPicker: View {
                     settings.workspaceBarTextColorGreen = Double(components.greenComponent)
                     settings.workspaceBarTextColorBlue = Double(components.blueComponent)
                     settings.workspaceBarTextColorAlpha = Double(components.alphaComponent)
-                    controller.updateWorkspaceBarSettings()
+                    controller.updateWorkspaceBarAppearance()
                 }
             }
         )
@@ -378,7 +382,7 @@ private struct WorkspaceBarTextColorPicker: View {
                         settings.workspaceBarTextColorBlue = -1
                         settings.workspaceBarTextColorAlpha = 1
                     }
-                    controller.updateWorkspaceBarSettings()
+                    controller.updateWorkspaceBarAppearance()
                 }
             ))
             Spacer()

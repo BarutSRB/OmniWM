@@ -521,7 +521,7 @@ extension SettingsStore {
         workspaceBarTextColorGreen = export.workspaceBarTextColorGreen
         workspaceBarTextColorBlue = export.workspaceBarTextColorBlue
         workspaceBarTextColorAlpha = export.workspaceBarTextColorAlpha
-        workspaceBarLabelFontSize = export.workspaceBarLabelFontSize
+        workspaceBarLabelFontSize = Self.normalizedWorkspaceBarLabelFontSize(export.workspaceBarLabelFontSize)
         monitorBarSettings = Self.reboundMonitorBarSettings(
             export.monitorBarSettings,
             monitors: monitors

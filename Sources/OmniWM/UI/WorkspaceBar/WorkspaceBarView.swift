@@ -200,6 +200,7 @@ private struct WorkspaceItemView: View {
                     isInFocusedWorkspace: item.isFocused,
                     animationsEnabled: animationsEnabled,
                     accentColor: accentColor,
+                    textColor: textColor,
                     onFocusWindow: onFocusWindow
                 )
             }
@@ -218,6 +219,7 @@ private struct WorkspaceItemView: View {
                     isInFocusedWorkspace: item.isFocused,
                     animationsEnabled: animationsEnabled,
                     accentColor: accentColor,
+                    textColor: textColor,
                     onFocusWindow: onFocusWindow
                 )
             }
@@ -254,6 +256,7 @@ private struct WindowIconView: View {
     let isInFocusedWorkspace: Bool
     let animationsEnabled: Bool
     let accentColor: Color?
+    let textColor: Color?
     let onFocusWindow: (WindowToken) -> Void
 
     @State private var isHovered = false
@@ -307,6 +310,7 @@ private struct WindowIconView: View {
             WindowListSheet(
                 windows: window.allWindows,
                 appName: window.appName,
+                textColor: textColor,
                 onFocusWindow: { token in
                     onFocusWindow(token)
                     showingWindowList = false
@@ -349,8 +353,14 @@ private struct WindowIconView: View {
 private struct WindowListSheet: View {
     let windows: [WorkspaceBarWindowInfo]
     let appName: String
+    let textColor: Color?
     let onFocusWindow: (WindowToken) -> Void
     @Environment(\.dismiss) private var dismiss
+
+    private var resolvedPrimaryTextColor: Color { textColor ?? .primary }
+    private var resolvedSecondaryTextColor: Color {
+        textColor?.opacity(0.6) ?? .secondary
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -375,7 +385,9 @@ private struct WindowListSheet: View {
                 } label: {
                     HStack {
                         Text(windowInfo.title)
-                            .foregroundColor(windowInfo.isFocused ? .primary : .secondary)
+                            .foregroundColor(
+                                windowInfo.isFocused ? resolvedPrimaryTextColor : resolvedSecondaryTextColor
+                            )
                         Spacer()
                         if windowInfo.isFocused {
                             Image(systemName: "checkmark.circle.fill")

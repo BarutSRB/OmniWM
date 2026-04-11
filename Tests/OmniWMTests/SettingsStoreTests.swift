@@ -506,6 +506,15 @@ private func makePersistedRestoreCatalogFixture(
             "workspaceBarBackgroundOpacity": 0.1,
             "workspaceBarXOffset": 0,
             "workspaceBarYOffset": 0,
+            "workspaceBarAccentColorRed": -1,
+            "workspaceBarAccentColorGreen": -1,
+            "workspaceBarAccentColorBlue": -1,
+            "workspaceBarAccentColorAlpha": 1,
+            "workspaceBarTextColorRed": -1,
+            "workspaceBarTextColorGreen": -1,
+            "workspaceBarTextColorBlue": -1,
+            "workspaceBarTextColorAlpha": 1,
+            "workspaceBarLabelFontSize": 12,
             "monitorBarSettings": [],
             "appRules": [],
             "monitorOrientationSettings": [],
@@ -597,6 +606,15 @@ private func makePersistedRestoreCatalogFixture(
             workspaceBarBackgroundOpacity: 0.5,
             workspaceBarXOffset: 10.0,
             workspaceBarYOffset: 20.0,
+            workspaceBarAccentColorRed: 0.11,
+            workspaceBarAccentColorGreen: 0.22,
+            workspaceBarAccentColorBlue: 0.33,
+            workspaceBarAccentColorAlpha: 0.88,
+            workspaceBarTextColorRed: 0.44,
+            workspaceBarTextColorGreen: 0.55,
+            workspaceBarTextColorBlue: 0.66,
+            workspaceBarTextColorAlpha: 0.77,
+            workspaceBarLabelFontSize: 15,
             monitorBarSettings: [MonitorBarSettings(monitorName: "TestBar", enabled: true, reserveLayoutSpace: true)],
             appRules: [],
             monitorOrientationSettings: [],
@@ -792,6 +810,53 @@ private func makePersistedRestoreCatalogFixture(
         #expect((frame["y"] as? NSNumber)?.doubleValue == 20)
         #expect((frame["width"] as? NSNumber)?.doubleValue == 1200)
         #expect((frame["height"] as? NSNumber)?.doubleValue == 700)
+    }
+
+    @Test func compactExportOmitsDefaultWorkspaceBarThemeKeys() throws {
+        let data = try SettingsExport.defaults().exportData(mode: .compact)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected compact export to produce a JSON object")
+            return
+        }
+
+        #expect(json["workspaceBarAccentColorRed"] == nil)
+        #expect(json["workspaceBarAccentColorGreen"] == nil)
+        #expect(json["workspaceBarAccentColorBlue"] == nil)
+        #expect(json["workspaceBarAccentColorAlpha"] == nil)
+        #expect(json["workspaceBarTextColorRed"] == nil)
+        #expect(json["workspaceBarTextColorGreen"] == nil)
+        #expect(json["workspaceBarTextColorBlue"] == nil)
+        #expect(json["workspaceBarTextColorAlpha"] == nil)
+        #expect(json["workspaceBarLabelFontSize"] == nil)
+    }
+
+    @Test func compactExportIncludesWorkspaceBarThemeKeysWhenCustomized() throws {
+        var export = SettingsExport.defaults()
+        export.workspaceBarAccentColorRed = 0.11
+        export.workspaceBarAccentColorGreen = 0.22
+        export.workspaceBarAccentColorBlue = 0.33
+        export.workspaceBarAccentColorAlpha = 0.88
+        export.workspaceBarTextColorRed = 0.44
+        export.workspaceBarTextColorGreen = 0.55
+        export.workspaceBarTextColorBlue = 0.66
+        export.workspaceBarTextColorAlpha = 0.77
+        export.workspaceBarLabelFontSize = 15
+
+        let data = try export.exportData(mode: .compact)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected compact export to produce a JSON object")
+            return
+        }
+
+        #expect((json["workspaceBarAccentColorRed"] as? NSNumber)?.doubleValue == 0.11)
+        #expect((json["workspaceBarAccentColorGreen"] as? NSNumber)?.doubleValue == 0.22)
+        #expect((json["workspaceBarAccentColorBlue"] as? NSNumber)?.doubleValue == 0.33)
+        #expect((json["workspaceBarAccentColorAlpha"] as? NSNumber)?.doubleValue == 0.88)
+        #expect((json["workspaceBarTextColorRed"] as? NSNumber)?.doubleValue == 0.44)
+        #expect((json["workspaceBarTextColorGreen"] as? NSNumber)?.doubleValue == 0.55)
+        #expect((json["workspaceBarTextColorBlue"] as? NSNumber)?.doubleValue == 0.66)
+        #expect((json["workspaceBarTextColorAlpha"] as? NSNumber)?.doubleValue == 0.77)
+        #expect((json["workspaceBarLabelFontSize"] as? NSNumber)?.doubleValue == 15)
     }
 
     @Test func compactExportOmitsPromotedWorkspaceAndRuleDefaults() throws {
@@ -1478,6 +1543,15 @@ private func makePersistedRestoreCatalogFixture(
         settings.quakeTerminalMonitorMode = .focusedWindow
         settings.quakeTerminalUseCustomFrame = true
         settings.quakeTerminalCustomFrame = CGRect(x: 10, y: 20, width: 1200, height: 700)
+        settings.workspaceBarAccentColorRed = 0.11
+        settings.workspaceBarAccentColorGreen = 0.22
+        settings.workspaceBarAccentColorBlue = 0.33
+        settings.workspaceBarAccentColorAlpha = 0.88
+        settings.workspaceBarTextColorRed = 0.44
+        settings.workspaceBarTextColorGreen = 0.55
+        settings.workspaceBarTextColorBlue = 0.66
+        settings.workspaceBarTextColorAlpha = 0.77
+        settings.workspaceBarLabelFontSize = 15
 
         try settings.exportSettings(to: exportURL, mode: .full)
 
@@ -1501,6 +1575,15 @@ private func makePersistedRestoreCatalogFixture(
         #expect(imported.quakeTerminalMonitorMode == .focusedWindow)
         #expect(imported.quakeTerminalUseCustomFrame == true)
         #expect(imported.quakeTerminalCustomFrame == CGRect(x: 10, y: 20, width: 1200, height: 700))
+        #expect(imported.workspaceBarAccentColorRed == 0.11)
+        #expect(imported.workspaceBarAccentColorGreen == 0.22)
+        #expect(imported.workspaceBarAccentColorBlue == 0.33)
+        #expect(imported.workspaceBarAccentColorAlpha == 0.88)
+        #expect(imported.workspaceBarTextColorRed == 0.44)
+        #expect(imported.workspaceBarTextColorGreen == 0.55)
+        #expect(imported.workspaceBarTextColorBlue == 0.66)
+        #expect(imported.workspaceBarTextColorAlpha == 0.77)
+        #expect(imported.workspaceBarLabelFontSize == 15)
     }
 
     @Test func fullExportAndImportRoundTripMonitorOverridesAndAppRules() throws {
@@ -1632,6 +1715,15 @@ private func makePersistedRestoreCatalogFixture(
         settings.monitorNiriSettings = [niriOverride]
         settings.monitorDwindleSettings = [dwindleOverride]
         settings.appRules = BuiltInSettingsDefaults.appRules + [customRule]
+        settings.workspaceBarAccentColorRed = 0.11
+        settings.workspaceBarAccentColorGreen = 0.22
+        settings.workspaceBarAccentColorBlue = 0.33
+        settings.workspaceBarAccentColorAlpha = 0.88
+        settings.workspaceBarTextColorRed = 0.44
+        settings.workspaceBarTextColorGreen = 0.55
+        settings.workspaceBarTextColorBlue = 0.66
+        settings.workspaceBarTextColorAlpha = 0.77
+        settings.workspaceBarLabelFontSize = 15
 
         try settings.exportSettings(to: exportURL, mode: .compact)
 
@@ -1650,6 +1742,15 @@ private func makePersistedRestoreCatalogFixture(
         #expect(imported.monitorNiriSettings == [expectedNiriOverride])
         #expect(imported.monitorDwindleSettings == [expectedDwindleOverride])
         #expect(imported.appRules == BuiltInSettingsDefaults.appRules + [customRule])
+        #expect(imported.workspaceBarAccentColorRed == 0.11)
+        #expect(imported.workspaceBarAccentColorGreen == 0.22)
+        #expect(imported.workspaceBarAccentColorBlue == 0.33)
+        #expect(imported.workspaceBarAccentColorAlpha == 0.88)
+        #expect(imported.workspaceBarTextColorRed == 0.44)
+        #expect(imported.workspaceBarTextColorGreen == 0.55)
+        #expect(imported.workspaceBarTextColorBlue == 0.66)
+        #expect(imported.workspaceBarTextColorAlpha == 0.77)
+        #expect(imported.workspaceBarLabelFontSize == 15)
 
         let reexported = try SettingsExport(
             hotkeysEnabled: imported.hotkeysEnabled,
@@ -1694,6 +1795,15 @@ private func makePersistedRestoreCatalogFixture(
             workspaceBarBackgroundOpacity: imported.workspaceBarBackgroundOpacity,
             workspaceBarXOffset: imported.workspaceBarXOffset,
             workspaceBarYOffset: imported.workspaceBarYOffset,
+            workspaceBarAccentColorRed: imported.workspaceBarAccentColorRed,
+            workspaceBarAccentColorGreen: imported.workspaceBarAccentColorGreen,
+            workspaceBarAccentColorBlue: imported.workspaceBarAccentColorBlue,
+            workspaceBarAccentColorAlpha: imported.workspaceBarAccentColorAlpha,
+            workspaceBarTextColorRed: imported.workspaceBarTextColorRed,
+            workspaceBarTextColorGreen: imported.workspaceBarTextColorGreen,
+            workspaceBarTextColorBlue: imported.workspaceBarTextColorBlue,
+            workspaceBarTextColorAlpha: imported.workspaceBarTextColorAlpha,
+            workspaceBarLabelFontSize: imported.workspaceBarLabelFontSize,
             monitorBarSettings: imported.monitorBarSettings,
             appRules: imported.appRules,
             monitorOrientationSettings: imported.monitorOrientationSettings,
@@ -1741,6 +1851,15 @@ private func makePersistedRestoreCatalogFixture(
         #expect((json["monitorNiriSettings"] as? [[String: Any]])?.count == 1)
         #expect((json["monitorDwindleSettings"] as? [[String: Any]])?.count == 1)
         #expect((json["appRules"] as? [[String: Any]])?.count == BuiltInSettingsDefaults.appRules.count + 1)
+        #expect((json["workspaceBarAccentColorRed"] as? NSNumber)?.doubleValue == 0.11)
+        #expect((json["workspaceBarAccentColorGreen"] as? NSNumber)?.doubleValue == 0.22)
+        #expect((json["workspaceBarAccentColorBlue"] as? NSNumber)?.doubleValue == 0.33)
+        #expect((json["workspaceBarAccentColorAlpha"] as? NSNumber)?.doubleValue == 0.88)
+        #expect((json["workspaceBarTextColorRed"] as? NSNumber)?.doubleValue == 0.44)
+        #expect((json["workspaceBarTextColorGreen"] as? NSNumber)?.doubleValue == 0.55)
+        #expect((json["workspaceBarTextColorBlue"] as? NSNumber)?.doubleValue == 0.66)
+        #expect((json["workspaceBarTextColorAlpha"] as? NSNumber)?.doubleValue == 0.77)
+        #expect((json["workspaceBarLabelFontSize"] as? NSNumber)?.doubleValue == 15)
     }
 
     @Test func importNormalizesWorkspaceConfigurationsAndRebindsSpecificDisplayAssignments() throws {
@@ -1796,6 +1915,42 @@ private func makePersistedRestoreCatalogFixture(
         #expect(imported.monitorBarSettings.count == 1)
         #expect(imported.monitorBarSettings.first?.monitorDisplayId == nil)
         #expect(imported.monitorBarSettings.first?.monitorName == "Detached")
+    }
+}
+
+@Suite @MainActor struct WorkspaceBarThemePersistenceTests {
+    @Test func settingsStoreClampsWorkspaceBarLabelFontSizeOnAssignmentAndLoad() {
+        let workspaceBarLabelFontSizeKey = "settings.workspaceBar.labelFontSize"
+        let defaults = makeTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+
+        settings.workspaceBarLabelFontSize = 99
+
+        #expect(settings.workspaceBarLabelFontSize == 16)
+        #expect((defaults.object(forKey: workspaceBarLabelFontSizeKey) as? NSNumber)?.doubleValue == 16)
+
+        defaults.set(6, forKey: workspaceBarLabelFontSizeKey)
+        let reloaded = SettingsStore(defaults: defaults)
+
+        #expect(reloaded.workspaceBarLabelFontSize == 10)
+        #expect((defaults.object(forKey: workspaceBarLabelFontSizeKey) as? NSNumber)?.doubleValue == 10)
+    }
+
+    @Test func importClampsWorkspaceBarLabelFontSizeBeforePersisting() throws {
+        let workspaceBarLabelFontSizeKey = "settings.workspaceBar.labelFontSize"
+        let exportURL = makeTestSettingsURL()
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+
+        var export = SettingsExport.defaults()
+        export.workspaceBarLabelFontSize = 99
+        try export.exportData(mode: .full).write(to: exportURL)
+
+        let importedDefaults = makeTestDefaults()
+        let imported = SettingsStore(defaults: importedDefaults)
+        try imported.importSettings(from: exportURL)
+
+        #expect(imported.workspaceBarLabelFontSize == 16)
+        #expect((importedDefaults.object(forKey: workspaceBarLabelFontSizeKey) as? NSNumber)?.doubleValue == 16)
     }
 }
 

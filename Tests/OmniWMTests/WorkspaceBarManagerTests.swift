@@ -403,6 +403,63 @@ private func makeRecordingPanelFactory(
     }
 }
 
+@Suite @MainActor struct WorkspaceBarControllerAppearanceRefreshTests {
+    @Test func updateWorkspaceBarAppearanceRefreshesLiveBarWithoutRelayout() throws {
+        let monitor = makeLayoutPlanTestMonitor(displayId: 88, width: 3200)
+        let workspaceConfigurations = [
+            WorkspaceConfiguration(name: "1", displayName: "Workspace Atlas", monitorAssignment: .main),
+            WorkspaceConfiguration(name: "2", displayName: "Workspace Borealis", monitorAssignment: .main),
+            WorkspaceConfiguration(name: "3", displayName: "Workspace Cascade", monitorAssignment: .main),
+            WorkspaceConfiguration(name: "4", displayName: "Workspace Delta", monitorAssignment: .main)
+        ]
+        let controller = makeLayoutPlanTestController(
+            monitors: [monitor],
+            workspaceConfigurations: workspaceConfigurations
+        )
+        defer { controller.cleanupUIOnStop() }
+
+        controller.settings.workspaceBarLabelFontSize = 10
+
+        let panelStore = RecordingPanelStore()
+        let frameRecorder = FrameApplyRecorder()
+        controller.configureWorkspaceBarManagerForTests(
+            monitors: [monitor],
+            panelFactory: makeRecordingPanelFactory(store: panelStore),
+            frameApplier: { panel, frame in
+                frameRecorder.apply(frame: frame, to: panel)
+            }
+        )
+        controller.setWorkspaceBarEnabled(true)
+        controller.layoutRefreshController.resetDebugState()
+
+        let panel = try #require(panelStore.panels.first)
+        let initialHostingView = try #require(controller.workspaceBarHostingViewIdentifierForTests(on: monitor.id))
+        let initialSnapshot = try #require(controller.workspaceBarSnapshotForTests(on: monitor.id))
+        let initialFrame = try #require(controller.workspaceBarLastAppliedFrameForTests(on: monitor.id))
+
+        #expect(controller.activeWorkspaceBarCountForTests() == 1)
+        #expect(initialSnapshot.labelFontSize == CGFloat(10))
+        #expect(frameRecorder.setFrameCallCount(for: panel) == 1)
+
+        controller.settings.workspaceBarLabelFontSize = 16
+        controller.updateWorkspaceBarAppearance()
+
+        let updatedSnapshot = try #require(controller.workspaceBarSnapshotForTests(on: monitor.id))
+        let updatedFrame = try #require(controller.workspaceBarLastAppliedFrameForTests(on: monitor.id))
+        let refreshDebug = controller.layoutRefreshController.refreshDebugSnapshot()
+
+        #expect(controller.activeWorkspaceBarCountForTests() == 1)
+        #expect(panelStore.panels.count == 1)
+        #expect(controller.workspaceBarHostingViewIdentifierForTests(on: monitor.id) == initialHostingView)
+        #expect(updatedSnapshot.labelFontSize == CGFloat(16))
+        #expect(updatedFrame.width > initialFrame.width)
+        #expect(frameRecorder.setFrameCallCount(for: panel) == 2)
+        #expect(refreshDebug.relayoutExecutions == 0)
+        #expect(refreshDebug.immediateRelayoutExecutions == 0)
+        #expect(refreshDebug.fullRescanExecutions == 0)
+    }
+}
+
 @Suite(.serialized) @MainActor struct WorkspaceBarManagerAppearanceTests {
     @Test func updateSettingsRefreshesAppearanceWithoutReplacingLiveHost() throws {
         let application = NSApplication.shared

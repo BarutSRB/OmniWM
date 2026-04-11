@@ -490,6 +490,12 @@ final class WMController {
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
 
+    func updateWorkspaceBarAppearance() {
+        pruneHiddenWorkspaceBarMonitorIds()
+        cancelPendingWorkspaceBarRefresh()
+        workspaceBarManager.update()
+    }
+
     func updateMonitorOrientations() {
         let monitors = workspaceManager.monitors
         for monitor in monitors {
@@ -709,13 +715,35 @@ final class WMController {
         workspaceBarManager.activeBarCountForTests()
     }
 
+    func workspaceBarHostingViewIdentifierForTests(on monitorId: Monitor.ID) -> ObjectIdentifier? {
+        workspaceBarManager.hostingViewIdentifierForTests(on: monitorId)
+    }
+
+    func workspaceBarLastAppliedFrameForTests(on monitorId: Monitor.ID) -> CGRect? {
+        workspaceBarManager.lastAppliedFrameForTests(on: monitorId)
+    }
+
+    func workspaceBarSnapshotForTests(on monitorId: Monitor.ID) -> WorkspaceBarSnapshot? {
+        workspaceBarManager.snapshotForTests(on: monitorId)
+    }
+
     func isWorkspaceBarRuntimeHiddenForTests(on monitorId: Monitor.ID) -> Bool {
         hiddenWorkspaceBarMonitorIds.contains(monitorId)
     }
 
-    func configureWorkspaceBarManagerForTests(monitors: [Monitor]) {
+    func configureWorkspaceBarManagerForTests(
+        monitors: [Monitor],
+        panelFactory: (@MainActor @Sendable () -> WorkspaceBarPanel)? = nil,
+        frameApplier: (@MainActor @Sendable (WorkspaceBarPanel, NSRect) -> Void)? = nil
+    ) {
         workspaceBarManager.monitorProvider = { monitors }
         workspaceBarManager.screenProvider = { _ in nil }
+        if let panelFactory {
+            workspaceBarManager.panelFactory = panelFactory
+        }
+        if let frameApplier {
+            workspaceBarManager.frameApplier = frameApplier
+        }
     }
 
     func configureQuakeTransitionForTests(

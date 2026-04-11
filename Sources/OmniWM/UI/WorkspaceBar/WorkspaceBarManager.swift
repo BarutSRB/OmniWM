@@ -545,6 +545,10 @@ extension WorkspaceBarManager {
         barsByMonitor.count
     }
 
+    func snapshotForTests(on monitorId: Monitor.ID) -> WorkspaceBarSnapshot? {
+        barsByMonitor[monitorId]?.model.snapshot
+    }
+
     func hostingViewIdentifierForTests(on monitorId: Monitor.ID) -> ObjectIdentifier? {
         barsByMonitor[monitorId].map { ObjectIdentifier($0.hostingView) }
     }

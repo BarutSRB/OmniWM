@@ -216,7 +216,14 @@ final class SettingsStore {
     }
 
     var workspaceBarLabelFontSize: Double {
-        didSet { defaults.set(workspaceBarLabelFontSize, forKey: Keys.workspaceBarLabelFontSize) }
+        didSet {
+            let normalized = Self.normalizedWorkspaceBarLabelFontSize(workspaceBarLabelFontSize)
+            if normalized != workspaceBarLabelFontSize {
+                workspaceBarLabelFontSize = normalized
+                return
+            }
+            defaults.set(workspaceBarLabelFontSize, forKey: Keys.workspaceBarLabelFontSize)
+        }
     }
 
     var monitorBarSettings: [MonitorBarSettings] {
@@ -519,8 +526,13 @@ final class SettingsStore {
             baseline.workspaceBarTextColorBlue
         workspaceBarTextColorAlpha = defaults.object(forKey: Keys.workspaceBarTextColorAlpha) as? Double ??
             baseline.workspaceBarTextColorAlpha
-        workspaceBarLabelFontSize = defaults.object(forKey: Keys.workspaceBarLabelFontSize) as? Double ??
+        let storedWorkspaceBarLabelFontSize = defaults.object(forKey: Keys.workspaceBarLabelFontSize) as? Double ??
             baseline.workspaceBarLabelFontSize
+        let normalizedWorkspaceBarLabelFontSize = Self.normalizedWorkspaceBarLabelFontSize(storedWorkspaceBarLabelFontSize)
+        workspaceBarLabelFontSize = normalizedWorkspaceBarLabelFontSize
+        if normalizedWorkspaceBarLabelFontSize != storedWorkspaceBarLabelFontSize {
+            defaults.set(normalizedWorkspaceBarLabelFontSize, forKey: Keys.workspaceBarLabelFontSize)
+        }
         monitorBarSettings = MonitorSettingsStore.load(from: defaults, key: Keys.monitorBarSettings)
         let loadedAppRules = Self.loadAppRules(from: defaults)
         appRules = loadedAppRules
@@ -958,6 +970,7 @@ final class SettingsStore {
     }
 
     nonisolated static let defaultColumnWidthPresets: [Double] = BuiltInSettingsDefaults.niriColumnWidthPresets
+    nonisolated static let workspaceBarLabelFontSizeRange: ClosedRange<Double> = 10 ... 16
 
     static func validatedPresets(_ presets: [Double]) -> [Double] {
         let result = presets.map { min(1.0, max(0.05, $0)) }
@@ -979,6 +992,10 @@ final class SettingsStore {
     static func validatedDefaultColumnWidth(_ width: Double?) -> Double? {
         guard let width else { return nil }
         return min(1.0, max(0.05, width))
+    }
+
+    static func normalizedWorkspaceBarLabelFontSize(_ size: Double) -> Double {
+        min(workspaceBarLabelFontSizeRange.upperBound, max(workspaceBarLabelFontSizeRange.lowerBound, size))
     }
 
     private static func loadNiriDefaultColumnWidth(from defaults: UserDefaults) -> Double? {
