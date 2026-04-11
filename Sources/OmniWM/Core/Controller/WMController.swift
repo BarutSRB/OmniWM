@@ -550,7 +550,6 @@ final class WMController {
     func syncMouseWarpPolicy(for monitors: [Monitor]? = nil) -> Bool {
         let effectiveMonitors = monitors ?? workspaceManager.monitors
         let shouldEnable = shouldUseMouseWarp(for: effectiveMonitors)
-
         if shouldEnable {
             _ = settings.persistEffectiveMouseWarpMonitorOrder(for: effectiveMonitors)
         }

@@ -39,6 +39,27 @@ struct MonitorSettingsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            SectionHeader("Selected Monitor")
+
+            if let monitor = selectedConnectedMonitor,
+               let displayLabel = displayLabels[monitor.id]
+            {
+                SelectedMonitorDetails(
+                    settings: settings,
+                    controller: controller,
+                    monitor: monitor,
+                    displayLabel: displayLabel
+                )
+            } else if sortedMonitors.isEmpty {
+                Text("No monitors detected.")
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Select a monitor from the strip above to configure its orientation.")
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
             SectionHeader("Mouse Warp")
 
             VStack(alignment: .leading, spacing: 12) {
@@ -93,25 +114,11 @@ struct MonitorSettingsTab: View {
                     .foregroundColor(.secondary)
             }
 
-            Divider()
-
-            SectionHeader("Selected Monitor")
-
-            if let monitor = selectedConnectedMonitor,
-               let displayLabel = displayLabels[monitor.id]
-            {
-                SelectedMonitorDetails(
+            if warpAxis == .both {
+                MouseWarpGridSettingsView(
                     settings: settings,
-                    controller: controller,
-                    monitor: monitor,
-                    displayLabel: displayLabel
+                    connectedMonitors: connectedMonitors
                 )
-            } else if sortedMonitors.isEmpty {
-                Text("No monitors detected.")
-                    .foregroundColor(.secondary)
-            } else {
-                Text("Select a monitor from the strip above to configure its orientation.")
-                    .foregroundColor(.secondary)
             }
         }
         .onAppear(perform: refreshConnectedMonitors)

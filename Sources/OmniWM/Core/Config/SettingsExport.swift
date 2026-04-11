@@ -41,6 +41,7 @@ struct SettingsExport: Codable {
     var focusFollowsMouse: Bool
     var moveMouseToFocusedWindow: Bool
     var focusFollowsWindowToMonitor: Bool
+    var mouseWarpGrid: [MouseWarpGridEntry]?
     var mouseWarpMonitorOrder: [String]
     var mouseWarpAxis: String?
     var mouseWarpMargin: Int
@@ -137,6 +138,7 @@ extension SettingsExport {
             focusFollowsMouse: false,
             moveMouseToFocusedWindow: false,
             focusFollowsWindowToMonitor: false,
+            mouseWarpGrid: nil,
             mouseWarpMonitorOrder: [],
             mouseWarpAxis: MouseWarpAxis.horizontal.rawValue,
             mouseWarpMargin: 1,
@@ -327,6 +329,7 @@ extension SettingsStore {
             focusFollowsMouse: focusFollowsMouse,
             moveMouseToFocusedWindow: moveMouseToFocusedWindow,
             focusFollowsWindowToMonitor: focusFollowsWindowToMonitor,
+            mouseWarpGrid: mouseWarpGrid.isEmpty ? nil : mouseWarpGrid,
             mouseWarpMonitorOrder: mouseWarpMonitorOrder,
             mouseWarpAxis: mouseWarpAxis.rawValue,
             mouseWarpMargin: mouseWarpMargin,
@@ -438,6 +441,7 @@ extension SettingsStore {
         focusFollowsMouse = export.focusFollowsMouse
         moveMouseToFocusedWindow = export.moveMouseToFocusedWindow
         focusFollowsWindowToMonitor = export.focusFollowsWindowToMonitor
+        mouseWarpGrid = export.mouseWarpGrid ?? []
         mouseWarpMonitorOrder = export.mouseWarpMonitorOrder
         mouseWarpAxis = MouseWarpAxis(rawValue: export.mouseWarpAxis ?? "") ?? .horizontal
         mouseWarpMargin = export.mouseWarpMargin

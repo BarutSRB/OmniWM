@@ -100,15 +100,17 @@ private struct WorkspaceBarContentView: View {
     @Environment(\.colorScheme) var colorScheme: ColorScheme
 
     private var itemHeight: CGFloat { max(16, snapshot.barHeight - 4) }
-    private var iconSize: CGFloat { max(12, itemHeight - 6) }
-    private let workspaceSpacing: CGFloat = 8
-    private let windowSpacing: CGFloat = 2
-    private let cornerRadius: CGFloat = 6
+    private var iconSize: CGFloat { max(12, itemHeight - 8) }
+    private let workspaceSpacing: CGFloat = 3
+    private let windowSpacing: CGFloat = 3
+    private var pillCornerRadius: CGFloat { itemHeight / 2 }
+    private var outerCornerRadius: CGFloat { (itemHeight + 10) / 2 }
 
-    private var backgroundColor: Color {
+    // Subtle fill tint on top of the vibrancy material
+    private var tintOverlay: Color {
         colorScheme == .dark
-            ? Color.white.opacity(snapshot.backgroundOpacity)
-            : Color.black.opacity(snapshot.backgroundOpacity * 0.5)
+            ? Color.white.opacity(snapshot.backgroundOpacity * 0.6)
+            : Color.black.opacity(snapshot.backgroundOpacity * 0.25)
     }
 
     var body: some View {
@@ -119,7 +121,7 @@ private struct WorkspaceBarContentView: View {
                     iconSize: iconSize,
                     itemHeight: itemHeight,
                     windowSpacing: windowSpacing,
-                    cornerRadius: cornerRadius,
+                    pillCornerRadius: pillCornerRadius,
                     animationsEnabled: animationsEnabled,
                     showLabels: snapshot.showLabels,
                     onFocusWorkspace: { onFocusWorkspace(item) },
@@ -127,13 +129,18 @@ private struct WorkspaceBarContentView: View {
                 )
             }
         }
-        .padding(.horizontal, 4)
-        .frame(height: itemHeight + 4)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(backgroundColor)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-        )
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background {
+            RoundedRectangle(cornerRadius: outerCornerRadius, style: .continuous)
+                .fill(tintOverlay)
+                .background(
+                    .ultraThinMaterial,
+                    in: RoundedRectangle(cornerRadius: outerCornerRadius, style: .continuous)
+                )
+                .shadow(color: .black.opacity(colorScheme == .dark ? 0.45 : 0.18), radius: 12, x: 0, y: 4)
+                .shadow(color: .black.opacity(colorScheme == .dark ? 0.2 : 0.08), radius: 3, x: 0, y: 1)
+        }
     }
 }
 
@@ -143,25 +150,67 @@ private struct WorkspaceItemView: View {
     let iconSize: CGFloat
     let itemHeight: CGFloat
     let windowSpacing: CGFloat
-    let cornerRadius: CGFloat
+    let pillCornerRadius: CGFloat
     let animationsEnabled: Bool
     let showLabels: Bool
     let onFocusWorkspace: () -> Void
     let onFocusWindow: (WindowToken) -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
+
+    private var springAnimation: Animation? {
+        animationsEnabled
+            ? .spring(response: 0.25, dampingFraction: 0.75)
+            : nil
+    }
+
+    private var pillBackground: some View {
+        Group {
+            if item.isFocused {
+                // Active: accent-tinted fill — the simple-bar "lit" pill
+                RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
+                    .fill(Color.accentColor.opacity(colorScheme == .dark ? 0.28 : 0.18))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
+                            .strokeBorder(
+                                Color.accentColor.opacity(colorScheme == .dark ? 0.55 : 0.45),
+                                lineWidth: 1
+                            )
+                    }
+            } else if isHovered {
+                // Hover: very subtle white/black tint, no border
+                RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
+                    .fill(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.07)
+                            : Color.black.opacity(0.055)
+                    )
+            }
+        }
+    }
 
     var body: some View {
         HStack(spacing: windowSpacing) {
             if showLabels {
                 Text(item.name)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(item.isFocused ? .accentColor : .secondary)
-                    .frame(minWidth: 16)
+                    .font(.system(size: 11, weight: item.isFocused ? .semibold : .regular, design: .monospaced))
+                    .foregroundStyle(
+                        item.isFocused
+                            ? AnyShapeStyle(Color.accentColor)
+                            : AnyShapeStyle(.secondary)
+                    )
+                    .frame(minWidth: 14)
+                    .animation(springAnimation, value: item.isFocused)
 
                 if !item.windows.isEmpty {
-                    Divider()
-                        .frame(height: iconSize)
+                    Rectangle()
+                        .fill(
+                            item.isFocused
+                                ? Color.accentColor.opacity(0.35)
+                                : Color.primary.opacity(0.12)
+                        )
+                        .frame(width: 1, height: iconSize * 0.7)
                         .padding(.horizontal, 2)
                 }
             }
@@ -178,9 +227,14 @@ private struct WorkspaceItemView: View {
             }
 
             if !item.tiledWindows.isEmpty && !item.floatingWindows.isEmpty {
-                Divider()
-                    .frame(height: iconSize)
-                    .padding(.horizontal, 2)
+                Rectangle()
+                    .fill(
+                        item.isFocused
+                            ? Color.accentColor.opacity(0.3)
+                            : Color.primary.opacity(0.1)
+                    )
+                    .frame(width: 1, height: iconSize * 0.65)
+                    .padding(.horizontal, 1)
             }
 
             ForEach(item.floatingWindows, id: \.id) { window in
@@ -193,28 +247,32 @@ private struct WorkspaceItemView: View {
                     onFocusWindow: onFocusWindow
                 )
             }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .frame(height: itemHeight)
-        .background {
-            if item.isFocused || isHovered {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(.regularMaterial)
-                    .overlay {
-                        if item.isFocused {
-                            RoundedRectangle(cornerRadius: cornerRadius)
-                                .strokeBorder(Color.accentColor, lineWidth: 1)
-                        }
-                    }
+
+            // Empty workspace dot indicator when no windows present
+            if item.windows.isEmpty && !showLabels {
+                Circle()
+                    .fill(
+                        item.isFocused
+                            ? Color.accentColor
+                            : Color.primary.opacity(0.25)
+                    )
+                    .frame(width: max(5, iconSize * 0.32), height: max(5, iconSize * 0.32))
+                    .animation(springAnimation, value: item.isFocused)
             }
         }
+        .padding(.horizontal, item.windows.isEmpty && !showLabels ? 10 : 9)
+        .padding(.vertical, 3)
+        .frame(minHeight: itemHeight)
+        .background(pillBackground.animation(springAnimation, value: item.isFocused))
+        .animation(springAnimation, value: isHovered)
         .onHover { hovering in
-            isHovered = hovering
+            withAnimation(springAnimation) { isHovered = hovering }
         }
         .onTapGesture {
             onFocusWorkspace()
         }
+        .scaleEffect(isHovered && !item.isFocused ? 1.04 : 1.0)
+        .animation(animationsEnabled ? .spring(response: 0.2, dampingFraction: 0.7) : nil, value: isHovered)
     }
 }
 
@@ -230,6 +288,14 @@ private struct WindowIconView: View {
     @State private var isHovered = false
     @State private var showingWindowList = false
 
+    private var focusAnimation: Animation? {
+        animationsEnabled ? .spring(response: 0.22, dampingFraction: 0.72) : nil
+    }
+
+    private var hoverAnimation: Animation? {
+        animationsEnabled ? .spring(response: 0.18, dampingFraction: 0.7) : nil
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Group {
@@ -241,30 +307,35 @@ private struct WindowIconView: View {
                     Image(systemName: "app.dashed")
                         .resizable()
                         .aspectRatio(contentMode: .fit)
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(width: iconSize, height: iconSize)
-            .opacity(opacity)
-            .shadow(color: Color.accentColor.opacity(glowOpacity), radius: glowRadius)
+            .opacity(iconOpacity)
+            // Subtle drop shadow on focused icon; standard shadow otherwise
+            .shadow(
+                color: isFocused ? Color.accentColor.opacity(0.5) : .black.opacity(0.18),
+                radius: isFocused ? 5 : 2,
+                x: 0, y: isFocused ? 1 : 1
+            )
 
             if window.windowCount > 1 {
                 Text("\(window.windowCount)")
-                    .font(.system(size: max(8, iconSize * 0.4), weight: .bold))
+                    .font(.system(size: max(7, iconSize * 0.38), weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                    .padding(2)
+                    .frame(minWidth: max(11, iconSize * 0.5), minHeight: max(11, iconSize * 0.5))
                     .background(
-                        Circle()
-                            .fill(Color.red)
+                        Capsule()
+                            .fill(Color.accentColor)
+                            .shadow(color: Color.accentColor.opacity(0.4), radius: 3, x: 0, y: 1)
                     )
-                    .offset(x: iconSize * 0.2, y: -iconSize * 0.1)
+                    .offset(x: iconSize * 0.22, y: -iconSize * 0.14)
             }
         }
-        .scaleEffect(scale)
-        .animation(animationsEnabled ? .easeInOut(duration: 0.15) : nil, value: isFocused)
-        .animation(animationsEnabled ? .easeInOut(duration: 0.1) : nil, value: isHovered)
-        .onHover { hovering in
-            isHovered = hovering
-        }
+        .scaleEffect(iconScale)
+        .animation(focusAnimation, value: isFocused)
+        .animation(hoverAnimation, value: isHovered)
+        .onHover { hovering in isHovered = hovering }
         .onTapGesture {
             if window.windowCount > 1 {
                 showingWindowList = true
@@ -285,32 +356,17 @@ private struct WindowIconView: View {
         .help(window.appName)
     }
 
-    private var opacity: Double {
-        if isFocused {
-            1.0
-        } else if isInFocusedWorkspace {
-            0.4
-        } else {
-            0.5
-        }
+    private var iconOpacity: Double {
+        if isFocused { return 1.0 }
+        if isHovered { return 0.85 }
+        if isInFocusedWorkspace { return 0.5 }
+        return 0.45
     }
 
-    private var scale: CGFloat {
-        if isFocused {
-            1.1
-        } else if isHovered {
-            1.05
-        } else {
-            1.0
-        }
-    }
-
-    private var glowRadius: CGFloat {
-        isFocused ? 4 : 0
-    }
-
-    private var glowOpacity: Double {
-        isFocused ? 0.5 : 0
+    private var iconScale: CGFloat {
+        if isFocused { return 1.08 }
+        if isHovered { return 1.06 }
+        return 1.0
     }
 }
 

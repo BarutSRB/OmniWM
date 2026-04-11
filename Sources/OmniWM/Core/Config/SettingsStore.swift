@@ -32,6 +32,10 @@ final class SettingsStore {
         didSet { defaults.set(mouseWarpAxis.rawValue, forKey: Keys.mouseWarpAxis) }
     }
 
+    var mouseWarpGrid: [MouseWarpGridEntry] {
+        didSet { saveMouseWarpGrid() }
+    }
+
     var niriColumnWidthPresets: [Double] {
         didSet { saveNiriColumnWidthPresets() }
     }
@@ -404,6 +408,7 @@ final class SettingsStore {
         focusFollowsWindowToMonitor = defaults.object(forKey: Keys.focusFollowsWindowToMonitor) as? Bool ??
             baseline.focusFollowsWindowToMonitor
         mouseWarpMonitorOrder = Self.loadMouseWarpMonitorOrder(from: defaults)
+        mouseWarpGrid = Self.loadMouseWarpGrid(from: defaults)
         mouseWarpAxis = MouseWarpAxis(rawValue: defaults.string(forKey: Keys.mouseWarpAxis) ?? "") ??
             MouseWarpAxis(rawValue: baseline.mouseWarpAxis ?? "") ?? .horizontal
         niriColumnWidthPresets = Self.loadNiriColumnWidthPresets(from: defaults)
@@ -894,6 +899,20 @@ final class SettingsStore {
         defaults.set(data, forKey: Keys.mouseWarpMonitorOrder)
     }
 
+    private static func loadMouseWarpGrid(from defaults: UserDefaults) -> [MouseWarpGridEntry] {
+        guard let data = defaults.data(forKey: Keys.mouseWarpGrid),
+              let grid = try? JSONDecoder().decode([MouseWarpGridEntry].self, from: data)
+        else {
+            return []
+        }
+        return grid
+    }
+
+    private func saveMouseWarpGrid() {
+        guard let data = try? JSONEncoder().encode(mouseWarpGrid) else { return }
+        defaults.set(data, forKey: Keys.mouseWarpGrid)
+    }
+
     nonisolated static let defaultColumnWidthPresets: [Double] = BuiltInSettingsDefaults.niriColumnWidthPresets
 
     static func validatedPresets(_ presets: [Double]) -> [Double] {
@@ -945,6 +964,7 @@ private enum Keys {
     static let moveMouseToFocusedWindow = "settings.moveMouseToFocusedWindow"
     static let focusFollowsWindowToMonitor = "settings.focusFollowsWindowToMonitor"
     static let mouseWarpMonitorOrder = "settings.mouseWarp.monitorOrder"
+    static let mouseWarpGrid = "settings.mouseWarp.grid"
     static let mouseWarpAxis = "settings.mouseWarp.axis"
     static let niriColumnWidthPresets = "settings.niriColumnWidthPresets"
     static let niriDefaultColumnWidth = "settings.niriDefaultColumnWidth"

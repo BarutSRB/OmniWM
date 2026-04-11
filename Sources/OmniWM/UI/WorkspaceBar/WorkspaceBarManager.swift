@@ -397,7 +397,7 @@ final class WorkspaceBarManager {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.ignoresMouseEvents = false
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false

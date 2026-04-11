@@ -35,7 +35,7 @@ final class MouseWarpHandler: NSObject {
     }
 
     nonisolated(unsafe) static weak var sharedInstance: MouseWarpHandler?
-    static let cooldownSeconds: TimeInterval = 0.05
+    static let cooldownSeconds: TimeInterval = 0.15
 
     weak var controller: WMController?
     var state = State()
@@ -154,6 +154,7 @@ final class MouseWarpHandler: NSObject {
     }
 
     private func handleMouseWarpMoved(at location: CGPoint) {
+
         guard let controller else { return }
         guard !state.isWarping else { return }
         guard controller.isEnabled else { return }
@@ -164,13 +165,34 @@ final class MouseWarpHandler: NSObject {
         let effectiveOrder = controller.settings.effectiveMouseWarpMonitorOrder(for: monitors, axis: axis)
         guard effectiveOrder.count >= 2 else { return }
 
+        // For `both` axis, compute separate horizontal and vertical orderings
+        let hOrder: [String]
+        let vOrder: [String]
+        if axis == .both {
+            hOrder = controller.settings.effectiveMouseWarpMonitorOrder(for: monitors, axis: .horizontal)
+            vOrder = controller.settings.effectiveMouseWarpMonitorOrder(for: monitors, axis: .vertical)
+        } else {
+            hOrder = effectiveOrder
+            vOrder = effectiveOrder
+        }
+
         let margin = CGFloat(controller.settings.mouseWarpMargin)
+
+        // Grid-first path for `both` axis: intercept ALL cursor movement using grid adjacency
+        if axis == .both {
+            let gridEntries = controller.settings.mouseWarpGrid
+            let virtualLayout = mouseWarpBuildVirtualLayout(grid: gridEntries, monitors: monitors)
+            if !virtualLayout.isEmpty {
+                handleGridBasedWarp(location: location, monitors: monitors, virtualLayout: virtualLayout, margin: margin)
+                return
+            }
+        }
 
         guard let currentMonitor = monitors.first(where: { $0.frame.contains(location) }) else {
             if axis == .vertical || axis == .both,
                mouseWarpAttemptVerticalWarpFromLastMonitor(
                    location: location,
-                   in: effectiveOrder,
+                   in: vOrder,
                    monitors: monitors,
                    margin: margin
                ) {
@@ -183,18 +205,18 @@ final class MouseWarpHandler: NSObject {
         if let lastMonitorId = state.lastMonitorId {
             if let lastMonitor = controller.workspaceManager.monitor(byId: lastMonitorId) {
                 if lastMonitor.id != currentMonitor.id {
-                    if axis == .vertical || axis == .both,
+                    if axis == .vertical,
                        let lastIndex = mouseWarpCurrentIndex(
                            for: lastMonitor,
-                           in: effectiveOrder,
+                           in: vOrder,
                            monitors: monitors,
-                           axis: axis
+                           axis: .vertical
                        ),
                        mouseWarpAttemptVerticalWarp(
                            from: lastMonitor,
                            sourceIndex: lastIndex,
                            location: location,
-                           in: effectiveOrder,
+                           in: vOrder,
                            monitors: monitors,
                            margin: margin
                        ) {
@@ -259,25 +281,35 @@ final class MouseWarpHandler: NSObject {
                 margin: margin
             )
         case .both:
-            if location.x <= frame.minX + margin {
-                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .left, among: monitors) {
-                    let yRatio = mouseWarpCalculateYRatio(location, in: frame)
-                    mouseWarpToAdjacentMonitor(target, edge: .right, transferRatio: yRatio, warpAxis: .horizontal, margin: margin)
+            let gridEntries = controller.settings.mouseWarpGrid
+            let virtualLayout = mouseWarpBuildVirtualLayout(grid: gridEntries, monitors: monitors)
+            if !virtualLayout.isEmpty,
+               mouseWarpResolveGridWarp(
+                   for: currentMonitor, location: location, frame: frame,
+                   margin: margin, virtualLayout: virtualLayout, monitors: monitors
+               ) {
+                // Grid warp handled
+            } else {
+                // Fallback: order-based horizontal + vertical
+                if let hIndex = mouseWarpCurrentIndex(for: currentMonitor, in: hOrder, monitors: monitors, axis: .horizontal) {
+                    if location.x <= frame.minX + margin {
+                        let leftIndex = hIndex - 1
+                        if leftIndex >= 0 {
+                            let yRatio = mouseWarpCalculateYRatio(location, in: frame)
+                            mouseWarpToMonitor(named: hOrder[leftIndex], edge: .right, transferRatio: yRatio, axis: .horizontal, monitors: monitors, margin: margin)
+                            return
+                        }
+                    } else if location.x >= frame.maxX - margin {
+                        let rightIndex = hIndex + 1
+                        if rightIndex < hOrder.count {
+                            let yRatio = mouseWarpCalculateYRatio(location, in: frame)
+                            mouseWarpToMonitor(named: hOrder[rightIndex], edge: .left, transferRatio: yRatio, axis: .horizontal, monitors: monitors, margin: margin)
+                            return
+                        }
+                    }
                 }
-            } else if location.x >= frame.maxX - margin {
-                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .right, among: monitors) {
-                    let yRatio = mouseWarpCalculateYRatio(location, in: frame)
-                    mouseWarpToAdjacentMonitor(target, edge: .left, transferRatio: yRatio, warpAxis: .horizontal, margin: margin)
-                }
-            } else if location.y >= frame.maxY - margin {
-                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .top, among: monitors) {
-                    let xRatio = mouseWarpCalculateXRatio(location, in: frame)
-                    mouseWarpToAdjacentMonitor(target, edge: .bottom, transferRatio: xRatio, warpAxis: .vertical, margin: margin)
-                }
-            } else if location.y <= frame.minY + margin {
-                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .bottom, among: monitors) {
-                    let xRatio = mouseWarpCalculateXRatio(location, in: frame)
-                    mouseWarpToAdjacentMonitor(target, edge: .top, transferRatio: xRatio, warpAxis: .vertical, margin: margin)
+                if let vIndex = mouseWarpCurrentIndex(for: currentMonitor, in: vOrder, monitors: monitors, axis: .vertical) {
+                    _ = mouseWarpAttemptVerticalWarp(from: currentMonitor, sourceIndex: vIndex, location: location, in: vOrder, monitors: monitors, margin: margin)
                 }
             }
         }
@@ -618,6 +650,236 @@ final class MouseWarpHandler: NSObject {
         }
     }
 
+    /// Maps cursor position from source to target using virtual layout coordinates.
+    /// Instead of using ratio within the source monitor, computes the absolute virtual
+    /// position and maps it to the target's virtual frame.
+    private func mouseWarpVirtualTransferRatio(
+        location: CGPoint,
+        actualFrame: CGRect,
+        sourceVirtual: CGRect,
+        targetVirtual: CGRect,
+        direction: Edge
+    ) -> CGFloat {
+        switch direction {
+        case .left, .right:
+            // Transfer Y position using virtual coordinates
+            let ratioInSource = (actualFrame.maxY - location.y) / actualFrame.height
+            let virtualY = sourceVirtual.minY + ratioInSource * sourceVirtual.height
+            let ratioInTarget = (virtualY - targetVirtual.minY) / targetVirtual.height
+            return min(max(ratioInTarget, 0.05), 0.95)
+        case .top, .bottom:
+            // Transfer X position using virtual coordinates
+            let ratioInSource = (location.x - actualFrame.minX) / actualFrame.width
+            let virtualX = sourceVirtual.minX + ratioInSource * sourceVirtual.width
+            let ratioInTarget = (virtualX - targetVirtual.minX) / targetVirtual.width
+            return min(max(ratioInTarget, 0.05), 0.95)
+        }
+    }
+
+    // MARK: - Grid-based virtual layout for `both` axis
+
+    private struct VirtualMonitor {
+        let monitor: Monitor
+        let virtualFrame: CGRect
+    }
+
+    private func mouseWarpBuildVirtualLayout(
+        grid: [MouseWarpGridEntry],
+        monitors: [Monitor]
+    ) -> [VirtualMonitor] {
+        grid.compactMap { entry in
+            guard let monitor = monitors.first(where: { $0.name == entry.name }) else { return nil }
+            return VirtualMonitor(monitor: monitor, virtualFrame: entry.virtualFrame(for: monitor))
+        }
+    }
+
+    private func mouseWarpGridNeighbor(
+        for monitor: Monitor,
+        direction: Edge,
+        virtualLayout: [VirtualMonitor],
+        cursorVirtualX: CGFloat? = nil,
+        cursorVirtualY: CGFloat? = nil
+    ) -> VirtualMonitor? {
+        guard let current = virtualLayout.first(where: { $0.monitor.id == monitor.id }) else {
+            return nil
+        }
+        let vf = current.virtualFrame
+        let others = virtualLayout.filter { $0.monitor.id != monitor.id }
+
+        // AppKit coordinates: y increases upward. "top" edge = maxY = physically above.
+        switch direction {
+        case .left:
+            return others
+                .filter { $0.virtualFrame.maxX <= vf.minX + 1 }
+                .filter { $0.virtualFrame.maxY > vf.minY && $0.virtualFrame.minY < vf.maxY }
+                .min(by: { abs($0.virtualFrame.maxX - vf.minX) < abs($1.virtualFrame.maxX - vf.minX) })
+        case .right:
+            return others
+                .filter { $0.virtualFrame.minX >= vf.maxX - 1 }
+                .filter { $0.virtualFrame.maxY > vf.minY && $0.virtualFrame.minY < vf.maxY }
+                .min(by: { abs($0.virtualFrame.minX - vf.maxX) < abs($1.virtualFrame.minX - vf.maxX) })
+        case .top:
+            // Going up: find monitor whose bottom (minY) is at our top (maxY)
+            let candidates = others
+                .filter { $0.virtualFrame.minY >= vf.maxY - 1 }
+                .filter { $0.virtualFrame.maxX > vf.minX && $0.virtualFrame.minX < vf.maxX }
+            if candidates.count <= 1 { return candidates.first }
+            // Multiple candidates: pick the one containing the cursor's virtual X
+            if let cx = cursorVirtualX {
+                return candidates.first(where: { cx >= $0.virtualFrame.minX && cx < $0.virtualFrame.maxX })
+                    ?? candidates.min(by: { abs($0.virtualFrame.minY - vf.maxY) < abs($1.virtualFrame.minY - vf.maxY) })
+            }
+            return candidates.min(by: { abs($0.virtualFrame.minY - vf.maxY) < abs($1.virtualFrame.minY - vf.maxY) })
+        case .bottom:
+            // Going down: find monitor whose top (maxY) is at our bottom (minY)
+            let candidates = others
+                .filter { $0.virtualFrame.maxY <= vf.minY + 1 }
+                .filter { $0.virtualFrame.maxX > vf.minX && $0.virtualFrame.minX < vf.maxX }
+            if candidates.count <= 1 { return candidates.first }
+            // Multiple candidates: pick the one containing the cursor's virtual X
+            if let cx = cursorVirtualX {
+                return candidates.first(where: { cx >= $0.virtualFrame.minX && cx < $0.virtualFrame.maxX })
+                    ?? candidates.min(by: { abs($0.virtualFrame.maxY - vf.minY) < abs($1.virtualFrame.maxY - vf.minY) })
+            }
+            return candidates.min(by: { abs($0.virtualFrame.maxY - vf.minY) < abs($1.virtualFrame.maxY - vf.minY) })
+        }
+    }
+
+    // MARK: - Grid-based warp: handles ALL cursor movement for `both` + grid
+
+    private func handleGridBasedWarp(
+        location: CGPoint,
+        monitors: [Monitor],
+        virtualLayout: [VirtualMonitor],
+        margin: CGFloat
+    ) {
+        // Determine reference monitor (where cursor was last)
+        let referenceMonitor: Monitor
+        if let lastId = state.lastMonitorId,
+           let last = monitors.first(where: { $0.id == lastId }) {
+            referenceMonitor = last
+        } else if let current = monitors.first(where: { $0.frame.contains(location) }) {
+            state.lastMonitorId = current.id
+    
+            return
+        } else {
+
+            return
+        }
+
+        let frame = referenceMonitor.frame
+
+        // Cursor still inside reference monitor — check edges
+        if frame.contains(location) {
+            state.lastMonitorId = referenceMonitor.id
+
+            // Check all 4 edges
+            var direction: Edge?
+            if location.x <= frame.minX + margin { direction = .left }
+            else if location.x >= frame.maxX - margin { direction = .right }
+            else if location.y >= frame.maxY - margin { direction = .top }
+            else if location.y <= frame.minY + margin { direction = .bottom }
+
+            // Compute cursor's virtual X for disambiguating multiple vertical neighbors
+            let sourceVM = virtualLayout.first(where: { $0.monitor.id == referenceMonitor.id })
+            let cursorVX: CGFloat? = sourceVM.map { vm in
+                let ratioInSource = (location.x - frame.minX) / frame.width
+                return vm.virtualFrame.minX + ratioInSource * vm.virtualFrame.width
+            }
+
+            if let dir = direction,
+               let sourceVM,
+               let target = mouseWarpGridNeighbor(for: referenceMonitor, direction: dir, virtualLayout: virtualLayout, cursorVirtualX: cursorVX) {
+
+                let ratio = mouseWarpVirtualTransferRatio(
+                    location: location, actualFrame: frame,
+                    sourceVirtual: sourceVM.virtualFrame, targetVirtual: target.virtualFrame,
+                    direction: dir
+                )
+                let targetEdge: Edge
+                let warpAxis: MouseWarpAxis
+                switch dir {
+                case .left: targetEdge = .right; warpAxis = .horizontal
+                case .right: targetEdge = .left; warpAxis = .horizontal
+                case .top: targetEdge = .bottom; warpAxis = .vertical
+                case .bottom: targetEdge = .top; warpAxis = .vertical
+                }
+                mouseWarpToAdjacentMonitor(target.monitor, edge: targetEdge, transferRatio: ratio, warpAxis: warpAxis, margin: margin)
+            }
+            return
+        }
+
+        // Cursor has LEFT the reference monitor — determine which edge was crossed
+        var direction: Edge?
+        if location.x < frame.minX { direction = .left }
+        else if location.x > frame.maxX { direction = .right }
+        if direction == nil {
+            if location.y >= frame.maxY { direction = .top }
+            else if location.y <= frame.minY { direction = .bottom }
+        }
+
+        // Compute cursor's virtual X for escape path too
+        let escapeSourceVM = virtualLayout.first(where: { $0.monitor.id == referenceMonitor.id })
+        let escapeCursorVX: CGFloat? = escapeSourceVM.map { vm in
+            let ratioInSource = (location.x - frame.minX) / frame.width
+            return vm.virtualFrame.minX + ratioInSource * vm.virtualFrame.width
+        }
+
+        if let dir = direction,
+           let sourceVM = escapeSourceVM,
+           let target = mouseWarpGridNeighbor(for: referenceMonitor, direction: dir, virtualLayout: virtualLayout, cursorVirtualX: escapeCursorVX) {
+            let ratio = mouseWarpVirtualTransferRatio(
+                location: location, actualFrame: frame,
+                sourceVirtual: sourceVM.virtualFrame, targetVirtual: target.virtualFrame,
+                direction: dir
+            )
+            let targetEdge: Edge
+            let warpAxis: MouseWarpAxis
+            switch dir {
+            case .left: targetEdge = .right; warpAxis = .horizontal
+            case .right: targetEdge = .left; warpAxis = .horizontal
+            case .top: targetEdge = .bottom; warpAxis = .vertical
+            case .bottom: targetEdge = .top; warpAxis = .vertical
+            }
+            mouseWarpToAdjacentMonitor(target.monitor, edge: targetEdge, transferRatio: ratio, warpAxis: warpAxis, margin: margin)
+        } else {
+            // No grid neighbor — clamp back to reference monitor
+            mouseWarpBackToMonitor(referenceMonitor, location: location, margin: margin, axis: .both)
+        }
+    }
+
+    private func mouseWarpResolveGridWarp(
+        for currentMonitor: Monitor,
+        location: CGPoint,
+        frame: CGRect,
+        margin: CGFloat,
+        virtualLayout: [VirtualMonitor],
+        monitors: [Monitor]
+    ) -> Bool {
+        if location.x <= frame.minX + margin {
+            guard let target = mouseWarpGridNeighbor(for: currentMonitor, direction: .left, virtualLayout: virtualLayout) else { return false }
+            let yRatio = mouseWarpCalculateYRatio(location, in: frame)
+            mouseWarpToAdjacentMonitor(target.monitor, edge: .right, transferRatio: yRatio, warpAxis: .horizontal, margin: margin)
+            return true
+        } else if location.x >= frame.maxX - margin {
+            guard let target = mouseWarpGridNeighbor(for: currentMonitor, direction: .right, virtualLayout: virtualLayout) else { return false }
+            let yRatio = mouseWarpCalculateYRatio(location, in: frame)
+            mouseWarpToAdjacentMonitor(target.monitor, edge: .left, transferRatio: yRatio, warpAxis: .horizontal, margin: margin)
+            return true
+        } else if location.y >= frame.maxY - margin {
+            guard let target = mouseWarpGridNeighbor(for: currentMonitor, direction: .top, virtualLayout: virtualLayout) else { return false }
+            let xRatio = mouseWarpCalculateXRatio(location, in: frame)
+            mouseWarpToAdjacentMonitor(target.monitor, edge: .bottom, transferRatio: xRatio, warpAxis: .vertical, margin: margin)
+            return true
+        } else if location.y <= frame.minY + margin {
+            guard let target = mouseWarpGridNeighbor(for: currentMonitor, direction: .bottom, virtualLayout: virtualLayout) else { return false }
+            let xRatio = mouseWarpCalculateXRatio(location, in: frame)
+            mouseWarpToAdjacentMonitor(target.monitor, edge: .top, transferRatio: xRatio, warpAxis: .vertical, margin: margin)
+            return true
+        }
+        return false
+    }
+
     // MARK: - Geometric neighbor detection for `both` axis
 
     private func mouseWarpGeometricNeighbor(
@@ -659,12 +921,14 @@ final class MouseWarpHandler: NSObject {
         warpAxis: MouseWarpAxis,
         margin: CGFloat
     ) {
+        // Use a larger landing margin for grid warps to prevent bounce
+        let landingMargin = max(margin * 5, 10)
         let destination = mouseWarpDestinationPoint(
             on: target.frame,
             edge: edge,
             transferRatio: transferRatio,
             axis: warpAxis,
-            margin: margin
+            margin: landingMargin
         )
 
         state.isWarping = true
