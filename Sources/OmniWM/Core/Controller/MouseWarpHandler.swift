@@ -167,7 +167,7 @@ final class MouseWarpHandler: NSObject {
         let margin = CGFloat(controller.settings.mouseWarpMargin)
 
         guard let currentMonitor = monitors.first(where: { $0.frame.contains(location) }) else {
-            if axis == .vertical,
+            if axis == .vertical || axis == .both,
                mouseWarpAttemptVerticalWarpFromLastMonitor(
                    location: location,
                    in: effectiveOrder,
@@ -183,7 +183,7 @@ final class MouseWarpHandler: NSObject {
         if let lastMonitorId = state.lastMonitorId {
             if let lastMonitor = controller.workspaceManager.monitor(byId: lastMonitorId) {
                 if lastMonitor.id != currentMonitor.id {
-                    if axis == .vertical,
+                    if axis == .vertical || axis == .both,
                        let lastIndex = mouseWarpCurrentIndex(
                            for: lastMonitor,
                            in: effectiveOrder,
@@ -258,6 +258,28 @@ final class MouseWarpHandler: NSObject {
                 monitors: monitors,
                 margin: margin
             )
+        case .both:
+            if location.x <= frame.minX + margin {
+                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .left, among: monitors) {
+                    let yRatio = mouseWarpCalculateYRatio(location, in: frame)
+                    mouseWarpToAdjacentMonitor(target, edge: .right, transferRatio: yRatio, warpAxis: .horizontal, margin: margin)
+                }
+            } else if location.x >= frame.maxX - margin {
+                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .right, among: monitors) {
+                    let yRatio = mouseWarpCalculateYRatio(location, in: frame)
+                    mouseWarpToAdjacentMonitor(target, edge: .left, transferRatio: yRatio, warpAxis: .horizontal, margin: margin)
+                }
+            } else if location.y >= frame.maxY - margin {
+                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .top, among: monitors) {
+                    let xRatio = mouseWarpCalculateXRatio(location, in: frame)
+                    mouseWarpToAdjacentMonitor(target, edge: .bottom, transferRatio: xRatio, warpAxis: .vertical, margin: margin)
+                }
+            } else if location.y <= frame.minY + margin {
+                if let target = mouseWarpGeometricNeighbor(for: currentMonitor, direction: .bottom, among: monitors) {
+                    let xRatio = mouseWarpCalculateXRatio(location, in: frame)
+                    mouseWarpToAdjacentMonitor(target, edge: .top, transferRatio: xRatio, warpAxis: .vertical, margin: margin)
+                }
+            }
         }
     }
 
@@ -370,6 +392,28 @@ final class MouseWarpHandler: NSObject {
 
             let clampedY = min(max(location.y, frame.minY + margin + 1), frame.maxY - margin - 1)
             clampedPoint = CGPoint(x: clampedX, y: clampedY)
+        case .both:
+            var x = location.x
+            var y = location.y
+            var needsClamp = false
+
+            if x > frame.maxX {
+                x = frame.maxX - margin - 1
+                needsClamp = true
+            } else if x < frame.minX {
+                x = frame.minX + margin + 1
+                needsClamp = true
+            }
+            if y > frame.maxY {
+                y = frame.maxY - margin - 1
+                needsClamp = true
+            } else if y < frame.minY {
+                y = frame.minY + margin + 1
+                needsClamp = true
+            }
+
+            guard needsClamp else { return }
+            clampedPoint = CGPoint(x: x, y: y)
         }
 
         state.isWarping = true
@@ -403,6 +447,8 @@ final class MouseWarpHandler: NSObject {
             sourceMonitor = monitors.first(where: { monitor in
                 location.y >= monitor.frame.minY && location.y <= monitor.frame.maxY
             })
+        case .both:
+            sourceMonitor = location.monitorApproximation(in: monitors)
         }
 
         guard let sourceMonitor else { return }
@@ -422,6 +468,17 @@ final class MouseWarpHandler: NSObject {
                 clampedPoint.x = frame.maxX - margin - 1
             } else if location.x < frame.minX {
                 clampedPoint.x = frame.minX + margin + 1
+            }
+        case .both:
+            if location.x > frame.maxX {
+                clampedPoint.x = frame.maxX - margin - 1
+            } else if location.x < frame.minX {
+                clampedPoint.x = frame.minX + margin + 1
+            }
+            if location.y > frame.maxY {
+                clampedPoint.y = frame.maxY - margin - 1
+            } else if location.y < frame.minY {
+                clampedPoint.y = frame.minY + margin + 1
             }
         }
 
@@ -474,7 +531,7 @@ final class MouseWarpHandler: NSObject {
         let clampedRatio = min(max(transferRatio, 0), 1)
 
         switch axis {
-        case .horizontal:
+        case .horizontal, .both:
             let x: CGFloat
             switch edge {
             case .left:
@@ -485,7 +542,15 @@ final class MouseWarpHandler: NSObject {
                 x = frame.minX + (clampedRatio * frame.width)
             }
 
-            let y = frame.maxY - (clampedRatio * frame.height)
+            let y: CGFloat
+            switch edge {
+            case .top:
+                y = frame.maxY - margin - 1
+            case .bottom:
+                y = frame.minY + margin + 1
+            case .left, .right:
+                y = frame.maxY - (clampedRatio * frame.height)
+            }
             return CGPoint(x: x, y: y)
         case .vertical:
             let y: CGFloat
@@ -551,6 +616,64 @@ final class MouseWarpHandler: NSObject {
         if let cooldownTimer = state.cooldownTimer {
             RunLoop.main.add(cooldownTimer, forMode: .common)
         }
+    }
+
+    // MARK: - Geometric neighbor detection for `both` axis
+
+    private func mouseWarpGeometricNeighbor(
+        for monitor: Monitor,
+        direction: Edge,
+        among monitors: [Monitor]
+    ) -> Monitor? {
+        let frame = monitor.frame
+        let others = monitors.filter { $0.id != monitor.id }
+
+        switch direction {
+        case .left:
+            return others
+                .filter { $0.frame.maxX <= frame.minX + 1 }
+                .filter { $0.frame.maxY > frame.minY && $0.frame.minY < frame.maxY }
+                .min(by: { abs($0.frame.maxX - frame.minX) < abs($1.frame.maxX - frame.minX) })
+        case .right:
+            return others
+                .filter { $0.frame.minX >= frame.maxX - 1 }
+                .filter { $0.frame.maxY > frame.minY && $0.frame.minY < frame.maxY }
+                .min(by: { abs($0.frame.minX - frame.maxX) < abs($1.frame.minX - frame.maxX) })
+        case .top:
+            return others
+                .filter { $0.frame.minY >= frame.maxY - 1 }
+                .filter { $0.frame.maxX > frame.minX && $0.frame.minX < frame.maxX }
+                .min(by: { abs($0.frame.minY - frame.maxY) < abs($1.frame.minY - frame.maxY) })
+        case .bottom:
+            return others
+                .filter { $0.frame.maxY <= frame.minY + 1 }
+                .filter { $0.frame.maxX > frame.minX && $0.frame.minX < frame.maxX }
+                .min(by: { abs($0.frame.maxY - frame.minY) < abs($1.frame.maxY - frame.minY) })
+        }
+    }
+
+    private func mouseWarpToAdjacentMonitor(
+        _ target: Monitor,
+        edge: Edge,
+        transferRatio: CGFloat,
+        warpAxis: MouseWarpAxis,
+        margin: CGFloat
+    ) {
+        let destination = mouseWarpDestinationPoint(
+            on: target.frame,
+            edge: edge,
+            transferRatio: transferRatio,
+            axis: warpAxis,
+            margin: margin
+        )
+
+        state.isWarping = true
+        state.lastMonitorId = target.id
+        let warpPoint = ScreenCoordinateSpace.toWindowServer(point: destination)
+
+        postMouseMovedEvent(warpPoint)
+
+        scheduleWarpCooldownReset()
     }
 
     private enum Edge {
