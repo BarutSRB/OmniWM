@@ -25,6 +25,7 @@ extension NiriLayoutEngine {
         ) else {
             return nil
         }
+        guard plan.didApply else { return nil }
         return findWindow(in: plan, id: plan.result.selected_window_id)
     }
 
@@ -97,6 +98,7 @@ extension NiriLayoutEngine {
               )
         else { return nil }
 
+        guard plan.didApply else { return nil }
         return findWindow(in: plan, id: plan.result.selected_window_id)
     }
 

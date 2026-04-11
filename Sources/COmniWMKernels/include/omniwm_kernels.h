@@ -319,6 +319,7 @@ typedef struct {
     uint8_t should_clear_activate_prev_column_on_removal;
     uint8_t source_column_became_empty;
     uint8_t inserted_before_active;
+    uint8_t did_apply;
 } omniwm_niri_topology_result;
 
 int32_t omniwm_axis_solve(

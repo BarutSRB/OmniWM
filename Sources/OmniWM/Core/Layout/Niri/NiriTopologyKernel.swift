@@ -126,6 +126,10 @@ struct NiriTopologyKernelPlan {
     var effectKind: NiriTopologyEffectKind {
         NiriTopologyEffectKind(rawValue: result.effect_kind) ?? .none
     }
+
+    var didApply: Bool {
+        result.did_apply != 0
+    }
 }
 
 extension NiriLayoutEngine {
@@ -488,6 +492,7 @@ extension NiriLayoutEngine {
         motion: MotionSnapshot,
         animationConfig: SpringConfig? = nil
     ) -> NiriWindow? {
+        let previousSelectedNodeId = state.selectedNodeId
         applyTopology(plan, in: workspaceId)
         applyTopologyViewport(
             plan.result,
@@ -496,6 +501,11 @@ extension NiriLayoutEngine {
             animationConfig: animationConfig,
             scale: displayScale(in: workspaceId)
         )
+
+        if !plan.didApply {
+            state.selectedNodeId = previousSelectedNodeId
+            return nil
+        }
 
         state.selectedNodeId = nil
         if plan.result.selected_window_id != 0,

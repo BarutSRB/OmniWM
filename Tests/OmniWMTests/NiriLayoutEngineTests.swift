@@ -6352,6 +6352,161 @@ private func makeCenteredCrossMonitorFixture(
         }
     }
 
+    @Test @MainActor func edgeFocusNoOpPreservesSelectionForReverseAndAbsoluteColumnCommands() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for edge focus no-op regression test")
+            return
+        }
+
+        controller.enableNiriLayout(
+            maxWindowsPerColumn: 1,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        controller.updateNiriConfig(
+            maxVisibleColumns: 2,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        controller.setAnimationsEnabled(false)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.layoutRefreshController.stopAllScrollAnimations()
+        controller.syncMonitorsToNiriEngine()
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for edge focus no-op regression test")
+            return
+        }
+
+        for windowId in 671 ... 673 {
+            _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: windowId)
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let fixedWidth = (workingFrame.width - gap) / 2
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(fixedWidth)
+            column.cachedWidth = fixedWidth
+        }
+
+        let columns = engine.columns(in: workspaceId)
+        let windows = columns.compactMap(\.windowNodes.first)
+        guard windows.count == 3 else {
+            Issue.record("Expected three visible Niri columns for edge focus no-op regression test")
+            return
+        }
+
+        let columnStride = fixedWidth + gap
+
+        func setSelection(activeIndex: Int, visibleStartIndex: Int) {
+            let node = windows[activeIndex]
+            let expectedViewStart = CGFloat(visibleStartIndex) * columnStride
+            controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+                state.selectedNodeId = node.id
+                state.activeColumnIndex = activeIndex
+                state.viewOffsetPixels = .static(
+                    expectedViewStart
+                        - state.columnX(at: activeIndex, columns: columns, gap: gap)
+                )
+            }
+            _ = controller.workspaceManager.setManagedFocus(node.token, in: workspaceId, onMonitor: monitor.id)
+            _ = controller.workspaceManager.commitWorkspaceSelection(
+                nodeId: node.id,
+                focusedToken: node.token,
+                in: workspaceId,
+                onMonitor: monitor.id
+            )
+            controller.layoutRefreshController.stopAllScrollAnimations()
+        }
+
+        struct Scenario {
+            let label: String
+            let startIndex: Int
+            let visibleStartIndex: Int
+            let edgeDirection: Direction
+            let reverseDirection: Direction
+            let absoluteCommand: HotkeyCommand
+            let expectedAbsoluteIndex: Int
+        }
+
+        for scenario in [
+            Scenario(
+                label: "first column extra left press",
+                startIndex: 0,
+                visibleStartIndex: 0,
+                edgeDirection: .left,
+                reverseDirection: .right,
+                absoluteCommand: .focusColumnLast,
+                expectedAbsoluteIndex: 2
+            ),
+            Scenario(
+                label: "last column extra right press",
+                startIndex: 2,
+                visibleStartIndex: 1,
+                edgeDirection: .right,
+                reverseDirection: .left,
+                absoluteCommand: .focusColumnFirst,
+                expectedAbsoluteIndex: 0
+            ),
+        ] {
+            let comment = Comment(rawValue: scenario.label)
+            let expectedViewStart = CGFloat(scenario.visibleStartIndex) * columnStride
+
+            setSelection(activeIndex: scenario.startIndex, visibleStartIndex: scenario.visibleStartIndex)
+
+            #expect(controller.commandHandler.performCommand(.focus(scenario.edgeDirection)) == .executed, comment)
+            let edgeState = controller.workspaceManager.niriViewportState(for: workspaceId)
+            #expect(
+                controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[scenario.startIndex].token,
+                comment
+            )
+            #expect(edgeState.selectedNodeId == windows[scenario.startIndex].id, comment)
+            #expect(edgeState.activeColumnIndex == scenario.startIndex, comment)
+            #expect(abs(viewportStart(for: edgeState, columns: columns, gap: gap) - expectedViewStart) < 0.1, comment)
+
+            #expect(controller.commandHandler.performCommand(.focus(scenario.reverseDirection)) == .executed, comment)
+            await waitForLayoutPlanRefreshWork(on: controller)
+
+            let reverseState = controller.workspaceManager.niriViewportState(for: workspaceId)
+            #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[1].token, comment)
+            #expect(reverseState.selectedNodeId == windows[1].id, comment)
+            #expect(reverseState.activeColumnIndex == 1, comment)
+
+            setSelection(activeIndex: scenario.startIndex, visibleStartIndex: scenario.visibleStartIndex)
+
+            #expect(controller.commandHandler.performCommand(.focus(scenario.edgeDirection)) == .executed, comment)
+            let secondEdgeState = controller.workspaceManager.niriViewportState(for: workspaceId)
+            #expect(
+                controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[scenario.startIndex].token,
+                comment
+            )
+            #expect(secondEdgeState.selectedNodeId == windows[scenario.startIndex].id, comment)
+            #expect(secondEdgeState.activeColumnIndex == scenario.startIndex, comment)
+            #expect(abs(viewportStart(for: secondEdgeState, columns: columns, gap: gap) - expectedViewStart) < 0.1, comment)
+
+            #expect(controller.commandHandler.performCommand(scenario.absoluteCommand) == .executed, comment)
+            await waitForLayoutPlanRefreshWork(on: controller)
+
+            let absoluteState = controller.workspaceManager.niriViewportState(for: workspaceId)
+            #expect(
+                controller.workspaceManager.preferredFocusToken(in: workspaceId) == windows[scenario.expectedAbsoluteIndex].token,
+                comment
+            )
+            #expect(absoluteState.selectedNodeId == windows[scenario.expectedAbsoluteIndex].id, comment)
+            #expect(absoluteState.activeColumnIndex == scenario.expectedAbsoluteIndex, comment)
+        }
+    }
+
     @Test @MainActor func turningAnimationsOffLeavesInFlightViewportMotionAloneAndMakesNextNavigationInstant() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

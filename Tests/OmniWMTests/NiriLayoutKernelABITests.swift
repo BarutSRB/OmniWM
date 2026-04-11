@@ -237,7 +237,8 @@ private func makeNiriTopologyResult() -> omniwm_niri_topology_result {
         has_activate_prev_column_on_removal: 0,
         should_clear_activate_prev_column_on_removal: 0,
         source_column_became_empty: 0,
-        inserted_before_active: 0
+        inserted_before_active: 0,
+        did_apply: 0
     )
 }
 
@@ -953,7 +954,7 @@ struct NiriTopologyKernelABITests {
         #expect(output.windows.map(\.id) == [20, 30, 10, 40])
     }
 
-    @Test func focusAtEdgeReturnsNoSelectedTarget() {
+    @Test func focusAtEdgePreservesSelectedTarget() {
         var input = makeNiriTopologyInput(
             operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_FOCUS),
             direction: UInt32(OMNIWM_NIRI_TOPOLOGY_DIRECTION_LEFT),
@@ -969,7 +970,9 @@ struct NiriTopologyKernelABITests {
         let output = callNiriTopology(input: &input, columns: columns, windows: windows)
 
         #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
-        #expect(output.result.selected_window_id == 0)
+        #expect(output.result.selected_window_id == 10)
+        #expect(output.result.active_column_index == 0)
+        #expect(output.result.did_apply == 0)
         #expect(output.windows.map(\.id) == [10])
     }
 }

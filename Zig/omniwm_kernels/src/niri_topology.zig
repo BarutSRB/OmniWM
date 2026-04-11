@@ -134,6 +134,7 @@ const TopologyResult = extern struct {
     should_clear_activate_prev_column_on_removal: u8,
     source_column_became_empty: u8,
     inserted_before_active: u8,
+    did_apply: u8,
 };
 
 const ColumnState = struct {
@@ -725,7 +726,6 @@ fn focusByDirection(topology: *Topology, input: TopologyInput, result: *Topology
     const current = topology.findWindow(input.selected_window_id) orelse return false;
 
     if (directionPrimaryStep(input.direction, input.orientation)) |step| {
-        topology.columns[current.column].active = @intCast(current.window);
         const distance: i32 = if (input.insert_index > 0) input.insert_index else 1;
         const target_column_index = wrapIndex(
             @as(i32, @intCast(current.column)) + step * distance,
@@ -743,12 +743,11 @@ fn focusByDirection(topology: *Topology, input: TopologyInput, result: *Topology
     }
 
     const step = directionSecondaryStep(input.direction, input.orientation) orelse return false;
-    const column = &topology.columns[current.column];
+    const column = topology.columns[current.column];
     const current_index = if (column.is_tabbed) @as(i32, @intCast(@min(if (column.active < 0) 0 else @as(usize, @intCast(column.active)), column.count - 1))) else @as(i32, @intCast(current.window));
     const target_index_i32 = current_index + step;
     if (target_index_i32 < 0 or target_index_i32 >= @as(i32, @intCast(column.count))) return false;
     const target_index: usize = @intCast(target_index_i32);
-    column.active = @intCast(target_index);
     const target_id = topology.columnWindowSliceConst(current.column)[target_index];
     return focusWindowById(topology, input, target_id, result);
 }
@@ -761,12 +760,11 @@ fn focusCombined(topology: *Topology, input: TopologyInput, result: *TopologyRes
     var vertical_input = input;
     vertical_input.direction = vertical_direction;
     if (directionSecondaryStep(vertical_direction, input.orientation)) |step| {
-        const column = &topology.columns[current.column];
+        const column = topology.columns[current.column];
         const current_index = if (column.is_tabbed) @as(i32, @intCast(@min(if (column.active < 0) 0 else @as(usize, @intCast(column.active)), column.count - 1))) else @as(i32, @intCast(current.window));
         const target_index_i32 = current_index + step;
         if (target_index_i32 >= 0 and target_index_i32 < @as(i32, @intCast(column.count))) {
             const target_index: usize = @intCast(target_index_i32);
-            column.active = @intCast(target_index);
             const target_id = topology.columnWindowSliceConst(current.column)[target_index];
             return focusWindowById(topology, vertical_input, target_id, result);
         }
@@ -1391,6 +1389,7 @@ pub export fn omniwm_niri_topology_plan(
         .should_clear_activate_prev_column_on_removal = 0,
         .source_column_became_empty = 0,
         .inserted_before_active = 0,
+        .did_apply = 0,
     };
 
     const allocator = std.heap.page_allocator;
@@ -1428,9 +1427,6 @@ pub export fn omniwm_niri_topology_plan(
         op_focus_column => blk: {
             const target = asOptionalIndex(input.target_index) orelse break :blk false;
             if (target >= topology.column_count or topology.columns[target].count == 0) break :blk false;
-            if (topology.findWindow(input.selected_window_id)) |current| {
-                topology.columns[current.column].active = @intCast(current.window);
-            }
             const active = @min(if (topology.columns[target].active < 0) 0 else @as(usize, @intCast(topology.columns[target].active)), topology.columns[target].count - 1);
             const target_id = topology.columnWindowSliceConst(target)[active];
             break :blk focusWindowById(&topology, input, target_id, result);
@@ -1439,7 +1435,6 @@ pub export fn omniwm_niri_topology_plan(
             const current = topology.findWindow(input.selected_window_id) orelse break :blk false;
             const target_window = asOptionalIndex(input.target_index) orelse break :blk false;
             if (target_window >= topology.columns[current.column].count) break :blk false;
-            topology.columns[current.column].active = @intCast(target_window);
             const target_id = topology.columnWindowSliceConst(current.column)[target_window];
             break :blk focusWindowById(&topology, input, target_id, result);
         },
@@ -1467,17 +1462,7 @@ pub export fn omniwm_niri_topology_plan(
         op_insert_window_by_move => insertWindowByMove(&topology, input, result),
         else => return status_invalid_argument,
     };
-
-    if (!applied) {
-        switch (input.operation) {
-            op_focus,
-            op_focus_column,
-            op_focus_window_in_column,
-            op_focus_combined,
-            => result.selected_window_id = null_id,
-            else => {},
-        }
-    }
+    result.did_apply = @intFromBool(applied);
 
     if (result.active_column_index < 0 and topology.column_count > 0) {
         result.active_column_index = 0;
@@ -1578,6 +1563,210 @@ test "niri topology focus right centers overflowing edge pair in overflow mode" 
     try std.testing.expectEqual(@as(i32, 2), result.active_column_index);
     try std.testing.expectEqual(viewport_set_static, result.viewport_action);
     try std.testing.expect(@abs(result.viewport_target_offset + 254) < 0.01);
+}
+
+test "niri topology focus at edge preserves selected window" {
+    var input = TopologyInput{
+        .operation = op_focus,
+        .direction = direction_left,
+        .orientation = orientation_horizontal,
+        .center_mode = center_on_overflow,
+        .subject_window_id = 0,
+        .target_window_id = 0,
+        .selected_window_id = 10,
+        .focused_window_id = 0,
+        .active_column_index = 0,
+        .insert_index = 0,
+        .target_index = 0,
+        .from_column_index = -1,
+        .max_windows_per_column = 1,
+        .gap = 8,
+        .viewport_span = 1000,
+        .current_view_offset = 0,
+        .stationary_view_offset = 0,
+        .scale = 2,
+        .default_new_column_span = 400,
+        .previous_active_position = 0,
+        .activate_prev_column_on_removal = 0,
+        .infinite_loop = 0,
+        .always_center_single_column = 0,
+        .animate = 0,
+        .has_previous_active_position = 0,
+        .has_activate_prev_column_on_removal = 0,
+        .reset_for_single_window = 0,
+        .is_active_workspace = 1,
+        .has_completed_initial_refresh = 1,
+        .viewport_is_gesture_or_animation = 0,
+    };
+    const columns = [_]TopologyColumnInput{
+        .{ .id = 1, .span = 400, .window_start_index = 0, .window_count = 1, .active_window_index = 0, .is_tabbed = 0 },
+    };
+    const windows = [_]TopologyWindowInput{
+        .{ .id = 10, .sizing_mode = viewport_policy.sizing_mode_normal },
+    };
+    var column_outputs: [1]TopologyColumnOutput = undefined;
+    var window_outputs: [1]TopologyWindowOutput = undefined;
+    var result: TopologyResult = undefined;
+
+    const status = omniwm_niri_topology_plan(
+        &input,
+        &columns,
+        columns.len,
+        &windows,
+        windows.len,
+        null,
+        0,
+        null,
+        0,
+        &column_outputs,
+        column_outputs.len,
+        &window_outputs,
+        window_outputs.len,
+        &result,
+    );
+
+    try std.testing.expectEqual(status_ok, status);
+    try std.testing.expectEqual(@as(u64, 10), result.selected_window_id);
+    try std.testing.expectEqual(@as(i32, 0), result.active_column_index);
+    try std.testing.expectEqual(@as(u8, 0), result.did_apply);
+    try std.testing.expectEqual(@as(usize, 1), result.window_count);
+}
+
+test "niri topology failed focus keeps active window index stable" {
+    var input = TopologyInput{
+        .operation = op_focus,
+        .direction = direction_left,
+        .orientation = orientation_horizontal,
+        .center_mode = center_on_overflow,
+        .subject_window_id = 0,
+        .target_window_id = 0,
+        .selected_window_id = 10,
+        .focused_window_id = 0,
+        .active_column_index = 0,
+        .insert_index = 0,
+        .target_index = 0,
+        .from_column_index = -1,
+        .max_windows_per_column = 3,
+        .gap = 8,
+        .viewport_span = 1000,
+        .current_view_offset = 0,
+        .stationary_view_offset = 0,
+        .scale = 2,
+        .default_new_column_span = 400,
+        .previous_active_position = 0,
+        .activate_prev_column_on_removal = 0,
+        .infinite_loop = 0,
+        .always_center_single_column = 0,
+        .animate = 0,
+        .has_previous_active_position = 0,
+        .has_activate_prev_column_on_removal = 0,
+        .reset_for_single_window = 0,
+        .is_active_workspace = 1,
+        .has_completed_initial_refresh = 1,
+        .viewport_is_gesture_or_animation = 0,
+    };
+    const columns = [_]TopologyColumnInput{
+        .{ .id = 1, .span = 400, .window_start_index = 0, .window_count = 2, .active_window_index = 1, .is_tabbed = 1 },
+        .{ .id = 2, .span = 400, .window_start_index = 2, .window_count = 1, .active_window_index = 0, .is_tabbed = 0 },
+    };
+    const windows = [_]TopologyWindowInput{
+        .{ .id = 10, .sizing_mode = viewport_policy.sizing_mode_normal },
+        .{ .id = 20, .sizing_mode = viewport_policy.sizing_mode_normal },
+        .{ .id = 30, .sizing_mode = viewport_policy.sizing_mode_normal },
+    };
+    var column_outputs: [2]TopologyColumnOutput = undefined;
+    var window_outputs: [3]TopologyWindowOutput = undefined;
+    var result: TopologyResult = undefined;
+
+    const status = omniwm_niri_topology_plan(
+        &input,
+        &columns,
+        columns.len,
+        &windows,
+        windows.len,
+        null,
+        0,
+        null,
+        0,
+        &column_outputs,
+        column_outputs.len,
+        &window_outputs,
+        window_outputs.len,
+        &result,
+    );
+
+    try std.testing.expectEqual(status_ok, status);
+    try std.testing.expectEqual(@as(u64, 10), result.selected_window_id);
+    try std.testing.expectEqual(@as(i32, 1), column_outputs[0].active_window_index);
+    try std.testing.expectEqual(@as(i32, 0), result.active_column_index);
+    try std.testing.expectEqual(@as(u8, 0), result.did_apply);
+}
+
+test "niri topology combined focus at edge preserves selected window" {
+    var input = TopologyInput{
+        .operation = op_focus_combined,
+        .direction = direction_left,
+        .orientation = orientation_horizontal,
+        .center_mode = center_on_overflow,
+        .subject_window_id = 0,
+        .target_window_id = 0,
+        .selected_window_id = 10,
+        .focused_window_id = 0,
+        .active_column_index = 0,
+        .insert_index = 0,
+        .target_index = 0,
+        .from_column_index = -1,
+        .max_windows_per_column = 1,
+        .gap = 8,
+        .viewport_span = 1000,
+        .current_view_offset = 0,
+        .stationary_view_offset = 0,
+        .scale = 2,
+        .default_new_column_span = 400,
+        .previous_active_position = 0,
+        .activate_prev_column_on_removal = 0,
+        .infinite_loop = 0,
+        .always_center_single_column = 0,
+        .animate = 0,
+        .has_previous_active_position = 0,
+        .has_activate_prev_column_on_removal = 0,
+        .reset_for_single_window = 0,
+        .is_active_workspace = 1,
+        .has_completed_initial_refresh = 1,
+        .viewport_is_gesture_or_animation = 0,
+    };
+    const columns = [_]TopologyColumnInput{
+        .{ .id = 1, .span = 400, .window_start_index = 0, .window_count = 1, .active_window_index = 0, .is_tabbed = 0 },
+    };
+    const windows = [_]TopologyWindowInput{
+        .{ .id = 10, .sizing_mode = viewport_policy.sizing_mode_normal },
+    };
+    var column_outputs: [1]TopologyColumnOutput = undefined;
+    var window_outputs: [1]TopologyWindowOutput = undefined;
+    var result: TopologyResult = undefined;
+
+    const status = omniwm_niri_topology_plan(
+        &input,
+        &columns,
+        columns.len,
+        &windows,
+        windows.len,
+        null,
+        0,
+        null,
+        0,
+        &column_outputs,
+        column_outputs.len,
+        &window_outputs,
+        window_outputs.len,
+        &result,
+    );
+
+    try std.testing.expectEqual(status_ok, status);
+    try std.testing.expectEqual(@as(u64, 10), result.selected_window_id);
+    try std.testing.expectEqual(@as(i32, 0), result.active_column_index);
+    try std.testing.expectEqual(@as(u8, 0), result.did_apply);
+    try std.testing.expectEqual(@as(usize, 1), result.window_count);
 }
 
 test "niri topology move window consumes single column into neighbor" {
