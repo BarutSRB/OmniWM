@@ -1135,7 +1135,8 @@ final class MouseEventHandler {
                 viewportWidth: insetFrame.width,
                 motion: controller.motionPolicy.snapshot(),
                 centerMode: engine.centerFocusedColumn,
-                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
+                snapToColumnBoundaries: engine.snapToColumnBoundaries
             )
         }
         controller.layoutRefreshController.startScrollAnimation(for: wsId)

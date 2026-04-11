@@ -55,7 +55,8 @@ extension NiriLayoutEngine {
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio,
-            infiniteLoop: infiniteLoop
+            infiniteLoop: infiniteLoop,
+            snapToColumnBoundaries: snapToColumnBoundaries
         )
     }
 

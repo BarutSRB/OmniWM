@@ -244,6 +244,7 @@ final class WMController {
             infiniteLoop: settings.niriInfiniteLoop,
             centerFocusedColumn: settings.niriCenterFocusedColumn,
             alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn,
+            snapToColumnBoundaries: settings.niriSnapToColumnBoundaries,
             singleWindowAspectRatio: settings.niriSingleWindowAspectRatio,
             columnWidthPresets: settings.niriColumnWidthPresets,
             defaultColumnWidth: settings.niriDefaultColumnWidth
@@ -754,6 +755,7 @@ final class WMController {
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
+        snapToColumnBoundaries: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
         columnWidthPresets: [Double]? = nil,
         defaultColumnWidth: Double?? = nil
@@ -764,6 +766,7 @@ final class WMController {
             infiniteLoop: infiniteLoop,
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            snapToColumnBoundaries: snapToColumnBoundaries,
             singleWindowAspectRatio: singleWindowAspectRatio,
             columnWidthPresets: columnWidthPresets,
             defaultColumnWidth: defaultColumnWidth

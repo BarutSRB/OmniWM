@@ -724,7 +724,8 @@ private func makeCenteredCrossMonitorFixture(
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        infiniteLoop: Bool? = nil
+        infiniteLoop: Bool? = nil,
+        snapToColumnBoundaries: Bool? = nil
     ) -> ResolvedNiriSettings {
         let global = engine.globalResolvedSettings()
         return ResolvedNiriSettings(
@@ -733,7 +734,8 @@ private func makeCenteredCrossMonitorFixture(
             centerFocusedColumn: centerFocusedColumn ?? global.centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn ?? global.alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio ?? global.singleWindowAspectRatio,
-            infiniteLoop: infiniteLoop ?? global.infiniteLoop
+            infiniteLoop: infiniteLoop ?? global.infiniteLoop,
+            snapToColumnBoundaries: snapToColumnBoundaries ?? global.snapToColumnBoundaries
         )
     }
 

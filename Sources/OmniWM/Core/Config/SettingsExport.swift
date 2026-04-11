@@ -55,6 +55,7 @@ struct SettingsExport: Codable {
     var niriInfiniteLoop: Bool
     var niriCenterFocusedColumn: String
     var niriAlwaysCenterSingleColumn: Bool
+    var niriSnapToColumnBoundaries: Bool
     var niriSingleWindowAspectRatio: String
     var niriColumnWidthPresets: [Double]?
     var niriDefaultColumnWidth: Double?
@@ -150,6 +151,7 @@ extension SettingsExport {
             niriInfiniteLoop: false,
             niriCenterFocusedColumn: CenterFocusedColumn.never.rawValue,
             niriAlwaysCenterSingleColumn: true,
+            niriSnapToColumnBoundaries: false,
             niriSingleWindowAspectRatio: SingleWindowAspectRatio.ratio4x3.rawValue,
             niriColumnWidthPresets: BuiltInSettingsDefaults.niriColumnWidthPresets,
             niriDefaultColumnWidth: nil,
@@ -340,6 +342,7 @@ extension SettingsStore {
             niriInfiniteLoop: niriInfiniteLoop,
             niriCenterFocusedColumn: niriCenterFocusedColumn.rawValue,
             niriAlwaysCenterSingleColumn: niriAlwaysCenterSingleColumn,
+            niriSnapToColumnBoundaries: niriSnapToColumnBoundaries,
             niriSingleWindowAspectRatio: niriSingleWindowAspectRatio.rawValue,
             niriColumnWidthPresets: niriColumnWidthPresets,
             niriDefaultColumnWidth: niriDefaultColumnWidth,
@@ -452,6 +455,7 @@ extension SettingsStore {
         niriInfiniteLoop = export.niriInfiniteLoop
         niriCenterFocusedColumn = CenterFocusedColumn(rawValue: export.niriCenterFocusedColumn) ?? .never
         niriAlwaysCenterSingleColumn = export.niriAlwaysCenterSingleColumn
+        niriSnapToColumnBoundaries = export.niriSnapToColumnBoundaries
         niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: export.niriSingleWindowAspectRatio) ?? .ratio4x3
         if let presets = export.niriColumnWidthPresets {
             niriColumnWidthPresets = Self.validatedPresets(presets)

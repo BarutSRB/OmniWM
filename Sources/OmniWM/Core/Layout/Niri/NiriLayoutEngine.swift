@@ -121,6 +121,8 @@ final class NiriLayoutEngine {
 
     var alwaysCenterSingleColumn: Bool = true
 
+    var snapToColumnBoundaries: Bool = false
+
     var singleWindowAspectRatio: SingleWindowAspectRatio = .none
 
     var renderStyle: NiriRenderStyle = .default
@@ -321,6 +323,7 @@ final class NiriLayoutEngine {
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
+        snapToColumnBoundaries: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
         presetColumnWidths: [PresetSize]? = nil,
         defaultColumnWidth: CGFloat?? = nil
@@ -339,6 +342,9 @@ final class NiriLayoutEngine {
         }
         if let centerSingle = alwaysCenterSingleColumn {
             self.alwaysCenterSingleColumn = centerSingle
+        }
+        if let snap = snapToColumnBoundaries {
+            self.snapToColumnBoundaries = snap
         }
         if let aspectRatio = singleWindowAspectRatio {
             self.singleWindowAspectRatio = aspectRatio

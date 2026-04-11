@@ -91,6 +91,10 @@ final class SettingsStore {
         didSet { defaults.set(niriAlwaysCenterSingleColumn, forKey: Keys.niriAlwaysCenterSingleColumn) }
     }
 
+    var niriSnapToColumnBoundaries: Bool {
+        didSet { defaults.set(niriSnapToColumnBoundaries, forKey: Keys.niriSnapToColumnBoundaries) }
+    }
+
     var niriSingleWindowAspectRatio: SingleWindowAspectRatio {
         didSet { defaults.set(niriSingleWindowAspectRatio.rawValue, forKey: Keys.niriSingleWindowAspectRatio) }
     }
@@ -426,6 +430,8 @@ final class SettingsStore {
             CenterFocusedColumn(rawValue: baseline.niriCenterFocusedColumn) ?? .never
         niriAlwaysCenterSingleColumn = defaults.object(forKey: Keys.niriAlwaysCenterSingleColumn) as? Bool ??
             baseline.niriAlwaysCenterSingleColumn
+        niriSnapToColumnBoundaries = defaults.object(forKey: Keys.niriSnapToColumnBoundaries) as? Bool ??
+            baseline.niriSnapToColumnBoundaries
         niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: defaults
             .string(forKey: Keys.niriSingleWindowAspectRatio) ?? "") ??
             SingleWindowAspectRatio(rawValue: baseline.niriSingleWindowAspectRatio) ?? .ratio4x3
@@ -832,7 +838,8 @@ final class SettingsStore {
             centerFocusedColumn: override?.centerFocusedColumn ?? niriCenterFocusedColumn,
             alwaysCenterSingleColumn: override?.alwaysCenterSingleColumn ?? niriAlwaysCenterSingleColumn,
             singleWindowAspectRatio: override?.singleWindowAspectRatio ?? niriSingleWindowAspectRatio,
-            infiniteLoop: override?.infiniteLoop ?? niriInfiniteLoop
+            infiniteLoop: override?.infiniteLoop ?? niriInfiniteLoop,
+            snapToColumnBoundaries: override?.snapToColumnBoundaries ?? niriSnapToColumnBoundaries
         )
     }
 
@@ -961,6 +968,7 @@ private enum Keys {
     static let niriInfiniteLoop = "settings.niriInfiniteLoop"
     static let niriCenterFocusedColumn = "settings.niriCenterFocusedColumn"
     static let niriAlwaysCenterSingleColumn = "settings.niriAlwaysCenterSingleColumn"
+    static let niriSnapToColumnBoundaries = "settings.niriSnapToColumnBoundaries"
     static let niriSingleWindowAspectRatio = "settings.niriSingleWindowAspectRatio"
     static let monitorNiriSettings = "settings.monitorNiriSettings"
 

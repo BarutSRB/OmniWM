@@ -414,6 +414,11 @@ private struct GlobalNiriSettingsSection: View {
                         controller.updateNiriConfig(alwaysCenterSingleColumn: newValue)
                     }
 
+                Toggle("Snap to Column Boundaries", isOn: $settings.niriSnapToColumnBoundaries)
+                    .onChange(of: settings.niriSnapToColumnBoundaries) { _, newValue in
+                        controller.updateNiriConfig(snapToColumnBoundaries: newValue)
+                    }
+
                 Picker("Single Window Ratio", selection: $settings.niriSingleWindowAspectRatio) {
                     ForEach(SingleWindowAspectRatio.allCases, id: \.self) { ratio in
                         Text(ratio.displayName).tag(ratio)
@@ -585,6 +590,14 @@ private struct MonitorNiriSettingsSection: View {
                     globalValue: settings.niriAlwaysCenterSingleColumn,
                     onChange: { newValue in updateSetting { $0.alwaysCenterSingleColumn = newValue } },
                     onReset: { updateSetting { $0.alwaysCenterSingleColumn = nil } }
+                )
+
+                OverridableToggle(
+                    label: "Snap to Column Boundaries",
+                    value: ms.snapToColumnBoundaries,
+                    globalValue: settings.niriSnapToColumnBoundaries,
+                    onChange: { newValue in updateSetting { $0.snapToColumnBoundaries = newValue } },
+                    onReset: { updateSetting { $0.snapToColumnBoundaries = nil } }
                 )
 
                 OverridablePicker(

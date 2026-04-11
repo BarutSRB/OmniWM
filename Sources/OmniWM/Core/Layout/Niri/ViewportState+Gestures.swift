@@ -64,7 +64,8 @@ extension ViewportState {
         viewportWidth: CGFloat,
         motion: MotionSnapshot,
         centerMode: CenterFocusedColumn = .never,
-        alwaysCenterSingleColumn: Bool = false
+        alwaysCenterSingleColumn: Bool = false,
+        snapToColumnBoundaries: Bool = false
     ) {
         guard case let .gesture(gesture) = viewOffsetPixels else {
             return
@@ -90,7 +91,8 @@ extension ViewportState {
             gap: gap,
             viewportWidth: viewportWidth,
             centerMode: centerMode,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            snapToColumnBoundaries: snapToColumnBoundaries
         )
 
         let newColX = columnX(at: result.columnIndex, columns: columns, gap: gap)
@@ -141,7 +143,8 @@ extension ViewportState {
         gap: CGFloat,
         viewportWidth: CGFloat,
         centerMode: CenterFocusedColumn,
-        alwaysCenterSingleColumn: Bool = false
+        alwaysCenterSingleColumn: Bool = false,
+        snapToColumnBoundaries: Bool = false
     ) -> SnapResult {
         guard !columns.isEmpty else { return SnapResult(viewPos: 0, columnIndex: 0) }
 
@@ -162,6 +165,14 @@ extension ViewportState {
                 ))
                 let snapViewPos = colX + offset
                 snapPoints.append((snapViewPos, idx))
+            }
+        } else if snapToColumnBoundaries {
+            var colX: Double = 0
+            for (idx, col) in columns.enumerated() {
+                let colW = Double(col.cachedWidth)
+                // Snap point: column left edge aligned to viewport left edge
+                snapPoints.append((colX, idx))
+                colX += colW + gaps
             }
         } else {
             var colX: Double = 0
@@ -201,7 +212,7 @@ extension ViewportState {
                 for idx in (newColIdx + 1) ..< columns.count {
                     let colX = Double(columnX(at: idx, columns: columns, gap: gap))
                     let colW = Double(columns[idx].cachedWidth)
-                    let padding = max(0, min((vw - colW) / 2.0, gaps))
+                    let padding = snapToColumnBoundaries ? 0.0 : max(0, min((vw - colW) / 2.0, gaps))
                     if closest.viewPos + vw >= colX + colW + padding {
                         newColIdx = idx
                     } else {
@@ -212,7 +223,7 @@ extension ViewportState {
                 for idx in stride(from: newColIdx - 1, through: 0, by: -1) {
                     let colX = Double(columnX(at: idx, columns: columns, gap: gap))
                     let colW = Double(columns[idx].cachedWidth)
-                    let padding = max(0, min((vw - colW) / 2.0, gaps))
+                    let padding = snapToColumnBoundaries ? 0.0 : max(0, min((vw - colW) / 2.0, gaps))
                     if colX - padding >= closest.viewPos {
                         newColIdx = idx
                     } else {
