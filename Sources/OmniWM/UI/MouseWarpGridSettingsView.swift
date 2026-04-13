@@ -8,11 +8,16 @@ struct MouseWarpGridSettingsView: View {
     let connectedMonitors: [Monitor]
 
     var body: some View {
+        let warnings = adjacentMonitorPairs()
+
         VStack(alignment: .leading, spacing: 12) {
             Divider()
 
             // macOS Display Arrangement notice
-            MacOSDisplayArrangementNotice()
+            MacOSDisplayArrangementNotice(
+                connectedMonitors: connectedMonitors,
+                hasAdjacentPairs: !warnings.isEmpty
+            )
 
             Divider()
 
@@ -29,7 +34,7 @@ struct MouseWarpGridSettingsView: View {
             MouseWarpGridCanvas(
                 settings: settings,
                 connectedMonitors: connectedMonitors,
-                adjacentPairs: adjacentMonitorPairs()
+                adjacentPairs: warnings
             )
 
             HStack {
@@ -41,7 +46,6 @@ struct MouseWarpGridSettingsView: View {
             }
 
             // Staircase lint warnings
-            let warnings = adjacentMonitorPairs()
             if !warnings.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(warnings.indices, id: \.self) { i in
@@ -52,9 +56,9 @@ struct MouseWarpGridSettingsView: View {
                                 .font(.system(size: 11, weight: .medium))
                                 .padding(.top, 1)
                             Text(
-                                "Warning: \(pair.0) and \(pair.1) share an edge. " +
-                                "In macOS Display Settings, ensure they are NOT adjacent " +
-                                "(use staircase pattern) so OmniWM can control cursor navigation."
+                                "\(pair.0) and \(pair.1) share an edge in macOS Display Settings. " +
+                                "Arrange them in a staircase pattern (no touching edges) " +
+                                "so OmniWM can control cursor navigation."
                             )
                             .font(.caption)
                             .foregroundColor(.orange)
@@ -85,46 +89,37 @@ struct MouseWarpGridSettingsView: View {
         }
     }
 
-    /// Returns pairs of monitor names whose virtual edges are directly adjacent.
-    /// Tolerance of 5 virtual points is used for edge comparison.
+    /// Returns pairs of monitor names whose macOS display arrangement edges are directly adjacent.
+    /// This checks the REAL macOS display positions (NSScreen frames), not the virtual OmniWM grid.
+    /// Tolerance of 5 points is used for edge comparison.
     func adjacentMonitorPairs() -> [(String, String)] {
         let tolerance: CGFloat = 5
-        let entries = settings.mouseWarpGrid.isEmpty
-            ? autoDetectedGrid(from: connectedMonitors)
-            : settings.mouseWarpGrid
-
-        func size(for entry: MouseWarpGridEntry) -> CGSize {
-            if let monitor = connectedMonitors.first(where: { $0.name == entry.name }) {
-                return CGSize(width: monitor.frame.width, height: monitor.frame.height)
-            }
-            return CGSize(width: 1920, height: 1080)
-        }
-
         var pairs: [(String, String)] = []
         var seen: Set<String> = []
 
-        for i in entries.indices {
-            for j in entries.indices where j != i {
-                let a = entries[i]
-                let b = entries[j]
-                let key = [a.name, b.name].sorted().joined(separator: "|")
+        for i in connectedMonitors.indices {
+            for j in connectedMonitors.indices where j != i {
+                let a = connectedMonitors[i]
+                let b = connectedMonitors[j]
+                // Use displayId for dedup — monitor names can be identical (e.g. two "Studio Display")
+                let key = [String(a.displayId), String(b.displayId)].sorted().joined(separator: "|")
                 guard !seen.contains(key) else { continue }
 
-                let sizeA = size(for: a)
-                let sizeB = size(for: b)
+                let frameA = a.frame
+                let frameB = b.frame
 
                 // Check side-by-side: A's right edge == B's left edge, with Y overlap
-                let sideBySide = abs((a.x + sizeA.width) - b.x) < tolerance
-                let yOverlap = a.y < (b.y + sizeB.height) && (a.y + sizeA.height) > b.y
+                let sideBySide = abs(frameA.maxX - frameB.minX) < tolerance
+                let yOverlap = frameA.minY < frameB.maxY && frameA.maxY > frameB.minY
                 if sideBySide && yOverlap {
                     pairs.append((a.name, b.name))
                     seen.insert(key)
                     continue
                 }
 
-                // Check stacked: A's top edge == B's bottom edge, with X overlap
-                let stacked = abs((a.y + sizeA.height) - b.y) < tolerance
-                let xOverlap = a.x < (b.x + sizeB.width) && (a.x + sizeA.width) > b.x
+                // Check stacked: A's bottom edge == B's top edge, with X overlap
+                let stacked = abs(frameA.maxY - frameB.minY) < tolerance
+                let xOverlap = frameA.minX < frameB.maxX && frameA.maxX > frameB.minX
                 if stacked && xOverlap {
                     pairs.append((a.name, b.name))
                     seen.insert(key)
@@ -139,11 +134,19 @@ struct MouseWarpGridSettingsView: View {
 // MARK: - MacOSDisplayArrangementNotice
 
 private struct MacOSDisplayArrangementNotice: View {
+    let connectedMonitors: [Monitor]
+    let hasAdjacentPairs: Bool
+
+    /// Saved monitor positions before auto-arranging, so the user can restore.
+    @State private var savedArrangement: [(CGDirectDisplayID, Int32, Int32)]?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
+                Image(systemName: hasAdjacentPairs
+                    ? "exclamationmark.triangle.fill"
+                    : "checkmark.circle.fill")
+                    .foregroundColor(hasAdjacentPairs ? .orange : .green)
                     .font(.system(size: 14, weight: .medium))
                     .padding(.top, 1)
 
@@ -151,24 +154,29 @@ private struct MacOSDisplayArrangementNotice: View {
                     .font(.system(size: 13, weight: .semibold))
             }
 
-            Text(
-                "OmniWM requires monitors to be arranged in a staircase pattern in macOS " +
-                "System Settings → Displays → Arrange. This prevents macOS from naturally " +
-                "moving the cursor between monitors — OmniWM's mouse warp handles navigation " +
-                "instead, using the virtual layout below."
-            )
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Why does OmniWM need a staircase layout?")
+                    .font(.caption)
+                    .fontWeight(.medium)
 
-            Text(
-                "OmniWM hides windows by moving them off-screen to the sides. If monitors " +
-                "share edges in macOS settings, windows could appear on adjacent displays. " +
-                "The staircase pattern prevents this — OmniWM's mouse warp handles navigation instead."
-            )
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "OmniWM manages windows by moving them off-screen to the left and right. " +
+                    "When two monitors share an edge in macOS, those \"hidden\" windows land " +
+                    "on the neighboring display instead of staying invisible."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+                Text(
+                    "The staircase pattern separates every monitor edge so macOS can't move " +
+                    "the cursor — or windows — between them. OmniWM's mouse warp takes over " +
+                    "cursor navigation using the virtual layout below."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
 
             // Visual staircase example
             VStack(alignment: .leading, spacing: 2) {
@@ -222,23 +230,83 @@ private struct MacOSDisplayArrangementNotice: View {
                 )
             }
 
-            Button("Open Display Settings") {
-                NSWorkspace.shared.open(
-                    URL(string: "x-apple.systempreferences:com.apple.preference.displays")!
-                )
+            HStack(spacing: 8) {
+                if hasAdjacentPairs && connectedMonitors.count > 1 {
+                    Button("Auto-arrange Staircase") {
+                        // Save current positions in Quartz coordinates (Y-down) so restore uses the same space as CGConfigureDisplayOrigin
+                        let previous = connectedMonitors.map { monitor in
+                            let bounds = CGDisplayBounds(monitor.displayId)
+                            return (monitor.displayId, Int32(bounds.origin.x), Int32(bounds.origin.y))
+                        }
+                        if arrangeStaircase(monitors: connectedMonitors) {
+                            savedArrangement = previous
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+
+                if let saved = savedArrangement {
+                    Button("Restore Previous") {
+                        restoreArrangement(saved)
+                        savedArrangement = nil
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                Button("Open Display Settings") {
+                    NSWorkspace.shared.open(
+                        URL(string: "x-apple.systempreferences:com.apple.Displays-Settings.extension")!
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color.orange.opacity(0.07))
+                .fill((hasAdjacentPairs ? Color.orange : Color.green).opacity(0.07))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.orange.opacity(0.25), lineWidth: 1)
+                        .stroke((hasAdjacentPairs ? Color.orange : Color.green).opacity(0.25), lineWidth: 1)
                 )
         )
+    }
+
+    @discardableResult
+    private func arrangeStaircase(monitors: [Monitor]) -> Bool {
+        let sorted = monitors.sorted { $0.frame.minX < $1.frame.minX }
+        let gap: CGFloat = 50
+
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success else { return false }
+
+        var currentX: Int32 = 0
+        var currentY: Int32 = 0
+
+        for monitor in sorted {
+            CGConfigureDisplayOrigin(config, monitor.displayId, currentX, currentY)
+            currentX += Int32(monitor.frame.width) + Int32(gap)
+            currentY += Int32(monitor.frame.height) + Int32(gap)
+        }
+
+        let result = CGCompleteDisplayConfiguration(config, .forSession)
+        return result == .success
+    }
+
+    @discardableResult
+    private func restoreArrangement(_ arrangement: [(CGDirectDisplayID, Int32, Int32)]) -> Bool {
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success else { return false }
+
+        for (displayId, x, y) in arrangement {
+            CGConfigureDisplayOrigin(config, displayId, x, y)
+        }
+
+        let result = CGCompleteDisplayConfiguration(config, .forSession)
+        return result == .success
     }
 }
 
