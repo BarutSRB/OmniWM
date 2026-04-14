@@ -27,6 +27,10 @@ final class BorderManager {
         self.borderWindowFactory = borderWindowFactory
     }
 
+    var isEnabled: Bool {
+        config.enabled
+    }
+
     func setEnabled(_ enabled: Bool) {
         config.enabled = enabled
         if !enabled {

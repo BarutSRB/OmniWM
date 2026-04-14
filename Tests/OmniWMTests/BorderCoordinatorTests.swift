@@ -1334,4 +1334,177 @@ struct BorderCoordinatorTests {
         #expect(unsubscriptions == [[913]])
     }
 
+    @Test @MainActor func renderRequestShortCircuitsWhenBordersDisabled() {
+        let controller = makeLayoutPlanTestController()
+        let target = makeBorderCoordinatorFallbackTarget(windowId: 920)
+        let frame = CGRect(x: 24, y: 36, width: 480, height: 320)
+
+        controller.setBordersEnabled(false)
+        controller.focusBridge.setFocusedTarget(target)
+        controller.borderCoordinator.observedFrameProviderForTests = { _ in frame }
+
+        var infoProviderCalls = 0
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            infoProviderCalls += 1
+            return makeBorderCoordinatorWindowInfo(id: windowId, frame: frame)
+        }
+        var factsProviderCalls = 0
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            factsProviderCalls += 1
+            return makeBorderCoordinatorWindowFacts(
+                title: "disabled-window",
+                windowServer: makeBorderCoordinatorWindowInfo(
+                    id: UInt32(axRef.windowId),
+                    frame: frame,
+                    title: "disabled-window"
+                )
+            )
+        }
+
+        let rendered = controller.renderKeyboardFocusBorder(
+            for: target,
+            preferredFrame: nil,
+            policy: .direct,
+            source: .manualRender
+        )
+        #expect(rendered == false)
+        #expect(controller.borderManager.isEnabled == false)
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner == .none)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+        #expect(infoProviderCalls == 0)
+        #expect(factsProviderCalls == 0)
+    }
+
+    @Test @MainActor func cgsFrameChangedSkippedWhenBordersDisabled() {
+        let controller = makeLayoutPlanTestController()
+        let target = makeBorderCoordinatorFallbackTarget(windowId: 921)
+        let frame = CGRect(x: 12, y: 18, width: 320, height: 240)
+
+        controller.setBordersEnabled(true)
+        controller.focusBridge.setFocusedTarget(target)
+        controller.borderCoordinator.observedFrameProviderForTests = { _ in frame }
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == 921 else { return nil }
+            return makeBorderCoordinatorWindowInfo(id: windowId, frame: frame)
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            makeBorderCoordinatorWindowFacts(
+                title: "disabled-frame",
+                windowServer: makeBorderCoordinatorWindowInfo(
+                    id: UInt32(axRef.windowId),
+                    frame: frame,
+                    title: "disabled-frame"
+                )
+            )
+        }
+
+        #expect(
+            controller.borderCoordinator.reconcile(
+                event: .renderRequested(
+                    source: .manualRender,
+                    target: target,
+                    preferredFrame: nil,
+                    policy: .direct
+                )
+            )
+        )
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner != .none)
+
+        controller.setBordersEnabled(false)
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner == .none)
+
+        var observedFrameCalls = 0
+        controller.borderCoordinator.observedFrameProviderForTests = { _ in
+            observedFrameCalls += 1
+            return frame
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: 921)
+        )
+
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner == .none)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+        #expect(observedFrameCalls == 0)
+    }
+
+    @Test @MainActor func disableAfterRenderClearsOwnerAndReEnableRenders() {
+        let controller = makeLayoutPlanTestController()
+        let target = makeBorderCoordinatorFallbackTarget(windowId: 922)
+        let frame = CGRect(x: 50, y: 70, width: 600, height: 400)
+
+        controller.setBordersEnabled(true)
+        controller.focusBridge.setFocusedTarget(target)
+        controller.borderCoordinator.observedFrameProviderForTests = { _ in frame }
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == 922 else { return nil }
+            return makeBorderCoordinatorWindowInfo(id: windowId, frame: frame)
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            makeBorderCoordinatorWindowFacts(
+                title: "reenable-window",
+                windowServer: makeBorderCoordinatorWindowInfo(
+                    id: UInt32(axRef.windowId),
+                    frame: frame,
+                    title: "reenable-window"
+                )
+            )
+        }
+
+        #expect(
+            controller.renderKeyboardFocusBorder(
+                for: target,
+                preferredFrame: nil,
+                policy: .direct,
+                source: .manualRender
+            )
+        )
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 922)
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner != .none)
+
+        controller.setBordersEnabled(false)
+        #expect(controller.borderManager.isEnabled == false)
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner == .none)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+
+        #expect(
+            controller.renderKeyboardFocusBorder(
+                for: target,
+                preferredFrame: nil,
+                policy: .direct,
+                source: .manualRender
+            ) == false
+        )
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner == .none)
+
+        controller.setBordersEnabled(true)
+        #expect(controller.borderManager.isEnabled == true)
+        #expect(
+            controller.renderKeyboardFocusBorder(
+                for: target,
+                preferredFrame: nil,
+                policy: .direct,
+                source: .manualRender
+            )
+        )
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 922)
+    }
+
+    @Test @MainActor func cgsClosedDestroyedStillReconcileWhenBordersDisabled() {
+        let controller = makeLayoutPlanTestController()
+        controller.setBordersEnabled(false)
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .closed(windowId: 923)
+        )
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .destroyed(windowId: 923, spaceId: 0)
+        )
+
+        #expect(controller.borderCoordinator.ownerStateSnapshotForTests().owner == .none)
+        #expect(controller.borderManager.isEnabled == false)
+    }
 }

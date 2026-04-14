@@ -3610,7 +3610,8 @@ extension WMController {
         policy: KeyboardFocusBorderRenderPolicy = .coordinated,
         source: BorderReconcileSource = .manualRender
     ) -> Bool {
-        borderCoordinator.renderBorder(
+        guard borderManager.isEnabled else { return false }
+        return borderCoordinator.renderBorder(
             for: target ?? currentKeyboardFocusTargetForRendering(),
             preferredFrame: preferredFrame,
             policy: policy,
@@ -3626,6 +3627,7 @@ extension WMController {
         matchingPid: pid_t? = nil,
         matchingWindowId: Int? = nil
     ) -> Bool {
+        guard borderManager.isEnabled else { return false }
         return borderCoordinator.hideBorder(
             source: source,
             reason: reason,

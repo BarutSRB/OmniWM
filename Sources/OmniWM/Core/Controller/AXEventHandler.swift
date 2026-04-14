@@ -346,7 +346,9 @@ final class AXEventHandler: CGSEventDelegate {
 
     private func handleFrameChanged(windowId: UInt32) {
         guard let controller else { return }
-        _ = controller.borderCoordinator.reconcile(event: .cgsFrameChanged(windowId: windowId))
+        if controller.borderManager.isEnabled {
+            _ = controller.borderCoordinator.reconcile(event: .cgsFrameChanged(windowId: windowId))
+        }
         guard let token = resolveTrackedToken(windowId) else { return }
         guard let entry = controller.workspaceManager.entry(for: token) else { return }
 
@@ -2433,6 +2435,7 @@ final class AXEventHandler: CGSEventDelegate {
         entry: WindowModel.Entry
     ) {
         guard let controller else { return }
+        guard controller.borderManager.isEnabled else { return }
         guard controller.currentKeyboardFocusTargetForRendering()?.token == entry.token else { return }
 
         let registry = controller.workspaceManager.logicalWindowRegistry
