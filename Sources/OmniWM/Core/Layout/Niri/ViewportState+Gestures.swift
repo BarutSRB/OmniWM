@@ -46,7 +46,10 @@ extension ViewportState {
             return nil
         }
 
-        selectionProgress += deltaPixels
+        // Accumulate in viewport-pixel units so the threshold (avgColumnWidth, also in
+        // viewport pixels) matches; without this, trackpad gestures would need
+        // ~normFactor× more finger motion to advance one column.
+        selectionProgress += deltaPixels * CGFloat(normFactor)
         let steps = Int((selectionProgress / CGFloat(avgColumnWidth)).rounded(.towardZero))
         if steps != 0 {
             selectionProgress -= CGFloat(steps) * CGFloat(avgColumnWidth)

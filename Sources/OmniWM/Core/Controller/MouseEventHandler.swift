@@ -985,18 +985,18 @@ final class MouseEventHandler {
         }
 
         guard resolveScrollContext(at: location) != nil else {
-            abortActiveGestureIfNeeded()
+            finalizeOrAbortActiveGesture(engine: engine)
             return
         }
         guard !snapshot.touches.isEmpty else {
-            abortActiveGestureIfNeeded()
+            finalizeOrAbortActiveGesture(engine: engine)
             return
         }
         guard let averageTouchPosition = Self.averageGestureTouchPosition(
             requiredFingers: requiredFingers,
             touches: snapshot.touches
         ) else {
-            abortActiveGestureIfNeeded()
+            finalizeOrAbortActiveGesture(engine: engine)
             return
         }
 
@@ -1179,6 +1179,21 @@ final class MouseEventHandler {
             cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
         }
         resetGestureState()
+    }
+
+    /// Finalizes a committed gesture with the snap-to-column animation when possible,
+    /// or falls back to an abort. Used when the gesture stream stops delivering valid
+    /// touch data before the explicit `.ended` phase arrives — for example, when the
+    /// user lifts their fingers and macOS first sends a `.changed` event with empty
+    /// touches. Aborting in that window would skip the snap and leave the viewport
+    /// stuck mid-column.
+    private func finalizeOrAbortActiveGesture(engine: NiriLayoutEngine) {
+        if state.gesturePhase == .committed, let lockedContext = state.lockedGestureContext {
+            finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine)
+            resetGestureState()
+        } else {
+            abortActiveGestureIfNeeded()
+        }
     }
 
     private func resolveScrollContext(at location: CGPoint) -> (

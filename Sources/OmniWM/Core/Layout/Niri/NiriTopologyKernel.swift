@@ -487,7 +487,12 @@ extension NiriLayoutEngine {
         if result.has_activate_prev_column_on_removal != 0 {
             state.activatePrevColumnOnRemoval = CGFloat(result.activate_prev_column_on_removal)
         }
-        state.selectionProgress = 0
+        // Don't clobber an in-progress trackpad gesture's accumulated progress.
+        // Each gesture tick triggers a relayout that lands here; resetting to 0 would
+        // prevent the gesture from ever crossing the column-step threshold.
+        if !state.viewOffsetPixels.isGesture {
+            state.selectionProgress = 0
+        }
     }
 
     @discardableResult
