@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 const std = @import("std");
 
 pub const center_never: u32 = 0;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 const std = @import("std");
 const ipc_manifest = @import("ipc_manifest.zig");
 

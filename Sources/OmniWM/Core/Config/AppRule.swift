@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 import Foundation
 
 enum WindowRuleManageAction: String, Codable, CaseIterable, Identifiable {

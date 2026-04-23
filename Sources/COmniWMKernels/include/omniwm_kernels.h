@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #ifndef OMNIWM_KERNELS_H
 #define OMNIWM_KERNELS_H
 

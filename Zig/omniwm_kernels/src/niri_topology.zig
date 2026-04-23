@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 const std = @import("std");
 const viewport_policy = @import("viewport_policy.zig");
 

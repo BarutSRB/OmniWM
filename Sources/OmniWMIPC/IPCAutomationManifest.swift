@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 import Foundation
 
 public enum IPCAutomationLayoutCompatibility: String, Codable, CaseIterable, Equatable, Sendable {

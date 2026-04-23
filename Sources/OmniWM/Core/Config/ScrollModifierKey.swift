@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 enum ScrollModifierKey: String, CaseIterable, Codable {
     case optionShift
     case controlShift

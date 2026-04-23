@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 enum GestureFingerCount: Int, CaseIterable, Codable {
     case two = 2
     case three = 3

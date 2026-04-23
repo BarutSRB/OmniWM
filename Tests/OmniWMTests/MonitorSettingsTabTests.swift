@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 import CoreGraphics
 import Foundation
 import Testing

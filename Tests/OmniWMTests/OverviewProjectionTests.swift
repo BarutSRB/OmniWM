@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 import ApplicationServices
 import Foundation
 import Testing

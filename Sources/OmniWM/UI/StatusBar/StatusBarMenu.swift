@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 import AppKit
 
 private let menuWidth: CGFloat = 280

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 const std = @import("std");
 const dwindle_layout = @import("dwindle_layout.zig");
 const ipc_support = @import("ipc_support.zig");

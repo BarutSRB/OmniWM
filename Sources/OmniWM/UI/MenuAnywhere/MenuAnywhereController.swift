@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 @preconcurrency import AppKit
 @preconcurrency import ApplicationServices
 

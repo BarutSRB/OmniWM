@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 import Foundation
 
 enum ManagedRestoreTriggerReason: String, CaseIterable, Hashable, Sendable {
