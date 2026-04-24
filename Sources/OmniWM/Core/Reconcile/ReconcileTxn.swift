@@ -13,4 +13,28 @@ struct ReconcileTxn: Equatable {
     let plan: ActionPlan
     let snapshot: ReconcileSnapshot
     let invariantViolations: [ReconcileInvariantViolation]
+    // Transaction epoch stamped by the authoritative transaction
+    // entrypoint. `.invalid` indicates the txn was produced by a
+    // direct-mutation path that has not yet been migrated to
+    // `WMRuntime.submit(...)` — see `docs/RELIABILITY-MIGRATION.md` for
+    // the open inventory.
+    let transactionEpoch: TransactionEpoch
+
+    init(
+        timestamp: Date,
+        event: WMEvent,
+        normalizedEvent: WMEvent,
+        plan: ActionPlan,
+        snapshot: ReconcileSnapshot,
+        invariantViolations: [ReconcileInvariantViolation],
+        transactionEpoch: TransactionEpoch = .invalid
+    ) {
+        self.timestamp = timestamp
+        self.event = event
+        self.normalizedEvent = normalizedEvent
+        self.plan = plan
+        self.snapshot = snapshot
+        self.invariantViolations = invariantViolations
+        self.transactionEpoch = transactionEpoch
+    }
 }

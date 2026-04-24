@@ -259,7 +259,10 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func recordReconcileEvent(_ event: WMEvent) -> ReconcileTxn {
+    func recordReconcileEvent(
+        _ event: WMEvent,
+        transactionEpoch: TransactionEpoch = .invalid
+    ) -> ReconcileTxn {
         let snapshot = reconcileSnapshot()
         let restoreEventPlan = restorePlanner.planEvent(
             .init(
@@ -279,6 +282,7 @@ final class WorkspaceManager {
             existingEntry: entry,
             monitors: monitors,
             persistedHydration: persistedHydration,
+            transactionEpoch: transactionEpoch,
             snapshot: { self.reconcileSnapshot() },
             applyPlan: { plan, token in
                 var plan = plan

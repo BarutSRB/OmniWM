@@ -4,13 +4,35 @@ import Observation
 
 @MainActor @Observable
 final class WMRuntime {
+    // Result of submitting a `WMCommand` through the authoritative
+    // transaction path. `txn` is present only when the command also
+    // produced an observation-shaped reconcile transaction (none today
+    // for workspace-switch commands, which flow through downstream
+    // reconcile events emitted by the individual effects).
+    struct CommandResult {
+        let transactionEpoch: TransactionEpoch
+        let plan: WMEffectPlan
+        let applyOutcome: WMEffectRunner.ApplyOutcome
+        let txn: ReconcileTxn?
+    }
+
     let settings: SettingsStore
     let platform: WMPlatform
     let workspaceManager: WorkspaceManager
     let hiddenBarController: HiddenBarController
     let controller: WMController
-    private let effectExecutor: any EffectExecutor
+    @ObservationIgnored private let effectExecutor: any EffectExecutor
+    @ObservationIgnored private let effectRunner: WMEffectRunner
     private(set) var snapshot: WMRuntimeSnapshot
+
+    // Monotonic, process-scoped counters owned by the runtime. Kept
+    // outside `WMEffectPlan` per Phase 01 decision: the plan carries the
+    // committed transactionEpoch and individual effect epochs, but the
+    // allocator sits on the runtime so cross-plan uniqueness is
+    // guaranteed without having to propagate mutable state through the
+    // plan shape.
+    @ObservationIgnored private var nextTransactionEpochValue: UInt64 = 1
+    @ObservationIgnored private var nextEffectEpochValue: UInt64 = 1
 
     var state: WMState {
         snapshot.reconcile
@@ -33,7 +55,8 @@ final class WMRuntime {
         platform: WMPlatform = .live,
         hiddenBarController: HiddenBarController? = nil,
         windowFocusOperations: WindowFocusOperations? = nil,
-        effectExecutor: (any EffectExecutor)? = nil
+        effectExecutor: (any EffectExecutor)? = nil,
+        effectPlatform: (any WMEffectPlatform)? = nil
     ) {
         self.settings = settings
         self.platform = platform
@@ -41,14 +64,17 @@ final class WMRuntime {
         self.hiddenBarController = resolvedHiddenBarController
         let workspaceManager = WorkspaceManager(settings: settings)
         self.workspaceManager = workspaceManager
-        controller = WMController(
+        let controller = WMController(
             settings: settings,
             workspaceManager: workspaceManager,
             hiddenBarController: resolvedHiddenBarController,
             platform: platform,
             windowFocusOperations: windowFocusOperations ?? platform.windowFocusOperations
         )
+        self.controller = controller
         self.effectExecutor = effectExecutor ?? WMRuntimeEffectExecutor()
+        let resolvedEffectPlatform = effectPlatform ?? WMLiveEffectPlatform(controller: controller)
+        effectRunner = WMEffectRunner(platform: resolvedEffectPlatform)
         snapshot = WMRuntimeSnapshot(
             reconcile: workspaceManager.reconcileSnapshot(),
             orchestration: .init(
@@ -84,9 +110,70 @@ final class WMRuntime {
 
     @discardableResult
     func submit(_ event: WMEvent) -> ReconcileTxn {
-        let transaction = workspaceManager.recordReconcileEvent(event)
+        let epoch = allocateTransactionEpoch()
+        let transaction = workspaceManager.recordReconcileEvent(
+            event,
+            transactionEpoch: epoch
+        )
         refreshSnapshotState()
         return transaction
+    }
+
+    // Authoritative command entrypoint. Allocates a fresh
+    // `TransactionEpoch`, translates the command into a `WMEffectPlan`,
+    // and hands the plan to the runtime's effect runner. The runner is
+    // responsible for applying effects in order and rejecting stale
+    // confirmations by epoch.
+    //
+    // Phase 01 Milestone A: only `workspaceSwitch` commands are routed
+    // through this entrypoint. See `docs/RELIABILITY-MIGRATION.md` for
+    // the open migration list.
+    @discardableResult
+    func submit(command: WMCommand) -> CommandResult {
+        let transactionEpoch = allocateTransactionEpoch()
+        let plan = buildEffectPlan(
+            for: command,
+            transactionEpoch: transactionEpoch
+        )
+        let applyOutcome = effectRunner.apply(plan)
+        refreshSnapshotState()
+        return CommandResult(
+            transactionEpoch: transactionEpoch,
+            plan: plan,
+            applyOutcome: applyOutcome,
+            txn: nil
+        )
+    }
+
+    private func buildEffectPlan(
+        for command: WMCommand,
+        transactionEpoch: TransactionEpoch
+    ) -> WMEffectPlan {
+        switch command {
+        case let .workspaceSwitch(switchCommand):
+            return WorkspaceSwitchEffectPlanner.makePlan(
+                for: switchCommand,
+                inputs: .init(
+                    controller: controller,
+                    transactionEpoch: transactionEpoch,
+                    allocateEffectEpoch: { [weak self] in
+                        self?.allocateEffectEpoch() ?? .invalid
+                    }
+                )
+            )
+        }
+    }
+
+    private func allocateTransactionEpoch() -> TransactionEpoch {
+        let value = nextTransactionEpochValue
+        nextTransactionEpochValue &+= 1
+        return TransactionEpoch(value: value)
+    }
+
+    private func allocateEffectEpoch() -> EffectEpoch {
+        let value = nextEffectEpochValue
+        nextEffectEpochValue &+= 1
+        return EffectEpoch(value: value)
     }
 
     func requestManagedFocus(

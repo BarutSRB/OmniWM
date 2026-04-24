@@ -86,7 +86,11 @@ final class WorkspaceNavigationHandler {
         )
     }
 
-    private func clearManagedFocusAfterEmptyWorkspaceTransition() {
+    // Internal so `WMLiveEffectPlatform` can invoke it when the
+    // `.clearManagedFocusAfterEmptyWorkspaceTransition` post-action
+    // fires on `commitWorkspaceTransition`. Ownership of this behavior
+    // moves into the transaction path in a later Phase 01 slice.
+    func clearManagedFocusAfterEmptyWorkspaceTransition() {
         guard let controller else { return }
         let canceledRequest = controller.focusBridge.cancelManagedRequest()
         if let canceledRequest {
@@ -617,6 +621,17 @@ final class WorkspaceNavigationHandler {
 
     func switchWorkspace(rawWorkspaceID: String) {
         guard let controller else { return }
+        if let runtime = controller.runtime {
+            runtime.submit(
+                command: .workspaceSwitch(.explicit(rawWorkspaceID: rawWorkspaceID))
+            )
+            return
+        }
+        // Pre-transaction-path fallback: construct and apply the
+        // switch plan directly. Kept for tests that instantiate
+        // `WMController` without attaching a `WMRuntime`; production
+        // always has a runtime present. Remove once the remaining
+        // direct-mutation callers migrate.
         guard let plan = plan(
             .init(
                 operation: .switchWorkspaceExplicit,
@@ -631,6 +646,12 @@ final class WorkspaceNavigationHandler {
 
     func switchWorkspaceRelative(isNext: Bool, wrapAround: Bool = true) {
         guard let controller else { return }
+        if let runtime = controller.runtime {
+            runtime.submit(
+                command: .workspaceSwitch(.relative(isNext: isNext, wrapAround: wrapAround))
+            )
+            return
+        }
         guard let plan = plan(
             .init(
                 operation: .switchWorkspaceRelative,

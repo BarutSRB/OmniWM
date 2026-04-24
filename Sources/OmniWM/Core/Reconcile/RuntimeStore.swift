@@ -20,6 +20,7 @@ final class RuntimeStore {
         existingEntry: WindowModel.Entry?,
         monitors: [Monitor],
         persistedHydration: PersistedHydrationMutation? = nil,
+        transactionEpoch: TransactionEpoch = .invalid,
         snapshot: () -> ReconcileSnapshot,
         applyPlan: (ActionPlan, WindowToken?) -> ActionPlan
     ) -> ReconcileTxn {
@@ -41,7 +42,8 @@ final class RuntimeStore {
             event: event,
             normalizedEvent: normalizedEvent,
             plan: resolvedPlan,
-            snapshot: snapshot()
+            snapshot: snapshot(),
+            transactionEpoch: transactionEpoch
         )
     }
 
@@ -50,7 +52,8 @@ final class RuntimeStore {
         event: WMEvent,
         normalizedEvent: WMEvent? = nil,
         plan: ActionPlan,
-        snapshot: ReconcileSnapshot
+        snapshot: ReconcileSnapshot,
+        transactionEpoch: TransactionEpoch = .invalid
     ) -> ReconcileTxn {
         let invariantViolations = InvariantChecks.validate(snapshot: snapshot)
         return ReconcileTxn(
@@ -59,7 +62,8 @@ final class RuntimeStore {
             normalizedEvent: normalizedEvent ?? event,
             plan: plan,
             snapshot: snapshot,
-            invariantViolations: invariantViolations
+            invariantViolations: invariantViolations,
+            transactionEpoch: transactionEpoch
         )
     }
 }
