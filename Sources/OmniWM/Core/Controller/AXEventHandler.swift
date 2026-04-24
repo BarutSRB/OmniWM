@@ -1180,6 +1180,41 @@ final class AXEventHandler: CGSEventDelegate {
             )
             return
         }
+
+        // Some apps (e.g. WeChat) close windows via NSWindow.orderOut and reopen via
+        // orderFront, which produces no kCGSpaceWindowCreated event. Activation is then
+        // the only signal that a manageable window exists, so attempt admission here
+        // before falling back to the unmanaged path.
+        processCreatedWindow(windowId: UInt32(axRef.windowId))
+        if let admittedEntry = controller.workspaceManager.entry(for: token) {
+            if appFullscreen {
+                suspendManagedWindowForNativeFullscreen(admittedEntry)
+                return
+            }
+            _ = restoreManagedWindowFromNativeFullscreen(admittedEntry)
+            let wsId = admittedEntry.workspaceId
+            let targetMonitor = controller.workspaceManager.monitor(for: wsId)
+            let isWorkspaceActive = targetMonitor.map { monitor in
+                controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
+            } ?? false
+            applyActivationObservation(
+                source: source,
+                origin: origin,
+                match: .managed(
+                    token: admittedEntry.token,
+                    workspaceId: wsId,
+                    monitorId: targetMonitor?.id,
+                    isWorkspaceActive: isWorkspaceActive,
+                    appFullscreen: appFullscreen,
+                    requiresNativeFullscreenRestoreRelayout: controller.workspaceManager
+                        .nativeFullscreenRestoreContext(for: admittedEntry.token) != nil
+                ),
+                observedAXRef: axRef,
+                managedEntry: admittedEntry
+            )
+            return
+        }
+
         applyActivationObservation(
             source: source,
             origin: origin,

@@ -1808,6 +1808,111 @@ private func waitUntilAXEventTest(
         #expect(controller.workspaceManager.isNonManagedFocusActive == false)
     }
 
+    @Test @MainActor func activationAdmitsManageableWindowMissedByCreateEvent() async {
+        let controller = makeAXEventTestController(trackedBundleId: "com.example.orderfront")
+        controller.hasStartedServices = true
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitors.first
+        else {
+            Issue.record("Missing active workspace fixture")
+            return
+        }
+
+        let sourceToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 901),
+            pid: 9_001,
+            windowId: 901,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            sourceToken,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+
+        let targetPid: pid_t = 9_902
+        let targetWindowId: UInt32 = 902
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == targetPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(targetWindowId))
+        }
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == targetWindowId else { return nil }
+            return WindowServerInfo(id: windowId, pid: targetPid, level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: "com.example.orderfront")
+        }
+
+        // Sanity: target has no entry yet — would be admitted only via the
+        // create-event path that orderOut/orderFront apps (e.g. WeChat) skip.
+        #expect(controller.workspaceManager.entry(forPid: targetPid, windowId: Int(targetWindowId)) == nil)
+
+        controller.axEventHandler.handleAppActivation(
+            pid: targetPid,
+            source: .workspaceDidActivateApplication
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        let admitted = controller.workspaceManager.entry(forPid: targetPid, windowId: Int(targetWindowId))
+        #expect(admitted?.mode == .tiling)
+        #expect(controller.workspaceManager.focusedToken == admitted?.token)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
+    }
+
+    @Test @MainActor func activationFallsBackToNonManagedWhenRecoveryAdmissionFails() async {
+        let controller = makeAXEventTestController(trackedBundleId: "com.example.orderfront")
+        controller.hasStartedServices = true
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitors.first
+        else {
+            Issue.record("Missing active workspace fixture")
+            return
+        }
+
+        let sourceToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 911),
+            pid: 9_011,
+            windowId: 911,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            sourceToken,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+
+        let targetPid: pid_t = 9_912
+        let targetWindowId: UInt32 = 912
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == targetPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(targetWindowId))
+        }
+        // Omit windowInfoProvider so prepareCreateCandidate cannot build a token
+        // and admission inside handleAppActivation's recovery branch must bail
+        // out, exercising the fall-through to the original .unmanaged path.
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: "com.example.orderfront")
+        }
+
+        controller.axEventHandler.handleAppActivation(
+            pid: targetPid,
+            source: .workspaceDidActivateApplication
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(controller.workspaceManager.entry(forPid: targetPid, windowId: Int(targetWindowId)) == nil)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == true)
+    }
+
     @Test @MainActor func frontingProbeRetriesUntilFocusedWindowMatchesPendingRequest() async {
         var focusedWindows: [(pid_t, UInt32)] = []
         let operations = WindowFocusOperations(
