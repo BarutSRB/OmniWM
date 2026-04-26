@@ -1,14 +1,15 @@
-// SPDX-License-Identifier: GPL-2.0-only
 import CoreGraphics
 
 enum MouseWarpAxis: String, Codable, CaseIterable {
     case horizontal
     case vertical
+    case both
 
     var displayName: String {
         switch self {
         case .horizontal: "Horizontal"
         case .vertical: "Vertical"
+        case .both: "Both"
         }
     }
 
@@ -16,6 +17,7 @@ enum MouseWarpAxis: String, Codable, CaseIterable {
         switch self {
         case .horizontal: "left-to-right"
         case .vertical: "top-to-bottom"
+        case .both: "all directions"
         }
     }
 
@@ -23,6 +25,7 @@ enum MouseWarpAxis: String, Codable, CaseIterable {
         switch self {
         case .horizontal: "chevron.left"
         case .vertical: "chevron.up"
+        case .both: "arrow.up.left"
         }
     }
 
@@ -30,6 +33,7 @@ enum MouseWarpAxis: String, Codable, CaseIterable {
         switch self {
         case .horizontal: "chevron.right"
         case .vertical: "chevron.down"
+        case .both: "arrow.down.right"
         }
     }
 
@@ -47,7 +51,7 @@ enum MouseWarpAxis: String, Codable, CaseIterable {
 
     private func primaryCoordinate(for frame: CGRect) -> CGFloat {
         switch self {
-        case .horizontal:
+        case .horizontal, .both:
             frame.minX
         case .vertical:
             -frame.maxY
@@ -56,7 +60,7 @@ enum MouseWarpAxis: String, Codable, CaseIterable {
 
     private func secondaryCoordinate(for frame: CGRect) -> CGFloat {
         switch self {
-        case .horizontal:
+        case .horizontal, .both:
             -frame.maxY
         case .vertical:
             frame.minX
