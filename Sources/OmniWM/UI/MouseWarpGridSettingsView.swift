@@ -139,6 +139,8 @@ private struct MacOSDisplayArrangementNotice: View {
 
     /// Saved monitor positions before auto-arranging, so the user can restore.
     @State private var savedArrangement: [(CGDirectDisplayID, Int32, Int32)]?
+    @State private var showArrangeConfirmation = false
+    @State private var arrangeFailed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -233,14 +235,7 @@ private struct MacOSDisplayArrangementNotice: View {
             HStack(spacing: 8) {
                 if hasAdjacentPairs && connectedMonitors.count > 1 {
                     Button("Auto-arrange Staircase") {
-                        // Save current positions in Quartz coordinates (Y-down) so restore uses the same space as CGConfigureDisplayOrigin
-                        let previous = connectedMonitors.map { monitor in
-                            let bounds = CGDisplayBounds(monitor.displayId)
-                            return (monitor.displayId, Int32(bounds.origin.x), Int32(bounds.origin.y))
-                        }
-                        if arrangeStaircase(monitors: connectedMonitors) {
-                            savedArrangement = previous
-                        }
+                        showArrangeConfirmation = true
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -273,6 +268,37 @@ private struct MacOSDisplayArrangementNotice: View {
                         .stroke((hasAdjacentPairs ? Color.orange : Color.green).opacity(0.25), lineWidth: 1)
                 )
         )
+        .confirmationDialog(
+            "Rearrange your displays in a staircase pattern?",
+            isPresented: $showArrangeConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Rearrange Displays") {
+                let previous = connectedMonitors.map { monitor in
+                    let bounds = CGDisplayBounds(monitor.displayId)
+                    return (monitor.displayId, Int32(bounds.origin.x), Int32(bounds.origin.y))
+                }
+                if arrangeStaircase(monitors: connectedMonitors) {
+                    savedArrangement = previous
+                } else {
+                    arrangeFailed = true
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "OmniWM will move your \(connectedMonitors.count) displays into a staircase " +
+                "(each display offset down-and-right from the previous, with no shared edges). " +
+                "Your current arrangement will be saved so you can revert with \"Restore Previous\". " +
+                "The change applies for this login session and will not survive a logout/reboot " +
+                "unless you confirm it in System Settings → Displays → Arrange."
+            )
+        }
+        .alert("Could not rearrange displays", isPresented: $arrangeFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("macOS rejected the display configuration. Try again from System Settings → Displays.")
+        }
     }
 
     @discardableResult
