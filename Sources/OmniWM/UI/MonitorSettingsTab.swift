@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 import AppKit
 import SwiftUI
 
@@ -24,7 +23,7 @@ struct MonitorSettingsTab: View {
     private var warpOrderEntries: [MonitorOrderEntry] {
         MonitorSettingsTabModel.orderEntries(
             for: sortedMonitors,
-            orderedMonitorIds: settings.effectiveMouseWarpMonitorOrder(for: sortedMonitors, axis: warpAxis),
+            orderedNames: settings.effectiveMouseWarpMonitorOrder(for: sortedMonitors, axis: warpAxis),
             axis: warpAxis
         )
     }
@@ -40,6 +39,27 @@ struct MonitorSettingsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            SectionHeader("Selected Monitor")
+
+            if let monitor = selectedConnectedMonitor,
+               let displayLabel = displayLabels[monitor.id]
+            {
+                SelectedMonitorDetails(
+                    settings: settings,
+                    controller: controller,
+                    monitor: monitor,
+                    displayLabel: displayLabel
+                )
+            } else if sortedMonitors.isEmpty {
+                Text("No monitors detected.")
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Select a monitor from the strip above to configure its orientation.")
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
             SectionHeader("Mouse Warp")
 
             VStack(alignment: .leading, spacing: 12) {
@@ -94,25 +114,11 @@ struct MonitorSettingsTab: View {
                     .foregroundColor(.secondary)
             }
 
-            Divider()
-
-            SectionHeader("Selected Monitor")
-
-            if let monitor = selectedConnectedMonitor,
-               let displayLabel = displayLabels[monitor.id]
-            {
-                SelectedMonitorDetails(
+            if warpAxis == .both {
+                MouseWarpGridSettingsView(
                     settings: settings,
-                    controller: controller,
-                    monitor: monitor,
-                    displayLabel: displayLabel
+                    connectedMonitors: connectedMonitors
                 )
-            } else if sortedMonitors.isEmpty {
-                Text("No monitors detected.")
-                    .foregroundColor(.secondary)
-            } else {
-                Text("Select a monitor from the strip above to configure its orientation.")
-                    .foregroundColor(.secondary)
             }
         }
         .onAppear(perform: refreshConnectedMonitors)
@@ -132,21 +138,21 @@ struct MonitorSettingsTab: View {
             selectedMonitor,
             entries: MonitorSettingsTabModel.orderEntries(
                 for: MonitorSettingsTabModel.sortedMonitors(monitors, axis: warpAxis),
-                orderedMonitorIds: settings.effectiveMouseWarpMonitorOrder(for: monitors, axis: warpAxis),
+                orderedNames: settings.effectiveMouseWarpMonitorOrder(for: monitors, axis: warpAxis),
                 axis: warpAxis
             )
         )
     }
 
     private func moveSelectedMonitor(_ direction: MonitorOrderMoveDirection) {
-        _ = MonitorSettingsTabModel.applyReorder(
+        guard let reordered = MonitorSettingsTabModel.reorderedNames(
             entries: warpOrderEntries,
             moving: effectiveSelectedMonitorID,
-            direction: direction,
-            settings: settings,
-            connectedMonitors: connectedMonitors,
-            axis: warpAxis
-        )
+            direction: direction
+        ) else {
+            return
+        }
+        settings.mouseWarpMonitorOrder = reordered
     }
 }
 
@@ -426,6 +432,7 @@ struct MonitorOrderEntry: Identifiable, Equatable {
     let displayLabel: MonitorDisplayLabel
 
     var id: Monitor.ID { monitor.id }
+    var name: String { monitor.name }
     var isMain: Bool { monitor.isMain }
 }
 
@@ -474,22 +481,25 @@ enum MonitorSettingsTabModel {
 
     static func orderEntries(
         for monitors: [Monitor],
-        orderedMonitorIds: [Monitor.ID],
+        orderedNames: [String],
         axis: MouseWarpAxis = .horizontal
     ) -> [MonitorOrderEntry] {
         let sorted = sortedMonitors(monitors, axis: axis)
         let labels = displayLabels(for: sorted, axis: axis)
-        let monitorsById = Dictionary(uniqueKeysWithValues: sorted.map { ($0.id, $0) })
+        let monitorsByName = Dictionary(grouping: sorted, by: \.name)
+        var usedCounts: [String: Int] = [:]
         var entries: [MonitorOrderEntry] = []
 
-        for monitorId in orderedMonitorIds {
-            guard let monitor = monitorsById[monitorId],
+        for name in orderedNames {
+            let usedCount = usedCounts[name, default: 0]
+            guard let monitor = monitorsByName[name]?[usedCount],
                   let displayLabel = labels[monitor.id]
             else {
                 continue
             }
 
             entries.append(MonitorOrderEntry(monitor: monitor, displayLabel: displayLabel))
+            usedCounts[name] = usedCount + 1
         }
 
         return entries
@@ -512,11 +522,11 @@ enum MonitorSettingsTabModel {
         }
     }
 
-    static func reorderedMonitorIds(
+    static func reorderedNames(
         entries: [MonitorOrderEntry],
         moving selectedMonitor: Monitor.ID?,
         direction: MonitorOrderMoveDirection
-    ) -> [Monitor.ID]? {
+    ) -> [String]? {
         guard let currentIndex = entries.firstIndex(where: { $0.id == selectedMonitor }) else {
             return nil
         }
@@ -533,33 +543,7 @@ enum MonitorSettingsTabModel {
 
         var reorderedEntries = entries
         reorderedEntries.swapAt(currentIndex, targetIndex)
-        return reorderedEntries.map(\.id)
-    }
-
-    @MainActor
-    @discardableResult
-    static func applyReorder(
-        entries: [MonitorOrderEntry],
-        moving selectedMonitor: Monitor.ID?,
-        direction: MonitorOrderMoveDirection,
-        settings: SettingsStore,
-        connectedMonitors: [Monitor],
-        axis: MouseWarpAxis = .horizontal
-    ) -> Bool {
-        guard let reorderedMonitorIds = reorderedMonitorIds(
-            entries: entries,
-            moving: selectedMonitor,
-            direction: direction
-        ) else {
-            return false
-        }
-
-        settings.commitMouseWarpMonitorOrder(
-            orderedMonitorIds: reorderedMonitorIds,
-            connectedMonitors: connectedMonitors,
-            axis: axis
-        )
-        return true
+        return reorderedEntries.map(\.name)
     }
 }
 
