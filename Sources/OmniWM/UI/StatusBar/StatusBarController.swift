@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 import AppKit
+import OSLog
+
+private let statusBarRecoveryLog = Logger(
+    subsystem: "com.omniwm",
+    category: "StatusBar.Recovery"
+)
 
 @MainActor
 final class StatusBarController: NSObject {
@@ -39,12 +45,55 @@ final class StatusBarController: NSObject {
         installOwnedStatusItems()
     }
 
+    @discardableResult
+    nonisolated static func clearInvalidOwnedPreferredPositions(
+        defaults: UserDefaults = .standard,
+        screenFrames: [CGRect]
+    ) -> Bool {
+        let ownedObjects = [
+            defaults.object(forKey: preferredPositionKey(for: mainAutosaveName)),
+            defaults.object(forKey: preferredPositionKey(for: HiddenBarController.separatorAutosaveName))
+        ]
+
+        guard ownedObjects.contains(where: {
+            !storedPreferredPositionIsVisible($0, screenFrames: screenFrames)
+        }) else {
+            return false
+        }
+
+        clearOwnedPreferredPositions(defaults: defaults)
+        return true
+    }
+
     nonisolated static func clearOwnedPreferredPositions(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: preferredPositionKey(for: mainAutosaveName))
         defaults.removeObject(forKey: preferredPositionKey(for: HiddenBarController.separatorAutosaveName))
     }
 
-    nonisolated private static func preferredPositionKey(for autosaveName: String) -> String {
+    nonisolated static func storedPreferredPositionIsVisible(
+        _ storedValue: Any?,
+        screenFrames: [CGRect]
+    ) -> Bool {
+        guard !screenFrames.isEmpty else { return true }
+        guard let storedValue else { return true }
+        guard let positionX = preferredPositionX(from: storedValue) else { return false }
+        return preferredPositionXIsVisible(positionX, screenFrames: screenFrames)
+    }
+
+    nonisolated static func preferredPositionXIsVisible(
+        _ positionX: CGFloat,
+        screenFrames: [CGRect]
+    ) -> Bool {
+        guard positionX.isFinite else { return false }
+
+        let validRanges = screenFrames.compactMap(Self.validScreenXRange)
+        guard !validRanges.isEmpty else { return true }
+
+        return validRanges.contains { $0.contains(positionX) }
+    }
+
+    private nonisolated static func preferredPositionKey(for autosaveName: String) -> String {
+        // AppKit stores `NSStatusItem.autosaveName` positions under this exact key.
         "NSStatusItem Preferred Position \(autosaveName)"
     }
 
@@ -52,6 +101,8 @@ final class StatusBarController: NSObject {
 
     private func installOwnedStatusItems() {
         guard statusItem == nil, let controller else { return }
+
+        clearInvalidOwnedPreferredPositionsBeforeInstall()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -84,7 +135,7 @@ final class StatusBarController: NSObject {
         refreshWorkspaces()
     }
 
-    @objc private func handleClick(_ sender: NSStatusBarButton) {
+    @objc private func handleClick(_: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp {
@@ -159,6 +210,10 @@ final class StatusBarController: NSObject {
         statusItem?.button?.imagePosition
     }
 
+    func statusItemAutosaveNameForTests() -> String? {
+        statusItem?.autosaveName
+    }
+
     func cleanup() {
         cleanupOwnedStatusItems()
     }
@@ -182,5 +237,39 @@ final class StatusBarController: NSObject {
         Self.clearOwnedPreferredPositions(defaults: defaults)
         cleanupOwnedStatusItems()
         installOwnedStatusItems()
+    }
+
+    private func clearInvalidOwnedPreferredPositionsBeforeInstall() {
+        let didClear = Self.clearInvalidOwnedPreferredPositions(
+            defaults: defaults,
+            screenFrames: NSScreen.screens.map(\.frame)
+        )
+        if didClear {
+            statusBarRecoveryLog.notice(
+                "Cleared invalid OmniWM status item preferred positions before install"
+            )
+        }
+    }
+
+    private nonisolated static func preferredPositionX(from storedValue: Any) -> CGFloat? {
+        guard let number = storedValue as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID()
+        else {
+            return nil
+        }
+        let value = number.doubleValue
+        guard value.isFinite else { return nil }
+        return CGFloat(value)
+    }
+
+    private nonisolated static func validScreenXRange(_ frame: CGRect) -> Range<CGFloat>? {
+        guard frame.width > 0,
+              frame.minX.isFinite,
+              frame.maxX.isFinite,
+              frame.minX < frame.maxX
+        else {
+            return nil
+        }
+        return frame.minX ..< frame.maxX
     }
 }
