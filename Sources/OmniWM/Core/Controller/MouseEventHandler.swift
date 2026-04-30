@@ -132,6 +132,7 @@ final class MouseEventHandler {
     }
 
     func setup() {
+        tearDownEventTaps()
         MouseEventHandler.sharedInstance = self
 
         let eventMask: CGEventMask =
@@ -205,27 +206,34 @@ final class MouseEventHandler {
     }
 
     func cleanup() {
-        if let source = state.runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            state.runLoopSource = nil
-        }
-        if let tap = state.eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            state.eventTap = nil
-        }
-        if let source = state.gestureRunLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            state.gestureRunLoopSource = nil
-        }
-        if let tap = state.gestureTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            state.gestureTap = nil
-        }
+        tearDownEventTaps()
         MouseEventHandler.sharedInstance = nil
         state.currentHoveredEdges = []
         state.isResizing = false
         state.pendingTapEvents.clear()
         resetGestureState()
+    }
+
+    private func tearDownEventTaps() {
+        var eventTap = state.eventTap
+        var eventRunLoopSource = state.runLoopSource
+        EventTapTeardown.tearDown(
+            tap: &eventTap,
+            runLoopSource: &eventRunLoopSource,
+            owner: "mouse"
+        )
+        state.eventTap = eventTap
+        state.runLoopSource = eventRunLoopSource
+
+        var gestureTap = state.gestureTap
+        var gestureRunLoopSource = state.gestureRunLoopSource
+        EventTapTeardown.tearDown(
+            tap: &gestureTap,
+            runLoopSource: &gestureRunLoopSource,
+            owner: "gesture"
+        )
+        state.gestureTap = gestureTap
+        state.gestureRunLoopSource = gestureRunLoopSource
     }
 
     func dispatchMouseMoved(at location: CGPoint) {

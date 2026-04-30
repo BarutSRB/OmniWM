@@ -171,6 +171,11 @@ final class WMRuntime: RuntimeSnapshotPublishing {
         applyCurrentConfiguration()
     }
 
+    func shutdown() {
+        controller.serviceLifecycleManager.stop()
+        flushState()
+    }
+
     func applyCurrentConfiguration() {
         applyConfiguration(WMRuntimeConfiguration(settings: settings))
     }

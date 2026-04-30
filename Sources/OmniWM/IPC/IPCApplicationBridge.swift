@@ -2,12 +2,30 @@
 import Foundation
 import OmniWMIPC
 
+private final class IPCApplicationBridgeShutdownState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var shuttingDown = false
+
+    var isShuttingDown: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return shuttingDown
+    }
+
+    func beginShutdown() {
+        lock.lock()
+        shuttingDown = true
+        lock.unlock()
+    }
+}
+
 actor IPCApplicationBridge {
     private let controller: WMController
     private let appVersion: String?
     private let eventBroker: IPCEventBroker
     private let sessionToken: String
     private let authorizationToken: String
+    private let shutdownState = IPCApplicationBridgeShutdownState()
 
     @MainActor
     init(
@@ -24,6 +42,14 @@ actor IPCApplicationBridge {
         self.authorizationToken = authorizationToken
     }
 
+    nonisolated var isShutdownStarted: Bool {
+        shutdownState.isShuttingDown
+    }
+
+    nonisolated func beginShutdown() {
+        shutdownState.beginShutdown()
+    }
+
     func response(for request: IPCRequest) async -> IPCResponse {
         guard request.authorizationToken == authorizationToken else {
             return .failure(
@@ -31,6 +57,10 @@ actor IPCApplicationBridge {
                 kind: IPCResponseKind(requestKind: request.kind),
                 code: .unauthorized
             )
+        }
+
+        guard !shutdownState.isShuttingDown else {
+            return Self.shutdownResponse(for: request)
         }
 
         let versionResult = await MainActor.run {
@@ -57,7 +87,11 @@ actor IPCApplicationBridge {
 
         switch request.payload {
         case .none:
+            let shutdownState = shutdownState
             return await MainActor.run {
+                guard !shutdownState.isShuttingDown else {
+                    return Self.shutdownResponse(for: request)
+                }
                 let queryRouter = IPCQueryRouter(
                     controller: controller,
                     appVersion: appVersion,
@@ -78,12 +112,20 @@ actor IPCApplicationBridge {
                 }
             }
         case let .command(command):
+            let shutdownState = shutdownState
             return await MainActor.run {
+                guard !shutdownState.isShuttingDown else {
+                    return Self.shutdownResponse(for: request)
+                }
                 let commandRouter = IPCCommandRouter(controller: controller, sessionToken: sessionToken)
                 return Self.response(for: commandRouter.handle(command), id: request.id, kind: .command)
             }
         case let .query(query):
+            let shutdownState = shutdownState
             return await MainActor.run {
+                guard !shutdownState.isShuttingDown else {
+                    return Self.shutdownResponse(for: request)
+                }
                 let queryRouter = IPCQueryRouter(
                     controller: controller,
                     appVersion: appVersion,
@@ -92,22 +134,37 @@ actor IPCApplicationBridge {
                 return self.response(for: query, id: request.id, queryRouter: queryRouter)
             }
         case let .rule(rule):
-            let ruleRouter = await MainActor.run {
-                IPCRuleRouter(controller: controller, sessionToken: sessionToken)
-            }
-            return await self.response(for: rule, id: request.id, ruleRouter: ruleRouter)
+            let shutdownState = shutdownState
+            return await self.response(
+                for: rule,
+                id: request.id,
+                request: request,
+                shutdownState: shutdownState
+            )
         case let .workspace(workspace):
+            let shutdownState = shutdownState
             return await MainActor.run {
+                guard !shutdownState.isShuttingDown else {
+                    return Self.shutdownResponse(for: request)
+                }
                 let commandRouter = IPCCommandRouter(controller: controller, sessionToken: sessionToken)
                 return Self.response(for: commandRouter.handle(workspace), id: request.id, kind: .workspace)
             }
         case let .window(window):
+            let shutdownState = shutdownState
             return await MainActor.run {
+                guard !shutdownState.isShuttingDown else {
+                    return Self.shutdownResponse(for: request)
+                }
                 let commandRouter = IPCCommandRouter(controller: controller, sessionToken: sessionToken)
                 return Self.response(for: commandRouter.handle(window), id: request.id, kind: .window)
             }
         case let .subscribe(subscribe):
+            let shutdownState = shutdownState
             return await MainActor.run {
+                guard !shutdownState.isShuttingDown else {
+                    return Self.shutdownResponse(for: request)
+                }
                 let channels = IPCAutomationManifest.expandedChannels(for: subscribe)
                 return .success(
                     id: request.id,
@@ -168,6 +225,15 @@ actor IPCApplicationBridge {
 
     nonisolated func hasSubscribers(for channel: IPCSubscriptionChannel) -> Bool {
         eventBroker.hasSubscribers(for: channel)
+    }
+
+    private nonisolated static func shutdownResponse(for request: IPCRequest) -> IPCResponse {
+        .failure(
+            id: request.id,
+            kind: IPCResponseKind(requestKind: request.kind),
+            status: .ignored,
+            code: .disabled
+        )
     }
 
     @MainActor
@@ -242,6 +308,21 @@ actor IPCApplicationBridge {
         }
     }
 
+    @MainActor
+    private func response(
+        for rule: IPCRuleRequest,
+        id: String,
+        request: IPCRequest,
+        shutdownState: IPCApplicationBridgeShutdownState
+    ) async -> IPCResponse {
+        guard !shutdownState.isShuttingDown else {
+            return Self.shutdownResponse(for: request)
+        }
+        let ruleRouter = IPCRuleRouter(controller: controller, sessionToken: sessionToken)
+        return await response(for: rule, id: id, ruleRouter: ruleRouter)
+    }
+
+    @MainActor
     private func response(for rule: IPCRuleRequest, id: String, ruleRouter: IPCRuleRouter) async -> IPCResponse {
         switch await ruleRouter.handle(rule) {
         case let .success(result):

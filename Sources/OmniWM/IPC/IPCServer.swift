@@ -63,6 +63,9 @@ final class IPCServer: IPCServerLifecycle {
 
     @MainActor
     func start() throws {
+        guard !bridge.isShutdownStarted else {
+            throw POSIXError(.ECANCELED)
+        }
         try ensureSocketDirectoryExists()
         try ZigIPCSupport.removeExistingSocketIfNeeded(at: socketPath)
 
@@ -97,9 +100,11 @@ final class IPCServer: IPCServerLifecycle {
 
     @MainActor
     func stop() {
+        bridge.beginShutdown()
         if controller.ipcApplicationBridge === bridge {
             controller.ipcApplicationBridge = nil
         }
+
         let bridge = self.bridge
         let connectionRegistry = self.connectionRegistry
         Task {
@@ -144,6 +149,11 @@ final class IPCServer: IPCServerLifecycle {
                 continue
             }
 
+            guard !bridge.isShutdownStarted else {
+                close(clientFD)
+                continue
+            }
+
             guard (try? ZigIPCSupport.configureSocket(clientFD, nonBlocking: false)) != nil else {
                 close(clientFD)
                 continue
@@ -151,6 +161,10 @@ final class IPCServer: IPCServerLifecycle {
             let connectionRegistry = self.connectionRegistry
             let bridge = self.bridge
             Task {
+                guard !bridge.isShutdownStarted else {
+                    close(clientFD)
+                    return
+                }
                 let connection = IPCConnection(
                     handle: FileHandle(fileDescriptor: clientFD, closeOnDealloc: true),
                     bridge: bridge,
@@ -162,6 +176,11 @@ final class IPCServer: IPCServerLifecycle {
                 )
 
                 await connectionRegistry.insert(connection)
+                guard !bridge.isShutdownStarted else {
+                    await connectionRegistry.remove(id: connection.id)
+                    await connection.stop()
+                    return
+                }
                 await connection.start()
             }
         }

@@ -41,7 +41,7 @@ private final class TestUpdateCoordinator: AppUpdateCoordinating {
     func checkForUpdatesManually() {}
 }
 
-@Suite @MainActor struct AppDelegateIPCTests {
+@Suite(.serialized) @MainActor struct AppDelegateIPCTests {
     @Test func finishBootstrapStartsIPCOnlyAfterStatusBarSetup() {
         let defaults = makeLayoutPlanTestDefaults()
         SettingsStore(defaults: defaults).ipcEnabled = true
@@ -58,6 +58,8 @@ private final class TestUpdateCoordinator: AppUpdateCoordinating {
         }
         defer {
             AppDelegate.ipcServerFactoryForTests = nil
+            AppDelegate.runtimeFactoryForTests = nil
+            AppDelegate.updateCoordinatorFactoryForTests = nil
             bootstrappedController?.statusBarController?.cleanup()
         }
 
@@ -79,6 +81,8 @@ private final class TestUpdateCoordinator: AppUpdateCoordinating {
         }
         defer {
             AppDelegate.ipcServerFactoryForTests = nil
+            AppDelegate.runtimeFactoryForTests = nil
+            AppDelegate.updateCoordinatorFactoryForTests = nil
         }
 
         let appDelegate = AppDelegate()
@@ -99,6 +103,7 @@ private final class TestUpdateCoordinator: AppUpdateCoordinating {
             }
         }
         defer {
+            AppDelegate.runtimeFactoryForTests = nil
             AppDelegate.updateCoordinatorFactoryForTests = nil
             bootstrappedController?.statusBarController?.cleanup()
         }
@@ -125,6 +130,8 @@ private final class TestUpdateCoordinator: AppUpdateCoordinating {
         }
         defer {
             AppDelegate.ipcServerFactoryForTests = nil
+            AppDelegate.runtimeFactoryForTests = nil
+            AppDelegate.updateCoordinatorFactoryForTests = nil
             bootstrappedController?.statusBarController?.cleanup()
             try? FileManager.default.removeItem(atPath: socketPath)
         }
@@ -155,4 +162,34 @@ private final class TestUpdateCoordinator: AppUpdateCoordinating {
 
         #expect(!FileManager.default.fileExists(atPath: socketPath))
     }
+
+    @Test func applicationWillTerminateStopsRuntimeServices() throws {
+        let defaults = makeLayoutPlanTestDefaults()
+        let configurationDirectory = configurationDirectoryForTests(defaults: defaults)
+        var bootstrappedController: WMController?
+        AppDelegate.runtimeFactoryForTests = { settings in
+            let runtime = WMRuntime(settings: settings)
+            runtime.controller.serviceLifecycleManager.accessibilityPermissionStateProviderForTests = { false }
+            bootstrappedController = runtime.controller
+            return runtime
+        }
+        AppDelegate.updateCoordinatorFactoryForTests = { _, _, _ in
+            TestUpdateCoordinator()
+        }
+        defer {
+            AppDelegate.runtimeFactoryForTests = nil
+            AppDelegate.updateCoordinatorFactoryForTests = nil
+            bootstrappedController?.statusBarController?.cleanup()
+        }
+
+        let appDelegate = AppDelegate()
+        appDelegate.finishBootstrap(configurationDirectory: configurationDirectory)
+        let controller = try #require(bootstrappedController)
+        controller.hasStartedServices = true
+
+        appDelegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        #expect(controller.hasStartedServices == false)
+    }
+
 }

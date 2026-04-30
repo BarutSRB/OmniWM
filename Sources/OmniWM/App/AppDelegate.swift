@@ -19,6 +19,7 @@ final class AppBootstrapState {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     nonisolated(unsafe) static weak var sharedBootstrap: AppBootstrapState?
     static var ipcServerFactoryForTests: ((WMController) -> IPCServerLifecycle)?
+    static var runtimeFactoryForTests: ((SettingsStore) -> WMRuntime)?
     static var updateCoordinatorFactoryForTests:
         ((SettingsStore, WMController, RuntimeStateStore) -> any AppUpdateCoordinating)?
     private static let desktopAndDockSettingsURL = URL(
@@ -44,9 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
-        runtime?.flushState()
-        runtimeStateStore?.flushNow()
         stopIPCServer()
+        runtime?.shutdown()
+        runtimeStateStore?.flushNow()
     }
 
     func bootstrapApplication(
@@ -73,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             persistence: persistence,
             runtimeState: runtimeState
         )
-        let runtime = WMRuntime(settings: settings)
+        let runtime = Self.runtimeFactoryForTests?(settings) ?? WMRuntime(settings: settings)
         runtime.start()
         let controller = runtime.controller
         let cliManager = AppCLIManager()

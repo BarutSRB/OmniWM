@@ -103,14 +103,15 @@ final class MouseWarpHandler: NSObject {
     }
 
     func cleanup() {
-        if let source = state.runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            state.runLoopSource = nil
-        }
-        if let tap = state.eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            state.eventTap = nil
-        }
+        var eventTap = state.eventTap
+        var runLoopSource = state.runLoopSource
+        EventTapTeardown.tearDown(
+            tap: &eventTap,
+            runLoopSource: &runLoopSource,
+            owner: "mouse-warp"
+        )
+        state.eventTap = eventTap
+        state.runLoopSource = runLoopSource
         state.cooldownTimer?.invalidate()
         state.cooldownTimer = nil
         MouseWarpHandler.sharedInstance = nil

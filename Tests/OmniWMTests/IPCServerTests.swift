@@ -223,6 +223,46 @@ private func makeTestFocusEvent(id: String, title: String) -> IPCEventEnvelope {
         #expect(response.code == .unauthorized)
     }
 
+    @Test func bridgeRejectsAuthorizedRequestsAfterShutdownStarts() async {
+        let controller = makeLayoutPlanTestController()
+        let bridge = IPCApplicationBridge(
+            controller: controller,
+            appVersion: nil,
+            sessionToken: ipcServerTestSessionToken,
+            authorizationToken: "bridge-shutdown-token"
+        )
+
+        bridge.beginShutdown()
+
+        let unauthorized = await bridge.response(for: IPCRequest(id: "unauth-after-stop", kind: .ping))
+        #expect(unauthorized.ok == false)
+        #expect(unauthorized.code == .unauthorized)
+
+        let authorized = await bridge.response(
+            for: IPCRequest(
+                id: "command-after-stop",
+                command: .focus(direction: .left),
+                authorizationToken: "bridge-shutdown-token"
+            )
+        )
+        #expect(authorized.ok == false)
+        #expect(authorized.status == .ignored)
+        #expect(authorized.code == .disabled)
+        #expect(authorized.kind == .command)
+
+        let rule = await bridge.response(
+            for: IPCRequest(
+                id: "rule-after-stop",
+                rule: .add(rule: IPCRuleDefinition(bundleId: "com.example.app")),
+                authorizationToken: "bridge-shutdown-token"
+            )
+        )
+        #expect(rule.ok == false)
+        #expect(rule.status == .ignored)
+        #expect(rule.code == .disabled)
+        #expect(rule.kind == .rule)
+    }
+
     @Test func serverUnlinksSocketOnStop() throws {
         let socketPath = makeIPCTestSocketPath()
         let controller = makeLayoutPlanTestController()
