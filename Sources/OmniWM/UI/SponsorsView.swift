@@ -5,9 +5,9 @@ import SwiftUI
 struct Sponsor: Identifiable {
     let id = UUID()
     let name: String
-    let githubUsername: String
-    let imageName: String
-    let imageExtension: String
+    let githubUsername: String?
+    let imageName: String?
+    let imageExtension: String?
 }
 
 private let sponsors: [Sponsor] = [
@@ -20,7 +20,9 @@ private let sponsors: [Sponsor] = [
     Sponsor(name: "swilson2020", githubUsername: "swilson2020", imageName: "swilson2020", imageExtension: "jpg"),
     Sponsor(name: "Jeff Windsor", githubUsername: "jeffwindsor", imageName: "jeffwindsor", imageExtension: "png"),
     Sponsor(name: "Jason Martin", githubUsername: "jsonMartin", imageName: "jsonmartin", imageExtension: "png"),
-    Sponsor(name: "dagi3d", githubUsername: "dagi3d", imageName: "dagi3d", imageExtension: "jpg")
+    Sponsor(name: "dagi3d", githubUsername: "dagi3d", imageName: "dagi3d", imageExtension: "jpg"),
+    Sponsor(name: "Aleksei Gurianov", githubUsername: "Guria", imageName: "guria", imageExtension: "png"),
+    Sponsor(name: "Stefan Antoni", githubUsername: nil, imageName: nil, imageExtension: nil)
 ]
 
 struct SponsorsView: View {
@@ -262,16 +264,17 @@ enum SponsorTier {
 struct SponsorCardView: View {
     @Bindable var motionPolicy: MotionPolicy
     let name: String
-    let githubUsername: String
-    let imageName: String
-    let imageExtension: String
+    let githubUsername: String?
+    let imageName: String?
+    let imageExtension: String?
     let tier: SponsorTier
     let rankLabel: String
 
     @State private var isHovered = false
 
     private var githubURL: URL? {
-        URL(string: "https://github.com/\(githubUsername)")
+        guard let githubUsername else { return nil }
+        return URL(string: "https://github.com/\(githubUsername)")
     }
 
     var body: some View {
@@ -296,16 +299,7 @@ struct SponsorCardView: View {
                         .minimumScaleFactor(0.8)
                         .allowsTightening(true)
 
-                    HStack(spacing: 4) {
-                        Image(systemName: "link")
-                            .font(.system(size: 11))
-                        Text("@\(githubUsername)")
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .allowsTightening(true)
-                    }
-                    .foregroundStyle(.secondary)
+                    profileLabel
                 }
 
                 Text(rankLabel)
@@ -339,18 +333,46 @@ struct SponsorCardView: View {
             isHovered = hovering
         }
     }
+
+    @ViewBuilder private var profileLabel: some View {
+        if let githubUsername {
+            HStack(spacing: 4) {
+                Image(systemName: "link")
+                    .font(.system(size: 11))
+                Text("@\(githubUsername)")
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .allowsTightening(true)
+            }
+            .foregroundStyle(.secondary)
+        } else {
+            HStack(spacing: 4) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 11))
+                Text("GitHub profile unknown")
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .allowsTightening(true)
+            }
+            .foregroundStyle(.secondary)
+        }
+    }
 }
 
 struct GlowingAvatarView: View {
     @Bindable var motionPolicy: MotionPolicy
-    let imageName: String
-    let imageExtension: String
+    let imageName: String?
+    let imageExtension: String?
     let tier: SponsorTier
 
     @State private var isAnimating = false
 
     private var avatarImage: NSImage? {
-        guard let url = Bundle.module.url(forResource: imageName, withExtension: imageExtension),
+        guard let imageName,
+              let imageExtension,
+              let url = Bundle.module.url(forResource: imageName, withExtension: imageExtension),
               let image = NSImage(contentsOf: url) else {
             return nil
         }
