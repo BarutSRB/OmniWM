@@ -192,7 +192,7 @@ For setup, installation options, commands, queries, rules, subscriptions, and se
 6. Use the default shortcuts in `Keyboard Shortcuts` to navigate between windows
 7. Click the menu bar icon to access Settings, including `Settings > General > Updates`
 8. Use `Check for Updates...` from the status bar menu whenever you want to run a manual update check
-9. In case you freak out and don't see all your status bar icons, relax, right click on OmniWM's status bar icon and drag the icons to the left of it's "/" by holding CMD + drag as OmniWM hides status bar icons like **Ice Bar**.
+9. If other status bar icons are hidden, right-click OmniWM's menu bar icon to reveal Hidden Bar, then hold Command and drag icons to the left of the separator.
 
 
 ## User Guide
@@ -366,6 +366,27 @@ A visual indicator showing your workspaces:
 Hide or reveal status bar icons using a separator item:
 - Right-click the OmniWM menu bar icon to toggle
 - An optional global hotkey is available and starts unassigned
+
+#### Menu Bar Icon Recovery
+
+OmniWM repairs its owned menu bar icon and Hidden Bar separator on launch when AppKit restores them as hidden or off screen. If you are recovering from an older build where OmniWM's own icon is already gone, quit OmniWM and remove only the AppKit status-item restore keys:
+
+```sh
+for key in \
+  "NSStatusItem Preferred Position omniwm_main" \
+  "NSStatusItem Preferred Position omniwm_hiddenbar_separator" \
+  "NSStatusItem Visible omniwm_main" \
+  "NSStatusItem Visible omniwm_hiddenbar_separator" \
+  "NSStatusItem Visible Preference omniwm_main" \
+  "NSStatusItem Visible Preference omniwm_hiddenbar_separator" \
+  "NSStatusItem Visibility omniwm_main" \
+  "NSStatusItem Visibility omniwm_hiddenbar_separator"
+do
+  defaults delete com.barut.OmniWM "$key" 2>/dev/null || true
+done
+```
+
+Relaunch OmniWM after that targeted cleanup. This does not edit `~/.config/omniwm/settings.toml`; it only clears private AppKit/UserDefaults restore state for OmniWM's two status items. Use a broader `defaults delete com.barut.OmniWM` only when you intentionally want to reset all private runtime defaults, and remove or edit `settings.toml` separately only when you want to reset exported user settings.
 
 ### Tips
 

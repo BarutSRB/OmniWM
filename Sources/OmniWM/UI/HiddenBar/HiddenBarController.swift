@@ -3,7 +3,7 @@ import AppKit
 
 @MainActor
 final class HiddenBarController {
-    nonisolated static let separatorAutosaveName = "omniwm_hiddenbar_separator"
+    nonisolated static let separatorAutosaveName = StatusItemPersistence.OwnedItem.hiddenBarSeparator.autosaveName
 
     private let settings: SettingsStore
 
@@ -54,9 +54,10 @@ final class HiddenBarController {
     func setup() {
         guard separatorItem == nil else { return }
 
-        separatorItem = NSStatusBar.system.statusItem(withLength: separatorLength)
+        let ownedSeparatorItem = NSStatusBar.system.statusItem(withLength: separatorLength)
+        StatusItemPersistence.configureMandatoryItem(ownedSeparatorItem, as: .hiddenBarSeparator)
+        separatorItem = ownedSeparatorItem
         setupSeparator()
-        separatorItem?.autosaveName = Self.separatorAutosaveName
         installScreenParametersObserverIfNeeded()
         updateCollapseLength()
 
@@ -131,6 +132,10 @@ final class HiddenBarController {
 
     func separatorAutosaveNameForTests() -> String? {
         separatorItem?.autosaveName
+    }
+
+    func separatorIsVisibleForTests() -> Bool? {
+        separatorItem?.isVisible
     }
 
     private func updateCollapseLength() {
