@@ -231,6 +231,39 @@ private func prepareIPCNiriState(
         #expect(controller.workspaceManager.workspace(for: token) == targetWorkspaceId)
     }
 
+    @Test func moveToWorkspaceMovesFocusedFloatingWindowWithoutNiriNode() throws {
+        let controller = makeLayoutPlanTestController()
+        controller.enableNiriLayout()
+        controller.syncMonitorsToNiriEngine()
+        let router = makeIPCCommandRouter(for: controller)
+        let sourceWorkspaceId = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: false))
+        let targetWorkspaceId = try #require(controller.workspaceManager.workspaceId(for: "2", createIfMissing: false))
+        let monitor = try #require(controller.workspaceManager.monitor(for: sourceWorkspaceId))
+        let floatingWindow = addFloatingLayoutPlanTestWindow(
+            to: controller,
+            workspaceId: sourceWorkspaceId,
+            referenceMonitorId: monitor.id,
+            windowId: 2002,
+            frame: CGRect(x: 100, y: 120, width: 480, height: 320),
+            normalizedOrigin: CGPoint(x: 0.1, y: 0.2)
+        )
+        _ = controller.workspaceManager.setManagedFocus(floatingWindow.token, in: sourceWorkspaceId, onMonitor: monitor.id)
+        #expect(controller.niriEngine?.findNode(for: floatingWindow.token) == nil)
+
+        let result = router.handle(
+            .moveToWorkspace(workspaceNumber: 2)
+        )
+
+        let graph = controller.workspaceManager.workspaceGraphSnapshot()
+        #expect(result == .executed)
+        #expect(controller.workspaceManager.workspace(for: floatingWindow.token) == targetWorkspaceId)
+        #expect(controller.workspaceManager.windowMode(for: floatingWindow.token) == .floating)
+        #expect(controller.workspaceManager.floatingState(for: floatingWindow.token) == floatingWindow.floatingState)
+        #expect(!graph.floatingMembership(in: sourceWorkspaceId).contains { $0.logicalId == floatingWindow.logicalId })
+        #expect(graph.floatingMembership(in: targetWorkspaceId).contains { $0.logicalId == floatingWindow.logicalId })
+        #expect(controller.workspaceManager.lastFloatingFocusedToken(in: targetWorkspaceId) == floatingWindow.token)
+    }
+
     @Test func moveToWorkspaceSupportsWorkspace10() throws {
         let controller = makeLayoutPlanTestController(
             workspaceConfigurations: [

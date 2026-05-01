@@ -188,4 +188,56 @@ import Testing
         }
         #expect(source == .ipc)
     }
+
+    @Test @MainActor func ipcMoveWindowHotkeyMovesFocusedFloatingWindow() throws {
+        resetSharedControllerStateForTests()
+        let runtime = WMRuntime(settings: makeTransactionTestRuntimeSettings())
+        let controller = runtime.controller
+        controller.workspaceManager.applyMonitorConfigurationChange([
+            makeLayoutPlanTestMonitor()
+        ])
+        guard let workspaceOne = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
+              let workspaceTwo = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false),
+              let monitorId = controller.workspaceManager.monitors.first?.id
+        else {
+            Issue.record("expected transaction test workspace fixture")
+            return
+        }
+        controller.enableNiriLayout()
+        controller.syncMonitorsToNiriEngine()
+        _ = controller.workspaceManager.setActiveWorkspace(workspaceOne, on: monitorId)
+        let floatingWindow = addFloatingLayoutPlanTestWindow(
+            to: controller,
+            workspaceId: workspaceOne,
+            referenceMonitorId: monitorId,
+            windowId: 12_346,
+            frame: CGRect(x: 160, y: 140, width: 500, height: 340),
+            normalizedOrigin: CGPoint(x: 0.16, y: 0.24)
+        )
+        _ = runtime.observeExternalManagedFocusSet(
+            floatingWindow.token,
+            in: workspaceOne,
+            onMonitor: monitorId,
+            source: .command
+        )
+
+        let result = runtime.submit(
+            command: WMRuntime.typedCommand(for: .moveToWorkspace(1), source: .ipc)
+        )
+
+        let graph = controller.workspaceManager.workspaceGraphSnapshot()
+        #expect(result.externalCommandResult == .executed)
+        #expect(controller.workspaceManager.workspace(for: floatingWindow.token) == workspaceTwo)
+        #expect(controller.workspaceManager.windowMode(for: floatingWindow.token) == .floating)
+        #expect(controller.workspaceManager.floatingState(for: floatingWindow.token) == floatingWindow.floatingState)
+        #expect(!graph.floatingMembership(in: workspaceOne).contains { $0.logicalId == floatingWindow.logicalId })
+        #expect(graph.floatingMembership(in: workspaceTwo).contains { $0.logicalId == floatingWindow.logicalId })
+        guard case let .commandIntent(_, source) =
+            controller.workspaceManager.lastRecordedTransaction?.event
+        else {
+            Issue.record("expected nested move transaction")
+            return
+        }
+        #expect(source == .ipc)
+    }
 }

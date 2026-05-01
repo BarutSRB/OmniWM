@@ -295,6 +295,13 @@ final class WorkspaceNavigationHandler {
         let targetIsDwindle = targetLayout == .dwindle
         var movedWithNiri = false
 
+        if controller.workspaceManager.windowMode(for: token) == .floating {
+            // Floating windows are graph-owned and may not have any layout-engine node.
+            guard sourceWorkspaceId != targetWorkspaceId else { return false }
+            controller.reassignManagedWindow(token, to: targetWorkspaceId, source: source)
+            return true
+        }
+
         if !sourceIsDwindle,
            !targetIsDwindle,
            let sourceWorkspaceId,

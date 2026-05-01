@@ -136,7 +136,7 @@ final class WMController {
     @ObservationIgnored
     private(set) lazy var serviceLifecycleManager = ServiceLifecycleManager(controller: self)
     @ObservationIgnored
-    private(set) lazy var windowActionHandler = WindowActionHandler(controller: self)
+    private(set) lazy var windowActionHandler = WindowActionHandler(controller: self, platform: platform)
     @ObservationIgnored
     private(set) lazy var focusNotificationDispatcher = FocusNotificationDispatcher(controller: self)
     @ObservationIgnored
