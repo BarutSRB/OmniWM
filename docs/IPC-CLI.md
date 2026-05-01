@@ -501,7 +501,8 @@ Numeric inputs are resolved as raw workspace IDs first. Display-name lookup is a
 
 ## Rules
 
-Manage persisted window rules that control how windows are tiled, floated, or assigned to workspaces.
+Manage persisted window rules that control layout behavior and default workspace placement for matching windows.
+Rule add, replace, and config reload update initial placement defaults; existing managed windows stay on their current workspace unless `rule apply` is used.
 
 ```
 omniwmctl rule <action> [arguments...] [options...]
@@ -518,7 +519,7 @@ omniwmctl rule <action> [arguments...] [options...]
 | `--ax-role` | `<role>` | Match accessibility role |
 | `--ax-subrole` | `<subrole>` | Match accessibility subrole |
 | `--layout` | `<auto\|tile\|float>` | Layout action (`auto` = default behavior) |
-| `--assign-to-workspace` | `<raw-name>` | Assign matching windows to this workspace raw name |
+| `--assign-to-workspace` | `<raw-name>` | Open first matching app windows on this workspace raw name |
 | `--min-width` | `<points>` | Minimum window width in points |
 | `--min-height` | `<points>` | Minimum window height in points |
 
@@ -532,7 +533,7 @@ Bundle IDs must match the pattern: `^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$`
 omniwmctl rule add --bundle-id <bundle-id> [options...]
 ```
 
-Appends a new rule to the end of the rule list.
+Appends a new rule to the end of the rule list. First matching app windows use its placement defaults; already managed windows are not moved.
 
 **Replace a rule:**
 
@@ -540,7 +541,7 @@ Appends a new rule to the end of the rule list.
 omniwmctl rule replace <rule-id> --bundle-id <bundle-id> [options...]
 ```
 
-Replaces a rule in-place by its UUID. The rule ID is preserved.
+Replaces a rule in-place by its UUID. The rule ID is preserved. Already managed windows are not moved until rules are explicitly applied.
 
 **Remove a rule:**
 
@@ -564,7 +565,7 @@ Moves a rule to a new one-based position in the rule list.
 omniwmctl rule apply [--focused | --window <opaque-id> | --pid <pid>]
 ```
 
-Re-evaluates the current rule set against the target. Defaults to `--focused` if no target is specified.
+Re-evaluates the current rule set against the target. Defaults to `--focused` if no target is specified. This is the explicit path for applying placement rules to already managed windows.
 
 | Target | Description |
 |--------|-------------|
@@ -578,7 +579,7 @@ Re-evaluates the current rule set against the target. Defaults to `--focused` if
 # Float all Finder windows
 omniwmctl rule add --bundle-id com.apple.finder --layout float
 
-# Tile Safari and assign to workspace 2
+# Tile initial Safari windows on workspace 2
 omniwmctl rule add --bundle-id com.apple.Safari --layout tile --assign-to-workspace 2
 
 # Float windows with "Preferences" in the title
@@ -587,7 +588,7 @@ omniwmctl rule add --bundle-id com.apple.Safari --title-substring Preferences --
 # Remove a rule
 omniwmctl rule remove 550e8400-e29b-41d4-a716-446655440000
 
-# Reapply rules to all windows of a specific app
+# Explicitly reapply rules to all windows of a specific app
 omniwmctl rule apply --pid 12345
 ```
 

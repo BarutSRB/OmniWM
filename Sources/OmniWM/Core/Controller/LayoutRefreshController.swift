@@ -1492,7 +1492,6 @@ private let layoutShutdownRaceLog = Logger(
             let replacementWorkspace = controller.resolvedWorkspaceId(
                 for: evaluation,
                 axRef: ax,
-                pid: pid,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId
             )
@@ -1533,7 +1532,6 @@ private let layoutShutdownRaceLog = Logger(
             let defaultWorkspace = controller.resolvedWorkspaceId(
                 for: evaluation,
                 axRef: ax,
-                pid: pid,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId
             )

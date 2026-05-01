@@ -2005,6 +2005,7 @@ final class AXEventHandler: CGSEventDelegate {
 
         guard let trackedMode else { return nil }
 
+        let resolvedBundleId = bundleId ?? evaluation.facts.ax.bundleId
         let workspaceId = controller.resolveWorkspaceForNewWindow(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
@@ -2018,7 +2019,7 @@ final class AXEventHandler: CGSEventDelegate {
             axRef: axRef,
             ruleEffects: evaluation.decision.ruleEffects,
             replacementMetadata: makeManagedReplacementMetadata(
-                bundleId: bundleId ?? evaluation.facts.ax.bundleId,
+                bundleId: resolvedBundleId,
                 workspaceId: workspaceId,
                 mode: trackedMode,
                 facts: evaluation.facts

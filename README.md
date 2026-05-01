@@ -416,7 +416,7 @@ OmniWM stores its editable config at `~/.config/omniwm/settings.toml`, while pri
 Configure per-application behavior in Settings > App Rules:
 
 - **Always Float** - Force specific apps to always float (e.g., calculators, preferences windows)
-- **Assign to Workspace** - Automatically move app windows to a specific workspace
+- **Assign to Workspace** - Open first matching app windows on a specific workspace; later windows follow the app's current workspace unless rules are explicitly applied
 - **Minimum Size** - Prevent the layout engine from sizing windows below a threshold
 
 ## Building from Source

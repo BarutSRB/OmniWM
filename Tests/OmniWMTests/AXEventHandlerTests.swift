@@ -243,15 +243,19 @@ private func waitUntilAXEventTest(
     @Test @MainActor func titleChangedQueuesRuleReevaluationWhenDynamicRulesExist() async {
         let runtime = makeAXEventTestRuntime()
         let controller = runtime.controller
-        guard let workspaceId = controller.activeWorkspace()?.id else {
+        guard let sourceWorkspaceId = controller.activeWorkspace()?.id,
+              let ruleWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
             Issue.record("Missing active workspace")
             return
         }
+        #expect(sourceWorkspaceId != ruleWorkspaceId)
         controller.settings.appRules = [
             AppRule(
                 bundleId: "com.example.dynamic",
                 titleSubstring: "Chooser",
-                layout: .float
+                layout: .float,
+                assignToWorkspace: "2"
             )
         ]
         var relayoutReasons: [RefreshReason] = []
@@ -260,7 +264,7 @@ private func waitUntilAXEventTest(
             AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 812),
             pid: getpid(),
             windowId: 812,
-            to: workspaceId
+            to: sourceWorkspaceId
         )
         controller.axEventHandler.windowInfoProvider = { windowId in
             guard windowId == 812 else { return nil }
@@ -303,6 +307,7 @@ private func waitUntilAXEventTest(
         #expect(controller.workspaceBarRefreshDebugState.requestCount == 1)
         #expect(relayoutReasons == [.windowRuleReevaluation])
         #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 812)?.mode == .floating)
+        #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 812)?.workspaceId == sourceWorkspaceId)
     }
 
     @Test @MainActor func titleChangedQueuesRuleReevaluationForBuiltInPictureInPictureRule() async {
@@ -5658,6 +5663,78 @@ private func waitUntilAXEventTest(
         #expect(controller.axManager.lastAppliedFrame(for: 822) == nil)
         #expect(subscriptions == [[822]])
         #expect(relayoutReasons == [.axWindowCreated])
+    }
+
+    @Test @MainActor func newSiblingWindowFollowsMovedAppWorkspaceWhileAutomaticReevaluationPreservesMovedWindow() async {
+        let bundleId = "com.example.rule-workspace"
+        let runtime = makeAXEventTestRuntime(
+            trackedBundleId: bundleId,
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "3", monitorAssignment: .main)
+            ]
+        )
+        let controller = runtime.controller
+        controller.windowRuleEngine.rebuild(
+            rules: [
+                AppRule(bundleId: bundleId, assignToWorkspace: "2")
+            ]
+        )
+
+        guard let ruleWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false),
+              let movedWorkspaceId = controller.workspaceManager.workspaceId(for: "3", createIfMissing: false)
+        else {
+            Issue.record("Missing configured workspaces")
+            return
+        }
+
+        let pid = getpid()
+        let originalToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 842),
+            pid: pid,
+            windowId: 842,
+            to: ruleWorkspaceId
+        )
+        #expect(controller.workspaceManager.entry(for: originalToken)?.workspaceId == ruleWorkspaceId)
+        controller.reassignManagedWindow(originalToken, to: movedWorkspaceId, source: .command)
+        #expect(controller.workspaceManager.entry(for: originalToken)?.workspaceId == movedWorkspaceId)
+
+        let createdWindowId: UInt32 = 843
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == createdWindowId else { return nil }
+            return WindowServerInfo(id: windowId, pid: pid, level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, candidatePid in
+            guard windowId == createdWindowId, candidatePid == pid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: bundleId)
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: createdWindowId, spaceId: 0)
+        )
+        await waitUntilAXEventTest {
+            controller.workspaceManager.entry(forPid: pid, windowId: Int(createdWindowId)) != nil
+        }
+
+        let createdEntry = controller.workspaceManager.entry(forPid: pid, windowId: Int(createdWindowId))
+        #expect(controller.workspaceManager.entry(for: originalToken)?.workspaceId == movedWorkspaceId)
+        #expect(createdEntry?.workspaceId == movedWorkspaceId)
+
+        let outcome = await controller.reevaluateWindowRules(for: [.pid(pid)])
+        #expect(outcome.resolvedAnyTarget)
+        #expect(outcome.evaluatedAnyWindow)
+        #expect(controller.workspaceManager.entry(for: originalToken)?.workspaceId == movedWorkspaceId)
+        #expect(
+            controller.workspaceManager.entry(
+                forPid: pid,
+                windowId: Int(createdWindowId)
+            )?.workspaceId == movedWorkspaceId
+        )
     }
 
     @Test @MainActor func floatingCreatedWindowAssignedToSecondaryMonitorAppliesFrameOnTargetMonitor() async {

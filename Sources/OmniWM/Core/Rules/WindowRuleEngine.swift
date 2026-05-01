@@ -105,6 +105,11 @@ enum WindowRuleReevaluationTarget: Hashable, Sendable {
     case pid(pid_t)
 }
 
+enum WindowRuleReevaluationContext: Equatable, Sendable {
+    case automatic
+    case explicitRuleApply
+}
+
 struct WindowRuleReevaluationOutcome: Equatable, Sendable {
     let resolvedAnyTarget: Bool
     let evaluatedAnyWindow: Bool

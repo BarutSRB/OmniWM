@@ -1054,12 +1054,79 @@ final class WMController {
         pid: pid_t,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?
     ) -> WorkspaceDescriptor.ID {
-        if let wsName = workspaceName,
-           let wsId = workspaceManager.workspaceId(for: wsName, createIfMissing: false)
-        {
-            return wsId
+        resolveWorkspacePlacement(
+            workspaceName: workspaceName,
+            axRef: axRef,
+            pid: pid,
+            existingEntry: nil,
+            fallbackWorkspaceId: fallbackWorkspaceId,
+            context: .automatic
+        )
+    }
+
+    private func resolveWorkspacePlacement(
+        workspaceName: String?,
+        axRef: AXWindowRef,
+        pid: pid_t?,
+        existingEntry: WindowModel.Entry?,
+        fallbackWorkspaceId: WorkspaceDescriptor.ID?,
+        context: WindowRuleReevaluationContext
+    ) -> WorkspaceDescriptor.ID {
+        if context == .automatic, let existingEntry {
+            return existingEntry.workspaceId
         }
 
+        if context == .automatic,
+           existingEntry == nil,
+           let pid,
+           let siblingWorkspaceId = workspaceForNewSiblingWindow(
+               pid: pid,
+               fallbackWorkspaceId: fallbackWorkspaceId
+           )
+        {
+            return siblingWorkspaceId
+        }
+
+        if let workspaceName,
+           let workspaceId = workspaceManager.workspaceId(for: workspaceName, createIfMissing: false)
+        {
+            return workspaceId
+        }
+
+        if let existingEntry {
+            return existingEntry.workspaceId
+        }
+
+        return defaultWorkspaceId(for: axRef, fallbackWorkspaceId: fallbackWorkspaceId)
+    }
+
+    private func workspaceForNewSiblingWindow(
+        pid: pid_t,
+        fallbackWorkspaceId: WorkspaceDescriptor.ID?
+    ) -> WorkspaceDescriptor.ID? {
+        let entries = workspaceManager.entries(forPid: pid)
+        guard !entries.isEmpty else { return nil }
+
+        if let focusedToken = workspaceManager.focusedToken,
+           let focusedEntry = entries.first(where: { $0.token == focusedToken })
+        {
+            return focusedEntry.workspaceId
+        }
+
+        if let fallbackWorkspaceId,
+           entries.contains(where: { $0.workspaceId == fallbackWorkspaceId })
+        {
+            return fallbackWorkspaceId
+        }
+
+        let workspaceIds = Set(entries.map(\.workspaceId))
+        return workspaceIds.count == 1 ? entries[0].workspaceId : nil
+    }
+
+    private func defaultWorkspaceId(
+        for axRef: AXWindowRef,
+        fallbackWorkspaceId: WorkspaceDescriptor.ID?
+    ) -> WorkspaceDescriptor.ID {
         if let monitor = monitorForInteraction(),
            let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
         {
@@ -1629,25 +1696,17 @@ final class WMController {
     func resolvedWorkspaceId(
         for evaluation: WindowDecisionEvaluation,
         axRef: AXWindowRef,
-        pid: pid_t,
         existingEntry: WindowModel.Entry?,
-        fallbackWorkspaceId: WorkspaceDescriptor.ID?
+        fallbackWorkspaceId: WorkspaceDescriptor.ID?,
+        context: WindowRuleReevaluationContext = .automatic
     ) -> WorkspaceDescriptor.ID {
-        if let workspaceName = evaluation.decision.workspaceName,
-           let workspaceId = workspaceManager.workspaceId(for: workspaceName, createIfMissing: false)
-        {
-            return workspaceId
-        }
-
-        if let existingEntry {
-            return existingEntry.workspaceId
-        }
-
-        return resolveWorkspaceForNewWindow(
+        resolveWorkspacePlacement(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
-            pid: pid,
-            fallbackWorkspaceId: fallbackWorkspaceId
+            pid: evaluation.token.pid,
+            existingEntry: existingEntry,
+            fallbackWorkspaceId: fallbackWorkspaceId,
+            context: context
         )
     }
 
@@ -1793,7 +1852,8 @@ final class WMController {
 
     @discardableResult
     func reevaluateWindowRules(
-        for targets: Set<WindowRuleReevaluationTarget>
+        for targets: Set<WindowRuleReevaluationTarget>,
+        context: WindowRuleReevaluationContext = .automatic
     ) async -> WindowRuleReevaluationOutcome {
         guard !targets.isEmpty else { return .none }
         guard let runtime else {
@@ -1898,9 +1958,9 @@ final class WMController {
             let workspaceId = resolvedWorkspaceId(
                 for: evaluation,
                 axRef: axRef,
-                pid: token.pid,
                 existingEntry: existingEntry,
-                fallbackWorkspaceId: activeWorkspace()?.id
+                fallbackWorkspaceId: activeWorkspace()?.id,
+                context: context
             )
 
             _ = runtime.admitWindow(

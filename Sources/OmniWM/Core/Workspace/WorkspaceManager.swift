@@ -4359,30 +4359,7 @@ final class WorkspaceManager {
             toRemove.append(id)
         }
 
-        for id in toRemove {
-            workspacesById.removeValue(forKey: id)
-            sessionState.workspaceSessions.removeValue(forKey: id)
-        }
-        if !toRemove.isEmpty {
-            _cachedSortedWorkspaces = nil
-            workspaceIdByName = workspaceIdByName.filter { !toRemove.contains($0.value) }
-            invalidateWorkspaceProjectionCaches()
-            refreshWorkspaceGraphMetadata()
-            for monitorId in sessionState.monitorSessions.keys {
-                updateMonitorSession(monitorId) { session in
-                    if let visibleWorkspaceId = session.visibleWorkspaceId,
-                       toRemove.contains(visibleWorkspaceId)
-                    {
-                        session.visibleWorkspaceId = nil
-                    }
-                    if let previousVisibleWorkspaceId = session.previousVisibleWorkspaceId,
-                       toRemove.contains(previousVisibleWorkspaceId)
-                    {
-                        session.previousVisibleWorkspaceId = nil
-                    }
-                }
-            }
-        }
+        removeWorkspaces(toRemove)
     }
 
     private func sortedWorkspaces() -> [WorkspaceDescriptor] {
