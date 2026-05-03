@@ -526,7 +526,20 @@ enum AXWindowService {
 
         func hasResolvedAttribute(_ value: Any?) -> Bool {
             guard let value else { return false }
-            return !(value is NSError)
+            if value is NSError { return false }
+            // Patch B: AXUIElementCopyMultipleAttributeValues with options=0
+            // returns *typed error wrappers* for missing attributes, not nil.
+            // Empirically observed for AXFullScreenButton on bilibili
+            // (com.bilibili.bilibiliPC): an `AXValue` containing
+            // `kAXValueAXErrorType` (error -25212 / kAXErrorNoValue), which
+            // is neither NSError nor CFError and slips past the original
+            // nil/NSError filter. The downstream code only ever calls this
+            // function on close/fullscreen/zoom/minimize button attributes —
+            // all of which must be AXUIElements when present — so accept
+            // ONLY genuine AXUIElement values. Anything else is treated as
+            // "attribute absent / unusable", which keeps
+            // attributeFetchSucceeded=true and lets bilibili tile.
+            return CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID()
         }
 
         let fullscreenButtonElement = attributeValue(.fullScreenButton)
