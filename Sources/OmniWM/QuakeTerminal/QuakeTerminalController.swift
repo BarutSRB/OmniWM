@@ -45,6 +45,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
     private let captureRestoreTarget: @MainActor () -> QuakeTerminalRestoreTarget?
     private let restoreFocusTarget: @MainActor (QuakeTerminalRestoreTarget) -> Void
     private let isWindowFocused: @MainActor (NSWindow) -> Bool
+    private let focusedWindowScreenProvider: @MainActor () -> NSScreen?
 
     private static var ghosttyInitialized = false
 
@@ -53,13 +54,15 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         motionPolicy: MotionPolicy,
         captureRestoreTarget: @escaping @MainActor () -> QuakeTerminalRestoreTarget? = { nil },
         restoreFocusTarget: @escaping @MainActor (QuakeTerminalRestoreTarget) -> Void = { _ in },
-        isWindowFocused: @escaping @MainActor (NSWindow) -> Bool = { $0.isKeyWindow }
+        isWindowFocused: @escaping @MainActor (NSWindow) -> Bool = { $0.isKeyWindow },
+        focusedWindowScreenProvider: @escaping @MainActor () -> NSScreen? = { nil }
     ) {
         self.settings = settings
         self.motionPolicy = motionPolicy
         self.captureRestoreTarget = captureRestoreTarget
         self.restoreFocusTarget = restoreFocusTarget
         self.isWindowFocused = isWindowFocused
+        self.focusedWindowScreenProvider = focusedWindowScreenProvider
         super.init()
     }
 
@@ -750,6 +753,9 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             }
 
         case .focusedWindow:
+            if let screen = focusedWindowScreenProvider() {
+                return screen
+            }
             if let screen = screenOfFocusedWindow(monitors: monitors) {
                 return screen
             }

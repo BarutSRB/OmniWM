@@ -108,6 +108,9 @@ final class WMController {
         },
         restoreFocusTarget: { [weak self] target in
             self?.restoreQuakeTerminalFocus(to: target)
+        },
+        focusedWindowScreenProvider: { [weak self] in
+            self?.focusedManagedWindowScreen()
         }
     )
     @ObservationIgnored
@@ -1206,6 +1209,17 @@ final class WMController {
         AXWindowService.framePreferFast(entry.axRef)
             ?? axManager.lastAppliedFrame(for: entry.windowId)
             ?? (try? AXWindowService.frame(entry.axRef))
+    }
+
+    func focusedManagedWindowScreen() -> NSScreen? {
+        guard let token = workspaceManager.focusedToken,
+              let entry = workspaceManager.entry(for: token),
+              let frame = liveFrame(for: entry),
+              let monitor = frame.center.monitorApproximation(in: workspaceManager.monitors)
+        else {
+            return nil
+        }
+        return NSScreen.screens.first(where: { $0.displayId == monitor.displayId })
     }
 
     private func floatingPlacementMonitor(
