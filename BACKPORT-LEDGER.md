@@ -64,6 +64,25 @@ Reason: Applies without manual edits, touches only Swift/test files, and passes 
 Backport commit: this commit
 ```
 
+### `cbe7cffbd682b10e1543ca915c013bdf1d7f6126`
+
+```text
+Commit: cbe7cffbd682b10e1543ca915c013bdf1d7f6126
+Original subject: Fix status item visibility recovery
+Touched Swift files:
+- Sources/OmniWM/UI/HiddenBar/HiddenBarController.swift
+- Sources/OmniWM/UI/StatusBar/StatusBarController.swift
+- Sources/OmniWM/UI/StatusBar/StatusItemPersistence.swift
+- Tests/OmniWMTests/MenuBarRecoveryTests.swift
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? unknown; source commit adds focused regression coverage for hidden/malformed AppKit status-item visibility restore state
+Tests added or updated:
+- MenuBarRecoveryTests
+Action: direct-dry-run
+Reason: Cherry-pick applies cleanly after the preceding status-item recovery backport. README documentation from the source commit was intentionally omitted because it references later settings/TOML behavior outside this bugfix bundle.
+Backport commit: this commit
+```
+
 ### `bc881a679346ff468aa280a0c904f13795548637`
 
 ```text
