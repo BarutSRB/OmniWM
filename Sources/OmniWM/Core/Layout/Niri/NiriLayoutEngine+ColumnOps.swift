@@ -247,7 +247,7 @@ extension NiriLayoutEngine {
         guard !cols.isEmpty else { return }
 
         let resolvedWidth = resolvedColumnResetWidth(in: workspaceId)
-        let targetPixels = (workingAreaWidth - gaps) * resolvedWidth.proportion
+        let targetPixels = (workingAreaWidth - gaps) * resolvedWidth.proportion - gaps
 
         for column in cols {
             column.width = .proportion(resolvedWidth.proportion)

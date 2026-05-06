@@ -77,7 +77,7 @@ extension NiriLayoutEngine {
         let totalWeight = windows.reduce(CGFloat(0)) { $0 + $1.size }
         guard totalWeight > 0 else { return 0 }
 
-        let totalGaps = CGFloat(max(0, windows.count - 1)) * gaps.vertical
+        let totalGaps = CGFloat(windows.count + 1) * gaps.vertical
         let usableHeight = monitorFrame.height - totalGaps
 
         return usableHeight / totalWeight
@@ -187,7 +187,7 @@ extension NiriLayoutEngine {
         let targetPixels: CGFloat
         switch newWidth {
         case .proportion(let p):
-            targetPixels = (workingAreaWidth - gaps) * p
+            targetPixels = (workingAreaWidth - gaps) * p - gaps
         case .fixed(let f):
             targetPixels = f
         }
@@ -238,7 +238,7 @@ extension NiriLayoutEngine {
             column.hasManualSingleWindowWidthOverride = true
             switch column.width {
             case .proportion(let p):
-                targetPixels = (workingAreaWidth - gaps) * p
+                targetPixels = (workingAreaWidth - gaps) * p - gaps
             case .fixed(let f):
                 targetPixels = f
             }
@@ -247,7 +247,7 @@ extension NiriLayoutEngine {
             column.isFullWidth = true
             column.presetWidthIdx = nil
             column.hasManualSingleWindowWidthOverride = true
-            targetPixels = workingAreaWidth
+            targetPixels = (workingAreaWidth - gaps) - gaps
         }
 
         let didStartWidthAnimation = column.animateWidthTo(

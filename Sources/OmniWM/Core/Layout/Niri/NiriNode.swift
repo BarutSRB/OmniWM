@@ -506,11 +506,11 @@ class NiriContainer: NiriNode {
         minConstraint: CGFloat,
         maxConstraint: CGFloat?
     ) -> CGFloat {
-        if isFull { return availableSpace }
         var result: CGFloat
-        switch spec {
+        let effectiveSpec = isFull ? ProportionalSize.proportion(1.0) : spec
+        switch effectiveSpec {
         case let .proportion(p):
-            result = (availableSpace - gaps) * p
+            result = (availableSpace - gaps) * p - gaps
         case let .fixed(f):
             result = f
         }

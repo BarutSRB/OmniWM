@@ -338,17 +338,18 @@ extension NiriLayoutEngine {
         let targetY: CGFloat
         let targetHeight: CGFloat
 
+        let fallbackHeight = max(1, (availableHeight - gaps * CGFloat(windowNodes.count + 1)) / CGFloat(windowNodes.count))
         if windowNodes.count == 1 || column.isTabbed {
-            targetY = contentY
-            targetHeight = availableHeight
+            targetY = contentY + gaps
+            targetHeight = windowNodes[windowIndex].resolvedHeight ?? fallbackHeight
         } else {
-            var y = contentY
+            var y = contentY + gaps
             for i in 0 ..< windowIndex {
-                let h = windowNodes[i].resolvedHeight ?? (availableHeight / CGFloat(windowNodes.count))
+                let h = windowNodes[i].resolvedHeight ?? fallbackHeight
                 y += h + gaps
             }
             targetY = y
-            targetHeight = windowNodes[windowIndex].resolvedHeight ?? (availableHeight / CGFloat(windowNodes.count))
+            targetHeight = windowNodes[windowIndex].resolvedHeight ?? fallbackHeight
         }
 
         return CGRect(
@@ -422,9 +423,10 @@ extension NiriLayoutEngine {
 
     func computeTileOffset(column: NiriContainer, tileIdx: Int, gaps: CGFloat) -> CGFloat {
         let windows = column.windowNodes
-        guard tileIdx > 0, tileIdx < windows.count else { return 0 }
+        guard tileIdx >= 0, tileIdx < windows.count else { return 0 }
 
-        var offset: CGFloat = 0
+        var offset: CGFloat = gaps
+        guard tileIdx > 0 else { return offset }
         for i in 0 ..< tileIdx {
             let height = windows[i].resolvedHeight ?? windows[i].frame?.height ?? 0
             offset += height
@@ -437,8 +439,8 @@ extension NiriLayoutEngine {
         let windows = column.windowNodes
         guard !windows.isEmpty else { return [] }
 
-        var offsets: [CGFloat] = [0]
-        var y: CGFloat = 0
+        var offsets: [CGFloat] = [gaps]
+        var y: CGFloat = gaps
         for i in 0 ..< windows.count - 1 {
             let height = windows[i].resolvedHeight ?? windows[i].frame?.height ?? 0
             y += height + gaps

@@ -757,6 +757,7 @@ extension NiriLayoutEngine {
         case .horizontal: contentRect.origin.y
         case .vertical: contentRect.origin.x
         }
+        pos += secondaryGap
 
         for i in 0 ..< windows.count {
             let span = resolvedSpans[i]
@@ -845,9 +846,17 @@ extension NiriLayoutEngine {
                 case let .fixed(h):
                     isFixed = true
                     fixedValue = h
-                case .auto, .preset:
+                case .auto:
                     isFixed = false
                     fixedValue = nil
+                case let .preset(index):
+                    isFixed = true
+                    fixedValue = resolvePresetSpan(
+                        presetWindowHeights,
+                        index: index,
+                        availableSpace: availableSpace,
+                        gap: gap
+                    )
                 }
                 return NiriAxisSolver.Input(
                     weight: max(0.1, window.heightWeight),
@@ -865,9 +874,17 @@ extension NiriLayoutEngine {
                 case let .fixed(w):
                     isFixed = true
                     fixedValue = w
-                case .auto, .preset:
+                case .auto:
                     isFixed = false
                     fixedValue = nil
+                case let .preset(index):
+                    isFixed = true
+                    fixedValue = resolvePresetSpan(
+                        presetWindowHeights,
+                        index: index,
+                        availableSpace: availableSpace,
+                        gap: gap
+                    )
                 }
                 return NiriAxisSolver.Input(
                     weight: max(0.1, window.widthWeight),
@@ -898,6 +915,21 @@ extension NiriLayoutEngine {
         }
 
         return outputs.map(\.value)
+    }
+
+    private func resolvePresetSpan(
+        _ presets: [PresetSize],
+        index: Int,
+        availableSpace: CGFloat,
+        gap: CGFloat
+    ) -> CGFloat? {
+        guard presets.indices.contains(index) else { return nil }
+        switch presets[index].kind {
+        case let .proportion(proportion):
+            return (availableSpace - gap) * proportion - gap
+        case let .fixed(value):
+            return value
+        }
     }
 
     private func hiddenRowRect(

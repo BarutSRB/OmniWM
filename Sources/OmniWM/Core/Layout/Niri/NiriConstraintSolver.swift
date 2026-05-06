@@ -25,14 +25,14 @@ enum NiriAxisSolver {
     ) -> [Output] {
         guard !windows.isEmpty else { return [] }
 
+        let totalGaps = gapSize * CGFloat(windows.count + 1)
+        let usableSpace = max(0, availableSpace - totalGaps)
+
         if isTabbed {
-            return solveTabbed(windows: windows, availableSpace: availableSpace)
+            return solveTabbed(windows: windows, availableSpace: usableSpace)
         }
 
-        let totalGaps = gapSize * CGFloat(max(0, windows.count - 1))
-        let usableSpace = max(0, availableSpace - totalGaps)
         let epsilon: CGFloat = 0.001
-
         let minConstraints = windows.map { sanitizedMinimum($0.minConstraint) }
         let maxConstraints = windows.map { window in
             sanitizedMaximum(window.hasMaxConstraint ? window.maxConstraint : nil)
@@ -58,91 +58,51 @@ enum NiriAxisSolver {
         }
 
         let fixedSum = fixedValues.compactMap(\.self).reduce(0, +)
-        if fixedSum > usableSpace, fixedSum > epsilon {
-            let scale = usableSpace / fixedSum
-            return fixedValues.map { fixedValue in
-                Output(
-                    value: fixedValue.map { max(1, $0 * scale) } ?? 0,
-                    wasConstrained: fixedValue != nil
-                )
-            }
-        }
-
-        var scaledMinimums = minConstraints
+        let remainingSpace = max(0, usableSpace - fixedSum)
         let nonFixedIndices = windows.indices.filter { fixedValues[$0] == nil }
-        let remainingForMinimums = max(0, usableSpace - fixedSum)
-        let minimumSum = nonFixedIndices.reduce(CGFloat.zero) { partialResult, index in
-            partialResult + scaledMinimums[index]
-        }
-
-        if minimumSum > remainingForMinimums, minimumSum > epsilon {
-            let scale = remainingForMinimums / minimumSum
-            for index in nonFixedIndices {
-                scaledMinimums[index] *= scale
-            }
-        }
-
         var values = [CGFloat](repeating: 0, count: windows.count)
-        var remainingSpace = usableSpace
 
         for (index, fixedValue) in fixedValues.enumerated() {
             guard let fixedValue else { continue }
-            let assigned = min(fixedValue, remainingSpace)
-            values[index] = assigned
-            remainingSpace = max(0, remainingSpace - assigned)
+            values[index] = fixedValue
         }
 
-        for index in nonFixedIndices {
-            let assigned = min(scaledMinimums[index], remainingSpace)
-            values[index] += assigned
-            remainingSpace = max(0, remainingSpace - assigned)
-        }
-
-        while remainingSpace > epsilon {
-            let growableIndices = nonFixedIndices.filter { index in
-                guard let maxConstraint = maxConstraints[index] else { return true }
-                return values[index] + epsilon < maxConstraint
+        var pendingAutoIndices = Set(nonFixedIndices)
+        var pinnedMinimumSum: CGFloat = 0
+        while !pendingAutoIndices.isEmpty {
+            let distributableSpace = max(0, remainingSpace - pinnedMinimumSum)
+            let totalWeight = pendingAutoIndices.reduce(CGFloat.zero) { partialResult, index in
+                partialResult + max(weights[index], epsilon)
             }
+            guard totalWeight > epsilon else { break }
 
-            if growableIndices.isEmpty {
-                break
-            }
-
-            let totalWeight = growableIndices.reduce(CGFloat.zero) { partialResult, index in
-                partialResult + weights[index]
-            }
-
-            var consumed: CGFloat = 0
-
-            if totalWeight > epsilon {
-                for index in growableIndices {
-                    let share = remainingSpace * (weights[index] / totalWeight)
-                    let cap = maxConstraints[index].map { max(0, $0 - values[index]) } ?? share
-                    let delta = min(share, cap)
-                    values[index] += delta
-                    consumed += delta
-                }
-            } else {
-                let equalShare = remainingSpace / CGFloat(growableIndices.count)
-                for index in growableIndices {
-                    let cap = maxConstraints[index].map { max(0, $0 - values[index]) } ?? equalShare
-                    let delta = min(equalShare, cap)
-                    values[index] += delta
-                    consumed += delta
+            var pinnedIndex: Int?
+            for index in pendingAutoIndices {
+                let share = distributableSpace * (max(weights[index], epsilon) / totalWeight)
+                if share + epsilon < minConstraints[index] {
+                    pinnedIndex = index
+                    break
                 }
             }
 
-            if consumed <= epsilon {
-                break
+            if let pinnedIndex {
+                values[pinnedIndex] = minConstraints[pinnedIndex]
+                pinnedMinimumSum += minConstraints[pinnedIndex]
+                pendingAutoIndices.remove(pinnedIndex)
+                continue
             }
 
-            remainingSpace = max(0, remainingSpace - consumed)
+            for index in pendingAutoIndices {
+                values[index] = distributableSpace * (max(weights[index], epsilon) / totalWeight)
+            }
+            break
         }
 
         return windows.enumerated().map { index, window in
             let isAtMinimum = minConstraints[index] > epsilon &&
                 abs(values[index] - minConstraints[index]) <= epsilon
-            let isAtMaximum = maxConstraints[index].map { abs(values[index] - $0) <= epsilon } ?? false
+            let isAtMaximum = fixedValues[index] != nil &&
+                (maxConstraints[index].map { abs(values[index] - $0) <= epsilon } ?? false)
             return Output(
                 value: max(1, values[index]),
                 wasConstrained: window.isConstraintFixed || isAtMinimum || isAtMaximum
@@ -156,7 +116,6 @@ enum NiriAxisSolver {
         availableSpace: CGFloat
     ) -> [Output] {
         let maxMinConstraint = windows.map(\.minConstraint).max() ?? 1
-
         let fixedValue = windows.first(where: { $0.hasFixedValue && $0.fixedValue != nil })?.fixedValue
 
         var sharedValue: CGFloat = if let fixed = fixedValue {

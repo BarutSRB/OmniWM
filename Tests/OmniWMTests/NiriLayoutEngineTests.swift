@@ -1019,7 +1019,7 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         #expect(column.hasManualSingleWindowWidthOverride)
-        #expect(abs(frame.width - 956) < 0.6)
+        #expect(abs(frame.width - 948) < 0.6)
         #expect(abs(frame.midX - monitor.visibleFrame.midX) < 0.6)
         #expect(frame.height == monitor.visibleFrame.height)
     }
@@ -1126,8 +1126,8 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        #expect(abs(fullWidthFrame.minX - monitor.visibleFrame.minX) < 0.6)
-        #expect(abs(fullWidthFrame.maxX - monitor.visibleFrame.maxX) < 0.6)
+        #expect(abs(fullWidthFrame.minX - (monitor.visibleFrame.minX + gap)) < 0.6)
+        #expect(abs(fullWidthFrame.maxX - (monitor.visibleFrame.maxX - gap)) < 0.6)
         #expect(abs(restoredFrame.width - resizedFrame.width) < 0.6)
         #expect(abs(restoredFrame.midX - monitor.visibleFrame.midX) < 0.6)
     }
@@ -1258,14 +1258,14 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        let expectedColumnWidth = ((monitor.visibleFrame.width - gap) / 3).roundedToPhysicalPixel(scale: 2.0)
+        let expectedColumnWidth = ((monitor.visibleFrame.width - gap) / 3 - gap).roundedToPhysicalPixel(scale: 2.0)
 
         #expect(engine.columns(in: wsId).count == 2)
         #expect(firstFrame.width < singleFrame.width)
         #expect(abs(firstFrame.width - expectedColumnWidth) < 0.6)
         #expect(abs(secondFrame.width - expectedColumnWidth) < 0.6)
-        #expect(firstFrame.height == monitor.visibleFrame.height)
-        #expect(secondFrame.height == monitor.visibleFrame.height)
+        #expect(firstFrame.height == monitor.visibleFrame.height - gap * 2)
+        #expect(secondFrame.height == monitor.visibleFrame.height - gap * 2)
     }
 
     @Test func additionalWindowUsesExplicitDefaultWidthWhenCreatingNewColumn() {
@@ -1429,9 +1429,9 @@ private func makeCenteredCrossMonitorFixture(
         )
 
         #expect(outputs.count == 3)
-        #expect(abs(outputs[0].value - 100) < 0.001)
+        #expect(abs(outputs[0].value - 400) < 0.001)
         #expect(abs(outputs[1].value - 400) < 0.001)
-        #expect(abs(outputs[2].value - 700) < 0.001)
+        #expect(abs(outputs[2].value - 400) < 0.001)
     }
 
     @Test func solverFixedOverflowDoesNotOverallocateAutoWindows() {
@@ -1461,11 +1461,11 @@ private func makeCenteredCrossMonitorFixture(
         )
 
         #expect(outputs.count == 2)
-        #expect(abs(outputs[0].value - 50) < 0.001)
+        #expect(abs(outputs[0].value - 80) < 0.001)
         #expect(outputs[0].wasConstrained == true)
-        #expect(outputs[1].value == 0)
+        #expect(outputs[1].value == 1)
         #expect(outputs[1].wasConstrained == false)
-        #expect(abs(outputs.map(\.value).reduce(0, +) - 50) < 0.001)
+        #expect(abs(outputs.map(\.value).reduce(0, +) - 81) < 0.001)
     }
 
     @Test func columnWidthDoesNotShrinkBelowRequiredFixedChildWidth() {
@@ -3267,7 +3267,7 @@ private func makeCenteredCrossMonitorFixture(
         let hiddenLeftTokens = tokens.filter { hiddenHandles[$0] == .left }
         #expect(!hiddenLeftTokens.isEmpty)
         for token in hiddenLeftTokens {
-            #expect(frames[token]?.origin.y == workingFrame.minY)
+            #expect(frames[token]?.origin.y == workingFrame.minY + gaps.vertical)
         }
     }
 
@@ -3602,8 +3602,9 @@ private func makeCenteredCrossMonitorFixture(
             }
 
             #expect(settledLayout.hiddenHandles[targetWindow.token] == nil)
-            #expect(abs(fullscreenWidthFrame.minX - fixture.monitor.visibleFrame.minX) < 1.0)
-            #expect(abs(fullscreenWidthFrame.maxX - fixture.monitor.visibleFrame.maxX) < 1.0)
+            #expect(abs(fullscreenWidthFrame.width - (fixture.monitor.visibleFrame.width - fixture.gap * 2)) < 1.0)
+            #expect(fullscreenWidthFrame.minX >= fixture.monitor.visibleFrame.minX - 1.0)
+            #expect(fullscreenWidthFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
         }
     }
 
@@ -3856,12 +3857,13 @@ private func makeCenteredCrossMonitorFixture(
                 continue
             }
 
-            #expect(abs(targetColumn.cachedWidth - fixture.monitor.visibleFrame.width) < 0.1)
+            #expect(abs(targetColumn.cachedWidth - (fixture.monitor.visibleFrame.width - fixture.gap * 2)) < 0.1)
             #expect(!targetColumn.hasWidthAnimationRunning)
             #expect(!state.viewOffsetPixels.isAnimating)
             #expect(immediateLayout.hiddenHandles[targetWindow.token] == nil)
-            #expect(abs(updatedFrame.minX - fixture.monitor.visibleFrame.minX) < 1.0)
-            #expect(abs(updatedFrame.maxX - fixture.monitor.visibleFrame.maxX) < 1.0)
+            #expect(abs(updatedFrame.width - (fixture.monitor.visibleFrame.width - fixture.gap * 2)) < 1.0)
+            #expect(updatedFrame.minX >= fixture.monitor.visibleFrame.minX - 1.0)
+            #expect(updatedFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
         }
     }
 
@@ -3923,11 +3925,12 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        #expect(abs(targetColumn.cachedWidth - fixture.workingFrame.width) < 0.1)
+        #expect(abs(targetColumn.cachedWidth - (fixture.workingFrame.width - fixture.gap * 2)) < 0.1)
         #expect(!targetColumn.hasWidthAnimationRunning)
         #expect(updatedFrame.width > originalFrame.width)
-        #expect(abs(updatedFrame.minX - fixture.monitor.visibleFrame.minX) < 1.0)
-        #expect(abs(updatedFrame.maxX - fixture.monitor.visibleFrame.maxX) < 1.0)
+        #expect(abs(updatedFrame.width - (fixture.workingFrame.width - fixture.gap * 2)) < 1.0)
+        #expect(updatedFrame.minX >= fixture.monitor.visibleFrame.minX - 1.0)
+        #expect(updatedFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
         #expect(
             fixture.controller.niriLayoutHandler.scrollAnimationByDisplay[fixture.monitor.displayId] == nil
         )
@@ -4041,7 +4044,7 @@ private func makeCenteredCrossMonitorFixture(
         #expect(expelledColumn.savedWidth == .fixed(520))
         #expect(expelledColumn.isFullWidth)
         #expect(expelledColumn.hasManualSingleWindowWidthOverride)
-        #expect(abs(expelledColumn.cachedWidth - 1200) < 0.001)
+        #expect(abs(expelledColumn.cachedWidth - (1200 - 8 * 2)) < 0.001)
     }
 
     @Test func expelWindowCopiesDesiredWidthButRecomputesCachedWidthFromConstraints() {

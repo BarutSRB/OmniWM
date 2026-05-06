@@ -100,6 +100,8 @@ struct NiriRenderStyle {
 final class NiriLayoutEngine {
     static let defaultPresetColumnWidthValues: [CGFloat] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
     static let defaultPresetColumnWidths: [PresetSize] = defaultPresetColumnWidthValues.map { .proportion($0) }
+    static let defaultPresetWindowHeightValues: [CGFloat] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
+    static let defaultPresetWindowHeights: [PresetSize] = defaultPresetWindowHeightValues.map { .proportion($0) }
     private static let presetMatchTolerance: CGFloat = 0.001
 
     var monitors: [Monitor.ID: NiriMonitor] = [:]
@@ -139,6 +141,7 @@ final class NiriLayoutEngine {
     var displayRefreshRate: Double = 60.0
 
     var presetColumnWidths: [PresetSize] = NiriLayoutEngine.defaultPresetColumnWidths
+    var presetWindowHeights: [PresetSize] = NiriLayoutEngine.defaultPresetWindowHeights
     var defaultColumnWidth: CGFloat? = 0.5
 
     init(maxWindowsPerColumn: Int = 10, maxVisibleColumns: Int = 2, infiniteLoop: Bool = false) {
