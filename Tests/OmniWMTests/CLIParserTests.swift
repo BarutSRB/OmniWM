@@ -54,6 +54,17 @@ import OmniWMIPC
         #expect(command == .setWorkspaceLayout(layout: .defaultLayout))
     }
 
+    @Test func parsesCycleMonitorsCommand() throws {
+        let parsed = try CLIParser.parse(arguments: ["omniwmctl", "command", "cycle-monitors"])
+
+        guard case let .command(command) = parsed.request.payload else {
+            Issue.record("Expected a command payload")
+            return
+        }
+
+        #expect(command == .cycleMonitors)
+    }
+
     @Test func parsesWorkspaceCommandsWithHighWorkspaceIds() throws {
         let parsed = try CLIParser.parse(arguments: ["omniwmctl", "command", "switch-workspace", "10"])
 
@@ -304,6 +315,17 @@ import OmniWMIPC
     @Test func rejectsInvalidLayoutValue() {
         do {
             _ = try CLIParser.parse(arguments: ["omniwmctl", "command", "set-workspace-layout", "grid"])
+            Issue.record("Expected parser failure")
+        } catch let error as CLIParseError {
+            #expect(error == .usage(CLIParser.usageText))
+        } catch {
+            Issue.record("Unexpected parser error: \(error)")
+        }
+    }
+
+    @Test func rejectsCycleMonitorsArguments() {
+        do {
+            _ = try CLIParser.parse(arguments: ["omniwmctl", "command", "cycle-monitors", "next"])
             Issue.record("Expected parser failure")
         } catch let error as CLIParseError {
             #expect(error == .usage(CLIParser.usageText))

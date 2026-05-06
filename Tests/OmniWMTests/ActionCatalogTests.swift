@@ -27,4 +27,16 @@ import Testing
         #expect(spec.ipcCommandName == .toggleWorkspaceBar)
         #expect(spec.ipcDescriptor?.path == "command toggle-workspace-bar")
     }
+
+    @Test func cycleMonitorsSpecCarriesSharedPublicCommandDescriptor() throws {
+        let spec = try #require(ActionCatalog.spec(for: "cycleMonitors"))
+
+        #expect(spec.command == .cycleMonitors)
+        #expect(spec.title == "Cycle Monitors")
+        #expect(spec.category == .monitor)
+        #expect(spec.layoutCompatibility == .shared)
+        #expect(spec.defaultBinding == .unassigned)
+        #expect(spec.ipcCommandName == .cycleMonitors)
+        #expect(spec.ipcDescriptor?.path == "command cycle-monitors")
+    }
 }

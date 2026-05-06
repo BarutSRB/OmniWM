@@ -176,6 +176,23 @@ enum HotkeyBindingRegistry {
         }
     }
 
+    static func canonicalize(_ bindings: [HotkeyBinding]) -> [HotkeyBinding] {
+        var overrides: [String: KeyBinding] = [:]
+        var explicitOverrideIDs: Set<String> = []
+
+        for entry in bindings {
+            guard bindingsByID[entry.id] != nil else { continue }
+            explicitOverrideIDs.insert(entry.id)
+            overrides[entry.id] = canonicalizeBinding(entry.binding)
+        }
+
+        return defaultBindings.map { binding in
+            guard explicitOverrideIDs.contains(binding.id) else { return binding }
+            let override = overrides[binding.id] ?? .unassigned
+            return HotkeyBinding(id: binding.id, command: binding.command, binding: override)
+        }
+    }
+
     static func canonicalizeBinding(_ binding: KeyBinding) -> KeyBinding {
         binding.isUnassigned ? .unassigned : binding
     }

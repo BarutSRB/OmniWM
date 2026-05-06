@@ -113,6 +113,9 @@ import Testing
         let layout = runtime.submit(
             command: WMRuntime.typedCommand(for: .toggleNativeFullscreen, source: .command)
         )
+        let monitorCycle = runtime.submit(
+            command: WMRuntime.typedCommand(for: .cycleMonitors, source: .ipc)
+        )
         let nav = runtime.submit(
             command: WMRuntime.typedCommand(for: .workspaceBackAndForth, source: .ipc)
         )
@@ -123,6 +126,12 @@ import Testing
         if case let .layoutMutationActionDispatch(kindForLog, source, _) = layout.transaction.effects[0] {
             #expect(kindForLog == "toggle_native_fullscreen")
             #expect(source == .command)
+        } else {
+            Issue.record("expected layoutMutationActionDispatch")
+        }
+        if case let .layoutMutationActionDispatch(kindForLog, source, _) = monitorCycle.transaction.effects[0] {
+            #expect(kindForLog == "cycle_monitors")
+            #expect(source == .ipc)
         } else {
             Issue.record("expected layoutMutationActionDispatch")
         }
@@ -140,6 +149,7 @@ import Testing
         }
         #expect(platform.events == [
             .performLayoutMutationAction(kindForLog: "toggle_native_fullscreen", source: .command),
+            .performLayoutMutationAction(kindForLog: "cycle_monitors", source: .ipc),
             .performWorkspaceNavigationAction(kindForLog: "workspace_back_and_forth", source: .ipc),
             .performUIAction(kindForLog: "toggle_overview", source: .command)
         ])

@@ -11,6 +11,17 @@ final class WorkspaceNavigationHandler {
         self.controller = controller
     }
 
+    private struct WorkspaceContentRotationMove {
+        let sourceWorkspaceId: WorkspaceDescriptor.ID
+        let targetWorkspaceId: WorkspaceDescriptor.ID
+        let entries: [WindowModel.Entry]
+    }
+
+    private struct WorkspaceContentSessionSnapshot {
+        var viewportState: ViewportState
+        var rememberedFocusToken: WindowToken?
+    }
+
     private func applySessionPatch(
         workspaceId: WorkspaceDescriptor.ID,
         viewportState: ViewportState? = nil,
@@ -276,6 +287,194 @@ final class WorkspaceNavigationHandler {
             in: targetWorkspaceId,
             source: source
         )
+    }
+
+    private func layoutType(
+        for workspaceId: WorkspaceDescriptor.ID,
+        controller: WMController
+    ) -> LayoutType {
+        guard let workspace = controller.workspaceManager.descriptor(for: workspaceId) else {
+            return .defaultLayout
+        }
+        return controller.settings.layoutType(for: workspace.name)
+    }
+
+    private func cycleMonitorContentEntries(
+        in workspaceId: WorkspaceDescriptor.ID,
+        controller: WMController
+    ) -> [WindowModel.Entry] {
+        controller.workspaceManager.entries(in: workspaceId).filter { entry in
+            let token = entry.token
+            guard !controller.workspaceManager.isScratchpadToken(token),
+                  controller.workspaceManager.hiddenState(for: token)?.isScratchpad != true,
+                  controller.workspaceManager.layoutReason(for: token) == .standard,
+                  !controller.workspaceManager.isNativeFullscreenSuspended(token),
+                  controller.workspaceManager.nativeFullscreenRecord(for: token) == nil
+            else {
+                return false
+            }
+
+            return true
+        }
+    }
+
+    private func canBulkRotateNiriContent(
+        workspaceIds: [WorkspaceDescriptor.ID],
+        rotationEntriesBySource: [WorkspaceDescriptor.ID: [WindowModel.Entry]],
+        controller: WMController
+    ) -> Bool {
+        guard let engine = controller.niriEngine else { return false }
+
+        for workspaceId in workspaceIds {
+            guard layoutType(for: workspaceId, controller: controller) != .dwindle else {
+                return false
+            }
+
+            let rootTokens = Set(engine.root(for: workspaceId)?.allWindows.map(\.token) ?? [])
+            let tiledEligibleTokens = Set(
+                (rotationEntriesBySource[workspaceId] ?? [])
+                    .filter { $0.mode == .tiling }
+                    .map(\.token)
+            )
+
+            guard rootTokens.isSubset(of: tiledEligibleTokens) else {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private func hasDwindleWorkspace(
+        _ workspaceIds: [WorkspaceDescriptor.ID],
+        controller: WMController
+    ) -> Bool {
+        workspaceIds.contains { workspaceId in
+            layoutType(for: workspaceId, controller: controller) == .dwindle
+        }
+    }
+
+    private func clampedViewportState(
+        _ state: ViewportState,
+        in workspaceId: WorkspaceDescriptor.ID,
+        engine: NiriLayoutEngine
+    ) -> ViewportState {
+        var result = state
+        result.selectedNodeId = engine.validateSelection(result.selectedNodeId, in: workspaceId)
+        let columnCount = engine.columns(in: workspaceId).count
+        result.activeColumnIndex = if columnCount > 0 {
+            max(0, min(result.activeColumnIndex, columnCount - 1))
+        } else {
+            0
+        }
+        return result
+    }
+
+    private func applyRotatedSessionSnapshots(
+        moves: [WorkspaceContentRotationMove],
+        snapshotsByWorkspace: [WorkspaceDescriptor.ID: WorkspaceContentSessionSnapshot],
+        engine: NiriLayoutEngine,
+        source: WMEventSource
+    ) {
+        for move in moves {
+            guard let snapshot = snapshotsByWorkspace[move.sourceWorkspaceId] else {
+                continue
+            }
+            applySessionPatch(
+                workspaceId: move.targetWorkspaceId,
+                viewportState: clampedViewportState(
+                    snapshot.viewportState,
+                    in: move.targetWorkspaceId,
+                    engine: engine
+                ),
+                rememberedFocusToken: snapshot.rememberedFocusToken.flatMap { token in
+                    move.entries.contains(where: { $0.token == token }) ? token : nil
+                },
+                source: source
+            )
+        }
+    }
+
+    private func applyMovedFocusSnapshots(
+        moves: [WorkspaceContentRotationMove],
+        snapshotsByWorkspace: [WorkspaceDescriptor.ID: WorkspaceContentSessionSnapshot],
+        source: WMEventSource
+    ) {
+        for move in moves {
+            guard let snapshot = snapshotsByWorkspace[move.sourceWorkspaceId],
+                  let rememberedFocusToken = snapshot.rememberedFocusToken,
+                  move.entries.contains(where: { $0.token == rememberedFocusToken })
+            else {
+                continue
+            }
+
+            applySessionPatch(
+                workspaceId: move.targetWorkspaceId,
+                rememberedFocusToken: rememberedFocusToken,
+                source: source
+            )
+        }
+    }
+
+    private func shouldDirectlyReassignMissingNiriNode(
+        _ entry: WindowModel.Entry,
+        from sourceWorkspaceId: WorkspaceDescriptor.ID,
+        to targetWorkspaceId: WorkspaceDescriptor.ID,
+        controller: WMController
+    ) -> Bool {
+        guard entry.mode == .tiling,
+              let engine = controller.niriEngine,
+              engine.findNode(for: entry.token) == nil,
+              layoutType(for: sourceWorkspaceId, controller: controller) != .dwindle,
+              layoutType(for: targetWorkspaceId, controller: controller) != .dwindle
+        else {
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    private func moveWorkspaceContent(
+        _ moves: [WorkspaceContentRotationMove],
+        bulkRotatedNiriContent: Bool,
+        directReassignmentOnly: Bool,
+        source: WMEventSource
+    ) -> Bool {
+        guard let controller else { return false }
+        var succeeded = true
+
+        for move in moves {
+            for entry in move.entries {
+                if bulkRotatedNiriContent || directReassignmentOnly {
+                    controller.reassignManagedWindow(
+                        entry.token,
+                        to: move.targetWorkspaceId,
+                        source: source
+                    )
+                } else if shouldDirectlyReassignMissingNiriNode(
+                    entry,
+                    from: move.sourceWorkspaceId,
+                    to: move.targetWorkspaceId,
+                    controller: controller
+                ) {
+                    controller.reassignManagedWindow(
+                        entry.token,
+                        to: move.targetWorkspaceId,
+                        source: source
+                    )
+                } else {
+                    let moved = transferWindowFromSourceEngine(
+                        token: entry.token,
+                        from: move.sourceWorkspaceId,
+                        to: move.targetWorkspaceId,
+                        source: source
+                    )
+                    succeeded = moved && succeeded
+                }
+            }
+        }
+
+        return succeeded
     }
 
     private func transferWindowFromSourceEngine(
@@ -717,6 +916,115 @@ final class WorkspaceNavigationHandler {
             controller.syncMonitorsToNiriEngine()
         }
         commitFocusPlan(plan, source: source)
+    }
+
+    func cycleMonitors(source: WMEventSource = .command) -> ExternalCommandResult {
+        guard let controller else { return .invalidArguments }
+        let activeWorkspaceIds = Monitor.sortedByPosition(controller.workspaceManager.monitors).compactMap { monitor in
+            controller.workspaceManager.activeWorkspace(on: monitor.id)?.id
+        }
+        guard activeWorkspaceIds.count >= 2 else { return .notFound }
+
+        let affectedWorkspaceIds = Set(activeWorkspaceIds)
+        saveWorkspaces(activeWorkspaceIds, source: source)
+
+        let rotationEntriesBySource = Dictionary(
+            uniqueKeysWithValues: activeWorkspaceIds.map { workspaceId in
+                (
+                    workspaceId,
+                    cycleMonitorContentEntries(
+                        in: workspaceId,
+                        controller: controller
+                    )
+                )
+            }
+        )
+        let snapshotsByWorkspace = Dictionary(
+            uniqueKeysWithValues: activeWorkspaceIds.map { workspaceId in
+                (
+                    workspaceId,
+                    WorkspaceContentSessionSnapshot(
+                        viewportState: controller.workspaceManager.niriViewportState(for: workspaceId),
+                        rememberedFocusToken: controller.workspaceManager.resolveWorkspaceFocusToken(in: workspaceId)
+                    )
+                )
+            }
+        )
+        let moves = activeWorkspaceIds.indices.map { index in
+            let sourceWorkspaceId = activeWorkspaceIds[index]
+            return WorkspaceContentRotationMove(
+                sourceWorkspaceId: sourceWorkspaceId,
+                targetWorkspaceId: activeWorkspaceIds[(index + 1) % activeWorkspaceIds.count],
+                entries: rotationEntriesBySource[sourceWorkspaceId] ?? []
+            )
+        }
+        guard moves.contains(where: { !$0.entries.isEmpty }) else {
+            return .notFound
+        }
+
+        let bulkRotatedNiriContent: Bool
+        if canBulkRotateNiriContent(
+            workspaceIds: activeWorkspaceIds,
+            rotationEntriesBySource: rotationEntriesBySource,
+            controller: controller
+        ) {
+            guard let engine = controller.niriEngine,
+                  engine.rotateWorkspaceContents(activeWorkspaceIds)
+            else {
+                return .notFound
+            }
+            bulkRotatedNiriContent = true
+        } else {
+            bulkRotatedNiriContent = false
+        }
+
+        let directReassignmentOnly = controller.niriEngine == nil
+            && !hasDwindleWorkspace(activeWorkspaceIds, controller: controller)
+        let movedContent = moveWorkspaceContent(
+            moves,
+            bulkRotatedNiriContent: bulkRotatedNiriContent,
+            directReassignmentOnly: directReassignmentOnly,
+            source: source
+        )
+        guard movedContent else { return .notFound }
+
+        if bulkRotatedNiriContent, let engine = controller.niriEngine {
+            applyRotatedSessionSnapshots(
+                moves: moves,
+                snapshotsByWorkspace: snapshotsByWorkspace,
+                engine: engine,
+                source: source
+            )
+        } else {
+            applyMovedFocusSnapshots(
+                moves: moves,
+                snapshotsByWorkspace: snapshotsByWorkspace,
+                source: source
+            )
+        }
+
+        guard let runtime = controller.runtime else {
+            preconditionFailure("WorkspaceNavigationHandler.cycleMonitors requires WMRuntime to be attached")
+        }
+
+        let interactionMonitorId = interactionMonitorId(for: controller)
+        let activeWorkspaceOnInteractionMonitor = interactionMonitorId.flatMap {
+            controller.workspaceManager.activeWorkspace(on: $0)?.id
+        }
+        let focusToken = activeWorkspaceOnInteractionMonitor.flatMap {
+            controller.resolveAndSetWorkspaceFocusToken(for: $0, source: source)
+        }
+        let postAction: WMEffect.PostWorkspaceTransitionAction = if let focusToken {
+            .focusWindow(focusToken)
+        } else {
+            .clearManagedFocusAfterEmptyWorkspaceTransition
+        }
+        _ = runtime.commitWorkspaceTransition(
+            affectedWorkspaceIds: affectedWorkspaceIds,
+            postAction: postAction,
+            source: source
+        )
+        return .executed
     }
 
     func switchWorkspace(

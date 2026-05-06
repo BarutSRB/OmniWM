@@ -230,6 +230,8 @@ final class RuntimeControllerOperations {
                 direction: direction,
                 source: source
             )
+        case let .cycleMonitors(source):
+            return controller.workspaceNavigationHandler.cycleMonitors(source: source)
         case let .balanceSizes(source):
             layoutHandler(as: LayoutSizable.self)?
                 .balanceSizes(source: source)

@@ -338,12 +338,225 @@ private func prepareIPCNiriState(
         #expect(result == .ignoredDisabled)
     }
 
+    @Test func cycleMonitorsRotatesWorkspaceContentsAndPreservesWorkspaceAssignments() throws {
+        let primary = makeLayoutPlanPrimaryTestMonitor()
+        let secondary = makeLayoutPlanSecondaryTestMonitor()
+        let controller = makeLayoutPlanTestController(
+            monitors: [primary, secondary],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
+            ]
+        )
+        let router = makeIPCCommandRouter(for: controller)
+        let ws1 = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try #require(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+
+        #expect(controller.workspaceManager.setActiveWorkspace(ws1, on: primary.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(ws2, on: secondary.id))
+        let handles = prepareIPCNiriState(
+            on: controller,
+            assignments: [
+                (workspaceId: ws1, windowId: 101),
+                (workspaceId: ws2, windowId: 201)
+            ],
+            focusedWindowId: 101
+        )
+        let floatingWindow = addFloatingLayoutPlanTestWindow(
+            to: controller,
+            workspaceId: ws1,
+            referenceMonitorId: primary.id,
+            windowId: 102,
+            frame: CGRect(x: 100, y: 100, width: 500, height: 400),
+            normalizedOrigin: CGPoint(x: 0.2, y: 0.2)
+        )
+        _ = controller.runtime?.setInteractionMonitor(primary.id, source: .ipc)
+
+        let result = router.handle(.cycleMonitors)
+
+        #expect(result == .executed)
+        #expect(controller.workspaceManager.interactionMonitorId == primary.id)
+        #expect(controller.workspaceManager.activeWorkspace(on: primary.id)?.id == ws1)
+        #expect(controller.workspaceManager.activeWorkspace(on: secondary.id)?.id == ws2)
+        #expect(controller.workspaceManager.monitorId(for: ws1) == primary.id)
+        #expect(controller.workspaceManager.monitorId(for: ws2) == secondary.id)
+        #expect(controller.workspaceManager.workspace(for: try #require(handles[101]).id) == ws2)
+        #expect(controller.workspaceManager.workspace(for: try #require(handles[201]).id) == ws1)
+        #expect(controller.workspaceManager.workspace(for: floatingWindow.token) == ws2)
+        #expect(controller.niriEngine?.findNode(for: try #require(handles[101]).id)?.findRoot()?.workspaceId == ws2)
+        #expect(controller.niriEngine?.findNode(for: try #require(handles[201]).id)?.findRoot()?.workspaceId == ws1)
+    }
+
+    @Test func cycleMonitorsMovesContentIntoEmptyActiveWorkspace() throws {
+        let primary = makeLayoutPlanPrimaryTestMonitor()
+        let secondary = makeLayoutPlanSecondaryTestMonitor()
+        let controller = makeLayoutPlanTestController(
+            monitors: [primary, secondary],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
+            ]
+        )
+        let router = makeIPCCommandRouter(for: controller)
+        let ws1 = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try #require(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+
+        #expect(controller.workspaceManager.setActiveWorkspace(ws1, on: primary.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(ws2, on: secondary.id))
+        let handles = prepareIPCNiriState(
+            on: controller,
+            assignments: [
+                (workspaceId: ws1, windowId: 301)
+            ],
+            focusedWindowId: 301
+        )
+
+        let result = router.handle(.cycleMonitors)
+
+        #expect(result == .executed)
+        #expect(controller.workspaceManager.activeWorkspace(on: primary.id)?.id == ws1)
+        #expect(controller.workspaceManager.activeWorkspace(on: secondary.id)?.id == ws2)
+        #expect(controller.workspaceManager.entries(in: ws1).isEmpty)
+        #expect(controller.workspaceManager.workspace(for: try #require(handles[301]).id) == ws2)
+        #expect(controller.niriEngine?.findNode(for: try #require(handles[301]).id)?.findRoot()?.workspaceId == ws2)
+    }
+
+    @Test func cycleMonitorsLeavesScratchpadAndNativeFullscreenContentInPlace() throws {
+        let primary = makeLayoutPlanPrimaryTestMonitor()
+        let secondary = makeLayoutPlanSecondaryTestMonitor()
+        let controller = makeLayoutPlanTestController(
+            monitors: [primary, secondary],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
+            ]
+        )
+        let router = makeIPCCommandRouter(for: controller)
+        let ws1 = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try #require(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+
+        #expect(controller.workspaceManager.setActiveWorkspace(ws1, on: primary.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(ws2, on: secondary.id))
+        let handles = prepareIPCNiriState(
+            on: controller,
+            assignments: [
+                (workspaceId: ws1, windowId: 401),
+                (workspaceId: ws1, windowId: 402),
+                (workspaceId: ws2, windowId: 501)
+            ],
+            focusedWindowId: 501
+        )
+        let scratchpadToken = try #require(handles[401]).id
+        let nativeFullscreenToken = try #require(handles[402]).id
+        let movingToken = try #require(handles[501]).id
+        _ = controller.workspaceManager.setScratchpadToken(scratchpadToken)
+        controller.workspaceManager.setLayoutReason(.nativeFullscreen, for: nativeFullscreenToken)
+
+        let result = router.handle(.cycleMonitors)
+
+        #expect(result == .executed)
+        #expect(controller.workspaceManager.workspace(for: scratchpadToken) == ws1)
+        #expect(controller.workspaceManager.workspace(for: nativeFullscreenToken) == ws1)
+        #expect(controller.workspaceManager.workspace(for: movingToken) == ws1)
+        #expect(controller.niriEngine?.findNode(for: scratchpadToken)?.findRoot()?.workspaceId == ws1)
+        #expect(controller.niriEngine?.findNode(for: nativeFullscreenToken)?.findRoot()?.workspaceId == ws1)
+    }
+
+    @Test func cycleMonitorsReassignsEligibleContentWhenFallbackNiriNodeIsMissing() throws {
+        let primary = makeLayoutPlanPrimaryTestMonitor()
+        let secondary = makeLayoutPlanSecondaryTestMonitor()
+        let controller = makeLayoutPlanTestController(
+            monitors: [primary, secondary],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
+            ]
+        )
+        let router = makeIPCCommandRouter(for: controller)
+        let ws1 = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try #require(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+
+        #expect(controller.workspaceManager.setActiveWorkspace(ws1, on: primary.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(ws2, on: secondary.id))
+        controller.enableNiriLayout()
+        controller.syncMonitorsToNiriEngine()
+
+        let scratchpadToken = addLayoutPlanTestWindow(on: controller, workspaceId: ws1, windowId: 601)
+        let movingToken = addLayoutPlanTestWindow(on: controller, workspaceId: ws2, windowId: 701)
+        _ = controller.workspaceManager.setScratchpadToken(scratchpadToken)
+
+        guard let scratchpadHandle = controller.workspaceManager.handle(for: scratchpadToken),
+              let engine = controller.niriEngine
+        else {
+            Issue.record("Expected seeded scratchpad handle and Niri engine")
+            return
+        }
+        _ = engine.syncWindows(
+            [scratchpadHandle],
+            in: ws1,
+            selectedNodeId: nil,
+            focusedHandle: nil
+        )
+
+        let result = router.handle(.cycleMonitors)
+
+        #expect(result == .executed)
+        #expect(controller.workspaceManager.workspace(for: scratchpadToken) == ws1)
+        #expect(controller.workspaceManager.workspace(for: movingToken) == ws1)
+        #expect(engine.findNode(for: scratchpadToken)?.findRoot()?.workspaceId == ws1)
+        #expect(engine.findNode(for: movingToken) == nil)
+    }
+
+    @Test func cycleMonitorsReturnsNotFoundWhenNoEligibleContentExists() throws {
+        let primary = makeLayoutPlanPrimaryTestMonitor()
+        let secondary = makeLayoutPlanSecondaryTestMonitor()
+        let controller = makeLayoutPlanTestController(
+            monitors: [primary, secondary],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
+            ]
+        )
+        let router = makeIPCCommandRouter(for: controller)
+        let ws1 = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try #require(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+
+        #expect(controller.workspaceManager.setActiveWorkspace(ws1, on: primary.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(ws2, on: secondary.id))
+        let scratchpadToken = addLayoutPlanTestWindow(on: controller, workspaceId: ws1, windowId: 801)
+        let nativeFullscreenToken = addLayoutPlanTestWindow(on: controller, workspaceId: ws2, windowId: 901)
+        _ = controller.workspaceManager.setScratchpadToken(scratchpadToken)
+        controller.workspaceManager.setLayoutReason(.nativeFullscreen, for: nativeFullscreenToken)
+
+        let result = router.handle(.cycleMonitors)
+
+        #expect(result == .notFound)
+        #expect(controller.workspaceManager.activeWorkspace(on: primary.id)?.id == ws1)
+        #expect(controller.workspaceManager.activeWorkspace(on: secondary.id)?.id == ws2)
+        #expect(controller.workspaceManager.workspace(for: scratchpadToken) == ws1)
+        #expect(controller.workspaceManager.workspace(for: nativeFullscreenToken) == ws2)
+    }
+
+    @Test func cycleMonitorsReturnsNotFoundWithOneActiveMonitor() {
+        let controller = makeLayoutPlanTestController(
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main)
+            ]
+        )
+        let router = makeIPCCommandRouter(for: controller)
+
+        let result = router.handle(.cycleMonitors)
+
+        #expect(result == .notFound)
+    }
+
     @Test func disabledControllerRejectsColumnLayoutWindowAndUICommands() {
         let controller = makeLayoutPlanTestController()
         controller.isEnabled = false
         let router = makeIPCCommandRouter(for: controller)
 
         #expect(router.handle(.moveColumn(direction: .right)) == .ignoredDisabled)
+        #expect(router.handle(.cycleMonitors) == .ignoredDisabled)
         #expect(router.handle(.toggleSplit) == .ignoredDisabled)
         #expect(router.handle(.toggleFullscreen) == .ignoredDisabled)
         #expect(router.handle(.openCommandPalette) == .ignoredDisabled)

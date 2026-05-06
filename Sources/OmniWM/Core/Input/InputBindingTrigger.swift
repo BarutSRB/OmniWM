@@ -62,6 +62,7 @@ enum InputBindingTrigger: Codable, Equatable, Hashable {
     case toggleColumnFullWidth
 
     case swapWorkspaceWithMonitor(Direction)
+    case cycleMonitors
 
     case balanceSizes
     case moveToRoot
@@ -129,6 +130,7 @@ enum InputBindingTrigger: Codable, Equatable, Hashable {
         case .cycleColumnWidthBackward: "cycle_column_width_backward"
         case .toggleColumnFullWidth: "toggle_column_full_width"
         case .swapWorkspaceWithMonitor: "swap_workspace_with_monitor"
+        case .cycleMonitors: "cycle_monitors"
         case .balanceSizes: "balance_sizes"
         case .moveToRoot: "move_to_root"
         case .toggleSplit: "toggle_split"

@@ -1440,6 +1440,8 @@ final class WMRuntime: RuntimeSnapshotPublishing {
             return .layoutMutationAction(.cycleColumnWidthBackward(source: source))
         case let .swapWorkspaceWithMonitor(direction):
             return .layoutMutationAction(.swapWorkspaceWithMonitor(direction, source: source))
+        case .cycleMonitors:
+            return .layoutMutationAction(.cycleMonitors(source: source))
         case .balanceSizes:
             return .layoutMutationAction(.balanceSizes(source: source))
         case .moveToRoot:

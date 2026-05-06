@@ -625,7 +625,15 @@ fn projectedMonitorIdForWorkspace(
     workspace: WorkspaceState,
     effective_monitor_id: ?u32,
     visible_monitor_id: ?u32,
+    visible_overrides_configured: bool,
 ) ?u32 {
+    // Projection reports the live owner of a visible workspace; reconciliation
+    // keeps using effective/home assignments to repair stale sessions.
+    if (visible_overrides_configured) {
+        if (visible_monitor_id) |monitor_id| {
+            return monitor_id;
+        }
+    }
     if (!workspaceHasConfiguredAssignment(workspace)) {
         return visible_monitor_id;
     }
@@ -638,6 +646,7 @@ fn populateProjectionRecords(
     workspaces: []const WorkspaceState,
     sorted_monitor_indices: []const usize,
     string_bytes: []const u8,
+    visible_overrides_configured: bool,
 ) KernelError!void {
     if (projections.len != workspaces.len) {
         return error.InvalidArgument;
@@ -663,6 +672,7 @@ fn populateProjectionRecords(
                 workspace,
                 effective_monitor_id,
                 visible_monitor_id,
+                visible_overrides_configured,
             ),
             .home_monitor_id = home_monitor_id,
             .effective_monitor_id = effective_monitor_id,
@@ -1230,6 +1240,7 @@ fn reconcileVisiblePlan(
             workspaces,
             sorted_monitor_indices,
             string_bytes,
+            false,
         );
         const projected_state = projectedWorkspaceStateForMonitor(
             projections,
@@ -1268,6 +1279,7 @@ fn reconcileVisiblePlan(
         workspaces,
         sorted_monitor_indices,
         string_bytes,
+        false,
     );
 
     changed = updateInteractionMonitorState(
@@ -1810,6 +1822,7 @@ fn planInternal(
                 workspaces,
                 sorted_monitor_indices,
                 string_bytes,
+                true,
             );
             try writeMonitorResults(monitors, projections, output, monitors.len);
             try writeWorkspaceProjections(projections, output, projections.len);
@@ -1865,6 +1878,7 @@ fn planInternal(
                 workspaces,
                 sorted_monitor_indices,
                 string_bytes,
+                true,
             );
             if (input.should_update_interaction_monitor == 0) {
                 _ = updateInteractionMonitorState(

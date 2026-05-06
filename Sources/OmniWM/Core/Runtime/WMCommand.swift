@@ -66,6 +66,7 @@ extension WMCommand {
         case cycleColumnWidthForward(source: WMEventSource)
         case cycleColumnWidthBackward(source: WMEventSource)
         case swapWorkspaceWithMonitor(Direction, source: WMEventSource)
+        case cycleMonitors(source: WMEventSource)
         case balanceSizes(source: WMEventSource)
         case moveToRoot(source: WMEventSource)
         case toggleSplit(source: WMEventSource)
@@ -325,6 +326,7 @@ extension WMCommand.LayoutMutationActionCommand {
         case .cycleColumnWidthForward: "cycle_column_width_forward"
         case .cycleColumnWidthBackward: "cycle_column_width_backward"
         case .swapWorkspaceWithMonitor: "swap_workspace_with_monitor"
+        case .cycleMonitors: "cycle_monitors"
         case .balanceSizes: "balance_sizes"
         case .moveToRoot: "move_to_root"
         case .toggleSplit: "toggle_split"
@@ -349,6 +351,7 @@ extension WMCommand.LayoutMutationActionCommand {
              let .cycleColumnWidthForward(source),
              let .cycleColumnWidthBackward(source),
              let .swapWorkspaceWithMonitor(_, source),
+             let .cycleMonitors(source),
              let .balanceSizes(source),
              let .moveToRoot(source),
              let .toggleSplit(source),
@@ -382,6 +385,7 @@ extension WMCommand.LayoutMutationActionCommand {
              .cycleColumnWidthForward,
              .cycleColumnWidthBackward,
              .swapWorkspaceWithMonitor,
+             .cycleMonitors,
              .balanceSizes,
              .toggleWorkspaceLayout,
              .raiseAllFloatingWindows,

@@ -111,6 +111,48 @@ extension NiriLayoutEngine {
         )
     }
 
+    @discardableResult
+    func rotateWorkspaceContents(
+        _ workspaceIds: [WorkspaceDescriptor.ID]
+    ) -> Bool {
+        guard workspaceIds.count >= 2,
+              Set(workspaceIds).count == workspaceIds.count
+        else {
+            return false
+        }
+
+        var incomingColumnsByWorkspace: [WorkspaceDescriptor.ID: [NiriContainer]] = [:]
+
+        for index in workspaceIds.indices {
+            let sourceWorkspaceId = workspaceIds[index]
+            let destinationWorkspaceId = workspaceIds[(index + 1) % workspaceIds.count]
+            let sourceRoot = ensureRoot(for: sourceWorkspaceId)
+
+            if sourceRoot.allWindows.isEmpty {
+                let emptyColumn = NiriContainer()
+                initializeNewColumnWidth(emptyColumn, in: destinationWorkspaceId)
+                incomingColumnsByWorkspace[destinationWorkspaceId] = [emptyColumn]
+            } else {
+                incomingColumnsByWorkspace[destinationWorkspaceId] = sourceRoot.columns
+            }
+        }
+
+        for workspaceId in workspaceIds {
+            let root = ensureRoot(for: workspaceId)
+            root.replaceChildren(incomingColumnsByWorkspace[workspaceId] ?? [])
+
+            if root.columns.isEmpty {
+                let emptyColumn = NiriContainer()
+                initializeNewColumnWidth(emptyColumn, in: workspaceId)
+                root.appendChild(emptyColumn)
+            }
+
+            markWorkspaceBarProjectionInvalidated(in: workspaceId)
+        }
+
+        return true
+    }
+
     func adjacentWorkspace(
         from workspaceId: WorkspaceDescriptor.ID,
         direction: Direction,

@@ -396,11 +396,15 @@ print_budget_report() {
     echo "Direct-mutation budget report (Phase 07 GOV-02; target: 0)."
     echo
     echo "ALLOWLIST_RULES (per-rule max-count):"
-    for rule in "${ALLOWLIST_RULES[@]}"; do
-        IFS='|' read -r path pattern count rationale <<< "$rule"
-        printf '  %4d  %s  [%s]  %s\n' "$count" "$path" "$pattern" "$rationale"
-        total=$((total + count))
-    done
+    if (( ${#ALLOWLIST_RULES[@]} == 0 )); then
+        echo "  (empty)"
+    else
+        for rule in "${ALLOWLIST_RULES[@]}"; do
+            IFS='|' read -r path pattern count rationale <<< "$rule"
+            printf '  %4d  %s  [%s]  %s\n' "$count" "$path" "$pattern" "$rationale"
+            total=$((total + count))
+        done
+    fi
     echo
     echo "OWNERSHIP_BOUNDARY_RULES (enforced, not budget):"
     if (( ${#OWNERSHIP_BOUNDARY_RULES[@]} == 0 )); then
@@ -481,20 +485,24 @@ allowed_rule_for() {
     local pattern="$2"
     local rule path allowed_pattern allowed_count _rationale
 
-    for rule in "${ALLOWLIST_RULES[@]}"; do
-        IFS='|' read -r path allowed_pattern allowed_count _rationale <<< "$rule"
-        if [[ "$file" == "$path" && "$pattern" == "$allowed_pattern" ]]; then
-            printf 'allowlist|%s' "$allowed_count"
-            return
-        fi
-    done
-    for rule in "${OWNERSHIP_BOUNDARY_RULES[@]}"; do
-        IFS='|' read -r path allowed_pattern allowed_count _rationale <<< "$rule"
-        if [[ "$file" == "$path" && "$pattern" == "$allowed_pattern" ]]; then
-            printf 'boundary|%s' "$allowed_count"
-            return
-        fi
-    done
+    if (( ${#ALLOWLIST_RULES[@]} != 0 )); then
+        for rule in "${ALLOWLIST_RULES[@]}"; do
+            IFS='|' read -r path allowed_pattern allowed_count _rationale <<< "$rule"
+            if [[ "$file" == "$path" && "$pattern" == "$allowed_pattern" ]]; then
+                printf 'allowlist|%s' "$allowed_count"
+                return
+            fi
+        done
+    fi
+    if (( ${#OWNERSHIP_BOUNDARY_RULES[@]} != 0 )); then
+        for rule in "${OWNERSHIP_BOUNDARY_RULES[@]}"; do
+            IFS='|' read -r path allowed_pattern allowed_count _rationale <<< "$rule"
+            if [[ "$file" == "$path" && "$pattern" == "$allowed_pattern" ]]; then
+                printf 'boundary|%s' "$allowed_count"
+                return
+            fi
+        done
+    fi
     for rule in "${OWNER_SURFACE_RULES[@]}"; do
         IFS='|' read -r path allowed_pattern allowed_count _rationale <<< "$rule"
         if [[ "$file" == "$path" && "$pattern" == "$allowed_pattern" ]]; then
@@ -656,13 +664,15 @@ layout_allowed_count_for() {
     local pattern="$2"
     local rule path allowed_pattern allowed_count _rationale
 
-    for rule in "${LAYOUT_CONSUMER_ALLOWLIST[@]}"; do
-        IFS='|' read -r path allowed_pattern allowed_count _rationale <<< "$rule"
-        if [[ "$file" == "$path" && "$pattern" == "$allowed_pattern" ]]; then
-            printf '%s' "$allowed_count"
-            return
-        fi
-    done
+    if (( ${#LAYOUT_CONSUMER_ALLOWLIST[@]} != 0 )); then
+        for rule in "${LAYOUT_CONSUMER_ALLOWLIST[@]}"; do
+            IFS='|' read -r path allowed_pattern allowed_count _rationale <<< "$rule"
+            if [[ "$file" == "$path" && "$pattern" == "$allowed_pattern" ]]; then
+                printf '%s' "$allowed_count"
+                return
+            fi
+        done
+    fi
     printf '0'
 }
 

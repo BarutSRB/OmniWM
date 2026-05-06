@@ -469,7 +469,6 @@ struct WorkspaceManagerTests {
     @Test func `managed restore semantic identity changes when semantic snapshot fields change`() {
         let frameTolerance: CGFloat = 0.5
         let workspaceId = UUID()
-        let token = WindowToken(pid: 88, windowId: 8801)
         let frame = CGRect(x: 120, y: 140, width: 800, height: 520)
         let monitor = makeWorkspaceManagerTestMonitor(displayId: 880, name: "Main", x: 0, y: 0)
         let metadata = makeWorkspaceManagerReplacementMetadata(
@@ -644,7 +643,6 @@ struct WorkspaceManagerTests {
     }
 
     @Test func `niri state semantic equivalence tolerates animation drift and detects user resizes`() {
-        let token = WindowToken(pid: 99, windowId: 9901)
         let frameTolerance: CGFloat = 0.5
         let weightTolerance: CGFloat = 1e-3
 

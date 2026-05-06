@@ -237,6 +237,7 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case focusMonitorPrevious = "focus-monitor-previous"
     case focusMonitorNext = "focus-monitor-next"
     case focusMonitorLast = "focus-monitor-last"
+    case cycleMonitors = "cycle-monitors"
     case moveColumn = "move-column"
     case moveColumnToWorkspace = "move-column-to-workspace"
     case moveColumnToWorkspaceUp = "move-column-to-workspace-up"
@@ -303,6 +304,7 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case focusMonitorPrevious
     case focusMonitorNext
     case focusMonitorLast
+    case cycleMonitors
     case moveColumn(direction: IPCDirection)
     case moveColumnToWorkspace(workspaceNumber: Int)
     case moveColumnToWorkspaceUp
@@ -377,6 +379,8 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .focusMonitorNext
         case .focusMonitorLast:
             .focusMonitorLast
+        case .cycleMonitors:
+            .cycleMonitors
         case .moveColumn:
             .moveColumn
         case .moveColumnToWorkspace:
@@ -548,6 +552,9 @@ public enum IPCCommandRequest: Equatable, Sendable {
         case .focusMonitorLast:
             try requireNoArguments()
             self = .focusMonitorLast
+        case .cycleMonitors:
+            try requireNoArguments()
+            self = .cycleMonitors
         case .moveColumn:
             self = .moveColumn(direction: try requireDirection())
         case .moveColumnToWorkspace:
@@ -724,6 +731,8 @@ extension IPCCommandRequest: Codable {
             self = .focusMonitorNext
         case .focusMonitorLast:
             self = .focusMonitorLast
+        case .cycleMonitors:
+            self = .cycleMonitors
         case .moveColumn:
             let arguments = try container.decode(IPCDirectionArguments.self, forKey: .arguments)
             self = .moveColumn(direction: arguments.direction)
@@ -842,6 +851,8 @@ extension IPCCommandRequest: Codable {
         case .focusMonitorNext:
             break
         case .focusMonitorLast:
+            break
+        case .cycleMonitors:
             break
         case let .moveColumn(direction):
             try container.encode(IPCDirectionArguments(direction: direction), forKey: .arguments)

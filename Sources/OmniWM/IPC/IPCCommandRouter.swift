@@ -262,6 +262,8 @@ private extension IPCCommandRouter {
             return focusLastMonitor()
         case let .swapWorkspaceWithMonitor(ipcDirection):
             return swapWorkspaceWithMonitor(direction: direction(for: ipcDirection))
+        case .cycleMonitors:
+            return perform(.cycleMonitors)
         default:
             return nil
         }

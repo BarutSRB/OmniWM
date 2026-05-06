@@ -195,6 +195,7 @@ enum ActionCatalog {
             action(id: "focusMonitorNext", command: .focusMonitorNext, category: .monitor, binding: KeyBinding(keyCode: UInt32(kVK_Tab), modifiers: UInt32(controlKey | cmdKey))),
             action(id: "focusMonitorPrevious", command: .focusMonitorPrevious, category: .monitor, binding: .unassigned),
             action(id: "focusMonitorLast", command: .focusMonitorLast, category: .monitor, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(controlKey | cmdKey))),
+            action(id: "cycleMonitors", command: .cycleMonitors, category: .monitor, binding: .unassigned, keywords: ["monitor carousel", "rotate windows", "cycle apps"]),
         ])
 
         specs.append(contentsOf: [
@@ -300,7 +301,7 @@ enum ActionCatalog {
              .switchWorkspace, .switchWorkspaceNext, .switchWorkspacePrevious,
              .focusMonitorPrevious, .focusMonitorNext, .focusMonitorLast,
              .toggleNativeFullscreen,
-             .swapWorkspaceWithMonitor,
+             .swapWorkspaceWithMonitor, .cycleMonitors,
              .workspaceBackAndForth, .focusWorkspaceAnywhere,
              .moveWindowToWorkspaceOnMonitor,
              .openCommandPalette, .raiseAllFloatingWindows, .rescueOffscreenWindows, .toggleFocusedWindowFloating,
@@ -329,6 +330,7 @@ enum ActionCatalog {
         case .focusMonitorPrevious: "Focus Previous Monitor"
         case .focusMonitorNext: "Focus Next Monitor"
         case .focusMonitorLast: "Focus Last Monitor"
+        case .cycleMonitors: "Cycle Monitors"
         case .toggleFullscreen: "Toggle Fullscreen"
         case .toggleNativeFullscreen: "Toggle Native Fullscreen"
         case let .moveColumn(dir): "Move Column \(dir.displayName)"
@@ -427,6 +429,8 @@ enum ActionCatalog {
             .toggleColumnFullWidth
         case .swapWorkspaceWithMonitor:
             .swapWorkspaceWithMonitor
+        case .cycleMonitors:
+            .cycleMonitors
         case .balanceSizes:
             .balanceSizes
         case .moveToRoot:

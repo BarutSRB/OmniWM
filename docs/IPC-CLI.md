@@ -311,7 +311,10 @@ Workspace IDs are positive numeric strings. Direct hotkeys stay limited to `1-9`
 | `command focus-monitor prev` | — | shared | Move focus to the previous monitor |
 | `command focus-monitor next` | — | shared | Move focus to the next monitor |
 | `command focus-monitor last` | — | shared | Move focus back to the previous monitor |
+| `command cycle-monitors` | — | shared | Rotate normal visible workspace contents forward with wraparound |
 | `command swap-workspace-with-monitor` | `<left\|right\|up\|down>` | shared | Swap active workspace with the workspace on an adjacent monitor |
+
+`cycle-monitors` keeps each workspace on its configured monitor, then rotates the normal managed windows/layout from each monitor's active workspace to the next active workspace in sorted display order. Scratchpad and native fullscreen windows are left in place.
 
 ### Column Operations (Niri)
 

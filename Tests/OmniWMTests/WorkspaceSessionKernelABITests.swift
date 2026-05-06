@@ -445,6 +445,73 @@ struct WorkspaceSessionKernelABITests {
         #expect(status == OMNIWM_KERNELS_STATUS_INVALID_ARGUMENT)
     }
 
+    @Test func `project treats visible monitor cycle as current projection without changing homes`() {
+        let workspaceMain = makeWorkspaceSessionUUID(high: 10, low: 10)
+        let workspaceSide = makeWorkspaceSessionUUID(high: 20, low: 20)
+        var strings = WorkspaceSessionKernelStringTable()
+        var input = makeWorkspaceSessionInput(
+            operation: UInt32(OMNIWM_WORKSPACE_SESSION_OPERATION_PROJECT)
+        )
+        let monitors = [
+            makeWorkspaceSessionMonitor(
+                id: 10,
+                minX: 0,
+                maxY: 1080,
+                anchorX: 0,
+                anchorY: 1080,
+                isMain: true,
+                visibleWorkspaceId: workspaceSide,
+                name: "Main",
+                strings: &strings
+            ),
+            makeWorkspaceSessionMonitor(
+                id: 20,
+                minX: 1920,
+                maxY: 1080,
+                anchorX: 1920,
+                anchorY: 1080,
+                visibleWorkspaceId: workspaceMain,
+                name: "Side",
+                strings: &strings
+            )
+        ]
+        let workspaces = [
+            makeWorkspaceSessionWorkspace(
+                id: workspaceMain,
+                assignmentKind: UInt32(OMNIWM_WORKSPACE_SESSION_ASSIGNMENT_MAIN),
+                strings: &strings
+            ),
+            makeWorkspaceSessionWorkspace(
+                id: workspaceSide,
+                assignmentKind: UInt32(OMNIWM_WORKSPACE_SESSION_ASSIGNMENT_SECONDARY),
+                strings: &strings
+            )
+        ]
+
+        let status: Int32 = withWorkspaceSessionOutput(
+            monitorCapacity: 2,
+            projectionCapacity: 2
+        ) { output, _, projectionBuffer in
+            let status = callWorkspaceSessionKernel(
+                input: &input,
+                monitors: monitors,
+                workspaces: workspaces,
+                stringBytes: strings.bytes,
+                output: &output
+            )
+            #expect(output.outcome == UInt32(OMNIWM_WORKSPACE_SESSION_OUTCOME_APPLY))
+            #expect(projectionBuffer[0].home_monitor_id == 10)
+            #expect(projectionBuffer[0].effective_monitor_id == 10)
+            #expect(projectionBuffer[0].projected_monitor_id == 20)
+            #expect(projectionBuffer[1].home_monitor_id == 20)
+            #expect(projectionBuffer[1].effective_monitor_id == 20)
+            #expect(projectionBuffer[1].projected_monitor_id == 10)
+            return status
+        }
+
+        #expect(status == OMNIWM_KERNELS_STATUS_OK)
+    }
+
     @Test func `project falls back to nearest monitor for missing specific display`() {
         let workspaceId = makeWorkspaceSessionUUID(high: 2, low: 2)
         var strings = WorkspaceSessionKernelStringTable()

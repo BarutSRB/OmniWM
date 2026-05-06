@@ -1004,7 +1004,7 @@ final class SettingsStore {
         borderColorBlue = export.borderColorBlue
         borderColorAlpha = export.borderColorAlpha
 
-        hotkeyBindings = export.hotkeyBindings
+        hotkeyBindings = HotkeyBindingRegistry.canonicalize(export.hotkeyBindings)
 
         workspaceBarEnabled = export.workspaceBarEnabled
         workspaceBarShowLabels = export.workspaceBarShowLabels

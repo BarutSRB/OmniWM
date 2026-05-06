@@ -7420,4 +7420,74 @@ private func makeCenteredCrossMonitorFixture(
         #expect(controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] == nil)
         #expect(controller.workspaceManager.hiddenState(for: token)?.workspaceInactive == true)
     }
+
+    @Test func rotateWorkspaceContentsPreservesTwoWorkspaceColumnTopology() {
+        let engine = NiriLayoutEngine()
+        let workspaceOne = WorkspaceDescriptor.ID()
+        let workspaceTwo = WorkspaceDescriptor.ID()
+
+        let firstColumn = appendManualNiriColumn(
+            to: engine,
+            workspaceId: workspaceOne,
+            pids: [7101, 7102]
+        )
+        let secondColumn = appendManualNiriColumn(
+            to: engine,
+            workspaceId: workspaceOne,
+            pids: [7103]
+        )
+        let incomingColumn = appendManualNiriColumn(
+            to: engine,
+            workspaceId: workspaceTwo,
+            pids: [7201]
+        )
+        firstColumn.column.width = .proportion(0.5)
+        secondColumn.column.displayMode = .tabbed
+
+        #expect(engine.rotateWorkspaceContents([workspaceOne, workspaceTwo]))
+
+        #expect(engine.root(for: workspaceOne)?.workspaceId == workspaceOne)
+        #expect(engine.root(for: workspaceTwo)?.workspaceId == workspaceTwo)
+        #expect(engine.columns(in: workspaceOne).map { $0.windowNodes.map(\.token) } == [
+            incomingColumn.windows.map(\.token)
+        ])
+        #expect(engine.columns(in: workspaceTwo).map { $0.windowNodes.map(\.token) } == [
+            firstColumn.windows.map(\.token),
+            secondColumn.windows.map(\.token)
+        ])
+        #expect(engine.columns(in: workspaceTwo).first === firstColumn.column)
+        #expect(engine.columns(in: workspaceTwo).last === secondColumn.column)
+        #expect(engine.columns(in: workspaceTwo).first?.width == .proportion(0.5))
+        #expect(engine.columns(in: workspaceTwo).last?.isTabbed == true)
+        #expect(engine.findNode(for: firstColumn.windows[0].token)?.findRoot()?.workspaceId == workspaceTwo)
+        #expect(engine.findNode(for: incomingColumn.windows[0].token)?.findRoot()?.workspaceId == workspaceOne)
+        #expect(engine.hasWorkspaceBarProjectionInvalidation(in: workspaceOne))
+        #expect(engine.hasWorkspaceBarProjectionInvalidation(in: workspaceTwo))
+    }
+
+    @Test func rotateWorkspaceContentsWrapsThreeWorkspaces() {
+        let engine = NiriLayoutEngine()
+        let workspaceOne = WorkspaceDescriptor.ID()
+        let workspaceTwo = WorkspaceDescriptor.ID()
+        let workspaceThree = WorkspaceDescriptor.ID()
+
+        let first = appendManualNiriColumn(to: engine, workspaceId: workspaceOne, pids: [7301])
+        let second = appendManualNiriColumn(to: engine, workspaceId: workspaceTwo, pids: [7302])
+        let third = appendManualNiriColumn(to: engine, workspaceId: workspaceThree, pids: [7303])
+
+        #expect(engine.rotateWorkspaceContents([workspaceOne, workspaceTwo, workspaceThree]))
+
+        #expect(engine.columns(in: workspaceOne).map { $0.windowNodes.map(\.token) } == [
+            third.windows.map(\.token)
+        ])
+        #expect(engine.columns(in: workspaceTwo).map { $0.windowNodes.map(\.token) } == [
+            first.windows.map(\.token)
+        ])
+        #expect(engine.columns(in: workspaceThree).map { $0.windowNodes.map(\.token) } == [
+            second.windows.map(\.token)
+        ])
+        #expect(engine.findNode(for: first.windows[0].token)?.findRoot()?.workspaceId == workspaceTwo)
+        #expect(engine.findNode(for: second.windows[0].token)?.findRoot()?.workspaceId == workspaceThree)
+        #expect(engine.findNode(for: third.windows[0].token)?.findRoot()?.workspaceId == workspaceOne)
+    }
 }

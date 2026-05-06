@@ -129,6 +129,9 @@ private func assertRoundTrip<T: Codable & Equatable>(_ value: T) throws {
             IPCWorkspaceRequest(name: .focusName, target: .rawID("10"))
         )
         try assertRoundTrip(
+            IPCCommandRequest.cycleMonitors
+        )
+        try assertRoundTrip(
             IPCWorkspaceSummary(id: "ws-1", rawName: "1", displayName: "Main", number: 1)
         )
         try assertRoundTrip(
@@ -363,6 +366,15 @@ private func assertRoundTrip<T: Codable & Equatable>(_ value: T) throws {
     @Test func manifestIncludesFocusedMonitorSurface() {
         #expect(IPCAutomationManifest.queryDescriptors.contains { $0.name == .focusedMonitor })
         #expect(IPCAutomationManifest.subscriptionDescriptors.contains { $0.channel == .focusedMonitor })
+    }
+
+    @Test func manifestIncludesCycleMonitorsCommand() {
+        let descriptor = IPCAutomationManifest.commandDescriptor(for: .cycleMonitors)
+
+        #expect(descriptor?.path == "command cycle-monitors")
+        #expect(descriptor?.arguments.isEmpty == true)
+        #expect(descriptor?.layoutCompatibility == .shared)
+        #expect(descriptor?.summary == "Rotate normal visible workspace contents forward with wraparound.")
     }
 
     @Test func manifestPublishesPidFieldAndStructuredRuleApplyOptions() {

@@ -385,6 +385,25 @@ private func atomicallyReplaceSettingsDataForTests(
         #expect(settings.quakeTerminalHeightPercent == 50)
     }
 
+    @Test func importedPartialHotkeyListKeepsNewUnassignedCatalogActionsVisible() {
+        let defaults = makeTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        var export = SettingsExport.defaults()
+        export.hotkeyBindings = [
+            HotkeyBinding(
+                id: "focus.left",
+                command: .focus(.left),
+                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey))
+            )
+        ]
+
+        settings.applyExport(export, monitors: [])
+
+        #expect(settings.hotkeyBindings.contains { $0.id == "focus.left" })
+        #expect(settings.hotkeyBindings.contains { $0.id == "cycleMonitors" })
+        #expect(settings.hotkeyBindings.first { $0.id == "cycleMonitors" }?.binding == .unassigned)
+    }
+
     @Test func quakeTerminalCustomFrameRejectsInvalidPersistedGeometry() {
         let defaults = makeTestDefaults()
         let settings = SettingsStore(defaults: defaults)
