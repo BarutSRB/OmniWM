@@ -14,6 +14,8 @@ lint-fix:
 
 no-zig-audit:
 	./Scripts/audit-no-zig.sh --range "$(SWIFT_ONLY_BASE)..HEAD"
+	./Scripts/audit-no-zig.sh --staged
+	./Scripts/audit-no-zig.sh --worktree
 
 build:
 	./Scripts/ghostty-preflight.sh verify

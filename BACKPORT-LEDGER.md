@@ -1,7 +1,8 @@
 # Swift-Only Backport Ledger
 
 Base: `6fde9b910a6dd531eeaf3892499729120ae75f49`
-Source range: `6fde9b9..origin/main`
+Source head: `ea732a35960ab2a899ecef393a37582d103d093e`
+Source range: `6fde9b9..ea732a35960ab2a899ecef393a37582d103d093e`
 
 This branch is a selective Swift-only backport. It must not import Zig source,
 `COmniWMKernels`, Zig build plumbing, kernel ABI tests, or current-main kernel

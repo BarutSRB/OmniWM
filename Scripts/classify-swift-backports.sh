@@ -2,7 +2,7 @@
 set -euo pipefail
 
 base="${1:-6fde9b910a6dd531eeaf3892499729120ae75f49}"
-head_ref="${2:-origin/main}"
+head_ref="${2:-ea732a35960ab2a899ecef393a37582d103d093e}"
 
 printf 'commit\tshort\tbucket\tsubject\tnotes\n'
 

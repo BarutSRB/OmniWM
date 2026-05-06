@@ -9,7 +9,6 @@ BUILD_DIR="$ROOT_DIR/.build/apple/Products/$CONFIG_CAPITALIZED"
 EXECUTABLE="$BUILD_DIR/OmniWM"
 CLI_EXECUTABLE="$BUILD_DIR/omniwmctl"
 APP_DIR="$ROOT_DIR/dist/OmniWM.app"
-GHOSTTY_LIBRARY="$ROOT_DIR/Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a"
 GHOSTTY_LIBRARY_DIR="$("$ROOT_DIR/Scripts/ghostty-preflight.sh" print-library-dir)"
 
 # Signing identity and notarization profile
