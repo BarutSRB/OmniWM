@@ -128,6 +128,10 @@ final class HiddenBarController {
         onUnsafeOrderingDetected = nil
     }
 
+    func separatorAutosaveNameForTests() -> String? {
+        separatorItem?.autosaveName
+    }
+
     private func updateCollapseLength() {
         collapseLength = Self.boundedCollapseLength(screenWidth: currentScreenWidth())
         if isCollapsed {

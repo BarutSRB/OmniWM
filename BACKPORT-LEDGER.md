@@ -64,6 +64,24 @@ Reason: Applies without manual edits, touches only Swift/test files, and passes 
 Backport commit: this commit
 ```
 
+### `bc881a679346ff468aa280a0c904f13795548637`
+
+```text
+Commit: bc881a679346ff468aa280a0c904f13795548637
+Original subject: Fix off-screen status item restore
+Touched Swift files:
+- Sources/OmniWM/UI/HiddenBar/HiddenBarController.swift
+- Sources/OmniWM/UI/StatusBar/StatusBarController.swift
+- Tests/OmniWMTests/MenuBarRecoveryTests.swift
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? unknown; source commit adds focused regression coverage for invalid menu bar autosave positions
+Tests added or updated:
+- MenuBarRecoveryTests
+Action: direct-dry-run
+Reason: Cherry-pick required a Swift-only conflict resolution around status bar helper placement, touches only Swift/test files, and passes the staged no-Zig audit.
+Backport commit: this commit
+```
+
 ### `74152463e4c4697043dcc663ee1a03fecb536543`
 
 ```text
