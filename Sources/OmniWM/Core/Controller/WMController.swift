@@ -90,7 +90,14 @@ final class WMController {
     @ObservationIgnored
     private lazy var quakeTerminalController: QuakeTerminalController = .init(
         settings: settings,
-        motionPolicy: motionPolicy
+        motionPolicy: motionPolicy,
+        captureRestoreTarget: { [weak self] in
+            guard let self else { return nil }
+            return self.captureQuakeTerminalRestoreTarget()
+        },
+        restoreFocusTarget: { [weak self] target in
+            self?.restoreQuakeTerminalFocus(to: target)
+        }
     )
     @ObservationIgnored
     private lazy var commandPaletteController: CommandPaletteController = .init(motionPolicy: motionPolicy)
@@ -1004,6 +1011,37 @@ final class WMController {
             return frontmostToken ?? focusedToken
         }
         return focusedToken ?? frontmostToken
+    }
+
+    func captureQuakeTerminalRestoreTarget() -> QuakeTerminalRestoreTarget? {
+        if let target = currentKeyboardFocusTargetForRendering() {
+            return target.isManaged ? .managed(target.token) : .external(target)
+        }
+
+        guard let frontmostToken = focusedOrFrontmostWindowTokenForAutomation(
+            preferFrontmostWhenNonManagedFocusActive: true
+        ) else {
+            return nil
+        }
+
+        if workspaceManager.entry(for: frontmostToken) != nil {
+            return .managed(frontmostToken)
+        }
+
+        guard let axRef = axEventHandler.axWindowRefProvider?(UInt32(frontmostToken.windowId), frontmostToken.pid)
+            ?? AXWindowService.axWindowRef(for: UInt32(frontmostToken.windowId), pid: frontmostToken.pid)
+        else {
+            return nil
+        }
+
+        return .external(
+            KeyboardFocusTarget(
+                token: frontmostToken,
+                axRef: axRef,
+                workspaceId: nil,
+                isManaged: false
+            )
+        )
     }
 
     private func focusedManagedTokenForCommand() -> WindowToken? {
@@ -1992,6 +2030,43 @@ extension WMController {
     private func recordFrontingTrace(pid: pid_t, windowId: Int) {
         guard Self.frontingTraceLoggingEnabled else { return }
         fputs("[ScratchpadFronting] pid=\(pid) windowId=\(windowId)\n", stderr)
+    }
+
+    func restoreQuakeTerminalFocus(to target: QuakeTerminalRestoreTarget) {
+        switch target {
+        case let .managed(token):
+            guard workspaceManager.entry(for: token) != nil else { return }
+            focusWindow(token)
+
+        case let .external(target):
+            if workspaceManager.entry(for: target.token) != nil {
+                focusWindow(target.token)
+                return
+            }
+            guard !isLockScreenActive else { return }
+            if hasStartedServices {
+                guard !isFrontmostAppLockScreen() else { return }
+            }
+
+            let pid = target.pid
+            guard let app = NSRunningApplication(processIdentifier: pid),
+                  !app.isTerminated
+            else {
+                return
+            }
+
+            if let axRef = axEventHandler.axWindowRefProvider?(UInt32(target.windowId), pid)
+                ?? AXWindowService.axWindowRef(for: UInt32(target.windowId), pid: pid)
+            {
+                performWindowFronting(
+                    pid: pid,
+                    windowId: target.windowId,
+                    axRef: axRef
+                )
+            } else {
+                windowFocusOperations.activateApp(pid)
+            }
+        }
     }
 
     func focusWindow(_ token: WindowToken) {

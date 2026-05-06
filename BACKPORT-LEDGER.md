@@ -64,6 +64,26 @@ Reason: Applies without manual edits, touches only Swift/test files, and passes 
 Backport commit: this commit
 ```
 
+### `5475c44a32e899beacdd97d150af389dd7e2cbc1`
+
+```text
+Commit: 5475c44a32e899beacdd97d150af389dd7e2cbc1
+Original subject: Fix quake terminal focus restoration
+Touched Swift files:
+- Sources/OmniWM/Core/Controller/WMController.swift
+- Sources/OmniWM/QuakeTerminal/QuakeTerminalController.swift
+- Tests/OmniWMTests/QuakeTerminalControllerTests.swift
+- Tests/OmniWMTests/WMControllerFocusTests.swift
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? unknown; source commit adds focused regression coverage for Quake restore targets
+Tests added or updated:
+- QuakeTerminalControllerTests
+- WMControllerFocusTests
+Action: direct-dry-run
+Reason: Cherry-pick applies without manual edits, touches only Swift/test files, and passes the staged no-Zig audit.
+Backport commit: this commit
+```
+
 ### `8a48b368e79c2366da692e6a2d2517f81dd39026`
 
 ```text

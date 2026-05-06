@@ -51,6 +51,20 @@ private func makeFocusTestWindow(windowId: Int = 101) -> AXWindowRef {
     AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: windowId)
 }
 
+private func makeExternalQuakeRestoreTarget(
+    pid: pid_t,
+    windowId: Int
+) -> QuakeTerminalRestoreTarget {
+    .external(
+        KeyboardFocusTarget(
+            token: WindowToken(pid: pid, windowId: windowId),
+            axRef: AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: windowId),
+            workspaceId: nil,
+            isManaged: false
+        )
+    )
+}
+
 @MainActor
 private func makeRaiseAllFloatingOperations(
     recorder: RaiseAllFloatingRecorder
@@ -362,6 +376,105 @@ private func waitForFocusRefresh(on controller: WMController) async {
             .focus(getpid(), 101),
             .raise
         ])
+    }
+
+    @Test @MainActor func restoreQuakeTerminalFocusRoutesManagedTargetThroughManagedFronting() {
+        var events: [FocusOperationEvent] = []
+        let operations = WindowFocusOperations(
+            activateApp: { pid in
+                events.append(.activate(pid))
+            },
+            focusSpecificWindow: { pid, windowId, _ in
+                events.append(.focus(pid, windowId))
+            },
+            raiseWindow: { _ in
+                events.append(.raise)
+            }
+        )
+        let (controller, _, handle) = makeFocusTestController(windowFocusOperations: operations)
+
+        controller.restoreQuakeTerminalFocus(to: .managed(handle.id))
+
+        #expect(events == [
+            .activate(getpid()),
+            .focus(getpid(), 101),
+            .raise
+        ])
+    }
+
+    @Test @MainActor func restoreQuakeTerminalFocusFrontsExternalWindowWhenLiveRefExists() {
+        var events: [FocusOperationEvent] = []
+        let operations = WindowFocusOperations(
+            activateApp: { pid in
+                events.append(.activate(pid))
+            },
+            focusSpecificWindow: { pid, windowId, _ in
+                events.append(.focus(pid, windowId))
+            },
+            raiseWindow: { _ in
+                events.append(.raise)
+            }
+        )
+        let (controller, _, _) = makeFocusTestController(windowFocusOperations: operations)
+        let target = makeExternalQuakeRestoreTarget(pid: getpid(), windowId: 181)
+        controller.axEventHandler.axWindowRefProvider = { windowId, pid in
+            guard pid == getpid(), windowId == 181 else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+
+        controller.restoreQuakeTerminalFocus(to: target)
+
+        #expect(events == [
+            .activate(getpid()),
+            .focus(getpid(), 181),
+            .raise
+        ])
+    }
+
+    @Test @MainActor func restoreQuakeTerminalFocusFallsBackToAppActivationWhenExternalWindowDisappears() {
+        var events: [FocusOperationEvent] = []
+        let operations = WindowFocusOperations(
+            activateApp: { pid in
+                events.append(.activate(pid))
+            },
+            focusSpecificWindow: { pid, windowId, _ in
+                events.append(.focus(pid, windowId))
+            },
+            raiseWindow: { _ in
+                events.append(.raise)
+            }
+        )
+        let (controller, _, _) = makeFocusTestController(windowFocusOperations: operations)
+
+        controller.restoreQuakeTerminalFocus(
+            to: makeExternalQuakeRestoreTarget(pid: getpid(), windowId: 182)
+        )
+
+        #expect(events == [
+            .activate(getpid())
+        ])
+    }
+
+    @Test @MainActor func restoreQuakeTerminalFocusDoesNothingWhenExternalAppIsGone() {
+        var events: [FocusOperationEvent] = []
+        let operations = WindowFocusOperations(
+            activateApp: { pid in
+                events.append(.activate(pid))
+            },
+            focusSpecificWindow: { pid, windowId, _ in
+                events.append(.focus(pid, windowId))
+            },
+            raiseWindow: { _ in
+                events.append(.raise)
+            }
+        )
+        let (controller, _, _) = makeFocusTestController(windowFocusOperations: operations)
+
+        controller.restoreQuakeTerminalFocus(
+            to: makeExternalQuakeRestoreTarget(pid: getpid() + 999_999, windowId: 183)
+        )
+
+        #expect(events.isEmpty)
     }
 
     @Test @MainActor func focusWindowStartsPendingFocusButDoesNotConfirmDurableFocus() {

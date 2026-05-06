@@ -1,8 +1,18 @@
 import Cocoa
 import GhosttyKit
 
+enum QuakeTerminalRestoreTarget: Equatable {
+    case managed(WindowToken)
+    case external(KeyboardFocusTarget)
+}
+
 @MainActor
 final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTabBarDelegate {
+    private enum HideBehavior {
+        case restoreLatestTarget
+        case preserveCurrentFocus
+    }
+
     private(set) var window: QuakeTerminalWindow?
     private var ghosttyApp: ghostty_app_t?
     private var ghosttyConfig: ghostty_config_t?
@@ -22,7 +32,8 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
     private var surfaceView: GhosttySurfaceView? { activeTab?.focusedSurfaceView }
 
     private(set) var visible: Bool = false
-    private var previousApp: NSRunningApplication?
+    private var restoreTarget: QuakeTerminalRestoreTarget?
+    private var pendingRestoreTarget: QuakeTerminalRestoreTarget?
     private var isHandlingResize: Bool = false
     private var isTransitioning = false
     private var animationGeneration: UInt64 = 0
@@ -30,12 +41,24 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
     private let settings: SettingsStore
     private let motionPolicy: MotionPolicy
     private let surfaceCoordinator = SurfaceCoordinator.shared
+    private let captureRestoreTarget: @MainActor () -> QuakeTerminalRestoreTarget?
+    private let restoreFocusTarget: @MainActor (QuakeTerminalRestoreTarget) -> Void
+    private let isWindowFocused: @MainActor (NSWindow) -> Bool
 
     private static var ghosttyInitialized = false
 
-    init(settings: SettingsStore, motionPolicy: MotionPolicy) {
+    init(
+        settings: SettingsStore,
+        motionPolicy: MotionPolicy,
+        captureRestoreTarget: @escaping @MainActor () -> QuakeTerminalRestoreTarget? = { nil },
+        restoreFocusTarget: @escaping @MainActor (QuakeTerminalRestoreTarget) -> Void = { _ in },
+        isWindowFocused: @escaping @MainActor (NSWindow) -> Bool = { $0.isKeyWindow }
+    ) {
         self.settings = settings
         self.motionPolicy = motionPolicy
+        self.captureRestoreTarget = captureRestoreTarget
+        self.restoreFocusTarget = restoreFocusTarget
+        self.isWindowFocused = isWindowFocused
         super.init()
     }
 
@@ -146,6 +169,8 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         window = nil
         containerView = nil
         tabBar = nil
+        restoreTarget = nil
+        pendingRestoreTarget = nil
     }
 
     private func updateGhosttyOpacityConfig() {
@@ -443,14 +468,9 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         guard let window else { return }
         guard !visible else { return }
 
+        restoreTarget = captureRestoreTarget()
+        pendingRestoreTarget = nil
         visible = true
-
-        if !NSApp.isActive {
-            if let previousApp = NSWorkspace.shared.frontmostApplication,
-               previousApp.bundleIdentifier != Bundle.main.bundleIdentifier {
-                self.previousApp = previousApp
-            }
-        }
 
         if tabs.isEmpty {
             createInitialSurface()
@@ -460,6 +480,10 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
     }
 
     func animateOut() {
+        animateOut(hideBehavior: .restoreLatestTarget)
+    }
+
+    private func animateOut(hideBehavior: HideBehavior) {
         guard let window else { return }
         guard visible else { return }
 
@@ -467,6 +491,17 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             settings.quakeTerminalCustomFrame = window.frame
         }
 
+        pendingRestoreTarget = switch hideBehavior {
+        case .restoreLatestTarget:
+            if isWindowFocused(window) {
+                restoreTarget
+            } else {
+                nil
+            }
+        case .preserveCurrentFocus:
+            nil
+        }
+        restoreTarget = nil
         visible = false
         animateWindowOut(window: window)
     }
@@ -555,13 +590,6 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         let quakeWindow = window as? QuakeTerminalWindow
         let generation = beginAnimationTransition()
 
-        if let previousApp = self.previousApp {
-            self.previousApp = nil
-            if !previousApp.isTerminated {
-                _ = previousApp.activate(options: [])
-            }
-        }
-
         window.level = .popUpMenu
 
         if settings.quakeTerminalUseCustomFrame {
@@ -647,6 +675,11 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         isTransitioning = false
         window.orderOut(nil)
         window.alphaValue = 1
+
+        if let pendingRestoreTarget {
+            self.pendingRestoreTarget = nil
+            restoreFocusTarget(pendingRestoreTarget)
+        }
     }
 
     private func makeWindowKey(_ window: NSWindow, retries: UInt8 = 0) {
@@ -676,6 +709,14 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
     var isTransitioningForTests: Bool {
         isTransitioning
+    }
+
+    func captureRestoreTargetForTests() {
+        restoreTarget = captureRestoreTarget()
+    }
+
+    var restoreTargetForTests: QuakeTerminalRestoreTarget? {
+        restoreTarget
     }
 
     private func readClipboard(location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
@@ -799,12 +840,12 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             guard visible else { return }
             guard window?.attachedSheet == nil else { return }
 
-            if NSApp.isActive {
-                self.previousApp = nil
-            }
+            await Task.yield()
+            guard visible else { return }
+            restoreTarget = captureRestoreTarget()
 
             if settings.quakeTerminalAutoHide {
-                animateOut()
+                animateOut(hideBehavior: .preserveCurrentFocus)
             }
         }
     }
