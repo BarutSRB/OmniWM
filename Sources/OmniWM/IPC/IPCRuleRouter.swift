@@ -124,7 +124,10 @@ final class IPCRuleRouter {
             reevaluationTargets = [.pid(pid_t(pid))]
         }
 
-        let outcome = await controller.reevaluateWindowRules(for: reevaluationTargets)
+        let outcome = await controller.reevaluateWindowRules(
+            for: reevaluationTargets,
+            context: .explicitRuleApply
+        )
         guard outcome.resolvedAnyTarget, outcome.evaluatedAnyWindow else {
             return .failure(.notFound)
         }

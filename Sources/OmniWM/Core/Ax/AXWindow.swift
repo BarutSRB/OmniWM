@@ -202,9 +202,24 @@ enum AXWindowService {
         {
             return cached.title
         }
-        let title = titleLookupProviderForTests?(windowId) ?? SkyLight.shared.getWindowTitle(windowId)
+        let title = if let titleLookupProviderForTests {
+            titleLookupProviderForTests(windowId)
+        } else {
+            SkyLight.shared.getWindowTitle(windowId)
+        }
         storeTitleCacheEntry(windowId: windowId, title: title, at: now)
         return title
+    }
+
+    @MainActor
+    static func refreshCachedTitle(windowId: UInt32) {
+        let now = timeSourceForTests?() ?? ProcessInfo.processInfo.systemUptime
+        let title = if let titleLookupProviderForTests {
+            titleLookupProviderForTests(windowId)
+        } else {
+            SkyLight.shared.getWindowTitle(windowId)
+        }
+        storeTitleCacheEntry(windowId: windowId, title: title, at: now)
     }
 
     @MainActor

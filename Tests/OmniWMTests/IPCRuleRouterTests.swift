@@ -66,11 +66,14 @@ private func seedRuleApplyWindow(
 private func installDeferredRuleApplyRule(
     on controller: WMController,
     bundleId: String,
-    layout: WindowRuleLayoutAction = .float
+    layout: WindowRuleLayoutAction = .float,
+    assignToWorkspace: String? = nil
 ) async {
     controller.layoutRefreshController.resetDebugState()
     controller.layoutRefreshController.debugHooks.onFullRescan = { _ in true }
-    controller.settings.appRules = [AppRule(bundleId: bundleId, layout: layout)]
+    controller.settings.appRules = [
+        AppRule(bundleId: bundleId, layout: layout, assignToWorkspace: assignToWorkspace)
+    ]
     controller.updateAppRules()
     await waitForLayoutPlanRefreshWork(on: controller)
 }
@@ -191,13 +194,18 @@ private func installDeferredRuleApplyRule(
 
     @Test func applyFocusedReevaluatesManagedFocusAndReturnsUpdatedRulesProjection() async throws {
         let controller = makeLayoutPlanTestController()
+        let ruleWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)!
         let token = seedRuleApplyWindow(
             on: controller,
             pid: 9101,
             windowId: 3001,
             bundleId: "com.example.terminal"
         )
-        await installDeferredRuleApplyRule(on: controller, bundleId: "com.example.terminal")
+        await installDeferredRuleApplyRule(
+            on: controller,
+            bundleId: "com.example.terminal",
+            assignToWorkspace: "2"
+        )
         #expect(controller.workspaceManager.entry(for: token)?.mode == .tiling)
 
         let router = makeIPCRuleRouter(for: controller)
@@ -211,6 +219,7 @@ private func installDeferredRuleApplyRule(
         #expect(rules.rules.count == 1)
         #expect(rules.rules.first?.bundleId == "com.example.terminal")
         #expect(controller.workspaceManager.entry(for: token)?.mode == .floating)
+        #expect(controller.workspaceManager.entry(for: token)?.workspaceId == ruleWorkspaceId)
     }
 
     @Test func applyFocusedFallsBackToFrontmostTokenWhenManagedFocusIsClear() async {
@@ -268,13 +277,18 @@ private func installDeferredRuleApplyRule(
 
     @Test func applyWindowSupportsExplicitOpaqueIdsAndStableValidationFailures() async {
         let controller = makeLayoutPlanTestController()
+        let ruleWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)!
         let token = seedRuleApplyWindow(
             on: controller,
             pid: 9103,
             windowId: 3003,
             bundleId: "com.example.notes"
         )
-        await installDeferredRuleApplyRule(on: controller, bundleId: "com.example.notes")
+        await installDeferredRuleApplyRule(
+            on: controller,
+            bundleId: "com.example.notes",
+            assignToWorkspace: "2"
+        )
 
         let router = makeIPCRuleRouter(for: controller)
         let validWindowId = IPCWindowOpaqueID.encode(
@@ -301,6 +315,7 @@ private func installDeferredRuleApplyRule(
             return
         }
         #expect(controller.workspaceManager.entry(for: token)?.mode == .floating)
+        #expect(controller.workspaceManager.entry(for: token)?.workspaceId == ruleWorkspaceId)
         #expect(invalidResult == .failure(.invalidArguments))
         #expect(staleResult == .failure(.staleWindowId))
     }
@@ -337,6 +352,41 @@ private func installDeferredRuleApplyRule(
         }
         #expect(controller.workspaceManager.entry(for: firstToken)?.mode == .floating)
         #expect(controller.workspaceManager.entry(for: secondToken)?.mode == .floating)
+    }
+
+    @Test func applyPidExplicitlyReappliesWorkspaceRuleToExistingWindows() async {
+        let controller = makeLayoutPlanTestController()
+        let sourceWorkspaceId = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false)!
+        let ruleWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)!
+        let pid: pid_t = 9108
+        let bundleId = "com.example.workspace-apply"
+        controller.appInfoCache.storeInfoForTests(
+            pid: pid,
+            name: "Workspace Rule App",
+            bundleId: bundleId
+        )
+        let token = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 3009),
+            pid: pid,
+            windowId: 3009,
+            to: sourceWorkspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(token, in: sourceWorkspaceId)
+        await installDeferredRuleApplyRule(
+            on: controller,
+            bundleId: bundleId,
+            assignToWorkspace: "2"
+        )
+        #expect(controller.workspaceManager.entry(for: token)?.workspaceId == sourceWorkspaceId)
+
+        let router = makeIPCRuleRouter(for: controller)
+        let result = await router.handle(.apply(target: .pid(pid)))
+
+        guard case .success = result else {
+            Issue.record("Expected pid rule apply to succeed")
+            return
+        }
+        #expect(controller.workspaceManager.entry(for: token)?.workspaceId == ruleWorkspaceId)
     }
 
     @Test func applyRejectsInvalidTargetsAndAllowsNoOpReevaluationSuccess() async {

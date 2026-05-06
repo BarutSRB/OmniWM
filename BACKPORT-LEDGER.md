@@ -64,6 +64,31 @@ Reason: Applies without manual edits, touches only Swift/test files, and passes 
 Backport commit: this commit
 ```
 
+### `b18487723117ae927e720262c36ab962e38fe5ed`
+
+```text
+Commit: b18487723117ae927e720262c36ab962e38fe5ed
+Original subject: Respect moved workspace for new app windows
+Touched Swift files:
+- Sources/OmniWM/Core/Ax/AXWindow.swift
+- Sources/OmniWM/Core/Controller/AXEventHandler.swift
+- Sources/OmniWM/Core/Controller/LayoutRefreshController.swift
+- Sources/OmniWM/Core/Controller/WMController.swift
+- Sources/OmniWM/Core/Rules/WindowRuleEngine.swift
+- Sources/OmniWM/Core/Workspace/WorkspaceManager.swift
+- Sources/OmniWM/IPC/IPCRuleRouter.swift
+- Tests/OmniWMTests/AXEventHandlerTests.swift
+- Tests/OmniWMTests/IPCRuleRouterTests.swift
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? unknown; source commit adds focused regression coverage for sibling window placement after manual workspace moves and explicit IPC rule apply behavior
+Tests added or updated:
+- AXEventHandlerTests
+- IPCRuleRouterTests
+Action: direct-dry-run
+Reason: Cherry-pick required Swift-only conflict resolution and local test fixture adaptation. README and IPC docs were retained because they describe the same rule-application semantics now present in this Swift-only branch, and the staged patch passes the no-Zig audit.
+Backport commit: this commit
+```
+
 ### `cbe7cffbd682b10e1543ca915c013bdf1d7f6126`
 
 ```text

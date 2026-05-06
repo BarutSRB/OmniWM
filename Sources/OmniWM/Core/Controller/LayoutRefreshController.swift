@@ -1129,7 +1129,7 @@ import QuartzCore
                 appFullscreen: appFullscreen
             )
             let decision = evaluation.decision
-            let existingEntry = controller.workspaceManager.entry(for: token)
+            var existingEntry = controller.workspaceManager.entry(for: token)
             let temporarilyUnavailableRecord: WorkspaceManager.NativeFullscreenRecord? = if let existingEntry,
                 let record = controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token),
                 record.availability == .temporarilyUnavailable
@@ -1142,6 +1142,24 @@ import QuartzCore
                 controller.axEventHandler.cancelNativeFullscreenLifecycleTasks(
                     containing: temporarilyUnavailableRecord.currentToken
                 )
+            }
+            let replacementWorkspace = controller.resolvedWorkspaceId(
+                for: evaluation,
+                axRef: ax,
+                existingEntry: existingEntry,
+                fallbackWorkspaceId: focusedWorkspaceId
+            )
+            if controller.workspaceAssignment(pid: pid, windowId: winId) == nil,
+               controller.axEventHandler.restoreNativeFullscreenReplacementIfNeeded(
+                   token: token,
+                   windowId: UInt32(winId),
+                   axRef: ax,
+                   workspaceId: replacementWorkspace,
+                   appFullscreen: appFullscreen
+               )
+            {
+                seenKeys.insert(token)
+                existingEntry = controller.workspaceManager.entry(for: token)
             }
             let shouldPreservePreFullscreenState = existingEntry.map { existingEntry in
                 !appFullscreen
@@ -1167,7 +1185,6 @@ import QuartzCore
             let defaultWorkspace = controller.resolvedWorkspaceId(
                 for: evaluation,
                 axRef: ax,
-                pid: pid,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId
             )
