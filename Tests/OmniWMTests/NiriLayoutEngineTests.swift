@@ -908,6 +908,7 @@ private func makeCenteredCrossMonitorFixture(
     @Test func firstWindowUsesBalancedWidthWhenDefaultWidthIsAutoWhenSingleWindowRatioIsDisabled() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .none
         let wsId = UUID()
 
@@ -925,6 +926,7 @@ private func makeCenteredCrossMonitorFixture(
     @Test func firstWindowUsesResolvedMonitorMaxVisibleColumnsWhenDefaultWidthIsAuto() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .none
         let wsId = UUID()
         let monitor = makeTestMonitor(displayId: 501, name: "Override", x: 0)
@@ -948,6 +950,7 @@ private func makeCenteredCrossMonitorFixture(
 
     @Test func singleWindowAspectRatioCentersLoneWindowFrame() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
         let wsId = UUID()
@@ -971,6 +974,7 @@ private func makeCenteredCrossMonitorFixture(
 
     @Test func singleWindowManualWidthOverrideKeepsWindowCenteredWhenAlwaysCenterSingleColumnDisabled() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
         engine.animationClock = AnimationClock()
@@ -1022,6 +1026,7 @@ private func makeCenteredCrossMonitorFixture(
 
     @Test func singleWindowFullWidthRoundTripRestoresPriorManualWidthAndCentering() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
         engine.animationClock = AnimationClock()
@@ -1129,6 +1134,7 @@ private func makeCenteredCrossMonitorFixture(
 
     @Test func singleWindowManualWidthTargetFrameMatchesRenderedFrame() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
         engine.animationClock = AnimationClock()
@@ -1221,6 +1227,7 @@ private func makeCenteredCrossMonitorFixture(
 
     @Test func addingSecondWindowReturnsToNormalColumnSizingAfterSingleWindowOverride() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
         let wsId = UUID()
@@ -2879,6 +2886,7 @@ private func makeCenteredCrossMonitorFixture(
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
+        controller.settings.niriSingleWindowAspectRatio = .ratio4x3
         controller.updateNiriConfig(
             maxVisibleColumns: 3,
             centerFocusedColumn: .never,
@@ -3613,6 +3621,7 @@ private func makeCenteredCrossMonitorFixture(
                 .fixed(targetColumn.cachedWidth),
                 .fixed(targetColumn.cachedWidth * 1.5)
             ]
+            targetColumn.presetWidthIdx = nil
 
             var state = makeViewportStateForVisibleColumn(
                 targetWindow: targetWindow,
@@ -3686,6 +3695,7 @@ private func makeCenteredCrossMonitorFixture(
                 .fixed(originalWidth),
                 .fixed(originalWidth * 1.5)
             ]
+            targetColumn.presetWidthIdx = nil
 
             var state = makeViewportStateForVisibleColumn(
                 targetWindow: targetWindow,
@@ -3868,6 +3878,7 @@ private func makeCenteredCrossMonitorFixture(
             .fixed(originalWidth),
             .fixed(originalWidth * 1.5)
         ]
+        targetColumn.presetWidthIdx = nil
 
         guard let originalFrame = fixture.controller.axManager.lastAppliedFrame(for: targetWindow.token.windowId) else {
             Issue.record("Expected an initial applied frame for disabled cycle-width command test")

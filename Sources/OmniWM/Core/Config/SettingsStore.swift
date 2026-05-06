@@ -407,7 +407,10 @@ final class SettingsStore {
         mouseWarpAxis = MouseWarpAxis(rawValue: defaults.string(forKey: Keys.mouseWarpAxis) ?? "") ??
             MouseWarpAxis(rawValue: baseline.mouseWarpAxis ?? "") ?? .horizontal
         niriColumnWidthPresets = Self.loadNiriColumnWidthPresets(from: defaults)
-        niriDefaultColumnWidth = Self.loadNiriDefaultColumnWidth(from: defaults)
+        niriDefaultColumnWidth = Self.loadNiriDefaultColumnWidth(
+            from: defaults,
+            fallback: baseline.niriDefaultColumnWidth
+        )
         mouseWarpMargin = defaults.object(forKey: Keys.mouseWarpMargin) as? Int ?? baseline.mouseWarpMargin
         gapSize = defaults.object(forKey: Keys.gapSize) as? Double ?? baseline.gapSize
 
@@ -428,7 +431,7 @@ final class SettingsStore {
             baseline.niriAlwaysCenterSingleColumn
         niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: defaults
             .string(forKey: Keys.niriSingleWindowAspectRatio) ?? "") ??
-            SingleWindowAspectRatio(rawValue: baseline.niriSingleWindowAspectRatio) ?? .ratio4x3
+            SingleWindowAspectRatio(rawValue: baseline.niriSingleWindowAspectRatio) ?? .none
 
         workspaceConfigurations = Self.loadWorkspaceConfigurations(from: defaults)
         defaultLayoutType = LayoutType(rawValue: defaults.string(forKey: Keys.defaultLayoutType) ?? "") ??
@@ -918,8 +921,11 @@ final class SettingsStore {
         return min(1.0, max(0.05, width))
     }
 
-    private static func loadNiriDefaultColumnWidth(from defaults: UserDefaults) -> Double? {
+    private static func loadNiriDefaultColumnWidth(from defaults: UserDefaults, fallback: Double?) -> Double? {
         guard let width = defaults.object(forKey: Keys.niriDefaultColumnWidth) as? NSNumber else {
+            return validatedDefaultColumnWidth(fallback)
+        }
+        if width.doubleValue < 0 {
             return nil
         }
         return validatedDefaultColumnWidth(width.doubleValue)
@@ -932,7 +938,7 @@ final class SettingsStore {
 
     private func saveNiriDefaultColumnWidth() {
         guard let width = niriDefaultColumnWidth else {
-            defaults.removeObject(forKey: Keys.niriDefaultColumnWidth)
+            defaults.set(-1.0, forKey: Keys.niriDefaultColumnWidth)
             return
         }
         defaults.set(width, forKey: Keys.niriDefaultColumnWidth)

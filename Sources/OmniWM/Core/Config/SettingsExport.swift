@@ -140,19 +140,19 @@ extension SettingsExport {
             mouseWarpMonitorOrder: [],
             mouseWarpAxis: MouseWarpAxis.horizontal.rawValue,
             mouseWarpMargin: 1,
-            gapSize: 8,
-            outerGapLeft: 8,
-            outerGapRight: 8,
-            outerGapTop: 8,
-            outerGapBottom: 8,
-            niriMaxWindowsPerColumn: 3,
+            gapSize: 16,
+            outerGapLeft: 0,
+            outerGapRight: 0,
+            outerGapTop: 0,
+            outerGapBottom: 0,
+            niriMaxWindowsPerColumn: 10,
             niriMaxVisibleColumns: 2,
             niriInfiniteLoop: false,
             niriCenterFocusedColumn: CenterFocusedColumn.never.rawValue,
-            niriAlwaysCenterSingleColumn: true,
-            niriSingleWindowAspectRatio: SingleWindowAspectRatio.ratio4x3.rawValue,
+            niriAlwaysCenterSingleColumn: false,
+            niriSingleWindowAspectRatio: SingleWindowAspectRatio.none.rawValue,
             niriColumnWidthPresets: BuiltInSettingsDefaults.niriColumnWidthPresets,
-            niriDefaultColumnWidth: nil,
+            niriDefaultColumnWidth: 0.5,
             workspaceConfigurations: BuiltInSettingsDefaults.workspaceConfigurations,
             defaultLayoutType: LayoutType.niri.rawValue,
             bordersEnabled: true,
@@ -452,7 +452,7 @@ extension SettingsStore {
         niriInfiniteLoop = export.niriInfiniteLoop
         niriCenterFocusedColumn = CenterFocusedColumn(rawValue: export.niriCenterFocusedColumn) ?? .never
         niriAlwaysCenterSingleColumn = export.niriAlwaysCenterSingleColumn
-        niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: export.niriSingleWindowAspectRatio) ?? .ratio4x3
+        niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: export.niriSingleWindowAspectRatio) ?? .none
         if let presets = export.niriColumnWidthPresets {
             niriColumnWidthPresets = Self.validatedPresets(presets)
         }

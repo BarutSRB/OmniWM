@@ -119,7 +119,7 @@ final class NiriLayoutEngine {
 
     var centerFocusedColumn: CenterFocusedColumn = .never
 
-    var alwaysCenterSingleColumn: Bool = true
+    var alwaysCenterSingleColumn: Bool = false
 
     var singleWindowAspectRatio: SingleWindowAspectRatio = .none
 
@@ -139,13 +139,12 @@ final class NiriLayoutEngine {
     var displayRefreshRate: Double = 60.0
 
     var presetColumnWidths: [PresetSize] = NiriLayoutEngine.defaultPresetColumnWidths
-    var defaultColumnWidth: CGFloat?
+    var defaultColumnWidth: CGFloat? = 0.5
 
-    init(maxWindowsPerColumn: Int = 3, maxVisibleColumns: Int = 3, infiniteLoop: Bool = false) {
+    init(maxWindowsPerColumn: Int = 10, maxVisibleColumns: Int = 2, infiniteLoop: Bool = false) {
         self.maxWindowsPerColumn = max(1, min(10, maxWindowsPerColumn))
         self.maxVisibleColumns = max(1, min(5, maxVisibleColumns))
         self.infiniteLoop = infiniteLoop
-        centerFocusedColumn = .onOverflow
     }
 
     func ensureRoot(for workspaceId: WorkspaceDescriptor.ID) -> NiriRoot {
