@@ -5,7 +5,7 @@ import Testing
 @testable import OmniWM
 
 @Suite(.serialized) struct MonitorWorkspaceCycleTests {
-    @Test @MainActor func transcriptIsGoldenStable() async throws {
+    @Test @MainActor func transcriptIsGoldenStable() {
         let context = makeTranscriptRuntimeContext(
             workspaceNames: ["1", "2"],
             monitorSpecs: [
@@ -35,8 +35,14 @@ import Testing
         runtime.controller.workspaceManager.applyMonitorConfigurationChange(monitors)
         let primaryMonitorId = monitors[0].id
         let secondaryMonitorId = monitors[1].id
-        let workspaceOneId = try #require(runtime.controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
-        let workspaceTwoId = try #require(runtime.controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+        let workspaceOneId = try #require(runtime.controller.workspaceManager.workspaceId(
+            for: "1",
+            createIfMissing: true
+        ))
+        let workspaceTwoId = try #require(runtime.controller.workspaceManager.workspaceId(
+            for: "2",
+            createIfMissing: true
+        ))
         _ = runtime.controller.workspaceManager.setActiveWorkspace(workspaceOneId, on: primaryMonitorId)
         _ = runtime.controller.workspaceManager.setActiveWorkspace(workspaceTwoId, on: secondaryMonitorId)
         _ = runtime.setInteractionMonitor(primaryMonitorId, source: .command)
