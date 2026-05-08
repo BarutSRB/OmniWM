@@ -4,10 +4,13 @@ import Foundation
 private let VIEW_GESTURE_WORKING_AREA_MOVEMENT: Double = 1200.0
 
 extension ViewportState {
-    mutating func beginGesture(isTrackpad: Bool) {
+    @discardableResult
+    mutating func beginGesture(isTrackpad: Bool, columns: [NiriContainer]) -> Bool {
+        guard !columns.isEmpty else { return false }
         let currentOffset = viewOffsetPixels.current()
         viewOffsetPixels = .gesture(ViewGesture(currentViewOffset: Double(currentOffset), isTrackpad: isTrackpad))
         selectionProgress = 0.0
+        return true
     }
 
     mutating func updateGesture(
@@ -32,18 +35,6 @@ extension ViewportState {
             : 1.0
         let pos = gesture.tracker.position * normFactor
         let viewOffset = pos + gesture.deltaFromTracker
-
-        guard gesture.isTrackpad else {
-            let clampedOffset = clampedGestureOffset(
-                viewOffset,
-                columns: columns,
-                gap: gap,
-                viewportWidth: viewportWidth
-            )
-            gesture.deltaFromTracker += clampedOffset - viewOffset
-            gesture.currentViewOffset = clampedOffset
-            return nil
-        }
 
         gesture.currentViewOffset = viewOffset
         return nil
@@ -268,6 +259,9 @@ extension ViewportState {
                 return (left, right)
             }
 
+            // Match Niri's snap-boundary guard: gestures may only snap within the first and last
+            // column boundary points, which prevents high momentum at the strip ends from wrapping
+            // or choosing an interior snap that would feel like scrolling past the content.
             let leftmostSnap = snapPair(
                 colX: 0,
                 column: columns[0],
@@ -517,30 +511,6 @@ extension ViewportState {
             viewWidth: Double(parent.width > 0 ? parent.width : viewportWidth),
             scale: scale
         )
-    }
-
-    private func clampedGestureOffset(
-        _ viewOffset: Double,
-        columns: [NiriContainer],
-        gap: CGFloat,
-        viewportWidth: CGFloat
-    ) -> Double {
-        guard !columns.isEmpty else {
-            return viewOffset
-        }
-
-        let totalW = Double(totalWidth(columns: columns, gap: gap))
-        guard totalW.isFinite, totalW > 0 else {
-            return viewOffset
-        }
-
-        let activeColX = Double(columnX(at: activeColumnIndex, columns: columns, gap: gap))
-        var leftmost = -activeColX
-        var rightmost = max(0, totalW - Double(viewportWidth)) - activeColX
-        if leftmost > rightmost {
-            swap(&leftmost, &rightmost)
-        }
-        return viewOffset.clamped(to: leftmost ... rightmost)
     }
 
     private func area(for mode: SizingMode, areas: GestureAreas) -> CGRect {

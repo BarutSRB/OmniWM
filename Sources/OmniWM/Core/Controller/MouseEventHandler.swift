@@ -2,10 +2,31 @@ import AppKit
 import Foundation
 
 private let niriTouchpadGestureRecognitionThreshold: CGFloat = 16.0
-private let niriTouchpadPositionToGestureUnits: CGFloat = 500.0
+// AppKit gives normalized touch positions rather than libinput gesture deltas.
+// This maps normalized movement into the delta space that ViewportState later
+// normalizes with VIEW_GESTURE_WORKING_AREA_MOVEMENT.
+private let macNormalizedTouchPositionToNiriGestureUnits: CGFloat = 500.0
+private let mouseWheelAxisEpsilon: CGFloat = 0.001
+private let niriWheelScrollTickAmount: CGFloat = 120.0
+private let mouseWheelRelevantModifierFlags: CGEventFlags = [
+    .maskAlternate,
+    .maskShift,
+    .maskControl,
+    .maskCommand,
+]
 
 @MainActor
 final class MouseEventHandler {
+    private enum MouseWheelColumnAxis {
+        case horizontal
+        case vertical
+    }
+
+    private struct MouseWheelColumnDelta {
+        var axis: MouseWheelColumnAxis
+        var value: CGFloat
+    }
+
     private enum FocusFollowsMouseTarget {
         case niri(workspaceId: WorkspaceDescriptor.ID, window: NiriWindow)
         case dwindle(workspaceId: WorkspaceDescriptor.ID, token: WindowToken)
@@ -71,10 +92,27 @@ final class MouseEventHandler {
                     self.phase == phase
             }
 
+            func canCoalesce(deltaX: CGFloat, deltaY: CGFloat) -> Bool {
+                Self.axisSignature(deltaX: self.deltaX, deltaY: self.deltaY) ==
+                    Self.axisSignature(deltaX: deltaX, deltaY: deltaY)
+            }
+
             mutating func accumulate(deltaX: CGFloat, deltaY: CGFloat, location: CGPoint) {
                 self.deltaX += deltaX
                 self.deltaY += deltaY
                 self.location = location
+            }
+
+            private static func axisSignature(deltaX: CGFloat, deltaY: CGFloat) -> (Int, Int) {
+                (
+                    signedAxis(deltaX),
+                    signedAxis(deltaY)
+                )
+            }
+
+            private static func signedAxis(_ delta: CGFloat) -> Int {
+                guard abs(delta) > mouseWheelAxisEpsilon else { return 0 }
+                return delta > 0 ? 1 : -1
             }
         }
 
@@ -128,6 +166,8 @@ final class MouseEventHandler {
         var lockedGestureContext: LockedGestureContext?
         var pendingTapEvents = PendingTapEvents()
         var debugCounters = DebugCounters()
+        var horizontalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
+        var verticalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
     }
 
     nonisolated(unsafe) static weak var _instance: MouseEventHandler?
@@ -335,6 +375,12 @@ final class MouseEventHandler {
         state.pendingTapEvents.clear()
     }
 
+    func handleInputSuppressionBegan() {
+        dropPendingTapEvents()
+        resetMouseWheelTrackers()
+        abortActiveGestureIfNeeded()
+    }
+
     func handleTapCallbackForTests(
         type: CGEventType,
         event: CGEvent,
@@ -387,6 +433,10 @@ final class MouseEventHandler {
         phase: UInt32,
         modifiers: CGEventFlags
     ) {
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return
+        }
         enqueuePendingScrollWheel(
             at: location,
             deltaX: deltaX,
@@ -398,6 +448,10 @@ final class MouseEventHandler {
     }
 
     func receiveTapGestureEvent(from cgEvent: CGEvent) {
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return
+        }
         let location = ScreenCoordinateSpace.toAppKit(point: cgEvent.location)
         if let controller, controller.isPointInOwnWindow(location) {
             dropPendingTapEvents()
@@ -409,6 +463,10 @@ final class MouseEventHandler {
     }
 
     func receiveTapGestureEvent(_ snapshot: GestureEventSnapshot) {
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return
+        }
         if let controller, controller.isPointInOwnWindow(snapshot.location) {
             dropPendingTapEvents()
         } else {
@@ -425,6 +483,11 @@ final class MouseEventHandler {
     private func dropPendingTapEvents() {
         guard state.pendingTapEvents.hasPendingEvents else { return }
         state.pendingTapEvents.clear()
+    }
+
+    private func resetMouseWheelTrackers() {
+        state.horizontalWheelTracker.reset()
+        state.verticalWheelTracker.reset()
     }
 
     private func cancelActiveMouseInteraction() {
@@ -506,7 +569,8 @@ final class MouseEventHandler {
         state.debugCounters.queuedTransientEvents += 1
 
         if let existing = state.pendingTapEvents.scrollPayload,
-           !existing.matches(modifiers: modifiers, momentumPhase: momentumPhase, phase: phase)
+           (!existing.matches(modifiers: modifiers, momentumPhase: momentumPhase, phase: phase)
+               || !existing.canCoalesce(deltaX: deltaX, deltaY: deltaY))
         {
             flushPendingTapEvents()
         }
@@ -858,7 +922,7 @@ final class MouseEventHandler {
 
     private func handleScrollWheelFromTap(
         at location: CGPoint,
-        deltaX _: CGFloat,
+        deltaX: CGFloat,
         deltaY: CGFloat,
         momentumPhase: UInt32,
         phase: UInt32,
@@ -875,25 +939,30 @@ final class MouseEventHandler {
             return
         }
 
-        guard modifiers.contains(controller.settings.scrollModifierKey.cgEventFlag) else {
+        let requiredModifiers = controller.settings.scrollModifierKey.cgEventFlag
+        guard Self.mouseWheelModifiersMatch(modifiers, required: requiredModifiers) else {
+            resetMouseWheelTrackers()
             return
         }
 
-        let scrollDeltaX: CGFloat = if modifiers.contains(.maskShift) {
-            deltaY
-        } else {
-            -deltaY
-        }
-
-        guard abs(scrollDeltaX) > 0.5 else { return }
+        guard let columnDelta = Self.resolvedMouseWheelColumnDelta(
+            deltaX: deltaX,
+            deltaY: deltaY,
+            allowVerticalFallback: modifiers.contains(.maskShift)
+        ) else { return }
         guard let context = resolveScrollContext(at: location) else { return }
 
-        let sensitivity = CGFloat(controller.settings.scrollSensitivity)
-        let adjustedDelta = scrollDeltaX * sensitivity
+        let ticks: Int
+        switch columnDelta.axis {
+        case .horizontal:
+            ticks = state.horizontalWheelTracker.accumulate(columnDelta.value)
+        case .vertical:
+            ticks = state.verticalWheelTracker.accumulate(columnDelta.value)
+        }
+        guard ticks != 0 else { return }
 
-        applyMouseViewportScrollDelta(
-            adjustedDelta,
-            isTrackpad: false,
+        applyMouseWheelColumnTicks(
+            ticks,
             engine: context.engine,
             wsId: context.wsId,
             monitor: context.monitor
@@ -1089,8 +1158,8 @@ final class MouseEventHandler {
                 return
             }
 
-            let cumulativeX = (avgX - state.gestureStartX) * niriTouchpadPositionToGestureUnits
-            let cumulativeY = (avgY - state.gestureStartY) * niriTouchpadPositionToGestureUnits
+            let cumulativeX = (avgX - state.gestureStartX) * macNormalizedTouchPositionToNiriGestureUnits
+            let cumulativeY = (avgY - state.gestureStartY) * macNormalizedTouchPositionToNiriGestureUnits
             let previousPhase = state.gesturePhase
             let rawDeltaX: CGFloat
 
@@ -1098,6 +1167,8 @@ final class MouseEventHandler {
                 let distanceSquared = cumulativeX * cumulativeX + cumulativeY * cumulativeY
                 let thresholdSquared = niriTouchpadGestureRecognitionThreshold * niriTouchpadGestureRecognitionThreshold
                 guard distanceSquared >= thresholdSquared else {
+                    state.gestureLastAverageX = avgX
+                    state.gestureLastAverageY = avgY
                     return
                 }
 
@@ -1106,10 +1177,10 @@ final class MouseEventHandler {
                     return
                 }
 
-                rawDeltaX = cumulativeX
+                rawDeltaX = (avgX - state.gestureLastAverageX) * macNormalizedTouchPositionToNiriGestureUnits
                 state.gesturePhase = .committed
             } else {
-                rawDeltaX = (avgX - state.gestureLastAverageX) * niriTouchpadPositionToGestureUnits
+                rawDeltaX = (avgX - state.gestureLastAverageX) * macNormalizedTouchPositionToNiriGestureUnits
             }
 
             state.gestureLastAverageX = avgX
@@ -1120,13 +1191,8 @@ final class MouseEventHandler {
                 deltaUnits = -deltaUnits
             }
 
-            if abs(deltaUnits) < 0.5 {
-                return
-            }
-
-            applyMouseViewportScrollDelta(
+            applyTrackpadViewportScrollDelta(
                 deltaUnits,
-                isTrackpad: true,
                 engine: engine,
                 wsId: wsId,
                 monitor: monitor,
@@ -1135,9 +1201,8 @@ final class MouseEventHandler {
         }
     }
 
-    func applyMouseViewportScrollDelta(
+    func applyTrackpadViewportScrollDelta(
         _ delta: CGFloat,
-        isTrackpad: Bool,
         engine: NiriLayoutEngine,
         wsId: WorkspaceDescriptor.ID,
         monitor: Monitor,
@@ -1149,52 +1214,91 @@ final class MouseEventHandler {
         let gap = CGFloat(controller.workspaceManager.gaps)
         let columns = engine.columns(in: wsId)
 
-        var targetWindowHandle: WindowHandle?
+        var didApply = false
         controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
             if vstate.viewOffsetPixels.isAnimating {
-                vstate.cancelAnimation()
+                vstate.settleAtCurrentOffset()
             }
 
             if !vstate.viewOffsetPixels.isGesture {
-                vstate.beginGesture(isTrackpad: isTrackpad)
+                guard vstate.beginGesture(isTrackpad: true, columns: columns) else { return }
             }
 
-            if let steps = vstate.updateGesture(
+            _ = vstate.updateGesture(
                 deltaPixels: delta,
                 timestamp: timestamp,
-                isTrackpad: isTrackpad,
+                isTrackpad: true,
                 columns: columns,
                 gap: gap,
                 viewportWidth: viewportWidth
-            ) {
-                if let currentId = vstate.selectedNodeId,
-                   let currentNode = engine.findNode(by: currentId),
-                   let newNode = engine.moveSelectionByColumns(
-                       steps: steps,
-                       currentSelection: currentNode,
-                       in: wsId
-                   )
-                {
-                    vstate.selectedNodeId = newNode.id
-
-                    if let windowNode = newNode as? NiriWindow {
-                        _ = controller.workspaceManager.applySessionPatch(
-                            .init(
-                                workspaceId: wsId,
-                                viewportState: nil,
-                                rememberedFocusToken: windowNode.token
-                            )
-                        )
-                        engine.updateFocusTimestamp(for: windowNode.id)
-                        targetWindowHandle = controller.workspaceManager.handle(for: windowNode.token)
-                    }
-                }
-            }
+            )
+            didApply = true
         }
-        controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
+        if didApply {
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
+        }
+    }
 
-        if let handle = targetWindowHandle {
-            controller.focusWindow(handle)
+    private func applyMouseWheelColumnTicks(
+        _ ticks: Int,
+        engine: NiriLayoutEngine,
+        wsId: WorkspaceDescriptor.ID,
+        monitor: Monitor
+    ) {
+        guard let controller else { return }
+        let insetFrame = controller.insetWorkingFrame(for: monitor)
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let step = ticks > 0 ? 1 : -1
+        let motion = controller.motionPolicy.snapshot()
+
+        var didApply = false
+        var shouldStartAnimation = false
+        controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+            if vstate.viewOffsetPixels.gestureRef?.isTrackpad == true {
+                return
+            }
+
+            for _ in 0 ..< abs(ticks) {
+                let columns = engine.columns(in: wsId)
+                let targetColumnIndex = vstate.activeColumnIndex + step
+                guard columns.indices.contains(targetColumnIndex),
+                      let currentNode = currentSelectionNode(engine: engine, wsId: wsId, state: vstate),
+                      let newNode = engine.focusColumn(
+                          targetColumnIndex,
+                          currentSelection: currentNode,
+                          in: wsId,
+                          motion: motion,
+                          state: &vstate,
+                          workingFrame: insetFrame,
+                          gaps: gap
+                      )
+                else {
+                    break
+                }
+
+                controller.niriLayoutHandler.activateNode(
+                    newNode,
+                    in: wsId,
+                    state: &vstate,
+                    options: .init(
+                        activateWindow: true,
+                        ensureVisible: false,
+                        updateTimestamp: true,
+                        layoutRefresh: false,
+                        axFocus: false,
+                        startAnimation: false
+                    )
+                )
+                didApply = true
+            }
+            shouldStartAnimation = vstate.viewOffsetPixels.isAnimating
+        }
+
+        if didApply {
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
+            if shouldStartAnimation {
+                controller.layoutRefreshController.startScrollAnimation(for: wsId)
+            }
         }
     }
 
@@ -1216,6 +1320,7 @@ final class MouseEventHandler {
         let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
             .backingScaleFactor ?? 2.0
 
+        var selectedWindow: NiriWindow?
         controller.workspaceManager.withNiriViewportState(for: wsId) { endState in
             endState.endGesture(
                 columns: columns,
@@ -1231,15 +1336,10 @@ final class MouseEventHandler {
                 scale: scale,
                 timestamp: timestamp
             )
-            if columns.indices.contains(endState.activeColumnIndex) {
-                let activeColumn = columns[endState.activeColumnIndex]
-                let windows = activeColumn.windowNodes
-                if !windows.isEmpty {
-                    let activeTileIndex = activeColumn.activeTileIdx.clamped(to: 0 ... (windows.count - 1))
-                    let selectedNode = windows[activeTileIndex]
-                    endState.selectedNodeId = selectedNode.id
-                }
-            }
+            selectedWindow = syncViewportSelectionToActiveColumn(columns: columns, state: &endState)
+        }
+        if let selectedWindow {
+            rememberViewportFocusAnchor(selectedWindow, engine: engine, wsId: wsId)
         }
         controller.layoutRefreshController.startScrollAnimation(for: wsId)
     }
@@ -1284,7 +1384,11 @@ final class MouseEventHandler {
                 resetGestureState()
                 return
             }
-            cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
+            if let engine = controller?.niriEngine {
+                finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine)
+            } else {
+                cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
+            }
         }
         resetGestureState()
     }
@@ -1324,6 +1428,56 @@ final class MouseEventHandler {
         state.lockedGestureContext = nil
     }
 
+    private func currentSelectionNode(
+        engine: NiriLayoutEngine,
+        wsId: WorkspaceDescriptor.ID,
+        state: ViewportState
+    ) -> NiriNode? {
+        if let selectedNodeId = state.selectedNodeId,
+           let selectedNode = engine.findNode(by: selectedNodeId)
+        {
+            return selectedNode
+        }
+
+        let columns = engine.columns(in: wsId)
+        guard columns.indices.contains(state.activeColumnIndex) else { return nil }
+        let activeColumn = columns[state.activeColumnIndex]
+        let windows = activeColumn.windowNodes
+        guard !windows.isEmpty else { return activeColumn.firstChild() }
+        let activeTileIndex = activeColumn.activeTileIdx.clamped(to: 0 ... (windows.count - 1))
+        return windows[activeTileIndex]
+    }
+
+    private func syncViewportSelectionToActiveColumn(
+        columns: [NiriContainer],
+        state: inout ViewportState
+    ) -> NiriWindow? {
+        guard columns.indices.contains(state.activeColumnIndex) else { return nil }
+        let activeColumn = columns[state.activeColumnIndex]
+        let windows = activeColumn.windowNodes
+        guard !windows.isEmpty else { return nil }
+        let activeTileIndex = activeColumn.activeTileIdx.clamped(to: 0 ... (windows.count - 1))
+        let selectedWindow = windows[activeTileIndex]
+        state.selectedNodeId = selectedWindow.id
+        return selectedWindow
+    }
+
+    private func rememberViewportFocusAnchor(
+        _ window: NiriWindow,
+        engine: NiriLayoutEngine,
+        wsId: WorkspaceDescriptor.ID
+    ) {
+        guard let controller else { return }
+        _ = controller.workspaceManager.applySessionPatch(
+            .init(
+                workspaceId: wsId,
+                viewportState: nil,
+                rememberedFocusToken: window.token
+            )
+        )
+        engine.updateFocusTimestamp(for: window.id)
+    }
+
     nonisolated private static func processTapCallback(
         type: CGEventType,
         event: CGEvent,
@@ -1334,8 +1488,14 @@ final class MouseEventHandler {
         let location = event.location
         let screenLocation = ScreenCoordinateSpace.toAppKit(point: location)
         let modifiers = event.flags
-        let deltaX = CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2))
-        let deltaY = CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1))
+        let deltaX = resolvedWheelAxisDelta(
+            pointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)),
+            fixedPointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2))
+        )
+        let deltaY = resolvedWheelAxisDelta(
+            pointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)),
+            fixedPointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1))
+        )
         let momentumPhase = UInt32(event.getIntegerValueField(.scrollWheelEventMomentumPhase))
         let phase = UInt32(event.getIntegerValueField(.scrollWheelEventScrollPhase))
 
@@ -1365,6 +1525,46 @@ final class MouseEventHandler {
         }
 
         return true
+    }
+
+    nonisolated static func resolvedWheelAxisDelta(pointDelta: CGFloat, fixedPointDelta: CGFloat) -> CGFloat {
+        if abs(pointDelta) > mouseWheelAxisEpsilon {
+            return pointDelta
+        }
+        return fixedPointDelta
+    }
+
+    nonisolated static func mouseWheelModifiersMatch(_ modifiers: CGEventFlags, required: CGEventFlags) -> Bool {
+        modifiers.intersection(mouseWheelRelevantModifierFlags) == required
+    }
+
+    nonisolated static func resolvedMouseWheelColumnDeltaValue(
+        deltaX: CGFloat,
+        deltaY: CGFloat,
+        allowVerticalFallback: Bool
+    ) -> CGFloat? {
+        resolvedMouseWheelColumnDelta(
+            deltaX: deltaX,
+            deltaY: deltaY,
+            allowVerticalFallback: allowVerticalFallback
+        )?.value
+    }
+
+    nonisolated private static func resolvedMouseWheelColumnDelta(
+        deltaX: CGFloat,
+        deltaY: CGFloat,
+        allowVerticalFallback: Bool
+    ) -> MouseWheelColumnDelta? {
+        if abs(deltaX) > mouseWheelAxisEpsilon {
+            return MouseWheelColumnDelta(axis: .horizontal, value: deltaX)
+        }
+        guard allowVerticalFallback else {
+            return nil
+        }
+        guard abs(deltaY) > mouseWheelAxisEpsilon else {
+            return nil
+        }
+        return MouseWheelColumnDelta(axis: .vertical, value: deltaY)
     }
 
     nonisolated private static func processGestureTapCallback(

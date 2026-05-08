@@ -149,10 +149,21 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
     controller.syncMonitorsToNiriEngine()
 
     guard let workspaceId = controller.activeWorkspace()?.id,
-          let monitor = controller.workspaceManager.monitor(for: workspaceId)
+          let monitor = controller.workspaceManager.monitor(for: workspaceId),
+          let engine = controller.niriEngine
     else {
         fatalError("Missing Niri context for committed gesture fixture")
     }
+
+    populateNiriWorkspaceForMouseTests(
+        controller: controller,
+        engine: engine,
+        workspaceId: workspaceId,
+        monitor: monitor,
+        startingWindowId: 540
+    )
+    controller.layoutRefreshController.requestImmediateRelayout(reason: .workspaceTransition)
+    await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
     let handler = controller.mouseEventHandler
     let location = CGPoint(x: monitor.visibleFrame.midX, y: monitor.visibleFrame.midY)
@@ -178,7 +189,361 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
     return (controller, handler, workspaceId, location)
 }
 
+@MainActor
+@discardableResult
+private func populateNiriWorkspaceForMouseTests(
+    controller: WMController,
+    engine: NiriLayoutEngine,
+    workspaceId: WorkspaceDescriptor.ID,
+    monitor: Monitor,
+    startingWindowId: Int,
+    count: Int = 3
+) -> WindowHandle {
+    var focusedHandle: WindowHandle?
+    for index in 0 ..< count {
+        let windowId = startingWindowId + index
+        let token = controller.workspaceManager.addWindow(
+            makeMouseEventTestWindow(windowId: windowId),
+            pid: getpid(),
+            windowId: windowId,
+            to: workspaceId
+        )
+        if focusedHandle == nil {
+            focusedHandle = controller.workspaceManager.handle(for: token)
+        }
+    }
+
+    guard let focusedHandle else {
+        fatalError("Missing focused handle for niri mouse fixture")
+    }
+
+    let handles = controller.workspaceManager.entries(in: workspaceId).map(\.handle)
+    _ = engine.syncWindows(
+        handles,
+        in: workspaceId,
+        selectedNodeId: nil,
+        focusedHandle: focusedHandle
+    )
+    _ = controller.workspaceManager.setManagedFocus(focusedHandle, in: workspaceId, onMonitor: monitor.id)
+    return focusedHandle
+}
+
+@MainActor
+private func prepareMouseWheelScrollFixture() async -> (
+    controller: WMController,
+    handler: MouseEventHandler,
+    workspaceId: WorkspaceDescriptor.ID,
+    location: CGPoint
+) {
+    let controller = makeMouseEventTestController()
+    controller.settings.scrollGestureEnabled = true
+    controller.settings.scrollSensitivity = 1.0
+    let frame = CGRect(x: 0, y: 0, width: 640, height: 800)
+    let monitor = Monitor(
+        id: Monitor.ID(displayId: 1),
+        displayId: 1,
+        frame: frame,
+        visibleFrame: frame,
+        hasNotch: false,
+        name: "Main"
+    )
+    controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+    controller.enableNiriLayout(maxWindowsPerColumn: 1)
+    await controller.layoutRefreshController.waitForRefreshWorkForTests()
+    controller.syncMonitorsToNiriEngine()
+
+    guard let workspaceId = controller.activeWorkspace()?.id,
+          let monitor = controller.workspaceManager.monitor(for: workspaceId),
+          let engine = controller.niriEngine
+    else {
+        fatalError("Missing Niri context for mouse wheel fixture")
+    }
+
+    populateNiriWorkspaceForMouseTests(
+        controller: controller,
+        engine: engine,
+        workspaceId: workspaceId,
+        monitor: monitor,
+        startingWindowId: 580,
+        count: 5
+    )
+
+    controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+        state.viewOffsetPixels = .static(0)
+    }
+    controller.layoutRefreshController.requestImmediateRelayout(reason: .workspaceTransition)
+    await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+    let location = CGPoint(x: monitor.visibleFrame.midX, y: monitor.visibleFrame.midY)
+    return (controller, controller.mouseEventHandler, workspaceId, location)
+}
+
+@MainActor
+private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
+    controller: WMController,
+    handler: MouseEventHandler,
+    workspaceId: WorkspaceDescriptor.ID,
+    location: CGPoint
+) {
+    let fixture = await prepareMouseWheelScrollFixture()
+    fixture.controller.settings.scrollSensitivity = SettingsExport.defaults().scrollSensitivity
+    return fixture
+}
+
 @Suite(.serialized) struct MouseEventHandlerTests {
+    @Test func niriScrollTrackerMatchesWheelTickSemantics() {
+        var tracker = NiriScrollTracker(tick: 120)
+
+        #expect(tracker.accumulate(60) == 0)
+        #expect(tracker.accumulate(60) == 1)
+        #expect(tracker.accumulate(-60) == 0)
+        #expect(tracker.accumulate(-60) == -1)
+
+        tracker.reset()
+        #expect(tracker.accumulate(20_000) == 127)
+        #expect(abs(tracker.accumulator - 80) < 0.001)
+    }
+
+    @Test @MainActor func mouseWheelAxisResolutionPrefersPhysicalHorizontalInput() {
+        let belowAxisEpsilonDelta: CGFloat = 0.0005
+
+        #expect(MouseEventHandler.resolvedWheelAxisDelta(pointDelta: 3, fixedPointDelta: 9) == 3)
+        #expect(MouseEventHandler.resolvedWheelAxisDelta(pointDelta: 0, fixedPointDelta: 9) == 9)
+        #expect(
+            MouseEventHandler.resolvedMouseWheelColumnDeltaValue(
+                deltaX: 12,
+                deltaY: 120,
+                allowVerticalFallback: true
+            ) == 12
+        )
+        #expect(
+            MouseEventHandler.resolvedMouseWheelColumnDeltaValue(
+                deltaX: 0,
+                deltaY: 12,
+                allowVerticalFallback: true
+            ) == 12
+        )
+        #expect(
+            MouseEventHandler.resolvedMouseWheelColumnDeltaValue(
+                deltaX: 0,
+                deltaY: 12,
+                allowVerticalFallback: false
+            ) == nil
+        )
+        #expect(
+            MouseEventHandler.resolvedMouseWheelColumnDeltaValue(
+                deltaX: belowAxisEpsilonDelta,
+                deltaY: belowAxisEpsilonDelta,
+                allowVerticalFallback: true
+            ) == nil
+        )
+    }
+
+    @Test @MainActor func mouseWheelModifierMatchingUsesExactNiriBindModifiers() {
+        let required: CGEventFlags = [.maskAlternate, .maskShift]
+
+        #expect(MouseEventHandler.mouseWheelModifiersMatch(required, required: required))
+        #expect(MouseEventHandler.mouseWheelModifiersMatch([.maskAlternate, .maskShift, .maskCommand], required: required) == false)
+        #expect(MouseEventHandler.mouseWheelModifiersMatch([.maskAlternate], required: required) == false)
+    }
+
+    @Test @MainActor func mouseWheelHorizontalAxisWinsAndFocusesNextColumn() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 120,
+            deltaY: 1_000,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(after.activeColumnIndex == before.activeColumnIndex + 1)
+        #expect(after.viewOffsetPixels.isGesture == false)
+    }
+
+    @Test @MainActor func mouseWheelAccumulatesDiscreteNiriTicksBeforeFocusingColumn() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 60,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let afterSmallDelta = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(afterSmallDelta.activeColumnIndex == before.activeColumnIndex)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 60,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(after.activeColumnIndex == before.activeColumnIndex + 1)
+        #expect(after.viewOffsetPixels.isGesture == false)
+    }
+
+    @Test @MainActor func mouseWheelDefaultSensitivityDoesNotMultiplyNiriTicks() async {
+        let fixture = await prepareMouseWheelScrollFixtureWithDefaultSensitivity()
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 120,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(after.activeColumnIndex == before.activeColumnIndex + 1)
+    }
+
+    @Test @MainActor func mouseWheelVerticalShiftFallbackFocusesNextColumn() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 0,
+            deltaY: 120,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(after.activeColumnIndex == before.activeColumnIndex + 1)
+        #expect(after.viewOffsetPixels.isGesture == false)
+    }
+
+    @Test @MainActor func mouseWheelExtraModifiersDoNotTriggerConfiguredScroll() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 120,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag.union(.maskCommand)
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(after.activeColumnIndex == before.activeColumnIndex)
+        #expect(after.selectedNodeId == before.selectedNodeId)
+    }
+
+    @Test @MainActor func mouseWheelScrollRebasesActiveColumnAfterCrossingColumnBoundary() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let focusedTokenBeforeScroll = fixture.controller.workspaceManager.focusedToken
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 1_000,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(after.activeColumnIndex == min(before.activeColumnIndex + Int(1_000 / 120), 4))
+        #expect(after.viewOffsetPixels.isGesture == false)
+        #expect(after.selectionProgress == 0)
+
+        guard let engine = fixture.controller.niriEngine else {
+            Issue.record("Missing Niri engine after mouse wheel scroll")
+            return
+        }
+        let columns = engine.columns(in: fixture.workspaceId)
+        guard columns.indices.contains(after.activeColumnIndex) else {
+            Issue.record("Mouse wheel scroll rebased to an invalid active column")
+            return
+        }
+        let activeColumn = columns[after.activeColumnIndex]
+        let windows = activeColumn.windowNodes
+        guard !windows.isEmpty else {
+            Issue.record("Mouse wheel scroll rebased to an empty active column")
+            return
+        }
+        let expectedWindow = windows[activeColumn.activeTileIdx.clamped(to: 0 ... (windows.count - 1))]
+        #expect(after.selectedNodeId == expectedWindow.id)
+        #expect(fixture.controller.workspaceManager.lastFocusedToken(in: fixture.workspaceId) == expectedWindow.token)
+        #expect(fixture.controller.workspaceManager.focusedToken == focusedTokenBeforeScroll)
+    }
+
+    @Test @MainActor func trackpadLikeScrollWheelEventDoesNotUseMouseWheelPath() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+            .viewOffsetPixels.current()
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 50,
+            deltaY: 0,
+            momentumPhase: 1,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        #expect(abs(after.viewOffsetPixels.current() - before) < 0.001)
+        #expect(after.viewOffsetPixels.isGesture == false)
+    }
+
+    @Test @MainActor func trackpadGestureStartsFromCurrentAnimationOffset() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        guard let engine = fixture.controller.niriEngine,
+              let monitor = fixture.controller.workspaceManager.monitor(for: fixture.workspaceId)
+        else {
+            Issue.record("Missing Niri context for animation handoff regression test")
+            return
+        }
+
+        let animationStart = CACurrentMediaTime()
+        fixture.controller.workspaceManager.withNiriViewportState(for: fixture.workspaceId) { state in
+            state.viewOffsetPixels = .spring(
+                SpringAnimation(
+                    from: 20,
+                    to: 500,
+                    startTime: animationStart,
+                    config: .niriHorizontalViewMovement
+                )
+            )
+        }
+
+        fixture.handler.applyTrackpadViewportScrollDelta(
+            0,
+            engine: engine,
+            wsId: fixture.workspaceId,
+            monitor: monitor,
+            timestamp: animationStart
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        guard let gesture = after.viewOffsetPixels.gestureRef else {
+            Issue.record("Expected new trackpad gesture after interrupting animation")
+            return
+        }
+        #expect(abs(gesture.stationaryViewOffset - 20) < 5)
+    }
+
     @Test @MainActor func lockedInputHandlersAreNoOps() async {
         let controller = makeMouseEventTestController()
         controller.isLockScreenActive = true
@@ -221,6 +586,125 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
         #expect(handler.state.isMoving == false)
         #expect(handler.state.isResizing == false)
         #expect(controller.workspaceManager.pendingFocusedHandle == nil)
+    }
+
+    @Test @MainActor func receiveTapGestureEventIsSuppressedWhileLocked() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let controller = fixture.controller
+        let handler = fixture.handler
+        let initialState = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        handler.resetDebugStateForTests()
+        handler.receiveTapMouseMoved(at: fixture.location)
+        controller.isLockScreenActive = true
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        let baseTime = CACurrentMediaTime()
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.began.rawValue,
+                timestamp: baseTime,
+                touches: makeGestureTouchSamples(xPositions: [0.20, 0.25, 0.30])
+            )
+        )
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.changed.rawValue,
+                timestamp: baseTime + 0.016,
+                touches: makeGestureTouchSamples(xPositions: [0.70, 0.75, 0.80])
+            )
+        )
+
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        let after = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        let debugSnapshot = handler.mouseTapDebugSnapshot()
+        #expect(abs(after.viewOffsetPixels.current() - initialState.viewOffsetPixels.current()) < 0.001)
+        #expect(after.activeColumnIndex == initialState.activeColumnIndex)
+        #expect(after.selectedNodeId == initialState.selectedNodeId)
+        #expect(handler.state.gesturePhase == .idle)
+        #expect(handler.state.lockedGestureContext == nil)
+        #expect(controller.workspaceManager.pendingFocusedHandle == nil)
+        #expect(debugSnapshot.queuedTransientEvents == 1)
+        #expect(debugSnapshot.drainedTransientEvents == 0)
+        #expect(relayoutReasons.isEmpty)
+    }
+
+    @Test @MainActor func receiveTapScrollWheelDropsLockedEventsBeforeQueueing() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let controller = fixture.controller
+        let handler = fixture.handler
+        let initialState = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        let focusedTokenBeforeScroll = controller.workspaceManager.focusedToken
+        controller.isLockScreenActive = true
+        handler.resetDebugStateForTests()
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        handler.receiveTapScrollWheel(
+            at: fixture.location,
+            deltaX: 120,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        controller.isLockScreenActive = false
+        handler.flushPendingTapEventsForTests()
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        let after = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        let debugSnapshot = handler.mouseTapDebugSnapshot()
+        #expect(after.activeColumnIndex == initialState.activeColumnIndex)
+        #expect(after.selectedNodeId == initialState.selectedNodeId)
+        #expect(abs(after.viewOffsetPixels.current() - initialState.viewOffsetPixels.current()) < 0.001)
+        #expect(controller.workspaceManager.focusedToken == focusedTokenBeforeScroll)
+        #expect(controller.workspaceManager.pendingFocusedHandle == nil)
+        #expect(debugSnapshot.queuedTransientEvents == 0)
+        #expect(relayoutReasons.isEmpty)
+    }
+
+    @Test @MainActor func lockTransitionDropsQueuedScrollBeforeUnlock() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let controller = fixture.controller
+        let handler = fixture.handler
+        let initialState = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        handler.resetDebugStateForTests()
+
+        handler.receiveTapScrollWheel(
+            at: fixture.location,
+            deltaX: 120,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: controller.settings.scrollModifierKey.cgEventFlag
+        )
+        #expect(handler.state.pendingTapEvents.hasPendingEvents)
+
+        controller.isLockScreenActive = true
+        controller.isLockScreenActive = false
+        handler.flushPendingTapEventsForTests()
+
+        let after = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        let debugSnapshot = handler.mouseTapDebugSnapshot()
+        #expect(handler.state.pendingTapEvents.hasPendingEvents == false)
+        #expect(after.activeColumnIndex == initialState.activeColumnIndex)
+        #expect(after.selectedNodeId == initialState.selectedNodeId)
+        #expect(debugSnapshot.queuedTransientEvents == 1)
+        #expect(debugSnapshot.drainedTransientEvents == 0)
     }
 
     @Test @MainActor func resizeEndUsesInteractiveGestureImmediateRelayout() async {
@@ -674,6 +1158,102 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
         #expect(updatedState.viewOffsetPixels.isGesture == false)
     }
 
+    @Test @MainActor func trackpadGestureCommitAppliesOnlyCurrentUpdateDelta() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let controller = fixture.controller
+        controller.settings.gestureInvertDirection = false
+        let handler = fixture.handler
+        let baseTime = CACurrentMediaTime()
+
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.began.rawValue,
+                timestamp: baseTime,
+                touches: makeGestureTouchSamples(xPositions: [0.20, 0.20, 0.20])
+            )
+        )
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.changed.rawValue,
+                timestamp: baseTime + 0.016,
+                touches: makeGestureTouchSamples(xPositions: [0.215, 0.215, 0.215])
+            )
+        )
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.changed.rawValue,
+                timestamp: baseTime + 0.032,
+                touches: makeGestureTouchSamples(xPositions: [0.235, 0.235, 0.235])
+            )
+        )
+
+        let updatedState = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        guard let monitor = controller.workspaceManager.monitor(for: fixture.workspaceId) else {
+            Issue.record("Missing monitor for trackpad current-delta regression test")
+            return
+        }
+        let viewportWidth = controller.insetWorkingFrame(for: monitor).width
+        guard let gesture = updatedState.viewOffsetPixels.gestureRef else {
+            Issue.record("Expected in-flight viewport gesture after crossing threshold")
+            return
+        }
+        let expectedAppliedDelta = CGFloat((0.235 - 0.215) * 500.0) * viewportWidth / 1200.0
+        let actualAppliedDelta = CGFloat(gesture.currentViewOffset - gesture.stationaryViewOffset)
+        #expect(handler.state.gesturePhase == .committed)
+        #expect(abs(actualAppliedDelta - expectedAppliedDelta) < 0.1)
+    }
+
+    @Test @MainActor func committedTrackpadGestureKeepsSubPixelDeltasForVelocity() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        let controller = fixture.controller
+        controller.settings.gestureInvertDirection = false
+        let handler = fixture.handler
+        let baseTime = CACurrentMediaTime()
+
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.began.rawValue,
+                timestamp: baseTime,
+                touches: makeGestureTouchSamples(xPositions: [0.20, 0.20, 0.20])
+            )
+        )
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.changed.rawValue,
+                timestamp: baseTime + 0.016,
+                touches: makeGestureTouchSamples(xPositions: [0.24, 0.24, 0.24])
+            )
+        )
+
+        let beforeTinyDelta = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        guard let beforeGesture = beforeTinyDelta.viewOffsetPixels.gestureRef else {
+            Issue.record("Expected committed gesture before tiny delta")
+            return
+        }
+        let beforeOffset = beforeGesture.currentViewOffset
+
+        handler.receiveTapGestureEvent(
+            .init(
+                location: fixture.location,
+                phaseRawValue: NSEvent.Phase.changed.rawValue,
+                timestamp: baseTime + 0.032,
+                touches: makeGestureTouchSamples(xPositions: [0.2404, 0.2404, 0.2404])
+            )
+        )
+
+        let afterTinyDelta = controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        guard let afterGesture = afterTinyDelta.viewOffsetPixels.gestureRef else {
+            Issue.record("Expected committed gesture after tiny delta")
+            return
+        }
+        #expect(afterGesture.currentViewOffset > beforeOffset)
+    }
+
     @Test @MainActor func verticalDominantThreeFingerGestureDoesNotScrollViewport() async {
         let controller = makeMouseEventTestController()
         controller.settings.scrollGestureEnabled = true
@@ -775,6 +1355,7 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
             column.cachedHeight = 800
         }
         _ = controller.workspaceManager.setManagedFocus(firstHandle, in: workspaceId, onMonitor: monitor.id)
+        let focusedTokenBeforeGesture = controller.workspaceManager.focusedToken
         controller.layoutRefreshController.requestImmediateRelayout(reason: .workspaceTransition)
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
@@ -835,11 +1416,13 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
         #expect(finalizedState.viewOffsetPixels.isAnimating == true)
         #expect(finalizedState.activeColumnIndex == expectedActiveColumnIndex)
         #expect(finalizedState.selectedNodeId == expectedSelectedNode.id)
+        #expect(controller.workspaceManager.lastFocusedToken(in: workspaceId) == expectedSelectedNode.token)
+        #expect(controller.workspaceManager.focusedToken == focusedTokenBeforeGesture)
         #expect(handler.state.gesturePhase == .idle)
         #expect(handler.state.lockedGestureContext == nil)
     }
 
-    @Test @MainActor func committedTrackpadGestureCancelsViewportWhenContextBecomesUnsupported() async {
+    @Test @MainActor func committedTrackpadGestureFinalizesWhenContextBecomesUnsupported() async {
         let controller = makeMouseEventTestController(
             workspaceConfigurations: [
                 WorkspaceConfiguration(name: "1", monitorAssignment: .main, layoutType: .niri),
@@ -853,7 +1436,8 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
         controller.syncMonitorsToNiriEngine()
 
         guard let firstWorkspace = controller.activeWorkspace(),
-              let monitor = controller.workspaceManager.monitor(for: firstWorkspace.id)
+              let monitor = controller.workspaceManager.monitor(for: firstWorkspace.id),
+              let engine = controller.niriEngine
         else {
             Issue.record("Missing initial workspace for gesture cleanup regression test")
             return
@@ -861,6 +1445,15 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
 
         let handler = controller.mouseEventHandler
         let location = CGPoint(x: monitor.visibleFrame.midX, y: monitor.visibleFrame.midY)
+        populateNiriWorkspaceForMouseTests(
+            controller: controller,
+            engine: engine,
+            workspaceId: firstWorkspace.id,
+            monitor: monitor,
+            startingWindowId: 570
+        )
+        controller.layoutRefreshController.requestImmediateRelayout(reason: .workspaceTransition)
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
         controller.workspaceManager.withNiriViewportState(for: firstWorkspace.id) { state in
             state.viewOffsetPixels = .static(-84)
@@ -885,12 +1478,11 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
         )
 
         let inFlightViewportState = controller.workspaceManager.niriViewportState(for: firstWorkspace.id)
-        guard let gesture = inFlightViewportState.viewOffsetPixels.gestureRef else {
+        guard inFlightViewportState.viewOffsetPixels.gestureRef != nil else {
             Issue.record("Expected committed gesture state before switching to unsupported context")
             return
         }
 
-        let expectedOffset = gesture.currentViewOffset
         #expect(handler.state.gesturePhase == .committed)
         #expect(handler.state.lockedGestureContext?.workspaceId == firstWorkspace.id)
 
@@ -917,16 +1509,15 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
         )
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
-        let cancelledViewportState = controller.workspaceManager.niriViewportState(for: firstWorkspace.id)
-        #expect(cancelledViewportState.viewOffsetPixels.isGesture == false)
-        #expect(cancelledViewportState.viewOffsetPixels.isAnimating == false)
-        #expect(abs(Double(cancelledViewportState.viewOffsetPixels.target()) - expectedOffset) < 0.001)
-        #expect(cancelledViewportState.selectionProgress == 0)
-        #expect(cancelledViewportState.viewOffsetToRestore == nil)
-        #expect(cancelledViewportState.activatePrevColumnOnRemoval == nil)
+        let finalizedViewportState = controller.workspaceManager.niriViewportState(for: firstWorkspace.id)
+        #expect(finalizedViewportState.viewOffsetPixels.isGesture == false)
+        #expect(finalizedViewportState.viewOffsetPixels.isAnimating)
+        #expect(finalizedViewportState.selectionProgress == 0)
+        #expect(finalizedViewportState.viewOffsetToRestore == 123)
+        #expect(finalizedViewportState.activatePrevColumnOnRemoval == nil)
         #expect(handler.state.gesturePhase == .idle)
         #expect(handler.state.lockedGestureContext == nil)
-        #expect(relayoutReasons == [.interactiveGesture])
+        #expect(relayoutReasons.isEmpty)
     }
 
     @Test @MainActor func committedTrackpadGestureResetsWhenControllerIsDisabled() async {
@@ -943,11 +1534,11 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
             )
         )
 
-        let cancelledState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        let finalizedState = controller.workspaceManager.niriViewportState(for: workspaceId)
         #expect(handler.state.gesturePhase == .idle)
         #expect(handler.state.lockedGestureContext == nil)
-        #expect(cancelledState.viewOffsetPixels.isGesture == false)
-        #expect(cancelledState.viewOffsetPixels.isAnimating == false)
+        #expect(finalizedState.viewOffsetPixels.isGesture == false)
+        #expect(finalizedState.viewOffsetPixels.isAnimating)
     }
 
     @Test @MainActor func committedTrackpadGestureResetsWhenScrollGesturesAreDisabled() async {
@@ -964,11 +1555,11 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
             )
         )
 
-        let cancelledState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        let finalizedState = controller.workspaceManager.niriViewportState(for: workspaceId)
         #expect(handler.state.gesturePhase == .idle)
         #expect(handler.state.lockedGestureContext == nil)
-        #expect(cancelledState.viewOffsetPixels.isGesture == false)
-        #expect(cancelledState.viewOffsetPixels.isAnimating == false)
+        #expect(finalizedState.viewOffsetPixels.isGesture == false)
+        #expect(finalizedState.viewOffsetPixels.isAnimating)
     }
 
     @Test @MainActor func scrollBurstOnlyMergesWithinMatchingModifierAndPhaseGroups() {
@@ -1005,6 +1596,36 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
         let debugSnapshot = handler.mouseTapDebugSnapshot()
         #expect(debugSnapshot.queuedTransientEvents == 3)
         #expect(debugSnapshot.coalescedTransientEvents == 1)
+        #expect(debugSnapshot.drainRuns == 2)
+        #expect(debugSnapshot.drainedTransientEvents == 2)
+    }
+
+    @Test @MainActor func scrollBurstFlushesBeforeDirectionChanges() {
+        let controller = makeMouseEventTestController()
+        let handler = controller.mouseEventHandler
+
+        handler.resetDebugStateForTests()
+        handler.receiveTapScrollWheel(
+            at: CGPoint(x: 10, y: 10),
+            deltaX: 60,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: [.maskAlternate, .maskShift]
+        )
+        handler.receiveTapScrollWheel(
+            at: CGPoint(x: 10, y: 10),
+            deltaX: -60,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: [.maskAlternate, .maskShift]
+        )
+        handler.flushPendingTapEventsForTests()
+
+        let debugSnapshot = handler.mouseTapDebugSnapshot()
+        #expect(debugSnapshot.queuedTransientEvents == 2)
+        #expect(debugSnapshot.coalescedTransientEvents == 0)
         #expect(debugSnapshot.drainRuns == 2)
         #expect(debugSnapshot.drainedTransientEvents == 2)
     }

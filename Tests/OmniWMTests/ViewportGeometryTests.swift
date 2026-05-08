@@ -16,9 +16,9 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
     @Test func updateGestureDoesNotClampOrAdvanceSelectionDuringSwipe() {
         var state = ViewportState()
         state.activeColumnIndex = 1
-        state.beginGesture(isTrackpad: true)
-
         let columns = makeViewportGestureContainers(widths: [300, 300])
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
+
         let steps = state.updateGesture(
             deltaPixels: 10_000,
             timestamp: 1.0,
@@ -39,11 +39,11 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
         #expect(abs(gesture.currentViewOffset - 10_000) < 0.001)
     }
 
-    @Test func updateGestureClampsMouseWheelOffsetToContentBounds() {
+    @Test func updateGestureDoesNotClampGenericNonTrackpadGesture() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: false)
-
         let columns = makeViewportGestureContainers(widths: [300, 300])
+        _ = state.beginGesture(isTrackpad: false, columns: columns)
+
         _ = state.updateGesture(
             deltaPixels: 10_000,
             timestamp: 1.0,
@@ -58,15 +58,16 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
             return
         }
 
-        #expect(abs(gesture.currentViewOffset - 410) < 0.001)
+        #expect(abs(gesture.currentViewOffset - 10_000) < 0.001)
     }
 
     @Test func endGestureUsesNiriLargeColumnCorrection() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: false)
         state.viewOffsetToRestore = 99
 
         let columns = makeViewportGestureContainers(widths: [300, 300])
+        _ = state.beginGesture(isTrackpad: false, columns: columns)
+
         _ = state.updateGesture(
             deltaPixels: 1_000,
             timestamp: 1.0,
@@ -91,11 +92,12 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
 
     @Test func endGesturePreservesRestoreOffsetWhenColumnDoesNotChange() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: false)
         state.viewOffsetToRestore = 99
+        let columns = makeViewportGestureContainers(widths: [300, 300])
+        _ = state.beginGesture(isTrackpad: false, columns: columns)
 
         state.endGesture(
-            columns: makeViewportGestureContainers(widths: [300, 300]),
+            columns: columns,
             gap: 10,
             viewportWidth: 200,
             motion: .disabled,
@@ -110,9 +112,9 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
     @Test func endGestureCanPreserveTrackpadOffsetWithoutSnapping() {
         var state = ViewportState()
         state.viewOffsetToRestore = 99
-        state.beginGesture(isTrackpad: true)
-
         let columns = makeViewportGestureContainers(widths: [300, 300, 300])
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
+
         _ = state.updateGesture(
             deltaPixels: 240,
             timestamp: 1.0,
@@ -138,7 +140,7 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
         #expect(abs(Double(state.viewOffsetPixels.target()) - 100) < 0.001)
         #expect(state.viewOffsetToRestore == 99)
 
-        state.beginGesture(isTrackpad: true)
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
         _ = state.updateGesture(
             deltaPixels: 120,
             timestamp: 2.0,
@@ -165,7 +167,7 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
         var state = ViewportState()
         let columns = makeViewportGestureContainers(widths: [300, 300, 300])
 
-        state.beginGesture(isTrackpad: true)
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
         _ = state.updateGesture(
             deltaPixels: 20,
             timestamp: 1.0,
@@ -193,7 +195,7 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
         var state = ViewportState()
         let columns = makeViewportGestureContainers(widths: [300, 300, 300])
 
-        state.beginGesture(isTrackpad: true)
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
         _ = state.updateGesture(
             deltaPixels: 200,
             timestamp: 1.0,
@@ -221,7 +223,7 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
         var state = ViewportState()
         let columns = makeViewportGestureContainers(widths: [300, 300, 300, 300, 300])
 
-        state.beginGesture(isTrackpad: true)
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
         _ = state.updateGesture(
             deltaPixels: 2_000,
             timestamp: 1.0,
@@ -248,10 +250,10 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
     @Test func preservedTrackpadOffsetKeepsHalfVisibleActiveColumn() {
         var state = ViewportState()
         state.viewOffsetToRestore = 99
-        state.beginGesture(isTrackpad: true)
+        let columns = makeViewportGestureContainers(widths: [300, 300, 300])
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
         state.viewOffsetPixels.gestureRef?.applyDelta(120)
 
-        let columns = makeViewportGestureContainers(widths: [300, 300, 300])
         state.endGesture(
             columns: columns,
             gap: 10,
@@ -271,10 +273,10 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
     @Test func preservedTrackpadOffsetRebasesToMostVisibleColumnWithoutMovingView() {
         var state = ViewportState()
         state.viewOffsetToRestore = 99
-        state.beginGesture(isTrackpad: true)
+        let columns = makeViewportGestureContainers(widths: [300, 300, 300])
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
         state.viewOffsetPixels.gestureRef?.applyDelta(220)
 
-        let columns = makeViewportGestureContainers(widths: [300, 300, 300])
         state.endGesture(
             columns: columns,
             gap: 10,
@@ -293,10 +295,10 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
 
     @Test func preservedTrackpadOffsetClampsAtStripEndWithoutWrappingToFront() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: true)
+        let columns = makeViewportGestureContainers(widths: [300, 300, 300, 300, 300])
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
         state.viewOffsetPixels.gestureRef?.applyDelta(10_000)
 
-        let columns = makeViewportGestureContainers(widths: [300, 300, 300, 300, 300])
         state.endGesture(
             columns: columns,
             gap: 10,
@@ -314,9 +316,9 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
 
     @Test func endGesturePreservingTrackpadOffsetClampsPastContentBounds() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: true)
-
         let columns = makeViewportGestureContainers(widths: [300, 300])
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
+
         _ = state.updateGesture(
             deltaPixels: 10_000,
             timestamp: 1.0,
@@ -343,13 +345,14 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
 
     @Test func gestureIgnoresMismatchedInputSource() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: false)
+        let columns = makeViewportGestureContainers(widths: [300, 300])
+        _ = state.beginGesture(isTrackpad: false, columns: columns)
 
         _ = state.updateGesture(
             deltaPixels: 500,
             timestamp: 1.0,
             isTrackpad: true,
-            columns: makeViewportGestureContainers(widths: [300, 300]),
+            columns: columns,
             gap: 10,
             viewportWidth: 200
         )
@@ -361,7 +364,7 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
         #expect(gesture.currentViewOffset == 0)
 
         state.endGesture(
-            columns: makeViewportGestureContainers(widths: [300, 300]),
+            columns: columns,
             gap: 10,
             viewportWidth: 200,
             motion: .disabled,
@@ -374,9 +377,9 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
 
     @Test func endGestureUsesParentFrameRightStrutForSnapTarget() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: false)
-
         let columns = makeViewportGestureContainers(widths: [900, 900])
+        _ = state.beginGesture(isTrackpad: false, columns: columns)
+
         _ = state.updateGesture(
             deltaPixels: 2_000,
             timestamp: 1.0,
@@ -403,9 +406,9 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
 
     @Test func updateGestureReturnsNilForZeroWidthSingleColumn() {
         var state = ViewportState()
-        state.beginGesture(isTrackpad: true)
-
         let columns = makeViewportGestureContainers(widths: [0])
+        _ = state.beginGesture(isTrackpad: true, columns: columns)
+
         let steps = state.updateGesture(
             deltaPixels: 120,
             timestamp: 1.0,
@@ -440,10 +443,15 @@ private func makeViewportGestureContainers(widths: [CGFloat]) -> [NiriContainer]
             var state = ViewportState()
             state.activeColumnIndex = 2
             state.viewOffsetPixels = .static(-32)
-            state.beginGesture(isTrackpad: false)
             state.selectionProgress = 17
             state.viewOffsetToRestore = 99
             state.activatePrevColumnOnRemoval = 42
+
+            guard state.beginGesture(isTrackpad: false, columns: scenario.columns) else {
+                #expect(scenario.columns.isEmpty, Comment(rawValue: scenario.label))
+                #expect(state.viewOffsetPixels.isGesture == false, Comment(rawValue: scenario.label))
+                continue
+            }
 
             guard let gesture = state.viewOffsetPixels.gestureRef else {
                 Issue.record("Expected gesture state for \(scenario.label)")

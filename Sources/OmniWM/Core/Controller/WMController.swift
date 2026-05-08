@@ -63,7 +63,12 @@ final class WMController {
     private let hotkeys = HotkeyCenter()
     let secureInputMonitor = SecureInputMonitor()
     let lockScreenObserver = LockScreenObserver()
-    var isLockScreenActive: Bool = false
+    var isLockScreenActive: Bool = false {
+        didSet {
+            guard isLockScreenActive, oldValue != isLockScreenActive else { return }
+            mouseEventHandler.handleInputSuppressionBegan()
+        }
+    }
     let axManager = AXManager()
     let appInfoCache = AppInfoCache()
     let focusBridge: FocusBridgeCoordinator
