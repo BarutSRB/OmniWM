@@ -1083,6 +1083,46 @@ private func hasPendingNiriAnimationWork(
         }
     }
 
+    func cycleWindowWidth(forward: Bool) {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+            else { return }
+
+            engine.toggleWindowWidth(
+                windowNode,
+                forwards: forward,
+                in: wsId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func cycleWindowHeight(forward: Bool) {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, _, state, _, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+            else { return }
+
+            engine.toggleWindowHeight(
+                windowNode,
+                forwards: forward,
+                in: wsId,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
     func toggleColumnFullWidth() {
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
@@ -1096,6 +1136,102 @@ private func hasPendingNiriAnimationWork(
                 in: wsId,
                 motion: motion,
                 state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func expandColumnToAvailableWidth() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let column = engine.findColumn(containing: windowNode, in: wsId)
+            else { return }
+
+            engine.expandColumnToAvailableWidth(
+                column,
+                in: wsId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func resetWindowHeight() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, _, state, _, _, _ in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+            else { return }
+
+            engine.resetWindowHeight(windowNode, in: wsId)
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func setColumnWidth(_ change: NiriSizeChange) {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let column = engine.findColumn(containing: windowNode, in: wsId)
+            else { return }
+
+            engine.setColumnWidth(
+                column,
+                change: change,
+                in: wsId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func setWindowWidth(_ change: NiriSizeChange) {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+            else { return }
+
+            engine.setWindowWidth(
+                windowNode,
+                change: change,
+                in: wsId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func setWindowHeight(_ change: NiriSizeChange) {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, _, state, _, workingFrame, gaps in
+            guard let currentId = state.selectedNodeId,
+                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+            else { return }
+
+            engine.setWindowHeight(
+                windowNode,
+                change: change,
+                in: wsId,
                 workingFrame: workingFrame,
                 gaps: gaps
             )

@@ -220,7 +220,19 @@ enum ActionCatalog {
         specs.append(contentsOf: [
             action(id: "cycleColumnWidthForward", command: .cycleColumnWidthForward, category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Period), modifiers: UInt32(optionKey))),
             action(id: "cycleColumnWidthBackward", command: .cycleColumnWidthBackward, category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Comma), modifiers: UInt32(optionKey))),
+            action(id: "cycleWindowWidthForward", command: .cycleWindowWidthForward, category: .column, binding: .unassigned),
+            action(id: "cycleWindowWidthBackward", command: .cycleWindowWidthBackward, category: .column, binding: .unassigned),
+            action(id: "cycleWindowHeightForward", command: .cycleWindowHeightForward, category: .column, binding: .unassigned),
+            action(id: "cycleWindowHeightBackward", command: .cycleWindowHeightBackward, category: .column, binding: .unassigned),
             action(id: "toggleColumnFullWidth", command: .toggleColumnFullWidth, category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(optionKey | shiftKey))),
+            action(id: "expandColumnToAvailableWidth", command: .expandColumnToAvailableWidth, category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(optionKey | controlKey))),
+            action(id: "resetWindowHeight", command: .resetWindowHeight, category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_R), modifiers: UInt32(optionKey | controlKey))),
+            action(id: "setColumnWidth.decrease10Percent", command: .setColumnWidth(.adjustProportion(-10)), category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey)), keywords: ["shrink column", "resize column"]),
+            action(id: "setColumnWidth.increase10Percent", command: .setColumnWidth(.adjustProportion(10)), category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Equal), modifiers: UInt32(optionKey)), keywords: ["grow column", "resize column"]),
+            action(id: "setWindowWidth.decrease10Percent", command: .setWindowWidth(.adjustProportion(-10)), category: .column, binding: .unassigned, keywords: ["shrink window", "resize window"]),
+            action(id: "setWindowWidth.increase10Percent", command: .setWindowWidth(.adjustProportion(10)), category: .column, binding: .unassigned, keywords: ["grow window", "resize window"]),
+            action(id: "setWindowHeight.decrease10Percent", command: .setWindowHeight(.adjustProportion(-10)), category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey | shiftKey)), keywords: ["shorter window", "resize window"]),
+            action(id: "setWindowHeight.increase10Percent", command: .setWindowHeight(.adjustProportion(10)), category: .column, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Equal), modifiers: UInt32(optionKey | shiftKey)), keywords: ["taller window", "resize window"]),
             action(id: "balanceSizes", command: .balanceSizes, category: .layout, binding: KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: UInt32(optionKey | shiftKey))),
             action(id: "moveToRoot", command: .moveToRoot, category: .layout, binding: .unassigned),
             action(id: "toggleSplit", command: .toggleSplit, category: .layout, binding: .unassigned),
@@ -288,6 +300,10 @@ enum ActionCatalog {
 
         case .moveColumn, .moveColumnToWorkspace, .moveColumnToWorkspaceUp, .moveColumnToWorkspaceDown,
              .toggleColumnFullWidth, .toggleColumnTabbed,
+             .cycleWindowWidthForward, .cycleWindowWidthBackward,
+             .cycleWindowHeightForward, .cycleWindowHeightBackward,
+             .expandColumnToAvailableWidth, .resetWindowHeight,
+             .setColumnWidth, .setWindowWidth, .setWindowHeight,
              .focusPrevious, .focusDownOrLeft, .focusUpOrRight,
              .focusColumnFirst, .focusColumnLast, .focusColumn:
             .niri
@@ -339,7 +355,16 @@ enum ActionCatalog {
         case let .focusColumn(idx): "Focus Column \(idx + 1)"
         case .cycleColumnWidthForward: "Cycle Column Width Forward"
         case .cycleColumnWidthBackward: "Cycle Column Width Backward"
+        case .cycleWindowWidthForward: "Cycle Window Width Forward"
+        case .cycleWindowWidthBackward: "Cycle Window Width Backward"
+        case .cycleWindowHeightForward: "Cycle Window Height Forward"
+        case .cycleWindowHeightBackward: "Cycle Window Height Backward"
         case .toggleColumnFullWidth: "Toggle Column Full Width"
+        case .expandColumnToAvailableWidth: "Expand Column to Available Width"
+        case .resetWindowHeight: "Reset Window Height"
+        case let .setColumnWidth(change): "Set Column Width \(sizeChangeDisplayName(change))"
+        case let .setWindowWidth(change): "Set Window Width \(sizeChangeDisplayName(change))"
+        case let .setWindowHeight(change): "Set Window Height \(sizeChangeDisplayName(change))"
         case let .swapWorkspaceWithMonitor(dir): "Swap Workspace with \(dir.displayName) Monitor"
         case .balanceSizes: "Balance Sizes"
         case .moveToRoot: "Move to Root"
@@ -422,8 +447,26 @@ enum ActionCatalog {
             .cycleColumnWidthForward
         case .cycleColumnWidthBackward:
             .cycleColumnWidthBackward
+        case .cycleWindowWidthForward:
+            .cycleWindowWidthForward
+        case .cycleWindowWidthBackward:
+            .cycleWindowWidthBackward
+        case .cycleWindowHeightForward:
+            .cycleWindowHeightForward
+        case .cycleWindowHeightBackward:
+            .cycleWindowHeightBackward
         case .toggleColumnFullWidth:
             .toggleColumnFullWidth
+        case .expandColumnToAvailableWidth:
+            .expandColumnToAvailableWidth
+        case .resetWindowHeight:
+            .resetWindowHeight
+        case .setColumnWidth:
+            .setColumnWidth
+        case .setWindowWidth:
+            .setWindowWidth
+        case .setWindowHeight:
+            .setWindowHeight
         case .swapWorkspaceWithMonitor:
             .swapWorkspaceWithMonitor
         case .balanceSizes:
@@ -468,6 +511,19 @@ enum ActionCatalog {
             .scratchpadToggle
         case .openMenuAnywhere:
             .openMenuAnywhere
+        }
+    }
+
+    private static func sizeChangeDisplayName(_ change: NiriSizeChange) -> String {
+        switch change {
+        case let .setFixed(value):
+            "Fixed \(Int(value))px"
+        case let .setProportion(value):
+            "\(Int(value))%"
+        case let .adjustFixed(value):
+            "\(value >= 0 ? "+" : "")\(Int(value))px"
+        case let .adjustProportion(value):
+            "\(value >= 0 ? "+" : "")\(Int(value))%"
         }
     }
 }

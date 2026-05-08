@@ -39,6 +39,7 @@ public enum IPCCommandArgumentKind: String, Codable, CaseIterable, Equatable, Se
     case columnIndex = "column-index"
     case layout
     case resizeOperation = "resize-operation"
+    case sizeChange = "size-change"
 
     public var usagePlaceholder: String {
         switch self {
@@ -50,6 +51,8 @@ public enum IPCCommandArgumentKind: String, Codable, CaseIterable, Equatable, Se
             "<default|niri|dwindle>"
         case .resizeOperation:
             "<grow|shrink>"
+        case .sizeChange:
+            "<size-change>"
         }
     }
 }
@@ -244,6 +247,10 @@ public enum IPCAutomationManifest {
         kind: .resizeOperation,
         summary: "Resize direction mode."
     )
+    private static let sizeChangeArgument = IPCCommandArgumentDescriptor(
+        kind: .sizeChange,
+        summary: "Size change such as 100, 50%, +10, or -10%."
+    )
 
     private static func command(
         _ commandWords: [String],
@@ -423,9 +430,18 @@ public enum IPCAutomationManifest {
         command(["move-column-to-workspace", "up"], name: .moveColumnToWorkspaceUp, summary: "Move the focused Niri column to the adjacent workspace above.", layoutCompatibility: .niri),
         command(["move-column-to-workspace", "down"], name: .moveColumnToWorkspaceDown, summary: "Move the focused Niri column to the adjacent workspace below.", layoutCompatibility: .niri),
         command(["toggle-column-tabbed"], name: .toggleColumnTabbed, summary: "Toggle tabbed mode for the focused Niri column.", layoutCompatibility: .niri),
-        command(["cycle-column-width", "forward"], name: .cycleColumnWidthForward, summary: "Cycle column width presets forward."),
-        command(["cycle-column-width", "backward"], name: .cycleColumnWidthBackward, summary: "Cycle column width presets backward."),
+        command(["cycle-column-width", "forward"], name: .cycleColumnWidthForward, summary: "Cycle Niri column width presets forward.", layoutCompatibility: .niri),
+        command(["cycle-column-width", "backward"], name: .cycleColumnWidthBackward, summary: "Cycle Niri column width presets backward.", layoutCompatibility: .niri),
+        command(["cycle-window-width", "forward"], name: .cycleWindowWidthForward, summary: "Cycle Niri window width presets forward.", layoutCompatibility: .niri),
+        command(["cycle-window-width", "backward"], name: .cycleWindowWidthBackward, summary: "Cycle Niri window width presets backward.", layoutCompatibility: .niri),
+        command(["cycle-window-height", "forward"], name: .cycleWindowHeightForward, summary: "Cycle Niri window height presets forward.", layoutCompatibility: .niri),
+        command(["cycle-window-height", "backward"], name: .cycleWindowHeightBackward, summary: "Cycle Niri window height presets backward.", layoutCompatibility: .niri),
         command(["toggle-column-full-width"], name: .toggleColumnFullWidth, summary: "Toggle full-width mode for the focused Niri column.", layoutCompatibility: .niri),
+        command(["expand-column-to-available-width"], name: .expandColumnToAvailableWidth, summary: "Expand the focused Niri column into available visible space.", layoutCompatibility: .niri),
+        command(["reset-window-height"], name: .resetWindowHeight, summary: "Reset the focused Niri window height.", layoutCompatibility: .niri),
+        command(["set-column-width"], name: .setColumnWidth, summary: "Set or adjust the focused Niri column width.", arguments: [sizeChangeArgument], layoutCompatibility: .niri),
+        command(["set-window-width"], name: .setWindowWidth, summary: "Set or adjust the focused Niri window width.", arguments: [sizeChangeArgument], layoutCompatibility: .niri),
+        command(["set-window-height"], name: .setWindowHeight, summary: "Set or adjust the focused Niri window height.", arguments: [sizeChangeArgument], layoutCompatibility: .niri),
         command(["swap-workspace-with-monitor"], name: .swapWorkspaceWithMonitor, summary: "Swap the active workspace with the active workspace on an adjacent monitor.", arguments: [directionArgument]),
         command(["balance-sizes"], name: .balanceSizes, summary: "Balance layout sizes in the active workspace."),
         command(["move-to-root"], name: .moveToRoot, summary: "Move the selected Dwindle window to the root split.", layoutCompatibility: .dwindle),

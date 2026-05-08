@@ -240,7 +240,16 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case toggleColumnTabbed = "toggle-column-tabbed"
     case cycleColumnWidthForward = "cycle-column-width-forward"
     case cycleColumnWidthBackward = "cycle-column-width-backward"
+    case cycleWindowWidthForward = "cycle-window-width-forward"
+    case cycleWindowWidthBackward = "cycle-window-width-backward"
+    case cycleWindowHeightForward = "cycle-window-height-forward"
+    case cycleWindowHeightBackward = "cycle-window-height-backward"
     case toggleColumnFullWidth = "toggle-column-full-width"
+    case expandColumnToAvailableWidth = "expand-column-to-available-width"
+    case resetWindowHeight = "reset-window-height"
+    case setColumnWidth = "set-column-width"
+    case setWindowWidth = "set-window-width"
+    case setWindowHeight = "set-window-height"
     case swapWorkspaceWithMonitor = "swap-workspace-with-monitor"
     case balanceSizes = "balance-sizes"
     case moveToRoot = "move-to-root"
@@ -266,11 +275,45 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case openMenuAnywhere = "open-menu-anywhere"
 }
 
+public enum IPCSizeChangeKind: String, Codable, Equatable, Sendable {
+    case setFixed = "set-fixed"
+    case setProportion = "set-proportion"
+    case adjustFixed = "adjust-fixed"
+    case adjustProportion = "adjust-proportion"
+}
+
+public struct IPCSizeChange: Codable, Equatable, Sendable {
+    public let kind: IPCSizeChangeKind
+    public let value: Double
+
+    public init(kind: IPCSizeChangeKind, value: Double) {
+        self.kind = kind
+        self.value = value
+    }
+
+    public static func setFixed(_ value: Double) -> IPCSizeChange {
+        IPCSizeChange(kind: .setFixed, value: value)
+    }
+
+    public static func setProportion(_ value: Double) -> IPCSizeChange {
+        IPCSizeChange(kind: .setProportion, value: value)
+    }
+
+    public static func adjustFixed(_ value: Double) -> IPCSizeChange {
+        IPCSizeChange(kind: .adjustFixed, value: value)
+    }
+
+    public static func adjustProportion(_ value: Double) -> IPCSizeChange {
+        IPCSizeChange(kind: .adjustProportion, value: value)
+    }
+}
+
 public enum IPCCommandArgumentValue: Equatable, Sendable {
     case direction(IPCDirection)
     case integer(Int)
     case layout(IPCWorkspaceLayout)
     case resizeOperation(IPCResizeOperation)
+    case sizeChange(IPCSizeChange)
 }
 
 public enum IPCCommandRequestConstructionError: Error, Equatable, Sendable {
@@ -306,7 +349,16 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case toggleColumnTabbed
     case cycleColumnWidthForward
     case cycleColumnWidthBackward
+    case cycleWindowWidthForward
+    case cycleWindowWidthBackward
+    case cycleWindowHeightForward
+    case cycleWindowHeightBackward
     case toggleColumnFullWidth
+    case expandColumnToAvailableWidth
+    case resetWindowHeight
+    case setColumnWidth(change: IPCSizeChange)
+    case setWindowWidth(change: IPCSizeChange)
+    case setWindowHeight(change: IPCSizeChange)
     case swapWorkspaceWithMonitor(direction: IPCDirection)
     case balanceSizes
     case moveToRoot
@@ -387,8 +439,26 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .cycleColumnWidthForward
         case .cycleColumnWidthBackward:
             .cycleColumnWidthBackward
+        case .cycleWindowWidthForward:
+            .cycleWindowWidthForward
+        case .cycleWindowWidthBackward:
+            .cycleWindowWidthBackward
+        case .cycleWindowHeightForward:
+            .cycleWindowHeightForward
+        case .cycleWindowHeightBackward:
+            .cycleWindowHeightBackward
         case .toggleColumnFullWidth:
             .toggleColumnFullWidth
+        case .expandColumnToAvailableWidth:
+            .expandColumnToAvailableWidth
+        case .resetWindowHeight:
+            .resetWindowHeight
+        case .setColumnWidth:
+            .setColumnWidth
+        case .setWindowWidth:
+            .setWindowWidth
+        case .setWindowHeight:
+            .setWindowHeight
         case .swapWorkspaceWithMonitor:
             .swapWorkspaceWithMonitor
         case .balanceSizes:
@@ -464,6 +534,13 @@ public enum IPCCommandRequest: Equatable, Sendable {
                 throw IPCCommandRequestConstructionError.invalidArgumentType
             }
             return layout
+        }
+
+        func requireSizeChange() throws -> IPCSizeChange {
+            guard argumentValues.count == 1, case let .sizeChange(change) = argumentValues[0] else {
+                throw IPCCommandRequestConstructionError.invalidArgumentType
+            }
+            return change
         }
 
         func requireResizeArguments() throws -> (direction: IPCDirection, operation: IPCResizeOperation) {
@@ -563,9 +640,33 @@ public enum IPCCommandRequest: Equatable, Sendable {
         case .cycleColumnWidthBackward:
             try requireNoArguments()
             self = .cycleColumnWidthBackward
+        case .cycleWindowWidthForward:
+            try requireNoArguments()
+            self = .cycleWindowWidthForward
+        case .cycleWindowWidthBackward:
+            try requireNoArguments()
+            self = .cycleWindowWidthBackward
+        case .cycleWindowHeightForward:
+            try requireNoArguments()
+            self = .cycleWindowHeightForward
+        case .cycleWindowHeightBackward:
+            try requireNoArguments()
+            self = .cycleWindowHeightBackward
         case .toggleColumnFullWidth:
             try requireNoArguments()
             self = .toggleColumnFullWidth
+        case .expandColumnToAvailableWidth:
+            try requireNoArguments()
+            self = .expandColumnToAvailableWidth
+        case .resetWindowHeight:
+            try requireNoArguments()
+            self = .resetWindowHeight
+        case .setColumnWidth:
+            self = .setColumnWidth(change: try requireSizeChange())
+        case .setWindowWidth:
+            self = .setWindowWidth(change: try requireSizeChange())
+        case .setWindowHeight:
+            self = .setWindowHeight(change: try requireSizeChange())
         case .swapWorkspaceWithMonitor:
             self = .swapWorkspaceWithMonitor(direction: try requireDirection())
         case .balanceSizes:
@@ -668,6 +769,10 @@ extension IPCCommandRequest: Codable {
         let operation: IPCResizeOperation
     }
 
+    private struct IPCSizeChangeArguments: Codable, Equatable, Sendable {
+        let change: IPCSizeChange
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let name = try container.decode(IPCCommandName.self, forKey: .name)
@@ -736,8 +841,29 @@ extension IPCCommandRequest: Codable {
             self = .cycleColumnWidthForward
         case .cycleColumnWidthBackward:
             self = .cycleColumnWidthBackward
+        case .cycleWindowWidthForward:
+            self = .cycleWindowWidthForward
+        case .cycleWindowWidthBackward:
+            self = .cycleWindowWidthBackward
+        case .cycleWindowHeightForward:
+            self = .cycleWindowHeightForward
+        case .cycleWindowHeightBackward:
+            self = .cycleWindowHeightBackward
         case .toggleColumnFullWidth:
             self = .toggleColumnFullWidth
+        case .expandColumnToAvailableWidth:
+            self = .expandColumnToAvailableWidth
+        case .resetWindowHeight:
+            self = .resetWindowHeight
+        case .setColumnWidth:
+            let arguments = try container.decode(IPCSizeChangeArguments.self, forKey: .arguments)
+            self = .setColumnWidth(change: arguments.change)
+        case .setWindowWidth:
+            let arguments = try container.decode(IPCSizeChangeArguments.self, forKey: .arguments)
+            self = .setWindowWidth(change: arguments.change)
+        case .setWindowHeight:
+            let arguments = try container.decode(IPCSizeChangeArguments.self, forKey: .arguments)
+            self = .setWindowHeight(change: arguments.change)
         case .swapWorkspaceWithMonitor:
             let arguments = try container.decode(IPCDirectionArguments.self, forKey: .arguments)
             self = .swapWorkspaceWithMonitor(direction: arguments.direction)
@@ -853,8 +979,26 @@ extension IPCCommandRequest: Codable {
             break
         case .cycleColumnWidthBackward:
             break
+        case .cycleWindowWidthForward:
+            break
+        case .cycleWindowWidthBackward:
+            break
+        case .cycleWindowHeightForward:
+            break
+        case .cycleWindowHeightBackward:
+            break
         case .toggleColumnFullWidth:
             break
+        case .expandColumnToAvailableWidth:
+            break
+        case .resetWindowHeight:
+            break
+        case let .setColumnWidth(change):
+            try container.encode(IPCSizeChangeArguments(change: change), forKey: .arguments)
+        case let .setWindowWidth(change):
+            try container.encode(IPCSizeChangeArguments(change: change), forKey: .arguments)
+        case let .setWindowHeight(change):
+            try container.encode(IPCSizeChangeArguments(change: change), forKey: .arguments)
         case let .swapWorkspaceWithMonitor(direction):
             try container.encode(IPCDirectionArguments(direction: direction), forKey: .arguments)
         case .balanceSizes:

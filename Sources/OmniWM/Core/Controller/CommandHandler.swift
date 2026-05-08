@@ -87,8 +87,26 @@ final class CommandHandler {
             layoutHandler(as: LayoutSizable.self)?.cycleSize(forward: true)
         case .cycleColumnWidthBackward:
             layoutHandler(as: LayoutSizable.self)?.cycleSize(forward: false)
+        case .cycleWindowWidthForward:
+            controller.niriLayoutHandler.cycleWindowWidth(forward: true)
+        case .cycleWindowWidthBackward:
+            controller.niriLayoutHandler.cycleWindowWidth(forward: false)
+        case .cycleWindowHeightForward:
+            controller.niriLayoutHandler.cycleWindowHeight(forward: true)
+        case .cycleWindowHeightBackward:
+            controller.niriLayoutHandler.cycleWindowHeight(forward: false)
         case .toggleColumnFullWidth:
             controller.niriLayoutHandler.toggleColumnFullWidth()
+        case .expandColumnToAvailableWidth:
+            controller.niriLayoutHandler.expandColumnToAvailableWidth()
+        case .resetWindowHeight:
+            controller.niriLayoutHandler.resetWindowHeight()
+        case let .setColumnWidth(change):
+            controller.niriLayoutHandler.setColumnWidth(change)
+        case let .setWindowWidth(change):
+            controller.niriLayoutHandler.setWindowWidth(change)
+        case let .setWindowHeight(change):
+            controller.niriLayoutHandler.setWindowHeight(change)
         case let .swapWorkspaceWithMonitor(direction):
             controller.workspaceNavigationHandler.swapCurrentWorkspaceWithMonitor(direction: direction)
         case .balanceSizes:

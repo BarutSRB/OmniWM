@@ -88,8 +88,26 @@ final class IPCCommandRouter {
             return controller.commandHandler.performCommand(.cycleColumnWidthForward)
         case .cycleColumnWidthBackward:
             return controller.commandHandler.performCommand(.cycleColumnWidthBackward)
+        case .cycleWindowWidthForward:
+            return controller.commandHandler.performCommand(.cycleWindowWidthForward)
+        case .cycleWindowWidthBackward:
+            return controller.commandHandler.performCommand(.cycleWindowWidthBackward)
+        case .cycleWindowHeightForward:
+            return controller.commandHandler.performCommand(.cycleWindowHeightForward)
+        case .cycleWindowHeightBackward:
+            return controller.commandHandler.performCommand(.cycleWindowHeightBackward)
         case .toggleColumnFullWidth:
             return controller.commandHandler.performCommand(.toggleColumnFullWidth)
+        case .expandColumnToAvailableWidth:
+            return controller.commandHandler.performCommand(.expandColumnToAvailableWidth)
+        case .resetWindowHeight:
+            return controller.commandHandler.performCommand(.resetWindowHeight)
+        case let .setColumnWidth(change):
+            return controller.commandHandler.performCommand(.setColumnWidth(sizeChange(for: change)))
+        case let .setWindowWidth(change):
+            return controller.commandHandler.performCommand(.setWindowWidth(sizeChange(for: change)))
+        case let .setWindowHeight(change):
+            return controller.commandHandler.performCommand(.setWindowHeight(sizeChange(for: change)))
         case let .swapWorkspaceWithMonitor(ipcDirection):
             return swapWorkspaceWithMonitor(direction: direction(for: ipcDirection))
         case .balanceSizes:
@@ -210,6 +228,19 @@ final class IPCCommandRouter {
             .up
         case .down:
             .down
+        }
+    }
+
+    private func sizeChange(for change: IPCSizeChange) -> NiriSizeChange {
+        switch change.kind {
+        case .setFixed:
+            .setFixed(change.value)
+        case .setProportion:
+            .setProportion(change.value)
+        case .adjustFixed:
+            .adjustFixed(change.value)
+        case .adjustProportion:
+            .adjustProportion(change.value)
         }
     }
 

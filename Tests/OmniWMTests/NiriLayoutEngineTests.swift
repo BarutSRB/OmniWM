@@ -4200,6 +4200,144 @@ private func makeCenteredCrossMonitorFixture(
         )
     }
 
+    @Test func toggleColumnWidthForwardChoosesNextLargerResolvedPreset() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        engine.presetColumnWidths = [.fixed(600), .fixed(900)]
+        let workspaceId = UUID()
+        let window = engine.addWindow(handle: makeTestHandle(), to: workspaceId, afterSelection: nil)
+        guard let column = engine.column(of: window) else {
+            Issue.record("Expected column for resolved preset width test")
+            return
+        }
+
+        column.width = .fixed(850)
+        column.cachedWidth = 850
+        window.resolvedWidth = 850
+
+        var state = ViewportState()
+        state.selectedNodeId = window.id
+        engine.toggleColumnWidth(
+            column,
+            forwards: true,
+            targetWindow: window,
+            in: workspaceId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1600, height: 900),
+            gaps: 8
+        )
+
+        #expect(column.presetWidthIdx == 1)
+        #expect(column.width == .fixed(900))
+        #expect(abs(column.cachedWidth - 900) < 0.001)
+    }
+
+    @Test func setWindowHeightClampsAgainstOtherWindowMinimums() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 2)
+        let workspaceId = UUID()
+        let root = engine.ensureRoot(for: workspaceId)
+        let column = NiriContainer()
+        root.appendChild(column)
+
+        let selected = NiriWindow(token: makeTestHandle(pid: 410).id)
+        let other = NiriWindow(token: makeTestHandle(pid: 411).id)
+        other.constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 1, height: 300),
+            maxSize: .zero,
+            isFixed: false
+        )
+        selected.resolvedHeight = 438
+        other.resolvedHeight = 438
+        column.appendChild(selected)
+        column.appendChild(other)
+        engine.tokenToNode[selected.token] = selected
+        engine.tokenToNode[other.token] = other
+
+        engine.setWindowHeight(
+            selected,
+            change: .setFixed(700),
+            in: workspaceId,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        #expect(selected.height == .fixed(576))
+        #expect(other.height.isAuto)
+    }
+
+    @Test func expandColumnToAvailableWidthUsesVisibleColumnsOnly() {
+        let fixture = makeVisibleColumnFixture(visibleCount: 2, extraColumns: 1, width: 1600, height: 900)
+        let targetWindow = fixture.windows[1]
+        guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+            Issue.record("Expected target column for expand available width test")
+            return
+        }
+
+        for column in fixture.engine.columns(in: fixture.workspaceId) {
+            column.width = .fixed(500)
+            column.cachedWidth = 500
+        }
+
+        var state = ViewportState()
+        state.selectedNodeId = targetWindow.id
+        state.activeColumnIndex = 1
+        let activeColumnX = state.columnX(
+            at: 1,
+            columns: fixture.engine.columns(in: fixture.workspaceId),
+            gap: fixture.gap
+        )
+        state.viewOffsetPixels = .static(-activeColumnX - 80)
+
+        fixture.engine.expandColumnToAvailableWidth(
+            targetColumn,
+            in: fixture.workspaceId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: fixture.monitor.visibleFrame,
+            gaps: fixture.gap
+        )
+
+        #expect(targetColumn.width == .fixed(1076))
+        #expect(abs(targetColumn.cachedWidth - 1076) < 0.001)
+        #expect(!targetColumn.isFullWidth)
+        #expect(targetColumn.presetWidthIdx == nil)
+        #expect(abs(state.viewOffsetPixels.target() - (-activeColumnX - fixture.gap)) < 0.001)
+    }
+
+    @Test func programmaticResizeCancelsInteractiveResize() {
+        let fixture = makeVisibleColumnFixture(visibleCount: 2, extraColumns: 1)
+        let targetWindow = fixture.windows[1]
+        guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+            Issue.record("Expected target column for interactive resize cancellation test")
+            return
+        }
+
+        var state = ViewportState()
+        state.selectedNodeId = targetWindow.id
+        state.activeColumnIndex = 1
+
+        let didBeginResize = fixture.engine.interactiveResizeBegin(
+            windowId: targetWindow.id,
+            edges: .right,
+            startLocation: .zero,
+            in: fixture.workspaceId,
+            viewOffset: state.viewOffsetPixels.target()
+        )
+        #expect(didBeginResize)
+
+        fixture.engine.setColumnWidth(
+            targetColumn,
+            change: .adjustFixed(100),
+            in: fixture.workspaceId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: fixture.monitor.visibleFrame,
+            gaps: fixture.gap
+        )
+
+        #expect(fixture.engine.interactiveResize == nil)
+    }
+
     @Test func splitUsesExplicitDefaultWidthAndExpelInheritsSourceWidth() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]

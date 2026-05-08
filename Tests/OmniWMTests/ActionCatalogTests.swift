@@ -26,4 +26,11 @@ import Testing
         #expect(spec.ipcCommandName == .toggleWorkspaceBar)
         #expect(spec.ipcDescriptor?.path == "command toggle-workspace-bar")
     }
+
+    @Test func niriParameterizedResizeActionsUsePublicCommandDescriptors() throws {
+        let spec = try #require(ActionCatalog.spec(for: "setColumnWidth.increase10Percent"))
+
+        #expect(spec.ipcCommandName == .setColumnWidth)
+        #expect(spec.ipcDescriptor?.path == "command set-column-width <size-change>")
+    }
 }

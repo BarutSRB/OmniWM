@@ -676,6 +676,24 @@ enum CLIParser {
         return layout
     }
 
+    private static func parseSizeChange(_ rawValue: String) throws -> IPCSizeChange {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CLIParseError.usage(usageText)
+        }
+
+        let isProportion = trimmed.hasSuffix("%")
+        let numericText = isProportion ? String(trimmed.dropLast()) : trimmed
+        guard let value = Double(numericText), value.isFinite else {
+            throw CLIParseError.usage(usageText)
+        }
+
+        if trimmed.hasPrefix("+") || trimmed.hasPrefix("-") {
+            return isProportion ? .adjustProportion(value) : .adjustFixed(value)
+        }
+        return isProportion ? .setProportion(value) : .setFixed(value)
+    }
+
     private static func parseCommandArgumentValue(
         _ pair: (IPCCommandArgumentDescriptor, String)
     ) throws -> IPCCommandArgumentValue {
@@ -692,6 +710,8 @@ enum CLIParser {
             return .layout(try parseWorkspaceLayout(token))
         case .resizeOperation:
             return .resizeOperation(try parseResizeOperation(token))
+        case .sizeChange:
+            return .sizeChange(try parseSizeChange(token))
         }
     }
 

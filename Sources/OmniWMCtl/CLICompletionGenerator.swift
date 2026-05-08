@@ -464,7 +464,7 @@ enum CLICompletionGenerator {
             return ["default", "niri", "dwindle"]
         case .resizeOperation:
             return ["grow", "shrink"]
-        case .workspaceNumber, .columnIndex:
+        case .workspaceNumber, .columnIndex, .sizeChange:
             return nil
         }
     }

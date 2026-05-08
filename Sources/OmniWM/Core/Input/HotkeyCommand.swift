@@ -34,7 +34,16 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case focusColumn(Int)
     case cycleColumnWidthForward
     case cycleColumnWidthBackward
+    case cycleWindowWidthForward
+    case cycleWindowWidthBackward
+    case cycleWindowHeightForward
+    case cycleWindowHeightBackward
     case toggleColumnFullWidth
+    case expandColumnToAvailableWidth
+    case resetWindowHeight
+    case setColumnWidth(NiriSizeChange)
+    case setWindowWidth(NiriSizeChange)
+    case setWindowHeight(NiriSizeChange)
 
     case swapWorkspaceWithMonitor(Direction)
 

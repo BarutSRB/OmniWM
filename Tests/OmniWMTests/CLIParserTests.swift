@@ -42,6 +42,21 @@ import OmniWMIPC
         #expect(command == .resize(direction: .left, operation: .grow))
     }
 
+    @Test func parsesNiriSizeChangeCommands() throws {
+        let column = try CLIParser.parse(arguments: ["omniwmctl", "command", "set-column-width", "+10%"])
+        let height = try CLIParser.parse(arguments: ["omniwmctl", "command", "set-window-height", "600"])
+
+        guard case let .command(columnCommand) = column.request.payload,
+              case let .command(heightCommand) = height.request.payload
+        else {
+            Issue.record("Expected command payloads")
+            return
+        }
+
+        #expect(columnCommand == .setColumnWidth(change: .adjustProportion(10)))
+        #expect(heightCommand == .setWindowHeight(change: .setFixed(600)))
+    }
+
     @Test func parsesSetWorkspaceLayoutDefaultCommand() throws {
         let parsed = try CLIParser.parse(arguments: ["omniwmctl", "command", "set-workspace-layout", "default"])
 

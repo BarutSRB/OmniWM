@@ -352,6 +352,12 @@ private func assertRoundTrip<T: Codable & Equatable>(_ value: T) throws {
             IPCCommandRequest.moveToWorkspaceOnMonitor(workspaceNumber: 2, direction: .right)
         )
         try assertRoundTrip(
+            IPCCommandRequest.setColumnWidth(change: .adjustProportion(-10))
+        )
+        try assertRoundTrip(
+            IPCSizeChange.setFixed(600)
+        )
+        try assertRoundTrip(
             IPCResponse.failure(
                 id: "protocol-mismatch",
                 kind: .query,
