@@ -8,6 +8,23 @@ protocol IPCServerLifecycle: AnyObject {
     @MainActor func stop()
 }
 
+enum IPCServerStartPhase: String {
+    case ensureSocketDirectory
+    case removeExistingSocket
+    case makeListeningSocket
+    case writeAuthorizationToken
+}
+
+struct IPCServerStartError: LocalizedError {
+    let phase: IPCServerStartPhase
+    let socketPath: String
+    let underlyingError: Error
+
+    var errorDescription: String? {
+        "IPC start failed during \(phase.rawValue) for \(socketPath): \(underlyingError.localizedDescription)"
+    }
+}
+
 actor IPCConnectionRegistry {
     private var connections: [UUID: IPCConnection] = [:]
 
@@ -66,8 +83,24 @@ final class IPCServer: IPCServerLifecycle {
         guard !bridge.isShutdownStarted else {
             throw POSIXError(.ECANCELED)
         }
-        try ensureSocketDirectoryExists()
-        try ZigIPCSupport.removeExistingSocketIfNeeded(at: socketPath)
+        do {
+            try ensureSocketDirectoryExists()
+        } catch {
+            throw IPCServerStartError(
+                phase: .ensureSocketDirectory,
+                socketPath: socketPath,
+                underlyingError: error
+            )
+        }
+        do {
+            try ZigIPCSupport.removeExistingSocketIfNeeded(at: socketPath)
+        } catch {
+            throw IPCServerStartError(
+                phase: .removeExistingSocket,
+                socketPath: socketPath,
+                underlyingError: error
+            )
+        }
 
         var bindError: Error?
         queue.sync {
@@ -86,14 +119,22 @@ final class IPCServer: IPCServerLifecycle {
 
         if let bindError {
             stop()
-            throw bindError
+            throw IPCServerStartError(
+                phase: .makeListeningSocket,
+                socketPath: socketPath,
+                underlyingError: bindError
+            )
         }
 
         do {
             try writeAuthorizationToken()
         } catch {
             stop()
-            throw error
+            throw IPCServerStartError(
+                phase: .writeAuthorizationToken,
+                socketPath: socketPath,
+                underlyingError: error
+            )
         }
         controller.ipcApplicationBridge = bridge
     }

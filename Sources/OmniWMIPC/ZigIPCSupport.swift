@@ -202,21 +202,111 @@ public enum ZigIPCSupport {
         _ token: String,
         forSocketPath socketPath: String
     ) throws {
-        let result = socketPath.withCString { socketPathPointer in
-            token.withCString { tokenPointer in
-                omniwm_ipc_write_secret_token(socketPathPointer, tokenPointer)
+        try secretPath(forSocketPath: socketPath).withCString { secretPathPointer in
+            try token.withCString { tokenPointer in
+                try writeSecretToken(tokenPointer, toSecretPath: secretPathPointer)
             }
-        }
-        guard result == 0 else {
-            throw posixError()
         }
     }
 
     public static func readSecretToken(forSocketPath socketPath: String) -> String? {
-        socketPath.withCString { socketPathPointer in
-            renderString(initialCapacity: 128) { output, outputCapacity in
-                omniwm_ipc_read_secret_token_for_socket(socketPathPointer, output, outputCapacity)
+        secretPath(forSocketPath: socketPath).withCString { secretPathPointer in
+            readSecretToken(fromSecretPath: secretPathPointer)
+        }
+    }
+
+    private static func writeSecretToken(
+        _ tokenPointer: UnsafePointer<CChar>,
+        toSecretPath secretPathPointer: UnsafePointer<CChar>
+    ) throws {
+        if unlink(secretPathPointer) != 0 && Darwin.errno != ENOENT {
+            throw posixError()
+        }
+
+        let fileDescriptor = open(
+            secretPathPointer,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+            S_IRUSR | S_IWUSR
+        )
+        guard fileDescriptor >= 0 else {
+            throw posixError()
+        }
+        defer { close(fileDescriptor) }
+
+        try validateSecretTokenFile(fileDescriptor)
+
+        let token = String(cString: tokenPointer)
+        try writeAll(Data((token + "\n").utf8), to: fileDescriptor)
+
+        guard fchmod(fileDescriptor, S_IRUSR | S_IWUSR) == 0 else {
+            throw posixError()
+        }
+    }
+
+    private static func readSecretToken(fromSecretPath secretPathPointer: UnsafePointer<CChar>) -> String? {
+        let fileDescriptor = open(secretPathPointer, O_RDONLY | O_NOFOLLOW)
+        guard fileDescriptor >= 0 else {
+            return nil
+        }
+        defer { close(fileDescriptor) }
+
+        guard (try? validateSecretTokenFile(fileDescriptor)) != nil else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        let byteCount = buffer.withUnsafeMutableBytes { rawBuffer in
+            Darwin.read(fileDescriptor, rawBuffer.baseAddress, rawBuffer.count)
+        }
+        guard byteCount > 0 else {
+            return nil
+        }
+
+        let bytes = buffer.prefix(Int(byteCount))
+        return String(decoding: bytes, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    private static func validateSecretTokenFile(_ fileDescriptor: Int32) throws {
+        var status = stat()
+        guard fstat(fileDescriptor, &status) == 0 else {
+            throw posixError()
+        }
+        guard status.st_mode & S_IFMT == S_IFREG else {
+            Darwin.errno = EINVAL
+            throw posixError()
+        }
+        guard status.st_uid == geteuid(), status.st_mode & 0o077 == 0 else {
+            Darwin.errno = EACCES
+            throw posixError()
+        }
+    }
+
+    private static func writeAll(_ data: Data, to fileDescriptor: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var bytesWritten = 0
+            while bytesWritten < rawBuffer.count {
+                let result = Darwin.write(
+                    fileDescriptor,
+                    baseAddress.advanced(by: bytesWritten),
+                    rawBuffer.count - bytesWritten
+                )
+                if result < 0 {
+                    if Darwin.errno == EINTR {
+                        continue
+                    }
+                    throw posixError()
+                }
+                bytesWritten += result
             }
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
