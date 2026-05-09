@@ -55,6 +55,21 @@ import OmniWMIPC
         #expect(workspaceUpCommand == .focusWindowOrWorkspaceUp)
     }
 
+    @Test func parsesNiriViewportCommands() throws {
+        let center = try CLIParser.parse(arguments: ["omniwmctl", "command", "center-column"])
+        let visible = try CLIParser.parse(arguments: ["omniwmctl", "command", "center-visible-columns"])
+
+        guard case let .command(centerCommand) = center.request.payload,
+              case let .command(visibleCommand) = visible.request.payload
+        else {
+            Issue.record("Expected command payloads")
+            return
+        }
+
+        #expect(centerCommand == .centerColumn)
+        #expect(visibleCommand == .centerVisibleColumns)
+    }
+
     @Test func parsesNiriColumnMoveCommands() throws {
         let first = try CLIParser.parse(arguments: ["omniwmctl", "command", "move-column-to-first"])
         let last = try CLIParser.parse(arguments: ["omniwmctl", "command", "move-column-to-last"])

@@ -1802,6 +1802,82 @@ private func makeCenteredCrossMonitorFixture(
         #expect(state.activeColumnIndex == 2)
     }
 
+    @Test func centerColumnCentersActiveColumnAndCancelsInteractiveResize() {
+        let fixture = makeVisibleColumnFixture(visibleCount: 3, extraColumns: 1)
+        let columns = fixture.engine.columns(in: fixture.workspaceId)
+        assignWidths(columns, widths: Array(repeating: 400, count: columns.count))
+
+        var state = ViewportState()
+        state.activeColumnIndex = 1
+        state.viewOffsetPixels = .static(0)
+
+        let didBeginResize = fixture.engine.interactiveResizeBegin(
+            windowId: fixture.windows[1].id,
+            edges: .right,
+            startLocation: .zero,
+            in: fixture.workspaceId,
+            viewOffset: state.viewOffsetPixels.target()
+        )
+        #expect(didBeginResize)
+
+        let changed = fixture.engine.centerColumn(
+            in: fixture.workspaceId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: fixture.monitor.visibleFrame,
+            gaps: fixture.gap
+        )
+
+        #expect(changed)
+        #expect(fixture.engine.interactiveResize == nil)
+        #expect(state.activeColumnIndex == 1)
+        #expect(abs(state.viewOffsetPixels.target() + 600) < 0.001)
+    }
+
+    @Test func centerVisibleColumnsCentersFullyVisibleSetAroundActiveColumn() {
+        let fixture = makeVisibleColumnFixture(visibleCount: 3, extraColumns: 1)
+        let columns = fixture.engine.columns(in: fixture.workspaceId)
+        assignWidths(columns, widths: Array(repeating: 400, count: columns.count))
+
+        var state = ViewportState()
+        state.activeColumnIndex = 1
+        state.viewOffsetPixels = .static(-408)
+
+        let changed = fixture.engine.centerVisibleColumns(
+            in: fixture.workspaceId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: fixture.monitor.visibleFrame,
+            gaps: fixture.gap
+        )
+
+        #expect(changed)
+        #expect(state.activeColumnIndex == 1)
+        #expect(abs(state.viewOffsetPixels.target() + 396) < 0.001)
+    }
+
+    @Test func centerVisibleColumnsNoOpsWhenFocusedColumnIsAlwaysCentered() {
+        let fixture = makeVisibleColumnFixture(visibleCount: 3, extraColumns: 1)
+        fixture.engine.centerFocusedColumn = .always
+        let columns = fixture.engine.columns(in: fixture.workspaceId)
+        assignWidths(columns, widths: Array(repeating: 400, count: columns.count))
+
+        var state = ViewportState()
+        state.activeColumnIndex = 1
+        state.viewOffsetPixels = .static(-408)
+
+        let changed = fixture.engine.centerVisibleColumns(
+            in: fixture.workspaceId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: fixture.monitor.visibleFrame,
+            gaps: fixture.gap
+        )
+
+        #expect(!changed)
+        #expect(state.viewOffsetPixels.target() == -408)
+    }
+
     @Test func ensureSelectionVisibleDoesNotShiftFullyVisibleViewportInNeverMode() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
         engine.centerFocusedColumn = .never

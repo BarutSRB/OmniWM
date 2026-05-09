@@ -331,6 +331,42 @@ private func prepareIPCNiriState(
         #expect(controller.activeWorkspace()?.id == targetWorkspaceId)
     }
 
+    @Test func centerColumnCommandRecentersNiriViewport() throws {
+        let controller = makeLayoutPlanTestController()
+        let router = makeIPCCommandRouter(for: controller)
+        let workspaceId = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: false))
+        let handles = prepareIPCNiriState(
+            on: controller,
+            assignments: [
+                (workspaceId, 2121),
+                (workspaceId, 2122),
+                (workspaceId, 2123)
+            ],
+            focusedWindowId: 2122
+        )
+        let focusedHandle = try #require(handles[2122])
+        let engine = try #require(controller.niriEngine)
+        let focusedNode = try #require(engine.findNode(for: focusedHandle))
+        let focusedColumn = try #require(engine.column(of: focusedNode))
+        let focusedColumnIndex = try #require(engine.columnIndex(of: focusedColumn, in: workspaceId))
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(400)
+            column.cachedWidth = 400
+        }
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        state.selectedNodeId = focusedNode.id
+        state.activeColumnIndex = focusedColumnIndex
+        state.viewOffsetPixels = .static(0)
+        controller.workspaceManager.updateNiriViewportState(state, for: workspaceId)
+
+        let result = router.handle(.centerColumn)
+
+        let updated = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(result == .executed)
+        #expect(updated.activeColumnIndex == focusedColumnIndex)
+        #expect(abs(updated.viewOffsetPixels.target() + 760) < 0.001)
+    }
+
     @Test func moveToWorkspaceOnMonitorRejectsWorkspaceOnWrongAdjacentMonitor() throws {
         let primaryMonitor = makeLayoutPlanPrimaryTestMonitor(name: "Primary")
         let secondaryMonitor = makeLayoutPlanSecondaryTestMonitor(name: "Secondary", x: 1920)

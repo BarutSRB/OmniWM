@@ -172,6 +172,11 @@ enum ActionCatalog {
         ])
 
         specs.append(contentsOf: [
+            action(id: "centerColumn", command: .centerColumn, category: .layout, binding: .unassigned),
+            action(id: "centerVisibleColumns", command: .centerVisibleColumns, category: .layout, binding: .unassigned),
+        ])
+
+        specs.append(contentsOf: [
             action(id: "moveWindowToWorkspaceUp", command: .moveWindowToWorkspaceUp, category: .workspace, binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(optionKey | controlKey | shiftKey))),
             action(id: "moveWindowToWorkspaceDown", command: .moveWindowToWorkspaceDown, category: .workspace, binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(optionKey | controlKey | shiftKey))),
             action(id: "moveColumnToWorkspaceUp", command: .moveColumnToWorkspaceUp, category: .workspace, binding: KeyBinding(keyCode: UInt32(kVK_PageUp), modifiers: UInt32(optionKey | controlKey | shiftKey))),
@@ -357,6 +362,9 @@ enum ActionCatalog {
              .focusColumnFirst, .focusColumnLast, .focusColumn:
             .niri
 
+        case .centerColumn, .centerVisibleColumns:
+            .niri
+
         case .focus, .toggleFullscreen, .cycleColumnWidthForward, .cycleColumnWidthBackward,
              .balanceSizes,
              .move,
@@ -420,6 +428,8 @@ enum ActionCatalog {
         case .focusColumnFirst: "Focus First Column"
         case .focusColumnLast: "Focus Last Column"
         case let .focusColumn(idx): "Focus Column \(idx + 1)"
+        case .centerColumn: "Center Column"
+        case .centerVisibleColumns: "Center Visible Columns"
         case .cycleColumnWidthForward: "Cycle Column Width Forward"
         case .cycleColumnWidthBackward: "Cycle Column Width Backward"
         case .cycleWindowWidthForward: "Cycle Window Width Forward"
@@ -488,6 +498,10 @@ enum ActionCatalog {
             .focusColumnFirst
         case .focusColumnLast:
             .focusColumnLast
+        case .centerColumn:
+            .centerColumn
+        case .centerVisibleColumns:
+            .centerVisibleColumns
         case .move:
             .move
         case .moveWindowDown:

@@ -1185,6 +1185,38 @@ enum NiriWindowMoveResult {
         }
     }
 
+    func centerColumn() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            guard engine.centerColumn(
+                in: wsId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            ) else { return }
+
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func centerVisibleColumns() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            guard engine.centerVisibleColumns(
+                in: wsId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            ) else { return }
+
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
     func setColumnWidth(_ change: NiriSizeChange) {
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in

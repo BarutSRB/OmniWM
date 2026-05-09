@@ -227,6 +227,8 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case focusColumn = "focus-column"
     case focusColumnFirst = "focus-column-first"
     case focusColumnLast = "focus-column-last"
+    case centerColumn = "center-column"
+    case centerVisibleColumns = "center-visible-columns"
     case move
     case moveWindowDown = "move-window-down"
     case moveWindowUp = "move-window-up"
@@ -354,6 +356,8 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case focusColumn(columnIndex: Int)
     case focusColumnFirst
     case focusColumnLast
+    case centerColumn
+    case centerVisibleColumns
     case move(direction: IPCDirection)
     case moveWindowDown
     case moveWindowUp
@@ -449,6 +453,10 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .focusColumnFirst
         case .focusColumnLast:
             .focusColumnLast
+        case .centerColumn:
+            .centerColumn
+        case .centerVisibleColumns:
+            .centerVisibleColumns
         case .move:
             .move
         case .moveWindowDown:
@@ -675,6 +683,12 @@ public enum IPCCommandRequest: Equatable, Sendable {
         case .focusColumnLast:
             try requireNoArguments()
             self = .focusColumnLast
+        case .centerColumn:
+            try requireNoArguments()
+            self = .centerColumn
+        case .centerVisibleColumns:
+            try requireNoArguments()
+            self = .centerVisibleColumns
         case .move:
             self = .move(direction: try requireDirection())
         case .moveWindowDown:
@@ -937,6 +951,10 @@ extension IPCCommandRequest: Codable {
             self = .focusColumnFirst
         case .focusColumnLast:
             self = .focusColumnLast
+        case .centerColumn:
+            self = .centerColumn
+        case .centerVisibleColumns:
+            self = .centerVisibleColumns
         case .move:
             let arguments = try container.decode(IPCDirectionArguments.self, forKey: .arguments)
             self = .move(direction: arguments.direction)
@@ -1115,6 +1133,10 @@ extension IPCCommandRequest: Codable {
         case .focusColumnFirst:
             break
         case .focusColumnLast:
+            break
+        case .centerColumn:
+            break
+        case .centerVisibleColumns:
             break
         case let .move(direction):
             try container.encode(IPCDirectionArguments(direction: direction), forKey: .arguments)

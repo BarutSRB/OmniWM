@@ -424,6 +424,8 @@ public enum IPCAutomationManifest {
         command(["focus-column"], name: .focusColumn, summary: "Focus a Niri column by one-based index.", arguments: [columnIndexArgument], layoutCompatibility: .niri),
         command(["focus-column", "first"], name: .focusColumnFirst, summary: "Focus the first Niri column.", layoutCompatibility: .niri),
         command(["focus-column", "last"], name: .focusColumnLast, summary: "Focus the last Niri column.", layoutCompatibility: .niri),
+        command(["center-column"], name: .centerColumn, summary: "Center the focused Niri column without changing focus.", layoutCompatibility: .niri),
+        command(["center-visible-columns"], name: .centerVisibleColumns, summary: "Center the fully visible Niri columns around the active column.", layoutCompatibility: .niri),
         command(["move"], name: .move, summary: "Move the focused window in the given direction.", arguments: [directionArgument]),
         command(["move-window-down"], name: .moveWindowDown, summary: "Move the focused Niri window down within its column.", layoutCompatibility: .niri),
         command(["move-window-up"], name: .moveWindowUp, summary: "Move the focused Niri window up within its column.", layoutCompatibility: .niri),

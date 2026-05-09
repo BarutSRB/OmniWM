@@ -57,6 +57,16 @@ import Testing
         #expect(indexed.ipcDescriptor?.path == "command move-column-to-index <number>")
     }
 
+    @Test func niriViewportActionsUsePublicCommandDescriptors() throws {
+        let center = try #require(ActionCatalog.spec(for: "centerColumn"))
+        let visible = try #require(ActionCatalog.spec(for: "centerVisibleColumns"))
+
+        #expect(center.ipcCommandName == .centerColumn)
+        #expect(center.ipcDescriptor?.path == "command center-column")
+        #expect(visible.ipcCommandName == .centerVisibleColumns)
+        #expect(visible.ipcDescriptor?.path == "command center-visible-columns")
+    }
+
     @Test func niriWindowMoveActionsUsePublicCommandDescriptors() throws {
         let down = try #require(ActionCatalog.spec(for: "moveWindowDown"))
         let fallback = try #require(ActionCatalog.spec(for: "moveWindowDownOrToWorkspaceDown"))
