@@ -114,21 +114,34 @@ extension ViewportState {
             CGRect(x: 0, y: 0, width: crossSpan, height: viewportSpan)
         }
         let parentFrame = viewFrame ?? workingArea ?? fallbackParentFrame
-        let parent = CGRect(origin: .zero, size: parentFrame.size)
 
         let localWorking: CGRect
         if let workingArea {
             localWorking = CGRect(
-                x: workingArea.minX - parentFrame.minX,
-                y: workingArea.minY - parentFrame.minY,
-                width: workingArea.width,
-                height: workingArea.height
+                origin: .zero,
+                size: workingArea.size
             )
         } else {
-            localWorking = parent
+            localWorking = CGRect(origin: .zero, size: parentFrame.size)
         }
 
-        let fallbackLocalFrame = CGRect(origin: .zero, size: fallbackParentFrame.size)
+        let parent: CGRect
+        if let workingArea {
+            parent = CGRect(
+                x: parentFrame.minX - workingArea.minX,
+                y: parentFrame.minY - workingArea.minY,
+                width: parentFrame.width,
+                height: parentFrame.height
+            )
+        } else {
+            parent = CGRect(
+                origin: .zero,
+                size: parentFrame.size
+            )
+        }
+
+        let fallbackLocalSize = workingArea?.size ?? fallbackParentFrame.size
+        let fallbackLocalFrame = CGRect(origin: .zero, size: fallbackLocalSize)
         let primarySpan: (CGRect) -> CGFloat = { rect in
             switch orientation {
             case .horizontal:

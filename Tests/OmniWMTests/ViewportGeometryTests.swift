@@ -113,6 +113,57 @@ private func makeViewportGestureContainers(
         #expect(abs(fullscreenOffset) < 0.001)
     }
 
+    @Test func centeredOffsetUsesWorkingAreaRelativeCoordinatesForInsetDock() {
+        let state = ViewportState()
+        let workingArea = CGRect(x: 100, y: 0, width: 1_000, height: 800)
+        let parentArea = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        let gap: CGFloat = 10
+
+        let normal = makeViewportGestureContainers(widths: [600], modes: [.normal])
+        let maximized = makeViewportGestureContainers(widths: [600], modes: [.maximized])
+
+        let normalOffset = state.computeCenteredOffset(
+            containerIndex: 0,
+            containers: normal,
+            gap: gap,
+            viewportSpan: workingArea.width,
+            sizeKeyPath: \.cachedWidth,
+            workingArea: workingArea,
+            viewFrame: parentArea
+        )
+        let maximizedOffset = state.computeCenteredOffset(
+            containerIndex: 0,
+            containers: maximized,
+            gap: gap,
+            viewportSpan: workingArea.width,
+            sizeKeyPath: \.cachedWidth,
+            workingArea: workingArea,
+            viewFrame: parentArea
+        )
+
+        #expect(abs(normalOffset + 200) < 0.001)
+        #expect(abs(maximizedOffset + 200) < 0.001)
+    }
+
+    @Test func fullWidthNormalColumnDoesNotInheritLeftDockInset() {
+        let state = ViewportState()
+        let workingArea = CGRect(x: 100, y: 0, width: 1_000, height: 800)
+        let parentArea = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        let normal = makeViewportGestureContainers(widths: [1_000], modes: [.normal])
+
+        let offset = state.computeCenteredOffset(
+            containerIndex: 0,
+            containers: normal,
+            gap: 10,
+            viewportSpan: workingArea.width,
+            sizeKeyPath: \.cachedWidth,
+            workingArea: workingArea,
+            viewFrame: parentArea
+        )
+
+        #expect(abs(offset) < 0.001)
+    }
+
     @Test func updateGestureDoesNotClampOrAdvanceSelectionDuringSwipe() {
         var state = ViewportState()
         state.activeColumnIndex = 1
@@ -501,7 +552,7 @@ private func makeViewportGestureContainers(
         )
 
         #expect(state.activeColumnIndex == 1)
-        #expect(abs(Double(state.viewOffsetPixels.target()) + 190) < 0.001)
+        #expect(abs(Double(state.viewOffsetPixels.target()) + 90) < 0.001)
     }
 
     @Test func updateGestureReturnsNilForZeroWidthSingleColumn() {

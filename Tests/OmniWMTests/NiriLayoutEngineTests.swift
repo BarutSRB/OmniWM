@@ -2186,7 +2186,7 @@ private func makeCenteredCrossMonitorFixture(
         )
 
         #expect(changed)
-        #expect(abs(state.viewOffsetPixels.target() + 345) < 0.001)
+        #expect(abs(state.viewOffsetPixels.target() + 375) < 0.001)
     }
 
     @Test func centerVisibleColumnsNoOpsWhenFocusedColumnIsAlwaysCentered() {
