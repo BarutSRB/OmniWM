@@ -48,7 +48,7 @@ LayoutRefreshController has 5 refresh routes with different priorities:
 5. `windowRemoval` — Handle window removal + focus recovery
 
 ### Focus Bridge (Deferred Focus)
-Focus changes go through FocusBridgeCoordinator using a pending → confirmed pattern. This prevents focus races when multiple events arrive simultaneously.
+Focus changes go through KeyboardFocusLifecycleCoordinator using a pending → confirmed pattern. This prevents focus races when multiple events arrive simultaneously.
 
 ### Layout Capabilities Protocol
 `LayoutFocusable` and `LayoutSizable` abstract layout operations so CommandHandler can dispatch without knowing which engine is active.

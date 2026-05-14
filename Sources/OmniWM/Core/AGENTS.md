@@ -6,7 +6,7 @@ Core window management logic. Contains all subsystems that make OmniWM function:
 
 ## Architecture
 
-```
+```text
 Input Layer (Hotkeys, AX, Mouse, CGS)
     ↓
 Controller Layer (handlers route events)

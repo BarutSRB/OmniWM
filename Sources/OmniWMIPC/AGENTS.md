@@ -19,7 +19,8 @@ Shared IPC protocol library. Defines all models, wire format, and socket convent
 - `IPCAutomationManifest.swift` (1074 lines) — Command/query descriptors with argument kinds, selector definitions, metadata for CLI generation
 - `IPCWire.swift` — JSON encoder/decoder for NDJSON protocol
 - `IPCSocketPath.swift` — Socket path resolution logic
-- (2 additional support files)
+- `IPCRuleValidator.swift` — Window rule validation utilities
+- `WorkspaceAddressing.swift` — Workspace address/identifier helpers
 
 ## Conventions
 

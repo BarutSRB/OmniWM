@@ -8,7 +8,7 @@ OmniWM is a native macOS tiling window manager written in Swift 6.2 with strict 
 
 Event-driven reconciliation pattern (Redux/Elm-like):
 
-```
+```text
 Input (Hotkeys, AX, Mouse, CGS) → WMEvent → Reconcile (Planner → StateReducer → ActionPlan) → State (WorkspaceManager) → Layout Engine (Niri/Dwindle) → Rendering (AXManager, BorderManager, Animation)
 ```
 

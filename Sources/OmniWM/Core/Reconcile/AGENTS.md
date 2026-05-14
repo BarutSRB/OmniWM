@@ -38,7 +38,7 @@ Deterministic state reconciliation engine. Converts raw events into planned stat
 
 ## Data Flow
 
-```
+```text
 Raw Event (AX/CGS/Input)
     ↓
 EventNormalizer (dedup, validate, edge-case handling)
