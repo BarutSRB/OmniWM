@@ -390,7 +390,7 @@ final class WMController {
         } else {
             hiddenWorkspaceBarMonitorIds.insert(monitor.id)
         }
-
+ 
         cancelPendingWorkspaceBarRefresh()
         workspaceBarManager.setup(controller: self, settings: settings)
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
@@ -1427,7 +1427,7 @@ final class WMController {
         return nil
     }
 
-    private func trackedModeForAutomaticReevaluation(
+    internal func trackedModeForAutomaticReevaluation(
         decision: WindowDecision,
         existingEntry: WindowModel.Entry?,
         context: WindowRuleReevaluationContext
@@ -1443,7 +1443,7 @@ final class WMController {
               let existingEntry,
               existingEntry.mode == .tiling,
               trackedMode == .floating,
-              decision.source == .heuristic
+              (decision.source == .heuristic || decision.layoutDecisionKind == .fallbackLayout)
         else {
             return trackedMode
         }
@@ -1529,9 +1529,7 @@ final class WMController {
             return preferredWindowInfo
         }
 
-        guard bundleId == WindowRuleEngine.cleanShotBundleId,
-              let windowId = UInt32(exactly: token.windowId)
-        else {
+        guard let windowId = UInt32(exactly: token.windowId) else {
             return nil
         }
 
