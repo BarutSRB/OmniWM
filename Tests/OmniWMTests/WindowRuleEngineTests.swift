@@ -509,4 +509,24 @@ private func makeWindowRuleFacts(
         #expect(decision.disposition == .managed)
         #expect(decision.source == .heuristic)
     }
+
+    @Test func childWindowStructuralAnchorRuleFloatsWindowsWithParent() {
+        let engine = WindowRuleEngine()
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "com.example.app",
+                windowServer: WindowServerInfo(id: 10, pid: 42, level: 0, frame: .zero, parentId: 5)
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        #expect(decision.disposition == .floating)
+        #expect(decision.layoutDecisionKind == .explicitLayout)
+        if case .builtInRule("childWindowStructuralAnchor") = decision.source {
+        } else {
+            Issue.record("Expected child window to match structural anchor rule")
+        }
+    }
 }
