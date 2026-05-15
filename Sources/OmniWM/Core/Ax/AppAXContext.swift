@@ -324,9 +324,26 @@ final class AppAXContext {
                     }
                 }
 
-                guard AXWindowService.shouldTreatAsTopLevelWindow(role: role, subrole: subrole) else {
+                var title: String?
+                var titleValue: CFTypeRef?
+                let titleResult = AXUIElementCopyAttributeValue(
+                    element,
+                    kAXTitleAttribute as CFString,
+                    &titleValue
+                )
+                if titleResult == .success {
+                    title = titleValue as? String
+                }
+
+                let isWindow = role == kAXWindowRole as String
+                let isDialog = role == "AXDialog"
+                let isPanel = role == "AXPanel"
+                
+                // Allow Windows, or Dialogs/Panels with titles (to avoid tooltips)
+                guard isWindow || ((isDialog || isPanel) && title != nil) else {
                     continue
                 }
+
 
                 let axRef = AXWindowRef(element: element, windowId: windowId)
                 newWindows[windowId] = element
