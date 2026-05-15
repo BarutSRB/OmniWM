@@ -142,12 +142,12 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.workspaceManager.hiddenState(for: token) == nil)
     }
 
-    @Test @MainActor func coordinatedBorderUpdateUsesObservedGhosttyFrameWhenItDiffersFromLayoutFrame() {
+    @Test @MainActor func coordinatedManagedBorderUpdateUsesLayoutFrameForGhostty() {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
         else {
-            Issue.record("Missing monitor or active workspace for Ghostty border frame test")
+            Issue.record("Missing monitor or active workspace for managed border frame test")
             return
         }
 
@@ -158,8 +158,10 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
 
         let layoutFrame = CGRect(x: 120, y: 80, width: 900, height: 640)
         let observedFrame = CGRect(x: 120, y: 56, width: 900, height: 664)
+        var observedReadCount = 0
         controller.borderCoordinator.observedFrameProviderForTests = { axRef in
-            axRef.windowId == 205 ? observedFrame : nil
+            observedReadCount += 1
+            return axRef.windowId == 205 ? observedFrame : nil
         }
         defer {
             controller.borderCoordinator.observedFrameProviderForTests = nil
@@ -179,15 +181,16 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         )
 
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 205)
-        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == observedFrame)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == layoutFrame)
+        #expect(observedReadCount == 0)
     }
 
-    @Test @MainActor func directBorderUpdateUsesObservedGhosttyFrameWhenItDiffersFromLayoutFrame() {
+    @Test @MainActor func directManagedBorderUpdateUsesLayoutFrameForGhostty() {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
         else {
-            Issue.record("Missing monitor or active workspace for direct Ghostty border frame test")
+            Issue.record("Missing monitor or active workspace for direct managed border frame test")
             return
         }
 
@@ -198,8 +201,10 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
 
         let layoutFrame = CGRect(x: 240, y: 96, width: 840, height: 600)
         let observedFrame = CGRect(x: 240, y: 72, width: 840, height: 624)
+        var observedReadCount = 0
         controller.borderCoordinator.observedFrameProviderForTests = { axRef in
-            axRef.windowId == 206 ? observedFrame : nil
+            observedReadCount += 1
+            return axRef.windowId == 206 ? observedFrame : nil
         }
         defer {
             controller.borderCoordinator.observedFrameProviderForTests = nil
@@ -219,15 +224,170 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         )
 
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 206)
-        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == observedFrame)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == layoutFrame)
+        #expect(observedReadCount == 0)
     }
 
-    @Test @MainActor func directGhosttyBorderUpdateFallsBackToPreferredFrameBeforeCachedFrameWhenObservedReadMisses() {
+    @Test @MainActor func pendingFrameWriteWinsOverObservedBorderHint() {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
         else {
-            Issue.record("Missing monitor or active workspace for Ghostty border fallback test")
+            Issue.record("Missing monitor or active workspace for pending border frame test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 208)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        controller.setBordersEnabled(true)
+
+        let pendingFrame = CGRect(x: 240, y: 96, width: 840, height: 600)
+        controller.axManager.frameApplyOverrideForTests = { _ in [] }
+        controller.axManager.applyFramesParallel([(token.pid, token.windowId, pendingFrame)])
+        #expect(controller.axManager.pendingFrameWrite(for: token.windowId) == pendingFrame)
+
+        let observedFrame = CGRect(x: 180, y: 64, width: 820, height: 560)
+        let rendered = controller.renderKeyboardFocusBorder(
+            for: controller.managedKeyboardFocusTarget(for: token),
+            preferredFrame: observedFrame,
+            preferredFrameSource: .observed,
+            policy: .direct
+        )
+
+        #expect(rendered)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 208)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == pendingFrame)
+    }
+
+    @Test @MainActor func pendingFrameWriteWinsOverObservedFrameForGhostty() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for pending observed border frame test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 209)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        controller.setBordersEnabled(true)
+        controller.appInfoCache.storeInfoForTests(pid: token.pid, bundleId: "com.mitchellh.ghostty")
+
+        let pendingFrame = CGRect(x: 260, y: 112, width: 860, height: 620)
+        controller.axManager.frameApplyOverrideForTests = { _ in [] }
+        controller.axManager.applyFramesParallel([(token.pid, token.windowId, pendingFrame)])
+        #expect(controller.axManager.pendingFrameWrite(for: token.windowId) == pendingFrame)
+
+        let observedFrame = CGRect(x: 260, y: 88, width: 860, height: 644)
+        controller.borderCoordinator.observedFrameProviderForTests = { axRef in
+            axRef.windowId == 209 ? observedFrame : nil
+        }
+        defer {
+            controller.borderCoordinator.observedFrameProviderForTests = nil
+        }
+
+        let rendered = controller.renderKeyboardFocusBorder(
+            for: controller.managedKeyboardFocusTarget(for: token),
+            preferredFrame: pendingFrame,
+            policy: .direct
+        )
+
+        #expect(rendered)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 209)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == pendingFrame)
+    }
+
+    @Test @MainActor func animationsDisabledPromotesCoordinatedFocusedFrameToDirectBorderUpdate() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for disabled animation border test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 210)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        controller.setBordersEnabled(true)
+        controller.motionPolicy.animationsEnabled = false
+
+        var capturedPolicy: KeyboardFocusBorderRenderPolicy?
+        controller.borderCoordinator.suppressNextKeyboardFocusBorderRenderForTests = { _, policy in
+            capturedPolicy = policy
+            return false
+        }
+        defer {
+            controller.borderCoordinator.suppressNextKeyboardFocusBorderRenderForTests = nil
+        }
+
+        let frame = CGRect(x: 160, y: 96, width: 820, height: 540)
+        var diff = WorkspaceLayoutDiff()
+        diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
+        diff.borderMode = .coordinated
+
+        controller.layoutRefreshController.executeLayoutPlan(
+            WorkspaceLayoutPlan(
+                workspaceId: workspaceId,
+                monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
+                sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
+                diff: diff
+            )
+        )
+
+        #expect(capturedPolicy == .direct)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 210)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == frame)
+    }
+
+    @Test @MainActor func coordinatedBorderDefersBeforeObservedFrameResolutionDuringAnimation() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for coordinated border deferral test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 211)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        controller.setBordersEnabled(true)
+
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        state.viewOffsetPixels = .spring(
+            SpringAnimation(
+                from: 0,
+                to: 120,
+                startTime: 0,
+                config: .snappy
+            )
+        )
+        controller.workspaceManager.updateNiriViewportState(state, for: workspaceId)
+
+        var observedReadCount = 0
+        controller.borderCoordinator.observedFrameProviderForTests = { _ in
+            observedReadCount += 1
+            return CGRect(x: 64, y: 64, width: 640, height: 480)
+        }
+        defer {
+            controller.borderCoordinator.observedFrameProviderForTests = nil
+        }
+
+        let rendered = controller.renderKeyboardFocusBorder(
+            for: controller.managedKeyboardFocusTarget(for: token),
+            policy: .coordinated
+        )
+
+        #expect(!rendered)
+        #expect(observedReadCount == 0)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+    }
+
+    @Test @MainActor func directManagedBorderUpdateFallsBackToPreferredFrameBeforeCachedFrameWhenObservedReadMisses() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for managed border fallback test")
             return
         }
 

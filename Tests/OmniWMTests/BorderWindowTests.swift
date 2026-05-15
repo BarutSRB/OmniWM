@@ -67,6 +67,119 @@ private func makeBorderTestContext() -> CGContext? {
         #expect(orderedTargets == [101])
     }
 
+    @Test @MainActor func forceOrderingReordersWithoutRedraw() {
+        var reshapeFrames: [CGRect] = []
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 903 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, frame in reshapeFrames.append(frame) },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in 2.0 }
+        )
+        let borderWindow = BorderWindow(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            operations: operations
+        )
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        borderWindow.update(frame: frame, targetWid: 101)
+        borderWindow.update(frame: frame, targetWid: 101, forceOrdering: true)
+
+        #expect(reshapeFrames.count == 1)
+        #expect(flushCount == 1)
+        #expect(moveOnlyCount == 0)
+        #expect(orderedTargets == [101, 101])
+    }
+
+    @Test @MainActor func forceOrderingBypassesManagerFrameDedupe() {
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+        var backingScaleLookups = 0
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 904 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, _ in },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in
+                backingScaleLookups += 1
+                return 2.0
+            }
+        )
+        let manager = BorderManager(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            borderWindowOperations: operations
+        )
+        defer { manager.cleanup() }
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+        manager.updateFocusedWindow(frame: frame, windowId: 101, forceOrdering: true)
+
+        #expect(flushCount == 1)
+        #expect(moveOnlyCount == 0)
+        #expect(backingScaleLookups == 1)
+        #expect(orderedTargets == [101, 101])
+    }
+
+    @Test @MainActor func sameFrameDifferentTargetReordersWithoutRedraw() {
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+        var backingScaleLookups = 0
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 905 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, _ in },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in
+                backingScaleLookups += 1
+                return 2.0
+            }
+        )
+        let manager = BorderManager(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            borderWindowOperations: operations
+        )
+        defer { manager.cleanup() }
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+        manager.updateFocusedWindow(frame: frame, windowId: 102)
+
+        #expect(flushCount == 1)
+        #expect(moveOnlyCount == 0)
+        #expect(backingScaleLookups == 1)
+        #expect(orderedTargets == [101, 102])
+        #expect(manager.lastAppliedFocusedWindowIdForTests == 102)
+        #expect(manager.lastAppliedFocusedFrameForTests == frame)
+    }
+
     @Test @MainActor func hiddenBorderReordersOnNextShow() {
         var moveOnlyCount = 0
         var orderedTargets: [UInt32] = []

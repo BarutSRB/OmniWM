@@ -72,7 +72,11 @@ final class BorderWindow {
         currentTargetWid = 0
     }
 
-    func update(frame targetFrame: CGRect, targetWid: UInt32) {
+    func update(
+        frame targetFrame: CGRect,
+        targetWid: UInt32,
+        forceOrdering: Bool = false
+    ) {
         let borderWidth = config.width
         let scale = operations.backingScaleForFrame(targetFrame)
 
@@ -117,7 +121,7 @@ final class BorderWindow {
             draw(frame: frame, drawingBounds: drawingBounds)
         }
 
-        let needsOrdering = createdWindow || !isVisible || lastOrderedTargetWid != targetWid
+        let needsOrdering = forceOrdering || createdWindow || !isVisible || lastOrderedTargetWid != targetWid
         move(relativeTo: targetWid, needsOrdering: needsOrdering)
         isVisible = true
         lastOrderedTargetWid = targetWid
@@ -188,6 +192,13 @@ final class BorderWindow {
         }
 
         operations.transactionMove(wid, origin)
+    }
+
+    func reorder(relativeTo targetWid: UInt32) {
+        guard wid != 0 else { return }
+        move(relativeTo: targetWid, needsOrdering: true)
+        isVisible = true
+        lastOrderedTargetWid = targetWid
     }
 
     func hide() {

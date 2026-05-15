@@ -162,10 +162,11 @@ enum NiriWindowMoveResult {
                 token: token,
                 preferredFrame: preferredFrame,
                 phase: .animationSettled,
-                policy: .coordinated
+                policy: .direct,
+                forceOrdering: true
             )
         } else {
-            _ = controller.renderKeyboardFocusBorder(policy: .coordinated)
+            _ = controller.renderKeyboardFocusBorder(policy: .direct, forceOrdering: true)
         }
 
         if controller.moveMouseToFocusedWindowEnabled,

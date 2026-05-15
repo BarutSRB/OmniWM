@@ -482,6 +482,49 @@ private func configureWorkspacesAsDwindle(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 703)
     }
 
+    @Test @MainActor func finalAnimationTickReappliesFocusedBorderAfterStoppingAnimation() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Dwindle final border animation test")
+            return
+        }
+
+        configureWorkspaceAsDwindle(on: controller, workspaceId: workspaceId)
+        controller.enableDwindleLayout()
+        controller.dwindleEngine?.windowMovementAnimationConfig = CubicConfig(duration: 10.0)
+        controller.setBordersEnabled(true)
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 709)
+        _ = controller.workspaceManager.setManagedFocus(firstToken, in: workspaceId, onMonitor: monitor.id)
+
+        let initialPlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 709)
+
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 710)
+        let animationPlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(animationPlans)
+        #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId]?.0 == workspaceId)
+
+        controller.borderManager.hideBorder()
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+
+        controller.dwindleLayoutHandler.tickDwindleAnimation(
+            targetTime: controller.animationClock.now() + 20,
+            displayId: monitor.displayId
+        )
+
+        #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId] == nil)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 709)
+    }
+
     @Test @MainActor func fullscreenRelayoutSuppressesFocusedBorder() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

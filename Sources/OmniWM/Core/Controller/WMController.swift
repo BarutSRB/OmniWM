@@ -2395,12 +2395,16 @@ extension WMController {
     func renderKeyboardFocusBorder(
         for target: KeyboardFocusTarget? = nil,
         preferredFrame: CGRect? = nil,
-        policy: KeyboardFocusBorderRenderPolicy = .coordinated
+        preferredFrameSource: BorderFrameSource = .layout,
+        policy: KeyboardFocusBorderRenderPolicy = .coordinated,
+        forceOrdering: Bool = false
     ) -> Bool {
         borderCoordinator.renderBorder(
             for: target ?? currentKeyboardFocusTargetForRendering(),
             preferredFrame: preferredFrame,
-            policy: policy
+            preferredFrameSource: preferredFrameSource,
+            policy: policy,
+            forceOrdering: forceOrdering
         )
     }
 
@@ -2409,11 +2413,16 @@ extension WMController {
         token: WindowToken,
         preferredFrame: CGRect? = nil,
         phase: ManagedBorderReapplyPhase,
-        policy: KeyboardFocusBorderRenderPolicy = .direct
+        policy: KeyboardFocusBorderRenderPolicy = .direct,
+        forceOrdering: Bool = false
     ) -> Bool {
         guard currentKeyboardFocusTargetForRendering()?.token == token else { return false }
         recordNiriCreateFocusTrace(.borderReapplied(token: token, phase: phase))
-        return renderKeyboardFocusBorder(preferredFrame: preferredFrame, policy: policy)
+        return renderKeyboardFocusBorder(
+            preferredFrame: preferredFrame,
+            policy: policy,
+            forceOrdering: forceOrdering
+        )
     }
 
     func clearKeyboardFocusTarget(
@@ -2423,7 +2432,7 @@ extension WMController {
     ) {
         focusBridge.clearFocusedTarget(matching: token, pid: pid)
         guard restoreCurrentBorder else { return }
-        _ = renderKeyboardFocusBorder(policy: .direct)
+        _ = renderKeyboardFocusBorder(policy: .direct, forceOrdering: true)
     }
 
     func recordNiriCreateFocusTrace(_ kind: NiriCreateFocusTraceEvent.Kind) {

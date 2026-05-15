@@ -634,6 +634,17 @@ import QuartzCore
                     )
                 }
                 controller.focusWindow(token)
+                if let focusedFrame,
+                   focusedFrame.token == token,
+                   let target = controller.managedKeyboardFocusTarget(for: token)
+                {
+                    _ = controller.renderKeyboardFocusBorder(
+                        for: target,
+                        preferredFrame: focusedFrame.frame,
+                        policy: .direct,
+                        forceOrdering: true
+                    )
+                }
             case .updateTabbedOverlays:
                 niriHandler.updateTabbedColumnOverlays()
             }
@@ -2974,7 +2985,11 @@ final class LayoutDiffExecutor {
         case .direct:
             applyDirectBorderUpdate(diff.focusedFrame)
         case .coordinated:
-            applyCoordinatedBorderUpdate(diff.focusedFrame)
+            if shouldApplyCoordinatedBorderDirectly(diff.focusedFrame) {
+                applyDirectBorderUpdate(diff.focusedFrame)
+            } else {
+                applyCoordinatedBorderUpdate(diff.focusedFrame)
+            }
         }
     }
 
@@ -3055,6 +3070,16 @@ final class LayoutDiffExecutor {
             preferredFrame: preferredFrame,
             policy: .coordinated
         )
+    }
+
+    private func shouldApplyCoordinatedBorderDirectly(_ focusedFrame: LayoutFocusedFrame?) -> Bool {
+        guard focusedFrame != nil,
+              let controller = refreshController.controller
+        else {
+            return false
+        }
+
+        return !controller.motionPolicy.animationsEnabled
     }
 
     private func shouldIgnoreStaleManagedBorderUpdate(

@@ -7028,12 +7028,12 @@ private func makeCenteredCrossMonitorFixture(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 609)
     }
 
-    @Test @MainActor func focusNeighborUsesObservedGhosttyFrameForDirectBorderUpdatesFromEitherSide() async throws {
+    @Test @MainActor func focusNeighborUsesLayoutFrameForDirectGhosttyBorderUpdatesFromEitherSide() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
         else {
-            Issue.record("Missing monitor or active workspace for Ghostty navigation border regression test")
+            Issue.record("Missing monitor or active workspace for managed navigation border regression test")
             return
         }
 
@@ -7078,7 +7078,7 @@ private func makeCenteredCrossMonitorFixture(
         controller.layoutRefreshController.executeLayoutPlans(plans)
 
         guard let engine = controller.niriEngine else {
-            Issue.record("Expected Niri window nodes for Ghostty navigation border regression test")
+            Issue.record("Expected Niri window nodes for managed navigation border regression test")
             return
         }
 
@@ -7092,7 +7092,7 @@ private func makeCenteredCrossMonitorFixture(
         else {
             Issue
                 .record(
-                    "Expected three visible columns and a realized center frame for Ghostty navigation border regression test"
+                    "Expected three visible columns and a realized center frame for managed navigation border regression test"
                 )
             return
         }
@@ -7112,11 +7112,17 @@ private func makeCenteredCrossMonitorFixture(
             width: ghosttyLayoutFrame.width,
             height: ghosttyLayoutFrame.height + 24
         )
+        var observedReadCount = 0
         controller.borderCoordinator.observedFrameProviderForTests = { axRef in
-            axRef.windowId == ghosttyWindow.token.windowId ? observedFrame : nil
+            observedReadCount += 1
+            return axRef.windowId == ghosttyWindow.token.windowId ? observedFrame : nil
         }
         defer {
             controller.borderCoordinator.observedFrameProviderForTests = nil
+        }
+
+        func currentGhosttyFrame() -> CGRect? {
+            ghosttyWindow.node.renderedFrame ?? ghosttyWindow.node.frame
         }
 
         func primeNavigation(
@@ -7160,7 +7166,7 @@ private func makeCenteredCrossMonitorFixture(
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == ghosttyWindow.token)
         #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == ghosttyWindow.node.id)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == ghosttyWindow.token.windowId)
-        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == observedFrame)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == currentGhosttyFrame())
 
         primeNavigation(from: rightWindow.token, node: rightWindow.node)
         controller.niriLayoutHandler.focusNeighbor(direction: .left)
@@ -7169,7 +7175,8 @@ private func makeCenteredCrossMonitorFixture(
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == ghosttyWindow.token)
         #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == ghosttyWindow.node.id)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == ghosttyWindow.token.windowId)
-        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == observedFrame)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == currentGhosttyFrame())
+        #expect(observedReadCount == 0)
     }
 
     @Test @MainActor func focusNeighborRoundTripUsesPaddedViewportOffsets() async throws {

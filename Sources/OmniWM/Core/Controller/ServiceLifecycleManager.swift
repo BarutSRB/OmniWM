@@ -205,7 +205,7 @@ final class ServiceLifecycleManager {
                 controller.ensureFocusedTokenValid(in: workspaceId)
             }
         }
-        _ = controller.renderKeyboardFocusBorder(policy: .direct)
+        _ = controller.renderKeyboardFocusBorder(policy: .direct, forceOrdering: true)
         controller.appInfoCache.evict(pid: pid)
         controller.layoutRefreshController.requestFullRescan(reason: .appTerminated)
     }

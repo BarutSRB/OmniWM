@@ -84,6 +84,18 @@ import QuartzCore
 
         if !engine.hasActiveAnimations(in: wsId, at: targetTime) {
             controller.layoutRefreshController.stopDwindleAnimation(for: displayId)
+            if case .none = plan.diff.borderMode {
+                return
+            }
+            if let focusedFrame = plan.diff.focusedFrame {
+                _ = controller.reapplyKeyboardFocusBorderIfMatching(
+                    token: focusedFrame.token,
+                    preferredFrame: focusedFrame.frame,
+                    phase: .animationSettled,
+                    policy: .direct,
+                    forceOrdering: true
+                )
+            }
         }
     }
 

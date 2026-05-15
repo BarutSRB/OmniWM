@@ -475,14 +475,10 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
-        updateFocusedBorderForFrameChange(token: token)
+        let focusedObservedFrame = updateFocusedBorderForFrameChange(token: token)
 
         if entry.mode == .floating {
-            if let frame = frameProvider?(entry.axRef)
-                ?? fastFrameProvider?(entry.axRef)
-                ?? AXWindowService.framePreferFast(entry.axRef)
-                ?? (try? AXWindowService.frame(entry.axRef))
-            {
+            if let frame = focusedObservedFrame ?? observedFrame(for: entry) {
                 controller.workspaceManager.updateFloatingGeometry(frame: frame, for: token)
             }
             return
@@ -502,25 +498,43 @@ final class AXEventHandler: CGSEventDelegate {
         controller.layoutRefreshController.requestRelayout(reason: .axWindowChanged)
     }
 
-    private func updateFocusedBorderForFrameChange(token: WindowToken) {
-        guard let controller else { return }
+    private func updateFocusedBorderForFrameChange(token: WindowToken) -> CGRect? {
+        guard let controller else { return nil }
         guard let target = controller.currentKeyboardFocusTargetForRendering(),
               target.token == token,
               let entry = controller.workspaceManager.entry(for: token)
-        else { return }
+        else { return nil }
 
-        if let frame = frameProvider?(entry.axRef)
-            ?? fastFrameProvider?(entry.axRef)
-            ?? AXWindowService.framePreferFast(entry.axRef)
-            ?? (try? AXWindowService.frame(entry.axRef))
-        {
+        let pendingFrame = controller.axManager.pendingFrameWrite(for: entry.windowId)
+
+        if let pendingFrame {
+            _ = controller.renderKeyboardFocusBorder(
+                for: target,
+                preferredFrame: pendingFrame,
+                policy: .direct
+            )
+            return nil
+        }
+
+        if let frame = observedFrame(for: entry) {
             updateManagedReplacementFrame(frame, for: entry)
             _ = controller.renderKeyboardFocusBorder(
                 for: target,
                 preferredFrame: frame,
-                policy: .coordinated
+                preferredFrameSource: .observed,
+                policy: .direct
             )
+            return frame
         }
+
+        return nil
+    }
+
+    private func observedFrame(for entry: WindowModel.Entry) -> CGRect? {
+        frameProvider?(entry.axRef)
+            ?? fastFrameProvider?(entry.axRef)
+            ?? AXWindowService.framePreferFast(entry.axRef)
+            ?? (try? AXWindowService.frame(entry.axRef))
     }
 
     private func handleCGSWindowDestroyed(windowId: UInt32) {
@@ -822,7 +836,7 @@ final class AXEventHandler: CGSEventDelegate {
         controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
         _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         controller.clearManualWindowOverride(for: token)
-        _ = controller.renderKeyboardFocusBorder(policy: .direct)
+        _ = controller.renderKeyboardFocusBorder(policy: .direct, forceOrdering: true)
 
         if let wsId = affectedWorkspaceId {
             controller.layoutRefreshController.requestWindowRemoval(
@@ -1041,7 +1055,7 @@ final class AXEventHandler: CGSEventDelegate {
             observedAppFullscreen: appFullscreen
         )
         _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: fallbackFullscreen)
-        _ = controller.renderKeyboardFocusBorder(for: target, policy: .direct)
+        _ = controller.renderKeyboardFocusBorder(for: target, policy: .direct, forceOrdering: true)
 
         recordNiriCreateFocusTrace(
             .init(
@@ -1142,12 +1156,14 @@ final class AXEventHandler: CGSEventDelegate {
             _ = controller.renderKeyboardFocusBorder(
                 for: target,
                 preferredFrame: node.renderedFrame ?? node.frame,
-                policy: .direct
+                policy: .direct,
+                forceOrdering: true
             )
         } else {
             _ = controller.renderKeyboardFocusBorder(
                 for: target,
-                policy: .direct
+                policy: .direct,
+                forceOrdering: true
             )
         }
 
@@ -2347,7 +2363,8 @@ final class AXEventHandler: CGSEventDelegate {
            controller.renderKeyboardFocusBorder(
                for: target,
                preferredFrame: controller.preferredKeyboardFocusFrame(for: target.token),
-               policy: .direct
+               policy: .direct,
+               forceOrdering: true
            )
         {
             recordNiriCreateFocusTrace(

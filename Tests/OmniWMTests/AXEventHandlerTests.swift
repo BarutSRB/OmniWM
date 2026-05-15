@@ -2376,6 +2376,114 @@ private func waitUntilAXEventTest(
         }
     }
 
+    @Test @MainActor func focusedFrameChangedUsesDirectBorderUpdateAndKeepsRelayout() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let handle = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 819),
+            pid: getpid(),
+            windowId: 819,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            handle,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+
+        let observedFrame = CGRect(x: 24, y: 24, width: 640, height: 480)
+        controller.axEventHandler.frameProvider = { _ in observedFrame }
+        controller.setBordersEnabled(true)
+        defer {
+            controller.axEventHandler.frameProvider = nil
+            controller.borderCoordinator.suppressNextKeyboardFocusBorderRenderForTests = nil
+        }
+
+        var capturedPolicy: KeyboardFocusBorderRenderPolicy?
+        controller.borderCoordinator.suppressNextKeyboardFocusBorderRenderForTests = { _, policy in
+            capturedPolicy = policy
+            return false
+        }
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: 819)
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(capturedPolicy == .direct)
+        #expect(relayoutReasons == [.axWindowChanged])
+        #expect(lastAppliedBorderWindowId(on: controller) == 819)
+        #expect(lastAppliedBorderFrame(on: controller) == observedFrame)
+    }
+
+    @Test @MainActor func focusedFrameChangedWithPendingWriteSkipsObservedReadForBorder() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let handle = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 820),
+            pid: getpid(),
+            windowId: 820,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            handle,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        _ = controller.workspaceManager.setManagedReplacementMetadata(
+            makeManagedReplacementMetadata(workspaceId: workspaceId),
+            for: handle
+        )
+
+        let pendingFrame = CGRect(x: 32, y: 32, width: 640, height: 480)
+        controller.axManager.frameApplyOverrideForTests = { _ in [] }
+        controller.axManager.applyFramesParallel([(getpid(), 820, pendingFrame)])
+        var observedReadCount = 0
+        controller.axEventHandler.frameProvider = { _ in
+            observedReadCount += 1
+            return CGRect(x: 96, y: 96, width: 500, height: 400)
+        }
+        controller.setBordersEnabled(true)
+        defer {
+            controller.axManager.frameApplyOverrideForTests = nil
+            controller.axEventHandler.frameProvider = nil
+        }
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: 820)
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(observedReadCount == 0)
+        #expect(relayoutReasons == [.axWindowChanged])
+        #expect(lastAppliedBorderWindowId(on: controller) == 820)
+        #expect(lastAppliedBorderFrame(on: controller) == pendingFrame)
+    }
+
     @Test @MainActor func floatingFrameChangedUpdatesGeometryWithoutRelayout() async {
         let controller = makeAXEventTestController()
         guard let workspaceId = controller.activeWorkspace()?.id else {

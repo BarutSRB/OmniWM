@@ -133,8 +133,8 @@ final class AXManager {
         pendingFrameWrites[windowId] != nil
     }
 
-    func shouldPreferObservedFrame(for windowId: Int) -> Bool {
-        pendingFrameWrites[windowId] != nil || recentFrameWriteFailures[windowId] != nil
+    func pendingFrameWrite(for windowId: Int) -> CGRect? {
+        pendingFrameWrites[windowId]
     }
 
     func clearInactiveWorkspaceWindows() {

@@ -7,10 +7,15 @@ final class BorderManager {
     private var config: BorderConfig
     private var lastAppliedFrame: CGRect?
     private var lastAppliedWindowId: Int?
+    private let borderWindowOperations: BorderWindow.Operations
     private let surfaceCoordinator = SurfaceCoordinator.shared
 
-    init(config: BorderConfig = BorderConfig()) {
+    init(
+        config: BorderConfig = BorderConfig(),
+        borderWindowOperations: BorderWindow.Operations = .live
+    ) {
         self.config = config
+        self.borderWindowOperations = borderWindowOperations
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -31,23 +36,19 @@ final class BorderManager {
         }
     }
 
-    func updateFocusedWindow(frame: CGRect, windowId: Int?) {
+    func updateFocusedWindow(
+        frame: CGRect,
+        windowId: Int?,
+        forceOrdering: Bool = false
+    ) {
         guard config.enabled else { return }
         guard frame.width > 0, frame.height > 0 else {
             hideBorder()
             return
         }
 
-        if let last = lastAppliedFrame,
-           let lastWid = lastAppliedWindowId,
-           lastWid == windowId,
-           frame.approximatelyEqual(to: last, tolerance: 0.5)
-        {
-            return
-        }
-
         if borderWindow == nil {
-            borderWindow = BorderWindow(config: config)
+            borderWindow = BorderWindow(config: config, operations: borderWindowOperations)
         }
 
         guard let windowId else {
@@ -58,7 +59,19 @@ final class BorderManager {
         }
 
         let targetWid = UInt32(windowId)
-        borderWindow?.update(frame: frame, targetWid: targetWid)
+        if let last = lastAppliedFrame,
+           let lastWid = lastAppliedWindowId,
+           frame.approximatelyEqual(to: last, tolerance: 0.5)
+        {
+            if forceOrdering || lastWid != windowId {
+                borderWindow?.reorder(relativeTo: targetWid)
+                lastAppliedWindowId = windowId
+                syncSurfaceRegistration()
+            }
+            return
+        }
+
+        borderWindow?.update(frame: frame, targetWid: targetWid, forceOrdering: forceOrdering)
         lastAppliedFrame = frame
         lastAppliedWindowId = windowId
         syncSurfaceRegistration()

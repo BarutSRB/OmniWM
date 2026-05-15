@@ -16,14 +16,23 @@ enum ManagedBorderReapplyPhase: String, Equatable {
     case retryExhaustedFallback
 }
 
+enum BorderFrameSource: Equatable {
+    case layout
+    case observed
+}
+
 @MainActor
 final class BorderCoordinator {
-    private static let ghosttyBundleId = "com.mitchellh.ghostty"
-
     private enum RenderEligibility {
         case hide
         case skip
         case update
+    }
+
+    private struct BorderRenderRequest {
+        let target: KeyboardFocusTarget
+        let frame: CGRect
+        let forceOrdering: Bool
     }
 
     weak var controller: WMController?
@@ -39,7 +48,9 @@ final class BorderCoordinator {
     func renderBorder(
         for target: KeyboardFocusTarget?,
         preferredFrame: CGRect? = nil,
-        policy: KeyboardFocusBorderRenderPolicy
+        preferredFrameSource: BorderFrameSource = .layout,
+        policy: KeyboardFocusBorderRenderPolicy,
+        forceOrdering: Bool = false
     ) -> Bool {
         guard let controller else { return false }
         guard let target else {
@@ -67,14 +78,6 @@ final class BorderCoordinator {
             break
         }
 
-        guard let frame = resolveFrame(for: target, preferredFrame: preferredFrame) else {
-            if target.isManaged, policy == .coordinated {
-                return false
-            }
-            controller.borderManager.hideBorder()
-            return false
-        }
-
         if policy.shouldDeferForAnimations,
            let workspaceId = target.workspaceId,
            shouldDeferBorderUpdates(for: workspaceId)
@@ -82,9 +85,23 @@ final class BorderCoordinator {
             return false
         }
 
+        guard let request = renderRequest(
+            for: target,
+            preferredFrame: preferredFrame,
+            preferredFrameSource: preferredFrameSource,
+            forceOrdering: forceOrdering
+        ) else {
+            if target.isManaged, policy == .coordinated {
+                return false
+            }
+            controller.borderManager.hideBorder()
+            return false
+        }
+
         controller.borderManager.updateFocusedWindow(
-            frame: frame,
-            windowId: target.windowId
+            frame: request.frame,
+            windowId: request.target.windowId,
+            forceOrdering: request.forceOrdering
         )
         return true
     }
@@ -119,43 +136,88 @@ final class BorderCoordinator {
         return .update
     }
 
+    private func renderRequest(
+        for target: KeyboardFocusTarget,
+        preferredFrame: CGRect?,
+        preferredFrameSource: BorderFrameSource,
+        forceOrdering: Bool
+    ) -> BorderRenderRequest? {
+        guard let frame = resolveFrame(
+            for: target,
+            preferredFrame: preferredFrame,
+            preferredFrameSource: preferredFrameSource
+        ) else {
+            return nil
+        }
+
+        return BorderRenderRequest(
+            target: target,
+            frame: frame,
+            forceOrdering: forceOrdering
+        )
+    }
+
     private func resolveFrame(
         for target: KeyboardFocusTarget,
-        preferredFrame: CGRect?
+        preferredFrame: CGRect?,
+        preferredFrameSource: BorderFrameSource
     ) -> CGRect? {
         guard let controller else { return nil }
-        let prefersGhosttyObservedFrame = controller.appInfoCache.bundleId(for: target.pid) == Self.ghosttyBundleId
+        let preferred = preferredFrame
 
         if target.isManaged,
            let entry = controller.workspaceManager.entry(for: target.token)
         {
-            let shouldPreferObservedFrame = controller.axManager.shouldPreferObservedFrame(for: entry.windowId)
-            let prefersObservedFrame = shouldPreferObservedFrame || prefersGhosttyObservedFrame
-
-            if !prefersObservedFrame, let preferredFrame {
-                return preferredFrame
+            if let pendingFrame = controller.axManager.pendingFrameWrite(for: entry.windowId) {
+                return pendingFrame
             }
 
-            let observed = observedFrame(for: entry.axRef)
-            if let observed {
+            if preferredFrameSource == .observed, let preferred {
+                return preferred
+            }
+
+            if entry.managedReplacementMetadata != nil, let observed = observedFrame(for: entry.axRef) {
                 return observed
             }
 
-            if let preferredFrame {
-                return preferredFrame
+            let hasRecentFrameWriteFailure = controller.axManager.recentFrameWriteFailure(for: entry.windowId) != nil
+
+            if !hasRecentFrameWriteFailure, let preferred {
+                return preferred
             }
 
-            return controller.axManager.lastAppliedFrame(for: entry.windowId)
-                ?? (!prefersObservedFrame
-                    ? controller.niriEngine?.findNode(for: target.token).flatMap { $0.renderedFrame ?? $0.frame }
-                    : nil)
+            if hasRecentFrameWriteFailure, let observed = observedFrame(for: entry.axRef) {
+                return observed
+            }
+
+            if let preferred {
+                return preferred
+            }
+
+            if let frame = controller.axManager.lastAppliedFrame(for: entry.windowId) {
+                return frame
+            }
+
+            if let frame = controller.preferredKeyboardFocusFrame(for: target.token) {
+                return frame
+            }
+
+            if let observed = observedFrame(for: entry.axRef) {
+                return observed
+            }
+
+            return nil
         }
 
-        if !prefersGhosttyObservedFrame, let preferredFrame {
-            return preferredFrame
+        if preferredFrameSource == .observed, let preferred {
+            return preferred
         }
 
-        return observedFrame(for: target.axRef) ?? preferredFrame
+        if let observed = observedFrame(for: target.axRef) {
+            return observed
+        }
+
+        return preferred
     }
 
     private func observedFrame(for axRef: AXWindowRef) -> CGRect? {
