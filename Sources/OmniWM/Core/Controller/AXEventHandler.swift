@@ -819,6 +819,7 @@ final class AXEventHandler: CGSEventDelegate {
             removedNodeId = engine.findNode(for: token)?.id
         }
 
+        controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
         _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         controller.clearManualWindowOverride(for: token)
         _ = controller.renderKeyboardFocusBorder(policy: .direct)
@@ -1271,6 +1272,7 @@ final class AXEventHandler: CGSEventDelegate {
             oldWindowId: oldToken.windowId,
             newWindow: axRef
         )
+        controller.rekeyScratchpadWindowResources(from: oldToken, to: newToken, axRef: axRef)
         controller.layoutRefreshController.rekeyPendingRevealTransaction(
             from: oldToken,
             to: newToken,

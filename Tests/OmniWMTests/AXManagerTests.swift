@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Foundation
 @testable import OmniWM
@@ -23,6 +24,24 @@ private func axManagerTestWriteResult(
 }
 
 @Suite(.serialized) struct AXManagerTests {
+    @Test func observedTargetFrameConfirmsApplyResultDespiteAttributeWriteFailure() {
+        let targetFrame = CGRect(x: 120, y: 90, width: 640, height: 420)
+        let result = AXFrameApplyResult(
+            pid: 910,
+            windowId: 910,
+            targetFrame: targetFrame,
+            currentFrameHint: nil,
+            writeResult: axManagerTestWriteResult(
+                targetFrame: targetFrame,
+                currentFrameHint: nil,
+                observedFrame: targetFrame,
+                failureReason: .sizeWriteFailed(.attributeUnsupported)
+            )
+        )
+
+        #expect(result.confirmedFrame == targetFrame)
+    }
+
     @Test @MainActor func failedWriteRetriesOnceAndPromotesConfirmedFrameAfterSuccess() async {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

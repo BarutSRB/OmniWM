@@ -29,6 +29,7 @@ import Testing
         #expect(output.contains("[workspaceBar.textColor]"))
         #expect(output.contains("[gestures]"))
         #expect(output.contains("[statusBar]"))
+        #expect(output.contains("[clipboard]"))
         #expect(output.contains("[quakeTerminal]"))
         #expect(output.contains("[appearance]"))
         #expect(output.contains("[state]"))
@@ -302,6 +303,27 @@ import Testing
         #expect(decoded.quakeTerminalOpacity == nil)
         #expect(decoded.quakeTerminalMonitorMode == nil)
         #expect(decoded.niriDefaultColumnWidth == nil)
+    }
+
+    @Test func roundTripsClipboardSettingsAndLastMode() throws {
+        var export = SettingsExport.defaults()
+        export.commandPaletteLastMode = CommandPaletteMode.clipboard.rawValue
+        export.clipboardHistoryEnabled = true
+        export.clipboardMaxItems = 42
+        export.clipboardMaxItemBytes = 16_384
+        export.clipboardMaxTotalBytes = 65_536
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let output = try #require(String(data: data, encoding: .utf8))
+        #expect(output.contains("[clipboard]"))
+        #expect(output.contains("commandPaletteLastMode = \"clipboard\""))
+
+        let decoded = try SettingsTOMLCodec.decode(data)
+        #expect(decoded.commandPaletteLastMode == CommandPaletteMode.clipboard.rawValue)
+        #expect(decoded.clipboardHistoryEnabled == true)
+        #expect(decoded.clipboardMaxItems == 42)
+        #expect(decoded.clipboardMaxItemBytes == 16_384)
+        #expect(decoded.clipboardMaxTotalBytes == 65_536)
     }
 
     @Test func canonicalDefaultsMatchGoldenFixture() throws {

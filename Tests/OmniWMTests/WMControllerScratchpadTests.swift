@@ -238,6 +238,11 @@ private func setScratchpadTestFrame(
                 workspaceId: fixture.primaryWorkspaceId,
                 windowId: 731
             )
+            let visibleToken = addLayoutPlanTestWindow(
+                on: controller,
+                workspaceId: fixture.secondaryWorkspaceId,
+                windowId: 732
+            )
             let initialFrame = CGRect(x: 220, y: 160, width: 620, height: 400)
             setScratchpadTestFrame(on: controller, token: token, frame: initialFrame)
 
@@ -247,6 +252,11 @@ private func setScratchpadTestFrame(
                 onMonitor: fixture.primaryMonitor.id
             )
             controller.assignFocusedWindowToScratchpad()
+            _ = controller.workspaceManager.setManagedFocus(
+                visibleToken,
+                in: fixture.secondaryWorkspaceId,
+                onMonitor: fixture.secondaryMonitor.id
+            )
             _ = controller.workspaceManager.setInteractionMonitor(fixture.secondaryMonitor.id)
 
             guard let expectedFrame = controller.workspaceManager.resolvedFloatingFrame(
@@ -266,6 +276,10 @@ private func setScratchpadTestFrame(
 
             let startedWrite = DispatchSemaphore(value: 0)
             let releaseWrite = DispatchSemaphore(value: 0)
+            var liveFrame = expectedFrame.offsetBy(dx: fixture.secondaryMonitor.frame.width + 80, dy: 0)
+            AXWindowService.fastFrameProviderForTests = { window in
+                window.windowId == token.windowId ? liveFrame : fallbackFastFrameForTests(window)
+            }
             AXWindowService.setFrameResultProviderForTests = { _, frame, currentFrameHint in
                 if frame == expectedFrame {
                     startedWrite.signal()
@@ -275,10 +289,11 @@ private func setScratchpadTestFrame(
                     targetFrame: frame,
                     currentFrameHint: currentFrameHint,
                     observedFrame: frame,
-                    failureReason: nil
+                    failureReason: .sizeWriteFailed(.attributeUnsupported)
                 )
             }
             defer {
+                AXWindowService.fastFrameProviderForTests = nil
                 AXWindowService.setFrameResultProviderForTests = nil
                 AppAXContext.contexts.removeValue(forKey: token.pid)
                 context.destroy()
@@ -293,10 +308,25 @@ private func setScratchpadTestFrame(
             #expect(sawWriteStart)
             #expect(recorder.events.isEmpty)
 
+            controller.toggleScratchpadWindow()
+            controller.toggleScratchpadWindow()
+            #expect(recorder.events.isEmpty)
+
             releaseWrite.signal()
+
+            let delayedReveal = await waitForConditionForTests(timeoutNanoseconds: 5_000_000_000) {
+                controller.axManager.lastAppliedFrame(for: token.windowId) == expectedFrame
+                    && controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true
+            }
+
+            #expect(delayedReveal)
+            #expect(recorder.events.isEmpty)
+
+            liveFrame = expectedFrame
 
             let observedFronting = await waitForConditionForTests(timeoutNanoseconds: 5_000_000_000) {
                 recorder.events.count == 3
+                    && controller.workspaceManager.hiddenState(for: token) == nil
             }
 
             #expect(observedFronting)

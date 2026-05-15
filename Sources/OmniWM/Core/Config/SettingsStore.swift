@@ -312,6 +312,22 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var clipboardHistoryEnabled = SettingsStore.defaultExport.clipboardHistoryEnabled {
+        didSet { scheduleSave() }
+    }
+
+    var clipboardMaxItems = SettingsStore.defaultExport.clipboardMaxItems {
+        didSet { scheduleSave() }
+    }
+
+    var clipboardMaxItemBytes = SettingsStore.defaultExport.clipboardMaxItemBytes {
+        didSet { scheduleSave() }
+    }
+
+    var clipboardMaxTotalBytes = SettingsStore.defaultExport.clipboardMaxTotalBytes {
+        didSet { scheduleSave() }
+    }
+
     var hiddenBarIsCollapsed = SettingsStore.defaultExport.hiddenBarIsCollapsed {
         didSet { scheduleSave() }
     }
@@ -529,6 +545,10 @@ final class SettingsStore {
             statusBarUseWorkspaceId: statusBarUseWorkspaceId,
             commandPaletteLastMode: commandPaletteLastMode.rawValue,
             animationsEnabled: animationsEnabled,
+            clipboardHistoryEnabled: clipboardHistoryEnabled,
+            clipboardMaxItems: clipboardMaxItems,
+            clipboardMaxItemBytes: clipboardMaxItemBytes,
+            clipboardMaxTotalBytes: clipboardMaxTotalBytes,
             hiddenBarIsCollapsed: hiddenBarIsCollapsed,
             quakeTerminalEnabled: quakeTerminalEnabled,
             quakeTerminalPosition: quakeTerminalPosition.rawValue,
@@ -637,6 +657,10 @@ final class SettingsStore {
         statusBarUseWorkspaceId = export.statusBarUseWorkspaceId
         commandPaletteLastMode = CommandPaletteMode(rawValue: export.commandPaletteLastMode) ?? .windows
         animationsEnabled = export.animationsEnabled
+        clipboardHistoryEnabled = export.clipboardHistoryEnabled
+        clipboardMaxItems = export.clipboardMaxItems
+        clipboardMaxItemBytes = export.clipboardMaxItemBytes
+        clipboardMaxTotalBytes = export.clipboardMaxTotalBytes
 
         hiddenBarIsCollapsed = export.hiddenBarIsCollapsed
 

@@ -120,6 +120,11 @@ struct AXFrameApplyResult: Equatable, Sendable {
     }
 
     var confirmedFrame: CGRect? {
+        if let observedFrame = writeResult.observedFrame,
+           observedFrame.approximatelyEqual(to: targetFrame, tolerance: 1.0)
+        {
+            return observedFrame
+        }
         guard writeResult.isVerifiedSuccess else { return nil }
         return writeResult.observedFrame ?? targetFrame
     }
@@ -204,10 +209,23 @@ enum AXWindowService {
         pinnedElements.removeValue(forKey: windowId)
     }
 
+    static func clearPinnedAXElementsForTests() {
+        pinnedElementsLock.lock()
+        defer { pinnedElementsLock.unlock() }
+        pinnedElements.removeAll()
+    }
+
     private static func pinnedAXElement(for windowId: UInt32) -> AXUIElement? {
         pinnedElementsLock.lock()
         defer { pinnedElementsLock.unlock() }
         return pinnedElements[windowId]
+    }
+
+    static func pinnedWindowId(for windowId: UInt32) -> CGWindowID? {
+        guard let pinned = pinnedAXElement(for: windowId) else { return nil }
+        var resolvedWindowId: CGWindowID = 0
+        guard _AXUIElementGetWindow(pinned, &resolvedWindowId) == .success else { return nil }
+        return resolvedWindowId
     }
 
     private struct CachedTitle {

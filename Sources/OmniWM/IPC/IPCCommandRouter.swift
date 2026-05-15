@@ -378,17 +378,11 @@ final class IPCCommandRouter {
     }
 
     private func assignFocusedWindowToScratchpad() -> ExternalCommandResult {
-        let previousScratchpadToken = controller.workspaceManager.scratchpadToken()
-        _ = controller.commandHandler.performCommand(.assignFocusedWindowToScratchpad)
-        return controller.workspaceManager.scratchpadToken() == previousScratchpadToken ? .notFound : .executed
+        controller.commandHandler.performCommand(.assignFocusedWindowToScratchpad)
     }
 
     private func toggleScratchpad() -> ExternalCommandResult {
-        guard let scratchpadToken = controller.workspaceManager.scratchpadToken() else { return .notFound }
-        let wasHidden = controller.workspaceManager.hiddenState(for: scratchpadToken) != nil
-        _ = controller.commandHandler.performCommand(.toggleScratchpadWindow)
-        let isHidden = controller.workspaceManager.hiddenState(for: scratchpadToken) != nil
-        return wasHidden == isHidden ? .notFound : .executed
+        controller.commandHandler.performCommand(.toggleScratchpadWindow)
     }
 
     private func switchWorkspace(to target: WorkspaceTarget) -> ExternalCommandResult {

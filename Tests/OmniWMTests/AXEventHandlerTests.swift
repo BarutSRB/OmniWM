@@ -4766,93 +4766,99 @@ private func waitUntilAXEventTest(
     }
 
     @Test @MainActor func floatingCreatedWindowUsesHydratedWorkspaceAndPersistedRestoreFrame() async throws {
-        let bundleId = "com.example.restore"
-        let settings = SettingsStore(defaults: makeAXEventTestDefaults())
-        settings.workspaceConfigurations = [
-            WorkspaceConfiguration(name: "1", monitorAssignment: .main),
-            WorkspaceConfiguration(name: "6", monitorAssignment: .secondary)
-        ]
-        let primaryMonitor = makeAXEventTestMonitor()
-        let secondaryMonitor = makeAXEventSecondaryMonitor()
-        let expectedFrame = CGRect(
-            x: secondaryMonitor.visibleFrame.minX + 260,
-            y: secondaryMonitor.visibleFrame.minY + 180,
-            width: 480,
-            height: 320
-        )
-        let catalog = makeAXEventPersistedRestoreCatalog(
-            workspaceName: "6",
-            monitor: secondaryMonitor,
-            title: "Hydrated Restore",
-            bundleId: bundleId,
-            floatingFrame: expectedFrame
-        )
-        settings.savePersistedWindowRestoreCatalog(catalog)
-
-        let controller = makeAXEventTestController(
-            trackedBundleId: bundleId,
-            settings: settings
-        )
-        controller.workspaceManager.applyMonitorConfigurationChange([primaryMonitor, secondaryMonitor])
-        controller.windowRuleEngine.rebuild(
-            rules: [
-                AppRule(bundleId: bundleId, assignToWorkspace: "1")
+        try await withAXFrameProviderIsolationForTests {
+            let bundleId = "com.example.restore"
+            let settings = SettingsStore(defaults: makeAXEventTestDefaults())
+            settings.workspaceConfigurations = [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "6", monitorAssignment: .secondary)
             ]
-        )
-        let primaryWorkspaceId = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: false))
-        let secondaryWorkspaceId = try #require(controller.workspaceManager.workspaceId(
-            for: "6",
-            createIfMissing: false
-        ))
-        #expect(controller.workspaceManager.setActiveWorkspace(primaryWorkspaceId, on: primaryMonitor.id))
-        #expect(controller.workspaceManager.setActiveWorkspace(secondaryWorkspaceId, on: secondaryMonitor.id))
-        installSynchronousFrameApplySuccessOverride(on: controller)
-        controller.axEventHandler.windowInfoProvider = { windowId in
-            WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
-        }
-        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
-            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
-        }
-        controller.axEventHandler.frameProvider = { _ in
-            CGRect(x: 120, y: 160, width: 420, height: 300)
-        }
-        controller.axEventHandler.windowFactsProvider = { _, _ in
-            makeAXEventWindowRuleFacts(
-                bundleId: bundleId,
-                title: "Hydrated Restore"
+            let primaryMonitor = makeAXEventTestMonitor()
+            let secondaryMonitor = makeAXEventSecondaryMonitor()
+            let expectedFrame = CGRect(
+                x: secondaryMonitor.visibleFrame.minX + 260,
+                y: secondaryMonitor.visibleFrame.minY + 180,
+                width: 480,
+                height: 320
             )
-        }
-        defer { controller.axEventHandler.frameProvider = nil }
+            let catalog = makeAXEventPersistedRestoreCatalog(
+                workspaceName: "6",
+                monitor: secondaryMonitor,
+                title: "Hydrated Restore",
+                bundleId: bundleId,
+                floatingFrame: expectedFrame
+            )
+            settings.savePersistedWindowRestoreCatalog(catalog)
 
-        controller.axEventHandler.cgsEventObserver(
-            CGSEventObserver.shared,
-            didReceive: .created(windowId: 826, spaceId: 0)
-        )
-        await controller.layoutRefreshController.waitForRefreshWorkForTests()
-        await waitUntilAXEventTest {
-            controller.workspaceManager.entry(forPid: getpid(), windowId: 826) != nil
-                && controller.axManager.lastAppliedFrame(for: 826) != nil
-        }
-
-        guard let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 826),
-              let appliedFrame = controller.axManager.lastAppliedFrame(for: 826)
-        else {
-            if let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 826) {
-                Issue.record(
-                    "Hydrated entry present mode=\(entry.mode) workspace=\(entry.workspaceId.uuidString) metadata=\(String(describing: entry.managedReplacementMetadata)) resolved=\(String(describing: controller.workspaceManager.resolvedFloatingFrame(for: entry.token, preferredMonitor: secondaryMonitor))) applied=\(String(describing: controller.axManager.lastAppliedFrame(for: 826)))"
+            let controller = makeAXEventTestController(
+                trackedBundleId: bundleId,
+                settings: settings
+            )
+            controller.workspaceManager.applyMonitorConfigurationChange([primaryMonitor, secondaryMonitor])
+            controller.windowRuleEngine.rebuild(
+                rules: [
+                    AppRule(bundleId: bundleId, assignToWorkspace: "1")
+                ]
+            )
+            let primaryWorkspaceId = try #require(controller.workspaceManager.workspaceId(
+                for: "1",
+                createIfMissing: false
+            ))
+            let secondaryWorkspaceId = try #require(controller.workspaceManager.workspaceId(
+                for: "6",
+                createIfMissing: false
+            ))
+            #expect(controller.workspaceManager.setActiveWorkspace(primaryWorkspaceId, on: primaryMonitor.id))
+            #expect(controller.workspaceManager.setActiveWorkspace(secondaryWorkspaceId, on: secondaryMonitor.id))
+            installSynchronousFrameApplySuccessOverride(on: controller)
+            controller.axEventHandler.windowInfoProvider = { windowId in
+                WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+            }
+            controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+                AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+            }
+            controller.axEventHandler.frameProvider = { _ in
+                CGRect(x: 120, y: 160, width: 420, height: 300)
+            }
+            controller.axEventHandler.windowFactsProvider = { _, _ in
+                makeAXEventWindowRuleFacts(
+                    bundleId: bundleId,
+                    title: "Hydrated Restore"
                 )
             }
-            Issue.record("Expected hydrated floating restore entry")
-            return
-        }
+            defer { controller.axEventHandler.frameProvider = nil }
 
-        #expect(entry.workspaceId == secondaryWorkspaceId)
-        #expect(entry.mode == .floating)
-        #expect(appliedFrame == expectedFrame)
-        #expect(controller.workspaceManager
-            .resolvedFloatingFrame(for: entry.token, preferredMonitor: secondaryMonitor) == expectedFrame)
-        #expect(controller.workspaceManager.consumedBootPersistedWindowRestoreKeysForTests()
-            .contains(catalog.entries[0].key))
+            controller.axEventHandler.cgsEventObserver(
+                CGSEventObserver.shared,
+                didReceive: .created(windowId: 826, spaceId: 0)
+            )
+            controller.axEventHandler.resetDebugStateForTests()
+            await controller.layoutRefreshController.waitForRefreshWorkForTests()
+            await waitUntilAXEventTest {
+                controller.workspaceManager.entry(forPid: getpid(), windowId: 826) != nil
+                    && controller.axManager.lastAppliedFrame(for: 826) != nil
+            }
+
+            guard let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 826),
+                  let appliedFrame = controller.axManager.lastAppliedFrame(for: 826)
+            else {
+                if let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 826) {
+                    Issue.record(
+                        "Hydrated entry present mode=\(entry.mode) workspace=\(entry.workspaceId.uuidString) metadata=\(String(describing: entry.managedReplacementMetadata)) resolved=\(String(describing: controller.workspaceManager.resolvedFloatingFrame(for: entry.token, preferredMonitor: secondaryMonitor))) applied=\(String(describing: controller.axManager.lastAppliedFrame(for: 826)))"
+                    )
+                }
+                Issue.record("Expected hydrated floating restore entry")
+                return
+            }
+
+            #expect(entry.workspaceId == secondaryWorkspaceId)
+            #expect(entry.mode == .floating)
+            #expect(appliedFrame == expectedFrame)
+            #expect(controller.workspaceManager
+                .resolvedFloatingFrame(for: entry.token, preferredMonitor: secondaryMonitor) == expectedFrame)
+            #expect(controller.workspaceManager.consumedBootPersistedWindowRestoreKeysForTests()
+                .contains(catalog.entries[0].key))
+        }
     }
 
     @Test @MainActor func activeFloatingCreateRetriesFrameApplyAfterContextUnavailable() async {

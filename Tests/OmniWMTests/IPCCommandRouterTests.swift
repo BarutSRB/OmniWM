@@ -511,6 +511,89 @@ private func prepareIPCNiriState(
         #expect(router.handle(.rescueOffscreenWindows) == .notFound)
     }
 
+    @Test func scratchpadToggleReturnsExecutedForPendingAsyncReveal() throws {
+        let controller = makeLayoutPlanTestController()
+        let router = makeIPCCommandRouter(for: controller)
+        let workspaceId = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: false))
+        let monitor = try #require(controller.workspaceManager.monitor(for: workspaceId))
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 2_501)
+        defer {
+            controller.layoutRefreshController.cancelPendingScratchpadReveal(for: token)
+        }
+
+        let frame = CGRect(x: 180, y: 160, width: 640, height: 420)
+        controller.axManager.applyFramesParallel([(token.pid, token.windowId, frame)])
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+
+        #expect(router.handle(.scratchpadAssign) == .executed)
+        #expect(controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true)
+
+        controller.axManager.frameApplyOverrideForTests = { requests in
+            requests.map { request in
+                AXFrameApplyResult(
+                    requestId: request.requestId,
+                    pid: request.pid,
+                    windowId: request.windowId,
+                    targetFrame: request.frame,
+                    currentFrameHint: request.currentFrameHint,
+                    writeResult: AXFrameWriteResult(
+                        targetFrame: request.frame,
+                        observedFrame: nil,
+                        writeOrder: AXWindowService.frameWriteOrder(
+                            currentFrame: request.currentFrameHint,
+                            targetFrame: request.frame
+                        ),
+                        sizeError: .success,
+                        positionError: .success,
+                        failureReason: .verificationMismatch
+                    )
+                )
+            }
+        }
+
+        let result = router.handle(.scratchpadToggle)
+
+        #expect(result == .executed)
+        #expect(controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true)
+    }
+
+    @Test func scratchpadToggleReturnsNotFoundWhenHiddenScratchpadHasNoRestoreGeometry() async throws {
+        try await withAXFrameProviderIsolationForTests {
+            let controller = makeLayoutPlanTestController()
+            let router = makeIPCCommandRouter(for: controller)
+            let workspaceId = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: false))
+            let monitor = try #require(controller.workspaceManager.monitor(for: workspaceId))
+            let token = controller.workspaceManager.addWindow(
+                makeLayoutPlanTestWindow(windowId: 2_502),
+                pid: getpid(),
+                windowId: 2_502,
+                to: workspaceId,
+                mode: .floating
+            )
+            AXWindowService.fastFrameProviderForTests = { window in
+                window.windowId == token.windowId ? nil : fallbackFastFrameForTests(window)
+            }
+            defer {
+                AXWindowService.fastFrameProviderForTests = nil
+            }
+            _ = controller.workspaceManager.setScratchpadToken(token)
+            controller.workspaceManager.setHiddenState(
+                .init(
+                    proportionalPosition: CGPoint(x: 0.6, y: 0.6),
+                    referenceMonitorId: monitor.id,
+                    reason: .scratchpad
+                ),
+                for: token
+            )
+
+            let result = router.handle(.scratchpadToggle)
+
+            #expect(result == .notFound)
+            #expect(controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true)
+            #expect(controller.axManager.hasPendingFrameWrite(for: token.windowId) == false)
+        }
+    }
+
     @Test func workspaceFocusNameReturnsNotFoundForUnknownWorkspace() {
         let controller = makeLayoutPlanTestController()
         let router = makeIPCCommandRouter(for: controller)

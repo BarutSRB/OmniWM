@@ -183,9 +183,9 @@ final class CommandHandler {
         case .toggleFocusedWindowFloating:
             controller.toggleFocusedWindowFloating()
         case .assignFocusedWindowToScratchpad:
-            controller.assignFocusedWindowToScratchpad()
+            return controller.assignFocusedWindowToScratchpad()
         case .toggleScratchpadWindow:
-            controller.toggleScratchpadWindow()
+            return controller.toggleScratchpadWindow()
         case .openMenuAnywhere:
             controller.openMenuAnywhere()
         case .toggleWorkspaceBarVisibility:

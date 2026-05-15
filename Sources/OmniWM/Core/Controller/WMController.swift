@@ -25,9 +25,6 @@ struct WindowFocusOperations {
 
 @MainActor @Observable
 final class WMController {
-    private static let frontingTraceLoggingEnabled =
-        ProcessInfo.processInfo.environment["OMNIWM_DEBUG_SCRATCHPAD_REVEAL"] == "1"
-
     struct WorkspaceBarRefreshDebugState {
         var requestCount: Int = 0
         var scheduledCount: Int = 0
@@ -140,6 +137,8 @@ final class WMController {
     private(set) lazy var serviceLifecycleManager = ServiceLifecycleManager(controller: self)
     @ObservationIgnored
     private(set) lazy var windowActionHandler = WindowActionHandler(controller: self)
+    @ObservationIgnored
+    private lazy var clipboardHistoryService = ClipboardHistoryService(configuration: clipboardHistoryConfiguration())
     @ObservationIgnored
     private(set) lazy var focusNotificationDispatcher = FocusNotificationDispatcher(controller: self)
     @ObservationIgnored
@@ -269,6 +268,7 @@ final class WMController {
         setWorkspaceBarEnabled(settings.workspaceBarEnabled)
         setPreventSleepEnabled(settings.preventSleepEnabled)
         setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
+        syncClipboardHistoryService()
 
         // External edits to settings.toml otherwise stop here at refreshStatusBar
         // and skip subsystems that read settings only at trigger time. Push the
@@ -1256,6 +1256,30 @@ final class WMController {
         }
     }
 
+    func cleanupScratchpadWindowResources(for token: WindowToken) {
+        layoutRefreshController.cancelPendingScratchpadReveal(for: token)
+        let frameEntry = [(pid: token.pid, windowId: token.windowId)]
+        axManager.cancelPendingFrameJobs(frameEntry)
+        axManager.unsuppressFrameWrites(frameEntry)
+        AXWindowService.unpinAXElement(for: UInt32(token.windowId))
+        _ = workspaceManager.clearScratchpadIfMatches(token)
+    }
+
+    func cleanupScratchpadWindowResourcesIfNeeded(for token: WindowToken) {
+        guard workspaceManager.isScratchpadToken(token)
+            || workspaceManager.hiddenState(for: token)?.isScratchpad == true
+        else {
+            return
+        }
+        cleanupScratchpadWindowResources(for: token)
+    }
+
+    func rekeyScratchpadWindowResources(from oldToken: WindowToken, to newToken: WindowToken, axRef: AXWindowRef) {
+        guard workspaceManager.hiddenState(for: newToken)?.isScratchpad == true else { return }
+        AXWindowService.unpinAXElement(for: UInt32(oldToken.windowId))
+        AXWindowService.pinAXElement(axRef.element, for: UInt32(newToken.windowId))
+    }
+
     private func hideScratchpadWindow(
         _ entry: WindowModel.Entry,
         monitor: Monitor
@@ -1282,11 +1306,12 @@ final class WMController {
         )
     }
 
+    @discardableResult
     private func showScratchpadWindow(
         _ entry: WindowModel.Entry,
         on workspaceId: WorkspaceDescriptor.ID,
         monitor: Monitor
-    ) {
+    ) -> Bool {
         if entry.workspaceId != workspaceId {
             reassignManagedWindow(entry.token, to: workspaceId)
         }
@@ -1297,19 +1322,18 @@ final class WMController {
                 self?.focusWindow(entry.token)
             }
             if hiddenState.isScratchpad {
-                layoutRefreshController.restoreScratchpadWindow(
+                return layoutRefreshController.restoreScratchpadWindow(
                     entry,
                     monitor: monitor,
                     onSuccess: focusOnRevealSuccess
                 )
             } else {
-                layoutRefreshController.unhideWindow(
+                return layoutRefreshController.unhideWindow(
                     entry,
                     monitor: monitor,
                     onSuccess: focusOnRevealSuccess
                 )
             }
-            return
         }
 
         if let frame = workspaceManager.resolvedFloatingFrame(
@@ -1321,6 +1345,7 @@ final class WMController {
         }
 
         focusWindow(entry.token)
+        return true
     }
 
     @discardableResult
@@ -1662,6 +1687,7 @@ final class WMController {
             ) else {
                 if let existingEntry {
                     affectedWorkspaceIds.insert(existingEntry.workspaceId)
+                    cleanupScratchpadWindowResourcesIfNeeded(for: token)
                     _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
                     relayoutNeeded = true
                 }
@@ -1763,35 +1789,36 @@ final class WMController {
         applyManagedWindowOverride(nextOverride, for: token, entry: entry)
     }
 
-    func assignFocusedWindowToScratchpad() {
+    @discardableResult
+    func assignFocusedWindowToScratchpad() -> ExternalCommandResult {
         guard let token = focusedManagedTokenForCommand(),
               let entry = workspaceManager.entry(for: token),
               !isManagedWindowSuspendedForNativeFullscreen(token)
         else {
-            return
+            return .notFound
         }
 
         if workspaceManager.isScratchpadToken(token) {
-            guard !workspaceManager.isHiddenInCorner(token) else { return }
-            _ = workspaceManager.clearScratchpadIfMatches(token)
-            AXWindowService.unpinAXElement(for: UInt32(token.windowId))
+            guard !workspaceManager.isHiddenInCorner(token) else {
+                return .notFound
+            }
+            cleanupScratchpadWindowResources(for: token)
             applyManagedWindowOverride(.forceTile, for: token, entry: entry)
-            return
+            return .executed
         }
 
         if let existingScratchpadToken = workspaceManager.scratchpadToken() {
             if workspaceManager.entry(for: existingScratchpadToken) == nil {
-                _ = workspaceManager.clearScratchpadIfMatches(existingScratchpadToken)
-                AXWindowService.unpinAXElement(for: UInt32(existingScratchpadToken.windowId))
+                cleanupScratchpadWindowResources(for: existingScratchpadToken)
             } else {
-                return
+                return .notFound
             }
         }
 
         let preferredMonitor = monitorForInteraction() ?? workspaceManager.monitor(for: entry.workspaceId)
         let transitionedFromTiling = entry.mode == .tiling
         guard prepareWindowForScratchpadAssignment(token, preferredMonitor: preferredMonitor) else {
-            return
+            return .notFound
         }
 
         _ = workspaceManager.setScratchpadToken(token)
@@ -1799,7 +1826,8 @@ final class WMController {
         guard let updatedEntry = workspaceManager.entry(for: token),
               let hideMonitor = workspaceManager.monitor(for: updatedEntry.workspaceId) ?? preferredMonitor
         else {
-            return
+            cleanupScratchpadWindowResources(for: token)
+            return .notFound
         }
 
         hideScratchpadWindow(updatedEntry, monitor: hideMonitor)
@@ -1807,6 +1835,8 @@ final class WMController {
         if transitionedFromTiling {
             layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
         }
+
+        return .executed
     }
 
     private func applyManagedWindowOverride(
@@ -1823,6 +1853,7 @@ final class WMController {
             decision: evaluation.decision,
             existingEntry: entry
         ) else {
+            cleanupScratchpadWindowResourcesIfNeeded(for: token)
             _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
             layoutRefreshController.requestRelayout(
                 reason: .windowRuleReevaluation,
@@ -1843,38 +1874,48 @@ final class WMController {
         )
     }
 
-    func toggleScratchpadWindow() {
-        guard let scratchpadToken = workspaceManager.scratchpadToken() else { return }
-        guard let entry = workspaceManager.entry(for: scratchpadToken) else {
-            _ = workspaceManager.clearScratchpadIfMatches(scratchpadToken)
-            AXWindowService.unpinAXElement(for: UInt32(scratchpadToken.windowId))
-            return
+    @discardableResult
+    func toggleScratchpadWindow() -> ExternalCommandResult {
+        guard let scratchpadToken = workspaceManager.scratchpadToken() else {
+            return .notFound
         }
-        guard !isManagedWindowSuspendedForNativeFullscreen(scratchpadToken) else { return }
-        guard let target = currentScratchpadTarget() else { return }
+        guard let entry = workspaceManager.entry(for: scratchpadToken) else {
+            cleanupScratchpadWindowResources(for: scratchpadToken)
+            return .notFound
+        }
+        guard !isManagedWindowSuspendedForNativeFullscreen(scratchpadToken) else {
+            return .notFound
+        }
+        guard let target = currentScratchpadTarget() else {
+            return .notFound
+        }
 
         if let hiddenState = workspaceManager.hiddenState(for: scratchpadToken) {
             let updatedEntry = workspaceManager.entry(for: scratchpadToken) ?? entry
             if hiddenState.isScratchpad || hiddenState.workspaceInactive {
-                showScratchpadWindow(updatedEntry, on: target.workspaceId, monitor: target.monitor)
+                let started = showScratchpadWindow(updatedEntry, on: target.workspaceId, monitor: target.monitor)
+                return started ? .executed : .notFound
             }
-            return
+            return .notFound
         }
 
         let hasCapturedGeometry = captureVisibleFloatingGeometry(
             for: scratchpadToken,
             preferredMonitor: target.monitor
         ) != nil || workspaceManager.floatingState(for: scratchpadToken) != nil
-        guard hasCapturedGeometry else { return }
+        guard hasCapturedGeometry else {
+            return .notFound
+        }
 
         if entry.workspaceId == target.workspaceId,
            isManagedWindowDisplayable(entry.handle)
         {
             hideScratchpadWindow(entry, monitor: target.monitor)
-            return
+            return .executed
         }
 
-        showScratchpadWindow(entry, on: target.workspaceId, monitor: target.monitor)
+        let started = showScratchpadWindow(entry, on: target.workspaceId, monitor: target.monitor)
+        return started ? .executed : .notFound
     }
 
     func workspaceAssignment(pid: pid_t, windowId: Int) -> WorkspaceDescriptor.ID? {
@@ -1883,6 +1924,45 @@ final class WMController {
 
     func openCommandPalette() {
         commandPaletteController.toggle(wmController: self)
+    }
+
+    func clipboardPaletteItems() -> [ClipboardPaletteItem] {
+        clipboardHistoryService.paletteItems
+    }
+
+    func setClipboardHistoryEnabled(_ enabled: Bool) {
+        settings.clipboardHistoryEnabled = enabled
+        syncClipboardHistoryService()
+    }
+
+    func copyClipboardItem(id: UUID) async -> Bool {
+        await clipboardHistoryService.copyItemToPasteboard(id: id)
+    }
+
+    func deleteClipboardItem(id: UUID) async -> [ClipboardPaletteItem] {
+        await clipboardHistoryService.deleteItem(id: id)
+    }
+
+    func clearClipboardHistory() async -> [ClipboardPaletteItem] {
+        await clipboardHistoryService.clearHistory()
+    }
+
+    func flushClipboardHistoryForTermination() async {
+        await clipboardHistoryService.flushAndStop()
+    }
+
+    private func syncClipboardHistoryService() {
+        clipboardHistoryService.updateConfiguration(clipboardHistoryConfiguration())
+    }
+
+    private func clipboardHistoryConfiguration() -> ClipboardHistoryConfiguration {
+        ClipboardHistoryConfiguration(
+            isEnabled: settings.clipboardHistoryEnabled,
+            maxItems: settings.clipboardMaxItems,
+            maxItemBytes: settings.clipboardMaxItemBytes,
+            maxTotalBytes: settings.clipboardMaxTotalBytes,
+            storageDirectory: settings.settingsFileURL.deletingLastPathComponent()
+        )
     }
 
     func openSponsorsWindow() {
@@ -2161,15 +2241,9 @@ extension WMController {
         windowId: Int,
         axRef: AXWindowRef
     ) {
-        recordFrontingTrace(pid: pid, windowId: windowId)
         windowFocusOperations.activateApp(pid)
         windowFocusOperations.focusSpecificWindow(pid, UInt32(windowId), axRef.element)
         windowFocusOperations.raiseWindow(axRef.element)
-    }
-
-    private func recordFrontingTrace(pid: pid_t, windowId: Int) {
-        guard Self.frontingTraceLoggingEnabled else { return }
-        fputs("[ScratchpadFronting] pid=\(pid) windowId=\(windowId)\n", stderr)
     }
 
     func restoreQuakeTerminalFocus(to target: QuakeTerminalRestoreTarget) {

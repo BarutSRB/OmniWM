@@ -128,6 +128,14 @@ extension SettingsStore {
 }
 
 @MainActor
+func fallbackFastFrameForTests(_ window: AXWindowRef) -> CGRect? {
+    guard let frame = SkyLight.shared.getWindowBounds(UInt32(AXWindowService.windowId(window))) else {
+        return nil
+    }
+    return ScreenCoordinateSpace.toAppKit(rect: frame)
+}
+
+@MainActor
 func resetSharedControllerStateForTests() {
     let contextFactory = AppAXContext.contextFactoryForTests
     let axWindowRefProvider = AXWindowService.axWindowRefProviderForTests
@@ -135,6 +143,7 @@ func resetSharedControllerStateForTests() {
     let fastFrameProvider = AXWindowService.fastFrameProviderForTests
     let titleLookupProvider = AXWindowService.titleLookupProviderForTests
     let timeSource = AXWindowService.timeSourceForTests
+    let orderedStateProvider = SkyLight.orderedStateProviderForTests
 
     SettingsWindowController.shared.windowForTests?.close()
     AppRulesWindowController.shared.windowForTests?.close()
@@ -149,4 +158,6 @@ func resetSharedControllerStateForTests() {
     AXWindowService.titleLookupProviderForTests = titleLookupProvider
     AXWindowService.timeSourceForTests = timeSource
     AXWindowService.clearTitleCacheForTests()
+    AXWindowService.clearPinnedAXElementsForTests()
+    SkyLight.orderedStateProviderForTests = orderedStateProvider
 }

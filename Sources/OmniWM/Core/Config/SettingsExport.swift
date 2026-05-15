@@ -114,6 +114,11 @@ struct SettingsExport: Equatable {
     var commandPaletteLastMode: String
     var animationsEnabled: Bool
 
+    var clipboardHistoryEnabled: Bool
+    var clipboardMaxItems: Int
+    var clipboardMaxItemBytes: Int
+    var clipboardMaxTotalBytes: Int
+
     var hiddenBarIsCollapsed: Bool
 
     var quakeTerminalEnabled: Bool
@@ -212,6 +217,10 @@ extension SettingsExport {
             statusBarUseWorkspaceId: false,
             commandPaletteLastMode: CommandPaletteMode.windows.rawValue,
             animationsEnabled: true,
+            clipboardHistoryEnabled: false,
+            clipboardMaxItems: 200,
+            clipboardMaxItemBytes: 8_388_608,
+            clipboardMaxTotalBytes: 67_108_864,
             hiddenBarIsCollapsed: true,
             quakeTerminalEnabled: true,
             quakeTerminalPosition: QuakeTerminalPosition.center.rawValue,

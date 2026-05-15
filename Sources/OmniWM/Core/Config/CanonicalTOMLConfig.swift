@@ -11,6 +11,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var workspaceBar: WorkspaceBar
     var gestures: Gestures
     var statusBar: StatusBar
+    var clipboard: Clipboard
     var quakeTerminal: QuakeTerminal
     var appearance: Appearance
     var state: State
@@ -127,6 +128,13 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var showWorkspaceName: Bool
         var showAppNames: Bool
         var useWorkspaceId: Bool
+    }
+
+    struct Clipboard: Codable, Equatable {
+        var historyEnabled: Bool
+        var maxItems: Int
+        var maxItemBytes: Int
+        var maxTotalBytes: Int
     }
 
     struct QuakeTerminal: Codable, Equatable {
@@ -256,6 +264,12 @@ extension CanonicalTOMLConfig {
             showAppNames: export.statusBarShowAppNames,
             useWorkspaceId: export.statusBarUseWorkspaceId
         )
+        clipboard = Clipboard(
+            historyEnabled: export.clipboardHistoryEnabled,
+            maxItems: export.clipboardMaxItems,
+            maxItemBytes: export.clipboardMaxItemBytes,
+            maxTotalBytes: export.clipboardMaxTotalBytes
+        )
         let customFrame: QuakeTerminal.Frame? = export.quakeTerminalCustomFrame.map { frame in
             QuakeTerminal.Frame(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
         }
@@ -365,6 +379,10 @@ extension CanonicalTOMLConfig {
             statusBarUseWorkspaceId: statusBar.useWorkspaceId,
             commandPaletteLastMode: state.commandPaletteLastMode,
             animationsEnabled: general.animationsEnabled,
+            clipboardHistoryEnabled: clipboard.historyEnabled,
+            clipboardMaxItems: clipboard.maxItems,
+            clipboardMaxItemBytes: clipboard.maxItemBytes,
+            clipboardMaxTotalBytes: clipboard.maxTotalBytes,
             hiddenBarIsCollapsed: state.hiddenBarIsCollapsed,
             quakeTerminalEnabled: quakeTerminal.enabled,
             quakeTerminalPosition: quakeTerminal.position,

@@ -262,6 +262,10 @@ struct SettingsExportTests {
         #expect(defaults.statusBarShowWorkspaceName == false)
         #expect(defaults.statusBarShowAppNames == false)
         #expect(defaults.statusBarUseWorkspaceId == false)
+        #expect(defaults.clipboardHistoryEnabled == false)
+        #expect(defaults.clipboardMaxItems == 200)
+        #expect(defaults.clipboardMaxItemBytes == 8_388_608)
+        #expect(defaults.clipboardMaxTotalBytes == 67_108_864)
         #expect(defaults.hiddenBarIsCollapsed == true)
         #expect(defaults.quakeTerminalEnabled == true)
         #expect(defaults.quakeTerminalPosition == QuakeTerminalPosition.center.rawValue)
@@ -490,16 +494,16 @@ struct HotkeySurfaceTests {
 }
 
 @MainActor struct CommandPaletteSettingsTests {
-    @Test func commandPaletteLastModeDefaultsToWindowsAndPersists() {
+    @Test func commandPaletteLastModeDefaultsToWindowsAndPersistsClipboard() {
         let defaults = makeTestDefaults()
 
         let settings = SettingsStore(defaults: defaults)
         #expect(settings.commandPaletteLastMode == .windows)
 
-        settings.commandPaletteLastMode = .menu
+        settings.commandPaletteLastMode = .clipboard
 
         let reloaded = SettingsStore(defaults: defaults)
-        #expect(reloaded.commandPaletteLastMode == .menu)
+        #expect(reloaded.commandPaletteLastMode == .clipboard)
     }
 
     @Test func menuStatusHelpersDoNotMentionSettings() {
@@ -522,7 +526,11 @@ struct HotkeySurfaceTests {
         settings.statusBarShowWorkspaceName = true
         settings.statusBarShowAppNames = true
         settings.statusBarUseWorkspaceId = true
-        settings.commandPaletteLastMode = .menu
+        settings.commandPaletteLastMode = .clipboard
+        settings.clipboardHistoryEnabled = true
+        settings.clipboardMaxItems = 33
+        settings.clipboardMaxItemBytes = 4096
+        settings.clipboardMaxTotalBytes = 8192
         settings.quakeTerminalEnabled = true
         settings.quakeTerminalPosition = .bottom
         settings.quakeTerminalWidthPercent = 80
@@ -543,7 +551,11 @@ struct HotkeySurfaceTests {
         #expect(reloaded.statusBarShowWorkspaceName == true)
         #expect(reloaded.statusBarShowAppNames == true)
         #expect(reloaded.statusBarUseWorkspaceId == true)
-        #expect(reloaded.commandPaletteLastMode == .menu)
+        #expect(reloaded.commandPaletteLastMode == .clipboard)
+        #expect(reloaded.clipboardHistoryEnabled == true)
+        #expect(reloaded.clipboardMaxItems == 33)
+        #expect(reloaded.clipboardMaxItemBytes == 4096)
+        #expect(reloaded.clipboardMaxTotalBytes == 8192)
         #expect(reloaded.quakeTerminalEnabled == true)
         #expect(reloaded.quakeTerminalPosition == .bottom)
         #expect(reloaded.quakeTerminalWidthPercent == 80)
@@ -781,6 +793,10 @@ struct HotkeySurfaceTests {
         #expect(settings.statusBarShowWorkspaceName == false)
         #expect(settings.statusBarShowAppNames == false)
         #expect(settings.statusBarUseWorkspaceId == false)
+        #expect(settings.clipboardHistoryEnabled == false)
+        #expect(settings.clipboardMaxItems == 200)
+        #expect(settings.clipboardMaxItemBytes == 8_388_608)
+        #expect(settings.clipboardMaxTotalBytes == 67_108_864)
         #expect(settings.hiddenBarIsCollapsed == true)
         #expect(settings.quakeTerminalEnabled == true)
         #expect(settings.quakeTerminalPosition == .center)
@@ -817,6 +833,10 @@ struct HotkeySurfaceTests {
         #expect(settings.statusBarShowAppNames == exportDefaults.statusBarShowAppNames)
         #expect(settings.statusBarUseWorkspaceId == exportDefaults.statusBarUseWorkspaceId)
         #expect(settings.commandPaletteLastMode.rawValue == exportDefaults.commandPaletteLastMode)
+        #expect(settings.clipboardHistoryEnabled == exportDefaults.clipboardHistoryEnabled)
+        #expect(settings.clipboardMaxItems == exportDefaults.clipboardMaxItems)
+        #expect(settings.clipboardMaxItemBytes == exportDefaults.clipboardMaxItemBytes)
+        #expect(settings.clipboardMaxTotalBytes == exportDefaults.clipboardMaxTotalBytes)
         #expect(settings.hiddenBarIsCollapsed == exportDefaults.hiddenBarIsCollapsed)
         #expect(settings.updateChecksEnabled == exportDefaults.updateChecksEnabled)
         #expect(settings.ipcEnabled == exportDefaults.ipcEnabled)

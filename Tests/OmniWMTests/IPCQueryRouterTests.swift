@@ -282,63 +282,65 @@ private func prepareIPCQueryRouterNiriState(
         #expect(result.apps.first?.appName == "Shared App")
     }
 
-    @Test func focusedWindowQueryUsesManagedFocusAndFastMetadata() {
-        let controller = makeLayoutPlanTestController()
-        defer {
-            AXWindowService.fastFrameProviderForTests = nil
-            AXWindowService.titleLookupProviderForTests = nil
-            resetSharedControllerStateForTests()
-        }
-        controller.layoutRefreshController.resetDebugState()
-        controller.resetWorkspaceBarRefreshDebugStateForTests()
+    @Test func focusedWindowQueryUsesManagedFocusAndFastMetadata() async {
+        await withAXFrameProviderIsolationForTests {
+            let controller = makeLayoutPlanTestController()
+            defer {
+                AXWindowService.fastFrameProviderForTests = nil
+                AXWindowService.titleLookupProviderForTests = nil
+                resetSharedControllerStateForTests()
+            }
+            controller.layoutRefreshController.resetDebugState()
+            controller.resetWorkspaceBarRefreshDebugStateForTests()
 
-        let workspaceId = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false)!
-        controller.appInfoCache.storeInfoForTests(pid: 9001, name: "Terminal", bundleId: "com.example.terminal")
-        var titleLookupCount = 0
-        AXWindowService.titleLookupProviderForTests = { windowId in
-            titleLookupCount += 1
-            return windowId == 1201 ? "Focused Title" : nil
-        }
-        var fastFrameLookupCount = 0
-        AXWindowService.fastFrameProviderForTests = { window in
-            fastFrameLookupCount += 1
-            guard window.windowId == 1201 else { return nil }
-            return CGRect(x: 10, y: 20, width: 300, height: 200)
-        }
+            let workspaceId = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false)!
+            controller.appInfoCache.storeInfoForTests(pid: 9001, name: "Terminal", bundleId: "com.example.terminal")
+            var titleLookupCount = 0
+            AXWindowService.titleLookupProviderForTests = { windowId in
+                titleLookupCount += 1
+                return windowId == 1201 ? "Focused Title" : nil
+            }
+            var fastFrameLookupCount = 0
+            AXWindowService.fastFrameProviderForTests = { window in
+                fastFrameLookupCount += 1
+                return window.windowId == 1201
+                    ? CGRect(x: 10, y: 20, width: 300, height: 200)
+                    : fallbackFastFrameForTests(window)
+            }
 
-        let token = controller.workspaceManager.addWindow(
-            makeLayoutPlanTestWindow(windowId: 1201),
-            pid: 9001,
-            windowId: 1201,
-            to: workspaceId
-        )
-        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId)
-
-        let router = IPCQueryRouter(controller: controller, sessionToken: ipcQueryRouterSessionToken)
-        let result = router.focusedWindowResult()
-
-        #expect(
-            result.window?.id == IPCWindowOpaqueID.encode(
-                pid: token.pid,
-                windowId: token.windowId,
-                sessionToken: ipcQueryRouterSessionToken
+            let token = controller.workspaceManager.addWindow(
+                makeLayoutPlanTestWindow(windowId: 1201),
+                pid: 9001,
+                windowId: 1201,
+                to: workspaceId
             )
-        )
-        #expect(result.window?.pid == token.pid)
-        #expect(result.window?.workspace?.rawName == "1")
-        #expect(result.window?.workspace?.number == 1)
-        #expect(result.window?.app?.name == "Terminal")
-        #expect(result.window?.app?.bundleId == "com.example.terminal")
-        #expect(result.window?.title == "Focused Title")
-        #expect(result.window?.frame == IPCRect(x: 10, y: 20, width: 300, height: 200))
-        #expect(titleLookupCount == 1)
-        #expect(fastFrameLookupCount == 1)
-        #expect(controller.layoutRefreshController.refreshDebugSnapshot().relayoutExecutions == 0)
-        #expect(controller.layoutRefreshController.refreshDebugSnapshot().immediateRelayoutExecutions == 0)
-        #expect(controller.workspaceBarRefreshDebugState.executionCount == 0)
-        #expect(controller.workspaceBarRefreshDebugState.requestCount == 0)
-    }
+            _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId)
 
+            let router = IPCQueryRouter(controller: controller, sessionToken: ipcQueryRouterSessionToken)
+            let result = router.focusedWindowResult()
+
+            #expect(
+                result.window?.id == IPCWindowOpaqueID.encode(
+                    pid: token.pid,
+                    windowId: token.windowId,
+                    sessionToken: ipcQueryRouterSessionToken
+                )
+            )
+            #expect(result.window?.pid == token.pid)
+            #expect(result.window?.workspace?.rawName == "1")
+            #expect(result.window?.workspace?.number == 1)
+            #expect(result.window?.app?.name == "Terminal")
+            #expect(result.window?.app?.bundleId == "com.example.terminal")
+            #expect(result.window?.title == "Focused Title")
+            #expect(result.window?.frame == IPCRect(x: 10, y: 20, width: 300, height: 200))
+            #expect(titleLookupCount == 1)
+            #expect(fastFrameLookupCount == 1)
+            #expect(controller.layoutRefreshController.refreshDebugSnapshot().relayoutExecutions == 0)
+            #expect(controller.layoutRefreshController.refreshDebugSnapshot().immediateRelayoutExecutions == 0)
+            #expect(controller.workspaceBarRefreshDebugState.executionCount == 0)
+            #expect(controller.workspaceBarRefreshDebugState.requestCount == 0)
+        }
+    }
     @Test func windowsQueryFiltersManagedInventoryAndProjectsRequestedFields() {
         let controller = makeLayoutPlanTestController()
         let workspaceId = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false)!

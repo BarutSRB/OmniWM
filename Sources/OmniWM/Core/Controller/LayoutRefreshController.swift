@@ -101,8 +101,6 @@ import QuartzCore
     weak var controller: WMController?
     static let hiddenWindowEdgeRevealEpsilon: CGFloat = 1.0
     private static let delayedRevealVerificationDelay: Duration = .milliseconds(50)
-    private static let revealTraceLoggingEnabled =
-        ProcessInfo.processInfo.environment["OMNIWM_DEBUG_SCRATCHPAD_REVEAL"] == "1"
 
     enum HideReason {
         case workspaceInactive
@@ -1269,20 +1267,22 @@ import QuartzCore
         }
 
         for token in decisionBasedRemovals {
+            controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
             _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         }
 
         let shouldPreserveMissingWindows = shouldPreserveMissingWindowsDuringNativeFullscreen(
             controller: controller
         )
+        let trackedEntries = controller.workspaceManager.allEntries()
         if shouldPreserveMissingWindows {
             // Native macOS fullscreen moves the app onto its own Space, so visible-window
             // enumeration temporarily excludes the rest of the managed workspace.
-            for entry in controller.workspaceManager.allEntries() {
+            for entry in trackedEntries {
                 seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
             }
         } else {
-            for entry in controller.workspaceManager.allEntries()
+            for entry in trackedEntries
                 where controller.hiddenAppPIDs.contains(entry.handle.pid)
                 || controller.workspaceManager.layoutReason(for: entry.token) == .macosHiddenApp
                 || controller.workspaceManager.layoutReason(for: entry.token) == .nativeFullscreen
@@ -1290,14 +1290,25 @@ import QuartzCore
                 seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
             }
 
-            for entry in controller.workspaceManager.allEntries()
+            for entry in trackedEntries
                 where enumerationSnapshot.failedPIDs.contains(entry.handle.pid)
             {
                 seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
             }
+
+            preserveScratchpadHiddenWindowsDuringFullRescan(
+                trackedEntries,
+                seenKeys: &seenKeys
+            )
         }
 
+        let scratchpadTokenBeforeRemove = controller.workspaceManager.scratchpadToken()
         controller.workspaceManager.removeMissing(keys: seenKeys, requiredConsecutiveMisses: 1)
+        if let scratchpadTokenBeforeRemove,
+           controller.workspaceManager.entry(for: scratchpadTokenBeforeRemove) == nil
+        {
+            controller.cleanupScratchpadWindowResources(for: scratchpadTokenBeforeRemove)
+        }
         controller.workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWorkspaceId)
 
         try Task.checkCancellation()
@@ -1349,6 +1360,109 @@ import QuartzCore
         controller: WMController
     ) -> Bool {
         controller.workspaceManager.hasNativeFullscreenLifecycleContext
+    }
+
+    private enum ScratchpadRescanEvidence {
+        case visibleFrame
+        case orderedOut
+        case orderedIn
+        case windowServer
+        case pinnedAX
+    }
+
+    private struct ScratchpadRescanObservation {
+        let evidence: ScratchpadRescanEvidence
+        let visibleFrame: CGRect?
+    }
+
+    private func preserveScratchpadHiddenWindowsDuringFullRescan(
+        _ entries: [WindowModel.Entry],
+        seenKeys: inout Set<WindowModel.WindowKey>
+    ) {
+        guard let controller else { return }
+        for entry in entries where controller.workspaceManager.hiddenState(for: entry.token)?.isScratchpad == true {
+            let observation = scratchpadRescanObservation(for: entry)
+            switch observation?.evidence {
+            case .visibleFrame:
+                if pendingRevealTransactionsByWindowId[entry.windowId]?.token == entry.token,
+                   let visibleFrame = observation?.visibleFrame
+                {
+                    finalizePendingRevealTransactionSuccess(
+                        forWindowId: entry.windowId,
+                        confirmedFrame: visibleFrame
+                    )
+                } else {
+                    cancelPendingScratchpadReveal(for: entry.token)
+                    controller.workspaceManager.setHiddenState(nil, for: entry.token)
+                    controller.axManager.unsuppressFrameWrites([(entry.pid, entry.windowId)])
+                }
+                seenKeys.insert(entry.token)
+            case .orderedOut,
+                 .orderedIn,
+                 .windowServer,
+                 .pinnedAX:
+                seenKeys.insert(entry.token)
+            case nil:
+                break
+            }
+        }
+    }
+
+    private func scratchpadRescanObservation(for entry: WindowModel.Entry) -> ScratchpadRescanObservation? {
+        guard let controller else { return nil }
+        guard let windowId = UInt32(exactly: entry.windowId) else { return nil }
+
+        if let windowInfo = controller.axEventHandler.windowInfoProvider?(windowId) ?? SkyLight.shared
+            .queryWindowInfo(windowId)
+        {
+            guard windowInfo.pid == entry.pid else { return nil }
+            if let visibleFrame = scratchpadVisibleWindowServerFrame(windowInfo.frame, for: entry) {
+                return ScratchpadRescanObservation(evidence: .visibleFrame, visibleFrame: visibleFrame)
+            }
+            return ScratchpadRescanObservation(evidence: .windowServer, visibleFrame: nil)
+        }
+
+        if let observedFrame = observedWindowFrame(entry),
+           scratchpadFrameIsVisible(observedFrame, for: entry)
+        {
+            return ScratchpadRescanObservation(evidence: .visibleFrame, visibleFrame: observedFrame)
+        }
+
+        switch SkyLight.shared.isWindowOrderedIn(windowId) {
+        case .some(true):
+            return ScratchpadRescanObservation(evidence: .orderedIn, visibleFrame: nil)
+        case .some(false):
+            return ScratchpadRescanObservation(evidence: .orderedOut, visibleFrame: nil)
+        case nil:
+            break
+        }
+
+        if AXWindowService.pinnedWindowId(for: windowId) == CGWindowID(windowId) {
+            return ScratchpadRescanObservation(evidence: .pinnedAX, visibleFrame: nil)
+        }
+
+        return nil
+    }
+
+    private func scratchpadVisibleWindowServerFrame(_ frame: CGRect, for entry: WindowModel.Entry) -> CGRect? {
+        if scratchpadFrameIsVisible(frame, for: entry) {
+            return frame
+        }
+        let appKitFrame = ScreenCoordinateSpace.toAppKit(rect: frame)
+        return scratchpadFrameIsVisible(appKitFrame, for: entry) ? appKitFrame : nil
+    }
+
+    private func scratchpadFrameIsVisible(_ frame: CGRect, for entry: WindowModel.Entry) -> Bool {
+        guard let controller else { return false }
+        if let floatingFrame = controller.workspaceManager.floatingState(for: entry.token)?.lastFrame,
+           frame.approximatelyEqual(to: floatingFrame, tolerance: 2.0)
+        {
+            return true
+        }
+        return controller.workspaceManager.monitors.contains { monitor in
+            frame.intersects(monitor.visibleFrame)
+                && monitor.visibleFrame.contains(CGPoint(x: frame.midX, y: frame.midY))
+        }
     }
 
     private func partitionWorkspacesByLayoutType(
@@ -2100,19 +2214,20 @@ import QuartzCore
         }
     }
 
+    @discardableResult
     func unhideWindow(
         _ entry: WindowModel.Entry,
         monitor: Monitor,
         onSuccess: PostLayoutAction? = nil
-    ) {
-        guard let controller else { return }
+    ) -> Bool {
+        guard let controller else { return false }
         guard let hiddenState = controller.workspaceManager.hiddenState(for: entry.token) else {
             controller.axManager.unsuppressFrameWrites([(entry.handle.pid, entry.windowId)])
-            return
+            return true
         }
-        guard hiddenState.workspaceInactive else { return }
+        guard hiddenState.workspaceInactive else { return false }
 
-        executeHiddenReveal(
+        return executeHiddenReveal(
             entry,
             monitor: monitor,
             hiddenState: hiddenState,
@@ -2120,19 +2235,20 @@ import QuartzCore
         )
     }
 
+    @discardableResult
     func restoreScratchpadWindow(
         _ entry: WindowModel.Entry,
         monitor: Monitor,
         onSuccess: PostLayoutAction? = nil
-    ) {
+    ) -> Bool {
         guard let controller,
               let hiddenState = controller.workspaceManager.hiddenState(for: entry.token),
               hiddenState.isScratchpad
         else {
-            return
+            return false
         }
 
-        executeHiddenReveal(
+        return executeHiddenReveal(
             entry,
             monitor: monitor,
             hiddenState: hiddenState,
@@ -2216,8 +2332,10 @@ import QuartzCore
     ) -> Bool {
         if var pendingTransaction = pendingRevealTransactionsByWindowId[entry.windowId] {
             if let onSuccess {
-                pendingTransaction.postSuccessActions.append(onSuccess)
-                pendingRevealTransactionsByWindowId[entry.windowId] = pendingTransaction
+                if !pendingTransaction.hiddenState.isScratchpad || pendingTransaction.postSuccessActions.isEmpty {
+                    pendingTransaction.postSuccessActions.append(onSuccess)
+                    pendingRevealTransactionsByWindowId[entry.windowId] = pendingTransaction
+                }
             }
             return false
         }
@@ -2257,24 +2375,27 @@ import QuartzCore
                 scheduleDelayedRevealVerification(forWindowId: newWindowId)
             }
         }
+    }
 
-        recordRevealTrace(
-            "rekey oldWindowId=\(oldWindowId) newWindowId=\(newWindowId) tokenPid=\(newToken.pid)"
-        )
+    func cancelPendingScratchpadReveal(for token: WindowToken) {
+        guard let transaction = pendingRevealTransactionsByWindowId[token.windowId],
+              transaction.token == token,
+              transaction.hiddenState.isScratchpad
+        else {
+            return
+        }
+        pendingRevealTransactionsByWindowId.removeValue(forKey: token.windowId)
+        pendingRevealVerificationTasksByWindowId.removeValue(forKey: token.windowId)?.cancel()
     }
 
     fileprivate func completePendingRevealTransaction(with result: AXFrameApplyResult) {
-        guard pendingRevealTransactionsByWindowId[result.windowId] != nil else {
+        guard let transaction = pendingRevealTransactionsByWindowId[result.windowId] else {
             return
         }
 
-        recordRevealTrace(
-            "terminal windowId=\(result.windowId) requestId=\(result.requestId) " +
-                "failure=\(String(describing: result.writeResult.failureReason)) " +
-                "confirmed=\(result.confirmedFrame != nil)"
-        )
+        let outcome = hiddenRevealTerminalOutcome(for: result, transaction: transaction)
 
-        switch hiddenRevealTerminalOutcome(for: result) {
+        switch outcome {
         case .success:
             finalizePendingRevealTransactionSuccess(
                 forWindowId: result.windowId,
@@ -2294,17 +2415,49 @@ import QuartzCore
         }
     }
 
-    private func hiddenRevealTerminalOutcome(for result: AXFrameApplyResult) -> HiddenRevealTerminalOutcome {
+    private func hiddenRevealTerminalOutcome(
+        for result: AXFrameApplyResult,
+        transaction: PendingRevealTransaction
+    ) -> HiddenRevealTerminalOutcome {
         if result.confirmedFrame != nil {
+            guard let failureReason = result.writeResult.failureReason else {
+                return .success
+            }
+            if isConfirmedRevealFailureTerminal(failureReason) {
+                return .failure
+            }
+            if transaction.hiddenState.isScratchpad {
+                return .delayedVerification
+            }
             return .success
         }
 
-        switch result.writeResult.failureReason {
-        case .verificationMismatch,
-             .readbackFailed:
-            return .delayedVerification
-        default:
+        guard let failureReason = result.writeResult.failureReason else {
             return .failure
+        }
+
+        return isDelayedRevealRecoverable(failureReason) ? .delayedVerification : .failure
+    }
+
+    private func isDelayedRevealRecoverable(_ failureReason: AXFrameWriteFailureReason) -> Bool {
+        switch failureReason {
+        case .verificationMismatch,
+             .readbackFailed,
+             .sizeWriteFailed,
+             .positionWriteFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isConfirmedRevealFailureTerminal(_ failureReason: AXFrameWriteFailureReason) -> Bool {
+        switch failureReason {
+        case .cancelled,
+             .suppressed:
+            return true
+        default:
+            return false
         }
     }
 
@@ -2337,6 +2490,13 @@ import QuartzCore
         pendingRevealVerificationTasksByWindowId.removeValue(forKey: windowId)?.cancel()
         let frameEntry = [(pendingTransaction.pid, pendingTransaction.windowId)]
 
+        if pendingTransaction.hiddenState.isScratchpad,
+           controller.workspaceManager.hiddenState(for: pendingTransaction.token)?.isScratchpad != true
+        {
+            controller.axManager.unsuppressFrameWrites(frameEntry)
+            return
+        }
+
         if pendingTransaction.hiddenState.workspaceInactive {
             controller.workspaceManager.setHiddenState(nil, for: pendingTransaction.token)
             controller.axManager.unsuppressFrameWrites(frameEntry)
@@ -2357,9 +2517,6 @@ import QuartzCore
             try? await Task.sleep(for: Self.delayedRevealVerificationDelay)
             guard let self else { return }
             let verifiedFrame = self.delayedVerifiedRevealFrame(forWindowId: windowId)
-            self.recordRevealTrace(
-                "delayedVerification windowId=\(windowId) success=\(verifiedFrame != nil)"
-            )
             if let verifiedFrame {
                 self.finalizePendingRevealTransactionSuccess(
                     forWindowId: windowId,
@@ -2392,50 +2549,39 @@ import QuartzCore
         return observedFrame
     }
 
-    private func recordRevealTrace(_ message: String) {
-        guard Self.revealTraceLoggingEnabled else { return }
-        fputs("[ScratchpadReveal] \(message)\n", stderr)
-    }
-
     private func executeHiddenReveal(
         _ entry: WindowModel.Entry,
         monitor: Monitor,
         hiddenState: WindowModel.HiddenState,
         onSuccess: PostLayoutAction? = nil
-    ) {
-        guard let controller else { return }
+    ) -> Bool {
+        guard let controller else { return false }
         let frameEntry = [(entry.handle.pid, entry.windowId)]
         switch restoreWindowFromHiddenState(entry, monitor: monitor, hiddenState: hiddenState) {
         case .none:
-            recordRevealTrace(
-                "start windowId=\(entry.windowId) mode=none outcome=noGeometry"
-            )
             if hiddenState.workspaceInactive {
                 controller.workspaceManager.setHiddenState(nil, for: entry.token)
                 controller.axManager.unsuppressFrameWrites(frameEntry)
                 onSuccess?()
+                return true
             } else {
                 controller.axManager.suppressFrameWrites(frameEntry)
+                return false
             }
         case let .positionPlan(plan):
-            recordRevealTrace(
-                "start windowId=\(entry.windowId) mode=positionPlan"
-            )
             applyPositionPlans([plan])
             controller.workspaceManager.setHiddenState(nil, for: entry.token)
             controller.axManager.unsuppressFrameWrites(frameEntry)
             onSuccess?()
+            return true
         case let .asyncFrame(frame):
             if !shouldUsePendingRevealTransaction(for: entry, hiddenState: hiddenState) {
-                recordRevealTrace(
-                    "start windowId=\(entry.windowId) mode=asyncFrame immediate targetFrame=\(NSStringFromRect(frame))"
-                )
                 controller.workspaceManager.setHiddenState(nil, for: entry.token)
                 controller.axManager.unsuppressFrameWrites(frameEntry)
                 controller.axManager.forceApplyNextFrame(for: entry.windowId)
                 controller.axManager.applyFramesParallel([(entry.pid, entry.windowId, frame)])
                 onSuccess?()
-                return
+                return true
             }
             guard beginPendingRevealTransaction(
                 for: entry,
@@ -2444,11 +2590,8 @@ import QuartzCore
                 monitor: monitor,
                 onSuccess: onSuccess
             ) else {
-                return
+                return true
             }
-            recordRevealTrace(
-                "start windowId=\(entry.windowId) mode=asyncFrame targetFrame=\(NSStringFromRect(frame))"
-            )
             controller.axManager.unsuppressFrameWrites(frameEntry)
             controller.axManager.forceApplyNextFrame(for: entry.windowId)
             controller.axManager.applyFramesParallel(
@@ -2457,6 +2600,7 @@ import QuartzCore
                     self?.completePendingRevealTransaction(with: result)
                 }
             )
+            return true
         }
     }
 

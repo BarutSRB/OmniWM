@@ -3109,6 +3109,247 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         #expect(controller.workspaceManager.entry(forPid: pid, windowId: windowId) == nil)
     }
 
+    @Test @MainActor func fullRescanPreservesScratchpadHiddenWindowWhenWindowServerStillSeesIt() async {
+        let controller = makeRefreshTestController()
+        defer {
+            controller.axEventHandler.windowInfoProvider = nil
+            SkyLight.orderedStateProviderForTests = nil
+        }
+        controller.axManager.fullRescanEnumerationOverrideForTests = {
+            AXManager.FullRescanEnumerationSnapshot(windows: [], failedPIDs: [])
+        }
+        SkyLight.orderedStateProviderForTests = { _ in nil }
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let pid = getpid()
+        let windowId = 3062
+        let handle = addWindow(on: controller, workspaceId: workspaceId, pid: pid, windowId: windowId)
+        _ = controller.workspaceManager.setScratchpadToken(handle.token)
+        controller.workspaceManager.setHiddenState(
+            WindowModel.HiddenState(
+                proportionalPosition: .zero,
+                referenceMonitorId: monitor.id,
+                reason: .scratchpad
+            ),
+            for: handle.token
+        )
+        controller.axEventHandler.windowInfoProvider = { queriedWindowId in
+            queriedWindowId == UInt32(windowId)
+                ? WindowServerInfo(
+                    id: queriedWindowId,
+                    pid: pid,
+                    level: 0,
+                    frame: CGRect(x: monitor.frame.maxX + 600, y: 20, width: 500, height: 400)
+                )
+                : nil
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.workspaceManager.entry(for: handle) != nil)
+        #expect(controller.workspaceManager.hiddenState(for: handle.token)?.isScratchpad == true)
+        #expect(controller.workspaceManager.scratchpadToken() == handle.token)
+    }
+
+    @Test @MainActor func fullRescanReconcilesScratchpadHiddenWindowWhenWindowServerFrameIsVisible() async {
+        let controller = makeRefreshTestController()
+        defer {
+            controller.axEventHandler.windowInfoProvider = nil
+            SkyLight.orderedStateProviderForTests = nil
+        }
+        controller.axManager.fullRescanEnumerationOverrideForTests = {
+            AXManager.FullRescanEnumerationSnapshot(windows: [], failedPIDs: [])
+        }
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let pid = getpid()
+        let windowId = 3063
+        let handle = addWindow(on: controller, workspaceId: workspaceId, pid: pid, windowId: windowId)
+        _ = controller.workspaceManager.setScratchpadToken(handle.token)
+        controller.workspaceManager.setHiddenState(
+            WindowModel.HiddenState(
+                proportionalPosition: .zero,
+                referenceMonitorId: monitor.id,
+                reason: .scratchpad
+            ),
+            for: handle.token
+        )
+        SkyLight.orderedStateProviderForTests = { queriedWindowId in
+            queriedWindowId == UInt32(windowId) ? true : nil
+        }
+        controller.axEventHandler.windowInfoProvider = { queriedWindowId in
+            queriedWindowId == UInt32(windowId)
+                ? WindowServerInfo(
+                    id: queriedWindowId,
+                    pid: pid,
+                    level: 0,
+                    frame: CGRect(x: 240, y: 140, width: 520, height: 360)
+                )
+                : nil
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.workspaceManager.entry(for: handle) != nil)
+        #expect(controller.workspaceManager.hiddenState(for: handle.token) == nil)
+        #expect(controller.workspaceManager.scratchpadToken() == handle.token)
+    }
+
+    @Test @MainActor func fullRescanPreservesScratchpadHiddenWindowWhenOrderedInButFrameOffscreen() async {
+        let controller = makeRefreshTestController()
+        defer {
+            controller.axEventHandler.windowInfoProvider = nil
+            SkyLight.orderedStateProviderForTests = nil
+        }
+        controller.axManager.fullRescanEnumerationOverrideForTests = {
+            AXManager.FullRescanEnumerationSnapshot(windows: [], failedPIDs: [])
+        }
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let pid = getpid()
+        let windowId = 3065
+        let handle = addWindow(on: controller, workspaceId: workspaceId, pid: pid, windowId: windowId)
+        _ = controller.workspaceManager.setScratchpadToken(handle.token)
+        controller.workspaceManager.setHiddenState(
+            WindowModel.HiddenState(
+                proportionalPosition: .zero,
+                referenceMonitorId: monitor.id,
+                reason: .scratchpad
+            ),
+            for: handle.token
+        )
+        SkyLight.orderedStateProviderForTests = { queriedWindowId in
+            queriedWindowId == UInt32(windowId) ? true : nil
+        }
+        controller.axEventHandler.windowInfoProvider = { queriedWindowId in
+            queriedWindowId == UInt32(windowId)
+                ? WindowServerInfo(
+                    id: queriedWindowId,
+                    pid: pid,
+                    level: 0,
+                    frame: CGRect(x: monitor.frame.maxX + 600, y: 140, width: 520, height: 360)
+                )
+                : nil
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.workspaceManager.entry(for: handle) != nil)
+        #expect(controller.workspaceManager.hiddenState(for: handle.token)?.isScratchpad == true)
+        #expect(controller.workspaceManager.scratchpadToken() == handle.token)
+    }
+
+    @Test @MainActor func fullRescanOrderedInKeepsStaleScratchpadRevealFromRehidingWindow() async {
+        let controller = makeRefreshTestController()
+        defer {
+            controller.axEventHandler.windowInfoProvider = nil
+            SkyLight.orderedStateProviderForTests = nil
+        }
+        controller.axManager.fullRescanEnumerationOverrideForTests = {
+            AXManager.FullRescanEnumerationSnapshot(windows: [], failedPIDs: [])
+        }
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let pid = getpid()
+        let windowId = 3064
+        let token = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: windowId),
+            pid: pid,
+            windowId: windowId,
+            to: workspaceId,
+            mode: .floating
+        )
+        let frame = CGRect(x: 240, y: 140, width: 520, height: 360)
+        controller.workspaceManager.updateFloatingGeometry(frame: frame, for: token, referenceMonitor: monitor)
+        _ = controller.workspaceManager.setScratchpadToken(token)
+        controller.workspaceManager.setHiddenState(
+            WindowModel.HiddenState(
+                proportionalPosition: .zero,
+                referenceMonitorId: monitor.id,
+                reason: .scratchpad
+            ),
+            for: token
+        )
+        controller.axManager.frameApplyOverrideForTests = { requests in
+            requests.map { request in
+                AXFrameApplyResult(
+                    requestId: request.requestId,
+                    pid: request.pid,
+                    windowId: request.windowId,
+                    targetFrame: request.frame,
+                    currentFrameHint: request.currentFrameHint,
+                    writeResult: AXFrameWriteResult(
+                        targetFrame: request.frame,
+                        observedFrame: nil,
+                        writeOrder: AXWindowService.frameWriteOrder(
+                            currentFrame: request.currentFrameHint,
+                            targetFrame: request.frame
+                        ),
+                        sizeError: .success,
+                        positionError: .success,
+                        failureReason: .verificationMismatch
+                    )
+                )
+            }
+        }
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            Issue.record("Missing scratchpad entry")
+            return
+        }
+
+        var successCount = 0
+        controller.layoutRefreshController.restoreScratchpadWindow(
+            entry,
+            monitor: monitor,
+            onSuccess: { successCount += 1 }
+        )
+        #expect(controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true)
+
+        SkyLight.orderedStateProviderForTests = { queriedWindowId in
+            queriedWindowId == UInt32(windowId) ? true : nil
+        }
+        controller.axEventHandler.windowInfoProvider = { queriedWindowId in
+            queriedWindowId == UInt32(windowId)
+                ? WindowServerInfo(
+                    id: queriedWindowId,
+                    pid: pid,
+                    level: 0,
+                    frame: frame
+                )
+                : nil
+        }
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitForRefreshWork(on: controller)
+        try? await Task.sleep(for: .milliseconds(75))
+
+        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+        #expect(controller.workspaceManager.scratchpadToken() == token)
+        #expect(successCount == 1)
+    }
+
     @Test @MainActor func fullRescanPreservesTrackedEmacsLikeWindowOnActiveSpaceChange() async {
         let controller = makeRefreshTestController()
         guard let workspaceId = controller.activeWorkspace()?.id else {

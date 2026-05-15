@@ -16,6 +16,12 @@ blue = 0.979300037944676
 green = 1.0
 red = 0.08458520228437894
 
+[clipboard]
+historyEnabled = false
+maxItemBytes = 8388608
+maxItems = 200
+maxTotalBytes = 67108864
+
 [dwindle]
 defaultSplitRatio = 1.0
 moveToRootStable = true

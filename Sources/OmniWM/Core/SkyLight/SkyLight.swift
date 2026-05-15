@@ -32,6 +32,7 @@ final class SkyLight {
     private typealias TransactionCreateFunc = @convention(c) (Int32) -> CFTypeRef?
     private typealias TransactionCommitFunc = @convention(c) (CFTypeRef, Int32) -> CGError
     private typealias TransactionOrderWindowFunc = @convention(c) (CFTypeRef, UInt32, Int32, UInt32) -> Void
+    private typealias WindowIsOrderedInFunc = @convention(c) (Int32, UInt32, UnsafeMutablePointer<UInt8>) -> CGError
     private typealias TransactionMoveWindowWithGroupFunc = @convention(c) (CFTypeRef, UInt32, CGPoint) -> CGError
     private typealias DisableUpdateFunc = @convention(c) (Int32) -> Void
     private typealias ReenableUpdateFunc = @convention(c) (Int32) -> Void
@@ -113,6 +114,7 @@ final class SkyLight {
     private let transactionCreate: TransactionCreateFunc
     private let transactionCommit: TransactionCommitFunc
     private let transactionOrderWindow: TransactionOrderWindowFunc
+    private let windowIsOrderedIn: WindowIsOrderedInFunc?
     private let transactionMoveWindowWithGroup: TransactionMoveWindowWithGroupFunc?
     private let disableUpdate: DisableUpdateFunc
     private let reenableUpdate: ReenableUpdateFunc
@@ -133,6 +135,8 @@ final class SkyLight {
     private let flushWindowContentRegion: FlushWindowContentRegionFunc?
     private let newRegionWithRect: NewRegionWithRectFunc?
     private let transactionSetWindowLevel: TransactionSetWindowLevelFunc?
+
+    @MainActor static var orderedStateProviderForTests: ((UInt32) -> Bool?)?
 
     private init() {
         guard let lib = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY) else {
@@ -205,6 +209,7 @@ final class SkyLight {
             as: WindowIteratorGetCornerRadiiFunc.self
         )
 
+        windowIsOrderedIn = resolveOptional("SLSWindowIsOrderedIn", as: WindowIsOrderedInFunc.self)
         transactionMoveWindowWithGroup = resolveOptional(
             "SLSTransactionMoveWindowWithGroup",
             as: TransactionMoveWindowWithGroupFunc.self
@@ -306,6 +311,21 @@ final class SkyLight {
         defer { cfRelease(transaction) }
         transactionOrderWindow(transaction, wid, order.rawValue, targetWid)
         _ = transactionCommit(transaction, 0)
+    }
+
+    func isWindowOrderedIn(_ wid: UInt32) -> Bool? {
+        if let provider = Self.orderedStateProviderForTests {
+            if let orderedIn = provider(wid) {
+                return orderedIn
+            }
+        }
+        guard let windowIsOrderedIn else { return nil }
+        let cid = getMainConnectionID()
+        guard cid != 0 else { return nil }
+        var orderedIn: UInt8 = 0
+        let result = windowIsOrderedIn(cid, wid, &orderedIn)
+        guard result == .success else { return nil }
+        return orderedIn != 0
     }
 
     func moveWindow(_ wid: UInt32, to point: CGPoint) -> Bool {
