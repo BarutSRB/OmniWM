@@ -514,7 +514,6 @@ final class WindowModel {
     func allEntries() -> [Entry] {
         Array(entries.values)
     }
-
     func allEntries(mode: TrackedWindowMode) -> [Entry] {
         tokensByWorkspaceMode
             .filter { $0.key.mode == mode }
