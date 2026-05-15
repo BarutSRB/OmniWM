@@ -133,6 +133,44 @@ import Testing
         #expect(workspaceItem.windows.map(\.windowId) == [1001, 1002])
     }
 
+    @Test @MainActor func nonStandardFloatingEntriesAreHiddenFromTheBar() throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspace1 = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false)
+        else {
+            Issue.record("Missing workspace bar fixture")
+            return
+        }
+
+        controller.appInfoCache.storeInfoForTests(pid: 7201, name: "Floating App", bundleId: "com.example.floating")
+        _ = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 1201),
+            pid: 7201,
+            windowId: 1201,
+            to: workspace1,
+            mode: .floating
+        )
+        controller.workspaceManager.setLayoutReason(.nativeFullscreen, for: WindowToken(pid: 7201, windowId: 1201))
+
+        let items = WorkspaceBarDataSource.workspaceBarItems(
+            for: monitor,
+            options: WorkspaceBarProjectionOptions(
+                deduplicateAppIcons: false,
+                hideEmptyWorkspaces: false,
+                showFloatingWindows: true
+            ),
+            workspaceManager: controller.workspaceManager,
+            appInfoCache: controller.appInfoCache,
+            niriEngine: nil,
+            focusedToken: controller.workspaceManager.focusedToken,
+            settings: controller.settings
+        )
+
+        let workspaceItem = try #require(items.first(where: { $0.id == workspace1 }))
+        #expect(workspaceItem.floatingWindows.isEmpty)
+        #expect(workspaceItem.windows.isEmpty)
+    }
+
     @Test @MainActor func deduplicatedProjectionKeepsSameAppSeparatedByMode() throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

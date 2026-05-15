@@ -344,6 +344,18 @@ final class WindowRuleEngine {
             return cleanShotDecision
         }
 
+        if let parentId = facts.windowServer?.parentId, parentId != 0 {
+            return WindowDecision(
+                disposition: .floating,
+                source: .builtInRule("childWindowStructuralAnchor"),
+                layoutDecisionKind: .explicitLayout,
+                workspaceName: workspaceName,
+                ruleEffects: effects,
+                heuristicReasons: [],
+                deferredReason: nil
+            )
+        }
+
         if facts.ax.title == nil,
            requiresTitle(for: facts.ax.bundleId)
         {

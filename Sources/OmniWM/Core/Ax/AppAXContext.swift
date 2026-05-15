@@ -335,15 +335,14 @@ final class AppAXContext {
                     title = titleValue as? String
                 }
 
-                let isWindow = role == kAXWindowRole as String
+                let isWindow = AXWindowService.shouldTreatAsTopLevelWindow(role: role, subrole: subrole)
                 let isDialog = role == "AXDialog"
                 let isPanel = role == "AXPanel"
-                
-                // Allow Windows, or Dialogs/Panels with titles (to avoid tooltips)
+
+                // Allow windows, or titled dialogs/panels (to avoid tooltips).
                 guard isWindow || ((isDialog || isPanel) && title != nil) else {
                     continue
                 }
-
 
                 let axRef = AXWindowRef(element: element, windowId: windowId)
                 newWindows[windowId] = element

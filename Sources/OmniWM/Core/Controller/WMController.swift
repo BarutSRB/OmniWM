@@ -1738,6 +1738,8 @@ final class WMController {
                         title: evaluation.facts.ax.title ?? updatedEntry.managedReplacementMetadata?.title,
                         windowLevel: evaluation.facts.windowServer?.level ?? updatedEntry.managedReplacementMetadata?
                             .windowLevel,
+                        parentWindowId: evaluation.facts.windowServer?.parentId ?? updatedEntry
+                            .managedReplacementMetadata?.parentWindowId,
                         frame: evaluation.facts.windowServer?.frame ?? updatedEntry.managedReplacementMetadata?.frame
                     ),
                     for: token

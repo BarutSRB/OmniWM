@@ -303,6 +303,10 @@ enum AXWindowService {
         window.windowId
     }
 
+    static func shouldTreatAsTopLevelWindow(role: String?, subrole: String?) -> Bool {
+        role == kAXWindowRole as String || subrole == kAXStandardWindowSubrole as String
+    }
+
     static func frame(_ window: AXWindowRef) throws(AXErrorWrapper) -> CGRect {
         let attributes = [
             kAXPositionAttribute as CFString,
@@ -624,6 +628,14 @@ enum AXWindowService {
             )
         }
 
+        if let subrole = facts.subrole,
+           subrole != (kAXStandardWindowSubrole as String)
+        {
+            return AXWindowHeuristicDisposition(
+                disposition: .floating,
+                reasons: [.nonStandardSubrole]
+            )
+        }
 
         if !facts.hasFullscreenButton {
             return AXWindowHeuristicDisposition(
