@@ -13,6 +13,7 @@ final class StatusBarController: NSObject {
     private let settings: SettingsStore
     private let cliManager: AppCLIManager?
     private let updateCoordinator: (any AppUpdateCoordinating)?
+    private let statusItemDefaults: UserDefaults
     private weak var controller: WMController?
 
     init(
@@ -20,12 +21,14 @@ final class StatusBarController: NSObject {
         controller: WMController,
         hiddenBarController: HiddenBarController,
         cliManager: AppCLIManager? = nil,
-        updateCoordinator: (any AppUpdateCoordinating)? = nil
+        updateCoordinator: (any AppUpdateCoordinating)? = nil,
+        statusItemDefaults: UserDefaults = .standard
     ) {
         self.hiddenBarController = hiddenBarController
         self.settings = settings
         self.cliManager = cliManager
         self.updateCoordinator = updateCoordinator
+        self.statusItemDefaults = statusItemDefaults
         self.controller = controller
         super.init()
     }
@@ -39,6 +42,11 @@ final class StatusBarController: NSObject {
 
     private func installOwnedStatusItems() {
         guard statusItem == nil, let controller else { return }
+
+        StatusItemPersistence.repairOwnedRestoreState(
+            defaults: statusItemDefaults,
+            screenFrames: NSScreen.screens.map(\.frame)
+        )
 
         let ownedStatusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         StatusItemPersistence.configureMandatoryItem(ownedStatusItem, as: .main)
@@ -154,6 +162,10 @@ final class StatusBarController: NSObject {
         statusItem?.isVisible
     }
 
+    func rebuildOwnedStatusItemsAfterUnsafeOrderingForTests() {
+        rebuildOwnedStatusItemsAfterUnsafeOrdering()
+    }
+
     func cleanup() {
         cleanupOwnedStatusItems()
     }
@@ -175,6 +187,7 @@ final class StatusBarController: NSObject {
 
         settings.hiddenBarIsCollapsed = false
         cleanupOwnedStatusItems()
+        StatusItemPersistence.clearOwnedRestoreState(defaults: statusItemDefaults)
         installOwnedStatusItems()
     }
 }

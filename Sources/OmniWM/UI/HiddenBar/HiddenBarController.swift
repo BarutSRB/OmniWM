@@ -9,6 +9,7 @@ final class HiddenBarController {
     private weak var omniButton: NSStatusBarButton?
     private var separatorItem: NSStatusItem?
     private var collapseLength: CGFloat = HiddenBarController.boundedCollapseLength(screenWidth: nil)
+    private var collapseSafetyOverrideForTests: CollapseSafety?
     private var hasAttemptedRuntimeRepairThisLaunch = false
     private var onUnsafeOrderingDetected: (() -> Void)?
     private var screenParametersObserver: NSObjectProtocol?
@@ -19,6 +20,12 @@ final class HiddenBarController {
 
     private var isCollapsed: Bool {
         settings.hiddenBarIsCollapsed
+    }
+
+    private enum CollapseSafety {
+        case safe
+        case unsafe
+        case unknown
     }
 
     init(settings: SettingsStore) {
@@ -35,12 +42,24 @@ final class HiddenBarController {
         separatorMinX: CGFloat?,
         layoutDirection: NSUserInterfaceLayoutDirection
     ) -> Bool {
-        guard let omniMinX, let separatorMinX else { return false }
+        collapseSafety(
+            omniMinX: omniMinX,
+            separatorMinX: separatorMinX,
+            layoutDirection: layoutDirection
+        ) == .safe
+    }
+
+    private nonisolated static func collapseSafety(
+        omniMinX: CGFloat?,
+        separatorMinX: CGFloat?,
+        layoutDirection: NSUserInterfaceLayoutDirection
+    ) -> CollapseSafety {
+        guard let omniMinX, let separatorMinX else { return .unknown }
         switch layoutDirection {
         case .rightToLeft:
-            return omniMinX <= separatorMinX
+            return omniMinX <= separatorMinX ? .safe : .unsafe
         default:
-            return omniMinX >= separatorMinX
+            return omniMinX >= separatorMinX ? .safe : .unsafe
         }
     }
 
@@ -98,15 +117,7 @@ final class HiddenBarController {
     }
 
     private func collapse() {
-        guard !isCollapsed else { return }
-        guard canCollapseSafely() else {
-            settings.hiddenBarIsCollapsed = false
-            requestRuntimeRepairIfNeeded()
-            return
-        }
-
-        separatorItem?.length = collapseLength
-        settings.hiddenBarIsCollapsed = true
+        applyCollapseSafety(collapseSafety(), repairUnknownOrdering: true)
     }
 
     private func expand() {
@@ -137,10 +148,46 @@ final class HiddenBarController {
         separatorItem?.isVisible
     }
 
+    func updateCollapseLengthForTests() {
+        updateCollapseLength()
+    }
+
+    func runPersistedCollapseSafetyCheckForTests() {
+        collapse()
+    }
+
+    func setCollapseSafetyForTests(
+        omniMinX: CGFloat?,
+        separatorMinX: CGFloat?,
+        layoutDirection: NSUserInterfaceLayoutDirection
+    ) {
+        collapseSafetyOverrideForTests = Self.collapseSafety(
+            omniMinX: omniMinX,
+            separatorMinX: separatorMinX,
+            layoutDirection: layoutDirection
+        )
+    }
+
     private func updateCollapseLength() {
         collapseLength = Self.boundedCollapseLength(screenWidth: currentScreenWidth())
-        if isCollapsed {
+        guard isCollapsed, separatorItem != nil else { return }
+
+        applyCollapseSafety(collapseSafety(), repairUnknownOrdering: false)
+    }
+
+    private func applyCollapseSafety(_ safety: CollapseSafety, repairUnknownOrdering: Bool) {
+        switch safety {
+        case .safe:
             separatorItem?.length = collapseLength
+            settings.hiddenBarIsCollapsed = true
+        case .unsafe:
+            settings.hiddenBarIsCollapsed = false
+            requestRuntimeRepairIfNeeded()
+        case .unknown:
+            if repairUnknownOrdering {
+                settings.hiddenBarIsCollapsed = false
+                requestRuntimeRepairIfNeeded()
+            }
         }
     }
 
@@ -150,9 +197,13 @@ final class HiddenBarController {
             NSScreen.main?.frame.width
     }
 
-    private func canCollapseSafely() -> Bool {
+    private func collapseSafety() -> CollapseSafety {
+        if let collapseSafetyOverrideForTests {
+            return collapseSafetyOverrideForTests
+        }
+
         let layoutDirection = NSApp?.userInterfaceLayoutDirection ?? .leftToRight
-        return Self.canCollapseSafely(
+        return Self.collapseSafety(
             omniMinX: omniButton?.window?.frame.minX,
             separatorMinX: separatorItem?.button?.window?.frame.minX,
             layoutDirection: layoutDirection
