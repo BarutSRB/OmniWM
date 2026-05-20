@@ -3,12 +3,47 @@ import Foundation
 import OmniWMIPC
 import Testing
 
+private extension String {
+    func removingRegexLine(_ pattern: String) throws -> String {
+        let regex = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
+        let range = NSRange(startIndex..., in: self)
+        return regex.stringByReplacingMatches(in: self, range: range, withTemplate: "")
+    }
+}
+
 @Suite struct SettingsTOMLCodecTests {
     @Test func roundTripsDefaults() throws {
         let original = SettingsExport.defaults()
         let data = try SettingsTOMLCodec.encode(original)
         let decoded = try SettingsTOMLCodec.decode(data)
         #expect(decoded == original)
+    }
+
+    @Test func decodesOlderConfigByFillingMissingSettingsFromDefaults() throws {
+        let defaults = SettingsExport.defaults()
+        var original = defaults
+        original.hotkeysEnabled = false
+        original.workspaceBarEnabled = false
+        original.clipboardHistoryEnabled = !defaults.clipboardHistoryEnabled
+
+        let data = try SettingsTOMLCodec.encode(original)
+        let output = try #require(String(data: data, encoding: .utf8))
+        let olderConfig = output
+            .removingRegexLine("^\\s*animationsEnabled\\s*=.*\\n")
+            .removingRegexLine("^\\s*hideEmptyWorkspaces\\s*=.*\\n")
+            .removingRegexLine("^\\[clipboard\\]\\n(?:^\\s*[^\\n]+\\n)*\\n?")
+
+        #expect(olderConfig.contains("animationsEnabled") == false)
+        #expect(olderConfig.contains("hideEmptyWorkspaces") == false)
+        #expect(olderConfig.contains("[clipboard]") == false)
+
+        let decoded = try SettingsTOMLCodec.decode(Data(olderConfig.utf8))
+
+        #expect(decoded.hotkeysEnabled == false)
+        #expect(decoded.workspaceBarEnabled == false)
+        #expect(decoded.clipboardHistoryEnabled == defaults.clipboardHistoryEnabled)
+        #expect(decoded.workspaceBarHideEmptyWorkspaces == defaults.workspaceBarHideEmptyWorkspaces)
+        #expect(decoded.animationsEnabled == defaults.animationsEnabled)
     }
 
     @Test func encodeProducesSectionedToml() throws {

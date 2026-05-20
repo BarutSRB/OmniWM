@@ -11,7 +11,11 @@ enum SettingsTOMLCodec {
     }
 
     static func decode(_ data: Data) throws -> SettingsExport {
-        let canonical = try TOMLDecoder().decode(CanonicalTOMLConfig.self, from: data)
-        return canonical.toSettingsExport()
+        do {
+            let canonical = try TOMLDecoder().decode(CanonicalTOMLConfig.self, from: data)
+            return canonical.toSettingsExport()
+        } catch DecodingError.keyNotFound(_, _) {
+            return try TOMLDecoder().decode(LenientSettingsTOMLConfig.self, from: data).export
+        }
     }
 }
