@@ -362,6 +362,11 @@ private struct GlobalNiriSettingsSection: View {
                         controller.updateNiriConfig(alwaysCenterSingleColumn: newValue)
                     }
 
+                Toggle("Scroll Snap", isOn: $settings.niriScrollSnapEnabled)
+                    .onChange(of: settings.niriScrollSnapEnabled) { _, newValue in
+                        controller.updateNiriConfig(scrollSnapEnabled: newValue)
+                    }
+
                 Picker("Single Window Ratio", selection: $settings.niriSingleWindowAspectRatio) {
                     ForEach(SingleWindowAspectRatio.allCases, id: \.self) { ratio in
                         Text(ratio.displayName).tag(ratio)
@@ -533,6 +538,14 @@ private struct MonitorNiriSettingsSection: View {
                     globalValue: settings.niriAlwaysCenterSingleColumn,
                     onChange: { newValue in updateSetting { $0.alwaysCenterSingleColumn = newValue } },
                     onReset: { updateSetting { $0.alwaysCenterSingleColumn = nil } }
+                )
+
+                OverridableToggle(
+                    label: "Scroll Snap",
+                    value: ms.scrollSnapEnabled,
+                    globalValue: settings.niriScrollSnapEnabled,
+                    onChange: { newValue in updateSetting { $0.scrollSnapEnabled = newValue } },
+                    onReset: { updateSetting { $0.scrollSnapEnabled = nil } }
                 )
 
                 OverridablePicker(

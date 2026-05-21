@@ -73,6 +73,7 @@ defaultColumnWidth = 0.5
 infiniteLoop = false
 maxVisibleColumns = 2
 maxWindowsPerColumn = 10
+scrollSnapEnabled = true
 singleWindowAspectRatio = "none"
 
 [quakeTerminal]

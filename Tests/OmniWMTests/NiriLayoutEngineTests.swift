@@ -825,6 +825,7 @@ private func makeCenteredCrossMonitorFixture(
         maxWindowsPerColumn: Int? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
+        scrollSnapEnabled: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
         infiniteLoop: Bool? = nil
     ) -> ResolvedNiriSettings {
@@ -834,6 +835,7 @@ private func makeCenteredCrossMonitorFixture(
             maxWindowsPerColumn: maxWindowsPerColumn ?? global.maxWindowsPerColumn,
             centerFocusedColumn: centerFocusedColumn ?? global.centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn ?? global.alwaysCenterSingleColumn,
+            scrollSnapEnabled: scrollSnapEnabled ?? global.scrollSnapEnabled,
             singleWindowAspectRatio: singleWindowAspectRatio ?? global.singleWindowAspectRatio,
             infiniteLoop: infiniteLoop ?? global.infiniteLoop
         )

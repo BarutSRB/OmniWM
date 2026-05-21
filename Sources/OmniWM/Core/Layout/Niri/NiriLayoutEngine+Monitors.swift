@@ -54,6 +54,7 @@ extension NiriLayoutEngine {
             maxWindowsPerColumn: maxWindowsPerColumn,
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            scrollSnapEnabled: scrollSnapEnabled,
             singleWindowAspectRatio: singleWindowAspectRatio,
             infiniteLoop: infiniteLoop
         )

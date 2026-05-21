@@ -1352,6 +1352,7 @@ enum NiriWindowMoveResult {
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
+        scrollSnapEnabled: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
         columnWidthPresets: [Double]? = nil,
         defaultColumnWidth: Double?? = nil
@@ -1363,6 +1364,7 @@ enum NiriWindowMoveResult {
             infiniteLoop: infiniteLoop,
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            scrollSnapEnabled: scrollSnapEnabled,
             singleWindowAspectRatio: singleWindowAspectRatio,
             presetColumnWidths: columnWidthPresets?.map { .proportion($0) },
             defaultColumnWidth: defaultColumnWidth.map { $0.map { CGFloat($0) } }

@@ -1452,7 +1452,7 @@ final class MouseEventHandler {
                 viewportWidth: insetFrame.width,
                 motion: controller.motionPolicy.snapshot(),
                 isTrackpad: true,
-                snapToColumn: true,
+                snapToColumn: controller.settings.resolvedNiriSettings(for: monitor).scrollSnapEnabled,
                 centerMode: engine.centerFocusedColumn,
                 alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
                 workingArea: insetFrame,

@@ -104,6 +104,10 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var niriScrollSnapEnabled = SettingsStore.defaultExport.niriScrollSnapEnabled {
+        didSet { scheduleSave() }
+    }
+
     var niriSingleWindowAspectRatio = SingleWindowAspectRatio(
         rawValue: SettingsStore.defaultExport.niriSingleWindowAspectRatio
     ) ?? .none {
@@ -510,6 +514,7 @@ final class SettingsStore {
             niriInfiniteLoop: niriInfiniteLoop,
             niriCenterFocusedColumn: niriCenterFocusedColumn.rawValue,
             niriAlwaysCenterSingleColumn: niriAlwaysCenterSingleColumn,
+            niriScrollSnapEnabled: niriScrollSnapEnabled,
             niriSingleWindowAspectRatio: niriSingleWindowAspectRatio.rawValue,
             niriColumnWidthPresets: niriColumnWidthPresets,
             niriDefaultColumnWidth: niriDefaultColumnWidth,
@@ -611,6 +616,7 @@ final class SettingsStore {
         niriInfiniteLoop = export.niriInfiniteLoop
         niriCenterFocusedColumn = CenterFocusedColumn(rawValue: export.niriCenterFocusedColumn) ?? .never
         niriAlwaysCenterSingleColumn = export.niriAlwaysCenterSingleColumn
+        niriScrollSnapEnabled = export.niriScrollSnapEnabled
         niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: export.niriSingleWindowAspectRatio) ?? .none
         niriColumnWidthPresets = SettingsStore.validatedPresets(
             export.niriColumnWidthPresets ?? baseline.niriColumnWidthPresets ?? SettingsStore.defaultColumnWidthPresets
@@ -965,6 +971,7 @@ final class SettingsStore {
             maxWindowsPerColumn: override?.maxWindowsPerColumn ?? niriMaxWindowsPerColumn,
             centerFocusedColumn: override?.centerFocusedColumn ?? niriCenterFocusedColumn,
             alwaysCenterSingleColumn: override?.alwaysCenterSingleColumn ?? niriAlwaysCenterSingleColumn,
+            scrollSnapEnabled: override?.scrollSnapEnabled ?? niriScrollSnapEnabled,
             singleWindowAspectRatio: override?.singleWindowAspectRatio ?? niriSingleWindowAspectRatio,
             infiniteLoop: override?.infiniteLoop ?? niriInfiniteLoop
         )

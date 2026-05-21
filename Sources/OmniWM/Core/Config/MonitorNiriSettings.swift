@@ -10,6 +10,7 @@ struct MonitorNiriSettings: MonitorSettingsType {
     var maxWindowsPerColumn: Int?
     var centerFocusedColumn: CenterFocusedColumn?
     var alwaysCenterSingleColumn: Bool?
+    var scrollSnapEnabled: Bool?
     var singleWindowAspectRatio: SingleWindowAspectRatio?
     var infiniteLoop: Bool?
 
@@ -21,6 +22,7 @@ struct MonitorNiriSettings: MonitorSettingsType {
         maxWindowsPerColumn: Int? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
+        scrollSnapEnabled: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
         infiniteLoop: Bool? = nil
     ) {
@@ -31,13 +33,14 @@ struct MonitorNiriSettings: MonitorSettingsType {
         self.maxWindowsPerColumn = maxWindowsPerColumn
         self.centerFocusedColumn = centerFocusedColumn
         self.alwaysCenterSingleColumn = alwaysCenterSingleColumn
+        self.scrollSnapEnabled = scrollSnapEnabled
         self.singleWindowAspectRatio = singleWindowAspectRatio
         self.infiniteLoop = infiniteLoop
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, monitorName, monitorDisplayId, maxVisibleColumns, maxWindowsPerColumn
-        case centerFocusedColumn, alwaysCenterSingleColumn, singleWindowAspectRatio, infiniteLoop
+        case centerFocusedColumn, alwaysCenterSingleColumn, scrollSnapEnabled, singleWindowAspectRatio, infiniteLoop
     }
 
     init(from decoder: Decoder) throws {
@@ -50,6 +53,7 @@ struct MonitorNiriSettings: MonitorSettingsType {
         centerFocusedColumn = try container.decodeIfPresent(String.self, forKey: .centerFocusedColumn)
             .flatMap { CenterFocusedColumn(rawValue: $0) }
         alwaysCenterSingleColumn = try container.decodeIfPresent(Bool.self, forKey: .alwaysCenterSingleColumn)
+        scrollSnapEnabled = try container.decodeIfPresent(Bool.self, forKey: .scrollSnapEnabled)
         singleWindowAspectRatio = try container.decodeIfPresent(String.self, forKey: .singleWindowAspectRatio)
             .flatMap { SingleWindowAspectRatio(rawValue: $0) }
         infiniteLoop = try container.decodeIfPresent(Bool.self, forKey: .infiniteLoop)
@@ -64,6 +68,7 @@ struct MonitorNiriSettings: MonitorSettingsType {
         try container.encodeIfPresent(maxWindowsPerColumn, forKey: .maxWindowsPerColumn)
         try container.encodeIfPresent(centerFocusedColumn?.rawValue, forKey: .centerFocusedColumn)
         try container.encodeIfPresent(alwaysCenterSingleColumn, forKey: .alwaysCenterSingleColumn)
+        try container.encodeIfPresent(scrollSnapEnabled, forKey: .scrollSnapEnabled)
         try container.encodeIfPresent(singleWindowAspectRatio?.rawValue, forKey: .singleWindowAspectRatio)
         try container.encodeIfPresent(infiniteLoop, forKey: .infiniteLoop)
     }
@@ -74,6 +79,7 @@ struct ResolvedNiriSettings: Equatable {
     let maxWindowsPerColumn: Int
     let centerFocusedColumn: CenterFocusedColumn
     let alwaysCenterSingleColumn: Bool
+    let scrollSnapEnabled: Bool
     let singleWindowAspectRatio: SingleWindowAspectRatio
     let infiniteLoop: Bool
 }

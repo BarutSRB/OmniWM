@@ -48,6 +48,7 @@ struct SettingsExport: Equatable {
     var niriInfiniteLoop: Bool
     var niriCenterFocusedColumn: String
     var niriAlwaysCenterSingleColumn: Bool
+    var niriScrollSnapEnabled: Bool
     var niriSingleWindowAspectRatio: String
     var niriColumnWidthPresets: [Double]?
     var niriDefaultColumnWidth: Double?
@@ -158,6 +159,7 @@ extension SettingsExport {
             niriInfiniteLoop: false,
             niriCenterFocusedColumn: CenterFocusedColumn.never.rawValue,
             niriAlwaysCenterSingleColumn: false,
+            niriScrollSnapEnabled: true,
             niriSingleWindowAspectRatio: SingleWindowAspectRatio.none.rawValue,
             niriColumnWidthPresets: BuiltInSettingsDefaults.niriColumnWidthPresets,
             niriDefaultColumnWidth: 0.5,

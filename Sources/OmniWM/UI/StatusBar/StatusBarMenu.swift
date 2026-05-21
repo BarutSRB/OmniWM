@@ -102,6 +102,7 @@ final class StatusBarMenuBuilder {
         toggleViews["moveMouseToFocusedWindow"]?.isOn = settings.moveMouseToFocusedWindow
         toggleViews["bordersEnabled"]?.isOn = settings.bordersEnabled
         toggleViews["workspaceBarEnabled"]?.isOn = settings.workspaceBarEnabled
+        toggleViews["niriScrollSnapEnabled"]?.isOn = settings.niriScrollSnapEnabled
         toggleViews["preventSleepEnabled"]?.isOn = settings.preventSleepEnabled
         toggleViews["ipcEnabled"]?.isOn = settings.ipcEnabled
     }
@@ -191,6 +192,20 @@ final class StatusBarMenuBuilder {
         let workspaceItem = NSMenuItem()
         workspaceItem.view = workspaceBarToggle
         menu.addItem(workspaceItem)
+
+        let scrollSnapToggle = MenuToggleRowView(
+            icon: "arrow.left.and.right.square",
+            label: "Niri Scroll Snap",
+            isOn: settings.niriScrollSnapEnabled,
+            motionPolicy: motionPolicy
+        ) { [weak self] newValue in
+            self?.settings.niriScrollSnapEnabled = newValue
+            self?.controller?.updateNiriConfig(scrollSnapEnabled: newValue)
+        }
+        toggleViews["niriScrollSnapEnabled"] = scrollSnapToggle
+        let scrollSnapItem = NSMenuItem()
+        scrollSnapItem.view = scrollSnapToggle
+        menu.addItem(scrollSnapItem)
 
         let keepAwakeToggle = MenuToggleRowView(
             icon: "moon.zzz",

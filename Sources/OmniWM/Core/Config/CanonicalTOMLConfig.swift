@@ -67,6 +67,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var infiniteLoop: Bool
         var centerFocusedColumn: String
         var alwaysCenterSingleColumn: Bool
+        var scrollSnapEnabled: Bool
         var singleWindowAspectRatio: String
         var columnWidthPresets: [Double]?
         var defaultColumnWidth: Double?
@@ -369,6 +370,12 @@ extension CanonicalTOMLConfig.Niri {
             default: defaults.alwaysCenterSingleColumn,
             recovering: recovering
         )
+        scrollSnapEnabled = try container.decode(
+            Bool.self,
+            forKey: .scrollSnapEnabled,
+            default: defaults.scrollSnapEnabled,
+            recovering: recovering
+        )
         singleWindowAspectRatio = try container.decode(
             String.self,
             forKey: .singleWindowAspectRatio,
@@ -634,6 +641,7 @@ extension CanonicalTOMLConfig {
             infiniteLoop: export.niriInfiniteLoop,
             centerFocusedColumn: export.niriCenterFocusedColumn,
             alwaysCenterSingleColumn: export.niriAlwaysCenterSingleColumn,
+            scrollSnapEnabled: export.niriScrollSnapEnabled,
             singleWindowAspectRatio: export.niriSingleWindowAspectRatio,
             columnWidthPresets: export.niriColumnWidthPresets,
             defaultColumnWidth: export.niriDefaultColumnWidth
@@ -751,6 +759,7 @@ extension CanonicalTOMLConfig {
             niriInfiniteLoop: niri.infiniteLoop,
             niriCenterFocusedColumn: niri.centerFocusedColumn,
             niriAlwaysCenterSingleColumn: niri.alwaysCenterSingleColumn,
+            niriScrollSnapEnabled: niri.scrollSnapEnabled,
             niriSingleWindowAspectRatio: niri.singleWindowAspectRatio,
             niriColumnWidthPresets: niri.columnWidthPresets,
             niriDefaultColumnWidth: niri.defaultColumnWidth,

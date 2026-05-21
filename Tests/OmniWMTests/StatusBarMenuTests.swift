@@ -35,6 +35,17 @@ private func makeStatusBarMenuTestDirectory() -> URL {
         #expect(try #require(darkMenu.items.dropFirst(3).first?.view).appearance?.name == .darkAqua)
     }
 
+    @Test func buildMenuIncludesNiriScrollSnapControl() {
+        let controller = makeLayoutPlanTestController()
+        let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)
+
+        let menu = builder.buildMenu()
+        let labels = menu.items.compactMap(\.view).flatMap(textLabels(in:))
+
+        #expect(labels.contains("CONTROLS"))
+        #expect(labels.contains("Niri Scroll Snap"))
+    }
+
     @Test func buildMenuIncludesSettingsFileActions() {
         let controller = makeLayoutPlanTestController()
         let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)

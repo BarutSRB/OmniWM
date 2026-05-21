@@ -84,19 +84,23 @@ extension ViewportState {
 
         gesture.currentViewOffset = currentOffset
 
-        guard snapToColumn else {
-            endGesturePreservingCurrentOffset(
-                currentOffset: currentOffset,
-                columns: columns,
-                gap: gap,
-                viewportWidth: viewportWidth
-            )
-            return
-        }
-
         let velocity = gesture.tracker.velocity() * normFactor
         let projectedTrackerPos = gesture.tracker.projectedEndPosition() * normFactor
         let projectedOffset = projectedTrackerPos + gesture.deltaFromTracker
+
+        guard snapToColumn else {
+            endGesturePreservingCurrentOffset(
+                currentOffset: currentOffset,
+                projectedOffset: projectedOffset,
+                velocity: velocity,
+                columns: columns,
+                gap: gap,
+                viewportWidth: viewportWidth,
+                motion: motion,
+                timestamp: now
+            )
+            return
+        }
 
         let activeColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
         let projectedViewPos = Double(activeColX) + projectedOffset
@@ -177,6 +181,7 @@ extension ViewportState {
     private struct PreservedGestureOffset {
         let finalOffset: Double
         let normalizedActiveColumn: Int
+        let positions: [Double]
     }
 
     private func findSnapPointsAndTarget(
@@ -405,16 +410,21 @@ extension ViewportState {
 
     private mutating func endGesturePreservingCurrentOffset(
         currentOffset: Double,
+        projectedOffset: Double,
+        velocity: Double,
         columns: [NiriContainer],
         gap: CGFloat,
-        viewportWidth: CGFloat
+        viewportWidth: CGFloat,
+        motion: MotionSnapshot,
+        timestamp: TimeInterval
     ) {
-        var finalOffset = currentOffset
+        var finalOffset = projectedOffset
+        var initialOffset = currentOffset
         let totalColumnWidth = Double(totalWidth(columns: columns, gap: gap))
         let viewportWidth = Double(viewportWidth)
 
         if let preservedOffset = normalizedPreservedGestureOffset(
-            currentOffset: currentOffset,
+            currentOffset: projectedOffset,
             columns: columns,
             gap: gap,
             viewportWidth: viewportWidth,
@@ -422,12 +432,29 @@ extension ViewportState {
         ) {
             finalOffset = preservedOffset.finalOffset
             if activeColumnIndex != preservedOffset.normalizedActiveColumn {
+                let previousActiveColumn = activeColumnIndex.clamped(to: 0 ... columns.count - 1)
+                let rawViewStart = preservedOffset.positions[previousActiveColumn] + currentOffset
+                let maxViewStart = max(0, totalColumnWidth - viewportWidth)
+                let viewStart = rawViewStart.clamped(to: 0 ... maxViewStart)
+                initialOffset = viewStart - preservedOffset.positions[preservedOffset.normalizedActiveColumn]
                 viewOffsetToRestore = nil
             }
             activeColumnIndex = preservedOffset.normalizedActiveColumn
         }
 
-        viewOffsetPixels = .static(CGFloat(finalOffset))
+        if motion.animationsEnabled {
+            let animation = SpringAnimation(
+                from: initialOffset,
+                to: finalOffset,
+                initialVelocity: velocity,
+                startTime: timestamp,
+                config: springConfig,
+                displayRefreshRate: displayRefreshRate
+            )
+            viewOffsetPixels = .spring(animation)
+        } else {
+            viewOffsetPixels = .static(CGFloat(finalOffset))
+        }
         activatePrevColumnOnRemoval = nil
         selectionProgress = 0.0
     }
@@ -507,7 +534,8 @@ extension ViewportState {
         let normalizedActiveX = positions[normalizedActiveColumn]
         return PreservedGestureOffset(
             finalOffset: viewStart - normalizedActiveX,
-            normalizedActiveColumn: normalizedActiveColumn
+            normalizedActiveColumn: normalizedActiveColumn,
+            positions: positions
         )
     }
 
