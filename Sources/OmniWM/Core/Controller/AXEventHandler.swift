@@ -1387,7 +1387,7 @@ final class AXEventHandler: CGSEventDelegate {
             _ = controller.focusBorderController.focusChanged(to: target, forceOrdering: true)
         }
 
-        controller.niriLayoutHandler.updateTabbedColumnOverlays()
+        controller.niriLayoutHandler.updateTabbedColumnOverlays(forceOrdering: true)
         if shouldActivateWorkspace, shouldConfirmRequest {
             controller.syncMonitorsToNiriEngine()
             controller.layoutRefreshController.commitWorkspaceTransition(
@@ -1577,7 +1577,7 @@ final class AXEventHandler: CGSEventDelegate {
         AXWindowService.invalidateCachedTitles(windowIds: [UInt32(oldToken.windowId), windowId])
         subscribeToWindows([windowId])
         controller.requestWorkspaceBarRefresh()
-        controller.niriLayoutHandler.updateTabbedColumnOverlays()
+        controller.niriLayoutHandler.updateTabbedColumnOverlays(forceOrdering: true)
         refreshBorderAfterManagedRekey(entry: entry)
 
         Task { @MainActor [weak self] in

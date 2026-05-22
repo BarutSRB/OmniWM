@@ -483,10 +483,6 @@ import QuartzCore
             hideInactiveWorkspaces(activeWorkspaceIds: visibility.activeWorkspaceIds)
         }
 
-        if plan.effects.updateTabbedOverlays {
-            niriHandler.updateTabbedColumnOverlays()
-        }
-
         if plan.effects.refreshFocusedBorderForVisibilityState {
             refreshFocusedBorderForVisibilityState(on: controller)
         }
@@ -497,6 +493,10 @@ import QuartzCore
 
         for postLayoutAction in plan.postLayoutActions {
             postLayoutAction()
+        }
+
+        if plan.effects.updateTabbedOverlays {
+            niriHandler.updateTabbedColumnOverlays(forceOrdering: true)
         }
 
         if plan.effects.requestWorkspaceBarRefresh {
@@ -635,7 +635,7 @@ import QuartzCore
                 }
                 controller.focusWindow(token)
             case .updateTabbedOverlays:
-                niriHandler.updateTabbedColumnOverlays()
+                niriHandler.updateTabbedColumnOverlays(forceOrdering: true)
             }
         }
     }
@@ -1963,7 +1963,7 @@ import QuartzCore
     }
 
     private func performVisibilitySideEffects(on controller: WMController) {
-        controller.niriLayoutHandler.updateTabbedColumnOverlays()
+        controller.niriLayoutHandler.updateTabbedColumnOverlays(forceOrdering: true)
         refreshFocusedBorderForVisibilityState(on: controller)
     }
 

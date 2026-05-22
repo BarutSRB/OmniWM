@@ -96,6 +96,7 @@ enum NiriWindowMoveResult {
                 monitor: monitor,
                 animationTime: targetTime
             )
+            self.updateTabbedColumnOverlays(workspaceId: wsId, monitor: monitor)
 
             let animationsOngoing = viewportAnimationRunning
                 || windowAnimationsRunning
@@ -852,7 +853,7 @@ enum NiriWindowMoveResult {
         return selectedWindow.token
     }
 
-    func updateTabbedColumnOverlays() {
+    func updateTabbedColumnOverlays(forceOrdering: Bool = false) {
         guard let controller else { return }
         guard let engine = controller.niriEngine else {
             controller.tabbedOverlayManager.removeAll()
@@ -864,33 +865,110 @@ enum NiriWindowMoveResult {
             guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
             else { continue }
 
-            for column in engine.columns(in: workspace.id) where column.isTabbed {
-                guard let frame = column.renderedFrame ?? column.frame else { continue }
-                guard TabbedColumnOverlayManager.shouldShowOverlay(
-                    columnFrame: frame,
-                    visibleFrame: monitor.visibleFrame
-                ) else { continue }
-
-                let windows = column.windowNodes
-                guard !windows.isEmpty else { continue }
-
-                guard let activeWindow = column.activeWindow else { continue }
-                let activeWindowId = controller.workspaceManager.entry(for: activeWindow.handle)?.windowId
-
-                infos.append(
-                    TabbedColumnOverlayInfo(
-                        workspaceId: workspace.id,
-                        columnId: column.id,
-                        columnFrame: frame,
-                        tabCount: windows.count,
-                        activeVisualIndex: column.activeVisualTileIdx,
-                        activeWindowId: activeWindowId
-                    )
-                )
-            }
+            infos.append(contentsOf: tabbedColumnOverlayInfos(engine: engine, workspaceId: workspace.id, monitor: monitor))
         }
 
-        controller.tabbedOverlayManager.updateOverlays(infos)
+        controller.tabbedOverlayManager.updateOverlays(infos, forceOrdering: forceOrdering)
+    }
+
+    func updateTabbedColumnOverlays(
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        forceOrdering: Bool = false
+    ) {
+        guard let controller, let engine = controller.niriEngine else { return }
+        let infos = tabbedColumnOverlayInfos(engine: engine, workspaceId: workspaceId, monitor: monitor)
+        controller.tabbedOverlayManager.updateOverlays(infos, in: workspaceId, forceOrdering: forceOrdering)
+    }
+
+    func tabbedColumnOverlayInfosForTests(
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor
+    ) -> [TabbedColumnOverlayInfo] {
+        guard let controller, let engine = controller.niriEngine else { return [] }
+        return tabbedColumnOverlayInfos(engine: engine, workspaceId: workspaceId, monitor: monitor)
+    }
+
+    private func tabbedColumnOverlayInfos(
+        engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor
+    ) -> [TabbedColumnOverlayInfo] {
+        guard let controller else { return [] }
+        var infos: [TabbedColumnOverlayInfo] = []
+        for column in engine.columns(in: workspaceId) where column.isTabbed {
+            guard let frame = column.renderedFrame ?? column.frame else { continue }
+            let visibleColumnFrame = frame.intersection(monitor.visibleFrame)
+            guard TabbedColumnOverlayManager.shouldShowOverlay(
+                columnFrame: frame,
+                visibleFrame: monitor.visibleFrame
+            ) else { continue }
+
+            let windows = column.windowNodes
+            guard !windows.isEmpty else { continue }
+
+            guard let activeWindow = column.activeWindow else { continue }
+            let activeWindowId = controller.workspaceManager.entry(for: activeWindow.handle)?.windowId
+            let activeVisualIndex = column.activeVisualTileIdx
+            let tabs = tabbedColumnTabs(
+                column: column,
+                windows: windows,
+                activeVisualIndex: activeVisualIndex,
+                controller: controller
+            )
+
+            infos.append(
+                TabbedColumnOverlayInfo(
+                    workspaceId: workspaceId,
+                    columnId: column.id,
+                    columnFrame: frame,
+                    visibleColumnFrame: visibleColumnFrame,
+                    tabCount: windows.count,
+                    activeVisualIndex: activeVisualIndex,
+                    activeWindowId: activeWindowId,
+                    tabs: tabs
+                )
+            )
+        }
+        return infos
+    }
+
+    private func tabbedColumnTabs(
+        column: NiriContainer,
+        windows: [NiriWindow],
+        activeVisualIndex: Int,
+        controller: WMController
+    ) -> [TabbedColumnOverlayTabInfo] {
+        guard !windows.isEmpty else { return [] }
+        let clampedActiveVisualIndex = min(max(0, activeVisualIndex), windows.count - 1)
+        var tabs: [TabbedColumnOverlayTabInfo] = []
+        tabs.reserveCapacity(windows.count)
+        for visualIndex in 0 ..< windows.count {
+            guard let storageIndex = column.storageTileIndex(forVisualTileIndex: visualIndex),
+                  windows.indices.contains(storageIndex)
+            else {
+                continue
+            }
+            let window = windows[storageIndex]
+            let entry = controller.workspaceManager.entry(for: window.handle)
+            let appName: String?
+            if let entry, controller.appInfoCache.hasCachedInfo(for: entry.pid) {
+                appName = controller.appInfoCache.name(for: entry.pid)
+            } else {
+                appName = nil
+            }
+            let title = entry?.managedReplacementMetadata?.title
+            tabs.append(
+                TabbedColumnOverlayTabInfo(
+                    visualIndex: visualIndex,
+                    windowId: entry?.windowId,
+                    appName: appName,
+                    title: title,
+                    isActive: visualIndex == clampedActiveVisualIndex
+                )
+            )
+        }
+        return tabs
     }
 
     func selectTabInNiri(workspaceId: WorkspaceDescriptor.ID, columnId: NodeId, visualIndex: Int) {
@@ -935,7 +1013,6 @@ enum NiriWindowMoveResult {
         if updatedState.viewOffsetPixels.isAnimating || engine.hasAnyWindowAnimationsRunning(in: workspaceId) {
             controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
-        updateTabbedColumnOverlays()
     }
 
     // MARK: - Layout Capability Commands

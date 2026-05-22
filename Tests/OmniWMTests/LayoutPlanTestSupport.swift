@@ -129,6 +129,7 @@ func makeLayoutPlanTestController(
         settings: settings,
         windowFocusOperations: operations
     )
+    controller.lockScreenObserver.frontmostApplicationProvider = { nil }
     installSynchronousFrameApplySuccessOverride(on: controller)
     controller.workspaceManager.applyMonitorConfigurationChange(monitors)
     return controller

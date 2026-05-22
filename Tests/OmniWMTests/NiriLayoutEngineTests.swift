@@ -3547,6 +3547,104 @@ private func makeCenteredCrossMonitorFixture(
         #expect(fixture.bottomWindow.isHiddenInTabbedMode)
     }
 
+    @Test @MainActor func selectTabInNiriDefersOverlayRefreshUntilPostLayoutRepair() async {
+        let fixture = await makeSingleColumnFocusFixture(displayMode: .tabbed)
+        let manager = fixture.controller.tabbedOverlayManager
+        defer {
+            fixture.controller.layoutRefreshController.stopAllScrollAnimations()
+            manager.removeAll()
+        }
+        manager.disablesWindowUpdatesForTests = true
+
+        var overlayForceOrderingValues: [Bool] = []
+        manager.updateHookForTests = { _, forceOrdering in
+            overlayForceOrderingValues.append(forceOrdering)
+        }
+
+        fixture.controller.niriLayoutHandler.selectTabInNiri(
+            workspaceId: fixture.workspaceId,
+            columnId: fixture.column.id,
+            visualIndex: 0
+        )
+
+        #expect(overlayForceOrderingValues.isEmpty)
+
+        await waitForLayoutPlanRefreshWork(on: fixture.controller)
+
+        #expect(overlayForceOrderingValues.contains(true))
+    }
+
+    @Test @MainActor func tabbedColumnOverlayProjectionUsesRenderedColumnFrameClippedToVisibleFrame() async {
+        let fixture = await makeSingleColumnFocusFixture(displayMode: .tabbed)
+
+        let canonicalFrame = CGRect(x: 80, y: 10, width: 500, height: 700)
+        let renderedFrame = CGRect(x: 240, y: -40, width: 500, height: 700)
+        fixture.column.frame = canonicalFrame
+        fixture.column.renderedFrame = renderedFrame
+        fixture.controller.appInfoCache.storeInfoForTests(
+            pid: getpid(),
+            name: "OmniWM Tests",
+            bundleId: "com.example.omniwm-tests"
+        )
+        for (token, title) in [
+            (fixture.bottomToken, "Bottom"),
+            (fixture.middleToken, "Middle"),
+            (fixture.topToken, "Top")
+        ] {
+            _ = fixture.controller.workspaceManager.setManagedReplacementMetadata(
+                ManagedReplacementMetadata(
+                    bundleId: "com.example.omniwm-tests",
+                    workspaceId: fixture.workspaceId,
+                    mode: .tiling,
+                    role: nil,
+                    subrole: nil,
+                    title: title,
+                    windowLevel: nil,
+                    parentWindowId: nil,
+                    frame: nil
+                ),
+                for: token
+            )
+        }
+
+        let infos = fixture.controller.niriLayoutHandler.tabbedColumnOverlayInfosForTests(
+            workspaceId: fixture.workspaceId,
+            monitor: fixture.monitor
+        )
+
+        #expect(infos.count == 1)
+        #expect(infos.first?.columnFrame == renderedFrame)
+        #expect(infos.first?.visibleColumnFrame == renderedFrame.intersection(fixture.monitor.visibleFrame))
+        #expect(infos.first?.tabCount == 3)
+        #expect(infos.first?.activeVisualIndex == fixture.column.activeVisualTileIdx)
+        #expect(infos.first?.tabs.map(\.windowId) == [903, 902, 901])
+        #expect(infos.first?.tabs.map(\.appName) == ["OmniWM Tests", "OmniWM Tests", "OmniWM Tests"])
+        #expect(infos.first?.tabs.map(\.title) == ["Top", "Middle", "Bottom"])
+        #expect(infos.first?.tabs.map(\.isActive) == [false, true, false])
+    }
+
+    @Test @MainActor func tabbedColumnOverlayRefreshesDuringNiriAnimationTick() async {
+        let fixture = await makeSingleColumnFocusFixture(displayMode: .tabbed)
+        fixture.controller.tabbedOverlayManager.disablesWindowUpdatesForTests = true
+
+        _ = fixture.controller.niriLayoutHandler.registerScrollAnimation(
+            fixture.workspaceId,
+            on: fixture.monitor.displayId
+        )
+
+        fixture.controller.niriLayoutHandler.tickScrollAnimation(
+            targetTime: CACurrentMediaTime(),
+            displayId: fixture.monitor.displayId
+        )
+
+        let manager = fixture.controller.tabbedOverlayManager
+        #expect(manager.lastScopedWorkspaceIdForTests == fixture.workspaceId)
+        #expect(manager.lastForceOrderingForTests == false)
+        #expect(manager.lastUpdateInfosForTests.count == 1)
+        #expect(manager.lastUpdateInfosForTests.first?.workspaceId == fixture.workspaceId)
+        #expect(manager.lastUpdateInfosForTests.first?.columnId == fixture.column.id)
+    }
+
     @Test func cleanupRemovedMonitorKeepsWorkspaceRootAuthoritativeForReattach() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
         let oldMonitor = makeTestMonitor(displayId: 100, name: "Old", x: 0)

@@ -732,6 +732,80 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         #expect(controller.workspaceBarRefreshDebugState.executionCount == 1)
     }
 
+    @Test @MainActor func tabbedOverlayRefreshRunsAfterPostLayoutActions() async {
+        let controller = makeRefreshTestController()
+        defer {
+            controller.tabbedOverlayManager.removeAll()
+            cleanupRefreshTestController(controller)
+        }
+
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Expected active workspace")
+            return
+        }
+
+        _ = await prepareNiriState(
+            on: controller,
+            assignments: [(workspaceId: workspaceId, windowId: 711)],
+            focusedWindowId: 711
+        )
+
+        var eventOrder: [String] = []
+        controller.tabbedOverlayManager.disablesWindowUpdatesForTests = true
+        controller.tabbedOverlayManager.updateHookForTests = { _, forceOrdering in
+            eventOrder.append(forceOrdering ? "tabbedOverlayForced" : "tabbedOverlay")
+        }
+
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            reason: .workspaceTransition
+        ) {
+            eventOrder.append("postLayout")
+        }
+
+        await waitForRefreshWork(on: controller)
+
+        #expect(eventOrder == ["postLayout", "tabbedOverlayForced"])
+    }
+
+    @Test @MainActor func tabbedOverlayAnimationDirectiveForcesOrdering() async {
+        let controller = makeRefreshTestController()
+        defer {
+            controller.tabbedOverlayManager.removeAll()
+            cleanupRefreshTestController(controller)
+        }
+
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.activeWorkspace()?.id
+        else {
+            Issue.record("Expected active workspace")
+            return
+        }
+
+        _ = await prepareNiriState(
+            on: controller,
+            assignments: [(workspaceId: workspaceId, windowId: 713)],
+            focusedWindowId: 713
+        )
+
+        var forceOrderingValues: [Bool] = []
+        controller.tabbedOverlayManager.disablesWindowUpdatesForTests = true
+        controller.tabbedOverlayManager.updateHookForTests = { _, forceOrdering in
+            forceOrderingValues.append(forceOrdering)
+        }
+
+        let plan = WorkspaceLayoutPlan(
+            workspaceId: workspaceId,
+            monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
+            sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
+            diff: WorkspaceLayoutDiff(),
+            animationDirectives: [.updateTabbedOverlays]
+        )
+
+        controller.layoutRefreshController.executeLayoutPlan(plan)
+
+        #expect(forceOrderingValues == [true])
+    }
+
     @Test @MainActor func queuedWorkspaceBarRefreshIsCanceledDuringUICleanup() async {
         let controller = makeRefreshTestController()
         defer { cleanupRefreshTestController(controller) }

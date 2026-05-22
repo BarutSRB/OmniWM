@@ -7,6 +7,7 @@ enum SurfaceKind: String, Equatable {
     case overview
     case nativeFullscreenPlaceholder
     case resizePlaceholder
+    case tabbedColumnOverlay
     case utility
     case quake
 }
