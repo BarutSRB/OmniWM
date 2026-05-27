@@ -18,7 +18,6 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var clipboard: Clipboard
     var quakeTerminal: QuakeTerminal
     var appearance: Appearance
-    var state: State
     var hotkeys: [HotkeyBinding]
     var workspaces: [WorkspaceConfiguration]
     var appRules: [AppRule]
@@ -186,10 +185,6 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     struct Appearance: Codable, Equatable {
         var mode: String
     }
-
-    struct State: Codable, Equatable {
-        var commandPaletteLastMode: String
-    }
 }
 
 private extension Decoder {
@@ -260,7 +255,6 @@ extension CanonicalTOMLConfig {
             recovering: recovering
         )
         appearance = try container.decode(Appearance.self, forKey: .appearance, default: defaults.appearance, recovering: recovering)
-        state = try container.decode(State.self, forKey: .state, default: defaults.state, recovering: recovering)
         hotkeys = try container.decode([HotkeyBinding].self, forKey: .hotkeys, default: defaults.hotkeys, recovering: recovering)
         workspaces = try container.decode(
             [WorkspaceConfiguration].self,
@@ -609,21 +603,6 @@ extension CanonicalTOMLConfig.Appearance {
     }
 }
 
-extension CanonicalTOMLConfig.State {
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let recovering = decoder.recoversMissingSettingsTOMLKeys
-        let defaults = CanonicalTOMLConfig.recoveryDefaults().state
-
-        commandPaletteLastMode = try container.decode(
-            String.self,
-            forKey: .commandPaletteLastMode,
-            default: defaults.commandPaletteLastMode,
-            recovering: recovering
-        )
-    }
-}
-
 extension CanonicalTOMLConfig {
     init(export: SettingsExport) {
         general = General(
@@ -737,7 +716,6 @@ extension CanonicalTOMLConfig {
             customFrame: customFrame
         )
         appearance = Appearance(mode: export.appearanceMode)
-        state = State(commandPaletteLastMode: export.commandPaletteLastMode)
         hotkeys = export.hotkeyBindings
         workspaces = export.workspaceConfigurations
         appRules = export.appRules
@@ -823,7 +801,6 @@ extension CanonicalTOMLConfig {
             statusBarShowWorkspaceName: statusBar.showWorkspaceName,
             statusBarShowAppNames: statusBar.showAppNames,
             statusBarUseWorkspaceId: statusBar.useWorkspaceId,
-            commandPaletteLastMode: state.commandPaletteLastMode,
             animationsEnabled: general.animationsEnabled,
             clipboardHistoryEnabled: clipboard.historyEnabled,
             clipboardMaxItems: clipboard.maxItems,

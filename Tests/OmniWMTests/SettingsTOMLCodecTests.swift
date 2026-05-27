@@ -234,7 +234,7 @@ private extension String {
         #expect(output.contains("[clipboard]"))
         #expect(output.contains("[quakeTerminal]"))
         #expect(output.contains("[appearance]"))
-        #expect(output.contains("[state]"))
+        #expect(output.contains("[state]") == false)
         #expect(output.contains("[[hotkeys]]"))
         #expect(output.contains("[[workspaces]]"))
         #expect(output.contains("[[appRules]]"))
@@ -505,9 +505,8 @@ private extension String {
         #expect(decoded.niriDefaultColumnWidth == nil)
     }
 
-    @Test func roundTripsClipboardSettingsAndLastMode() throws {
+    @Test func roundTripsClipboardSettings() throws {
         var export = SettingsExport.defaults()
-        export.commandPaletteLastMode = CommandPaletteMode.clipboard.rawValue
         export.clipboardHistoryEnabled = true
         export.clipboardMaxItems = 42
         export.clipboardMaxItemBytes = 16_384
@@ -516,10 +515,9 @@ private extension String {
         let data = try SettingsTOMLCodec.encode(export)
         let output = try #require(String(data: data, encoding: .utf8))
         #expect(output.contains("[clipboard]"))
-        #expect(output.contains("commandPaletteLastMode = \"clipboard\""))
+        #expect(output.contains("commandPaletteLastMode") == false)
 
         let decoded = try SettingsTOMLCodec.decode(data)
-        #expect(decoded.commandPaletteLastMode == CommandPaletteMode.clipboard.rawValue)
         #expect(decoded.clipboardHistoryEnabled == true)
         #expect(decoded.clipboardMaxItems == 42)
         #expect(decoded.clipboardMaxItemBytes == 16_384)
@@ -537,6 +535,7 @@ private extension String {
         let data = try SettingsTOMLCodec.encode(SettingsExport.defaults())
         let actual = try #require(String(data: data, encoding: .utf8))
         #expect(!actual.contains("hiddenBarIsCollapsed"))
+        #expect(!actual.contains("commandPaletteLastMode"))
 
         if expected != actual {
             let diffURL = FileManager.default.temporaryDirectory

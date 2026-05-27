@@ -116,7 +116,6 @@ struct SettingsExport: Equatable {
     var statusBarShowWorkspaceName: Bool
     var statusBarShowAppNames: Bool
     var statusBarUseWorkspaceId: Bool
-    var commandPaletteLastMode: String
     var animationsEnabled: Bool
 
     var clipboardHistoryEnabled: Bool
@@ -216,7 +215,6 @@ extension SettingsExport {
             statusBarShowWorkspaceName: false,
             statusBarShowAppNames: false,
             statusBarUseWorkspaceId: false,
-            commandPaletteLastMode: CommandPaletteMode.windows.rawValue,
             animationsEnabled: true,
             clipboardHistoryEnabled: false,
             clipboardMaxItems: 200,

@@ -89,9 +89,6 @@ position = "center"
 useCustomFrame = false
 widthPercent = 50.0
 
-[state]
-commandPaletteLastMode = "windows"
-
 [statusBar]
 showAppNames = false
 showWorkspaceName = false

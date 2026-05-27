@@ -333,10 +333,8 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
-    var commandPaletteLastMode = CommandPaletteMode(
-        rawValue: SettingsStore.defaultExport.commandPaletteLastMode
-    ) ?? .windows {
-        didSet { scheduleSave() }
+    var commandPaletteLastMode = RuntimeStateStore.defaultCommandPaletteLastMode {
+        didSet { runtimeState.commandPaletteLastMode = commandPaletteLastMode }
     }
 
     var animationsEnabled = SettingsStore.defaultExport.animationsEnabled {
@@ -488,6 +486,7 @@ final class SettingsStore {
         self.runtimeState = runtimeState
         self.autosaveEnabled = autosaveEnabled
         runtimeState.importWindowRestoreCatalogIfMissing(fromLegacyDirectory: persistence.directoryURL)
+        commandPaletteLastMode = runtimeState.commandPaletteLastMode
         hiddenBarIsCollapsed = runtimeState.hiddenBarIsCollapsed
 
         applyExport(
@@ -590,7 +589,6 @@ final class SettingsStore {
             statusBarShowWorkspaceName: statusBarShowWorkspaceName,
             statusBarShowAppNames: statusBarShowAppNames,
             statusBarUseWorkspaceId: statusBarUseWorkspaceId,
-            commandPaletteLastMode: commandPaletteLastMode.rawValue,
             animationsEnabled: animationsEnabled,
             clipboardHistoryEnabled: clipboardHistoryEnabled,
             clipboardMaxItems: clipboardMaxItems,
@@ -707,7 +705,6 @@ final class SettingsStore {
         statusBarShowWorkspaceName = export.statusBarShowWorkspaceName
         statusBarShowAppNames = export.statusBarShowAppNames
         statusBarUseWorkspaceId = export.statusBarUseWorkspaceId
-        commandPaletteLastMode = CommandPaletteMode(rawValue: export.commandPaletteLastMode) ?? .windows
         animationsEnabled = export.animationsEnabled
         clipboardHistoryEnabled = export.clipboardHistoryEnabled
         clipboardMaxItems = export.clipboardMaxItems

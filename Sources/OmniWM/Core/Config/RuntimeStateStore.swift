@@ -6,6 +6,7 @@ struct RuntimeState: Codable, Equatable {
     var windowRestoreCatalog: PersistedWindowRestoreCatalog?
     var updaterLastCheckedAt: Date?
     var updaterSkippedReleaseTag: String?
+    var commandPaletteLastMode: String?
     var hiddenBarIsCollapsed: Bool?
 }
 
@@ -13,6 +14,7 @@ struct RuntimeState: Codable, Equatable {
 final class RuntimeStateStore {
     nonisolated static let defaultDirectoryURL = OmniWMStoragePaths.live.stateDirectory
     nonisolated static let fileName = "runtime-state.json"
+    nonisolated static let defaultCommandPaletteLastMode = CommandPaletteMode.windows
     nonisolated static let defaultHiddenBarIsCollapsed = true
     nonisolated static var fileURL: URL {
         defaultDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
@@ -128,6 +130,17 @@ final class RuntimeStateStore {
         set {
             guard state.updaterSkippedReleaseTag != newValue else { return }
             state.updaterSkippedReleaseTag = newValue
+            scheduleSave()
+        }
+    }
+
+    var commandPaletteLastMode: CommandPaletteMode {
+        get {
+            state.commandPaletteLastMode.flatMap(CommandPaletteMode.init(rawValue:)) ?? Self.defaultCommandPaletteLastMode
+        }
+        set {
+            guard commandPaletteLastMode != newValue else { return }
+            state.commandPaletteLastMode = newValue.rawValue
             scheduleSave()
         }
     }

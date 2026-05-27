@@ -797,13 +797,20 @@ struct HotkeySurfaceTests {
 }
 
 @MainActor struct CommandPaletteSettingsTests {
-    @Test func commandPaletteLastModeDefaultsToWindowsAndPersistsClipboard() {
+    @Test func commandPaletteLastModePersistsThroughRuntimeStateWithoutRewritingSettingsFile() throws {
         let defaults = makeTestDefaults()
 
         let settings = SettingsStore(defaults: defaults)
-        #expect(settings.commandPaletteLastMode == .windows)
+        let beforeSettings = try settingsFileSnapshot(settings.settingsFileURL)
+        #expect(settings.commandPaletteLastMode == RuntimeStateStore.defaultCommandPaletteLastMode)
 
         settings.commandPaletteLastMode = .clipboard
+        settings.flushNow()
+
+        let afterSettings = try settingsFileSnapshot(settings.settingsFileURL)
+        let runtimeState = RuntimeStateStore(directory: runtimeStateDirectoryForTests(defaults: defaults))
+        #expect(afterSettings == beforeSettings)
+        #expect(runtimeState.commandPaletteLastMode == .clipboard)
 
         let reloaded = SettingsStore(defaults: defaults)
         #expect(reloaded.commandPaletteLastMode == .clipboard)
@@ -830,7 +837,6 @@ struct HotkeySurfaceTests {
         settings.statusBarShowWorkspaceName = true
         settings.statusBarShowAppNames = true
         settings.statusBarUseWorkspaceId = true
-        settings.commandPaletteLastMode = .clipboard
         settings.clipboardHistoryEnabled = true
         settings.clipboardMaxItems = 33
         settings.clipboardMaxItemBytes = 4096
@@ -856,7 +862,6 @@ struct HotkeySurfaceTests {
         #expect(reloaded.statusBarShowWorkspaceName == true)
         #expect(reloaded.statusBarShowAppNames == true)
         #expect(reloaded.statusBarUseWorkspaceId == true)
-        #expect(reloaded.commandPaletteLastMode == .clipboard)
         #expect(reloaded.clipboardHistoryEnabled == true)
         #expect(reloaded.clipboardMaxItems == 33)
         #expect(reloaded.clipboardMaxItemBytes == 4096)
@@ -1143,7 +1148,7 @@ struct HotkeySurfaceTests {
         #expect(settings.statusBarShowWorkspaceName == exportDefaults.statusBarShowWorkspaceName)
         #expect(settings.statusBarShowAppNames == exportDefaults.statusBarShowAppNames)
         #expect(settings.statusBarUseWorkspaceId == exportDefaults.statusBarUseWorkspaceId)
-        #expect(settings.commandPaletteLastMode.rawValue == exportDefaults.commandPaletteLastMode)
+        #expect(settings.commandPaletteLastMode == RuntimeStateStore.defaultCommandPaletteLastMode)
         #expect(settings.clipboardHistoryEnabled == exportDefaults.clipboardHistoryEnabled)
         #expect(settings.clipboardMaxItems == exportDefaults.clipboardMaxItems)
         #expect(settings.clipboardMaxItemBytes == exportDefaults.clipboardMaxItemBytes)
@@ -1417,6 +1422,20 @@ struct SettingsSectionTests {
         #expect(reloaded.hiddenBarIsCollapsed == false)
     }
 
+    @Test func commandPaletteLastModeRoundTripsThroughRuntimeStateStore() {
+        let defaults = makeTestDefaults()
+        let directory = configurationDirectoryForTests(defaults: defaults)
+        let store = RuntimeStateStore(directory: directory)
+
+        #expect(store.commandPaletteLastMode == RuntimeStateStore.defaultCommandPaletteLastMode)
+
+        store.commandPaletteLastMode = .clipboard
+        store.flushNow()
+
+        let reloaded = RuntimeStateStore(directory: directory)
+        #expect(reloaded.commandPaletteLastMode == .clipboard)
+    }
+
     @Test func missingHiddenBarRuntimeKeyPreservesExistingRuntimeState() throws {
         let defaults = makeTestDefaults()
         let directory = configurationDirectoryForTests(defaults: defaults)
@@ -1575,18 +1594,18 @@ struct SettingsSectionTests {
         #expect(reloaded.hiddenBarIsCollapsed == false)
     }
 
-    @Test func legacyHiddenBarTOMLKeyDoesNotOverrideRuntimeState() throws {
+    @Test func legacyStateTOMLKeysDoNotOverrideRuntimeState() throws {
         let defaults = makeTestDefaults()
         let configurationDirectory = configurationDirectoryForTests(defaults: defaults)
         let runtimeStateDirectory = runtimeStateDirectoryForTests(defaults: defaults)
         var export = SettingsExport.defaults()
-        export.commandPaletteLastMode = CommandPaletteMode.clipboard.rawValue
+        export.focusFollowsWindowToMonitor = true
+        let runtimeState = RuntimeStateStore(directory: runtimeStateDirectory, deferSaves: false)
+        runtimeState.commandPaletteLastMode = .menu
         var toml = try #require(String(data: SettingsTOMLCodec.encode(export), encoding: .utf8))
-        toml = toml.replacingOccurrences(
-            of: "commandPaletteLastMode = \"clipboard\"",
-            with: "commandPaletteLastMode = \"clipboard\"\nhiddenBarIsCollapsed = false"
-        )
+        toml += "\n[state]\ncommandPaletteLastMode = \"clipboard\"\nhiddenBarIsCollapsed = false\n"
         try #require(toml.contains("hiddenBarIsCollapsed = false"))
+        try #require(toml.contains("commandPaletteLastMode = \"clipboard\""))
         let settingsURL = configurationDirectory.appendingPathComponent("settings.toml", isDirectory: false)
         try FileManager.default.createDirectory(at: configurationDirectory, withIntermediateDirectories: true)
         try Data(toml.utf8).write(to: settingsURL)
@@ -1596,11 +1615,12 @@ struct SettingsSectionTests {
             runtimeState: RuntimeStateStore(directory: runtimeStateDirectory, deferSaves: false)
         )
 
-        #expect(settings.commandPaletteLastMode == .clipboard)
+        #expect(settings.focusFollowsWindowToMonitor)
+        #expect(settings.commandPaletteLastMode == .menu)
         #expect(settings.hiddenBarIsCollapsed == RuntimeStateStore.defaultHiddenBarIsCollapsed)
     }
 
-    @Test func externalSettingsReloadDoesNotChangeHiddenBarRuntimeState() async throws {
+    @Test func externalSettingsReloadDoesNotChangeRuntimeBackedUIState() async throws {
         let defaults = makeTestDefaults()
         let configurationDirectory = configurationDirectoryForTests(defaults: defaults)
         let runtimeStateDirectory = runtimeStateDirectoryForTests(defaults: defaults)
@@ -1608,6 +1628,7 @@ struct SettingsSectionTests {
             persistence: SettingsFilePersistence(directory: configurationDirectory),
             runtimeState: RuntimeStateStore(directory: runtimeStateDirectory)
         )
+        settings.commandPaletteLastMode = .clipboard
         settings.hiddenBarIsCollapsed = false
         settings.flushNow()
 
@@ -1622,6 +1643,7 @@ struct SettingsSectionTests {
         }
 
         #expect(reloaded)
+        #expect(settings.commandPaletteLastMode == .clipboard)
         #expect(settings.hiddenBarIsCollapsed == false)
     }
 }
