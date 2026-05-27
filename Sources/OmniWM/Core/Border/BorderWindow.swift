@@ -15,6 +15,7 @@ final class BorderWindow {
         var transactionMoveAndOrder: @MainActor (UInt32, CGPoint, Int32, UInt32, SkyLightWindowOrder) -> Void
         var transactionHide: @MainActor (UInt32) -> Void
         var backingScaleForFrame: @MainActor (CGRect) -> CGFloat
+        var cornerRadiusForWindow: @MainActor (UInt32) -> CGFloat?
 
         static let live = Self(
             createBorderWindow: { SkyLight.shared.createBorderWindow(frame: $0) },
@@ -34,6 +35,9 @@ final class BorderWindow {
                     $0.frame.contains(targetFrame.center)
                 }) ?? NSScreen.main ?? NSScreen.screens.first
                 return targetScreen?.backingScaleFactor ?? 2.0
+            },
+            cornerRadiusForWindow: { wid in
+                SkyLight.shared.cornerRadius(forWindowId: Int(wid))
             }
         )
     }
@@ -53,8 +57,9 @@ final class BorderWindow {
     private var lastConfiguredScale: CGFloat = 0
 
     private let padding: CGFloat = 8.0
-    private let cornerRadius: CGFloat = 9.0
+    private let defaultCornerRadius: CGFloat = 10.0
     private let orderingLevel: Int32 = 3
+    private var resolvedCornerRadius: CGFloat = 10.0
 
     init(config: BorderConfig, operations: Operations = .live) {
         self.config = config
@@ -80,6 +85,13 @@ final class BorderWindow {
     ) -> Bool {
         let borderWidth = config.width
         let scale = operations.backingScaleForFrame(targetFrame)
+
+        let queriedRadius = operations.cornerRadiusForWindow(targetWid)
+        let newCornerRadius = queriedRadius ?? defaultCornerRadius
+        if newCornerRadius != resolvedCornerRadius {
+            resolvedCornerRadius = newCornerRadius
+            needsRedraw = true
+        }
 
         let borderOffset = -borderWidth - padding
         var frame = targetFrame.insetBy(dx: borderOffset, dy: borderOffset)
@@ -152,7 +164,7 @@ final class BorderWindow {
         needsRedraw = false
 
         let borderWidth = config.width
-        let outerRadius = cornerRadius + borderWidth
+        let outerRadius = resolvedCornerRadius + borderWidth
 
         context.saveGState()
         context.clear(frame)
@@ -160,8 +172,8 @@ final class BorderWindow {
         let innerRect = drawingBounds.insetBy(dx: borderWidth, dy: borderWidth)
         let innerPath = CGPath(
             roundedRect: innerRect,
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
+            cornerWidth: resolvedCornerRadius,
+            cornerHeight: resolvedCornerRadius,
             transform: nil
         )
 

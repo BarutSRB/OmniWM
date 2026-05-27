@@ -34,7 +34,8 @@ private func makeBorderTestContext() -> CGContext? {
             transactionMove: { _, origin in moveOnlyOrigins.append(origin) },
             transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
             transactionHide: { _ in },
-            backingScaleForFrame: { _ in 2.0 }
+            backingScaleForFrame: { _ in 2.0 },
+            cornerRadiusForWindow: { _ in nil }
         )
         let borderWindow = BorderWindow(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
@@ -84,7 +85,8 @@ private func makeBorderTestContext() -> CGContext? {
             transactionMove: { _, _ in moveOnlyCount += 1 },
             transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
             transactionHide: { _ in },
-            backingScaleForFrame: { _ in 2.0 }
+            backingScaleForFrame: { _ in 2.0 },
+            cornerRadiusForWindow: { _ in nil }
         )
         let borderWindow = BorderWindow(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
@@ -121,7 +123,8 @@ private func makeBorderTestContext() -> CGContext? {
             backingScaleForFrame: { _ in
                 backingScaleLookups += 1
                 return 2.0
-            }
+            },
+            cornerRadiusForWindow: { _ in nil }
         )
         let manager = BorderManager(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
@@ -160,7 +163,8 @@ private func makeBorderTestContext() -> CGContext? {
             backingScaleForFrame: { _ in
                 backingScaleLookups += 1
                 return 2.0
-            }
+            },
+            cornerRadiusForWindow: { _ in nil }
         )
         let manager = BorderManager(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
@@ -204,7 +208,8 @@ private func makeBorderTestContext() -> CGContext? {
             backingScaleForFrame: { _ in
                 backingScaleLookups += 1
                 return 2.0
-            }
+            },
+            cornerRadiusForWindow: { _ in nil }
         )
         let manager = BorderManager(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
@@ -250,7 +255,8 @@ private func makeBorderTestContext() -> CGContext? {
             transactionMove: { _, _ in moveOnlyCount += 1 },
             transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
             transactionHide: { _ in hideCount += 1 },
-            backingScaleForFrame: { _ in 2.0 }
+            backingScaleForFrame: { _ in 2.0 },
+            cornerRadiusForWindow: { _ in nil }
         )
         let borderWindow = BorderWindow(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
@@ -287,7 +293,8 @@ private func makeBorderTestContext() -> CGContext? {
             transactionHide: { _ in },
             backingScaleForFrame: { frame in
                 frame.midX < 1_000 ? 1.0 : 2.0
-            }
+            },
+            cornerRadiusForWindow: { _ in nil }
         )
         let borderWindow = BorderWindow(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
