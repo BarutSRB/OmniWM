@@ -51,9 +51,10 @@ final class BorderWindow {
     private var isVisible = false
     private var lastOrderedTargetWid: UInt32 = 0
     private var lastConfiguredScale: CGFloat = 0
+    private var currentCornerRadius: CGFloat = 9.0
 
     private let padding: CGFloat = 8.0
-    private let cornerRadius: CGFloat = 9.0
+    private let defaultCornerRadius: CGFloat = 9.0
     private let orderingLevel: Int32 = 3
 
     init(config: BorderConfig, operations: Operations = .live) {
@@ -70,16 +71,19 @@ final class BorderWindow {
         isVisible = false
         lastOrderedTargetWid = 0
         currentTargetWid = 0
+        currentCornerRadius = defaultCornerRadius
     }
 
     @discardableResult
     func update(
         frame targetFrame: CGRect,
         targetWid: UInt32,
+        cornerRadius: CGFloat = 9.0,
         forceOrdering: Bool = false
     ) -> Bool {
         let borderWidth = config.width
         let scale = operations.backingScaleForFrame(targetFrame)
+        let resolvedCornerRadius = max(cornerRadius, 0)
 
         let borderOffset = -borderWidth - padding
         var frame = targetFrame.insetBy(dx: borderOffset, dy: borderOffset)
@@ -114,9 +118,13 @@ final class BorderWindow {
             reshapeWindow(frame: frame)
             needsRedraw = true
         }
+        if currentCornerRadius != resolvedCornerRadius {
+            needsRedraw = true
+        }
         currentTargetFrame = targetFrame
         currentTargetWid = targetWid
         currentFrame = frame
+        currentCornerRadius = resolvedCornerRadius
 
         if needsRedraw {
             draw(frame: frame, drawingBounds: drawingBounds)
@@ -152,6 +160,7 @@ final class BorderWindow {
         needsRedraw = false
 
         let borderWidth = config.width
+        let cornerRadius = currentCornerRadius
         let outerRadius = cornerRadius + borderWidth
 
         context.saveGState()
@@ -220,7 +229,11 @@ final class BorderWindow {
         if needsRedrawForColor || needsRedrawForWidth {
             if wid != 0, isVisible, currentTargetWid != 0 {
                 needsRedraw = true
-                update(frame: currentTargetFrame, targetWid: currentTargetWid)
+                update(
+                    frame: currentTargetFrame,
+                    targetWid: currentTargetWid,
+                    cornerRadius: currentCornerRadius
+                )
             }
         }
     }

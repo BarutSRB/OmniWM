@@ -7,16 +7,23 @@ final class BorderManager {
     private var config: BorderConfig
     private var lastAppliedFrame: CGRect?
     private var lastAppliedWindowId: Int?
+    private var lastAppliedCornerRadius: CGFloat?
+    private var cachedCornerRadiusWindowId: Int?
+    private var cachedCornerRadius: CGFloat?
     private let borderWindowOperations: BorderWindow.Operations
+    private let cornerRadiusProvider: @MainActor (Int) -> CGFloat?
     private let surfaceCoordinator = SurfaceCoordinator.shared
     private var registeredSurfaceWindowNumber: Int?
+    private let defaultCornerRadius: CGFloat = 9.0
 
     init(
         config: BorderConfig = BorderConfig(),
-        borderWindowOperations: BorderWindow.Operations = .live
+        borderWindowOperations: BorderWindow.Operations = .live,
+        cornerRadiusProvider: @escaping @MainActor (Int) -> CGFloat? = { SkyLight.shared.cornerRadius(forWindowId: $0) }
     ) {
         self.config = config
         self.borderWindowOperations = borderWindowOperations
+        self.cornerRadiusProvider = cornerRadiusProvider
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -55,37 +62,47 @@ final class BorderManager {
 
         guard let windowId else {
             borderWindow?.hide()
-            lastAppliedFrame = nil
-            lastAppliedWindowId = nil
+            clearBorderState()
             return false
         }
 
         let targetWid = UInt32(windowId)
+        let cornerRadius = resolvedCornerRadius(for: windowId)
         if let last = lastAppliedFrame,
            let lastWid = lastAppliedWindowId,
+           let lastRadius = lastAppliedCornerRadius,
            frame.approximatelyEqual(to: last, tolerance: 0.5)
         {
-            if forceOrdering || lastWid != windowId {
-                borderWindow?.reorder(relativeTo: targetWid)
-                lastAppliedWindowId = windowId
-                syncSurfaceRegistration()
+            if lastRadius == cornerRadius {
+                if forceOrdering || lastWid != windowId {
+                    borderWindow?.reorder(relativeTo: targetWid)
+                    lastAppliedWindowId = windowId
+                    lastAppliedCornerRadius = cornerRadius
+                    syncSurfaceRegistration()
+                }
+                return true
             }
-            return true
         }
 
-        guard borderWindow?.update(frame: frame, targetWid: targetWid, forceOrdering: forceOrdering) == true else {
+        guard borderWindow?.update(
+            frame: frame,
+            targetWid: targetWid,
+            cornerRadius: cornerRadius,
+            forceOrdering: forceOrdering
+        ) == true else {
+            clearCornerRadiusCache()
             return false
         }
         lastAppliedFrame = frame
         lastAppliedWindowId = windowId
+        lastAppliedCornerRadius = cornerRadius
         syncSurfaceRegistration()
         return true
     }
 
     func hideBorder() {
         borderWindow?.hide()
-        lastAppliedFrame = nil
-        lastAppliedWindowId = nil
+        clearBorderState()
         surfaceCoordinator.unregister(id: surfaceID)
         registeredSurfaceWindowNumber = nil
     }
@@ -103,6 +120,29 @@ final class BorderManager {
         borderWindow?.destroy()
         borderWindow = nil
         surfaceCoordinator.unregister(id: surfaceID)
+    }
+
+    private func resolvedCornerRadius(for windowId: Int) -> CGFloat {
+        if cachedCornerRadiusWindowId == windowId, let cachedCornerRadius {
+            return cachedCornerRadius
+        }
+
+        let cornerRadius = max(cornerRadiusProvider(windowId) ?? defaultCornerRadius, 0)
+        cachedCornerRadiusWindowId = windowId
+        cachedCornerRadius = cornerRadius
+        return cornerRadius
+    }
+
+    private func clearBorderState() {
+        lastAppliedFrame = nil
+        lastAppliedWindowId = nil
+        lastAppliedCornerRadius = nil
+        clearCornerRadiusCache()
+    }
+
+    private func clearCornerRadiusCache() {
+        cachedCornerRadiusWindowId = nil
+        cachedCornerRadius = nil
     }
 
     private func syncSurfaceRegistration() {

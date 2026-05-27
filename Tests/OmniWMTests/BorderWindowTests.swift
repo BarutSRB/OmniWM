@@ -101,6 +101,40 @@ private func makeBorderTestContext() -> CGContext? {
         #expect(orderedTargets == [101, 101])
     }
 
+    @Test @MainActor func radiusChangeRedrawsWithoutReshape() {
+        var reshapeFrames: [CGRect] = []
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 907 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, frame in reshapeFrames.append(frame) },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in 2.0 }
+        )
+        let borderWindow = BorderWindow(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            operations: operations
+        )
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        borderWindow.update(frame: frame, targetWid: 101, cornerRadius: 9)
+        borderWindow.update(frame: frame, targetWid: 101, cornerRadius: 12)
+
+        #expect(reshapeFrames.count == 1)
+        #expect(flushCount == 2)
+        #expect(moveOnlyCount == 1)
+        #expect(orderedTargets == [101])
+    }
+
     @Test @MainActor func forceOrderingBypassesManagerFrameDedupe() {
         var flushCount = 0
         var moveOnlyCount = 0
@@ -125,7 +159,8 @@ private func makeBorderTestContext() -> CGContext? {
         )
         let manager = BorderManager(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
-            borderWindowOperations: operations
+            borderWindowOperations: operations,
+            cornerRadiusProvider: { _ in nil }
         )
         defer { manager.cleanup() }
 
@@ -145,6 +180,7 @@ private func makeBorderTestContext() -> CGContext? {
         var moveOnlyCount = 0
         var orderedTargets: [UInt32] = []
         var backingScaleLookups = 0
+        var radiusQueries: [Int] = []
 
         let operations = BorderWindow.Operations(
             createBorderWindow: { _ in 905 },
@@ -164,7 +200,11 @@ private func makeBorderTestContext() -> CGContext? {
         )
         let manager = BorderManager(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
-            borderWindowOperations: operations
+            borderWindowOperations: operations,
+            cornerRadiusProvider: { windowId in
+                radiusQueries.append(windowId)
+                return windowId == 102 ? 9 : nil
+            }
         )
         defer { manager.cleanup() }
 
@@ -175,8 +215,150 @@ private func makeBorderTestContext() -> CGContext? {
         #expect(flushCount == 1)
         #expect(moveOnlyCount == 0)
         #expect(backingScaleLookups == 1)
+        #expect(radiusQueries == [101, 102])
         #expect(orderedTargets == [101, 102])
         #expect(manager.lastAppliedFocusedWindowIdForTests == 102)
+        #expect(manager.lastAppliedFocusedFrameForTests == frame)
+    }
+
+    @Test @MainActor func sameFrameDifferentTargetWithDifferentRadiusRedraws() {
+        var reshapeFrames: [CGRect] = []
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+        var backingScaleLookups = 0
+        var radiusQueries: [Int] = []
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 908 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, frame in reshapeFrames.append(frame) },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in
+                backingScaleLookups += 1
+                return 2.0
+            }
+        )
+        let manager = BorderManager(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            borderWindowOperations: operations,
+            cornerRadiusProvider: { windowId in
+                radiusQueries.append(windowId)
+                return windowId == 102 ? 13 : 9
+            }
+        )
+        defer { manager.cleanup() }
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+        manager.updateFocusedWindow(frame: frame, windowId: 102)
+
+        #expect(reshapeFrames.count == 1)
+        #expect(flushCount == 2)
+        #expect(moveOnlyCount == 0)
+        #expect(backingScaleLookups == 2)
+        #expect(radiusQueries == [101, 102])
+        #expect(orderedTargets == [101, 102])
+        #expect(manager.lastAppliedFocusedWindowIdForTests == 102)
+        #expect(manager.lastAppliedFocusedFrameForTests == frame)
+    }
+
+    @Test @MainActor func sameWindowMoveAndResizeReuseCachedRadius() {
+        var reshapeFrames: [CGRect] = []
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+        var backingScaleLookups = 0
+        var radiusQueries: [Int] = []
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 909 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, frame in reshapeFrames.append(frame) },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in
+                backingScaleLookups += 1
+                return 2.0
+            }
+        )
+        let manager = BorderManager(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            borderWindowOperations: operations,
+            cornerRadiusProvider: { windowId in
+                radiusQueries.append(windowId)
+                return 11
+            }
+        )
+        defer { manager.cleanup() }
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+        manager.updateFocusedWindow(frame: frame.offsetBy(dx: 20, dy: 10), windowId: 101)
+        manager.updateFocusedWindow(
+            frame: CGRect(x: 140, y: 100, width: 820, height: 600),
+            windowId: 101
+        )
+
+        #expect(reshapeFrames.count == 2)
+        #expect(flushCount == 2)
+        #expect(moveOnlyCount == 2)
+        #expect(backingScaleLookups == 3)
+        #expect(radiusQueries == [101])
+        #expect(orderedTargets == [101])
+        #expect(manager.lastAppliedFocusedWindowIdForTests == 101)
+    }
+
+    @Test @MainActor func nilFocusedWindowClearsCachedRadius() {
+        var flushCount = 0
+        var orderedTargets: [UInt32] = []
+        var hideCount = 0
+        var radiusQueries: [Int] = []
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in 910 },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, _ in },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in hideCount += 1 },
+            backingScaleForFrame: { _ in 2.0 }
+        )
+        let manager = BorderManager(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            borderWindowOperations: operations,
+            cornerRadiusProvider: { windowId in
+                radiusQueries.append(windowId)
+                return 12
+            }
+        )
+        defer { manager.cleanup() }
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+        manager.updateFocusedWindow(frame: frame, windowId: nil)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+
+        #expect(flushCount == 1)
+        #expect(hideCount == 1)
+        #expect(radiusQueries == [101, 101])
+        #expect(orderedTargets == [101, 101])
+        #expect(manager.lastAppliedFocusedWindowIdForTests == 101)
         #expect(manager.lastAppliedFocusedFrameForTests == frame)
     }
 
@@ -208,7 +390,8 @@ private func makeBorderTestContext() -> CGContext? {
         )
         let manager = BorderManager(
             config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
-            borderWindowOperations: operations
+            borderWindowOperations: operations,
+            cornerRadiusProvider: { _ in nil }
         )
         defer { manager.cleanup() }
 
