@@ -262,6 +262,8 @@ extension NiriLayoutEngine {
             hiddenPlacementMonitors: hiddenPlacementMonitors
         )
 
+        clampVisibleFramesToMonitorBounds(monitor.frame)
+
         return (framePool, hiddenPool)
     }
 
@@ -462,5 +464,16 @@ extension NiriLayoutEngine {
     func tilesOrigin(column: NiriContainer) -> CGPoint {
         let xOffset = column.isTabbed ? renderStyle.tabIndicatorWidth : 0
         return CGPoint(x: xOffset, y: 0)
+    }
+
+    private func clampVisibleFramesToMonitorBounds(_ monitorBounds: CGRect) {
+        for (token, frame) in framePool where hiddenPool[token] == nil {
+            let clamped = frame.intersection(monitorBounds)
+            if clamped.isNull {
+                framePool.removeValue(forKey: token)
+            } else if clamped != frame {
+                framePool[token] = clamped
+            }
+        }
     }
 }
