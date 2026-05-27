@@ -121,6 +121,19 @@ final class FocusBorderController {
         clear()
     }
 
+    @discardableResult
+    func clearCurrentTarget(
+        matching pid: pid_t,
+        where shouldClear: (KeyboardFocusTarget) -> Bool
+    ) -> KeyboardFocusTarget? {
+        guard let target = lastAXConfirmedTarget,
+              target.pid == pid,
+              shouldClear(target)
+        else { return nil }
+        clear()
+        return target
+    }
+
     func rekeyFocusedTarget(
         from oldToken: WindowToken,
         to newToken: WindowToken,

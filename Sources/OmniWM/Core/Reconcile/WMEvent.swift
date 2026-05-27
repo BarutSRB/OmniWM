@@ -104,6 +104,7 @@ enum WMEvent: Equatable {
         active: Bool,
         appFullscreen: Bool,
         preserveFocusedToken: Bool,
+        preservePendingManagedFocus: Bool,
         source: WMEventSource
     )
     case systemSleep(source: WMEventSource)
@@ -153,7 +154,7 @@ enum WMEvent: Equatable {
              let .managedFocusRequested(_, _, _, source),
              let .managedFocusConfirmed(_, _, _, _, source),
              let .managedFocusCancelled(_, _, source),
-             let .nonManagedFocusChanged(_, _, _, source),
+             let .nonManagedFocusChanged(_, _, _, _, source),
              let .systemSleep(source),
              let .systemWake(source):
             source
@@ -192,8 +193,8 @@ enum WMEvent: Equatable {
             "managed_focus_confirmed token=\(token) workspace=\(workspaceId.uuidString) monitor=\(String(describing: monitorId)) fullscreen=\(appFullscreen)"
         case let .managedFocusCancelled(token, workspaceId, _):
             "managed_focus_cancelled token=\(token.map(String.init(describing:)) ?? "nil") workspace=\(workspaceId?.uuidString ?? "nil")"
-        case let .nonManagedFocusChanged(active, appFullscreen, preserveFocusedToken, _):
-            "non_managed_focus_changed active=\(active) fullscreen=\(appFullscreen) preserve=\(preserveFocusedToken)"
+        case let .nonManagedFocusChanged(active, appFullscreen, preserveFocusedToken, preservePendingManagedFocus, _):
+            "non_managed_focus_changed active=\(active) fullscreen=\(appFullscreen) preserve=\(preserveFocusedToken) preserve_pending=\(preservePendingManagedFocus)"
         case .systemSleep:
             "system_sleep"
         case .systemWake:

@@ -183,12 +183,19 @@ enum StateReducer {
                 workspaceId: workspaceId
             )
 
-        case let .nonManagedFocusChanged(active, appFullscreen, preserveFocusedToken, _):
+        case let .nonManagedFocusChanged(
+            active,
+            appFullscreen,
+            preserveFocusedToken,
+            preservePendingManagedFocus,
+            _
+        ):
             plan.focusSession = nonManagedFocusChanged(
                 from: currentSnapshot.focusSession,
                 active: active,
                 appFullscreen: appFullscreen,
-                preserveFocusedToken: preserveFocusedToken
+                preserveFocusedToken: preserveFocusedToken,
+                preservePendingManagedFocus: preservePendingManagedFocus
             )
 
         case .systemSleep:
@@ -334,13 +341,16 @@ enum StateReducer {
         from focusSession: FocusSessionSnapshot,
         active: Bool,
         appFullscreen: Bool,
-        preserveFocusedToken: Bool
+        preserveFocusedToken: Bool,
+        preservePendingManagedFocus: Bool
     ) -> FocusSessionSnapshot {
         var focusSession = focusSession
         if active, !preserveFocusedToken {
             focusSession.focusedToken = nil
         }
-        focusSession.pendingManagedFocus = .empty
+        if !preservePendingManagedFocus {
+            focusSession.pendingManagedFocus = .empty
+        }
         focusSession.isNonManagedFocusActive = active
         focusSession.isAppFullscreenActive = appFullscreen
         return focusSession

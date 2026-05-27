@@ -320,6 +320,7 @@ final class AXEventHandler: CGSEventDelegate {
     var isFullscreenProvider: ((AXWindowRef) -> Bool)?
     var spaceDisplayResolver: ((UInt64, [Monitor]) -> CGDirectDisplayID?)?
     var managedReplacementTimeSourceForTests: (() -> TimeInterval)?
+    var axContextWarmupHandlerForTests: ((pid_t) -> Void)?
     private(set) var debugCounters = DebugCounters()
 
     init(
@@ -613,7 +614,9 @@ final class AXEventHandler: CGSEventDelegate {
             resolvedWindowToken: windowServerToken
         )
         let focusedObservedFrame = updateFocusedBorderForFrameChange(
-            resolvedToken: windowServerToken
+            windowId: windowId,
+            windowServerToken: windowServerToken,
+            resolvedToken: resolvedToken
         )
         guard let token = resolvedToken else { return }
         guard let entry = controller.workspaceManager.entry(for: token) else { return }
@@ -680,11 +683,26 @@ final class AXEventHandler: CGSEventDelegate {
         return false
     }
 
-    private func updateFocusedBorderForFrameChange(resolvedToken: WindowToken?) -> CGRect? {
+    private func updateFocusedBorderForFrameChange(
+        windowId: UInt32,
+        windowServerToken: WindowToken?,
+        resolvedToken: WindowToken?
+    ) -> CGRect? {
         guard let controller else { return nil }
-        guard let target = controller.currentKeyboardFocusTargetForRendering(),
-              resolvedToken == target.token
-        else { return nil }
+        guard let target = controller.currentKeyboardFocusTargetForRendering() else { return nil }
+
+        if let windowServerToken {
+            guard windowServerToken == target.token else { return nil }
+        } else if let entry = controller.workspaceManager.entry(for: target.token) {
+            guard resolvedToken == target.token,
+                  entry.mode == .floating
+            else { return nil }
+        } else {
+            guard !target.isManaged,
+                  target.windowId == Int(windowId),
+                  focusedWindowToken(for: target.pid) == target.token
+            else { return nil }
+        }
 
         if let entry = controller.workspaceManager.entry(for: target.token) {
             let pendingFrame = controller.axManager.pendingFrameWrite(for: entry.windowId)
@@ -909,6 +927,10 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func scheduleAXContextWarmup(for pid: pid_t) {
+        if let axContextWarmupHandlerForTests {
+            axContextWarmupHandlerForTests(pid)
+            return
+        }
         Task { @MainActor [weak self] in
             await self?.warmAXContextIfNeeded(for: pid)
         }
@@ -1317,6 +1339,7 @@ final class AXEventHandler: CGSEventDelegate {
         )
         _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: fallbackFullscreen)
         _ = controller.focusBorderController.focusChanged(to: target, forceOrdering: true)
+        scheduleAXContextWarmup(for: pid)
 
         recordNiriCreateFocusTrace(
             .init(
@@ -1704,6 +1727,31 @@ final class AXEventHandler: CGSEventDelegate {
             controller.workspaceManager.setLayoutReason(.macosHiddenApp, for: entry.token)
         }
         controller.layoutRefreshController.requestVisibilityRefresh(reason: .appHidden)
+    }
+
+    func handleAppDeactivated(pid: pid_t) {
+        guard let controller else { return }
+        let clearedTarget = controller.focusBorderController.clearCurrentTarget(matching: pid) { target in
+            if !target.isManaged {
+                return true
+            }
+            guard let entry = controller.workspaceManager.entry(for: target.token) else {
+                return false
+            }
+            return entry.mode == .floating
+        }
+
+        guard let clearedTarget,
+              clearedTarget.isManaged,
+              let entry = controller.workspaceManager.entry(for: clearedTarget.token),
+              entry.mode == .floating
+        else { return }
+
+        _ = controller.workspaceManager.enterNonManagedFocus(
+            appFullscreen: false,
+            preserveFocusedToken: true,
+            preservePendingManagedFocus: true
+        )
     }
 
     func handleAppUnhidden(pid: pid_t) {

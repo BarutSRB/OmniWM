@@ -17,6 +17,7 @@ final class ServiceLifecycleManager {
 
     private var displayObserver: DisplayConfigurationObserver?
     private var appActivationObserver: NSObjectProtocol?
+    private var appDeactivationObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
     private var appUnhideObserver: NSObjectProtocol?
     private var workspaceObserver: NSObjectProtocol?
@@ -91,6 +92,7 @@ final class ServiceLifecycleManager {
         controller.syncMouseWarpPolicy()
         setupDisplayObserver()
         setupAppActivationObserver()
+        setupAppDeactivationObserver()
         setupAppHideObservers()
         setupSleepWakeObservation()
         controller.workspaceManager.onGapsChanged = { [weak self] in
@@ -279,6 +281,22 @@ final class ServiceLifecycleManager {
         }
     }
 
+    private func setupAppDeactivationObserver() {
+        guard let controller else { return }
+        appDeactivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didDeactivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak controller] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+                return
+            }
+            MainActor.assumeIsolated {
+                controller?.axEventHandler.handleAppDeactivated(pid: app.processIdentifier)
+            }
+        }
+    }
+
     private func setupAppHideObservers() {
         guard let controller else { return }
         appHideObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -362,6 +380,10 @@ final class ServiceLifecycleManager {
         if let observer = appActivationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             appActivationObserver = nil
+        }
+        if let observer = appDeactivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            appDeactivationObserver = nil
         }
         if let observer = appHideObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)

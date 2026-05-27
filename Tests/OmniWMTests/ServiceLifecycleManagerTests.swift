@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import CoreGraphics
 import Foundation
 @testable import OmniWM
@@ -392,6 +393,80 @@ private func waitUntilServiceLifecycleTest(
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
         #expect(controller.niriEngine?.monitor(for: landscapeMonitor.id)?.orientation == .vertical)
+    }
+
+    @Test @MainActor func appDeactivationNotificationClearsTransientBorderAndStopsRoutingAfterStop() async {
+        let defaults = makeLifecycleTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        let controller = WMController(settings: settings)
+        let lifecycleManager = controller.serviceLifecycleManager
+        let permissionStream = makeLifecyclePermissionStream(initial: true)
+        lifecycleManager.accessibilityPermissionStateProviderForTests = { true }
+        lifecycleManager.accessibilityPermissionStreamProviderForTests = { _ in permissionStream.stream }
+        lifecycleManager.accessibilityPermissionRequestHandlerForTests = { false }
+        defer {
+            permissionStream.continuation.finish()
+            controller.setEnabled(false)
+        }
+
+        controller.setEnabled(true)
+        await waitUntilServiceLifecycleTest {
+            controller.hasStartedServices
+        }
+
+        let pid = NSRunningApplication.current.processIdentifier
+        let token = WindowToken(pid: pid, windowId: 7301)
+        controller.setBordersEnabled(true)
+        _ = controller.renderKeyboardFocusBorder(
+            for: KeyboardFocusTarget(
+                token: token,
+                axRef: makeLifecycleWindow(windowId: token.windowId),
+                workspaceId: nil,
+                isManaged: false
+            ),
+            preferredFrame: CGRect(x: 40, y: 44, width: 500, height: 360),
+            preferredFrameSource: .observed,
+            forceOrdering: true
+        )
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.didDeactivateApplicationNotification,
+            object: NSWorkspace.shared,
+            userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current]
+        )
+
+        await waitUntilServiceLifecycleTest {
+            controller.currentKeyboardFocusTargetForRendering() == nil &&
+                controller.focusBorderController.lastAppliedFocusedWindowIdForTests == nil
+        }
+
+        controller.setEnabled(false)
+        await waitUntilServiceLifecycleTest {
+            !controller.hasStartedServices
+        }
+
+        let stoppedToken = WindowToken(pid: pid, windowId: 7302)
+        _ = controller.renderKeyboardFocusBorder(
+            for: KeyboardFocusTarget(
+                token: stoppedToken,
+                axRef: makeLifecycleWindow(windowId: stoppedToken.windowId),
+                workspaceId: nil,
+                isManaged: false
+            ),
+            preferredFrame: CGRect(x: 48, y: 52, width: 520, height: 380),
+            preferredFrameSource: .observed,
+            forceOrdering: true
+        )
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.didDeactivateApplicationNotification,
+            object: NSWorkspace.shared,
+            userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current]
+        )
+        try? await Task.sleep(for: .milliseconds(20))
+
+        #expect(controller.currentKeyboardFocusTargetForRendering()?.token == stoppedToken)
+        #expect(controller.focusBorderController.lastAppliedFocusedWindowIdForTests == stoppedToken.windowId)
     }
 
     @Test @MainActor func appTerminationClearsFocusMemoryAndDeadHandlesDoNotReturn() {

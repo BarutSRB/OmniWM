@@ -1072,6 +1072,7 @@ final class WorkspaceManager {
                 active: false,
                 appFullscreen: active,
                 preserveFocusedToken: true,
+                preservePendingManagedFocus: false,
                 source: .workspaceManager
             )
         )
@@ -1602,13 +1603,15 @@ final class WorkspaceManager {
     @discardableResult
     func enterNonManagedFocus(
         appFullscreen: Bool,
-        preserveFocusedToken: Bool = false
+        preserveFocusedToken: Bool = false,
+        preservePendingManagedFocus: Bool = false
     ) -> Bool {
         let changed = applyFocusReconcileEvent(
             .nonManagedFocusChanged(
                 active: true,
                 appFullscreen: appFullscreen,
                 preserveFocusedToken: preserveFocusedToken,
+                preservePendingManagedFocus: preservePendingManagedFocus,
                 source: .workspaceManager
             )
         )

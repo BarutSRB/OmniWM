@@ -3728,6 +3728,91 @@ private func waitUntilAXEventTest(
         #expect(lastAppliedBorderFrame(on: controller) == initialFrame)
     }
 
+    @Test @MainActor func unresolvedFocusedFrameChangedUsesFocusedAXConfirmationForUnmanagedBorder() async {
+        let controller = makeAXEventTestController()
+        let token = WindowToken(pid: 42_426, windowId: 8242)
+        let axRef = AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: token.windowId)
+        let initialFrame = CGRect(x: 12, y: 14, width: 500, height: 320)
+        let observedFrame = CGRect(x: 80, y: 96, width: 640, height: 400)
+        controller.setBordersEnabled(true)
+        _ = controller.renderKeyboardFocusBorder(
+            for: KeyboardFocusTarget(
+                token: token,
+                axRef: axRef,
+                workspaceId: nil,
+                isManaged: false
+            ),
+            preferredFrame: initialFrame,
+            preferredFrameSource: .observed,
+            forceOrdering: true
+        )
+        controller.axEventHandler.frameProvider = { _ in observedFrame }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == token.pid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: token.windowId)
+        }
+        controller.axEventHandler.windowInfoProvider = { _ in nil }
+        controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = true
+        defer {
+            controller.axEventHandler.frameProvider = nil
+            controller.axEventHandler.focusedWindowRefProvider = nil
+            controller.axEventHandler.windowInfoProvider = nil
+            controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = false
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: UInt32(token.windowId))
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(lastAppliedBorderWindowId(on: controller) == token.windowId)
+        #expect(lastAppliedBorderFrame(on: controller) == observedFrame)
+    }
+
+    @Test @MainActor func unresolvedFocusedFrameChangedRejectsDifferentFocusedAXTokenForUnmanagedBorder() async {
+        let controller = makeAXEventTestController()
+        let token = WindowToken(pid: 42_427, windowId: 8243)
+        let otherToken = WindowToken(pid: token.pid, windowId: 8244)
+        let axRef = AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: token.windowId)
+        let initialFrame = CGRect(x: 12, y: 14, width: 500, height: 320)
+        let observedFrame = CGRect(x: 80, y: 96, width: 640, height: 400)
+        controller.setBordersEnabled(true)
+        _ = controller.renderKeyboardFocusBorder(
+            for: KeyboardFocusTarget(
+                token: token,
+                axRef: axRef,
+                workspaceId: nil,
+                isManaged: false
+            ),
+            preferredFrame: initialFrame,
+            preferredFrameSource: .observed,
+            forceOrdering: true
+        )
+        controller.axEventHandler.frameProvider = { _ in observedFrame }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == token.pid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: otherToken.windowId)
+        }
+        controller.axEventHandler.windowInfoProvider = { _ in nil }
+        controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = true
+        defer {
+            controller.axEventHandler.frameProvider = nil
+            controller.axEventHandler.focusedWindowRefProvider = nil
+            controller.axEventHandler.windowInfoProvider = nil
+            controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = false
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: UInt32(token.windowId))
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(lastAppliedBorderWindowId(on: controller) == token.windowId)
+        #expect(lastAppliedBorderFrame(on: controller) == initialFrame)
+    }
+
     @Test @MainActor func unresolvedManagedFrameChangedDoesNotUseTrackedWindowIdFallbackForBorder() async {
         let controller = makeAXEventTestController()
         guard let workspaceId = controller.activeWorkspace()?.id else {
@@ -3769,6 +3854,134 @@ private func waitUntilAXEventTest(
         #expect(controller.axEventHandler.debugCounters.geometryRelayoutsSuppressedDuringGesture == 1)
         #expect(lastAppliedBorderWindowId(on: controller) == token.windowId)
         #expect(lastAppliedBorderFrame(on: controller) == initialFrame)
+    }
+
+    @Test @MainActor func unresolvedManagedFloatingFrameChangedUsesUniqueTrackedFallbackForBorderAndGeometry() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 8245),
+            pid: getpid(),
+            windowId: 8245,
+            to: workspaceId,
+            mode: .floating
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            token,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        let initialFrame = CGRect(x: 12, y: 14, width: 500, height: 320)
+        let observedFrame = CGRect(x: 80, y: 96, width: 640, height: 400)
+        controller.workspaceManager.setFloatingState(
+            .init(
+                lastFrame: initialFrame,
+                normalizedOrigin: nil,
+                referenceMonitorId: controller.workspaceManager.monitorId(for: workspaceId),
+                restoreToFloating: true
+            ),
+            for: token
+        )
+        controller.setBordersEnabled(true)
+        _ = confirmFocusedBorder(on: controller, token: token, frame: initialFrame)
+        controller.axEventHandler.frameProvider = { _ in observedFrame }
+        controller.axEventHandler.windowInfoProvider = { _ in nil }
+        controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = true
+        defer {
+            controller.axEventHandler.frameProvider = nil
+            controller.axEventHandler.windowInfoProvider = nil
+            controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = false
+        }
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: UInt32(token.windowId))
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(relayoutReasons.isEmpty)
+        #expect(lastAppliedBorderWindowId(on: controller) == token.windowId)
+        #expect(lastAppliedBorderFrame(on: controller) == observedFrame)
+        #expect(controller.workspaceManager.floatingState(for: token)?.lastFrame == observedFrame)
+    }
+
+    @Test @MainActor func unresolvedManagedFloatingFrameChangedRejectsAmbiguousTrackedFallback() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let windowId = 8246
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: windowId),
+            pid: 42_428,
+            windowId: windowId,
+            to: workspaceId,
+            mode: .floating
+        )
+        let focusedToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: windowId),
+            pid: 42_429,
+            windowId: windowId,
+            to: workspaceId,
+            mode: .floating
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            focusedToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        let initialFrame = CGRect(x: 12, y: 14, width: 500, height: 320)
+        let observedFrame = CGRect(x: 80, y: 96, width: 640, height: 400)
+        controller.workspaceManager.setFloatingState(
+            .init(
+                lastFrame: initialFrame,
+                normalizedOrigin: nil,
+                referenceMonitorId: controller.workspaceManager.monitorId(for: workspaceId),
+                restoreToFloating: true
+            ),
+            for: focusedToken
+        )
+        controller.setBordersEnabled(true)
+        _ = confirmFocusedBorder(on: controller, token: focusedToken, frame: initialFrame)
+        controller.axEventHandler.frameProvider = { _ in observedFrame }
+        controller.axEventHandler.windowInfoProvider = { _ in nil }
+        controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = true
+        defer {
+            controller.axEventHandler.frameProvider = nil
+            controller.axEventHandler.windowInfoProvider = nil
+            controller.axEventHandler.windowInfoProviderIsAuthoritativeForTests = false
+        }
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: UInt32(windowId))
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(relayoutReasons.isEmpty)
+        #expect(lastAppliedBorderWindowId(on: controller) == focusedToken.windowId)
+        #expect(lastAppliedBorderFrame(on: controller) == initialFrame)
+        #expect(controller.workspaceManager.floatingState(for: focusedToken)?.lastFrame == initialFrame)
     }
 
     @Test @MainActor func focusedFrameChangedWithPendingWriteSkipsObservedReadForBorder() async {
@@ -9877,6 +10090,196 @@ private func waitUntilAXEventTest(
         #expect(controller.workspaceManager.entry(for: token) == nil)
         #expect(controller.currentKeyboardFocusTargetForRendering() == nil)
         #expect(lastAppliedBorderWindowId(on: controller) == nil)
+    }
+
+    @Test @MainActor func unmanagedAppDeactivationClearsFocusedBorderTarget() {
+        let controller = makeAXEventTestController()
+        let token = WindowToken(pid: 9_144, windowId: 9145)
+        controller.setBordersEnabled(true)
+        _ = controller.renderKeyboardFocusBorder(
+            for: KeyboardFocusTarget(
+                token: token,
+                axRef: AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: token.windowId),
+                workspaceId: nil,
+                isManaged: false
+            ),
+            preferredFrame: CGRect(x: 40, y: 40, width: 500, height: 400),
+            preferredFrameSource: .observed,
+            forceOrdering: true
+        )
+
+        controller.axEventHandler.handleAppDeactivated(pid: token.pid)
+
+        #expect(controller.currentKeyboardFocusTargetForRendering() == nil)
+        #expect(lastAppliedBorderWindowId(on: controller) == nil)
+    }
+
+    @Test @MainActor func trackedFloatingAppDeactivationClearsFocusedBorderTargetAndEntersNonManagedFocus() {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 9146),
+            pid: 9_145,
+            windowId: 9146,
+            to: workspaceId,
+            mode: .floating
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            token,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        controller.setBordersEnabled(true)
+        _ = confirmFocusedBorder(
+            on: controller,
+            token: token,
+            frame: CGRect(x: 50, y: 56, width: 520, height: 360)
+        )
+
+        controller.axEventHandler.handleAppDeactivated(pid: token.pid)
+
+        #expect(controller.currentKeyboardFocusTargetForRendering() == nil)
+        #expect(lastAppliedBorderWindowId(on: controller) == nil)
+        #expect(controller.workspaceManager.isNonManagedFocusActive)
+        #expect(controller.workspaceManager.focusedToken == token)
+        #expect(!controller.updateManagedKeyboardFocusBorder(
+            token: token,
+            preferredFrame: CGRect(x: 80, y: 84, width: 520, height: 360)
+        ))
+        #expect(lastAppliedBorderWindowId(on: controller) == nil)
+    }
+
+    @Test @MainActor func managedTiledAppDeactivationDoesNotClearFocusedBorderTarget() {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 9147),
+            pid: 9_146,
+            windowId: 9147,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            token,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        controller.setBordersEnabled(true)
+        _ = confirmFocusedBorder(
+            on: controller,
+            token: token,
+            frame: CGRect(x: 50, y: 56, width: 520, height: 360)
+        )
+
+        controller.axEventHandler.handleAppDeactivated(pid: token.pid)
+
+        #expect(controller.currentKeyboardFocusTargetForRendering()?.token == token)
+        #expect(lastAppliedBorderWindowId(on: controller) == token.windowId)
+        #expect(controller.workspaceManager.focusedToken == token)
+    }
+
+    @Test @MainActor func trackedFloatingAppDeactivationDuringPendingManagedFocusOnlyClearsBorderTarget() {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+        let floatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 9148),
+            pid: 9_147,
+            windowId: 9148,
+            to: workspaceId,
+            mode: .floating
+        )
+        let pendingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 9149),
+            pid: 9_148,
+            windowId: 9149,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            floatingToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        _ = controller.workspaceManager.beginManagedFocusRequest(
+            pendingToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        _ = controller.focusBridge.beginManagedRequest(
+            token: pendingToken,
+            workspaceId: workspaceId
+        )
+        controller.setBordersEnabled(true)
+        _ = confirmFocusedBorder(
+            on: controller,
+            token: floatingToken,
+            frame: CGRect(x: 50, y: 56, width: 520, height: 360)
+        )
+
+        controller.axEventHandler.handleAppDeactivated(pid: floatingToken.pid)
+
+        #expect(controller.currentKeyboardFocusTargetForRendering() == nil)
+        #expect(lastAppliedBorderWindowId(on: controller) == nil)
+        #expect(controller.workspaceManager.focusedToken == floatingToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == pendingToken)
+        #expect(controller.focusBridge.activeManagedRequest?.token == pendingToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive)
+        #expect(!controller.updateManagedKeyboardFocusBorder(
+            token: floatingToken,
+            preferredFrame: CGRect(x: 80, y: 84, width: 520, height: 360)
+        ))
+        #expect(lastAppliedBorderWindowId(on: controller) == nil)
+    }
+
+    @Test @MainActor func nonManagedActivationSchedulesAXContextWarmupAndKeepsExistingFocusSemantics() {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+        let managedToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 9150),
+            pid: 9_149,
+            windowId: 9150,
+            to: workspaceId
+        )
+        let unmanagedToken = WindowToken(pid: 9_151, windowId: 9152)
+        var warmedPIDs: [pid_t] = []
+        controller.hasStartedServices = true
+        _ = controller.workspaceManager.setManagedFocus(
+            managedToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == unmanagedToken.pid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: unmanagedToken.windowId)
+        }
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        controller.axEventHandler.axContextWarmupHandlerForTests = { warmedPIDs.append($0) }
+        defer {
+            controller.hasStartedServices = false
+            controller.axEventHandler.focusedWindowRefProvider = nil
+            controller.axEventHandler.isFullscreenProvider = nil
+            controller.axEventHandler.axContextWarmupHandlerForTests = nil
+        }
+
+        controller.axEventHandler.handleAppActivation(
+            pid: unmanagedToken.pid,
+            source: .workspaceDidActivateApplication
+        )
+
+        #expect(warmedPIDs == [unmanagedToken.pid])
+        #expect(controller.currentKeyboardFocusTargetForRendering()?.token == unmanagedToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive)
+        #expect(controller.workspaceManager.focusedToken == nil)
     }
 
     @Test @MainActor func unmanagedFocusedMiniaturizeClearsFocusedBorderTarget() {
