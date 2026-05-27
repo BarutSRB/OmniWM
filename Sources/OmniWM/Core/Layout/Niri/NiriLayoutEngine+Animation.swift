@@ -467,13 +467,23 @@ extension NiriLayoutEngine {
     }
 
     private func clampVisibleFramesToMonitorBounds(_ monitorBounds: CGRect) {
+        var toRemove: [WindowToken] = []
+        var toUpdate: [(WindowToken, CGRect)] = []
+
         for (token, frame) in framePool where hiddenPool[token] == nil {
             let clamped = frame.intersection(monitorBounds)
             if clamped.isNull {
-                framePool.removeValue(forKey: token)
+                toRemove.append(token)
             } else if clamped != frame {
-                framePool[token] = clamped
+                toUpdate.append((token, clamped))
             }
+        }
+
+        for token in toRemove {
+            framePool.removeValue(forKey: token)
+        }
+        for (token, rect) in toUpdate {
+            framePool[token] = rect
         }
     }
 }
