@@ -258,6 +258,12 @@ final class FocusBorderController {
             return .hide
         }
 
+        if !target.isManaged {
+            guard observedFrame(for: target.axRef) != nil else {
+                return .clear
+            }
+        }
+
         return .update
     }
 
