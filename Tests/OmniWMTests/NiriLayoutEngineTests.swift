@@ -4090,9 +4090,11 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        let frameChange = plan.diff.frameChanges.first { $0.token == token }
-        #expect(frameChange != nil)
-        #expect(frameChange!.frame.width >= constraints.minSize.width)
+        guard let frameChange = plan.diff.frameChanges.first(where: { $0.token == token }) else {
+            Issue.record("Expected a frame change for min size clamp test")
+            return
+        }
+        #expect(frameChange.frame.width >= constraints.minSize.width)
         let placeholder = plan.diff.resizePlaceholders.first { $0.token == token }
         #expect(placeholder == nil)
     }
