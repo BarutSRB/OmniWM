@@ -560,16 +560,21 @@ import QuartzCore
                 mergedConstraints = mergedConstraints.normalized()
             }
 
+            let resizePlaceholderState = controller.workspaceManager.resizePlaceholderState(for: entry.token)
+            let layoutConstraints = resizePlaceholderState != nil
+                ? mergedConstraints.relaxedForResizePlaceholder()
+                : mergedConstraints
+
             snapshots.append(
                 LayoutWindowSnapshot(
                     token: entry.token,
                     constraints: mergedConstraints,
-                    layoutConstraints: mergedConstraints.relaxedForResizePlaceholder(),
+                    layoutConstraints: layoutConstraints,
                     hiddenState: controller.workspaceManager.hiddenState(for: entry.token),
                     layoutReason: layoutReason,
                     showsNativeFullscreenPlaceholder: controller.workspaceManager
                         .showsNativeFullscreenPlaceholder(for: entry.token),
-                    resizePlaceholderState: controller.workspaceManager.resizePlaceholderState(for: entry.token)
+                    resizePlaceholderState: resizePlaceholderState
                 )
             )
         }

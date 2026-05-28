@@ -4060,7 +4060,44 @@ private func makeCenteredCrossMonitorFixture(
         #expect(!hasShowVisibilityChange(plan.diff.visibilityChanges, token: token))
     }
 
-    @Test @MainActor func tooSmallWindowEmitsResizePlaceholderInsteadOfFrameChangeInNiri() async throws {
+    @Test @MainActor func windowWithLargeMinSizeClampsColumnWidthInNiri() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Niri min size clamp test")
+            return
+        }
+
+        controller.enableNiriLayout()
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 3902)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        let constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 2500, height: 1200),
+            maxSize: CGSize(width: 5000, height: 5000),
+            isFixed: false
+        )
+        controller.workspaceManager.setCachedConstraints(constraints, for: token)
+
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        guard let plan = plans.first else {
+            Issue.record("Expected a Niri layout plan for min size clamp test")
+            return
+        }
+
+        let frameChange = plan.diff.frameChanges.first { $0.token == token }
+        #expect(frameChange != nil)
+        #expect(frameChange!.frame.width >= constraints.minSize.width)
+        let placeholder = plan.diff.resizePlaceholders.first { $0.token == token }
+        #expect(placeholder == nil)
+    }
+
+    @Test @MainActor func existingResizePlaceholderKeepsRelaxedConstraintsInNiri() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -4081,6 +4118,14 @@ private func makeCenteredCrossMonitorFixture(
             isFixed: false
         )
         controller.workspaceManager.setCachedConstraints(constraints, for: token)
+        controller.workspaceManager.setResizePlaceholderState(
+            ResizePlaceholderState(
+                workspaceId: workspaceId,
+                frame: CGRect(x: 0, y: 0, width: 960, height: 1080),
+                minimumSize: constraints.minSize
+            ),
+            for: token
+        )
 
         let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
             activeWorkspaces: [workspaceId]
