@@ -1369,6 +1369,29 @@ final class AXEventHandler: CGSEventDelegate {
             break
         }
 
+        if let windowId = UInt32(exactly: axRef.windowId),
+           let admittedEntry = admitFocusedUntrackedWindowIfNeeded(
+               token: token,
+               windowId: windowId
+           )
+        {
+            let wsId = admittedEntry.workspaceId
+            let targetMonitor = controller.workspaceManager.monitor(for: wsId)
+            let isWorkspaceActive = targetMonitor.map { monitor in
+                controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
+            } ?? false
+
+            handleManagedAppActivation(
+                entry: admittedEntry,
+                isWorkspaceActive: isWorkspaceActive,
+                appFullscreen: appFullscreen,
+                source: source,
+                confirmRequest: true,
+                origin: origin
+            )
+            return
+        }
+
         let target = controller.keyboardFocusTarget(for: token, axRef: axRef)
         let fallbackFullscreen = appFullscreenForFallbackLifecyclePreservation(
             observedAppFullscreen: appFullscreen
@@ -1384,6 +1407,35 @@ final class AXEventHandler: CGSEventDelegate {
                 )
             )
         )
+    }
+
+    private func admitFocusedUntrackedWindowIfNeeded(
+        token: WindowToken,
+        windowId: UInt32
+    ) -> WindowModel.Entry? {
+        guard let controller else { return nil }
+        guard controller.workspaceManager.entry(for: token) == nil else {
+            return controller.workspaceManager.entry(for: token)
+        }
+
+        let windowInfo = resolveWindowInfo(windowId)
+        guard let candidate = prepareCreateCandidate(
+            windowId: windowId,
+            windowInfo: windowInfo,
+            createPlacementContext: createPlacementContextsByWindowId[windowId]
+        ),
+            candidate.token == token
+        else {
+            return nil
+        }
+
+        if shouldDelayManagedReplacementCreate(candidate) {
+            enqueueManagedReplacementCreate(candidate)
+            return nil
+        }
+
+        trackPreparedCreate(candidate)
+        return controller.workspaceManager.entry(for: token)
     }
 
     func handleManagedAppActivation(

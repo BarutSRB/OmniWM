@@ -1727,6 +1727,81 @@ private func waitUntilAXEventTest(
         })
     }
 
+    @Test @MainActor func focusedUntrackedStandardWindowIsAdmittedBeforeNonManagedFallback() async {
+        let controller = makeAXEventTestController(trackedBundleId: "com.google.Chrome")
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing focused-window admission fixture")
+            return
+        }
+
+        controller.hasStartedServices = true
+
+        let observedWindowId: UInt32 = 981
+        let observedToken = WindowToken(pid: getpid(), windowId: Int(observedWindowId))
+        let observedAXRef = AXWindowRef(
+            element: AXUIElementCreateSystemWide(),
+            windowId: observedToken.windowId
+        )
+        var subscriptions: [[UInt32]] = []
+        var relayoutReasons: [RefreshReason] = []
+
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == getpid() else { return nil }
+            return observedAXRef
+        }
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == observedWindowId else { return nil }
+            return WindowServerInfo(
+                id: windowId,
+                pid: getpid(),
+                level: 0,
+                frame: CGRect(x: 120, y: 160, width: 900, height: 700)
+            )
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, pid in
+            guard windowId == observedWindowId, pid == getpid() else { return nil }
+            return observedAXRef
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.google.Chrome",
+                appName: "Google Chrome",
+                title: "Detached Tab - Google Chrome"
+            )
+        }
+        controller.axEventHandler.windowSubscriptionHandler = { windowIds in
+            subscriptions.append(windowIds)
+        }
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.handleAppActivation(
+            pid: getpid(),
+            source: .focusedWindowChanged
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        guard let entry = controller.workspaceManager.entry(for: observedToken) else {
+            Issue.record("Expected focused untracked Chrome window to be admitted")
+            return
+        }
+
+        #expect(entry.workspaceId == workspaceId)
+        #expect(entry.mode == .tiling)
+        #expect(controller.workspaceManager.focusedToken == observedToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == nil)
+        #expect(!controller.workspaceManager.isNonManagedFocusActive)
+        #expect(controller.focusBridge.focusedTarget?.token == observedToken)
+        #expect(controller.focusBridge.focusedTarget?.isManaged == true)
+        #expect(subscriptions == [[observedWindowId]])
+        #expect(relayoutReasons.contains(.axWindowCreated))
+    }
+
     @Test @MainActor func activationRetryExhaustionClearsPendingFocusAndRestoresConfirmedBorder() async throws {
         let controller = makeAXEventTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
