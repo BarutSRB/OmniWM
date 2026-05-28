@@ -790,7 +790,7 @@ import QuartzCore
 
         guard let controller else { return false }
 
-        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
+        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive || controller.isFrontmostAppScreenCapture() {
             return false
         }
 
@@ -819,7 +819,7 @@ import QuartzCore
 
         guard let controller else { return false }
 
-        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
+        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive || controller.isFrontmostAppScreenCapture() {
             return false
         }
 
@@ -863,7 +863,7 @@ import QuartzCore
         }
 
         guard let controller else { return false }
-        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
+        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive || controller.isFrontmostAppScreenCapture() {
             return false
         }
 
@@ -952,7 +952,7 @@ import QuartzCore
         guard let controller else { return false }
         controller.axEventHandler.resetManagedReplacementState()
 
-        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
+        if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive || controller.isFrontmostAppScreenCapture() {
             return false
         }
 

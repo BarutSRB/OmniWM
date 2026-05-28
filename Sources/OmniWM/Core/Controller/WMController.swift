@@ -2717,6 +2717,18 @@ extension WMController {
         lockScreenObserver.isFrontmostAppLockScreen()
     }
 
+    private static let screenCaptureBundleIds: Set<String> = [
+        "com.apple.screencaptureui",
+        "com.apple.Screenshot",
+    ]
+
+    func isFrontmostAppScreenCapture() -> Bool {
+        guard let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+            return false
+        }
+        return Self.screenCaptureBundleIds.contains(bundleId)
+    }
+
     func isPointInQuakeTerminal(_ point: CGPoint) -> Bool {
         guard settings.quakeTerminalEnabled,
               quakeTerminalController.visible,
