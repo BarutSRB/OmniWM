@@ -1786,6 +1786,14 @@ private func waitUntilAXEventTest(
         )
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
+        let trace = createFocusTraceEvents(on: controller)
+        #expect(!trace.contains { event in
+            if case let .nonManagedFallbackEntered(pid, source) = event.kind {
+                return pid == getpid() && source == .focusedWindowChanged
+            }
+            return false
+        })
+
         guard let entry = controller.workspaceManager.entry(for: observedToken) else {
             Issue.record("Expected focused untracked Chrome window to be admitted")
             return
