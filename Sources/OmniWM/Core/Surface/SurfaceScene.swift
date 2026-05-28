@@ -14,12 +14,29 @@ enum SurfaceKind: String, Equatable {
 
 enum HitTestPolicy: Equatable {
     case interactive
+    case frontmostInteractive
     case passthrough
 }
 
 enum CapturePolicy: Equatable {
     case included
     case excluded
+}
+
+struct SurfaceFrontmostInteractiveResolver {
+    static let appKit = SurfaceFrontmostInteractiveResolver { window in
+        guard let app = NSApp else { return false }
+        return window.isKeyWindow
+            || window.isMainWindow
+            || app.keyWindow === window
+            || app.mainWindow === window
+    }
+
+    let isFrontmost: @MainActor (NSWindow) -> Bool
+
+    init(_ isFrontmost: @escaping @MainActor (NSWindow) -> Bool) {
+        self.isFrontmost = isFrontmost
+    }
 }
 
 struct SurfacePolicy: Equatable {
@@ -43,6 +60,11 @@ final class SurfaceScene {
     private var nodesByID: [String: SurfaceNode] = [:]
     private var windowIDByObject: [ObjectIdentifier: String] = [:]
     private var surfaceIDsByWindowNumber: [Int: Set<String>] = [:]
+    private let frontmostInteractiveResolver: SurfaceFrontmostInteractiveResolver
+
+    init(frontmostInteractiveResolver: SurfaceFrontmostInteractiveResolver = .appKit) {
+        self.frontmostInteractiveResolver = frontmostInteractiveResolver
+    }
 
     func register(window: NSWindow, node: SurfaceNode) {
         if let existingId = windowIDByObject[ObjectIdentifier(window)], existingId != node.id {
@@ -117,7 +139,18 @@ final class SurfaceScene {
 
     func containsInteractive(point: CGPoint) -> Bool {
         visibleNodes.contains { node in
-            guard node.policy.hitTestPolicy == .interactive else { return false }
+            switch node.policy.hitTestPolicy {
+            case .interactive:
+                break
+            case .frontmostInteractive:
+                guard let window = node.window,
+                      isFrontmostInteractiveWindow(window)
+                else {
+                    return false
+                }
+            case .passthrough:
+                return false
+            }
             return resolvedFrame(for: node)?.contains(point) == true
         }
     }
@@ -180,6 +213,10 @@ final class SurfaceScene {
     private func node(for window: NSWindow) -> SurfaceNode? {
         guard let id = windowIDByObject[ObjectIdentifier(window)] else { return nil }
         return nodesByID[id]
+    }
+
+    private func isFrontmostInteractiveWindow(_ window: NSWindow) -> Bool {
+        frontmostInteractiveResolver.isFrontmost(window)
     }
 
     private var visibleNodes: [SurfaceNode] {

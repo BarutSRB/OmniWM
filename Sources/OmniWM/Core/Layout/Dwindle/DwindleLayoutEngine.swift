@@ -603,13 +603,13 @@ final class DwindleLayoutEngine {
             switch orientation {
             case .horizontal:
                 result = CGSize(
-                    width: firstMin.width + secondMin.width,
+                    width: firstMin.width + secondMin.width + settings.innerGap,
                     height: max(firstMin.height, secondMin.height)
                 )
             case .vertical:
                 result = CGSize(
                     width: max(firstMin.width, secondMin.width),
-                    height: firstMin.height + secondMin.height
+                    height: firstMin.height + secondMin.height + settings.innerGap
                 )
             }
         }
@@ -641,13 +641,16 @@ final class DwindleLayoutEngine {
 
         switch orientation {
         case .horizontal:
-            let totalMin = firstMinSize.width + secondMinSize.width
+            let gapPadding = settings.innerGap / 2
+            let firstMinWidth = firstMinSize.width + gapPadding
+            let secondMinWidth = secondMinSize.width + gapPadding
+            let totalMin = firstMinWidth + secondMinWidth
             if totalMin > rect.width {
                 let totalMinClamped = max(totalMin, 1)
-                fraction = firstMinSize.width / totalMinClamped
+                fraction = firstMinWidth / totalMinClamped
             } else {
-                let minFraction = firstMinSize.width / rect.width
-                let maxFraction = (rect.width - secondMinSize.width) / rect.width
+                let minFraction = firstMinWidth / rect.width
+                let maxFraction = (rect.width - secondMinWidth) / rect.width
                 fraction = max(minFraction, min(maxFraction, fraction))
             }
 
@@ -658,13 +661,16 @@ final class DwindleLayoutEngine {
             return (r1, r2)
 
         case .vertical:
-            let totalMin = firstMinSize.height + secondMinSize.height
+            let gapPadding = settings.innerGap / 2
+            let firstMinHeight = firstMinSize.height + gapPadding
+            let secondMinHeight = secondMinSize.height + gapPadding
+            let totalMin = firstMinHeight + secondMinHeight
             if totalMin > rect.height {
                 let totalMinClamped = max(totalMin, 1)
-                fraction = firstMinSize.height / totalMinClamped
+                fraction = firstMinHeight / totalMinClamped
             } else {
-                let minFraction = firstMinSize.height / rect.height
-                let maxFraction = (rect.height - secondMinSize.height) / rect.height
+                let minFraction = firstMinHeight / rect.height
+                let maxFraction = (rect.height - secondMinHeight) / rect.height
                 fraction = max(minFraction, min(maxFraction, fraction))
             }
 

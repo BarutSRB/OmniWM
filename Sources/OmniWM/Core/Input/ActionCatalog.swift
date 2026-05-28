@@ -82,7 +82,7 @@ enum ActionCatalog {
     }
 
     static func matchesSearch(_ query: String, binding: HotkeyBinding) -> Bool {
-        let normalizedQuery = normalize(query)
+        let normalizedQuery = normalizedSearchTerm(query)
         guard !normalizedQuery.isEmpty else { return true }
 
         guard let spec = spec(for: binding.id) else {
@@ -92,15 +92,15 @@ enum ActionCatalog {
                 || binding.binding.humanReadableString.localizedCaseInsensitiveContains(query)
         }
 
-        return spec.searchTerms.contains { normalize($0).contains(normalizedQuery) }
-            || normalize(binding.binding.displayString).contains(normalizedQuery)
-            || normalize(binding.binding.humanReadableString).contains(normalizedQuery)
+        return spec.searchTerms.contains { normalizedSearchTerm($0).contains(normalizedQuery) }
+            || normalizedSearchTerm(binding.binding.displayString).contains(normalizedQuery)
+            || normalizedSearchTerm(binding.binding.humanReadableString).contains(normalizedQuery)
     }
 
     static func uniqueTerms(_ values: [String]) -> [String] {
         var seen: Set<String> = []
         return values.compactMap { raw in
-            let normalized = normalize(raw)
+            let normalized = normalizedSearchTerm(raw)
             guard !normalized.isEmpty, seen.insert(normalized).inserted else {
                 return nil
             }
@@ -108,7 +108,7 @@ enum ActionCatalog {
         }
     }
 
-    private static func normalize(_ value: String) -> String {
+    static func normalizedSearchTerm(_ value: String) -> String {
         value
             .lowercased()
             .replacingOccurrences(of: ".", with: " ")

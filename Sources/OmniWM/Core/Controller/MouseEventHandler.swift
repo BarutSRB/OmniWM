@@ -448,7 +448,7 @@ final class MouseEventHandler {
         modifiers: CGEventFlags,
         button: MouseButton = .left
     ) -> Bool {
-        if shouldBlockOwnWindowInput(at: location) {
+        if shouldBlockOwnWindowInput(at: location, allowsResizePlaceholderInteraction: false) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -462,7 +462,7 @@ final class MouseEventHandler {
     }
 
     func receiveTapMouseUp(at location: CGPoint, button: MouseButton = .left) {
-        if shouldBlockOwnWindowInput(at: location) {
+        if shouldBlockOwnWindowInput(at: location, allowsResizePlaceholderInteraction: false) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -498,7 +498,7 @@ final class MouseEventHandler {
             return
         }
         let location = ScreenCoordinateSpace.toAppKit(point: cgEvent.location)
-        if shouldBlockOwnWindowInput(at: location) {
+        if shouldBlockOwnWindowInput(at: location, allowsResizePlaceholderInteraction: false) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -512,7 +512,7 @@ final class MouseEventHandler {
             handleInputSuppressionBegan()
             return
         }
-        if shouldBlockOwnWindowInput(at: snapshot.location) {
+        if shouldBlockOwnWindowInput(at: snapshot.location, allowsResizePlaceholderInteraction: false) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -573,9 +573,13 @@ final class MouseEventHandler {
         return controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
     }
 
-    private func shouldBlockOwnWindowInput(at location: CGPoint) -> Bool {
+    private func shouldBlockOwnWindowInput(
+        at location: CGPoint,
+        allowsResizePlaceholderInteraction: Bool = true
+    ) -> Bool {
         guard let controller else { return false }
         guard controller.isPointInOwnWindow(location) else { return false }
+        guard allowsResizePlaceholderInteraction else { return true }
         return resizePlaceholderToken(at: location) == nil
     }
 
@@ -1051,7 +1055,7 @@ final class MouseEventHandler {
         guard let controller else { return }
         guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
         if controller.isOverviewOpen() { return }
-        if shouldBlockOwnWindowInput(at: location) { return }
+        if shouldBlockOwnWindowInput(at: location, allowsResizePlaceholderInteraction: false) { return }
         guard !state.isResizing, !state.isMoving else { return }
 
         let isTrackpad = momentumPhase != 0 || phase != 0
@@ -1190,7 +1194,7 @@ final class MouseEventHandler {
             abortActiveGestureIfNeeded()
             return
         }
-        if shouldBlockOwnWindowInput(at: location) {
+        if shouldBlockOwnWindowInput(at: location, allowsResizePlaceholderInteraction: false) {
             abortActiveGestureIfNeeded()
             return
         }

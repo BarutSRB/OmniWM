@@ -526,7 +526,8 @@ import QuartzCore
 
     func buildWindowSnapshots(
         for entries: [WindowModel.Entry],
-        resolveConstraints: Bool = true
+        resolveConstraints: Bool = true,
+        workingFrame: CGRect? = nil
     ) -> [LayoutWindowSnapshot] {
         guard let controller else { return [] }
 
@@ -560,21 +561,72 @@ import QuartzCore
                 mergedConstraints = mergedConstraints.normalized()
             }
 
+            let hiddenState = controller.workspaceManager.hiddenState(for: entry.token)
+            let resizePlaceholderState = controller.workspaceManager.resizePlaceholderState(for: entry.token)
+            let layoutConstraints = resolvedLayoutConstraints(
+                for: mergedConstraints,
+                layoutReason: layoutReason,
+                hiddenState: hiddenState,
+                resizePlaceholderState: resizePlaceholderState,
+                workingFrame: workingFrame
+            )
+
             snapshots.append(
                 LayoutWindowSnapshot(
                     token: entry.token,
                     constraints: mergedConstraints,
-                    layoutConstraints: mergedConstraints.relaxedForResizePlaceholder(),
-                    hiddenState: controller.workspaceManager.hiddenState(for: entry.token),
+                    layoutConstraints: layoutConstraints,
+                    hiddenState: hiddenState,
                     layoutReason: layoutReason,
                     showsNativeFullscreenPlaceholder: controller.workspaceManager
                         .showsNativeFullscreenPlaceholder(for: entry.token),
-                    resizePlaceholderState: controller.workspaceManager.resizePlaceholderState(for: entry.token)
+                    resizePlaceholderState: resizePlaceholderState
                 )
             )
         }
 
         return snapshots
+    }
+
+    private func resolvedLayoutConstraints(
+        for constraints: WindowSizeConstraints,
+        layoutReason: LayoutReason,
+        hiddenState: WindowModel.HiddenState?,
+        resizePlaceholderState: ResizePlaceholderState?,
+        workingFrame: CGRect?
+    ) -> WindowSizeConstraints {
+        var effectiveConstraints = constraints.normalized()
+        if let resizePlaceholderState {
+            effectiveConstraints.minSize.width = max(
+                effectiveConstraints.minSize.width,
+                resizePlaceholderState.minimumSize.width
+            )
+            effectiveConstraints.minSize.height = max(
+                effectiveConstraints.minSize.height,
+                resizePlaceholderState.minimumSize.height
+            )
+            effectiveConstraints = effectiveConstraints.normalized()
+        }
+
+        if effectiveConstraints.isFixed || layoutReason == .nativeFullscreen {
+            return effectiveConstraints
+        }
+
+        guard layoutReason == .standard,
+              hiddenState == nil,
+              let workingFrame
+        else {
+            return effectiveConstraints.relaxedForResizePlaceholder()
+        }
+
+        let tolerance: CGFloat = 0.5
+        if effectiveConstraints.minSize.width <= workingFrame.width + tolerance,
+           effectiveConstraints.minSize.height <= workingFrame.height + tolerance
+        {
+            return effectiveConstraints
+        }
+
+        return effectiveConstraints.relaxedForResizePlaceholder()
     }
 
     func buildMonitorSnapshot(
@@ -601,9 +653,13 @@ import QuartzCore
     ) -> WorkspaceRefreshInput? {
         guard let controller else { return nil }
 
-        let entries = controller.workspaceManager.tiledEntries(in: workspaceId)
-        let windows = buildWindowSnapshots(for: entries, resolveConstraints: resolveConstraints)
         let monitorSnapshot = buildMonitorSnapshot(for: monitor, orientation: orientation)
+        let entries = controller.workspaceManager.tiledEntries(in: workspaceId)
+        let windows = buildWindowSnapshots(
+            for: entries,
+            resolveConstraints: resolveConstraints,
+            workingFrame: monitorSnapshot.workingFrame
+        )
 
         return WorkspaceRefreshInput(
             workspaceId: workspaceId,
@@ -2920,7 +2976,7 @@ import QuartzCore
 
     func parkResizePlaceholderWindow(
         _ entry: WindowModel.Entry,
-        monitor: Monitor,
+        monitor _: Monitor,
         currentFrameOverride: CGRect? = nil
     ) -> Bool {
         guard let controller else { return false }
@@ -2928,21 +2984,29 @@ import QuartzCore
         guard let currentFrame = currentFrameOverride
             ?? fastFrame(for: entry.token, axRef: entry.axRef)
             ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
-            ?? (try? AXWindowService.frame(entry.axRef)),
-            let origin = liveFrameHideOrigin(
-                for: currentFrame,
-                monitor: monitor,
-                side: .right,
-                pid: entry.pid,
-                reason: .layoutTransient
-            )
+            ?? (try? AXWindowService.frame(entry.axRef))
         else {
             return false
         }
+        let origin = resizePlaceholderParkOrigin(
+            for: currentFrame,
+            monitors: controller.workspaceManager.monitors
+        )
         controller.axManager.cancelPendingFrameJobs([frameEntry])
         controller.axManager.suppressFrameWrites([frameEntry])
         applyPositionPlans([WindowPositionPlan(entry: entry, origin: origin, frameSize: currentFrame.size)])
         return true
+    }
+
+    private func resizePlaceholderParkOrigin(
+        for frame: CGRect,
+        monitors: [Monitor]
+    ) -> CGPoint {
+        guard let firstFrame = monitors.first?.frame else {
+            return CGPoint(x: frame.maxX, y: frame.origin.y)
+        }
+        let bounds = monitors.dropFirst().reduce(firstFrame) { $0.union($1.frame) }
+        return CGPoint(x: bounds.maxX, y: frame.origin.y)
     }
 
     func shouldObserveResizePlaceholderFallback(
@@ -3253,11 +3317,9 @@ final class LayoutDiffExecutor {
             else {
                 return nil
             }
-            if controller.workspaceManager.resizePlaceholderState(for: change.token) == nil {
-                guard refreshController.parkResizePlaceholderWindow(entry, monitor: monitor) else {
-                    controller.clearResizePlaceholder(for: change.token)
-                    return nil
-                }
+            guard refreshController.parkResizePlaceholderWindow(entry, monitor: monitor) else {
+                controller.clearResizePlaceholder(for: change.token)
+                return nil
             }
             controller.workspaceManager.setResizePlaceholderState(
                 ResizePlaceholderState(

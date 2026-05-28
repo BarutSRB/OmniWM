@@ -51,6 +51,251 @@ private enum HotkeyRecordingTarget: Equatable {
     case leader
 }
 
+enum HotkeyInputMonitoringStatus: Equatable {
+    case granted
+    case denied
+
+    init(granted: Bool) {
+        self = granted ? .granted : .denied
+    }
+
+    var displayText: String {
+        switch self {
+        case .granted:
+            "Granted"
+        case .denied:
+            "Denied"
+        }
+    }
+}
+
+enum HotkeyPresetConfirmation: String, Identifiable, Equatable {
+    case capsLockModifier
+    case vimNavigation
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .capsLockModifier:
+            "Apply Caps Lock Modifier?"
+        case .vimNavigation:
+            "Apply Vim Navigation?"
+        }
+    }
+
+    var confirmButtonTitle: String {
+        switch self {
+        case .capsLockModifier:
+            "Apply Caps Lock Modifier"
+        case .vimNavigation:
+            "Apply Vim Navigation"
+        }
+    }
+
+    @MainActor func preview(settings: SettingsStore) -> HotkeyPresetPreview {
+        switch self {
+        case .capsLockModifier:
+            let capsLockHyperTrigger = HyperKeyTrigger.key(UInt32(kVK_CapsLock))
+            let plan = HotkeyCenter.registrationPlan(
+                for: settings.hotkeyBindings,
+                hyperTrigger: capsLockHyperTrigger,
+                leaderKey: KeyBinding.defaultLeader,
+                sequenceEventAccessGranted: true
+            )
+            let blockingCommands = plan.failures.compactMap { command, reason in
+                reason == HotkeyRegistrationFailureReason.hyperLeaderConflict ? command.displayName : nil
+            }
+            return HotkeyPresetPreview(
+                summary: "Changes the OmniWM modifier to Caps Lock and sets the leader key to OmniWM modifier + Space.",
+                affectedCommands: [],
+                unassignedCommands: [],
+                blockingCommands: blockingCommands
+            )
+        case .vimNavigation:
+            let mappings = HotkeyPreset.vimNavigation()
+            let proposedBindings = settings.hotkeyBindings(applyingPreset: mappings)
+            return HotkeyPresetPreview.vimNavigation(
+                currentBindings: settings.hotkeyBindings,
+                proposedBindings: proposedBindings,
+                mappingIds: mappings.map(\.id)
+            )
+        }
+    }
+}
+
+struct HotkeyPresetPreview: Equatable {
+    let summary: String
+    let affectedCommands: [String]
+    let unassignedCommands: [String]
+    let blockingCommands: [String]
+
+    var message: String {
+        var sentences = [summary]
+        if !affectedCommands.isEmpty {
+            sentences.append("Affected commands: \(Self.compactList(affectedCommands)).")
+        }
+        if !unassignedCommands.isEmpty {
+            sentences.append("Will unassign conflicts: \(Self.compactList(unassignedCommands)).")
+        }
+        if !blockingCommands.isEmpty {
+            sentences.append("Clear conflicts first: \(Self.compactList(blockingCommands)).")
+        }
+        return sentences.joined(separator: " ")
+    }
+
+    static func vimNavigation(
+        currentBindings: [HotkeyBinding],
+        proposedBindings: [HotkeyBinding],
+        mappingIds: [String]
+    ) -> HotkeyPresetPreview {
+        let currentById = Dictionary(uniqueKeysWithValues: currentBindings.map { ($0.id, $0) })
+        let proposedById = Dictionary(uniqueKeysWithValues: proposedBindings.map { ($0.id, $0) })
+        let mappedIds = Set(mappingIds)
+        let affectedCommands = mappingIds.compactMap { id -> String? in
+            guard currentById[id]?.binding != proposedById[id]?.binding else { return nil }
+            return proposedById[id]?.command.displayName ?? HotkeyBindingRegistry.command(for: id)?.displayName
+        }
+        let unassignedCommands = proposedBindings.compactMap { proposed -> String? in
+            guard !mappedIds.contains(proposed.id),
+                  currentById[proposed.id]?.binding.isUnassigned == false,
+                  proposed.binding.isUnassigned
+            else {
+                return nil
+            }
+            return proposed.command.displayName
+        }
+        return HotkeyPresetPreview(
+            summary: "Applies Vim Navigation leader-key sequences.",
+            affectedCommands: affectedCommands,
+            unassignedCommands: unassignedCommands,
+            blockingCommands: []
+        )
+    }
+
+    private static func compactList(_ values: [String], limit: Int = 6) -> String {
+        let uniqueValues = values.reduce(into: [String]()) { result, value in
+            if !result.contains(value) {
+                result.append(value)
+            }
+        }
+        guard uniqueValues.count > limit else {
+            return uniqueValues.joined(separator: ", ")
+        }
+        let shownValues = uniqueValues.prefix(limit).joined(separator: ", ")
+        return "\(shownValues), and \(uniqueValues.count - limit) more"
+    }
+}
+
+enum HotkeySettingsDisplayModel {
+    static func showsSequenceControls(
+        showsAdvancedHotkeys: Bool,
+        isRecordingOrDrafting: Bool,
+        bindings: [HotkeyBinding]
+    ) -> Bool {
+        showsAdvancedHotkeys || isRecordingOrDrafting || bindings.contains { binding in
+            guard case .sequence = binding.binding else { return false }
+            return true
+        }
+    }
+
+    static func isVisible(bindingId: String, showsAdvancedHotkeys: Bool) -> Bool {
+        switch ActionCatalog.visibility(for: bindingId) ?? .normal {
+        case .normal:
+            true
+        case .advanced:
+            showsAdvancedHotkeys
+        case .hidden:
+            false
+        }
+    }
+
+    static func matchesSearch(_ query: String, binding: HotkeyBinding) -> Bool {
+        let normalizedQuery = ActionCatalog.normalizedSearchTerm(query)
+        guard !normalizedQuery.isEmpty else { return true }
+        let actionTerms = ActionCatalog.spec(for: binding.id)?.searchTerms ?? [
+            binding.command.displayName,
+            binding.command.layoutCompatibility.rawValue
+        ]
+        let searchTerms = actionTerms + [
+            displayString(for: binding.binding),
+            humanReadableString(for: binding.binding)
+        ]
+        return searchTerms.contains {
+            ActionCatalog.normalizedSearchTerm($0).contains(normalizedQuery)
+        }
+    }
+
+    static func displayString(for binding: KeyBinding) -> String {
+        if binding.isUnassigned {
+            return "Unassigned"
+        }
+        let prefix = binding.usesHyper ? "OmniWM+" : ""
+        return prefix + KeySymbolMapper.displayString(keyCode: binding.keyCode, modifiers: binding.modifiers)
+    }
+
+    static func displayString(for step: HotkeySequenceStep) -> String {
+        switch step {
+        case .leader:
+            return "Leader"
+        case let .chord(binding):
+            return displayString(for: binding)
+        }
+    }
+
+    static func displayString(for trigger: HotkeyTrigger) -> String {
+        switch trigger {
+        case .unassigned:
+            return "Unassigned"
+        case let .chord(binding):
+            return displayString(for: binding)
+        case let .sequence(steps):
+            return steps.map { displayString(for: $0) }.joined(separator: ", ")
+        }
+    }
+
+    static func humanReadableString(for binding: KeyBinding) -> String {
+        if binding.isUnassigned {
+            return "Unassigned"
+        }
+        let base = KeySymbolMapper.humanReadableString(
+            keyCode: binding.keyCode,
+            modifiers: binding.modifiers
+        )
+        return binding.usesHyper ? "OmniWM modifier+\(base)" : base
+    }
+
+    static func humanReadableString(for step: HotkeySequenceStep) -> String {
+        switch step {
+        case .leader:
+            return "Leader"
+        case let .chord(binding):
+            return humanReadableString(for: binding)
+        }
+    }
+
+    static func humanReadableString(for trigger: HotkeyTrigger) -> String {
+        switch trigger {
+        case .unassigned:
+            return "Unassigned"
+        case let .chord(binding):
+            return humanReadableString(for: binding)
+        case let .sequence(steps):
+            return steps.map { humanReadableString(for: $0) }.joined(separator: ", ")
+        }
+    }
+
+    static func inputMonitoringStatus(
+        preflightGranted: Bool,
+        requestIfNeeded: Bool,
+        requestGranted: Bool
+    ) -> HotkeyInputMonitoringStatus {
+        HotkeyInputMonitoringStatus(granted: preflightGranted || (requestIfNeeded && requestGranted))
+    }
+}
+
 struct HotkeySettingsView: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
@@ -63,12 +308,115 @@ struct HotkeySettingsView: View {
     @State private var searchText: String = ""
     @State private var showsAdvancedHotkeys = false
     @State private var confirmsResetToDefaults = false
+    @State private var pendingPresetConfirmation: HotkeyPresetConfirmation?
+    @State private var inputMonitoringStatus = HotkeyInputMonitoringStatus(
+        granted: HotkeyCenter.sequenceEventAccessGranted()
+    )
 
     var body: some View {
         SettingsPage(
             subtitle: "Search commands, edit shortcuts, and review registration problems without leaving the settings window."
         ) {
             Section("Controls") {
+                LabeledContent("Advanced") {
+                    Toggle("Show Advanced", isOn: $showsAdvancedHotkeys)
+                        .toggleStyle(.switch)
+                }
+
+                if showsSequenceControls {
+                    LabeledContent("Leader Key") {
+                        HStack(spacing: 8) {
+                            if recordingTarget == .leader {
+                                KeyRecorderView(
+                                    accessibilityLabel: "Recording leader key",
+                                    hyperTrigger: settings.hyperTrigger,
+                                    onCapture: handleLeaderCaptured,
+                                    onCancel: cancelRecording
+                                )
+                                .frame(minWidth: 180, idealWidth: 210, minHeight: 34)
+                            } else {
+                                Button {
+                                    startLeaderRecording()
+                                } label: {
+                                    Text(HotkeySettingsDisplayModel.displayString(for: settings.effectiveLeaderKey))
+                                        .font(.system(.body, design: .monospaced))
+                                        .lineLimit(1)
+                                        .frame(minWidth: 112, alignment: .center)
+                                }
+                                .buttonStyle(.bordered)
+                                .help("Change leader key. Current leader: \(HotkeySettingsDisplayModel.humanReadableString(for: settings.effectiveLeaderKey))")
+                                .accessibilityLabel("Change leader key")
+                                .accessibilityValue(HotkeySettingsDisplayModel.humanReadableString(for: settings.effectiveLeaderKey))
+                            }
+                        }
+                    }
+
+                    LabeledContent("Sequence Timeout") {
+                        Stepper(value: $settings.sequenceTimeoutMilliseconds, in: 100 ... 3000, step: 100) {
+                            Text("\(settings.sequenceTimeoutMilliseconds) ms")
+                                .monospacedDigit()
+                        }
+                        .onChange(of: settings.sequenceTimeoutMilliseconds) { _, _ in
+                            controller.updateHotkeyBindings(settings.hotkeyBindings)
+                        }
+                    }
+                }
+
+                LabeledContent("OmniWM Modifier") {
+                    HStack(spacing: 8) {
+                        if recordingTarget == .hyperTrigger {
+                            HyperTriggerRecorderView(
+                                accessibilityLabel: "Recording OmniWM modifier",
+                                onCapture: handleHyperTriggerCaptured,
+                                onCancel: cancelRecording
+                            )
+                            .frame(minWidth: 180, idealWidth: 210, minHeight: 34)
+                        } else {
+                            Button {
+                                startHyperTriggerRecording()
+                            } label: {
+                                Text(settings.hyperTrigger.displayString)
+                                    .font(.system(.body, design: .monospaced))
+                                    .lineLimit(1)
+                                    .frame(minWidth: 112, alignment: .center)
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Change OmniWM modifier. Current OmniWM modifier: \(settings.hyperTrigger.humanReadableString)")
+                            .accessibilityLabel("Change OmniWM modifier")
+                            .accessibilityValue(settings.hyperTrigger.humanReadableString)
+                        }
+                    }
+                }
+
+                LabeledContent("Presets") {
+                    Menu("Apply Preset") {
+                        Button("Caps Lock as OmniWM Modifier") {
+                            pendingPresetConfirmation = .capsLockModifier
+                        }
+                        Button("Vim Navigation") {
+                            pendingPresetConfirmation = .vimNavigation
+                        }
+                    }
+                }
+
+                LabeledContent("Input Monitoring") {
+                    HStack(spacing: 10) {
+                        Text(inputMonitoringStatus.displayText)
+                            .foregroundStyle(inputMonitoringStatus == .granted ? Color.secondary : Color.orange)
+                        Button("Request Permission") {
+                            refreshInputMonitoringStatus(requestIfNeeded: true)
+                        }
+                    }
+                }
+
+                LabeledContent("Defaults") {
+                    Button("Reset to Defaults", role: .destructive) {
+                        confirmsResetToDefaults = true
+                    }
+                }
+            }
+
+            Section("Shortcuts") {
                 LabeledContent("Search") {
                     HStack(spacing: 8) {
                         TextField("Command, shortcut, or scope", text: $searchText)
@@ -89,103 +437,7 @@ struct HotkeySettingsView: View {
                     }
                 }
 
-                if showsSequenceControls {
-                    LabeledContent("Leader Key") {
-                        HStack(spacing: 8) {
-                            if recordingTarget == .leader {
-                                KeyRecorderView(
-                                    accessibilityLabel: "Recording leader key",
-                                    hyperTrigger: settings.hyperTrigger,
-                                    onCapture: handleLeaderCaptured,
-                                    onCancel: cancelRecording
-                                )
-                                .frame(minWidth: 180, idealWidth: 210, minHeight: 34)
-                            } else {
-                                Button {
-                                    startLeaderRecording()
-                                } label: {
-                                    Text(settings.effectiveLeaderKey.displayString)
-                                        .font(.system(.body, design: .monospaced))
-                                        .lineLimit(1)
-                                        .frame(minWidth: 112, alignment: .center)
-                                }
-                                .buttonStyle(.bordered)
-                                .help("Change leader key. Current leader: \(settings.effectiveLeaderKey.humanReadableString)")
-                                .accessibilityLabel("Change leader key")
-                                .accessibilityValue(settings.effectiveLeaderKey.humanReadableString)
-                            }
-                        }
-                    }
-
-                    LabeledContent("Sequence Timeout") {
-                        Stepper(value: $settings.sequenceTimeoutMilliseconds, in: 100 ... 3000, step: 100) {
-                            Text("\(settings.sequenceTimeoutMilliseconds) ms")
-                                .monospacedDigit()
-                        }
-                        .onChange(of: settings.sequenceTimeoutMilliseconds) { _, _ in
-                            controller.updateHotkeyBindings(settings.hotkeyBindings)
-                        }
-                    }
-                }
-
-                LabeledContent("Hyper Key") {
-                    HStack(spacing: 8) {
-                        if recordingTarget == .hyperTrigger {
-                            HyperTriggerRecorderView(
-                                accessibilityLabel: "Recording Hyper key",
-                                onCapture: handleHyperTriggerCaptured,
-                                onCancel: cancelRecording
-                            )
-                            .frame(minWidth: 180, idealWidth: 210, minHeight: 34)
-                        } else {
-                            Button {
-                                startHyperTriggerRecording()
-                            } label: {
-                                Text(settings.hyperTrigger.displayString)
-                                    .font(.system(.body, design: .monospaced))
-                                    .lineLimit(1)
-                                    .frame(minWidth: 112, alignment: .center)
-                            }
-                            .buttonStyle(.bordered)
-                            .help("Change Hyper key. Current Hyper key: \(settings.hyperTrigger.humanReadableString)")
-                            .accessibilityLabel("Change Hyper key")
-                            .accessibilityValue(settings.hyperTrigger.humanReadableString)
-                        }
-                    }
-                }
-
-                LabeledContent("Presets") {
-                    Menu("Apply Preset") {
-                        Button("Caps Lock as OmniWM Hyper Trigger") {
-                            applyCapsLockHyperPreset()
-                        }
-                        Button("Vim Navigation") {
-                            applyVimNavigationPreset()
-                        }
-                    }
-                }
-
-                LabeledContent("Input Monitoring") {
-                    Button("Request Permission") {
-                        HotkeyCenter.requestSequenceEventAccess()
-                        controller.updateHotkeyBindings(settings.hotkeyBindings, force: true)
-                    }
-                }
-
-                LabeledContent("Defaults") {
-                    Button("Reset to Defaults", role: .destructive) {
-                        confirmsResetToDefaults = true
-                    }
-                }
-
-                LabeledContent("Advanced") {
-                    Toggle("Show Advanced", isOn: $showsAdvancedHotkeys)
-                        .toggleStyle(.switch)
-                }
-            }
-
-            if !hasSearchMatches {
-                Section("Shortcuts") {
+                if !hasSearchMatches {
                     Text("No matching hotkeys.")
                         .foregroundStyle(.secondary)
                 }
@@ -217,6 +469,11 @@ struct HotkeySettingsView: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            inputMonitoringStatus = HotkeyInputMonitoringStatus(
+                granted: HotkeyCenter.sequenceEventAccessGranted()
+            )
         }
         .onChange(of: recordingTarget) { _, _ in
             syncHotkeyRecordingState()
@@ -276,11 +533,33 @@ struct HotkeySettingsView: View {
         } message: {
             Text("All hotkey bindings will be restored to OmniWM defaults.")
         }
+        .confirmationDialog(
+            pendingPresetConfirmation?.title ?? "Apply preset?",
+            isPresented: Binding(
+                get: { pendingPresetConfirmation != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingPresetConfirmation = nil
+                    }
+                }
+            )
+        ) {
+            if let pendingPresetConfirmation {
+                Button(pendingPresetConfirmation.confirmButtonTitle, role: .destructive) {
+                    applyConfirmedPreset(pendingPresetConfirmation)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingPresetConfirmation = nil
+            }
+        } message: {
+            Text(pendingPresetConfirmation?.preview(settings: settings).message ?? "")
+        }
     }
 
     private var hasSearchMatches: Bool {
         visibleHotkeyBindings.contains {
-            ActionCatalog.matchesSearch(searchText, binding: $0)
+            HotkeySettingsDisplayModel.matchesSearch(searchText, binding: $0)
         }
     }
 
@@ -289,27 +568,24 @@ struct HotkeySettingsView: View {
     }
 
     private var showsSequenceControls: Bool {
-        showsAdvancedHotkeys || isRecordingOrDrafting || settings.hotkeyBindings.contains { binding in
-            guard case .sequence = binding.binding else { return false }
-            return true
-        }
+        HotkeySettingsDisplayModel.showsSequenceControls(
+            showsAdvancedHotkeys: showsAdvancedHotkeys,
+            isRecordingOrDrafting: isRecordingOrDrafting,
+            bindings: settings.hotkeyBindings
+        )
     }
 
     private func actionsForCategory(_ category: HotkeyCategory) -> [HotkeyBinding] {
         visibleHotkeyBindings.filter { binding in
-            binding.category == category && ActionCatalog.matchesSearch(searchText, binding: binding)
+            binding.category == category && HotkeySettingsDisplayModel.matchesSearch(searchText, binding: binding)
         }
     }
 
     private func isVisible(_ binding: HotkeyBinding) -> Bool {
-        switch ActionCatalog.visibility(for: binding.id) ?? .normal {
-        case .normal:
-            return true
-        case .advanced:
-            return showsAdvancedHotkeys
-        case .hidden:
-            return false
-        }
+        HotkeySettingsDisplayModel.isVisible(
+            bindingId: binding.id,
+            showsAdvancedHotkeys: showsAdvancedHotkeys
+        )
     }
 
     private var isRecordingOrDrafting: Bool {
@@ -365,7 +641,7 @@ struct HotkeySettingsView: View {
         if settings.leaderKey(resolvedLeader, conflictsWith: settings.hyperTrigger) {
             noticeAlert = HotkeyNoticeAlert(
                 title: "Leader Key Conflict",
-                message: "The leader key cannot use the same physical key as the configured Hyper key. Use a Hyper chord with a different final key, or choose a different Hyper key."
+                message: "The leader key cannot use the same physical key as the configured OmniWM modifier. Use an OmniWM modifier chord with a different final key, or choose a different OmniWM modifier."
             )
             cancelRecording()
             return
@@ -388,8 +664,8 @@ struct HotkeySettingsView: View {
     private func handleHyperTriggerCaptured(_ newTrigger: HyperKeyTrigger) {
         if settings.leaderKey(settings.effectiveLeaderKey, conflictsWith: newTrigger) {
             noticeAlert = HotkeyNoticeAlert(
-                title: "Hyper Key Conflict",
-                message: "The Hyper key cannot use the same physical key as the leader key. Keep the leader on a different Hyper chord, or choose a different Hyper key."
+                title: "OmniWM Modifier Conflict",
+                message: "The OmniWM modifier cannot use the same physical key as the leader key. Keep the leader on a different OmniWM modifier chord, or choose a different OmniWM modifier."
             )
             cancelRecording()
             return
@@ -429,13 +705,41 @@ struct HotkeySettingsView: View {
         syncHotkeyRecordingState()
     }
 
+    @discardableResult
+    private func refreshInputMonitoringStatus(requestIfNeeded: Bool) -> Bool {
+        let preflightGranted = HotkeyCenter.sequenceEventAccessGranted()
+        let requestGranted: Bool
+        if preflightGranted || !requestIfNeeded {
+            requestGranted = false
+        } else {
+            requestGranted = HotkeyCenter.requestSequenceEventAccess()
+        }
+        let status = HotkeySettingsDisplayModel.inputMonitoringStatus(
+            preflightGranted: preflightGranted,
+            requestIfNeeded: requestIfNeeded,
+            requestGranted: requestGranted
+        )
+        inputMonitoringStatus = status
+        controller.updateHotkeyBindings(settings.hotkeyBindings, force: true)
+        return status == .granted
+    }
+
+    private func applyConfirmedPreset(_ preset: HotkeyPresetConfirmation) {
+        pendingPresetConfirmation = nil
+        switch preset {
+        case .capsLockModifier:
+            applyCapsLockHyperPreset()
+        case .vimNavigation:
+            applyVimNavigationPreset()
+        }
+    }
+
     private func applyCapsLockHyperPreset() {
-        let sequenceAccessGranted = HotkeyCenter.sequenceEventAccessGranted() ||
-            HotkeyCenter.requestSequenceEventAccess()
+        let sequenceAccessGranted = refreshInputMonitoringStatus(requestIfNeeded: true)
         guard sequenceAccessGranted else {
             noticeAlert = HotkeyNoticeAlert(
                 title: "Input Monitoring Required",
-                message: "Caps Lock as OmniWM Hyper trigger needs Input Monitoring permission. Grant permission, then apply the preset again."
+                message: "Caps Lock as OmniWM modifier needs Input Monitoring permission. Grant permission, then apply the preset again."
             )
             cancelRecording()
             return
@@ -454,7 +758,7 @@ struct HotkeySettingsView: View {
         guard conflictingCommands.isEmpty else {
             noticeAlert = HotkeyNoticeAlert(
                 title: "Caps Lock Conflict",
-                message: "Caps Lock is already used by \(conflictingCommands.joined(separator: ", ")). Clear those hotkeys or choose a different Hyper key before applying this preset."
+                message: "Caps Lock is already used by \(conflictingCommands.joined(separator: ", ")). Clear those hotkeys or choose a different OmniWM modifier before applying this preset."
             )
             cancelRecording()
             return
@@ -463,8 +767,8 @@ struct HotkeySettingsView: View {
         settings.applyCapsLockHyperPreset()
         controller.updateHotkeyBindings(settings.hotkeyBindings)
         noticeAlert = HotkeyNoticeAlert(
-            title: "Caps Lock Hyper Trigger Enabled",
-            message: "Caps Lock is now OmniWM's local Hyper trigger. OmniWM does not globally remap Caps Lock."
+            title: "Caps Lock OmniWM Modifier Enabled",
+            message: "Caps Lock is now OmniWM's local shortcut modifier. OmniWM does not globally remap Caps Lock."
         )
         cancelRecording()
     }
@@ -484,15 +788,19 @@ struct HotkeySettingsView: View {
 
         guard presetFailures.isEmpty else {
             if presetFailures.values.contains(.inputMonitoringDenied) {
-                noticeAlert = HotkeyNoticeAlert(
-                    title: "Input Monitoring Required",
-                    message: "Vim Navigation uses leader-key sequences, which need Input Monitoring. Grant permission, then apply the preset again."
-                )
-                HotkeyCenter.requestSequenceEventAccess()
+                if refreshInputMonitoringStatus(requestIfNeeded: true) {
+                    applyVimNavigationPreset()
+                    return
+                } else {
+                    noticeAlert = HotkeyNoticeAlert(
+                        title: "Input Monitoring Required",
+                        message: "Vim Navigation uses leader-key sequences, which need Input Monitoring. Grant permission, then apply the preset again."
+                    )
+                }
             } else {
                 noticeAlert = HotkeyNoticeAlert(
                     title: "Preset Conflict",
-                    message: "Vim Navigation cannot be applied with the current Hyper and leader keys. Keep the leader on a different Hyper chord, then try again."
+                    message: "Vim Navigation cannot be applied with the current OmniWM modifier and leader keys. Keep the leader on a different OmniWM modifier chord, then try again."
                 )
             }
             cancelRecording()
@@ -651,7 +959,7 @@ private struct HotkeyBindingRow: View {
 
     private var accessibilityValue: String {
         var parts = [
-            "Shortcut \(binding.binding.humanReadableString)",
+            "Shortcut \(HotkeySettingsDisplayModel.humanReadableString(for: binding.binding))",
             "Scope \(binding.command.layoutCompatibility.rawValue)"
         ]
         if let failureReason {
@@ -673,15 +981,15 @@ private struct HotkeyBindingRow: View {
         case .sequenceRootConflict:
             return "Failed to register: this sequence starts with a key used by another OmniWM command"
         case .hyperLeaderConflict:
-            return "Failed to register: this hotkey uses the same physical key as the configured Hyper key"
+            return "Failed to register: this hotkey uses the same physical key as the configured OmniWM modifier"
         case .unsupportedHyperModifiers:
-            return "Failed to register: Hyper cannot reuse its trigger modifier in the same binding"
+            return "Failed to register: OmniWM modifier cannot reuse its trigger modifier in the same binding"
         case .unsupportedSequenceHyperStep:
-            return "Failed to register: Hyper can only be used as the first sequence key"
+            return "Failed to register: OmniWM modifier can only be used as the first sequence key"
         case .inputMonitoringDenied:
             return "Failed to register: sequence hotkeys require Input Monitoring permission"
         case .eventTapUnavailable:
-            return "Failed to register: sequence or Hyper key capture is unavailable"
+            return "Failed to register: sequence or OmniWM modifier capture is unavailable"
         case .systemReserved:
             return "Failed to register: this key combination may be reserved by the system"
         }
@@ -731,7 +1039,7 @@ private struct HotkeyBindingControl: View {
             } else if let sequenceDraftSteps {
                 HStack(spacing: 6) {
                     ForEach(Array(sequenceDraftSteps.enumerated()), id: \.offset) { _, step in
-                        Text(step.displayString)
+                        Text(HotkeySettingsDisplayModel.displayString(for: step))
                             .font(.system(.body, design: .monospaced))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
@@ -773,15 +1081,15 @@ private struct HotkeyBindingControl: View {
                     Button {
                         onStartChordRecording()
                     } label: {
-                        Text(binding.displayString)
+                        Text(displayString)
                             .font(.system(.body, design: .monospaced))
                             .lineLimit(1)
                             .frame(minWidth: 112, alignment: .center)
                     }
                     .buttonStyle(.bordered)
-                    .help("Change hotkey for \(commandName). Current shortcut: \(binding.humanReadableString)")
+                    .help("Change hotkey for \(commandName). Current shortcut: \(humanReadableString)")
                     .accessibilityLabel("Change hotkey for \(commandName)")
-                    .accessibilityValue(binding.humanReadableString)
+                    .accessibilityValue(humanReadableString)
 
                     Menu {
                         Button("Record Chord") {
@@ -812,5 +1120,13 @@ private struct HotkeyBindingControl: View {
                 }
             }
         }
+    }
+
+    private var displayString: String {
+        HotkeySettingsDisplayModel.displayString(for: binding)
+    }
+
+    private var humanReadableString: String {
+        HotkeySettingsDisplayModel.humanReadableString(for: binding)
     }
 }

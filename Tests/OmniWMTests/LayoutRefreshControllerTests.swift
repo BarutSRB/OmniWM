@@ -131,47 +131,138 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == token)
     }
 
-    @Test @MainActor func executeLayoutPlanShowsResizePlaceholderInsteadOfApplyingTooSmallFrame() {
-        let controller = makeLayoutPlanTestController()
-        guard let monitor = controller.workspaceManager.monitors.first,
-              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
-        else {
-            Issue.record("Missing monitor or active workspace for resize placeholder executor test")
-            return
+    @Test @MainActor func executeLayoutPlanShowsResizePlaceholderInsteadOfApplyingTooSmallFrame() async {
+        await withAXFrameProviderIsolationForTests {
+            let controller = makeLayoutPlanTestController()
+            guard let monitor = controller.workspaceManager.monitors.first,
+                  let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+            else {
+                Issue.record("Missing monitor or active workspace for resize placeholder executor test")
+                return
+            }
+
+            let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 112)
+            let liveFrame = CGRect(x: 0, y: 0, width: 640, height: 480)
+            controller.axManager.applyFramesParallel([(token.pid, token.windowId, liveFrame)])
+            var parkedFrames: [CGRect] = []
+            AXWindowService.fastFrameProviderForTests = { window in
+                window.windowId == token.windowId ? liveFrame : fallbackFastFrameForTests(window)
+            }
+            AXWindowService.setFrameResultProviderForTests = { _, frame, currentFrameHint in
+                parkedFrames.append(frame)
+                return layoutRefreshControllerTestWriteResult(
+                    targetFrame: frame,
+                    currentFrameHint: currentFrameHint,
+                    observedFrame: frame,
+                    failureReason: nil
+                )
+            }
+            defer {
+                AXWindowService.fastFrameProviderForTests = nil
+                AXWindowService.setFrameResultProviderForTests = nil
+            }
+
+            let frame = CGRect(x: 24, y: 32, width: 220, height: 180)
+            let minimumSize = CGSize(width: 420, height: 320)
+            var diff = WorkspaceLayoutDiff()
+            diff.resizePlaceholders = [
+                ResizePlaceholderChange(
+                    token: token,
+                    frame: frame,
+                    minimumSize: minimumSize,
+                    selected: true
+                )
+            ]
+            diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
+
+            controller.layoutRefreshController.executeLayoutPlan(
+                WorkspaceLayoutPlan(
+                    workspaceId: workspaceId,
+                    monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
+                    sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
+                    diff: diff
+                )
+            )
+
+            let snapshot = controller.resizePlaceholderManager.snapshotForTests()[token]
+            #expect(snapshot?.frame == frame)
+            #expect(snapshot?.selected == true)
+            #expect(controller.workspaceManager.resizePlaceholderState(for: token)?.minimumSize == minimumSize)
+            #expect(controller.workspaceManager.resizePlaceholderState(for: token)?.frame == frame)
+            guard let parkedFrame = parkedFrames.last else {
+                Issue.record("Expected resize placeholder parking frame")
+                return
+            }
+            #expect(parkedFrame.size == liveFrame.size)
+            #expect(parkedFrame.minX >= monitor.frame.maxX)
+            let overlap = parkedFrame.intersection(monitor.frame)
+            #expect(overlap.isNull || overlap.width * overlap.height == 0)
         }
+    }
 
-        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 112)
-        let liveFrame = CGRect(x: 0, y: 0, width: 640, height: 480)
-        controller.axManager.applyFramesParallel([(token.pid, token.windowId, liveFrame)])
+    @Test @MainActor func executeLayoutPlanReparksExistingResizePlaceholder() async {
+        await withAXFrameProviderIsolationForTests {
+            let controller = makeLayoutPlanTestController()
+            guard let monitor = controller.workspaceManager.monitors.first,
+                  let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+            else {
+                Issue.record("Missing monitor or active workspace for resize placeholder repark test")
+                return
+            }
 
-        let frame = CGRect(x: 24, y: 32, width: 220, height: 180)
-        let minimumSize = CGSize(width: 420, height: 320)
-        var diff = WorkspaceLayoutDiff()
-        diff.resizePlaceholders = [
-            ResizePlaceholderChange(
-                token: token,
-                frame: frame,
-                minimumSize: minimumSize,
-                selected: true
+            let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 116)
+            let liveFrame = CGRect(x: 0, y: 0, width: 640, height: 480)
+            controller.axManager.applyFramesParallel([(token.pid, token.windowId, liveFrame)])
+            controller.workspaceManager.setResizePlaceholderState(
+                ResizePlaceholderState(
+                    workspaceId: workspaceId,
+                    frame: CGRect(x: 24, y: 32, width: 220, height: 180),
+                    minimumSize: CGSize(width: 420, height: 320)
+                ),
+                for: token
             )
-        ]
-        diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
+            var parkedFrames: [CGRect] = []
+            AXWindowService.fastFrameProviderForTests = { window in
+                window.windowId == token.windowId ? liveFrame : fallbackFastFrameForTests(window)
+            }
+            AXWindowService.setFrameResultProviderForTests = { _, frame, currentFrameHint in
+                parkedFrames.append(frame)
+                return layoutRefreshControllerTestWriteResult(
+                    targetFrame: frame,
+                    currentFrameHint: currentFrameHint,
+                    observedFrame: frame,
+                    failureReason: nil
+                )
+            }
+            defer {
+                AXWindowService.fastFrameProviderForTests = nil
+                AXWindowService.setFrameResultProviderForTests = nil
+            }
 
-        controller.layoutRefreshController.executeLayoutPlan(
-            WorkspaceLayoutPlan(
-                workspaceId: workspaceId,
-                monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
-                sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
-                diff: diff
+            var diff = WorkspaceLayoutDiff()
+            diff.resizePlaceholders = [
+                ResizePlaceholderChange(
+                    token: token,
+                    frame: CGRect(x: 80, y: 96, width: 260, height: 210),
+                    minimumSize: CGSize(width: 460, height: 340),
+                    selected: false
+                )
+            ]
+
+            controller.layoutRefreshController.executeLayoutPlan(
+                WorkspaceLayoutPlan(
+                    workspaceId: workspaceId,
+                    monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
+                    sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
+                    diff: diff
+                )
             )
-        )
 
-        let snapshot = controller.resizePlaceholderManager.snapshotForTests()[token]
-        #expect(snapshot?.frame == frame)
-        #expect(snapshot?.selected == true)
-        #expect(controller.workspaceManager.resizePlaceholderState(for: token)?.minimumSize == minimumSize)
-        #expect(controller.workspaceManager.resizePlaceholderState(for: token)?.frame == frame)
-        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == nil)
+            #expect(parkedFrames.count == 1)
+            #expect(parkedFrames.last?.minX == monitor.frame.maxX)
+            #expect(controller.workspaceManager.resizePlaceholderState(for: token)?.frame == diff.resizePlaceholders[0].frame)
+            #expect(controller.workspaceManager.resizePlaceholderState(for: token)?.minimumSize == diff.resizePlaceholders[0].minimumSize)
+        }
     }
 
     @Test @MainActor func executeLayoutPlanRestoresRealWindowWhenResizePlaceholderFrameIsAllowed() {

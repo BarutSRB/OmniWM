@@ -82,7 +82,16 @@ extension NiriLayoutEngine {
 
     func updateWindowConstraints(for token: WindowToken, constraints: WindowSizeConstraints) {
         guard let node = tokenToNode[token] else { return }
-        node.constraints = constraints.normalized()
+        let normalized = constraints.normalized()
+        guard node.constraints != normalized else { return }
+        node.constraints = normalized
+        if let column = node.parent as? NiriContainer, column.cachedWidth > 0 {
+            let bounds = column.widthBounds()
+            column.cachedWidth = max(column.cachedWidth, bounds.min)
+            if let maxWidth = bounds.max {
+                column.cachedWidth = min(column.cachedWidth, maxWidth)
+            }
+        }
     }
 
     func addWindow(

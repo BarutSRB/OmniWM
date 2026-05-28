@@ -28,6 +28,30 @@ private func makeGestureTouchSamples(
 }
 
 @MainActor
+private func sendCommittingTrackpadGesture(
+    to handler: MouseEventHandler,
+    at location: CGPoint
+) {
+    let baseTime = CACurrentMediaTime()
+    handler.receiveTapGestureEvent(
+        .init(
+            location: location,
+            phaseRawValue: NSEvent.Phase.began.rawValue,
+            timestamp: baseTime,
+            touches: makeGestureTouchSamples(xPositions: [0.20, 0.25, 0.30])
+        )
+    )
+    handler.receiveTapGestureEvent(
+        .init(
+            location: location,
+            phaseRawValue: NSEvent.Phase.changed.rawValue,
+            timestamp: baseTime + 0.016,
+            touches: makeGestureTouchSamples(xPositions: [0.60, 0.65, 0.70])
+        )
+    )
+}
+
+@MainActor
 private func makeOwnedUtilityTestWindow(
     frame: CGRect = CGRect(x: 40, y: 40, width: 240, height: 180)
 ) -> NSWindow {
@@ -38,14 +62,27 @@ private func makeOwnedUtilityTestWindow(
         defer: false
     )
     window.isReleasedWhenClosed = false
-    window.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    window.orderFrontRegardless()
     return window
 }
 
 @MainActor
+private func makeOwnedMouseWindowRegistry(frontmostWindow: @escaping () -> NSWindow?) -> OwnedWindowRegistry {
+    OwnedWindowRegistry(
+        surfaceCoordinator: SurfaceCoordinator(
+            scene: SurfaceScene(
+                frontmostInteractiveResolver: SurfaceFrontmostInteractiveResolver { window in
+                    frontmostWindow().map { window === $0 } ?? false
+                }
+            )
+        )
+    )
+}
+
+@MainActor
 private func makeMouseEventTestController(
-    workspaceConfigurations: [WorkspaceConfiguration]? = nil
+    workspaceConfigurations: [WorkspaceConfiguration]? = nil,
+    ownedWindowRegistry: OwnedWindowRegistry = .shared
 ) -> WMController {
     let operations = WindowFocusOperations(
         activateApp: { _ in },
@@ -56,7 +93,11 @@ private func makeMouseEventTestController(
     if let workspaceConfigurations {
         settings.workspaceConfigurations = workspaceConfigurations
     }
-    let controller = WMController(settings: settings, windowFocusOperations: operations)
+    let controller = WMController(
+        settings: settings,
+        windowFocusOperations: operations,
+        ownedWindowRegistry: ownedWindowRegistry
+    )
     controller.lockScreenObserver.frontmostApplicationProvider = { nil }
     let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
     let monitor = Monitor(
@@ -73,7 +114,8 @@ private func makeMouseEventTestController(
 
 @MainActor
 private func prepareMouseResizeFixture(
-    constraints: WindowSizeConstraints = .unconstrained
+    constraints: WindowSizeConstraints = .unconstrained,
+    ownedWindowRegistry: OwnedWindowRegistry = .shared
 ) async -> (
     controller: WMController,
     handler: MouseEventHandler,
@@ -83,7 +125,7 @@ private func prepareMouseResizeFixture(
     nodeFrame: CGRect,
     location: CGPoint
 ) {
-    let controller = makeMouseEventTestController()
+    let controller = makeMouseEventTestController(ownedWindowRegistry: ownedWindowRegistry)
     controller.enableNiriLayout()
     await controller.layoutRefreshController.waitForRefreshWorkForTests()
     controller.syncMonitorsToNiriEngine()
@@ -228,13 +270,15 @@ private func populateNiriWorkspaceForMouseTests(
 }
 
 @MainActor
-private func prepareMouseWheelScrollFixture() async -> (
+private func prepareMouseWheelScrollFixture(
+    ownedWindowRegistry: OwnedWindowRegistry = .shared
+) async -> (
     controller: WMController,
     handler: MouseEventHandler,
     workspaceId: WorkspaceDescriptor.ID,
     location: CGPoint
 ) {
-    let controller = makeMouseEventTestController()
+    let controller = makeMouseEventTestController(ownedWindowRegistry: ownedWindowRegistry)
     controller.settings.scrollGestureEnabled = true
     controller.settings.scrollSensitivity = 1.0
     let frame = CGRect(x: 0, y: 0, width: 640, height: 800)
@@ -1870,12 +1914,13 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
     }
 
     @Test @MainActor func ownedWindowMouseDownDropsQueuedTapEventsInsteadOfFlushingThem() {
-        let controller = makeMouseEventTestController()
+        var frontmostWindow: NSWindow?
+        let registry = makeOwnedMouseWindowRegistry { frontmostWindow }
+        let controller = makeMouseEventTestController(ownedWindowRegistry: registry)
         let handler = controller.mouseEventHandler
         let window = makeOwnedUtilityTestWindow()
-        let registry = OwnedWindowRegistry.shared
 
-        registry.resetForTests()
+        frontmostWindow = window
         registry.register(window)
         defer {
             registry.unregister(window)
@@ -1886,6 +1931,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         handler.resetDebugStateForTests()
         handler.receiveTapMouseMoved(at: CGPoint(x: 10, y: 10))
         #expect(handler.state.pendingTapEvents.hasPendingEvents)
+        #expect(registry.contains(point: CGPoint(x: 80, y: 80)))
 
         handler.receiveTapMouseDown(at: CGPoint(x: 80, y: 80), modifiers: [])
 
@@ -1896,8 +1942,109 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         #expect(handler.state.pendingTapEvents.hasPendingEvents == false)
     }
 
-    @Test @MainActor func ownedWindowDragCancelsActiveNiriMoveAndResize() async {
+    @Test @MainActor func visibleNonFrontmostUtilityWindowDoesNotAbortTrackpadGesture() async {
+        var frontmostWindow: NSWindow?
+        let registry = makeOwnedMouseWindowRegistry { frontmostWindow }
+        let fixture = await prepareMouseWheelScrollFixture(ownedWindowRegistry: registry)
+        let window = NSWindow(
+            contentRect: CGRect(x: fixture.location.x - 40, y: fixture.location.y - 40, width: 80, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        let frontWindow = makeOwnedUtilityTestWindow(
+            frame: CGRect(x: fixture.location.x - 50, y: fixture.location.y - 50, width: 100, height: 100)
+        )
+        frontmostWindow = frontWindow
+        registry.register(window)
+        defer {
+            registry.unregister(window)
+            window.close()
+            frontWindow.close()
+            registry.resetForTests()
+        }
+
+        #expect(window.isVisible)
+        #expect(registry.contains(point: fixture.location) == false)
+        sendCommittingTrackpadGesture(to: fixture.handler, at: fixture.location)
+
+        #expect(fixture.handler.state.gesturePhase == .committed)
+    }
+
+    @Test @MainActor func frontmostUtilityWindowStillBlocksTrackpadGesture() async {
+        var frontmostWindow: NSWindow?
+        let registry = makeOwnedMouseWindowRegistry { frontmostWindow }
+        let fixture = await prepareMouseWheelScrollFixture(ownedWindowRegistry: registry)
+        let window = makeOwnedUtilityTestWindow(
+            frame: CGRect(x: fixture.location.x - 40, y: fixture.location.y - 40, width: 80, height: 80)
+        )
+        frontmostWindow = window
+        registry.register(window)
+        defer {
+            registry.unregister(window)
+            window.close()
+            registry.resetForTests()
+        }
+
+        #expect(registry.contains(point: fixture.location))
+        sendCommittingTrackpadGesture(to: fixture.handler, at: fixture.location)
+
+        #expect(fixture.handler.state.gesturePhase == .idle)
+    }
+
+    @Test @MainActor func resizePlaceholderStillBlocksTrackpadGesture() async {
         let fixture = await prepareMouseResizeFixture()
+        let registry = OwnedWindowRegistry.shared
+        let surfaceId = "resize-placeholder-gesture-test-\(fixture.handle.id.windowId)"
+        registry.resetForTests()
+        registry.registerWindowNumber(
+            surfaceId: surfaceId,
+            kind: .resizePlaceholder,
+            windowNumber: 98_902,
+            frameProvider: { fixture.nodeFrame },
+            visibilityProvider: { true },
+            hitTestPolicy: .interactive,
+            capturePolicy: .excluded,
+            suppressesManagedFocusRecovery: false
+        )
+        fixture.controller.workspaceManager.setResizePlaceholderState(
+            ResizePlaceholderState(
+                workspaceId: fixture.workspaceId,
+                frame: fixture.nodeFrame,
+                minimumSize: CGSize(width: fixture.nodeFrame.width + 200, height: fixture.nodeFrame.height + 100)
+            ),
+            for: fixture.handle.id
+        )
+        fixture.controller.resizePlaceholderManager.update(
+            ResizePlaceholderUpdate(
+                token: fixture.handle.id,
+                workspaceId: fixture.workspaceId,
+                frame: fixture.nodeFrame,
+                selected: true,
+                appName: nil,
+                icon: nil
+            )
+        )
+        defer {
+            registry.unregister(surfaceId: surfaceId)
+            fixture.controller.resizePlaceholderManager.removeAll()
+            registry.resetForTests()
+        }
+
+        sendCommittingTrackpadGesture(
+            to: fixture.handler,
+            at: CGPoint(x: fixture.nodeFrame.midX, y: fixture.nodeFrame.midY)
+        )
+
+        #expect(fixture.handler.state.gesturePhase == .idle)
+    }
+
+    @Test @MainActor func ownedWindowDragCancelsActiveNiriMoveAndResize() async {
+        var frontmostWindow: NSWindow?
+        let registry = makeOwnedMouseWindowRegistry { frontmostWindow }
+        let fixture = await prepareMouseResizeFixture(ownedWindowRegistry: registry)
         guard let engine = fixture.controller.niriEngine,
               let monitor = fixture.controller.workspaceManager.monitor(for: fixture.workspaceId)
         else {
@@ -1908,8 +2055,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         let ownedWindow = makeOwnedUtilityTestWindow(
             frame: CGRect(x: fixture.location.x - 40, y: fixture.location.y - 40, width: 80, height: 80)
         )
-        let registry = OwnedWindowRegistry.shared
-        registry.resetForTests()
+        frontmostWindow = ownedWindow
         registry.register(ownedWindow)
         defer {
             registry.unregister(ownedWindow)

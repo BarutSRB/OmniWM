@@ -184,7 +184,7 @@ final class WMController {
     @ObservationIgnored
     private(set) var isMouseWarpPolicyEnabled = false
     @ObservationIgnored
-    private let ownedWindowRegistry = OwnedWindowRegistry.shared
+    private let ownedWindowRegistry: OwnedWindowRegistry
     @ObservationIgnored
     private(set) var workspaceBarRefreshDebugState = WorkspaceBarRefreshDebugState()
     @ObservationIgnored
@@ -204,13 +204,15 @@ final class WMController {
         settings: SettingsStore,
         hiddenBarController: HiddenBarController? = nil,
         clipboardHistoryDirectory: URL = OmniWMStoragePaths.live.stateDirectory,
-        windowFocusOperations: WindowFocusOperations = .live
+        windowFocusOperations: WindowFocusOperations = .live,
+        ownedWindowRegistry: OwnedWindowRegistry = .shared
     ) {
         self.settings = settings
         motionPolicy = MotionPolicy(animationsEnabled: settings.animationsEnabled)
         self.hiddenBarController = hiddenBarController ?? HiddenBarController(settings: settings)
         self.clipboardHistoryDirectory = clipboardHistoryDirectory
         self.windowFocusOperations = windowFocusOperations
+        self.ownedWindowRegistry = ownedWindowRegistry
         workspaceManager = WorkspaceManager(settings: settings)
         focusBridge = FocusBridgeCoordinator()
         focusPolicyEngine = FocusPolicyEngine()

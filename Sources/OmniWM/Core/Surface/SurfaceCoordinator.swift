@@ -5,7 +5,11 @@ import Foundation
 final class SurfaceCoordinator {
     static let shared = SurfaceCoordinator()
 
-    private let scene = SurfaceScene()
+    private let scene: SurfaceScene
+
+    init(scene: SurfaceScene = SurfaceScene()) {
+        self.scene = scene
+    }
 
     func register(
         window: NSWindow,

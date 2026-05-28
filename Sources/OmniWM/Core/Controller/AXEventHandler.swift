@@ -1345,6 +1345,17 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
+        if admitFocusedWindowBeforeNonManagedFallback(
+            token: token,
+            axRef: axRef,
+            source: source,
+            origin: origin,
+            requestDisposition: requestDisposition,
+            appFullscreen: appFullscreen
+        ) {
+            return
+        }
+
         switch requestDisposition {
         case let .matchesActiveRequest(request),
              let .conflictsWithPendingRequest(request):
@@ -1384,6 +1395,97 @@ final class AXEventHandler: CGSEventDelegate {
                 )
             )
         )
+    }
+
+    private func admitFocusedWindowBeforeNonManagedFallback(
+        token: WindowToken,
+        axRef: AXWindowRef,
+        source: ActivationEventSource,
+        origin: ActivationCallOrigin,
+        requestDisposition: ActivationRequestDisposition,
+        appFullscreen: Bool
+    ) -> Bool {
+        guard let controller,
+              let windowId = UInt32(exactly: token.windowId)
+        else {
+            return false
+        }
+
+        let windowInfo = resolveWindowInfo(windowId)
+        guard let candidate = prepareCreateCandidate(
+            windowId: windowId,
+            windowInfo: windowInfo,
+            fallbackToken: token,
+            fallbackAXRef: axRef,
+            createPlacementContext: createPlacementContextsByWindowId[windowId]
+        ) else {
+            if let windowInfo {
+                _ = scheduleCreatedWindowRetryIfNeeded(
+                    windowId: windowId,
+                    pid: pid_t(windowInfo.pid)
+                )
+                scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(pid_t(windowInfo.pid))])
+            } else {
+                _ = scheduleCreatedWindowInfoRetryIfNeeded(windowId: windowId)
+            }
+            return false
+        }
+        guard candidate.token == token else { return false }
+
+        cancelCreatedWindowRetry(windowId: windowId)
+        if shouldDelayManagedReplacementCreate(candidate) {
+            enqueueManagedReplacementCreate(candidate)
+            return true
+        }
+
+        trackPreparedCreate(candidate)
+        guard let entry = controller.workspaceManager.entry(for: candidate.token) else {
+            return true
+        }
+
+        let targetMonitor = controller.workspaceManager.monitor(for: entry.workspaceId)
+        let isWorkspaceActive = targetMonitor.map { monitor in
+            controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == entry.workspaceId
+        } ?? false
+
+        switch requestDisposition {
+        case .matchesActiveRequest:
+            break
+        case let .conflictsWithPendingRequest(request):
+            if shouldHonorObservedFocusOverPendingRequest(
+                source: source,
+                origin: origin
+            ) {
+                clearManagedFocusState(
+                    matching: request.token,
+                    workspaceId: request.workspaceId
+                )
+                break
+            }
+            continueManagedFocusRequest(
+                request,
+                source: source,
+                origin: origin,
+                reason: .pendingFocusUnmanagedToken
+            )
+            return true
+        case .unrelatedNoRequest:
+            guard shouldHandleObservedManagedActivationWithoutPendingRequest(
+                source: source,
+                origin: origin,
+                isWorkspaceActive: isWorkspaceActive
+            ) else { return true }
+        }
+
+        handleManagedAppActivation(
+            entry: entry,
+            isWorkspaceActive: isWorkspaceActive,
+            appFullscreen: appFullscreen,
+            source: source,
+            confirmRequest: true,
+            origin: origin
+        )
+        return true
     }
 
     func handleManagedAppActivation(
@@ -1966,11 +2068,16 @@ final class AXEventHandler: CGSEventDelegate {
     private func prepareCreateCandidate(
         windowId: UInt32,
         windowInfo: WindowServerInfo?,
+        fallbackToken: WindowToken? = nil,
+        fallbackAXRef: AXWindowRef? = nil,
         createPlacementContext: WindowCreatePlacementContext? = nil
     ) -> PreparedCreate? {
         guard let controller else { return nil }
         let ownedWindow = controller.isOwnedWindow(windowNumber: Int(windowId))
-        guard let token = windowInfo.map({ WindowToken(pid: pid_t($0.pid), windowId: Int(windowId)) })
+        let windowInfoToken = windowInfo.map { WindowToken(pid: pid_t($0.pid), windowId: Int(windowId)) }
+        let token = fallbackToken ?? windowInfoToken
+        guard let token,
+              token.windowId == Int(windowId)
         else { return nil }
         if controller.workspaceManager.entry(for: token) != nil { return nil }
         if ownedWindow {
@@ -1978,16 +2085,20 @@ final class AXEventHandler: CGSEventDelegate {
             return nil
         }
 
-        guard let axRef = resolveAXWindowRef(windowId: windowId, pid: token.pid) else { return nil }
+        guard let axRef = fallbackAXRef?.windowId == Int(windowId)
+            ? fallbackAXRef
+            : resolveAXWindowRef(windowId: windowId, pid: token.pid)
+        else { return nil }
 
         let app = NSRunningApplication(processIdentifier: token.pid)
         let bundleId = resolveBundleId(token.pid) ?? app?.bundleIdentifier
         let appFullscreen = isFullscreenProvider?(axRef) ?? AXWindowService.isFullscreen(axRef)
+        let matchingWindowInfo = windowInfo.flatMap { pid_t($0.pid) == token.pid ? $0 : nil }
         let evaluation = controller.evaluateWindowDisposition(
             axRef: axRef,
             pid: token.pid,
             appFullscreen: appFullscreen,
-            windowInfo: windowInfo
+            windowInfo: matchingWindowInfo
         )
 
         let trackedMode = controller.trackedModeForLifecycle(
@@ -2013,7 +2124,7 @@ final class AXEventHandler: CGSEventDelegate {
             facts: evaluation.facts
         )
         let inheritTrackedParentWorkspace = controller.shouldInheritTrackedParentWorkspace(for: evaluation)
-        let placementFrame = evaluation.facts.windowServer?.frame ?? windowInfo?.frame
+        let placementFrame = evaluation.facts.windowServer?.frame ?? matchingWindowInfo?.frame
         let workspaceId = controller.resolveWorkspaceForNewWindow(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,

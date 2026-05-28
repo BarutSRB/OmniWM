@@ -4097,6 +4097,46 @@ private func makeCenteredCrossMonitorFixture(
         #expect(!plan.diff.frameChanges.contains { $0.token == token })
     }
 
+    @Test @MainActor func fittingMinimumWidthUsesRealSpanForNiriColumnPlacement() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Niri fitting minimum test")
+            return
+        }
+
+        controller.enableNiriLayout()
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+        controller.niriEngine?.presetColumnWidths = [.proportion(0.5), .proportion(0.5)]
+
+        let constrainedToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 3905)
+        let nextToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 3906)
+        _ = controller.workspaceManager.setManagedFocus(constrainedToken, in: workspaceId, onMonitor: monitor.id)
+        let constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 1200, height: 500),
+            maxSize: CGSize(width: 5000, height: 5000),
+            isFixed: false
+        )
+        controller.workspaceManager.setCachedConstraints(constraints, for: constrainedToken)
+
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        guard let plan = plans.first,
+              let constrainedFrame = plan.diff.frameChanges.first(where: { $0.token == constrainedToken })?.frame,
+              let nextFrame = plan.diff.frameChanges.first(where: { $0.token == nextToken })?.frame
+        else {
+            Issue.record("Expected Niri frames for fitting minimum test")
+            return
+        }
+
+        #expect(!plan.diff.resizePlaceholders.contains { $0.token == constrainedToken })
+        #expect(constrainedFrame.width >= constraints.minSize.width - 0.5)
+        #expect(nextFrame.minX >= constrainedFrame.maxX - 0.5)
+    }
+
     @Test @MainActor func activatingResizePlaceholderSelectsNiriNodeForCommands() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

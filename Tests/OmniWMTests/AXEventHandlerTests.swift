@@ -10423,6 +10423,282 @@ private func waitUntilAXEventTest(
         #expect(controller.workspaceManager.focusedToken == nil)
     }
 
+    @Test @MainActor func focusedUntrackedStandardWindowIsAdmittedBeforeNonManagedFallback() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+        let managedToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 9153),
+            pid: 9_153,
+            windowId: 9153,
+            to: workspaceId
+        )
+        let admittedPid: pid_t = 9_154
+        let admittedWindowId: UInt32 = 9155
+        let admittedToken = WindowToken(pid: admittedPid, windowId: Int(admittedWindowId))
+        let admittedFrame = CGRect(x: 80, y: 90, width: 900, height: 620)
+        let admittedInfo = makeAXEventWindowInfo(
+            id: admittedWindowId,
+            pid: admittedPid,
+            title: "Focused untracked window",
+            frame: admittedFrame
+        )
+        var subscribedWindows: [UInt32] = []
+        var relayoutReasons: [RefreshReason] = []
+
+        controller.hasStartedServices = true
+        _ = controller.workspaceManager.setManagedFocus(
+            managedToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return false
+        }
+        controller.axEventHandler.windowSubscriptionHandler = { windowIds in
+            subscribedWindows.append(contentsOf: windowIds)
+        }
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            windowId == admittedWindowId ? admittedInfo : nil
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, pid in
+            guard windowId == admittedWindowId, pid == admittedPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == admittedPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(admittedWindowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            guard axRef.windowId == Int(admittedWindowId) else {
+                return makeAXEventWindowRuleFacts()
+            }
+            return makeAXEventWindowRuleFacts(
+                bundleId: "com.example.activation-admission",
+                title: "Focused untracked window",
+                windowServer: admittedInfo
+            )
+        }
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        defer {
+            controller.axEventHandler.resetDebugStateForTests()
+            controller.layoutRefreshController.resetDebugState()
+        }
+
+        controller.axEventHandler.handleAppActivation(
+            pid: admittedPid,
+            source: .workspaceDidActivateApplication
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        let trace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.entry(for: admittedToken) != nil)
+        #expect(controller.workspaceManager.focusedToken == admittedToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == nil)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
+        #expect(subscribedWindows.contains(admittedWindowId))
+        #expect(relayoutReasons.contains(.axWindowCreated))
+        #expect(trace.contains { event in
+            if case let .candidateTracked(token, tracedWorkspaceId) = event.kind {
+                return token == admittedToken && tracedWorkspaceId == workspaceId
+            }
+            return false
+        })
+        #expect(trace.contains { event in
+            if case let .focusConfirmed(token, tracedWorkspaceId, source) = event.kind {
+                return token == admittedToken &&
+                    tracedWorkspaceId == workspaceId &&
+                    source == .workspaceDidActivateApplication
+            }
+            return false
+        })
+        #expect(!trace.contains { event in
+            if case let .nonManagedFallbackEntered(pid, source) = event.kind {
+                return pid == admittedPid && source == .workspaceDidActivateApplication
+            }
+            return false
+        })
+    }
+
+    @Test @MainActor func focusedUntrackedStandardWindowAdmissionUsesCapturedCreatePlacementContext() async {
+        let controller = makeAXEventTestController()
+        guard let monitor = controller.monitorForInteraction(),
+              let focusedWorkspaceId = controller.activeWorkspace()?.id,
+              let laterWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
+            Issue.record("Missing workspace fixture")
+            return
+        }
+
+        let focusedToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 9163),
+            pid: 9_163,
+            windowId: 9163,
+            to: focusedWorkspaceId
+        )
+        let admittedPid: pid_t = 9_164
+        let admittedWindowId: UInt32 = 9165
+        let admittedToken = WindowToken(pid: admittedPid, windowId: Int(admittedWindowId))
+        let admittedInfo = makeAXEventWindowInfo(
+            id: admittedWindowId,
+            pid: admittedPid,
+            title: "Focused admission with captured placement",
+            frame: CGRect(x: 120, y: 120, width: 900, height: 640)
+        )
+
+        controller.hasStartedServices = true
+        _ = controller.workspaceManager.setManagedFocus(
+            focusedToken,
+            in: focusedWorkspaceId,
+            onMonitor: monitor.id
+        )
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            windowId == admittedWindowId ? admittedInfo : nil
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, pid in
+            guard windowId == admittedWindowId, pid == admittedPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == admittedPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(admittedWindowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            guard axRef.windowId == Int(admittedWindowId) else {
+                return makeAXEventWindowRuleFacts()
+            }
+            return makeAXEventWindowRuleFacts(
+                bundleId: "com.example.activation-placement",
+                title: "Focused admission with captured placement",
+                windowServer: admittedInfo
+            )
+        }
+        controller.axEventHandler.spaceDisplayResolver = { spaceId, _ in
+            spaceId == 31 ? monitor.displayId : nil
+        }
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        defer {
+            controller.axEventHandler.resetDebugStateForTests()
+            controller.layoutRefreshController.resetDebugState()
+        }
+
+        controller.layoutRefreshController.layoutState.isFullEnumerationInProgress = true
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: admittedWindowId, spaceId: 31)
+        )
+        controller.layoutRefreshController.layoutState.isFullEnumerationInProgress = false
+        #expect(controller.axEventHandler.pendingCreatePlacementContext(for: Int(admittedWindowId)) != nil)
+
+        #expect(controller.workspaceManager.setActiveWorkspace(laterWorkspaceId, on: monitor.id))
+        #expect(controller.activeWorkspace()?.id == laterWorkspaceId)
+        controller.axEventHandler.handleAppActivation(
+            pid: admittedPid,
+            source: .workspaceDidActivateApplication
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        await controller.axEventHandler.drainDeferredCreatedWindows()
+
+        let trace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.entry(for: admittedToken)?.workspaceId == focusedWorkspaceId)
+        #expect(controller.workspaceManager.focusedToken == admittedToken)
+        #expect(controller.axEventHandler.pendingCreatePlacementContext(for: Int(admittedWindowId)) == nil)
+        #expect(trace.contains { event in
+            if case let .createPlacementResolved(
+                token,
+                workspaceId,
+                pendingWorkspaceId,
+                _,
+                contextFocusedWorkspaceId,
+                contextFocusedMonitorId,
+                nativeSpaceMonitorId,
+                _,
+                _
+            ) = event.kind {
+                return token == admittedToken &&
+                    workspaceId == focusedWorkspaceId &&
+                    pendingWorkspaceId == nil &&
+                    contextFocusedWorkspaceId == focusedWorkspaceId &&
+                    contextFocusedMonitorId == monitor.id &&
+                    nativeSpaceMonitorId == monitor.id
+            }
+            return false
+        })
+    }
+
+    @Test @MainActor func focusedUntrackedStandardWindowAdmissionUsesFocusedAXRefWhenWindowInfoIsUnavailable() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let admittedPid: pid_t = 9_166
+        let admittedWindowId = 9167
+        let admittedToken = WindowToken(pid: admittedPid, windowId: admittedWindowId)
+        let focusedAXRef = AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: admittedWindowId)
+        var subscribedWindows: [UInt32] = []
+        var relayoutReasons: [RefreshReason] = []
+
+        controller.hasStartedServices = true
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return false
+        }
+        controller.axEventHandler.windowSubscriptionHandler = { windowIds in
+            subscribedWindows.append(contentsOf: windowIds)
+        }
+        controller.axEventHandler.windowInfoProvider = { _ in nil }
+        controller.axEventHandler.axWindowRefProvider = { _, _ in nil }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            pid == admittedPid ? focusedAXRef : nil
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            guard axRef.windowId == admittedWindowId else {
+                return makeAXEventWindowRuleFacts()
+            }
+            return makeAXEventWindowRuleFacts(
+                bundleId: "com.example.activation-admission-no-window-info",
+                title: "Focused untracked window without WindowServer info"
+            )
+        }
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        defer {
+            controller.axEventHandler.resetDebugStateForTests()
+            controller.layoutRefreshController.resetDebugState()
+        }
+
+        controller.axEventHandler.handleAppActivation(
+            pid: admittedPid,
+            source: .workspaceDidActivateApplication
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        let trace = createFocusTraceEvents(on: controller)
+        #expect(controller.workspaceManager.entry(for: admittedToken)?.workspaceId == workspaceId)
+        #expect(controller.workspaceManager.focusedToken == admittedToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
+        #expect(subscribedWindows.contains(UInt32(admittedWindowId)))
+        #expect(relayoutReasons.contains(.axWindowCreated))
+        #expect(trace.contains { event in
+            if case let .candidateTracked(token, tracedWorkspaceId) = event.kind {
+                return token == admittedToken && tracedWorkspaceId == workspaceId
+            }
+            return false
+        })
+        #expect(!trace.contains { event in
+            if case let .nonManagedFallbackEntered(pid, source) = event.kind {
+                return pid == admittedPid && source == .workspaceDidActivateApplication
+            }
+            return false
+        })
+    }
+
     @Test @MainActor func unmanagedFocusedMiniaturizeClearsFocusedBorderTarget() {
         let controller = makeAXEventTestController()
         let token = WindowToken(pid: 9_150, windowId: 9151)

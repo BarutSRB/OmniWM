@@ -29,6 +29,33 @@ private func closeOwnedUtilityWindowsForTests() async {
     await Task.yield()
 }
 
+@MainActor
+private func makeOwnedRegistryTestWindow(
+    frame: CGRect = CGRect(x: 80, y: 70, width: 240, height: 180)
+) -> NSWindow {
+    let window = NSWindow(
+        contentRect: frame,
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    window.isReleasedWhenClosed = false
+    return window
+}
+
+@MainActor
+private func makeOwnedRegistryTestRegistry(frontmostWindow: @escaping () -> NSWindow?) -> OwnedWindowRegistry {
+    OwnedWindowRegistry(
+        surfaceCoordinator: SurfaceCoordinator(
+            scene: SurfaceScene(
+                frontmostInteractiveResolver: SurfaceFrontmostInteractiveResolver { window in
+                    frontmostWindow().map { window === $0 } ?? false
+                }
+            )
+        )
+    )
+}
+
 @Suite(.serialized) struct OwnedWindowRegistryTests {
     @Test @MainActor func utilityWindowControllersRegisterAndUnregisterWindows() async {
         let registry = OwnedWindowRegistry.shared
@@ -105,6 +132,30 @@ private func closeOwnedUtilityWindowsForTests() async {
 
         panel.close()
         registry.unregister(surfaceId: "workspace-bar-test")
+    }
+
+    @Test @MainActor func utilitySurfaceHitTestingRequiresFrontmostWindow() {
+        var frontmostWindow: NSWindow?
+        let registry = makeOwnedRegistryTestRegistry { frontmostWindow }
+        let window = makeOwnedRegistryTestWindow()
+        window.orderFrontRegardless()
+        let frontWindow = makeOwnedRegistryTestWindow(frame: CGRect(x: 70, y: 60, width: 260, height: 200))
+        frontWindow.orderFrontRegardless()
+        frontmostWindow = frontWindow
+        registry.register(window)
+        defer {
+            registry.unregister(window)
+            window.close()
+            frontWindow.close()
+            registry.resetForTests()
+        }
+
+        #expect(window.isVisible)
+        #expect(registry.contains(point: CGPoint(x: 120, y: 110)) == false)
+
+        frontmostWindow = window
+
+        #expect(registry.contains(point: CGPoint(x: 120, y: 110)))
     }
 
     @Test @MainActor func borderSurfaceRegistersWindowNumberButStaysPassthrough() {

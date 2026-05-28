@@ -5,7 +5,11 @@ import Foundation
 final class OwnedWindowRegistry {
     static let shared = OwnedWindowRegistry()
 
-    private let surfaceCoordinator = SurfaceCoordinator.shared
+    private let surfaceCoordinator: SurfaceCoordinator
+
+    init(surfaceCoordinator: SurfaceCoordinator = .shared) {
+        self.surfaceCoordinator = surfaceCoordinator
+    }
 
     func register(_ window: NSWindow) {
         register(
@@ -13,7 +17,7 @@ final class OwnedWindowRegistry {
             surfaceId: "utility-\(ObjectIdentifier(window).hashValue)",
             policy: SurfacePolicy(
                 kind: .utility,
-                hitTestPolicy: .interactive,
+                hitTestPolicy: .frontmostInteractive,
                 capturePolicy: .included,
                 suppressesManagedFocusRecovery: true
             )
