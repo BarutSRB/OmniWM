@@ -127,8 +127,7 @@ func makeLayoutPlanTestController(
     settings.workspaceConfigurations = workspaceConfigurations
     let controller = WMController(
         settings: settings,
-        windowFocusOperations: operations,
-        borderWindowOperations: .noop
+        windowFocusOperations: operations
     )
     controller.lockScreenObserver.frontmostApplicationProvider = { nil }
     installSynchronousFrameApplySuccessOverride(on: controller)

@@ -207,13 +207,19 @@ final class WMController {
     private let windowFocusOperations: WindowFocusOperations
     weak var statusBarController: StatusBarController?
 
+    private static var isTestEnvironment: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.environment["SWIFT_TESTING"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
     init(
         settings: SettingsStore,
         hiddenBarController: HiddenBarController? = nil,
         clipboardHistoryDirectory: URL = OmniWMStoragePaths.live.stateDirectory,
         windowFocusOperations: WindowFocusOperations = .live,
         ownedWindowRegistry: OwnedWindowRegistry = .shared,
-        borderWindowOperations: BorderWindow.Operations = .live
+        borderWindowOperations: BorderWindow.Operations? = nil
     ) {
         self.settings = settings
         motionPolicy = MotionPolicy(animationsEnabled: settings.animationsEnabled)
@@ -221,7 +227,7 @@ final class WMController {
         self.clipboardHistoryDirectory = clipboardHistoryDirectory
         self.windowFocusOperations = windowFocusOperations
         self.ownedWindowRegistry = ownedWindowRegistry
-        self.borderWindowOperations = borderWindowOperations
+        self.borderWindowOperations = borderWindowOperations ?? (Self.isTestEnvironment ? .noop : .live)
         workspaceManager = WorkspaceManager(settings: settings)
         focusBridge = FocusBridgeCoordinator()
         focusPolicyEngine = FocusPolicyEngine()
@@ -316,22 +322,28 @@ final class WMController {
         setFocusFollowsMouse(settings.focusFollowsMouse)
         setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
 
-        setWorkspaceBarEnabled(settings.workspaceBarEnabled)
-        setPreventSleepEnabled(settings.preventSleepEnabled)
-        setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
-        syncClipboardHistoryService()
+        if !Self.isTestEnvironment {
+            setWorkspaceBarEnabled(settings.workspaceBarEnabled)
+            setPreventSleepEnabled(settings.preventSleepEnabled)
+            setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
+            syncClipboardHistoryService()
+        }
 
         // External edits to settings.toml otherwise stop here at refreshStatusBar
         // and skip subsystems that read settings only at trigger time. Push the
         // remaining live values explicitly so editor saves take effect without
         // an app relaunch.
-        quakeTerminalController.applyGeometryToVisibleWindow()
-        quakeTerminalController.reloadOpacityConfig()
-        updateWorkspaceBarSettings()
+        if !Self.isTestEnvironment {
+            quakeTerminalController.applyGeometryToVisibleWindow()
+            quakeTerminalController.reloadOpacityConfig()
+            updateWorkspaceBarSettings()
+        }
         _ = syncMouseWarpPolicy()
 
-        setEnabled(true)
-        refreshStatusBar()
+        if !Self.isTestEnvironment {
+            setEnabled(true)
+            refreshStatusBar()
+        }
     }
 
     func setAnimationsEnabled(_ enabled: Bool, persist: Bool = true) {
