@@ -1,5 +1,6 @@
 import Foundation
 import OmniWMIPC
+import os
 
 @MainActor
 final class IPCCommandRouter {
@@ -12,6 +13,7 @@ final class IPCCommandRouter {
     }
 
     func handle(_ request: IPCCommandRequest) -> ExternalCommandResult {
+        WMLog.ipc.debug("IPC command received: \(String(describing: request))")
         switch request {
         case let .focus(ipcDirection):
             return controller.commandHandler.performCommand(.focus(direction(for: ipcDirection)))
@@ -303,6 +305,7 @@ final class IPCCommandRouter {
         let previousMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id
         let result = controller.commandHandler.performCommand(previous ? .focusMonitorPrevious : .focusMonitorNext)
+        WMLog.ipc.debug("Command result")
         guard result == .executed else { return result }
         let currentMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id

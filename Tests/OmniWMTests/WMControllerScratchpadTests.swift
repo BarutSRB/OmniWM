@@ -57,6 +57,11 @@ private func setScratchpadTestFrame(
     frame: CGRect
 ) {
     controller.axManager.applyFramesParallel([(token.pid, token.windowId, frame)])
+    let existingProvider = controller.liveFrameProviderForTests
+    controller.liveFrameProviderForTests = { entry in
+        if entry.token == token { return frame }
+        return existingProvider?(entry)
+    }
 }
 
 @Suite(.serialized) struct WMControllerScratchpadTests {

@@ -1,6 +1,7 @@
 @preconcurrency import AppKit
 import Carbon
 import Foundation
+import os
 
 enum HotkeyRegistrationAction: Equatable {
     case command(HotkeyCommand)
@@ -480,6 +481,7 @@ final class HotkeyCenter {
         guard let action = idToAction[id] else { return }
         switch action {
         case let .command(command):
+            WMLog.input.debug("Hotkey command dispatched")
             onCommand?(command)
         case let .sequencePrefix(root):
             activateSequence(root: root)
@@ -639,6 +641,7 @@ final class HotkeyCenter {
     private func handleSequenceEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout:
+            WMLog.input.info("Sequence tap disabled by timeout")
             if (activeSequenceNode != nil || !consumedSequenceKeyCodes.isEmpty), let tap = sequenceTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
@@ -687,6 +690,7 @@ final class HotkeyCenter {
     }
 
     private func dispatchSequenceCommandLater(_ command: HotkeyCommand) {
+        WMLog.input.debug("Sequence command dispatched")
         pendingSequenceCommands.append(command)
         guard !pendingSequenceDrainScheduled else { return }
         pendingSequenceDrainScheduled = true
@@ -718,6 +722,7 @@ final class HotkeyCenter {
     private func handleVirtualHyperEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout:
+            WMLog.input.info("Virtual hyper tap disabled by timeout")
             if let tap = virtualHyperTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }

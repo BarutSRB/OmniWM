@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import OmniWMIPC
+import os
 
 @MainActor
 struct WindowFocusOperations {
@@ -111,7 +112,11 @@ final class WMController {
         return manager
     }()
     @ObservationIgnored
-    private(set) lazy var focusBorderController = FocusBorderController(controller: self)
+    private(set) lazy var focusBorderController = FocusBorderController(
+        controller: self,
+        borderManager: BorderManager(borderWindowOperations: borderWindowOperations)
+    )
+    private let borderWindowOperations: BorderWindow.Operations
     @ObservationIgnored
     private lazy var workspaceBarManager: WorkspaceBarManager = .init(motionPolicy: motionPolicy)
     @ObservationIgnored
@@ -190,6 +195,8 @@ final class WMController {
     @ObservationIgnored
     var workspaceBarRefreshExecutionHookForTests: (() -> Void)?
     @ObservationIgnored
+    var liveFrameProviderForTests: ((WindowModel.Entry) -> CGRect?)?
+    @ObservationIgnored
     var warpMouseCursorPosition: (CGPoint) -> Void = { CGWarpMouseCursorPosition($0) }
     @ObservationIgnored
     weak var ipcApplicationBridge: IPCApplicationBridge?
@@ -200,12 +207,19 @@ final class WMController {
     private let windowFocusOperations: WindowFocusOperations
     weak var statusBarController: StatusBarController?
 
+    private static var isTestEnvironment: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.environment["SWIFT_TESTING"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
     init(
         settings: SettingsStore,
         hiddenBarController: HiddenBarController? = nil,
         clipboardHistoryDirectory: URL = OmniWMStoragePaths.live.stateDirectory,
         windowFocusOperations: WindowFocusOperations = .live,
-        ownedWindowRegistry: OwnedWindowRegistry = .shared
+        ownedWindowRegistry: OwnedWindowRegistry = .shared,
+        borderWindowOperations: BorderWindow.Operations? = nil
     ) {
         self.settings = settings
         motionPolicy = MotionPolicy(animationsEnabled: settings.animationsEnabled)
@@ -213,6 +227,7 @@ final class WMController {
         self.clipboardHistoryDirectory = clipboardHistoryDirectory
         self.windowFocusOperations = windowFocusOperations
         self.ownedWindowRegistry = ownedWindowRegistry
+        self.borderWindowOperations = borderWindowOperations ?? (Self.isTestEnvironment ? .noop : .live)
         workspaceManager = WorkspaceManager(settings: settings)
         focusBridge = FocusBridgeCoordinator()
         focusPolicyEngine = FocusPolicyEngine()
@@ -254,6 +269,7 @@ final class WMController {
     }
 
     func applyPersistedSettings(_ settings: SettingsStore) {
+        WMLog.config.info("Applying persisted settings")
         setAnimationsEnabled(settings.animationsEnabled, persist: false)
         applyCurrentAppearanceMode()
 
@@ -306,22 +322,28 @@ final class WMController {
         setFocusFollowsMouse(settings.focusFollowsMouse)
         setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
 
-        setWorkspaceBarEnabled(settings.workspaceBarEnabled)
-        setPreventSleepEnabled(settings.preventSleepEnabled)
-        setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
-        syncClipboardHistoryService()
+        if !Self.isTestEnvironment {
+            setWorkspaceBarEnabled(settings.workspaceBarEnabled)
+            setPreventSleepEnabled(settings.preventSleepEnabled)
+            setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
+            syncClipboardHistoryService()
+        }
 
         // External edits to settings.toml otherwise stop here at refreshStatusBar
         // and skip subsystems that read settings only at trigger time. Push the
         // remaining live values explicitly so editor saves take effect without
         // an app relaunch.
-        quakeTerminalController.applyGeometryToVisibleWindow()
-        quakeTerminalController.reloadOpacityConfig()
-        updateWorkspaceBarSettings()
+        if !Self.isTestEnvironment {
+            quakeTerminalController.applyGeometryToVisibleWindow()
+            quakeTerminalController.reloadOpacityConfig()
+            updateWorkspaceBarSettings()
+        }
         _ = syncMouseWarpPolicy()
 
-        setEnabled(true)
-        refreshStatusBar()
+        if !Self.isTestEnvironment {
+            setEnabled(true)
+            refreshStatusBar()
+        }
     }
 
     func setAnimationsEnabled(_ enabled: Bool, persist: Bool = true) {
@@ -538,12 +560,14 @@ final class WMController {
 
     func updateMonitorNiriSettings() {
         guard niriEngine != nil else { return }
+        WMLog.config.info("Updating Niri monitor settings")
         niriLayoutHandler.refreshResolvedMonitorSettings()
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
 
     func updateMonitorDwindleSettings() {
         guard let engine = dwindleEngine else { return }
+        WMLog.config.info("Updating Dwindle monitor settings")
         for monitor in workspaceManager.monitors {
             let resolved = settings.resolvedDwindleSettings(for: monitor)
             engine.updateMonitorSettings(resolved, for: monitor.id)
@@ -630,6 +654,7 @@ final class WMController {
     }
 
     func setFocusFollowsMouse(_ enabled: Bool) {
+        WMLog.config.info("Focus follows mouse changed")
         focusFollowsMouseEnabled = enabled
     }
 
@@ -1338,7 +1363,10 @@ final class WMController {
     }
 
     private func liveFrame(for entry: WindowModel.Entry) -> CGRect? {
-        AXWindowService.framePreferFast(entry.axRef)
+        if let liveFrameProviderForTests {
+            return liveFrameProviderForTests(entry)
+        }
+        return AXWindowService.framePreferFast(entry.axRef)
             ?? axManager.lastAppliedFrame(for: entry.windowId)
             ?? (try? AXWindowService.frame(entry.axRef))
     }
@@ -2897,6 +2925,7 @@ extension WMController {
     }
 
     func focusWindow(_ token: WindowToken) {
+        WMLog.focus.debug("Focus window")
         guard let entry = workspaceManager.entry(for: token) else { return }
         guard !isLockScreenActive else { return }
         if hasStartedServices {

@@ -1,5 +1,6 @@
 import Carbon
 import Foundation
+import os
 
 @MainActor @Observable
 final class SecureInputMonitor {
@@ -80,6 +81,7 @@ final class SecureInputMonitor {
     private func handleSecureInputDetected() {
         guard !isSecureInputActive else { return }
         if IsSecureEventInputEnabled() {
+            WMLog.input.info("Secure input detected")
             isSecureInputActive = true
             onStateChange?(true)
             startRecoveryTimer()
@@ -88,6 +90,7 @@ final class SecureInputMonitor {
 
     private func checkSecureInputEnded() {
         if !IsSecureEventInputEnabled() {
+            WMLog.input.info("Secure input ended")
             isSecureInputActive = false
             onStateChange?(false)
             stopRecoveryTimer()

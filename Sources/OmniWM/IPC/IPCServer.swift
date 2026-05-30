@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import OmniWMIPC
+import os
 
 protocol IPCServerLifecycle: AnyObject {
     @MainActor func start() throws
@@ -152,12 +153,14 @@ final class IPCServer: IPCServerLifecycle {
                     handle: FileHandle(fileDescriptor: clientFD, closeOnDealloc: true),
                     bridge: bridge,
                     onClose: { id in
+                        WMLog.ipc.info("IPC client disconnected: \(id.uuidString)")
                         Task {
                             await connectionRegistry.remove(id: id)
                         }
                     }
                 )
 
+                WMLog.ipc.info("IPC client connected: \(connection.id.uuidString)")
                 await connectionRegistry.insert(connection)
                 await connection.start()
             }

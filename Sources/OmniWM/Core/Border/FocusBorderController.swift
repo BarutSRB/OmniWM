@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import os
 
 enum ManagedBorderReapplyPhase: String, Equatable {
     case postLayout
@@ -45,6 +46,9 @@ final class FocusBorderController {
         preferredFrameSource: BorderFrameSource = .layout,
         forceOrdering: Bool = true
     ) -> Bool {
+        if let target {
+            WMLog.focus.debug("Focus changed to: token=\(String(describing: target.token))")
+        }
         lastAXConfirmedTarget = target
         requiresFocusValidationBeforeRender = false
         if let target {
@@ -104,11 +108,13 @@ final class FocusBorderController {
     }
 
     func hide() {
+        WMLog.focus.debug("Focus border hidden")
         requiresFocusValidationBeforeRender = lastAXConfirmedTarget != nil
         borderManager.hideBorder()
     }
 
     func clear() {
+        WMLog.focus.debug("Focus cleared")
         lastAXConfirmedTarget = nil
         requiresFocusValidationBeforeRender = false
         borderManager.hideBorder()

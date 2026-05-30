@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 extension NiriLayoutEngine {
     struct NiriRemovalResult {
@@ -100,6 +101,7 @@ extension NiriLayoutEngine {
         afterSelection selectedNodeId: NodeId?,
         focusedToken: WindowToken? = nil
     ) -> NiriWindow {
+        WMLog.layout.debug("Niri: window added")
         let root = ensureRoot(for: workspaceId)
 
         if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: root) {

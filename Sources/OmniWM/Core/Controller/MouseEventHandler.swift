@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 private let niriTouchpadGestureRecognitionThreshold: CGFloat = 16.0
 // AppKit gives normalized touch positions rather than libinput gesture deltas.
@@ -223,7 +224,11 @@ final class MouseEventHandler {
 
         let callback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if type == .tapDisabledByTimeout {
+                    WMLog.input.info("Mouse event tap disabled by timeout")
+                }
                 if let tap = MouseEventHandler._instance?.state.eventTap {
+                    WMLog.input.debug("Event tap re-enabled")
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
                 return Unmanaged.passUnretained(event)
@@ -255,7 +260,11 @@ final class MouseEventHandler {
 
         let gestureCallback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if type == .tapDisabledByTimeout {
+                    WMLog.input.info("Gesture tap disabled by timeout")
+                }
                 if let tap = MouseEventHandler._instance?.state.gestureTap {
+                    WMLog.input.debug("Gesture tap re-enabled")
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
                 return Unmanaged.passUnretained(event)

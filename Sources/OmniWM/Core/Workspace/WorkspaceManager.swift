@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import OmniWMIPC
+import os
 
 struct WorkspaceDescriptor: Identifiable, Hashable {
     typealias ID = UUID
@@ -2226,6 +2227,7 @@ final class WorkspaceManager {
         ruleEffects: ManagedWindowRuleEffects = .none,
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowToken {
+        WMLog.workspace.info("Adding window: windowId=\(windowId) workspace=\(workspace.uuidString)")
         let token = windows.upsert(
             window: ax,
             pid: pid,
@@ -2632,6 +2634,7 @@ final class WorkspaceManager {
     @discardableResult
     func removeWindow(pid: pid_t, windowId: Int) -> WindowModel.Entry? {
         guard let entry = windows.entry(forPid: pid, windowId: windowId) else { return nil }
+        WMLog.workspace.info("Removing window: windowId=\(windowId)")
         let removedEntry = removeTrackedWindow(entry)
         schedulePersistedWindowRestoreCatalogSave()
         return removedEntry
@@ -2639,6 +2642,7 @@ final class WorkspaceManager {
 
     @discardableResult
     func removeWindowsForApp(pid: pid_t) -> Set<WorkspaceDescriptor.ID> {
+        WMLog.workspace.info("Windows removed for app")
         var affectedWorkspaces: Set<WorkspaceDescriptor.ID> = []
         let entriesToRemove = entries(forPid: pid)
 

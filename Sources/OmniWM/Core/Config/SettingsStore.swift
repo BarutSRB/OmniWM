@@ -3,6 +3,7 @@ import AppKit
 import Carbon
 import Foundation
 import OmniWMIPC
+import os
 
 @MainActor @Observable
 final class SettingsStore {
@@ -589,6 +590,7 @@ final class SettingsStore {
     }
 
     func applyExport(_ export: SettingsExport, monitors: [Monitor]) {
+        WMLog.config.info("Applying settings export")
         let baseline = SettingsStore.defaultExport
         isApplyingExport = true
         defer { isApplyingExport = false }

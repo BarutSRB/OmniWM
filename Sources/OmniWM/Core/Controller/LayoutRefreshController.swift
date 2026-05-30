@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import QuartzCore
+import os
 
 @MainActor final class LayoutRefreshController: NSObject {
     typealias PostLayoutAction = @MainActor () -> Void
@@ -226,6 +227,7 @@ import QuartzCore
         guard let screen = NSScreen.screens.first(where: { $0.displayId == displayId }) else {
             return nil
         }
+        WMLog.layout.debug("Display link created")
         let link = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
         layoutState.displayLinksByDisplay[displayId] = link
         layoutState.displayIdByLink[ObjectIdentifier(link)] = displayId
@@ -239,6 +241,7 @@ import QuartzCore
     func cleanupForMonitorDisconnect(displayId: CGDirectDisplayID, migrateAnimations: Bool) {
         if let link = layoutState.displayLinksByDisplay.removeValue(forKey: displayId) {
             layoutState.displayIdByLink.removeValue(forKey: ObjectIdentifier(link))
+            WMLog.layout.debug("Display link invalidated")
             link.invalidate()
         }
 
@@ -722,6 +725,7 @@ import QuartzCore
     }
 
     func requestFullRescan(reason: RefreshReason) {
+        WMLog.layout.debug("Full rescan requested")
         assert(reason.requestRoute == .fullRescan, "Invalid full-rescan reason: \(reason)")
         scheduleFullRescan(reason: reason)
     }
@@ -730,6 +734,7 @@ import QuartzCore
         reason: RefreshReason,
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
     ) {
+        WMLog.layout.debug("requestRelayout")
         assert(reason.requestRoute == .relayout, "Invalid relayout reason: \(reason)")
         scheduleRefreshSession(
             reason.relayoutSchedulingPolicy,
@@ -743,6 +748,7 @@ import QuartzCore
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = [],
         postLayout: PostLayoutAction? = nil
     ) {
+        WMLog.layout.debug("requestImmediateRelayout")
         assert(reason.requestRoute == .immediateRelayout, "Invalid immediate-relayout reason: \(reason)")
         enqueueRefresh(
             .init(

@@ -16,6 +16,25 @@ final class BorderWindow {
         var transactionHide: @MainActor (UInt32) -> Void
         var backingScaleForFrame: @MainActor (CGRect) -> CGFloat
 
+        nonisolated(unsafe) private static var nextStubWindowId: UInt32 = 90_000
+
+        static let noop = Self(
+            createBorderWindow: { _ in
+                nextStubWindowId += 1
+                return nextStubWindowId
+            },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in nil },
+            setWindowShape: { _, _ in },
+            flushWindow: { _ in },
+            transactionMove: { _, _ in },
+            transactionMoveAndOrder: { _, _, _, _, _ in },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in 2.0 }
+        )
+
         static let live = Self(
             createBorderWindow: { SkyLight.shared.createBorderWindow(frame: $0) },
             releaseBorderWindow: { SkyLight.shared.releaseBorderWindow($0) },

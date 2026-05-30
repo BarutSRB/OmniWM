@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import QuartzCore
+import os
 
 final class DwindleLayoutEngine {
     private var roots: [WorkspaceDescriptor.ID: DwindleNode] = [:]
@@ -127,6 +128,7 @@ final class DwindleLayoutEngine {
         activeWindowFrame: CGRect?,
         monitorId: Monitor.ID
     ) -> DwindleNode {
+        WMLog.layout.debug("Dwindle: add window to workspace")
         let root = ensureRoot(for: workspaceId)
 
         if case let .leaf(existingHandle, _) = root.kind, existingHandle == nil {
@@ -185,6 +187,7 @@ final class DwindleLayoutEngine {
                 monitorId: monitorId
             )
         }
+        WMLog.layout.debug("Dwindle: split created")
 
         let existingLeaf = DwindleNode(kind: .leaf(handle: existingHandle, fullscreen: fullscreen))
         let newLeaf = DwindleNode(kind: .leaf(handle: newWindow, fullscreen: false))
@@ -269,6 +272,7 @@ final class DwindleLayoutEngine {
     }
 
     func removeWindow(token: WindowToken, from workspaceId: WorkspaceDescriptor.ID) {
+        WMLog.layout.debug("Dwindle: remove window")
         guard let node = tokenToNode.removeValue(forKey: token) else { return }
         windowConstraints.removeValue(forKey: token)
 

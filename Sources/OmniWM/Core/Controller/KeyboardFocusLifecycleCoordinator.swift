@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct KeyboardFocusTarget {
     let token: WindowToken
@@ -57,6 +58,7 @@ final class FocusBridgeCoordinator {
             return activeManagedRequest
         }
 
+        WMLog.focus.debug("Focus request begin")
         let request = ManagedFocusRequest(
             requestId: nextRequestId,
             token: token,
@@ -118,6 +120,7 @@ final class FocusBridgeCoordinator {
             return nil
         }
 
+        WMLog.focus.debug("Focus request confirmed")
         activeManagedRequest.lastActivationSource = source
         activeManagedRequest.status = .confirmed
         self.activeManagedRequest = nil
