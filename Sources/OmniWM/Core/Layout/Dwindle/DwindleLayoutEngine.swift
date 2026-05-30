@@ -257,14 +257,37 @@ final class DwindleLayoutEngine {
         reorientRecursive(node: root, monitorId: monitorId)
     }
 
-    private func reorientRecursive(node: DwindleNode, monitorId: Monitor.ID) {
+    private func reorientRecursive(node: DwindleNode, monitorId: Monitor.ID, parentFrame: CGRect? = nil) {
+        let frame = parentFrame ?? node.cachedFrame
         guard case let .split(_, ratio) = node.kind else { return }
-        if let frame = node.cachedFrame {
-            let newOrientation = aspectOrientation(for: frame, monitorId: monitorId)
-            node.kind = .split(orientation: newOrientation, ratio: ratio)
+        guard let frame else {
+            for child in node.children {
+                reorientRecursive(node: child, monitorId: monitorId)
+            }
+            return
         }
-        for child in node.children {
-            reorientRecursive(node: child, monitorId: monitorId)
+        let newOrientation = aspectOrientation(for: frame, monitorId: monitorId)
+        node.kind = .split(orientation: newOrientation, ratio: ratio)
+        node.cachedFrame = frame
+
+        let fraction = CGFloat(0.5)
+        let (firstFrame, secondFrame): (CGRect, CGRect)
+        switch newOrientation {
+        case .horizontal:
+            let w = frame.width * fraction
+            firstFrame = CGRect(x: frame.minX, y: frame.minY, width: w, height: frame.height)
+            secondFrame = CGRect(x: frame.minX + w, y: frame.minY, width: frame.width - w, height: frame.height)
+        case .vertical:
+            let h = frame.height * fraction
+            firstFrame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: h)
+            secondFrame = CGRect(x: frame.minX, y: frame.minY + h, width: frame.width, height: frame.height - h)
+        }
+
+        if let first = node.firstChild() {
+            reorientRecursive(node: first, monitorId: monitorId, parentFrame: firstFrame)
+        }
+        if let second = node.secondChild() {
+            reorientRecursive(node: second, monitorId: monitorId, parentFrame: secondFrame)
         }
     }
 

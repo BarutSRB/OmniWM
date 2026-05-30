@@ -1372,4 +1372,47 @@ private func configureWorkspacesAsDwindle(
         #expect(abs(r1.width - r2.width) < 1.0, "Should have same width in vertical split")
         #expect(r1.minY < r2.minY, "First window should be above second")
     }
+
+    @Test func reorientSplitsHandlesThreeWindowTreeCorrectly() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+        let monitorId = Monitor.ID(displayId: layoutPlanTestMainDisplayId())
+
+        let token1 = WindowToken(pid: 1010, windowId: 1010)
+        let token2 = WindowToken(pid: 1011, windowId: 1011)
+        let token3 = WindowToken(pid: 1012, windowId: 1012)
+
+        _ = engine.addWindow(token: token1, to: wsId, activeWindowFrame: nil, monitorId: monitorId)
+        _ = engine.addWindow(token: token2, to: wsId, activeWindowFrame: nil, monitorId: monitorId)
+        _ = engine.addWindow(token: token3, to: wsId, activeWindowFrame: nil, monitorId: monitorId)
+        _ = engine.calculateLayout(for: wsId, screen: screen)
+
+        let resolved = ResolvedDwindleSettings(
+            smartSplit: false,
+            defaultSplitRatio: 1.0,
+            splitWidthMultiplier: 10.0,
+            singleWindowAspectRatio: .fill,
+            useGlobalGaps: true,
+            innerGap: 0,
+            outerGapTop: 0,
+            outerGapBottom: 0,
+            outerGapLeft: 0,
+            outerGapRight: 0
+        )
+        engine.updateMonitorSettings(resolved, for: monitorId)
+        engine.reorientSplits(for: wsId, monitorId: monitorId)
+
+        let frames = engine.calculateLayout(for: wsId, screen: screen)
+        guard let f1 = frames[token1], let f2 = frames[token2], let f3 = frames[token3] else {
+            Issue.record("Expected frames for all 3 windows")
+            return
+        }
+
+        // All windows should be stacked vertically (same width, increasing Y)
+        #expect(abs(f1.width - f2.width) < 1.0, "Windows should have same width")
+        #expect(abs(f2.width - f3.width) < 1.0, "Windows should have same width")
+        #expect(f1.maxY <= f2.minY + 1.0, "Window 1 should be above window 2")
+        #expect(f2.maxY <= f3.minY + 1.0, "Window 2 should be above window 3")
+    }
 }
