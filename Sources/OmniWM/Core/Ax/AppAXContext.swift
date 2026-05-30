@@ -699,9 +699,8 @@ final class AppAXContext {
     }
 
     func destroy() {
-        let currentPid = pid
-        WMLog.ax.info("AX context destroyed pid=\(currentPid)")
-        AppAXContext.contexts.removeValue(forKey: currentPid)
+        WMLog.ax.info("AX context destroyed pid=\(self.pid)")
+        AppAXContext.contexts.removeValue(forKey: self.pid)
 
         for (_, job) in activeFrameBatchJobs {
             job.cancel()
