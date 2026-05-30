@@ -531,13 +531,14 @@ final class WindowActionHandler {
         guard let controller,
               let engine = controller.dwindleEngine,
               let focusedNode = engine.findNode(for: focusedToken),
-              focusedNode.isLeaf
+              focusedNode.isLeaf,
+              let monitor = controller.workspaceManager.monitor(for: targetWorkspaceId)
         else {
             return false
         }
 
         if sourceWorkspaceId == targetWorkspaceId {
-            guard engine.summonWindowRight(token, beside: focusedToken, in: targetWorkspaceId) else {
+            guard engine.summonWindowRight(token, beside: focusedToken, in: targetWorkspaceId, monitorId: monitor.id) else {
                 return false
             }
             commitSummonedWindowFocus(token: token, workspaceId: targetWorkspaceId)
