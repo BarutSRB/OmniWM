@@ -547,6 +547,9 @@ final class WMController {
         for monitor in workspaceManager.monitors {
             let resolved = settings.resolvedDwindleSettings(for: monitor)
             engine.updateMonitorSettings(resolved, for: monitor.id)
+            for workspace in workspaceManager.workspaces(on: monitor.id) {
+                engine.reorientSplits(for: workspace.id, monitorId: monitor.id)
+            }
         }
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
