@@ -633,6 +633,7 @@ final class WMController {
     }
 
     func setFocusFollowsMouse(_ enabled: Bool) {
+        WMLog.config.info("Focus follows mouse changed")
         focusFollowsMouseEnabled = enabled
     }
 
@@ -2903,6 +2904,7 @@ extension WMController {
     }
 
     func focusWindow(_ token: WindowToken) {
+        WMLog.focus.debug("Focus window")
         guard let entry = workspaceManager.entry(for: token) else { return }
         guard !isLockScreenActive else { return }
         if hasStartedServices {

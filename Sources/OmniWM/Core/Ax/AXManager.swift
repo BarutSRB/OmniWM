@@ -115,6 +115,7 @@ final class AXManager {
     }
 
     func markWindowActive(_ windowId: Int) {
+        WMLog.ax.info("Window state added")
         inactiveWorkspaceWindowIds.remove(windowId)
         WMLog.ax.debug("Marked window active: \(windowId)")
     }
@@ -229,6 +230,7 @@ final class AXManager {
     }
 
     func confirmFrameWrite(for windowId: Int, frame: CGRect) {
+        WMLog.ax.debug("Frame write confirmed")
         lastAppliedFrames[windowId] = frame
         recentFrameWriteFailures.removeValue(forKey: windowId)
         retryBudgetByWindowId.removeValue(forKey: windowId)

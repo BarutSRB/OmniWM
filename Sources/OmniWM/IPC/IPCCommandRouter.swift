@@ -305,6 +305,7 @@ final class IPCCommandRouter {
         let previousMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id
         let result = controller.commandHandler.performCommand(previous ? .focusMonitorPrevious : .focusMonitorNext)
+        WMLog.ipc.debug("Command result")
         guard result == .executed else { return result }
         let currentMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id

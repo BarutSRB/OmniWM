@@ -108,6 +108,7 @@ final class FocusBorderController {
     }
 
     func hide() {
+        WMLog.focus.debug("Focus border hidden")
         requiresFocusValidationBeforeRender = lastAXConfirmedTarget != nil
         borderManager.hideBorder()
     }

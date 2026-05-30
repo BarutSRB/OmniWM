@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import os
 
 final class LockedWindowIdSet: @unchecked Sendable {
     private let lock = NSLock()
@@ -155,6 +156,7 @@ final class AppAXContext {
 
             if let context {
                 contexts[pid] = context
+                WMLog.ax.info("AX context created pid=\(pid)")
             }
             return context
         }
@@ -697,7 +699,9 @@ final class AppAXContext {
     }
 
     func destroy() {
-        AppAXContext.contexts.removeValue(forKey: pid)
+        let currentPid = pid
+        WMLog.ax.info("AX context destroyed pid=\(currentPid)")
+        AppAXContext.contexts.removeValue(forKey: currentPid)
 
         for (_, job) in activeFrameBatchJobs {
             job.cancel()

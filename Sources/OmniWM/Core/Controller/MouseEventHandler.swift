@@ -228,6 +228,7 @@ final class MouseEventHandler {
                     WMLog.input.info("Mouse event tap disabled by timeout")
                 }
                 if let tap = MouseEventHandler._instance?.state.eventTap {
+                    WMLog.input.debug("Event tap re-enabled")
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
                 return Unmanaged.passUnretained(event)
@@ -263,6 +264,7 @@ final class MouseEventHandler {
                     WMLog.input.info("Gesture tap disabled by timeout")
                 }
                 if let tap = MouseEventHandler._instance?.state.gestureTap {
+                    WMLog.input.debug("Gesture tap re-enabled")
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
                 return Unmanaged.passUnretained(event)

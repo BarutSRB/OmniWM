@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import OmniWMIPC
+import os
 
 @MainActor
 final class WorkspaceNavigationHandler {
@@ -174,6 +175,7 @@ final class WorkspaceNavigationHandler {
     }
 
     private func switchToMonitor(_ targetMonitorId: Monitor.ID, fromMonitor currentMonitorId: Monitor.ID) {
+        WMLog.workspace.info("Cross-monitor transition")
         guard let controller else { return }
 
         guard let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: targetMonitorId)
@@ -241,6 +243,7 @@ final class WorkspaceNavigationHandler {
     }
 
     func switchWorkspace(index: Int) {
+        WMLog.workspace.info("Workspace switch")
         guard let rawWorkspaceID = WorkspaceIDPolicy.rawID(from: max(0, index) + 1) else { return }
         switchWorkspace(rawWorkspaceID: rawWorkspaceID)
     }

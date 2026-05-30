@@ -2642,6 +2642,7 @@ final class WorkspaceManager {
 
     @discardableResult
     func removeWindowsForApp(pid: pid_t) -> Set<WorkspaceDescriptor.ID> {
+        WMLog.workspace.info("Windows removed for app")
         var affectedWorkspaces: Set<WorkspaceDescriptor.ID> = []
         let entriesToRemove = entries(forPid: pid)
 

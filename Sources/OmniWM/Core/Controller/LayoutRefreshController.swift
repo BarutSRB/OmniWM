@@ -226,6 +226,7 @@ import os
         guard let screen = NSScreen.screens.first(where: { $0.displayId == displayId }) else {
             return nil
         }
+        WMLog.layout.debug("Display link created")
         let link = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
         layoutState.displayLinksByDisplay[displayId] = link
         return link
@@ -237,6 +238,7 @@ import os
 
     func cleanupForMonitorDisconnect(displayId: CGDirectDisplayID, migrateAnimations: Bool) {
         if let link = layoutState.displayLinksByDisplay.removeValue(forKey: displayId) {
+            WMLog.layout.debug("Display link invalidated")
             link.invalidate()
         }
 
@@ -719,6 +721,7 @@ import os
     }
 
     func requestFullRescan(reason: RefreshReason) {
+        WMLog.layout.debug("Full rescan requested")
         assert(reason.requestRoute == .fullRescan, "Invalid full-rescan reason: \(reason)")
         scheduleFullRescan(reason: reason)
     }

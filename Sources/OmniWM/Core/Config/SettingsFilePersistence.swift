@@ -98,6 +98,7 @@ final class SettingsFilePersistence {
             lastPersistedExport = snapshot.export
             return snapshot.export
         } catch {
+            WMLog.config.error("Settings load failed: \(error.localizedDescription)")
             report("Failed to load \(fileURL.path): \(error.localizedDescription)")
             moveCorruptFileAsideIfPresent()
             let defaults = SettingsExport.defaults()
@@ -231,7 +232,9 @@ final class SettingsFilePersistence {
         }
 
         guard observedFingerprint != lastObservedFingerprint else { return }
+        WMLog.config.info("Settings file change detected")
         guard let export = reloadIfChanged() else { return }
+        WMLog.config.info("Settings reloaded from disk")
         onExternalChange?(export)
     }
 

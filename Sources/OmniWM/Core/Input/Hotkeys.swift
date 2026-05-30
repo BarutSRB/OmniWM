@@ -481,6 +481,7 @@ final class HotkeyCenter {
         guard let action = idToAction[id] else { return }
         switch action {
         case let .command(command):
+            WMLog.input.debug("Hotkey command dispatched")
             onCommand?(command)
         case let .sequencePrefix(root):
             activateSequence(root: root)
@@ -689,6 +690,7 @@ final class HotkeyCenter {
     }
 
     private func dispatchSequenceCommandLater(_ command: HotkeyCommand) {
+        WMLog.input.debug("Sequence command dispatched")
         pendingSequenceCommands.append(command)
         guard !pendingSequenceDrainScheduled else { return }
         pendingSequenceDrainScheduled = true
