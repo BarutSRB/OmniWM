@@ -56,6 +56,7 @@ private func setScratchpadTestFrame(
     token: WindowToken,
     frame: CGRect
 ) {
+    controller.axManager.applyFramesParallel([(token.pid, token.windowId, frame)])
     let existingProvider = controller.liveFrameProviderForTests
     controller.liveFrameProviderForTests = { entry in
         if entry.token == token { return frame }

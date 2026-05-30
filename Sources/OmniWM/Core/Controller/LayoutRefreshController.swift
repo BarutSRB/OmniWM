@@ -727,7 +727,7 @@ import os
         reason: RefreshReason,
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
     ) {
-        WMLog.layout.info("requestRelayout: reason=\(String(describing: reason))")
+        WMLog.layout.debug("requestRelayout")
         assert(reason.requestRoute == .relayout, "Invalid relayout reason: \(reason)")
         scheduleRefreshSession(
             reason.relayoutSchedulingPolicy,
@@ -741,7 +741,7 @@ import os
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = [],
         postLayout: PostLayoutAction? = nil
     ) {
-        WMLog.layout.info("requestImmediateRelayout: reason=\(String(describing: reason))")
+        WMLog.layout.debug("requestImmediateRelayout")
         assert(reason.requestRoute == .immediateRelayout, "Invalid immediate-relayout reason: \(reason)")
         enqueueRefresh(
             .init(
