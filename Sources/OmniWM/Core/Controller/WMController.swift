@@ -1360,8 +1360,8 @@ final class WMController {
     }
 
     private func liveFrame(for entry: WindowModel.Entry) -> CGRect? {
-        if let liveFrameProviderForTests {
-            return liveFrameProviderForTests(entry)
+        if let override = liveFrameProviderForTests?(entry) {
+            return override
         }
         return AXWindowService.framePreferFast(entry.axRef)
             ?? axManager.lastAppliedFrame(for: entry.windowId)
