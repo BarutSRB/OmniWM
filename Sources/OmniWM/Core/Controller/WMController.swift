@@ -112,7 +112,11 @@ final class WMController {
         return manager
     }()
     @ObservationIgnored
-    private(set) lazy var focusBorderController = FocusBorderController(controller: self)
+    private(set) lazy var focusBorderController = FocusBorderController(
+        controller: self,
+        borderManager: BorderManager(borderWindowOperations: borderWindowOperations)
+    )
+    private let borderWindowOperations: BorderWindow.Operations
     @ObservationIgnored
     private lazy var workspaceBarManager: WorkspaceBarManager = .init(motionPolicy: motionPolicy)
     @ObservationIgnored
@@ -208,7 +212,8 @@ final class WMController {
         hiddenBarController: HiddenBarController? = nil,
         clipboardHistoryDirectory: URL = OmniWMStoragePaths.live.stateDirectory,
         windowFocusOperations: WindowFocusOperations = .live,
-        ownedWindowRegistry: OwnedWindowRegistry = .shared
+        ownedWindowRegistry: OwnedWindowRegistry = .shared,
+        borderWindowOperations: BorderWindow.Operations = .live
     ) {
         self.settings = settings
         motionPolicy = MotionPolicy(animationsEnabled: settings.animationsEnabled)
@@ -216,6 +221,7 @@ final class WMController {
         self.clipboardHistoryDirectory = clipboardHistoryDirectory
         self.windowFocusOperations = windowFocusOperations
         self.ownedWindowRegistry = ownedWindowRegistry
+        self.borderWindowOperations = borderWindowOperations
         workspaceManager = WorkspaceManager(settings: settings)
         focusBridge = FocusBridgeCoordinator()
         focusPolicyEngine = FocusPolicyEngine()
