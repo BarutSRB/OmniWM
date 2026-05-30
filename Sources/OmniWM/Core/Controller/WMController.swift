@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import OmniWMIPC
+import os
 
 @MainActor
 struct WindowFocusOperations {
@@ -256,6 +257,7 @@ final class WMController {
     }
 
     func applyPersistedSettings(_ settings: SettingsStore) {
+        WMLog.config.info("Applying persisted settings")
         setAnimationsEnabled(settings.animationsEnabled, persist: false)
         applyCurrentAppearanceMode()
 
@@ -540,12 +542,14 @@ final class WMController {
 
     func updateMonitorNiriSettings() {
         guard niriEngine != nil else { return }
+        WMLog.config.info("Updating Niri monitor settings")
         niriLayoutHandler.refreshResolvedMonitorSettings()
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
 
     func updateMonitorDwindleSettings() {
         guard let engine = dwindleEngine else { return }
+        WMLog.config.info("Updating Dwindle monitor settings")
         for monitor in workspaceManager.monitors {
             let resolved = settings.resolvedDwindleSettings(for: monitor)
             engine.updateMonitorSettings(resolved, for: monitor.id)

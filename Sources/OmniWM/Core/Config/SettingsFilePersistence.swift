@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 import Darwin
 import Foundation
+import os
 
 @MainActor
 final class SettingsFilePersistence {

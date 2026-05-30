@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import QuartzCore
+import os
 
 @MainActor final class LayoutRefreshController: NSObject {
     typealias PostLayoutAction = @MainActor () -> Void
@@ -726,6 +727,7 @@ import QuartzCore
         reason: RefreshReason,
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
     ) {
+        WMLog.layout.info("requestRelayout: reason=\(String(describing: reason))")
         assert(reason.requestRoute == .relayout, "Invalid relayout reason: \(reason)")
         scheduleRefreshSession(
             reason.relayoutSchedulingPolicy,
@@ -739,6 +741,7 @@ import QuartzCore
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = [],
         postLayout: PostLayoutAction? = nil
     ) {
+        WMLog.layout.info("requestImmediateRelayout: reason=\(String(describing: reason))")
         assert(reason.requestRoute == .immediateRelayout, "Invalid immediate-relayout reason: \(reason)")
         enqueueRefresh(
             .init(

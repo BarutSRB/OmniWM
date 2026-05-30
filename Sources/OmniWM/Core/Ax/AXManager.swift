@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import os
 
 private let perAppTimeout: TimeInterval = 0.5
 
@@ -115,10 +116,12 @@ final class AXManager {
 
     func markWindowActive(_ windowId: Int) {
         inactiveWorkspaceWindowIds.remove(windowId)
+        WMLog.ax.debug("Marked window active: \(windowId)")
     }
 
     func markWindowInactive(_ windowId: Int) {
         inactiveWorkspaceWindowIds.insert(windowId)
+        WMLog.ax.debug("Marked window inactive: \(windowId)")
     }
 
     func forceApplyNextFrame(for windowId: Int) {
@@ -233,6 +236,7 @@ final class AXManager {
     }
 
     func removeWindowState(pid: pid_t, windowId: Int) {
+        WMLog.ax.info("Removing window state for windowId=\(windowId) pid=\(pid)")
         AppAXContext.contexts[pid]?.removeWindowState(windowId: windowId)
 
         var cancelledResults: [(PendingFrameObserver, AXFrameApplyResult)] = []
@@ -405,6 +409,7 @@ final class AXManager {
         isRetry: Bool,
         terminalObserver: FrameApplicationTerminalObserver? = nil
     ) {
+        WMLog.ax.debug("applyFramesParallel: \(frames.count) requests, isRetry=\(isRetry)")
         for key in framesByPidBuffer.keys {
             framesByPidBuffer[key]?.removeAll(keepingCapacity: true)
         }
@@ -667,6 +672,7 @@ final class AXManager {
             }
 
             if let failureReason = resolvedResult.writeResult.failureReason {
+                WMLog.ax.error("Frame write failed windowId=\(resolvedWindowId) reason=\(String(describing: failureReason))")
                 recentFrameWriteFailures[resolvedWindowId] = failureReason
             }
 

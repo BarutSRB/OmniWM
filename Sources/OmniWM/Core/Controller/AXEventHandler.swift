@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 enum ActivationRetryReason: String, Equatable {
     case missingFocusedWindow = "missing_focused_window"
@@ -408,6 +409,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func handleCGSWindowCreated(windowId: UInt32, spaceId: UInt64) {
+        WMLog.ax.info("Window created: windowId=\(windowId)")
         captureCreatePlacementContext(windowId: windowId, spaceId: spaceId)
         recordNiriCreateFocusTrace(.init(kind: .createSeen(windowId: windowId)))
         processCreatedWindow(windowId: windowId)
@@ -673,6 +675,7 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
+        WMLog.ax.debug("Frame change triggered relayout: windowId=\(entry.windowId)")
         debugCounters.geometryRelayoutRequests += 1
         debugCounters.scopedGeometryRelayoutRequests += 1
         controller.layoutRefreshController.requestRelayout(
@@ -690,6 +693,7 @@ final class AXEventHandler: CGSEventDelegate {
             for: entry.windowId,
             observedFrame: observedFrame
         ) {
+            WMLog.ax.debug("Frame change suppressed (own write): windowId=\(entry.windowId)")
             debugCounters.geometryRelayoutsSuppressedForOwnFrameWrites += 1
             return true
         }
@@ -776,6 +780,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func handleCGSWindowDestroyed(windowId: UInt32) {
+        WMLog.ax.info("Window destroyed: windowId=\(windowId)")
         AXWindowService.invalidateCachedTitle(windowId: windowId)
         cancelCreatedWindowRetry(windowId: windowId)
         discardCreatePlacementContext(windowId: windowId)
