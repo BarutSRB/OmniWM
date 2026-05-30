@@ -336,7 +336,15 @@ final class FocusBorderController {
                 return preferred
             }
 
-            if entry.managedReplacementMetadata != nil, let observed = observedFrame(for: entry.axRef) {
+            var _cachedObserved: CGRect?? = .none
+            func cachedObserved() -> CGRect? {
+                if case let .some(value) = _cachedObserved { return value }
+                let result = observedFrame(for: entry.axRef)
+                _cachedObserved = .some(result)
+                return result
+            }
+
+            if entry.managedReplacementMetadata != nil, let observed = cachedObserved() {
                 return observed
             }
 
@@ -346,7 +354,7 @@ final class FocusBorderController {
                 return preferred
             }
 
-            if hasRecentFrameWriteFailure, let observed = observedFrame(for: entry.axRef) {
+            if hasRecentFrameWriteFailure, let observed = cachedObserved() {
                 return observed
             }
 
@@ -362,7 +370,7 @@ final class FocusBorderController {
                 return frame
             }
 
-            if let observed = observedFrame(for: entry.axRef) {
+            if let observed = cachedObserved() {
                 return observed
             }
 

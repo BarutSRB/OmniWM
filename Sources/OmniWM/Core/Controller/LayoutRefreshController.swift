@@ -170,6 +170,7 @@ import QuartzCore
         var isIncrementalRefreshInProgress: Bool = false
         var isFullEnumerationInProgress: Bool = false
         var displayLinksByDisplay: [CGDirectDisplayID: CADisplayLink] = [:]
+        var displayIdByLink: [ObjectIdentifier: CGDirectDisplayID] = [:]
         var refreshRateByDisplay: [CGDirectDisplayID: Double] = [:]
         var closingAnimationsByDisplay: [CGDirectDisplayID: [Int: ClosingAnimation]] = [:]
         var screenChangeObserver: NSObjectProtocol?
@@ -227,6 +228,7 @@ import QuartzCore
         }
         let link = screen.displayLink(target: self, selector: #selector(displayLinkFired(_:)))
         layoutState.displayLinksByDisplay[displayId] = link
+        layoutState.displayIdByLink[ObjectIdentifier(link)] = displayId
         return link
     }
 
@@ -236,6 +238,7 @@ import QuartzCore
 
     func cleanupForMonitorDisconnect(displayId: CGDirectDisplayID, migrateAnimations: Bool) {
         if let link = layoutState.displayLinksByDisplay.removeValue(forKey: displayId) {
+            layoutState.displayIdByLink.removeValue(forKey: ObjectIdentifier(link))
             link.invalidate()
         }
 
@@ -265,7 +268,7 @@ import QuartzCore
     }
 
     @objc private func displayLinkFired(_ displayLink: CADisplayLink) {
-        guard let displayId = layoutState.displayLinksByDisplay.first(where: { $0.value === displayLink })?.key
+        guard let displayId = layoutState.displayIdByLink[ObjectIdentifier(displayLink)]
         else { return }
 
         niriHandler.tickScrollAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
@@ -376,6 +379,7 @@ import QuartzCore
         {
             // Idle display links must not remain cached after teardown.
             if let link = layoutState.displayLinksByDisplay.removeValue(forKey: displayId) {
+                layoutState.displayIdByLink.removeValue(forKey: ObjectIdentifier(link))
                 link.invalidate()
             }
         }
@@ -983,6 +987,7 @@ import QuartzCore
             link.invalidate()
         }
         layoutState.displayLinksByDisplay.removeAll()
+        layoutState.displayIdByLink.removeAll()
         niriHandler.scrollAnimationByDisplay.removeAll()
         dwindleHandler.dwindleAnimationByDisplay.removeAll()
         layoutState.closingAnimationsByDisplay.removeAll()
@@ -1454,7 +1459,15 @@ import QuartzCore
 
         let scratchpadTokenBeforeRemove = controller.workspaceManager.scratchpadToken()
         controller.workspaceManager.removeMissing(keys: seenKeys, requiredConsecutiveMisses: 1)
-        let remainingTokens = Set(controller.workspaceManager.allEntries().map(\.token))
+        let remainingTokens: Set<WindowToken> = {
+            var tokens = Set<WindowToken>(minimumCapacity: trackedEntries.count)
+            for entry in trackedEntries {
+                if controller.workspaceManager.entry(for: entry.token) != nil {
+                    tokens.insert(entry.token)
+                }
+            }
+            return tokens
+        }()
         for entry in trackedEntries where !remainingTokens.contains(entry.token) {
             controller.nativeFullscreenPlaceholderManager.remove(entry.token)
             controller.clearResizePlaceholder(for: entry.token)
@@ -2180,22 +2193,13 @@ import QuartzCore
             activeWorkspaceIds: activeWorkspaceIds
         )
 
-        // Bulk cancel in-flight frame jobs for all inactive workspace windows upfront,
-        // before the per-window hide loop, to prevent AX batch races with SkyLight moves.
         var inactiveWindowJobs: [(pid: pid_t, windowId: Int)] = []
         let hiddenPlacementMonitors = controller.workspaceManager.monitors.map(HiddenPlacementMonitorContext.init)
+        let preferredSides = preferredHideSides(for: controller.workspaceManager.monitors)
+
         for snapshot in workspaceEntries where !activeWorkspaceIds.contains(snapshot.workspace.id) {
             for entry in snapshot.entries {
                 inactiveWindowJobs.append((entry.handle.pid, entry.windowId))
-            }
-        }
-        if !inactiveWindowJobs.isEmpty {
-            controller.axManager.cancelPendingFrameJobs(inactiveWindowJobs)
-        }
-
-        let preferredSides = preferredHideSides(for: controller.workspaceManager.monitors)
-        for snapshot in workspaceEntries where !activeWorkspaceIds.contains(snapshot.workspace.id) {
-            for entry in snapshot.entries {
                 controller.nativeFullscreenPlaceholderManager.remove(entry.token)
                 controller.clearResizePlaceholder(for: entry.token)
             }
@@ -2207,6 +2211,9 @@ import QuartzCore
                 preferredSide: preferredSide,
                 hiddenPlacementMonitors: hiddenPlacementMonitors
             )
+        }
+        if !inactiveWindowJobs.isEmpty {
+            controller.axManager.cancelPendingFrameJobs(inactiveWindowJobs)
         }
     }
 

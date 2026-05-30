@@ -88,17 +88,18 @@ enum NiriAxisSolver {
             values[index] = fixedValue
         }
 
-        var pendingAutoIndices = nonFixedIndices
+        var pinnedIndices = Set<Int>()
         var pinnedMinimumSum: CGFloat = 0
-        while !pendingAutoIndices.isEmpty {
+        while pinnedIndices.count < nonFixedIndices.count {
             let distributableSpace = max(0, remainingSpace - pinnedMinimumSum)
-            let totalWeight = pendingAutoIndices.reduce(CGFloat.zero) { partialResult, index in
-                partialResult + max(weights[index], epsilon)
+            var totalWeight: CGFloat = 0
+            for index in nonFixedIndices where !pinnedIndices.contains(index) {
+                totalWeight += max(weights[index], epsilon)
             }
             guard totalWeight > epsilon else { break }
 
             var pinnedIndex: Int?
-            for index in pendingAutoIndices {
+            for index in nonFixedIndices where !pinnedIndices.contains(index) {
                 let share = distributableSpace * (max(weights[index], epsilon) / totalWeight)
                 if share + epsilon < minConstraints[index] {
                     pinnedIndex = index
@@ -109,11 +110,11 @@ enum NiriAxisSolver {
             if let pinnedIndex {
                 values[pinnedIndex] = minConstraints[pinnedIndex]
                 pinnedMinimumSum += minConstraints[pinnedIndex]
-                pendingAutoIndices.removeAll { $0 == pinnedIndex }
+                pinnedIndices.insert(pinnedIndex)
                 continue
             }
 
-            for index in pendingAutoIndices {
+            for index in nonFixedIndices where !pinnedIndices.contains(index) {
                 values[index] = distributableSpace * (max(weights[index], epsilon) / totalWeight)
             }
             break
