@@ -190,6 +190,8 @@ final class WMController {
     @ObservationIgnored
     var workspaceBarRefreshExecutionHookForTests: (() -> Void)?
     @ObservationIgnored
+    var liveFrameProviderForTests: ((WindowModel.Entry) -> CGRect?)?
+    @ObservationIgnored
     var warpMouseCursorPosition: (CGPoint) -> Void = { CGWarpMouseCursorPosition($0) }
     @ObservationIgnored
     weak var ipcApplicationBridge: IPCApplicationBridge?
@@ -1335,7 +1337,10 @@ final class WMController {
     }
 
     private func liveFrame(for entry: WindowModel.Entry) -> CGRect? {
-        AXWindowService.framePreferFast(entry.axRef)
+        if let liveFrameProviderForTests {
+            return liveFrameProviderForTests(entry)
+        }
+        return AXWindowService.framePreferFast(entry.axRef)
             ?? axManager.lastAppliedFrame(for: entry.windowId)
             ?? (try? AXWindowService.frame(entry.axRef))
     }
