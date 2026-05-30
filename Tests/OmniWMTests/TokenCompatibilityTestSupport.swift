@@ -147,6 +147,33 @@ extension DwindleLayoutEngine {
         syncWindows(handles.map(\.id), in: workspaceId, focusedToken: focusedHandle?.id, monitorId: monitorId)
     }
 
+    @discardableResult
+    func addWindow(
+        token: WindowToken,
+        to workspaceId: WorkspaceDescriptor.ID,
+        activeWindowFrame: CGRect?
+    ) -> DwindleNode {
+        addWindow(token: token, to: workspaceId, activeWindowFrame: activeWindowFrame, monitorId: Monitor.ID(displayId: layoutPlanTestMainDisplayId()))
+    }
+
+    func syncWindows(
+        _ tokens: [WindowToken],
+        in workspaceId: WorkspaceDescriptor.ID,
+        focusedToken: WindowToken?,
+        bootstrapScreen: CGRect? = nil
+    ) -> Set<WindowToken> {
+        syncWindows(tokens, in: workspaceId, focusedToken: focusedToken, bootstrapScreen: bootstrapScreen, monitorId: Monitor.ID(displayId: layoutPlanTestMainDisplayId()))
+    }
+
+    @discardableResult
+    func summonWindowRight(
+        _ token: WindowToken,
+        beside anchorToken: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        summonWindowRight(token, beside: anchorToken, in: workspaceId, monitorId: Monitor.ID(displayId: layoutPlanTestMainDisplayId()))
+    }
+
     func updateWindowConstraints(for handle: WindowHandle, constraints: WindowSizeConstraints) {
         updateWindowConstraints(for: handle.id, constraints: constraints)
     }

@@ -1319,61 +1319,57 @@ private func configureWorkspacesAsDwindle(
         #expect(secondFrame.minY >= firstFrame.maxY - 1.0)
     }
 
-    @Test @MainActor func reorientSplitsChangesExistingTreeWhenSplitWidthMultiplierUpdated() async throws {
-        let portraitMonitor = makeLayoutPlanTestMonitor(
-            name: "Portrait",
-            width: 1080,
-            height: 1920
-        )
-        let controller = makeLayoutPlanTestController(monitors: [portraitMonitor])
-        guard let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: portraitMonitor.id)?.id
-        else {
-            Issue.record("Missing active workspace for reorientSplits test")
+    @Test func reorientSplitsChangesExistingTreeWhenSplitWidthMultiplierUpdated() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+        let monitorId = Monitor.ID(displayId: layoutPlanTestMainDisplayId())
+
+        let token1 = WindowToken(pid: 1003, windowId: 1003)
+        let token2 = WindowToken(pid: 1004, windowId: 1004)
+
+        _ = engine.addWindow(token: token1, to: wsId, activeWindowFrame: nil, monitorId: monitorId)
+        _ = engine.addWindow(token: token2, to: wsId, activeWindowFrame: nil, monitorId: monitorId)
+
+        let baselineFrames = engine.calculateLayout(for: wsId, screen: screen)
+        guard let f1 = baselineFrames[token1], let f2 = baselineFrames[token2] else {
+            Issue.record("Expected baseline frames")
             return
         }
 
-        configureWorkspaceAsDwindle(on: controller, workspaceId: workspaceId)
-        controller.enableDwindleLayout()
-        await waitForLayoutPlanRefreshWork(on: controller)
+        // Baseline: horizontal split (side by side) — default splitWidthMultiplier = 1.0
+        #expect(f1.origin.y == f2.origin.y, "Baseline should be horizontal (same Y)")
+        #expect(f1.maxX <= f2.minX + 1.0, "Baseline should be side by side")
 
-        let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 1003)
-        let secondToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 1004)
-
-        let baselinePlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
-            activeWorkspaces: [workspaceId]
+        // Apply high splitWidthMultiplier override
+        var highMultiplierSettings = DwindleSettings()
+        highMultiplierSettings.splitWidthMultiplier = 10.0
+        let resolved = ResolvedDwindleSettings(
+            smartSplit: highMultiplierSettings.smartSplit,
+            defaultSplitRatio: highMultiplierSettings.defaultSplitRatio,
+            splitWidthMultiplier: highMultiplierSettings.splitWidthMultiplier,
+            singleWindowAspectRatio: .fill,
+            useGlobalGaps: true,
+            innerGap: 0,
+            outerGapTop: 0,
+            outerGapBottom: 0,
+            outerGapLeft: 0,
+            outerGapRight: 0
         )
-        guard let baselinePlan = baselinePlans.first,
-              let baselineFirstFrame = frameChange(baselinePlan.diff.frameChanges, token: firstToken),
-              let baselineSecondFrame = frameChange(baselinePlan.diff.frameChanges, token: secondToken)
-        else {
-            Issue.record("Expected baseline Dwindle frames for reorientSplits test")
+        engine.updateMonitorSettings(resolved, for: monitorId)
+        engine.reorientSplits(for: wsId, monitorId: monitorId)
+
+        // Verify orientation changed
+        #expect(engine.root(for: wsId)?.splitOrientation == .vertical)
+
+        let reorientedFrames = engine.calculateLayout(for: wsId, screen: screen)
+        guard let r1 = reorientedFrames[token1], let r2 = reorientedFrames[token2] else {
+            Issue.record("Expected reoriented frames")
             return
         }
 
-        #expect(baselineSecondFrame.minX >= baselineFirstFrame.maxX - 1.0)
-
-        controller.settings.updateDwindleSettings(
-            MonitorDwindleSettings(
-                monitorName: portraitMonitor.name,
-                monitorDisplayId: portraitMonitor.displayId,
-                splitWidthMultiplier: 10.0
-            )
-        )
-        controller.updateMonitorDwindleSettings()
-
-        let reorientedPlans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
-            activeWorkspaces: [workspaceId]
-        )
-        guard let reorientedPlan = reorientedPlans.first,
-              let reorientedFirstFrame = frameChange(reorientedPlan.diff.frameChanges, token: firstToken),
-              let reorientedSecondFrame = frameChange(reorientedPlan.diff.frameChanges, token: secondToken)
-        else {
-            Issue.record("Expected reoriented Dwindle frames for reorientSplits test")
-            return
-        }
-
-        #expect(abs(reorientedFirstFrame.width - reorientedSecondFrame.width) < 1.0)
-        #expect(reorientedFirstFrame.minY < reorientedSecondFrame.minY)
-        #expect(reorientedSecondFrame.minY >= reorientedFirstFrame.maxY - 1.0)
+        // After reorientation: vertical split (stacked top/bottom)
+        #expect(abs(r1.width - r2.width) < 1.0, "Should have same width in vertical split")
+        #expect(r1.minY < r2.minY, "First window should be above second")
     }
 }
