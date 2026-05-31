@@ -274,13 +274,13 @@ final class DwindleLayoutEngine {
         let (firstFrame, secondFrame): (CGRect, CGRect)
         switch newOrientation {
         case .horizontal:
-            let w = frame.width * fraction
-            firstFrame = CGRect(x: frame.minX, y: frame.minY, width: w, height: frame.height)
-            secondFrame = CGRect(x: frame.minX + w, y: frame.minY, width: frame.width - w, height: frame.height)
+            let splitWidth = frame.width * fraction
+            firstFrame = CGRect(x: frame.minX, y: frame.minY, width: splitWidth, height: frame.height)
+            secondFrame = CGRect(x: frame.minX + splitWidth, y: frame.minY, width: frame.width - splitWidth, height: frame.height)
         case .vertical:
-            let h = frame.height * fraction
-            firstFrame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: h)
-            secondFrame = CGRect(x: frame.minX, y: frame.minY + h, width: frame.width, height: frame.height - h)
+            let splitHeight = frame.height * fraction
+            firstFrame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: splitHeight)
+            secondFrame = CGRect(x: frame.minX, y: frame.minY + splitHeight, width: frame.width, height: frame.height - splitHeight)
         }
 
         if let first = node.firstChild() {
