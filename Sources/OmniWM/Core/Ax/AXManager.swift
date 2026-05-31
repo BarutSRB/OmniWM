@@ -157,6 +157,9 @@ final class AXManager {
         if pendingFrameWrites[windowId] != nil {
             return true
         }
+        if recentFrameWriteFailures[windowId] != nil {
+            return true
+        }
         guard let observedFrame,
               let lastAppliedFrame = lastAppliedFrames[windowId]
         else {
