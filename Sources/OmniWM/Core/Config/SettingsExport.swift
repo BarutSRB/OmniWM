@@ -52,6 +52,7 @@ struct SettingsExport: Equatable {
     var systemHyperTrigger: SystemHyperTrigger
 
     var workspaceBarEnabled: Bool
+    var workspaceBarVisibilityMode: String
     var workspaceBarShowLabels: Bool
     var workspaceBarShowFloatingWindows: Bool
     var workspaceBarWindowLevel: String
@@ -156,6 +157,7 @@ extension SettingsExport {
             hotkeyBindings: HotkeyBindingRegistry.defaults(),
             systemHyperTrigger: .default,
             workspaceBarEnabled: true,
+            workspaceBarVisibilityMode: WorkspaceBarVisibilityMode.always.rawValue,
             workspaceBarShowLabels: true,
             workspaceBarShowFloatingWindows: false,
             workspaceBarWindowLevel: WorkspaceBarWindowLevel.popup.rawValue,

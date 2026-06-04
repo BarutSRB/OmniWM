@@ -131,6 +131,8 @@ final class WMController {
     @ObservationIgnored
     private var hiddenWorkspaceBarMonitorIds: Set<Monitor.ID> = []
     @ObservationIgnored
+    private var workspaceBarHoldVisibilityCount = 0
+    @ObservationIgnored
     private let hiddenBarController: HiddenBarController
     @ObservationIgnored
     private lazy var quakeTerminalController: QuakeTerminalController = .init(
@@ -231,6 +233,18 @@ final class WMController {
             guard let self else { return }
             if !eventIntake.enqueue(.hotkeyCommand(command)) {
                 _ = commandHandler.handleHotkeyCommand(command)
+            }
+        }
+        hotkeys.onCommandRelease = { [weak self] command in
+            guard case .holdWorkspaceBarVisibility = command else { return }
+            self?.endWorkspaceBarHoldVisibility()
+        }
+        hotkeys.onHyperTriggerActiveChanged = { [weak self] isActive in
+            guard let self, self.settings.workspaceBarVisibilityMode == .holdKey else { return }
+            if isActive {
+                self.beginWorkspaceBarHoldVisibility()
+            } else {
+                self.endWorkspaceBarHoldVisibility()
             }
         }
         tabbedOverlayManager.onSelect = { [weak self] info, visualIndex, token in
@@ -466,6 +480,7 @@ final class WMController {
         guard let monitor = monitorForInteraction() else { return false }
         let resolved = settings.resolvedBarSettings(for: monitor)
         guard resolved.enabled else { return false }
+        guard settings.workspaceBarVisibilityMode == .always else { return false }
 
         if hiddenWorkspaceBarMonitorIds.contains(monitor.id) {
             hiddenWorkspaceBarMonitorIds.remove(monitor.id)
@@ -476,6 +491,22 @@ final class WMController {
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
         return true
+    }
+
+    func beginWorkspaceBarHoldVisibility() {
+        guard settings.workspaceBarVisibilityMode == .holdKey else { return }
+        workspaceBarHoldVisibilityCount += 1
+        guard workspaceBarHoldVisibilityCount == 1 else { return }
+        workspaceBarManager.setup(controller: self, settings: settings)
+        layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
+    }
+
+    func endWorkspaceBarHoldVisibility() {
+        guard workspaceBarHoldVisibilityCount > 0 else { return }
+        workspaceBarHoldVisibilityCount -= 1
+        guard workspaceBarHoldVisibilityCount == 0 else { return }
+        workspaceBarManager.setup(controller: self, settings: settings)
+        layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
 
     func setQuakeTerminalEnabled(_ enabled: Bool) {
@@ -791,7 +822,13 @@ final class WMController {
 
     func isWorkspaceBarVisible(on monitor: Monitor, resolved: ResolvedBarSettings? = nil) -> Bool {
         let effective = resolved ?? settings.resolvedBarSettings(for: monitor)
-        return effective.enabled && !hiddenWorkspaceBarMonitorIds.contains(monitor.id)
+        guard effective.enabled else { return false }
+        switch settings.workspaceBarVisibilityMode {
+        case .always:
+            return !hiddenWorkspaceBarMonitorIds.contains(monitor.id)
+        case .holdKey:
+            return workspaceBarHoldVisibilityCount > 0
+        }
     }
 
     private func pruneHiddenWorkspaceBarMonitorIds() {

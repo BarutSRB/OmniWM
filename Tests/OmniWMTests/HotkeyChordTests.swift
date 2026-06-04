@@ -531,4 +531,10 @@ final class HotkeyChordTests: XCTestCase {
         XCTAssertEqual(decoded, binding)
         XCTAssertEqual(decoded.side, .right)
     }
+
+    func testMomentaryCommandPropertyIsSetForHoldWorkspaceBar() {
+        XCTAssertTrue(HotkeyCommand.holdWorkspaceBarVisibility.isMomentary)
+        XCTAssertFalse(HotkeyCommand.toggleWorkspaceBarVisibility.isMomentary)
+        XCTAssertFalse(HotkeyCommand.focus(.left).isMomentary)
+    }
 }

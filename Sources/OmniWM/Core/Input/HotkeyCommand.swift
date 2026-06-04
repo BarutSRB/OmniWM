@@ -93,6 +93,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case openMenuAnywhere
 
     case toggleWorkspaceBarVisibility
+    case holdWorkspaceBarVisibility
     case toggleHiddenBar
     case toggleQuakeTerminal
     case toggleWorkspaceLayout
@@ -104,5 +105,14 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
 
     var layoutCompatibility: LayoutCompatibility {
         ActionCatalog.layoutCompatibility(for: self) ?? .shared
+    }
+
+    var isMomentary: Bool {
+        switch self {
+        case .holdWorkspaceBarVisibility:
+            return true
+        default:
+            return false
+        }
     }
 }
