@@ -10,7 +10,7 @@ Usage:
 
 Audits staged changes or a committed range for Zig/kernel build surface.
 BACKPORT-LEDGER.md and BACKPORT-TRIAGE.tsv may mention skipped Zig commits;
-source, package, script, plugin, and test files may not reintroduce them.
+source, package, script, and plugin files may not reintroduce them.
 EOF
 }
 

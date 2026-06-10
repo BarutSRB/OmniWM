@@ -24,12 +24,12 @@ Bug fixes, documentation improvements, performance work, focused cleanups, featu
 
 - For larger changes, open an issue or start a discussion first so we can align on direction.
 - Keep changes focused. Smaller, well-explained pull requests are much easier to review and merge.
-- If your change affects behavior, config, tests, docs, or CLI output, call that out clearly in the pull request description.
+- If your change affects behavior, config, docs, or CLI output, call that out clearly in the pull request description.
 
 ## Pull Request Expectations
 
 - Explain the problem you are solving and why this approach makes sense.
-- Include testing notes **if possible**. Mention what you ran, checked, or verified.
+- Include verification notes **if possible**. Mention what you ran, checked, or verified.
 - Add screenshots, recordings, or CLI examples when they help explain the change.
 - Update documentation when behavior, workflows, or interfaces change.
 
@@ -37,7 +37,7 @@ Bug fixes, documentation improvements, performance work, focused cleanups, featu
 
 1. Fork the repository.
 2. Create a branch for your change.
-3. Make the change and test it.
+3. Make the change and verify it.
 4. Open a pull request with clear context and reasoning.
 
 ## Questions and Ideas

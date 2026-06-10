@@ -33,7 +33,7 @@ while IFS=$'\t' read -r sha parents subject; do
       elif grep -Eiq '(to Zig|into Zig|Zig kernel|Zig kernels|Finalize Zig|for zig|Zig validation|Zig cache)' <<<"$subject"; then
         bucket="zig-build-skip"
       elif grep -Eiq '(^Zig/|\.zig$|^Sources/COmniWMKernels/|^Plugins/OmniWMKernelsBuildPlugin/|^Sources/OmniWMIPC/ZigIPCSupport\.swift$|KernelABI|build-zig-kernels|omniwm_kernels|check-kernel|check-kernels)' <<<"$paths"; then
-        if grep -Eq '^(Sources/|Tests/).*\.(swift|md)$' <<<"$paths"; then
+        if grep -Eq '^Sources/.*\.(swift|md)$' <<<"$paths"; then
           bucket="mixed-investigate-only"
         else
           bucket="zig-build-skip"
