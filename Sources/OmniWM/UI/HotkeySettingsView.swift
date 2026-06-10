@@ -1,4 +1,3 @@
-import Carbon
 import SwiftUI
 
 enum HotkeyCaptureResult {
@@ -64,82 +63,6 @@ enum HotkeyInputMonitoringStatus: Equatable {
         case .denied:
             "Denied"
         }
-    }
-}
-
-enum HotkeyPresetConfirmation: String, Identifiable, Equatable {
-    case capsLockModifier
-
-    var id: String {
-        rawValue
-    }
-
-    var title: String {
-        switch self {
-        case .capsLockModifier:
-            "Apply Caps Lock Modifier?"
-        }
-    }
-
-    var confirmButtonTitle: String {
-        switch self {
-        case .capsLockModifier:
-            "Apply Caps Lock Modifier"
-        }
-    }
-
-    @MainActor func preview(settings: SettingsStore) -> HotkeyPresetPreview {
-        switch self {
-        case .capsLockModifier:
-            let capsLockHyperTrigger = HyperKeyTrigger.key(UInt32(kVK_CapsLock))
-            let plan = HotkeyCenter.registrationPlan(
-                for: settings.hotkeyBindings,
-                hyperTrigger: capsLockHyperTrigger
-            )
-            let blockingCommands = plan.failures.compactMap { command, reason in
-                reason == HotkeyRegistrationFailureReason.hyperTriggerConflict ? command.displayName : nil
-            }
-            return HotkeyPresetPreview(
-                summary: "Changes the OmniWM modifier to Caps Lock.",
-                affectedCommands: [],
-                unassignedCommands: [],
-                blockingCommands: blockingCommands
-            )
-        }
-    }
-}
-
-struct HotkeyPresetPreview: Equatable {
-    let summary: String
-    let affectedCommands: [String]
-    let unassignedCommands: [String]
-    let blockingCommands: [String]
-
-    var message: String {
-        var sentences = [summary]
-        if !affectedCommands.isEmpty {
-            sentences.append("Affected commands: \(Self.compactList(affectedCommands)).")
-        }
-        if !unassignedCommands.isEmpty {
-            sentences.append("Will unassign conflicts: \(Self.compactList(unassignedCommands)).")
-        }
-        if !blockingCommands.isEmpty {
-            sentences.append("Clear conflicts first: \(Self.compactList(blockingCommands)).")
-        }
-        return sentences.joined(separator: " ")
-    }
-
-    private static func compactList(_ values: [String], limit: Int = 6) -> String {
-        let uniqueValues = values.reduce(into: [String]()) { result, value in
-            if !result.contains(value) {
-                result.append(value)
-            }
-        }
-        guard uniqueValues.count > limit else {
-            return uniqueValues.joined(separator: ", ")
-        }
-        let shownValues = uniqueValues.prefix(limit).joined(separator: ", ")
-        return "\(shownValues), and \(uniqueValues.count - limit) more"
     }
 }
 
@@ -222,11 +145,9 @@ struct HotkeySettingsView: View {
     @Bindable var controller: WMController
     @State private var recordingTarget: HotkeyRecordingTarget?
     @State private var conflictAlert: ConflictAlert?
-    @State private var noticeAlert: HotkeyNoticeAlert?
     @State private var searchText: String = ""
     @State private var showsAdvancedHotkeys = false
     @State private var confirmsResetToDefaults = false
-    @State private var pendingPresetConfirmation: HotkeyPresetConfirmation?
     @State private var inputMonitoringStatus = HotkeyInputMonitoringStatus(
         granted: HotkeyCenter.eventTapAccessGranted()
     )
@@ -276,14 +197,6 @@ struct HotkeySettingsView: View {
                         }
                     }
                     SettingsCaption("How long to hold the Hyper key before it activates. 0 ms = immediate (no tap-through to native key).")
-                }
-
-                LabeledContent("Presets") {
-                    Menu("Apply Preset") {
-                        Button("Caps Lock as OmniWM Modifier") {
-                            pendingPresetConfirmation = .capsLockModifier
-                        }
-                    }
                 }
 
                 LabeledContent("Input Monitoring") {
@@ -378,15 +291,6 @@ struct HotkeySettingsView: View {
                 }
             )
         }
-        .alert(item: $noticeAlert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("OK")) {
-                    cancelRecording()
-                }
-            )
-        }
         .confirmationDialog("Reset all hotkeys?", isPresented: $confirmsResetToDefaults) {
             Button("Reset Hotkeys", role: .destructive) {
                 settings.resetHotkeysToDefaults()
@@ -396,28 +300,6 @@ struct HotkeySettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("All hotkey bindings will be restored to OmniWM defaults.")
-        }
-        .confirmationDialog(
-            pendingPresetConfirmation?.title ?? "Apply preset?",
-            isPresented: Binding(
-                get: { pendingPresetConfirmation != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        pendingPresetConfirmation = nil
-                    }
-                }
-            )
-        ) {
-            if let pendingPresetConfirmation {
-                Button(pendingPresetConfirmation.confirmButtonTitle, role: .destructive) {
-                    applyConfirmedPreset(pendingPresetConfirmation)
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingPresetConfirmation = nil
-            }
-        } message: {
-            Text(pendingPresetConfirmation?.preview(settings: settings).message ?? "")
         }
     }
 
@@ -513,51 +395,6 @@ struct HotkeySettingsView: View {
         return status == .granted
     }
 
-    private func applyConfirmedPreset(_ preset: HotkeyPresetConfirmation) {
-        pendingPresetConfirmation = nil
-        switch preset {
-        case .capsLockModifier:
-            applyCapsLockHyperPreset()
-        }
-    }
-
-    private func applyCapsLockHyperPreset() {
-        let eventTapAccessGranted = refreshInputMonitoringStatus(requestIfNeeded: true)
-        guard eventTapAccessGranted else {
-            noticeAlert = HotkeyNoticeAlert(
-                title: "Input Monitoring Required",
-                message: "Caps Lock as OmniWM modifier needs Input Monitoring permission. Grant permission, then apply the preset again."
-            )
-            cancelRecording()
-            return
-        }
-
-        let capsLockHyperTrigger = HyperKeyTrigger.key(UInt32(kVK_CapsLock))
-        let plan = HotkeyCenter.registrationPlan(
-            for: settings.hotkeyBindings,
-            hyperTrigger: capsLockHyperTrigger
-        )
-        let conflictingCommands = plan.failures.compactMap { command, reason in
-            reason == HotkeyRegistrationFailureReason.hyperTriggerConflict ? command.displayName : nil
-        }
-        guard conflictingCommands.isEmpty else {
-            noticeAlert = HotkeyNoticeAlert(
-                title: "Caps Lock Conflict",
-                message: "Caps Lock is already used by \(conflictingCommands.joined(separator: ", ")). Clear those hotkeys or choose a different OmniWM modifier before applying this preset."
-            )
-            cancelRecording()
-            return
-        }
-
-        settings.applyCapsLockHyperPreset()
-        controller.updateHotkeyBindings(settings.hotkeyBindings)
-        noticeAlert = HotkeyNoticeAlert(
-            title: "Caps Lock OmniWM Modifier Enabled",
-            message: "Caps Lock is now OmniWM's local shortcut modifier. OmniWM does not globally remap Caps Lock."
-        )
-        cancelRecording()
-    }
-
     private func syncHotkeyRecordingState() {
         controller.setHotkeysEnabled(isRecordingOrDrafting ? false : settings.hotkeysEnabled)
     }
@@ -583,15 +420,6 @@ struct ConflictAlert: Identifiable {
             let commandList = conflictingCommands.joined(separator: ", ")
             return "This key combination is used by: \(commandList). Do you want to replace all?"
         }
-    }
-}
-
-struct HotkeyNoticeAlert: Identifiable {
-    let title: String
-    let message: String
-
-    var id: String {
-        title + ":" + message
     }
 }
 

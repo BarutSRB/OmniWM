@@ -720,10 +720,6 @@ final class SettingsStore {
         hyperKeyHoldThresholdMilliseconds = SettingsStore.defaultExport.hyperKeyHoldThresholdMilliseconds
     }
 
-    func applyCapsLockHyperPreset() {
-        hyperTrigger = .key(UInt32(kVK_CapsLock))
-    }
-
     func hotkeyBindings(applyingPreset mappings: [(id: String, trigger: HotkeyTrigger)]) -> [HotkeyBinding] {
         var proposed = hotkeyBindings
         for mapping in mappings {

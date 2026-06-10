@@ -250,7 +250,7 @@ Use the `Toggle Workspace Layout` shortcut below to switch layouts per workspace
 
 ### Keyboard Shortcuts
 
-All shortcuts are customizable in Settings > Hotkeys. Single-key chords, `Hyper` chords, and presets are configured there. `Hyper` defaults to Control + Option + Shift + Command, and Caps Lock can be enabled as a power-user Hyper preset. The tables below list all the default hotkeys:
+All shortcuts are customizable in Settings > Hotkeys. Single-key chords and the `Hyper` modifier are configured there. `Hyper` defaults to Control + Option + Shift + Command, and you can choose another key or mouse button as the OmniWM modifier. The tables below list all the default hotkeys:
 
 Layout legend:
 - `Shared` works in any active layout.
