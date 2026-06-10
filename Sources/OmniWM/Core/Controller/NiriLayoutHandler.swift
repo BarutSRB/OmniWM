@@ -982,19 +982,6 @@ enum NiriWindowMoveResult {
             }
 
             guard let frame = frames[token] else { continue }
-            if window.needsResizePlaceholder(for: frame) {
-                diff.resizePlaceholders.append(
-                    .init(
-                        token: token,
-                        frame: frame,
-                        minimumSize: window.effectiveResizeMinimumSize,
-                        selected: selectedToken == token
-                            || confirmedFocusedToken == token
-                            || pendingFocusedToken == token
-                    )
-                )
-                continue
-            }
             let forceApply = if let node = engine.findNode(for: token) {
                 node.sizingMode == .fullscreen
             } else {

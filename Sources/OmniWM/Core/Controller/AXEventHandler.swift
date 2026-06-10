@@ -1406,7 +1406,6 @@ final class AXEventHandler: CGSEventDelegate {
 
         clearManagedFocusState(matching: token, workspaceId: affectedWorkspaceId)
         controller.nativeFullscreenPlaceholderManager.remove(token)
-        controller.clearResizePlaceholder(for: token)
 
         let layoutType = affectedWorkspaceId
             .flatMap { controller.workspaceManager.descriptor(for: $0)?.name }
@@ -2408,7 +2407,6 @@ final class AXEventHandler: CGSEventDelegate {
     private func suspendManagedWindowForNativeFullscreen(_ entry: WindowModel.Entry) -> Bool {
         guard let controller else { return false }
         cancelNativeFullscreenLifecycleTasks(containing: entry.token)
-        controller.clearResizePlaceholder(for: entry.token)
         let changed = controller.workspaceManager.markNativeFullscreenSuspended(entry.token)
         _ = controller.focusBorderController.focusChanged(
             to: controller.keyboardFocusTarget(for: entry.token, axRef: entry.axRef),
@@ -2435,7 +2433,6 @@ final class AXEventHandler: CGSEventDelegate {
         if restored {
             controller.layoutRefreshController.markNativeFullscreenRestoredForFrameApply(entry.token)
             controller.nativeFullscreenPlaceholderManager.remove(entry.token)
-            controller.clearResizePlaceholder(for: entry.token)
         }
         return restored
     }
@@ -2487,7 +2484,6 @@ final class AXEventHandler: CGSEventDelegate {
                 _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: token)
                 controller.layoutRefreshController.markNativeFullscreenRestoredForFrameApply(token)
                 controller.nativeFullscreenPlaceholderManager.remove(token)
-                controller.clearResizePlaceholder(for: token)
                 scheduledRelayout = false
             }
             return .restored(scheduledRelayout: scheduledRelayout)
@@ -2511,7 +2507,6 @@ final class AXEventHandler: CGSEventDelegate {
             _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: token)
             controller.layoutRefreshController.markNativeFullscreenRestoredForFrameApply(token)
             controller.nativeFullscreenPlaceholderManager.remove(token)
-            controller.clearResizePlaceholder(for: token)
             scheduledRelayout = false
         }
 
@@ -2640,9 +2635,6 @@ final class AXEventHandler: CGSEventDelegate {
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowModel.Entry? {
         guard let controller else { return nil }
-        let hadResizePlaceholder = oldToken != newToken
-            && (controller.workspaceManager.resizePlaceholderState(for: oldToken) != nil
-                || controller.resizePlaceholderManager.hasPlaceholder(for: oldToken))
 
         guard let entry = controller.workspaceManager.rekeyWindow(
             from: oldToken,
@@ -2659,7 +2651,6 @@ final class AXEventHandler: CGSEventDelegate {
             _ = controller.dwindleEngine?.rekeyWindow(from: oldToken, to: newToken, in: workspaceId)
         }
         controller.nativeFullscreenPlaceholderManager.rekey(from: oldToken, to: newToken)
-        controller.resizePlaceholderManager.rekey(from: oldToken, to: newToken)
 
         controller.focusBridge.rekeyPendingFocus(from: oldToken, to: newToken)
         controller.focusBridge.rekeyManagedRequest(from: oldToken, to: newToken)
@@ -2674,13 +2665,6 @@ final class AXEventHandler: CGSEventDelegate {
             oldWindowId: oldToken.windowId,
             newWindow: axRef
         )
-        if hadResizePlaceholder {
-            controller.clearResizePlaceholder(for: newToken)
-            controller.layoutRefreshController.requestRelayout(
-                reason: .axWindowCreated,
-                affectedWorkspaceIds: [entry.workspaceId]
-            )
-        }
         controller.rekeyScratchpadWindowResources(from: oldToken, to: newToken, axRef: axRef)
         controller.layoutRefreshController.rekeyPendingRevealTransaction(
             from: oldToken,
@@ -2723,7 +2707,6 @@ final class AXEventHandler: CGSEventDelegate {
         guard let unavailableRecord else { return false }
         controller.focusBorderController.hide()
         controller.nativeFullscreenPlaceholderManager.remove(token)
-        controller.clearResizePlaceholder(for: token)
         clearManagedFocusState(matching: token, workspaceId: unavailableRecord.workspaceId)
         controller.layoutRefreshController.requestImmediateRelayout(
             reason: .appActivationTransition,
@@ -2780,7 +2763,6 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         for entry in controller.workspaceManager.entries(forPid: pid) {
-            controller.clearResizePlaceholder(for: entry.token)
             controller.workspaceManager.setLayoutReason(.macosHiddenApp, for: entry.token)
         }
         controller.layoutRefreshController.requestVisibilityRefresh(reason: .appHidden)
@@ -3726,7 +3708,6 @@ final class AXEventHandler: CGSEventDelegate {
                 )
             else { return }
             controller.nativeFullscreenPlaceholderManager.remove(removedEntry.token)
-            controller.clearResizePlaceholder(for: removedEntry.token)
             controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
         }
     }

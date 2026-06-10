@@ -508,17 +508,6 @@ import QuartzCore
                 )
             }
             guard let frame = frames[window.token]?.roundedToPhysicalPixels(scale: effectiveScale) else { continue }
-            if window.needsResizePlaceholder(for: frame) {
-                diff.resizePlaceholders.append(
-                    .init(
-                        token: window.token,
-                        frame: frame,
-                        minimumSize: window.effectiveResizeMinimumSize,
-                        selected: selectedToken == window.token || confirmedFocusedToken == window.token
-                    )
-                )
-                continue
-            }
             diff.frameChanges.append(
                 LayoutFrameChange(
                     token: window.token,

@@ -448,7 +448,6 @@ final class RuntimeArchitectureTests: XCTestCase {
     @MainActor
     func testWorkspaceManagerDoesNotGlobalInvalidateForMissingTokens() throws {
         let manager = Self.workspaceManager()
-        let workspaceId = try XCTUnwrap(manager.workspaceId(for: "1", createIfMissing: true))
         let missingToken = WindowToken(pid: getpid(), windowId: 987_654)
         let before = manager.runtimeEpoch(for: .layoutCommit)
 
@@ -463,14 +462,6 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         manager.setManualLayoutOverride(.forceFloat, for: missingToken)
         manager.setCachedConstraints(.fixed(size: CGSize(width: 320, height: 240)), for: missingToken)
-        manager.setResizePlaceholderState(
-            ResizePlaceholderState(
-                workspaceId: workspaceId,
-                frame: CGRect(x: 10, y: 20, width: 300, height: 200),
-                minimumSize: CGSize(width: 200, height: 150)
-            ),
-            for: missingToken
-        )
         manager.setHiddenState(
             WindowModel.HiddenState(
                 proportionalPosition: .zero,
@@ -769,6 +760,7 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertNotEqual(unavailableTransitionId, enterTransitionId)
         XCTAssertEqual(refreshedUnavailableRecord.transitionId, unavailableTransitionId)
+        XCTAssertTrue(manager.showsNativeFullscreenPlaceholder(for: token))
 
         XCTAssertTrue(manager.requestNativeFullscreenExit(token, initiatedByCommand: true))
         let exitTransitionId = try XCTUnwrap(manager.nativeFullscreenRecord(for: token)?.transitionId)

@@ -37,12 +37,6 @@ struct ManagedReplacementMetadata: Equatable, Sendable {
     }
 }
 
-struct ResizePlaceholderState: Equatable, Sendable {
-    var workspaceId: WorkspaceDescriptor.ID
-    var frame: CGRect
-    var minimumSize: CGSize
-}
-
 final class WindowModel {
     typealias WindowKey = WindowToken
 
@@ -163,7 +157,6 @@ final class WindowModel {
         var prevParentKind: ParentKind?
         var cachedConstraints: WindowSizeConstraints?
         var constraintsCacheTime: Date?
-        var resizePlaceholderState: ResizePlaceholderState?
 
         var token: WindowToken {
             handle.id
@@ -434,7 +427,6 @@ final class WindowModel {
         entry.axRef = newAXRef
         entry.cachedConstraints = nil
         entry.constraintsCacheTime = nil
-        entry.resizePlaceholderState = nil
         if let managedReplacementMetadata {
             entry.managedReplacementMetadata = managedReplacementMetadata
         }
@@ -477,7 +469,6 @@ final class WindowModel {
             )
         }
         entry.workspaceId = workspace
-        entry.resizePlaceholderState?.workspaceId = workspace
     }
 
     func windows(in workspace: WorkspaceDescriptor.ID) -> [Entry] {
@@ -550,9 +541,6 @@ final class WindowModel {
             tokenIndexByKey: &tokenIndexByWorkspaceMode
         )
         entry.mode = mode
-        if mode != .tiling {
-            entry.resizePlaceholderState = nil
-        }
         appendToken(
             token,
             to: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: mode),
@@ -668,9 +656,6 @@ final class WindowModel {
             entry.prevParentKind = entry.parentKind
         }
         entry.layoutReason = reason
-        if reason != .standard {
-            entry.resizePlaceholderState = nil
-        }
     }
 
     func restoreFromNativeState(for token: WindowToken) -> ParentKind? {
@@ -745,19 +730,4 @@ final class WindowModel {
         entry.constraintsCacheTime = Date()
     }
 
-    func resizePlaceholderState(for token: WindowToken) -> ResizePlaceholderState? {
-        entries[token]?.resizePlaceholderState
-    }
-
-    func setResizePlaceholderState(_ state: ResizePlaceholderState?, for token: WindowToken) {
-        entries[token]?.resizePlaceholderState = state
-    }
-
-    func resizePlaceholderStates(in workspaceId: WorkspaceDescriptor.ID) -> [(token: WindowToken, state: ResizePlaceholderState)] {
-        guard let tokens = tokensByWorkspace[workspaceId] else { return [] }
-        return tokens.compactMap { token in
-            guard let state = entries[token]?.resizePlaceholderState else { return nil }
-            return (token, state)
-        }
-    }
 }

@@ -546,7 +546,6 @@ final class CommandHandler {
             if currentState {
                 _ = controller.workspaceManager.requestNativeFullscreenExit(token, initiatedByCommand: true)
                 guard setFullscreen(entry.axRef, false) else {
-                    controller.clearResizePlaceholder(for: token)
                     _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
                     return
                 }
@@ -578,7 +577,6 @@ final class CommandHandler {
 
         _ = controller.workspaceManager.requestNativeFullscreenExit(token, initiatedByCommand: true)
         guard setFullscreen(entry.axRef, false) else {
-            controller.clearResizePlaceholder(for: token)
             _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
             return
         }

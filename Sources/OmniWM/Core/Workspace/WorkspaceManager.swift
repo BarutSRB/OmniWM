@@ -3155,25 +3155,6 @@ final class WorkspaceManager {
         windows.setCachedConstraints(normalized, for: token)
     }
 
-    func resizePlaceholderState(for token: WindowToken) -> ResizePlaceholderState? {
-        windows.resizePlaceholderState(for: token)
-    }
-
-    func setResizePlaceholderState(_ state: ResizePlaceholderState?, for token: WindowToken) {
-        guard let entry = windows.entry(for: token) else { return }
-        let previous = windows.resizePlaceholderState(for: token)
-        guard previous != state else { return }
-        windows.setResizePlaceholderState(state, for: token)
-        bumpRuntimeRevision(for: entry.workspaceId, domains: .layout)
-    }
-
-    func resizePlaceholderStates(in workspaceId: WorkspaceDescriptor.ID) -> [(
-        token: WindowToken,
-        state: ResizePlaceholderState
-    )] {
-        windows.resizePlaceholderStates(in: workspaceId)
-    }
-
     @discardableResult
     func moveWorkspaceToMonitor(_ workspaceId: WorkspaceDescriptor.ID, to targetMonitorId: Monitor.ID) -> Bool {
         guard let targetMonitor = monitor(byId: targetMonitorId) else { return false }
