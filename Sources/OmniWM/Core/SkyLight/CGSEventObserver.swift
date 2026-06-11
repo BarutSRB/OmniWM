@@ -7,6 +7,7 @@ enum CGSWindowEvent: Equatable {
     case frameChanged(windowId: UInt32)
     case closed(windowId: UInt32)
     case frontAppChanged(pid: pid_t)
+    case orderChanged(windowId: UInt32)
     case titleChanged(windowId: UInt32)
 }
 
@@ -27,6 +28,7 @@ final class CGSEventObserver {
             .spaceWindowDestroyed,
             .windowMoved,
             .windowResized,
+            .windowOrderChanged,
             .windowTitleChanged,
             .frontmostApplicationChanged
         ]
@@ -71,6 +73,7 @@ final class CGSEventObserver {
                 .spaceWindowDestroyed,
                 .windowMoved,
                 .windowResized,
+                .windowOrderChanged,
                 .windowTitleChanged,
                 .frontmostApplicationChanged
             ]
@@ -167,6 +170,12 @@ private func decodeCGSEvent(
             return .malformed
         }
         return .event(.frameChanged(windowId: windowId))
+
+    case .windowOrderChanged:
+        guard let windowId = copyUInt32(from: data, length: length, offset: 0) else {
+            return .malformed
+        }
+        return .event(.orderChanged(windowId: windowId))
 
     case .frontmostApplicationChanged:
         guard let pid = copyInt32(from: data, length: length, offset: 0) else {

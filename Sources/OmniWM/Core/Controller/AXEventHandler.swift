@@ -423,6 +423,9 @@ final class AXEventHandler {
         case let .frontAppChanged(pid):
             handleAppActivation(pid: pid, source: .cgsFrontAppChanged)
 
+        case let .orderChanged(windowId):
+            handleWindowOrderChanged(windowId: windowId)
+
         case let .titleChanged(windowId):
             AXWindowService.invalidateCachedTitle(windowId: windowId)
             controller.requestWorkspaceBarRefresh()
@@ -431,6 +434,12 @@ final class AXEventHandler {
                 scheduleWindowRuleReevaluationIfNeeded(targets: [.window(token)])
             }
         }
+    }
+
+    private func handleWindowOrderChanged(windowId: UInt32) {
+        guard let controller else { return }
+        guard !controller.isOwnedWindow(windowNumber: Int(windowId)) else { return }
+        controller.surfaceReconciler.noteRestackOccurred()
     }
 
     private func scheduleWindowRuleReevaluationIfNeeded(
