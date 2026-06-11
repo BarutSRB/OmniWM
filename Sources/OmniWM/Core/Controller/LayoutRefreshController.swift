@@ -1888,7 +1888,6 @@ import QuartzCore
             layoutState.activeRefreshTask?.cancel()
         case (.immediateRelayout, .immediateRelayout):
             mergePendingRefresh(refresh)
-            layoutState.activeRefreshTask?.cancel()
         case (.immediateRelayout, .relayout):
             mergePendingRefresh(refresh)
         case (.immediateRelayout, .visibilityRefresh):
@@ -1898,10 +1897,11 @@ import QuartzCore
             layoutState.activeRefreshTask?.cancel()
         case (.relayout, .fullRescan),
              (.relayout, .immediateRelayout),
-             (.relayout, .relayout),
              (.relayout, .windowRemoval):
             mergePendingRefresh(refresh)
             layoutState.activeRefreshTask?.cancel()
+        case (.relayout, .relayout):
+            mergePendingRefresh(refresh)
         case (.relayout, .visibilityRefresh):
             mergePendingRefresh(refresh)
         }
