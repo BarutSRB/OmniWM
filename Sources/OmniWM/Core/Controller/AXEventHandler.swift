@@ -1901,6 +1901,7 @@ final class AXEventHandler {
                 break
             case let .conflictsWithPendingRequest(request):
                 if shouldHonorObservedFocusOverPendingRequest(
+                    observedToken: token,
                     source: source,
                     origin: origin
                 ) {
@@ -1974,6 +1975,7 @@ final class AXEventHandler {
                 break
             case let .conflictsWithPendingRequest(request):
                 if shouldHonorObservedFocusOverPendingRequest(
+                    observedToken: token,
                     source: source,
                     origin: origin
                 ) {
@@ -2043,6 +2045,7 @@ final class AXEventHandler {
         case let .matchesActiveRequest(request),
              let .conflictsWithPendingRequest(request):
             if shouldHonorObservedFocusOverPendingRequest(
+                observedToken: token,
                 source: source,
                 origin: origin
             ) {
@@ -2246,6 +2249,7 @@ final class AXEventHandler {
             break
         case let .conflictsWithPendingRequest(request):
             if shouldHonorObservedFocusOverPendingRequest(
+                observedToken: entry.token,
                 source: activation.source,
                 origin: activation.origin
             ) {
@@ -4115,6 +4119,7 @@ final class AXEventHandler {
         case let .matchesActiveRequest(request),
              let .conflictsWithPendingRequest(request):
             if shouldHonorObservedFocusOverPendingRequest(
+                observedToken: nil,
                 source: source,
                 origin: origin
             ) {
@@ -4193,10 +4198,19 @@ final class AXEventHandler {
     }
 
     private func shouldHonorObservedFocusOverPendingRequest(
+        observedToken: WindowToken?,
         source: ActivationEventSource,
         origin: ActivationCallOrigin
     ) -> Bool {
-        source.isAuthoritative && origin == .external
+        guard source.isAuthoritative, origin == .external else { return false }
+        guard let controller, let observedToken else { return true }
+        switch controller.intentLedger.classifyFocusObservation(token: observedToken) {
+        case .echoOf,
+             .lateEcho:
+            return false
+        case .external:
+            return true
+        }
     }
 
     func cleanupFocusStateForTerminatedApp(pid: pid_t) {

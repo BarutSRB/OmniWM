@@ -101,6 +101,12 @@ final class FocusBridgeCoordinator {
             return activeManagedRequest
         }
 
+        if let replacedRequest = activeManagedRequest {
+            retireIntent(correlatedRequestId: replacedRequest.requestId) {
+                intentLedger.supersede(id: $0)
+            }
+        }
+
         let request = ManagedFocusRequest(
             requestId: nextRequestId,
             token: token,
