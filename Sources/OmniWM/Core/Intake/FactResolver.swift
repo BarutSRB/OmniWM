@@ -10,11 +10,14 @@ struct ActivationFacts: Sendable {
     let pid: pid_t
     let source: ActivationEventSource
     let origin: ActivationCallOrigin
+    let requestedAtSeq: UInt64
     let focusedWindow: FocusedWindowFact?
 }
 
 @MainActor
 final class FactResolver {
+    var factProvider: ((pid_t) -> FocusedWindowFact?)?
+
     private var resolverThread: Thread?
     private var inFlightActivationPids: Set<pid_t> = []
 
@@ -24,6 +27,21 @@ final class FactResolver {
         origin: ActivationCallOrigin
     ) {
         if !source.isAuthoritative, inFlightActivationPids.contains(pid) {
+            return
+        }
+        let requestedAtSeq = EventIntake.currentSeq()
+        if let factProvider {
+            EventIntake.post(
+                .activationFactsResolved(
+                    ActivationFacts(
+                        pid: pid,
+                        source: source,
+                        origin: origin,
+                        requestedAtSeq: requestedAtSeq,
+                        focusedWindow: factProvider(pid)
+                    )
+                )
+            )
             return
         }
         inFlightActivationPids.insert(pid)
@@ -39,6 +57,7 @@ final class FactResolver {
                         pid: pid,
                         source: source,
                         origin: origin,
+                        requestedAtSeq: requestedAtSeq,
                         focusedWindow: focusedWindow
                     )
                 )

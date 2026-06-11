@@ -1815,6 +1815,11 @@ final class AXEventHandler {
 
     func handleActivationFactsResolved(_ facts: ActivationFacts) {
         guard let controller, controller.hasStartedServices else { return }
+        if let issuedAtSeq = controller.intentLedger.newestFocusIntentIssuedAtSeq(),
+           issuedAtSeq > facts.requestedAtSeq
+        {
+            return
+        }
 
         let pid = facts.pid
         let source = facts.source

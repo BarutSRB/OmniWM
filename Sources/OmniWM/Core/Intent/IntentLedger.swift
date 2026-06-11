@@ -339,6 +339,10 @@ final class IntentLedger {
         entries.last { $0.phase == .pending && $0.kind.focusTargetToken == token }
     }
 
+    func newestFocusIntentIssuedAtSeq() -> UInt64? {
+        entries.last { $0.kind.isFocusWindow }?.issuedAtSeq
+    }
+
     func openIntents(pid: pid_t) -> [Intent] {
         entries.filter { $0.phase == .pending && $0.kind.targetPid == pid }
     }
@@ -378,7 +382,6 @@ final class IntentLedger {
         let now = clock()
         let lateEcho = entries.last { entry in
             guard entry.phase.isRetired,
-                  entry.phase != .confirmed,
                   entry.kind.focusTargetToken == token,
                   let retiredAt = entry.retiredAt
             else {

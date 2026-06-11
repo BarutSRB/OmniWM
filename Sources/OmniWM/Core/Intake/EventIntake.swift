@@ -109,9 +109,17 @@ final class EventIntake {
         buffer.withLock { $0.nextSeq - 1 }
     }
 
+    nonisolated var hasPendingEvents: Bool {
+        buffer.withLock { !$0.orderedEvents.isEmpty }
+    }
+
     @discardableResult
     nonisolated static func post(_ event: IntakeEvent) -> Bool {
         activeIntake.withLock { $0 }?.enqueue(event) ?? false
+    }
+
+    nonisolated static func currentSeq() -> UInt64 {
+        activeIntake.withLock { $0 }?.lastSeq ?? 0
     }
 
     func open(sink: EventIntakeSink) {
