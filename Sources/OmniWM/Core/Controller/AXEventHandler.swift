@@ -371,6 +371,7 @@ final class AXEventHandler: CGSEventDelegate {
     private static let managedReplacementGraceDelay: Duration = .milliseconds(150)
     private static let nativeFullscreenFollowupDelay: Duration = .seconds(1)
     private static let stabilizationRetryDelay: Duration = .milliseconds(100)
+    private static let focusedAdmissionReadmitDelay: Duration = .milliseconds(150)
     private static let postCreateLifecycleVerificationDelay: Duration = .milliseconds(75)
     private static let createdWindowRetryLimit = 5
     private static let createPlacementContextTTL: TimeInterval = 15
@@ -398,6 +399,8 @@ final class AXEventHandler: CGSEventDelegate {
     private var pendingWindowRuleReevaluationTargets: Set<WindowRuleReevaluationTarget> = []
     private var pendingWindowRuleReevaluationGeneration: UInt64 = 0
     private var pendingWindowStabilizationTasks: [WindowToken: Task<Void, Never>] = [:]
+    private var pendingFocusedAdmissionReadmitTask: Task<Void, Never>?
+    private var focusedAdmissionReadmitExhaustedToken: WindowToken?
     private var pendingPostCreateLifecycleVerificationTasks: [WindowToken: Task<Void, Never>] = [:]
     private var pendingPostCreateLifecycleVerificationOwners: [WindowToken: UInt64] = [:]
     private var nextPostCreateLifecycleVerificationOwner: UInt64 = 1
@@ -438,6 +441,9 @@ final class AXEventHandler: CGSEventDelegate {
         resetPostCreateLifecycleVerificationState()
         resetCreatedWindowRetryState()
         resetActivationRetryState()
+        pendingFocusedAdmissionReadmitTask?.cancel()
+        pendingFocusedAdmissionReadmitTask = nil
+        focusedAdmissionReadmitExhaustedToken = nil
         pendingWindowRuleReevaluationTask?.cancel()
         pendingWindowRuleReevaluationTask = nil
         pendingWindowRuleReevaluationTargets.removeAll()
@@ -1774,6 +1780,11 @@ final class AXEventHandler: CGSEventDelegate {
         )
         guard controller.hasStartedServices else { return }
 
+        if focusedAdmissionReadmitExhaustedToken == nil {
+            pendingFocusedAdmissionReadmitTask?.cancel()
+            pendingFocusedAdmissionReadmitTask = nil
+        }
+
         if source != .focusedWindowChanged {
             controller.focusPolicyEngine.beginLease(
                 owner: .nativeAppSwitch,
@@ -1969,14 +1980,15 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
-        if admitFocusedWindowBeforeNonManagedFallback(
+        let admissionAttempt = admitFocusedWindowBeforeNonManagedFallback(
             token: token,
             axRef: axRef,
             source: source,
             origin: origin,
             requestDisposition: requestDisposition,
             appFullscreen: appFullscreen
-        ) {
+        )
+        if admissionAttempt == .handled {
             return
         }
 
@@ -2021,6 +2033,12 @@ final class AXEventHandler: CGSEventDelegate {
             break
         }
 
+        if admissionAttempt == .admissionPending,
+           scheduleFocusedAdmissionReadmit(token: token, source: source, origin: origin)
+        {
+            return
+        }
+
         let target = controller.keyboardFocusTarget(for: token, axRef: axRef)
         let fallbackFullscreen = appFullscreenForFallbackLifecyclePreservation(
             observedAppFullscreen: appFullscreen
@@ -2038,6 +2056,12 @@ final class AXEventHandler: CGSEventDelegate {
         )
     }
 
+    private enum FocusedAdmissionAttempt: Equatable {
+        case handled
+        case admissionPending
+        case rejected
+    }
+
     private func admitFocusedWindowBeforeNonManagedFallback(
         token: WindowToken,
         axRef: AXWindowRef,
@@ -2045,11 +2069,11 @@ final class AXEventHandler: CGSEventDelegate {
         origin: ActivationCallOrigin,
         requestDisposition: ActivationRequestDisposition,
         appFullscreen: Bool
-    ) -> Bool {
+    ) -> FocusedAdmissionAttempt {
         guard let controller,
               let windowId = UInt32(exactly: token.windowId)
         else {
-            return false
+            return .rejected
         }
 
         let windowInfo = resolveWindowInfo(windowId)
@@ -2060,23 +2084,26 @@ final class AXEventHandler: CGSEventDelegate {
             fallbackAXRef: axRef,
             createPlacementContext: createPlacementContextsByWindowId[windowId]
         ) else {
+            var admissionPending = pendingWindowStabilizationTasks[token] != nil
             if let windowInfo {
-                _ = scheduleCreatedWindowRetryIfNeeded(
+                if scheduleCreatedWindowRetryIfNeeded(
                     windowId: windowId,
                     pid: pid_t(windowInfo.pid)
-                )
+                ) {
+                    admissionPending = true
+                }
                 scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(pid_t(windowInfo.pid))])
-            } else {
-                _ = scheduleCreatedWindowInfoRetryIfNeeded(windowId: windowId)
+            } else if scheduleCreatedWindowInfoRetryIfNeeded(windowId: windowId) {
+                admissionPending = true
             }
-            return false
+            return admissionPending ? .admissionPending : .rejected
         }
-        guard candidate.token == token else { return false }
+        guard candidate.token == token else { return .rejected }
 
         cancelCreatedWindowRetry(windowId: windowId)
         if completeLiveStructuralReplacementCreate(candidate) {
             guard let entry = controller.workspaceManager.entry(for: candidate.token) else {
-                return true
+                return .handled
             }
             let targetMonitor = controller.workspaceManager.monitor(for: entry.workspaceId)
             let isWorkspaceActive = targetMonitor.map { monitor in
@@ -2092,7 +2119,7 @@ final class AXEventHandler: CGSEventDelegate {
                     request: .init(requestDisposition)
                 ),
                 requestDisposition: requestDisposition
-            )
+            ) ? .handled : .rejected
         }
         if shouldDelayManagedReplacementCreate(candidate) {
             enqueueManagedReplacementCreate(
@@ -2104,12 +2131,12 @@ final class AXEventHandler: CGSEventDelegate {
                     request: .init(requestDisposition)
                 )
             )
-            return true
+            return .handled
         }
 
         trackPreparedCreate(candidate)
         guard let entry = controller.workspaceManager.entry(for: candidate.token) else {
-            return true
+            return .handled
         }
 
         let targetMonitor = controller.workspaceManager.monitor(for: entry.workspaceId)
@@ -2127,7 +2154,36 @@ final class AXEventHandler: CGSEventDelegate {
                 request: .init(requestDisposition)
             ),
             requestDisposition: requestDisposition
-        )
+        ) ? .handled : .rejected
+    }
+
+    private func scheduleFocusedAdmissionReadmit(
+        token: WindowToken,
+        source: ActivationEventSource,
+        origin: ActivationCallOrigin
+    ) -> Bool {
+        guard let controller,
+              focusedAdmissionReadmitExhaustedToken != token,
+              controller.workspaceManager.focusedToken != nil,
+              !controller.workspaceManager.isNonManagedFocusActive
+        else {
+            return false
+        }
+
+        pendingFocusedAdmissionReadmitTask?.cancel()
+        pendingFocusedAdmissionReadmitTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.focusedAdmissionReadmitDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.pendingFocusedAdmissionReadmitTask = nil
+            self.focusedAdmissionReadmitExhaustedToken = token
+            self.handleAppActivation(pid: token.pid, source: source, origin: origin)
+            self.focusedAdmissionReadmitExhaustedToken = nil
+        }
+        return true
     }
 
     @discardableResult
