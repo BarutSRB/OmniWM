@@ -125,9 +125,7 @@ final class WorkspaceNavigationHandler {
             )
             controller.intentLedger.discardPendingFocus(canceledRequest.token)
         }
-        controller.clearKeyboardFocusTarget()
         _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
-        controller.focusBorderController.clear()
     }
 
     private func commitWorkspaceTransitionFocusHandoff(
@@ -262,8 +260,6 @@ final class WorkspaceNavigationHandler {
             return
         }
 
-        controller.focusBorderController.hide()
-
         if let currentWorkspace {
             saveNiriViewportState(for: currentWorkspace.id)
         }
@@ -288,8 +284,6 @@ final class WorkspaceNavigationHandler {
 
     func switchWorkspaceRelative(isNext: Bool, wrapAround: Bool = true) {
         guard let controller else { return }
-        controller.focusBorderController.hide()
-
         guard let currentMonitorId = interactionMonitorId(for: controller)
         else { return }
         guard let currentWorkspace = controller.activeWorkspace() else { return }
@@ -347,8 +341,6 @@ final class WorkspaceNavigationHandler {
 
     func focusWorkspaceAnywhere(rawWorkspaceID: String) {
         guard let controller else { return }
-        controller.focusBorderController.hide()
-
         let currentWorkspace = controller.activeWorkspace()
 
         guard let targetWsId = controller.workspaceManager.workspaceId(named: rawWorkspaceID) else { return }
@@ -379,8 +371,6 @@ final class WorkspaceNavigationHandler {
 
     func workspaceBackAndForth() {
         guard let controller else { return }
-        controller.focusBorderController.hide()
-
         guard let currentMonitorId = interactionMonitorId(for: controller)
         else { return }
 

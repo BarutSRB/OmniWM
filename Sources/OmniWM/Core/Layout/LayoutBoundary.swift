@@ -83,11 +83,6 @@ enum LayoutVisibilityChange {
     case hide(WindowToken, side: HideSide)
 }
 
-struct LayoutFocusedFrame {
-    let token: WindowToken
-    let frame: CGRect
-}
-
 struct NativeFullscreenPlaceholderChange {
     let token: WindowToken
     let frame: CGRect
@@ -101,7 +96,6 @@ struct WorkspaceLayoutDiff {
     var visibilityChanges: [LayoutVisibilityChange] = []
     var restoreChanges: [LayoutRestoreChange] = []
     var nativeFullscreenPlaceholders: [NativeFullscreenPlaceholderChange] = []
-    var focusedFrame: LayoutFocusedFrame?
 }
 
 struct WorkspaceSessionPatch {
@@ -131,7 +125,6 @@ struct RefreshExecutionEffects {
     var visibility: RefreshVisibilityEffect?
     var requestWorkspaceBarRefresh: Bool = false
     var updateTabbedOverlays: Bool = false
-    var refreshFocusedBorderForVisibilityState: Bool = false
     var focusValidationWorkspaceIds: [WorkspaceDescriptor.ID] = []
     var focusValidationPreferredTokens: [WorkspaceDescriptor.ID: WindowToken] = [:]
     var markInitialRefreshComplete: Bool = false

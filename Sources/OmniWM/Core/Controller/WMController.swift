@@ -102,8 +102,6 @@ final class WMController {
     }()
 
     @ObservationIgnored
-    private(set) lazy var focusBorderController = FocusBorderController(controller: self)
-    @ObservationIgnored
     private(set) lazy var surfaceReconciler = SurfaceReconciler(controller: self)
     @ObservationIgnored
     private lazy var workspaceBarManager: WorkspaceBarManager = .init(motionPolicy: motionPolicy)
@@ -303,8 +301,7 @@ final class WMController {
         updateMonitorDwindleSettings()
         updateAppRules()
 
-        setBordersEnabled(settings.bordersEnabled)
-        updateBorderConfig(BorderConfig.from(settings: settings))
+        borderSettingsChanged()
 
         setFocusFollowsMouse(settings.focusFollowsMouse)
         setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
@@ -386,12 +383,8 @@ final class WMController {
         workspaceManager.setOuterGaps(left: left, right: right, top: top, bottom: bottom)
     }
 
-    func setBordersEnabled(_ enabled: Bool) {
-        focusBorderController.setEnabled(enabled)
-    }
-
-    func updateBorderConfig(_ config: BorderConfig) {
-        focusBorderController.updateConfig(config)
+    func borderSettingsChanged() {
+        surfaceReconciler.noteWorldChanged()
     }
 
     func setWorkspaceBarEnabled(_ enabled: Bool) {
@@ -1457,28 +1450,24 @@ final class WMController {
     }
 
     func captureQuakeTerminalRestoreTarget() -> QuakeTerminalRestoreTarget? {
-        if let target = currentKeyboardFocusTargetForRendering() {
-            return target.isManaged ? .managed(target.token) : .external(target)
-        }
-
-        guard let frontmostToken = focusedOrFrontmostWindowTokenForAutomation(
-            preferFrontmostWhenNonManagedFocusActive: true
-        ) else {
+        guard let token = workspaceManager.renderableFocusToken
+            ?? focusedOrFrontmostWindowTokenForAutomation(preferFrontmostWhenNonManagedFocusActive: true)
+        else {
             return nil
         }
 
-        if workspaceManager.entry(for: frontmostToken) != nil {
-            return .managed(frontmostToken)
+        if workspaceManager.entry(for: token) != nil {
+            return .managed(token)
         }
 
-        guard let axRef = AXWindowService.axWindowRef(for: UInt32(frontmostToken.windowId), pid: frontmostToken.pid)
+        guard let axRef = AXWindowService.axWindowRef(for: UInt32(token.windowId), pid: token.pid)
         else {
             return nil
         }
 
         return .external(
             KeyboardFocusTarget(
-                token: frontmostToken,
+                token: token,
                 axRef: axRef,
                 workspaceId: nil,
                 isManaged: false
@@ -1647,9 +1636,6 @@ final class WMController {
         }
 
         _ = workspaceManager.resolveAndSetWorkspaceFocusToken(in: workspaceId, onMonitor: monitorId)
-        if workspaceManager.focusedToken == nil {
-            focusBorderController.hide()
-        }
     }
 
     func cleanupScratchpadWindowResources(for token: WindowToken) {
@@ -1783,7 +1769,6 @@ final class WMController {
                 if applyFloatingFrame ?? shouldApplyFloatingFrameImmediately(for: entry.workspaceId) {
                     axManager.forceApplyNextFrame(for: entry.windowId)
                     axManager.applyFramesParallel([(entry.pid, entry.windowId, targetFrame)])
-                    _ = focusBorderController.updateFrameHint(for: token, frame: targetFrame)
                 }
             }
             return true
@@ -2684,12 +2669,6 @@ final class WMController {
         to workspaceId: WorkspaceDescriptor.ID
     ) {
         workspaceManager.setWorkspace(for: token, to: workspaceId)
-        guard let entry = workspaceManager.entry(for: token) else { return }
-        focusBorderController.updateFocusedTargetWorkspace(
-            matching: token,
-            axRef: entry.axRef,
-            workspaceId: entry.workspaceId
-        )
     }
 
     func recoverSourceFocusAfterMove(
@@ -2900,7 +2879,6 @@ extension WMController {
             )
         }
         intentLedger.discardPendingFocus(token)
-        focusBorderController.hide()
         if changed {
             layoutRefreshController.requestImmediateRelayout(
                 reason: .appActivationTransition,
@@ -2991,38 +2969,6 @@ extension WMController {
         focusWindow(handle.id)
     }
 
-    func keyboardFocusTarget(for token: WindowToken, axRef: AXWindowRef) -> KeyboardFocusTarget {
-        if let entry = workspaceManager.entry(for: token) {
-            return KeyboardFocusTarget(
-                token: token,
-                axRef: entry.axRef,
-                workspaceId: entry.workspaceId,
-                isManaged: true
-            )
-        }
-
-        return KeyboardFocusTarget(
-            token: token,
-            axRef: axRef,
-            workspaceId: nil,
-            isManaged: false
-        )
-    }
-
-    func managedKeyboardFocusTarget(for token: WindowToken) -> KeyboardFocusTarget? {
-        guard let entry = workspaceManager.entry(for: token) else { return nil }
-        return KeyboardFocusTarget(
-            token: token,
-            axRef: entry.axRef,
-            workspaceId: entry.workspaceId,
-            isManaged: true
-        )
-    }
-
-    func currentKeyboardFocusTargetForRendering() -> KeyboardFocusTarget? {
-        focusBorderController.currentTarget
-    }
-
     func preferredKeyboardFocusFrame(for token: WindowToken) -> CGRect? {
         if let node = niriEngine?.findNode(for: token) {
             return node.renderedFrame ?? node.frame
@@ -3034,84 +2980,6 @@ extension WMController {
             return floatingState.lastFrame
         }
         return nil
-    }
-
-    @discardableResult
-    func renderKeyboardFocusBorder(
-        for target: KeyboardFocusTarget? = nil,
-        preferredFrame: CGRect? = nil,
-        preferredFrameSource: BorderFrameSource = .layout,
-        forceOrdering: Bool = false
-    ) -> Bool {
-        if let target {
-            return focusBorderController.focusChanged(
-                to: target,
-                preferredFrame: preferredFrame,
-                preferredFrameSource: preferredFrameSource,
-                forceOrdering: forceOrdering
-            )
-        }
-        return focusBorderController.refresh(
-            preferredFrame: preferredFrame,
-            preferredFrameSource: preferredFrameSource,
-            forceOrdering: forceOrdering
-        )
-    }
-
-    @discardableResult
-    func updateManagedKeyboardFocusBorder(
-        token: WindowToken,
-        preferredFrame: CGRect,
-        forceOrdering: Bool = false
-    ) -> Bool {
-        if currentKeyboardFocusTargetForRendering()?.token == token {
-            return focusBorderController.updateFrameHint(
-                for: token,
-                frame: preferredFrame,
-                forceOrdering: forceOrdering
-            )
-        }
-        guard !focusBorderController.isManagedTargetSuppressed(token),
-              !workspaceManager.isNonManagedFocusActive,
-              workspaceManager.focusedToken == token,
-              let target = managedKeyboardFocusTarget(for: token)
-        else {
-            return false
-        }
-        return focusBorderController.focusChanged(
-            to: target,
-            preferredFrame: preferredFrame,
-            forceOrdering: forceOrdering
-        )
-    }
-
-    @discardableResult
-    func reapplyKeyboardFocusBorderIfMatching(
-        token: WindowToken,
-        preferredFrame: CGRect? = nil,
-        phase: ManagedBorderReapplyPhase,
-        forceOrdering: Bool = false
-    ) -> Bool {
-        guard currentKeyboardFocusTargetForRendering()?.token == token else { return false }
-        recordNiriCreateFocusTrace(.borderReapplied(token: token, phase: phase))
-        if let preferredFrame {
-            return focusBorderController.updateFrameHint(
-                for: token,
-                frame: preferredFrame,
-                forceOrdering: forceOrdering
-            )
-        }
-        return focusBorderController.refresh(forceOrdering: forceOrdering)
-    }
-
-    func clearKeyboardFocusTarget(
-        matching token: WindowToken? = nil,
-        pid: pid_t? = nil,
-        restoreCurrentBorder: Bool = false
-    ) {
-        focusBorderController.clear(matching: token, pid: pid)
-        guard restoreCurrentBorder else { return }
-        _ = focusBorderController.refresh(forceOrdering: true)
     }
 
     func recordNiriCreateFocusTrace(_ kind: NiriCreateFocusTraceEvent.Kind) {

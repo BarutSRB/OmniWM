@@ -106,14 +106,7 @@ import QuartzCore
                 _ = controller.layoutRefreshController.executeLayoutPlan(settlePlan)
             }
             controller.layoutRefreshController.stopDwindleAnimation(for: displayId)
-            if let focusedFrame = plan.diff.focusedFrame {
-                _ = controller.reapplyKeyboardFocusBorderIfMatching(
-                    token: focusedFrame.token,
-                    preferredFrame: focusedFrame.frame,
-                    phase: .animationSettled,
-                    forceOrdering: true
-                )
-            }
+            controller.surfaceReconciler.noteRestackOccurred()
         }
     }
 
@@ -539,16 +532,6 @@ import QuartzCore
                     frame: frame,
                     forceApply: false
                 )
-            )
-        }
-
-        if let confirmedFocusedToken,
-           !suspendedTokens.contains(confirmedFocusedToken),
-           let frame = frames[confirmedFocusedToken]?.roundedToPhysicalPixels(scale: effectiveScale)
-        {
-            diff.focusedFrame = LayoutFocusedFrame(
-                token: confirmedFocusedToken,
-                frame: frame
             )
         }
 

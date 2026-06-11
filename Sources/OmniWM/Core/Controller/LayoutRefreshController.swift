@@ -505,10 +505,7 @@ import QuartzCore
         var acceptedRevision = controller.workspaceManager.runtimeRevision(for: plan.workspaceId)
         controller.withRuntimeFrameJobCancellationSuppressed {
             applySessionPatch(plan.sessionPatch)
-            diffExecutor.execute(
-                plan,
-                focusRevisionAccepted: focusRevisionAccepted
-            )
+            diffExecutor.execute(plan)
             controller.workspaceManager.setNiriRestorePlacements(plan.niriRestorePlacements)
         }
         applyAnimationDirectives(
@@ -601,10 +598,6 @@ import QuartzCore
                     postLayoutActions: stalePostLayoutActions
                 )
             )
-        }
-
-        if plan.effects.refreshFocusedBorderForVisibilityState {
-            refreshFocusedBorderForVisibilityState(on: controller)
         }
 
         let activeWorkspaceIdsForFocusValidation = currentEffectActiveWorkspaceIds ?? currentActiveWorkspaceIds()
@@ -1114,10 +1107,6 @@ import QuartzCore
         }
     }
 
-    private func refreshFocusedBorderForVisibilityState(on controller: WMController) {
-        _ = controller.focusBorderController.refresh()
-    }
-
     func resetState() {
         layoutState.activeRefreshTask?.cancel()
         layoutState.activeRefreshTask = nil
@@ -1192,7 +1181,6 @@ import QuartzCore
         if refresh.kind != .visibilityRefresh, refresh.needsVisibilityReconciliation {
             plan.effects.requestWorkspaceBarRefresh = true
             plan.effects.updateTabbedOverlays = true
-            plan.effects.refreshFocusedBorderForVisibilityState = true
         }
     }
 
@@ -1200,7 +1188,6 @@ import QuartzCore
         var effects = RefreshExecutionEffects()
         effects.requestWorkspaceBarRefresh = true
         effects.updateTabbedOverlays = true
-        effects.refreshFocusedBorderForVisibilityState = true
         return RefreshExecutionPlan(effects: effects)
     }
 
@@ -1601,7 +1588,7 @@ import QuartzCore
             controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
             controller.axManager.removeWindowState(pid: token.pid, windowId: token.windowId)
             _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
-            controller.clearKeyboardFocusTarget(matching: token)
+            controller.workspaceManager.clearNonManagedFocusTarget(matching: token)
         }
 
         let shouldPreserveMissingWindows = shouldPreserveMissingWindowsDuringNativeFullscreen(
@@ -1641,7 +1628,7 @@ import QuartzCore
         for entry in removedEntries {
             controller.nativeFullscreenPlaceholderManager.remove(entry.token)
             controller.axManager.removeWindowState(pid: entry.pid, windowId: entry.windowId)
-            controller.clearKeyboardFocusTarget(matching: entry.token)
+            controller.workspaceManager.clearNonManagedFocusTarget(matching: entry.token)
         }
         if let scratchpadTokenBeforeRemove,
            controller.workspaceManager.entry(for: scratchpadTokenBeforeRemove) == nil
@@ -2268,7 +2255,6 @@ import QuartzCore
 
     private func performVisibilitySideEffects(on controller: WMController) {
         controller.niriLayoutHandler.updateTabbedColumnOverlays(forceOrdering: true)
-        refreshFocusedBorderForVisibilityState(on: controller)
     }
 
     func backingScale(for monitor: Monitor) -> CGFloat {
@@ -3416,10 +3402,7 @@ final class LayoutDiffExecutor {
         self.refreshController = refreshController
     }
 
-    func execute(
-        _ plan: WorkspaceLayoutPlan,
-        focusRevisionAccepted: Bool
-    ) {
+    func execute(_ plan: WorkspaceLayoutPlan) {
         guard let controller = refreshController.controller,
               let monitor = resolveMonitor(from: plan.monitor, controller: controller)
         else {
@@ -3699,14 +3682,6 @@ final class LayoutDiffExecutor {
             )
         }
 
-        if let focusedFrame = diff.focusedFrame,
-           focusRevisionAccepted
-        {
-            _ = controller.updateManagedKeyboardFocusBorder(
-                token: focusedFrame.token,
-                preferredFrame: focusedFrame.frame
-            )
-        }
     }
 
     private func resolveMonitor(

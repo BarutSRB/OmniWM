@@ -164,6 +164,8 @@ final class WorkspaceManager {
             var focusLease: FocusPolicyLease?
             var isNonManagedFocusActive: Bool = false
             var isAppFullscreenActive: Bool = false
+            var nonManagedFocusToken: WindowToken?
+            var suppressedFocusToken: WindowToken?
         }
 
         var interactionMonitorId: Monitor.ID?
@@ -550,7 +552,22 @@ final class WorkspaceManager {
     private func applyFocusReconcileEvent(_ event: WMEvent) -> Bool {
         let previousFocusSession = focusSessionSnapshot()
         recordReconcileEvent(event)
-        return focusSessionSnapshot() != previousFocusSession
+        var changed = focusSessionSnapshot() != previousFocusSession
+        if case let .managedFocusConfirmed(token, _, _, _, _, _) = event {
+            changed = updateFocusSession(notify: false) { focus in
+                var focusChanged = false
+                if focus.suppressedFocusToken == token {
+                    focus.suppressedFocusToken = nil
+                    focusChanged = true
+                }
+                if focus.nonManagedFocusToken != nil {
+                    focus.nonManagedFocusToken = nil
+                    focusChanged = true
+                }
+                return focusChanged
+            } || changed
+        }
+        return changed
     }
 
     private func plannedRestoreRefresh(
@@ -1806,9 +1823,10 @@ final class WorkspaceManager {
     func enterNonManagedFocus(
         appFullscreen: Bool,
         preserveFocusedToken: Bool = false,
-        preservePendingManagedFocus: Bool = false
+        preservePendingManagedFocus: Bool = false,
+        target: WindowToken? = nil
     ) -> Bool {
-        let changed = applyFocusReconcileEvent(
+        var changed = applyFocusReconcileEvent(
             .nonManagedFocusChanged(
                 active: true,
                 appFullscreen: appFullscreen,
@@ -1817,10 +1835,48 @@ final class WorkspaceManager {
                 source: .workspaceManager
             )
         )
+        changed = updateFocusSession(notify: false) { focus in
+            guard focus.nonManagedFocusToken != target else { return false }
+            focus.nonManagedFocusToken = target
+            return true
+        } || changed
         if changed {
             notifySessionStateChanged()
         }
         return changed
+    }
+
+    var nonManagedFocusToken: WindowToken? {
+        sessionState.focus.nonManagedFocusToken
+    }
+
+    var suppressedFocusToken: WindowToken? {
+        sessionState.focus.suppressedFocusToken
+    }
+
+    var renderableFocusToken: WindowToken? {
+        if sessionState.focus.isNonManagedFocusActive {
+            return sessionState.focus.nonManagedFocusToken
+        }
+        return sessionState.focus.focusedToken
+    }
+
+    func clearNonManagedFocusTarget(matching token: WindowToken? = nil, pid: pid_t? = nil) {
+        _ = updateFocusSession(notify: true) { focus in
+            guard let current = focus.nonManagedFocusToken else { return false }
+            if let token, current != token { return false }
+            if let pid, current.pid != pid { return false }
+            focus.nonManagedFocusToken = nil
+            return true
+        }
+    }
+
+    func suppressFocusBorder(for token: WindowToken) {
+        _ = updateFocusSession(notify: true) { focus in
+            guard focus.suppressedFocusToken != token else { return false }
+            focus.suppressedFocusToken = token
+            return true
+        }
     }
 
     func handleWindowRemoved(_ token: WindowToken, in workspaceId: WorkspaceDescriptor.ID?) {
@@ -2563,7 +2619,16 @@ final class WorkspaceManager {
         )
 
         let focusChanged = updateFocusSession(notify: false) { focus in
-            self.replaceRememberedFocus(from: oldToken, to: newToken, focus: &focus)
+            var changed = self.replaceRememberedFocus(from: oldToken, to: newToken, focus: &focus)
+            if focus.nonManagedFocusToken == oldToken {
+                focus.nonManagedFocusToken = newToken
+                changed = true
+            }
+            if focus.suppressedFocusToken == oldToken {
+                focus.suppressedFocusToken = newToken
+                changed = true
+            }
+            return changed
         }
 
         let scratchpadChanged = sessionState.scratchpadToken == oldToken

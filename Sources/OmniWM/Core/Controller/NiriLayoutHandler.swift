@@ -175,25 +175,7 @@ enum NiriWindowMoveResult {
     private func finalizeAnimation() {
         guard let controller else { return }
 
-        let focusedTarget = controller.currentKeyboardFocusTargetForRendering()
-        let preferredFrame: CGRect? = if let focusedTarget,
-                                         focusedTarget.isManaged,
-                                         let node = controller.niriEngine?.findNode(for: focusedTarget.token)
-        {
-            node.renderedFrame ?? node.frame
-        } else {
-            nil
-        }
-        if let token = focusedTarget?.token {
-            _ = controller.reapplyKeyboardFocusBorderIfMatching(
-                token: token,
-                preferredFrame: preferredFrame,
-                phase: .animationSettled,
-                forceOrdering: true
-            )
-        } else {
-            _ = controller.focusBorderController.refresh(forceOrdering: true)
-        }
+        controller.surfaceReconciler.noteRestackOccurred()
 
         if controller.moveMouseToFocusedWindowEnabled,
            controller.workspaceManager.pendingFocusedToken == nil,
@@ -1002,19 +984,6 @@ enum NiriWindowMoveResult {
                     forceApply: forceApply
                 )
             )
-        }
-
-        if let confirmedFocusedToken,
-           !suspendedTokens.contains(confirmedFocusedToken),
-           hiddenHandles[confirmedFocusedToken] == nil,
-           let frame = frames[confirmedFocusedToken]
-        {
-            diff.focusedFrame = LayoutFocusedFrame(
-                token: confirmedFocusedToken,
-                frame: frame
-            )
-        } else {
-            diff.focusedFrame = nil
         }
 
         return diff

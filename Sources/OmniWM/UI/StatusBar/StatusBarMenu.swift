@@ -171,7 +171,7 @@ final class StatusBarMenuBuilder {
             motionPolicy: motionPolicy
         ) { [weak self] newValue in
             self?.settings.bordersEnabled = newValue
-            self?.controller?.setBordersEnabled(newValue)
+            self?.controller?.borderSettingsChanged()
         }
         toggleViews["bordersEnabled"] = bordersToggle
         let bordersItem = NSMenuItem()

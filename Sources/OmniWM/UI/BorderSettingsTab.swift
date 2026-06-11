@@ -10,8 +10,8 @@ struct BorderSettingsTab: View {
         Form {
             Section("Window Borders") {
                 Toggle("Enable Borders", isOn: $settings.bordersEnabled)
-                    .onChange(of: settings.bordersEnabled) { _, newValue in
-                        controller.setBordersEnabled(newValue)
+                    .onChange(of: settings.bordersEnabled) { _, _ in
+                        controller.borderSettingsChanged()
                     }
 
                 if settings.bordersEnabled {
@@ -70,7 +70,7 @@ struct BorderSettingsTab: View {
     }
 
     private func syncBorderConfig() {
-        controller.updateBorderConfig(BorderConfig.from(settings: settings))
+        controller.borderSettingsChanged()
     }
 
     private func debouncedColorSync() {
