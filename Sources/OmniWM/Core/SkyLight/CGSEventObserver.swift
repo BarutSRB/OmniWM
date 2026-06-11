@@ -11,15 +11,8 @@ enum CGSWindowEvent: Equatable {
 }
 
 @MainActor
-protocol CGSEventDelegate: AnyObject {
-    func cgsEventObserver(_ observer: CGSEventObserver, didReceive event: CGSWindowEvent)
-}
-
-@MainActor
 final class CGSEventObserver {
     static let shared = CGSEventObserver()
-
-    weak var delegate: CGSEventDelegate?
 
     private var isRegistered = false
     private var isWindowClosedNotifyRegistered = false
@@ -67,7 +60,7 @@ final class CGSEventObserver {
         }
 
         isRegistered = successCount > 0
-        updateCallbackRegistrationState(isRegistered)
+        cgsTransportEnabled.withLock { $0 = isRegistered }
     }
 
     func stop() {
@@ -103,50 +96,16 @@ final class CGSEventObserver {
             }
         }
 
-        updateCallbackRegistrationState(false)
+        cgsTransportEnabled.withLock { $0 = false }
     }
 
     @discardableResult
     func subscribeToWindows(_ windowIds: [UInt32]) -> Bool {
         SkyLight.shared.subscribeToWindowNotifications(windowIds)
     }
-
-    fileprivate func drainPendingEventsOnMainRunLoop(ignoreRegistration: Bool = false) {
-        precondition(Thread.isMainThread, "CGS drains must run on the main run loop")
-
-        let pendingDrain = cgsPendingEvents.withLock { state -> (events: [CGSWindowEvent], ignoresRegistration: Bool) in
-            let events = state.orderedEvents
-            let ignoresRegistration = state.drainIgnoresRegistration
-            state.orderedEvents.removeAll(keepingCapacity: true)
-            state.pendingFrameWindowIds.removeAll(keepingCapacity: true)
-            state.drainScheduled = false
-            state.drainIgnoresRegistration = false
-            return (events, ignoresRegistration)
-        }
-
-        guard ignoreRegistration || pendingDrain.ignoresRegistration || isRegistered else { return }
-
-        for event in pendingDrain.events {
-            delegate?.cgsEventObserver(self, didReceive: event)
-        }
-    }
-
-    private func updateCallbackRegistrationState(_ isRegistered: Bool) {
-        if isRegistered {
-            cgsPendingEvents.withLock { $0.isRegistered = true }
-        } else {
-            resetPendingCGSEventState(isRegistered: false)
-        }
-    }
 }
 
-private struct PendingCGSEventState {
-    var isRegistered = false
-    var drainScheduled = false
-    var drainIgnoresRegistration = false
-    var orderedEvents: [CGSWindowEvent] = []
-    var pendingFrameWindowIds: Set<UInt32> = []
-}
+private let cgsTransportEnabled = OSAllocatedUnfairLock(initialState: false)
 
 private enum DecodedCGSEvent {
     case ignored
@@ -154,93 +113,18 @@ private enum DecodedCGSEvent {
     case event(CGSWindowEvent)
 }
 
-private let cgsPendingEvents = OSAllocatedUnfairLock(initialState: PendingCGSEventState())
-
-private func resetPendingCGSEventState(isRegistered: Bool) {
-    cgsPendingEvents.withLock { state in
-        state.isRegistered = isRegistered
-        state.drainScheduled = false
-        state.drainIgnoresRegistration = false
-        state.orderedEvents.removeAll(keepingCapacity: false)
-        state.pendingFrameWindowIds.removeAll(keepingCapacity: false)
-    }
-}
-
-private func schedulePendingCGSEventDrain() {
-    let mainRunLoop = CFRunLoopGetMain()
-    CFRunLoopPerformBlock(mainRunLoop, CFRunLoopMode.commonModes.rawValue) {
-        MainActor.assumeIsolated {
-            CGSEventObserver.shared.drainPendingEventsOnMainRunLoop()
-        }
-    }
-    CFRunLoopWakeUp(mainRunLoop)
-}
-
-private func enqueueDecodedCGSEvent(_ event: CGSWindowEvent, requireRegistration: Bool = true) {
-    let shouldScheduleDrain = cgsPendingEvents.withLock { state -> Bool in
-        guard state.isRegistered || !requireRegistration else { return false }
-
-        switch event {
-        case let .frameChanged(windowId):
-            if state.pendingFrameWindowIds.insert(windowId).inserted {
-                state.orderedEvents.append(event)
-            }
-
-        case let .destroyed(windowId, _):
-            clearPendingFrameEvent(windowId: windowId, state: &state)
-            state.orderedEvents.append(event)
-
-        case let .closed(windowId):
-            clearPendingFrameEvent(windowId: windowId, state: &state)
-            state.orderedEvents.append(event)
-
-        case .created,
-             .frontAppChanged,
-             .titleChanged:
-            state.orderedEvents.append(event)
-        }
-
-        if !requireRegistration {
-            state.drainIgnoresRegistration = true
-        }
-
-        guard !state.drainScheduled else { return false }
-        state.drainScheduled = true
-        return true
-    }
-
-    if shouldScheduleDrain {
-        schedulePendingCGSEventDrain()
-    }
-}
-
-private func clearPendingFrameEvent(
-    windowId: UInt32,
-    state: inout PendingCGSEventState
-) {
-    guard state.pendingFrameWindowIds.remove(windowId) != nil else { return }
-
-    state.orderedEvents.removeAll { event in
-        if case let .frameChanged(pendingWindowId) = event {
-            return pendingWindowId == windowId
-        }
-        return false
-    }
-}
-
 private func handleRawCGSEvent(
     eventType: UInt32,
     data: UnsafeMutableRawPointer?,
-    length: Int,
-    requireRegistration: Bool = true
+    length: Int
 ) {
+    guard cgsTransportEnabled.withLock({ $0 }) else { return }
     switch decodeCGSEvent(eventType: eventType, data: data, length: length) {
-    case .ignored:
-        return
-    case .malformed:
+    case .ignored,
+         .malformed:
         return
     case let .event(event):
-        enqueueDecodedCGSEvent(event, requireRegistration: requireRegistration)
+        EventIntake.post(.cgs(event))
     }
 }
 

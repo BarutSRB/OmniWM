@@ -78,6 +78,9 @@ final class WMController {
 
     let axManager = AXManager()
     let appInfoCache = AppInfoCache()
+    let eventIntake = EventIntake()
+    @ObservationIgnored
+    private(set) lazy var eventInterpreter = EventInterpreter(controller: self)
     let focusBridge: FocusBridgeCoordinator
     let focusPolicyEngine: FocusPolicyEngine
     private let restorePlanner = RestorePlanner()

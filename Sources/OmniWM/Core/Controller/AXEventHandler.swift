@@ -173,7 +173,7 @@ extension NiriCreateFocusTraceEvent: CustomStringConvertible {
 }
 
 @MainActor
-final class AXEventHandler: CGSEventDelegate {
+final class AXEventHandler {
     struct ManagedReplacementTraceEvent: Equatable {
         enum Kind: Equatable {
             case enqueued(
@@ -392,7 +392,8 @@ final class AXEventHandler: CGSEventDelegate {
     private var createPlacementContextsByWindowId: [UInt32: WindowCreatePlacementContext] = [:]
     private var pendingManagedReplacementBursts: [ManagedReplacementKey: PendingManagedReplacementBurst] = [:]
     private var pendingManagedReplacementTasks: [ManagedReplacementKey: Task<Void, Never>] = [:]
-    private var managedReplacementFocusTransactions: [ManagedReplacementFocusKey: ManagedReplacementFocusTransaction] = [:]
+    private var managedReplacementFocusTransactions: [ManagedReplacementFocusKey: ManagedReplacementFocusTransaction] =
+        [:]
     private var pendingNativeFullscreenFollowupTasks: [WindowToken: Task<Void, Never>] = [:]
     private var pendingNativeFullscreenStaleCleanupTasks: [WindowToken: Task<Void, Never>] = [:]
     private var pendingWindowRuleReevaluationTask: Task<Void, Never>?
@@ -427,7 +428,6 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     func setup() {
-        CGSEventObserver.shared.delegate = self
         CGSEventObserver.shared.start()
     }
 
@@ -448,11 +448,10 @@ final class AXEventHandler: CGSEventDelegate {
         pendingWindowRuleReevaluationTask = nil
         pendingWindowRuleReevaluationTargets.removeAll()
         pendingWindowRuleReevaluationGeneration &+= 1
-        CGSEventObserver.shared.delegate = nil
         CGSEventObserver.shared.stop()
     }
 
-    func cgsEventObserver(_: CGSEventObserver, didReceive event: CGSWindowEvent) {
+    func handleCGSEvent(_ event: CGSWindowEvent) {
         guard let controller else { return }
 
         switch event {
@@ -1640,7 +1639,10 @@ final class AXEventHandler: CGSEventDelegate {
             return false
         }
 
-        cancelSameAppCloseProbe(matchingFocusedToken: transaction.anchorToken, reason: "managed_replacement_focus_transaction")
+        cancelSameAppCloseProbe(
+            matchingFocusedToken: transaction.anchorToken,
+            reason: "managed_replacement_focus_transaction"
+        )
         return true
     }
 

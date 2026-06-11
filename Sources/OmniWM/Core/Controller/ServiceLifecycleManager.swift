@@ -63,6 +63,7 @@ final class ServiceLifecycleManager {
         guard let controller, !controller.hasStartedServices else { return }
         controller.hasStartedServices = true
         controller.reconcileEnabledAndHotkeysState()
+        controller.eventIntake.open(sink: controller.eventInterpreter)
         controller.layoutRefreshController.setup()
         controller.axEventHandler.setup()
         controller.axManager.onAppLaunched = { [weak self] _ in
@@ -350,6 +351,7 @@ final class ServiceLifecycleManager {
         guard let controller else { return }
         controller.hasStartedServices = false
 
+        controller.eventIntake.close()
         AppAXContext.onWindowDestroyed = nil
         AppAXContext.onWindowMiniaturized = nil
         AppAXContext.onFocusedWindowChanged = nil
