@@ -37,6 +37,7 @@ struct SameAppCloseProbePayload: Equatable, Sendable {
 
 enum IntentKind: Equatable, Sendable {
     case activateApp(pid: pid_t)
+    case focusPolicyLease(owner: FocusPolicyLeaseOwner)
     case focusWindow(token: WindowToken, workspaceId: WorkspaceDescriptor.ID)
     case replacementFocus(ReplacementFocusPayload)
     case sameAppCloseProbe(SameAppCloseProbePayload)
@@ -44,6 +45,7 @@ enum IntentKind: Equatable, Sendable {
     var focusTargetToken: WindowToken? {
         switch self {
         case .activateApp,
+             .focusPolicyLease,
              .replacementFocus,
              .sameAppCloseProbe:
             nil
@@ -59,10 +61,12 @@ enum IntentKind: Equatable, Sendable {
         return false
     }
 
-    var targetPid: pid_t {
+    var targetPid: pid_t? {
         switch self {
         case let .activateApp(pid):
             pid
+        case .focusPolicyLease:
+            nil
         case let .focusWindow(token, _):
             token.pid
         case let .replacementFocus(payload):
@@ -307,6 +311,11 @@ final class IntentLedger {
     @discardableResult
     func registerSameAppCloseProbe(_ payload: SameAppCloseProbePayload) -> Intent {
         append(kind: .sameAppCloseProbe(payload), origin: .keyboardOrProgrammatic)
+    }
+
+    @discardableResult
+    func registerFocusPolicyLease(owner: FocusPolicyLeaseOwner) -> Intent {
+        append(kind: .focusPolicyLease(owner: owner), origin: .keyboardOrProgrammatic)
     }
 
     func openSameAppCloseProbe() -> (intent: Intent, payload: SameAppCloseProbePayload)? {

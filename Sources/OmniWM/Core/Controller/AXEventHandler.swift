@@ -1791,6 +1791,10 @@ final class AXEventHandler {
              .replacementFocus:
             _ = controller.intentLedger.markExpired(id: intentId)
 
+        case let .focusPolicyLease(owner):
+            _ = controller.intentLedger.markExpired(id: intentId)
+            controller.focusPolicyEngine.handleLeaseDeadlineExpired(owner: owner, intentId: intentId)
+
         case let .sameAppCloseProbe(payload):
             _ = controller.intentLedger.markExpired(id: intentId)
             handleSameAppCloseProbeDeadline(payload)

@@ -41,13 +41,15 @@ final class FocusPolicyEngine {
 
     private let nowProvider: () -> Date
     private var leasesByOwner: [FocusPolicyLeaseOwner: FocusPolicyLease] = [:]
+    private var leaseIntentIds: [FocusPolicyLeaseOwner: IntentID] = [:]
     private var activeLeaseStorage: FocusPolicyLease?
     var activeLease: FocusPolicyLease? {
-        pruneExpiredLeasesIfNeeded()
-        return activeLeaseStorage
+        activeLeaseStorage
     }
 
     var onLeaseChanged: ((FocusPolicyLease?) -> Void)?
+    weak var intentLedger: IntentLedger?
+    weak var deadlineWheel: DeadlineWheel?
 
     init(nowProvider: @escaping () -> Date = Date.init) {
         self.nowProvider = nowProvider
@@ -60,7 +62,6 @@ final class FocusPolicyEngine {
         duration: TimeInterval? = 0.35,
         notify: Bool = true
     ) {
-        pruneExpiredLeasesIfNeeded(notify: notify)
         let expiresAt = duration.map { nowProvider().addingTimeInterval($0) }
         let lease = FocusPolicyLease(
             owner: owner,
@@ -69,18 +70,29 @@ final class FocusPolicyEngine {
             expiresAt: expiresAt
         )
         leasesByOwner[owner] = lease
+        retireLeaseIntent(owner: owner) { intentLedger?.supersede(id: $0) }
+        if let duration, let intentLedger, let deadlineWheel {
+            let intent = intentLedger.registerFocusPolicyLease(owner: owner)
+            leaseIntentIds[owner] = intent.id
+            deadlineWheel.schedule(intentId: intent.id, after: .seconds(duration))
+        }
         reconcileActiveLease(notify: notify)
     }
 
     func endLease(owner: FocusPolicyLeaseOwner, notify: Bool = true) {
+        retireLeaseIntent(owner: owner) { intentLedger?.cancel(id: $0) }
         guard leasesByOwner.removeValue(forKey: owner) != nil else { return }
-        pruneExpiredLeasesIfNeeded(notify: notify)
         reconcileActiveLease(notify: notify)
     }
 
-    func evaluate(_ request: FocusPolicyRequest) -> FocusPolicyDecision {
-        pruneExpiredLeasesIfNeeded()
+    func handleLeaseDeadlineExpired(owner: FocusPolicyLeaseOwner, intentId: IntentID) {
+        guard leaseIntentIds[owner] == intentId else { return }
+        leaseIntentIds.removeValue(forKey: owner)
+        guard leasesByOwner.removeValue(forKey: owner) != nil else { return }
+        reconcileActiveLease(notify: shouldNotifyExpiredLeaseChange(owner: owner))
+    }
 
+    func evaluate(_ request: FocusPolicyRequest) -> FocusPolicyDecision {
         switch request {
         case .focusFollowsMouse:
             guard let lease = suppressingFocusFollowsMouseLease() else { return .allow }
@@ -93,20 +105,13 @@ final class FocusPolicyEngine {
         }
     }
 
-    private func pruneExpiredLeasesIfNeeded(notify: Bool = true) {
-        let now = nowProvider()
-        let expiredOwners = leasesByOwner.compactMap { owner, lease -> FocusPolicyLeaseOwner? in
-            guard let expiresAt = lease.expiresAt, expiresAt <= now else {
-                return nil
-            }
-            return owner
-        }
-
-        guard !expiredOwners.isEmpty else { return }
-        for owner in expiredOwners {
-            leasesByOwner.removeValue(forKey: owner)
-        }
-        reconcileActiveLease(notify: notify && expiredOwners.contains(where: shouldNotifyExpiredLeaseChange))
+    private func retireLeaseIntent(
+        owner: FocusPolicyLeaseOwner,
+        _ retire: (IntentID) -> Intent?
+    ) {
+        guard let intentId = leaseIntentIds.removeValue(forKey: owner) else { return }
+        _ = retire(intentId)
+        deadlineWheel?.cancel(intentId: intentId)
     }
 
     private func shouldNotifyExpiredLeaseChange(owner: FocusPolicyLeaseOwner) -> Bool {

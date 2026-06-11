@@ -210,6 +210,8 @@ final class WMController {
         workspaceManager.updateAnimationClock(animationClock)
         intentLedger.seqProvider = { [eventIntake] in eventIntake.lastSeq }
         intentLedger.deadlineWheel = deadlineWheel
+        focusPolicyEngine.intentLedger = intentLedger
+        focusPolicyEngine.deadlineWheel = deadlineWheel
         hotkeys.onCommand = { [weak self] command in
             guard let self else { return }
             if !eventIntake.enqueue(.hotkeyCommand(command)) {
