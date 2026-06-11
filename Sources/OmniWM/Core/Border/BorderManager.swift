@@ -71,7 +71,7 @@ final class BorderManager {
         if let last = lastAppliedFrame,
            let lastWid = lastAppliedWindowId,
            let lastRadius = lastAppliedCornerRadius,
-           frame.approximatelyEqual(to: last, tolerance: 0.5)
+           frame.approximatelyEqual(to: last, tolerance: FrameTolerance.frameWrite)
         {
             if lastRadius == cornerRadius {
                 if forceOrdering || lastWid != windowId {

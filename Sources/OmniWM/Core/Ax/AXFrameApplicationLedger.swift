@@ -82,7 +82,7 @@ final class AXFrameApplicationLedger {
         else {
             return false
         }
-        return observedFrame.approximatelyEqual(to: lastAppliedFrame, tolerance: 0.5)
+        return observedFrame.approximatelyEqual(to: lastAppliedFrame, tolerance: FrameTolerance.frameWrite)
     }
 
     func rekeyWindowState(oldWindowId: Int, newWindowId: Int) {
@@ -184,7 +184,7 @@ final class AXFrameApplicationLedger {
         let shouldForceApply = forceApplyWindowIds.remove(windowId) != nil
         if !shouldForceApply {
             if let pendingFrame,
-               pendingFrame.approximatelyEqual(to: frame, tolerance: 0.5)
+               pendingFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite)
             {
                 if let terminalObserver,
                    !isRetry,
@@ -200,7 +200,7 @@ final class AXFrameApplicationLedger {
                     return AXFrameEnqueueDecision()
                 }
             } else if let cached = cachedFrame,
-                      cached.approximatelyEqual(to: frame, tolerance: 0.5),
+                      cached.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite),
                       !hasRecentFailure
             {
                 if let terminalObserver {
@@ -228,7 +228,7 @@ final class AXFrameApplicationLedger {
         if !isRetry,
            let requestId = observerRequestIdByWindowId[windowId],
            let pendingObserver = pendingFrameObserversByRequestId[requestId],
-           !pendingObserver.targetFrame.approximatelyEqual(to: frame, tolerance: 0.5)
+           !pendingObserver.targetFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite)
         {
             deliveries.append(contentsOf: discardPendingFrameObserver(for: windowId))
         }
@@ -240,7 +240,7 @@ final class AXFrameApplicationLedger {
         recentFrameWriteFailures.removeValue(forKey: windowId)
         if let existingObserverRequestId,
            var pendingObserver = pendingFrameObserversByRequestId[existingObserverRequestId],
-           pendingObserver.targetFrame.approximatelyEqual(to: frame, tolerance: 0.5)
+           pendingObserver.targetFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite)
         {
             pendingFrameObserversByRequestId.removeValue(forKey: existingObserverRequestId)
             pendingObserver.windowId = windowId
@@ -283,7 +283,7 @@ final class AXFrameApplicationLedger {
             let resolvedResult = resolvedWindowId == result.windowId ? result : result.rekeyed(to: resolvedWindowId)
             guard pendingFrameRequestIdByWindowId[resolvedWindowId] == resolvedResult.requestId,
                   let pendingFrame = pendingFrameWrites[resolvedWindowId],
-                  pendingFrame.approximatelyEqual(to: resolvedResult.targetFrame, tolerance: 0.5)
+                  pendingFrame.approximatelyEqual(to: resolvedResult.targetFrame, tolerance: FrameTolerance.frameWrite)
             else {
                 continue
             }
@@ -442,7 +442,7 @@ final class AXFrameApplicationLedger {
     ) -> Bool {
         guard let requestId = observerRequestIdByWindowId[windowId],
               var pendingObserver = pendingFrameObserversByRequestId[requestId],
-              pendingObserver.targetFrame.approximatelyEqual(to: targetFrame, tolerance: 0.5)
+              pendingObserver.targetFrame.approximatelyEqual(to: targetFrame, tolerance: FrameTolerance.frameWrite)
         else {
             return false
         }

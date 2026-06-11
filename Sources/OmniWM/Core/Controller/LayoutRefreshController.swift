@@ -1789,7 +1789,7 @@ import QuartzCore
     private func scratchpadFrameIsVisible(_ frame: CGRect, for entry: WindowModel.Entry) -> Bool {
         guard let controller else { return false }
         if let floatingFrame = controller.workspaceManager.floatingState(for: entry.token)?.lastFrame,
-           frame.approximatelyEqual(to: floatingFrame, tolerance: 2.0)
+           frame.approximatelyEqual(to: floatingFrame, tolerance: FrameTolerance.screenMatch)
         {
             return true
         }

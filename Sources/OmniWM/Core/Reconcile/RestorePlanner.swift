@@ -321,7 +321,10 @@ struct RestorePlanner {
             guard !candidate.isScratchpadHidden else { continue }
 
             let needsRescue = candidate.currentFrame.map {
-                candidate.isWorkspaceInactiveHidden || !$0.approximatelyEqual(to: candidate.targetFrame, tolerance: 1.0)
+                candidate.isWorkspaceInactiveHidden || !$0.approximatelyEqual(
+                    to: candidate.targetFrame,
+                    tolerance: FrameTolerance.frameWrite
+                )
             } ?? true
             guard needsRescue else { continue }
 

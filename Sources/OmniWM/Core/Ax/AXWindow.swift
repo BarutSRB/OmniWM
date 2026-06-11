@@ -121,7 +121,7 @@ struct AXFrameApplyResult: Equatable, Sendable {
 
     var confirmedFrame: CGRect? {
         if let observedFrame = writeResult.observedFrame,
-           observedFrame.approximatelyEqual(to: targetFrame, tolerance: 1.0)
+           observedFrame.approximatelyEqual(to: targetFrame, tolerance: FrameTolerance.frameWrite)
         {
             return observedFrame
         }
@@ -377,7 +377,8 @@ enum AXWindowService {
         } else if positionError != .success {
             mapFrameWriteFailure(positionError, attribute: .position)
         } else if let observedFrame {
-            observedFrame.approximatelyEqual(to: frame, tolerance: 1.0) ? nil : .verificationMismatch
+            observedFrame
+                .approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite) ? nil : .verificationMismatch
         } else {
             .readbackFailed
         }
@@ -464,7 +465,7 @@ enum AXWindowService {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) else {
             return false
         }
-        return frame.approximatelyEqual(to: screen.frame, tolerance: 2.0)
+        return frame.approximatelyEqual(to: screen.frame, tolerance: FrameTolerance.screenMatch)
     }
 
     static func collectWindowFacts(
