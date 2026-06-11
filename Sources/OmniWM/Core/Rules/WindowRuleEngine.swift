@@ -641,6 +641,18 @@ final class WindowRuleEngine {
             )
         }
 
+        rules.append(
+            CompiledRule(
+                rule: AppRule(
+                    bundleId: "com.valvesoftware.steam",
+                    layout: .tile
+                ),
+                source: .builtIn("steamClient"),
+                titleRegex: nil,
+                order: rules.count
+            )
+        )
+
         return rules
     }
 }

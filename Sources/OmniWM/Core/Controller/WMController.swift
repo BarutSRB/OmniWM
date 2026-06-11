@@ -107,6 +107,9 @@ final class WMController {
     @ObservationIgnored
     private var runtimeFrameJobCancellationSuppressionDepth: Int = 0
     @ObservationIgnored
+    private var floatDemotionFirstSamplesByToken: [WindowToken: ContinuousClock.Instant] = [:]
+    private static let floatDemotionStabilityInterval: Duration = .milliseconds(300)
+    @ObservationIgnored
     private var hiddenWorkspaceBarMonitorIds: Set<Monitor.ID> = []
     @ObservationIgnored
     private let hiddenBarController: HiddenBarController
@@ -1809,10 +1812,34 @@ final class WMController {
         if existingEntry.mode == .tiling,
            trackedMode == .floating
         {
+            return floatDemotionModeApplyingHysteresis(for: existingEntry.token, decision: decision)
+        }
+
+        floatDemotionFirstSamplesByToken.removeValue(forKey: existingEntry.token)
+        return trackedMode
+    }
+
+    private func floatDemotionModeApplyingHysteresis(
+        for token: WindowToken,
+        decision: WindowDecision
+    ) -> TrackedWindowMode {
+        guard !decision.heuristicReasons.contains(.attributeFetchFailed),
+              !decision.heuristicReasons.contains(.disabledFullscreenButton)
+        else {
             return .tiling
         }
 
-        return trackedMode
+        let now = ContinuousClock.now
+        guard let firstSampledAt = floatDemotionFirstSamplesByToken[token] else {
+            floatDemotionFirstSamplesByToken[token] = now
+            return .tiling
+        }
+        guard firstSampledAt.duration(to: now) >= Self.floatDemotionStabilityInterval else {
+            return .tiling
+        }
+
+        floatDemotionFirstSamplesByToken.removeValue(forKey: token)
+        return .floating
     }
 
     func resolvedWorkspaceId(
