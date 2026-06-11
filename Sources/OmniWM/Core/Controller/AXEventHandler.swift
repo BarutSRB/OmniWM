@@ -585,11 +585,11 @@ final class AXEventHandler {
         expectedToken: WindowToken,
         workspaceId _: WorkspaceDescriptor.ID
     ) {
-        let requestId = controller?.focusBridge.activeManagedRequest(for: expectedToken)?.requestId
+        let requestId = controller?.intentLedger.activeManagedRequest(for: expectedToken)?.requestId
         Task { @MainActor [weak self] in
             guard let self else { return }
             if let requestId,
-               self.controller?.focusBridge.activeManagedRequest(requestId: requestId) == nil
+               self.controller?.intentLedger.activeManagedRequest(requestId: requestId) == nil
             {
                 return
             }
@@ -1691,7 +1691,7 @@ final class AXEventHandler {
 
             guard controller.workspaceManager.focusedToken == focusedToken,
                   controller.workspaceManager.entry(for: focusedToken) != nil,
-                  controller.focusBridge.activeManagedRequest == nil
+                  controller.intentLedger.activeManagedRequest == nil
             else {
                 return
             }
@@ -1794,8 +1794,8 @@ final class AXEventHandler {
         }
 
         if pid == getpid(), (controller.hasFrontmostOwnedWindow || controller.hasVisibleOwnedWindow) {
-            if let activeRequest = controller.focusBridge.activeManagedRequest, activeRequest.token.pid == pid {
-                _ = controller.focusBridge.cancelManagedRequest(requestId: activeRequest.requestId)
+            if let activeRequest = controller.intentLedger.activeManagedRequest, activeRequest.token.pid == pid {
+                _ = controller.intentLedger.cancelManagedRequest(requestId: activeRequest.requestId)
                 _ = controller.workspaceManager.cancelManagedFocusRequest(
                     matching: activeRequest.token,
                     workspaceId: activeRequest.workspaceId,
@@ -1823,9 +1823,7 @@ final class AXEventHandler {
             _ = controller.intentLedger.markExpired(id: intentId)
 
         case .focusWindow:
-            guard let requestId = intent.correlatedRequestId,
-                  let liveRequest = controller.focusBridge.activeManagedRequest(requestId: requestId)
-            else {
+            guard let liveRequest = controller.intentLedger.activeManagedRequest(requestId: intentId) else {
                 _ = controller.intentLedger.markExpired(id: intentId)
                 return
             }
@@ -1844,7 +1842,7 @@ final class AXEventHandler {
         let pid = facts.pid
         let source = facts.source
         let origin = facts.origin
-        let activeRequest = controller.focusBridge.activeManagedRequest
+        let activeRequest = controller.intentLedger.activeManagedRequest
         let axRef = facts.focusedWindow?.axRef
         let observedToken = axRef.map { WindowToken(pid: pid, windowId: $0.windowId) }
         let requestDisposition = activationRequestDisposition(
@@ -2319,9 +2317,9 @@ final class AXEventHandler {
         let shouldActivateWorkspace = !isWorkspaceActive && !controller.isTransferringWindow
         var activeRequest: ManagedFocusRequest?
         if let activeRequestId {
-            activeRequest = controller.focusBridge.activeManagedRequest(requestId: activeRequestId)
+            activeRequest = controller.intentLedger.activeManagedRequest(requestId: activeRequestId)
         } else if bindCurrentPidRequest {
-            activeRequest = controller.focusBridge.activeManagedRequest(for: entry.pid)
+            activeRequest = controller.intentLedger.activeManagedRequest(for: entry.pid)
         } else {
             activeRequest = nil
         }
@@ -2336,7 +2334,7 @@ final class AXEventHandler {
                    requestId: request.requestId
                )
             {
-                _ = controller.focusBridge.cancelManagedRequest(requestId: request.requestId)
+                _ = controller.intentLedger.cancelManagedRequest(requestId: request.requestId)
                 _ = controller.workspaceManager.cancelManagedFocusRequest(
                     matching: request.token,
                     workspaceId: request.workspaceId,
@@ -2366,12 +2364,12 @@ final class AXEventHandler {
             if let activeRequest {
                 confirmedRequestId = activeRequest.requestId
                 if activeRequest.token == entry.token {
-                    _ = controller.focusBridge.confirmManagedRequest(
+                    _ = controller.intentLedger.confirmManagedRequest(
                         token: entry.token,
                         source: source
                     )
                 } else {
-                    _ = controller.focusBridge.cancelManagedRequest(requestId: activeRequest.requestId)
+                    _ = controller.intentLedger.cancelManagedRequest(requestId: activeRequest.requestId)
                     _ = controller.workspaceManager.cancelManagedFocusRequest(
                         matching: activeRequest.token,
                         workspaceId: activeRequest.workspaceId,
@@ -2470,7 +2468,7 @@ final class AXEventHandler {
         }
         if shouldConfirmRequest,
            controller.moveMouseToFocusedWindowEnabled,
-           controller.focusBridge.allowsMouseToFocusedWarp(for: entry.token),
+           controller.intentLedger.allowsMouseToFocusedWarp(for: entry.token),
            controller.workspaceManager.focusedToken == entry.token,
            !controller.workspaceManager.isNonManagedFocusActive
         {
@@ -2739,8 +2737,7 @@ final class AXEventHandler {
         }
         controller.nativeFullscreenPlaceholderManager.rekey(from: oldToken, to: newToken)
 
-        controller.focusBridge.rekeyPendingFocus(from: oldToken, to: newToken)
-        controller.focusBridge.rekeyManagedRequest(from: oldToken, to: newToken)
+        controller.intentLedger.rekeyManagedRequest(from: oldToken, to: newToken)
         controller.focusBorderController.rekeyFocusedTarget(
             from: oldToken,
             to: newToken,
@@ -2828,16 +2825,16 @@ final class AXEventHandler {
         guard let controller else { return }
         controller.hiddenAppPIDs.insert(pid)
 
-        if let activeRequest = controller.focusBridge.activeManagedRequest,
+        if let activeRequest = controller.intentLedger.activeManagedRequest,
            activeRequest.token.pid == pid
         {
-            _ = controller.focusBridge.cancelManagedRequest(requestId: activeRequest.requestId)
+            _ = controller.intentLedger.cancelManagedRequest(requestId: activeRequest.requestId)
             _ = controller.workspaceManager.cancelManagedFocusRequest(
                 matching: activeRequest.token,
                 workspaceId: activeRequest.workspaceId,
                 requestId: activeRequest.requestId
             )
-            controller.focusBridge.discardPendingFocus(activeRequest.token)
+            controller.intentLedger.discardPendingFocus(activeRequest.token)
         }
         if controller.currentKeyboardFocusTargetForRendering()?.pid == pid {
             controller.clearKeyboardFocusTarget(pid: pid)
@@ -3341,7 +3338,7 @@ final class AXEventHandler {
         let shouldBindCurrentPidRequest: Bool
         switch activation.request {
         case let .matchesActiveRequest(requestId):
-            if let request = controller.focusBridge.activeManagedRequest(requestId: requestId) {
+            if let request = controller.intentLedger.activeManagedRequest(requestId: requestId) {
                 requestDisposition = .matchesActiveRequest(request)
                 shouldBindCurrentPidRequest = true
             } else {
@@ -3349,7 +3346,7 @@ final class AXEventHandler {
                 shouldBindCurrentPidRequest = false
             }
         case let .conflictsWithPendingRequest(requestId):
-            if let request = controller.focusBridge.activeManagedRequest(requestId: requestId) {
+            if let request = controller.intentLedger.activeManagedRequest(requestId: requestId) {
                 requestDisposition = .conflictsWithPendingRequest(request)
                 shouldBindCurrentPidRequest = true
             } else {
@@ -4225,7 +4222,7 @@ final class AXEventHandler {
             )
         }
 
-        if let activeRequest = controller.focusBridge.activeManagedRequest,
+        if let activeRequest = controller.intentLedger.activeManagedRequest,
            activeRequest.token.pid == pid
         {
             clearManagedFocusState(
@@ -4243,8 +4240,8 @@ final class AXEventHandler {
     ) {
         guard let controller else { return }
 
-        controller.focusBridge.discardPendingFocus(token)
-        let canceledRequest = controller.focusBridge.cancelManagedRequest(
+        controller.intentLedger.discardPendingFocus(token)
+        let canceledRequest = controller.intentLedger.cancelManagedRequest(
             matching: token,
             workspaceId: workspaceId
         )
@@ -4273,7 +4270,7 @@ final class AXEventHandler {
         reason: ActivationRetryReason
     ) {
         guard let controller else { return }
-        if let updatedRequest = controller.focusBridge.recordRetry(
+        if let updatedRequest = controller.intentLedger.recordRetry(
             requestId: request.requestId,
             source: source,
             retryLimit: Self.activationRetryLimit
@@ -4308,7 +4305,7 @@ final class AXEventHandler {
     ) {
         guard let controller else { return }
 
-        _ = controller.focusBridge.cancelManagedRequest(requestId: request.requestId)
+        _ = controller.intentLedger.cancelManagedRequest(requestId: request.requestId)
         _ = controller.workspaceManager.cancelManagedFocusRequest(
             matching: request.token,
             workspaceId: request.workspaceId,

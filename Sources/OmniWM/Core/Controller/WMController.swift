@@ -84,11 +84,6 @@ final class WMController {
     let deadlineWheel = DeadlineWheel()
     @ObservationIgnored
     private(set) lazy var eventInterpreter = EventInterpreter(controller: self)
-    @ObservationIgnored
-    private(set) lazy var focusBridge = FocusBridgeCoordinator(
-        intentLedger: intentLedger,
-        deadlineWheel: deadlineWheel
-    )
     let focusPolicyEngine: FocusPolicyEngine
     private let restorePlanner = RestorePlanner()
     let windowRuleEngine = WindowRuleEngine()
@@ -214,6 +209,7 @@ final class WMController {
         focusPolicyEngine = FocusPolicyEngine()
         workspaceManager.updateAnimationClock(animationClock)
         intentLedger.seqProvider = { [eventIntake] in eventIntake.lastSeq }
+        intentLedger.deadlineWheel = deadlineWheel
         hotkeys.onCommand = { [weak self] command in
             guard let self else { return }
             if !eventIntake.enqueue(.hotkeyCommand(command)) {
@@ -2884,7 +2880,7 @@ extension WMController {
             in: entry.workspaceId,
             onMonitor: workspaceManager.monitorId(for: entry.workspaceId)
         )
-        let canceledRequest = focusBridge.cancelManagedRequest(matching: token, workspaceId: entry.workspaceId)
+        let canceledRequest = intentLedger.cancelManagedRequest(matching: token, workspaceId: entry.workspaceId)
         if let canceledRequest {
             _ = workspaceManager.cancelManagedFocusRequest(
                 matching: token,
@@ -2897,7 +2893,7 @@ extension WMController {
                 workspaceId: entry.workspaceId
             )
         }
-        focusBridge.discardPendingFocus(token)
+        intentLedger.discardPendingFocus(token)
         focusBorderController.hide()
         if changed {
             layoutRefreshController.requestImmediateRelayout(
@@ -2959,7 +2955,7 @@ extension WMController {
             return
         }
 
-        let request = focusBridge.beginManagedRequest(
+        let request = intentLedger.beginManagedRequest(
             token: token,
             workspaceId: entry.workspaceId,
             origin: origin
@@ -2978,24 +2974,10 @@ extension WMController {
             )
         )
 
-        let axRef = entry.axRef
-        let pid = entry.pid
-        let windowId = entry.windowId
-
-        focusBridge.focusWindow(
-            token,
-            origin: origin,
-            performFocus: {
-                self.performWindowFronting(pid: pid, windowId: windowId, axRef: axRef)
-                self.axEventHandler.probeFocusedWindowAfterFronting(
-                    expectedToken: token,
-                    workspaceId: entry.workspaceId
-                )
-            },
-            onDeferredFocus: { [weak self] deferred, deferredOrigin in
-                guard let self, self.workspaceManager.entry(for: deferred) != nil else { return }
-                self.focusWindow(deferred, origin: deferredOrigin)
-            }
+        performWindowFronting(pid: entry.pid, windowId: entry.windowId, axRef: entry.axRef)
+        axEventHandler.probeFocusedWindowAfterFronting(
+            expectedToken: token,
+            workspaceId: entry.workspaceId
         )
     }
 

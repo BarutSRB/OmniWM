@@ -15,6 +15,10 @@ enum IntentKind: Equatable, Sendable {
         }
     }
 
+    var isFocusWindow: Bool {
+        focusTargetToken != nil
+    }
+
     var targetPid: pid_t {
         switch self {
         case let .activateApp(pid):
@@ -45,8 +49,20 @@ struct Intent: Equatable, Sendable {
     var phase: IntentPhase = .pending
     var retryCount: Int = 0
     var lastActivationSource: ActivationEventSource?
-    var correlatedRequestId: UInt64?
     var retiredAt: ContinuousClock.Instant?
+
+    var asManagedFocusRequest: ManagedFocusRequest? {
+        guard case let .focusWindow(token, workspaceId) = kind else { return nil }
+        return ManagedFocusRequest(
+            requestId: id,
+            token: token,
+            workspaceId: workspaceId,
+            origin: origin,
+            retryCount: retryCount,
+            lastActivationSource: lastActivationSource,
+            status: phase == .confirmed ? .confirmed : .pending
+        )
+    }
 }
 
 enum EchoClassification: Equatable {
@@ -58,33 +74,138 @@ enum EchoClassification: Equatable {
 @MainActor
 final class IntentLedger {
     static let capacity = 256
+    static let activationSettleDeadline: Duration = .milliseconds(100)
     private static let lateEchoWindow: Duration = .seconds(1)
 
     var seqProvider: () -> UInt64 = { 0 }
     var clock: () -> ContinuousClock.Instant = { ContinuousClock().now }
+    weak var deadlineWheel: DeadlineWheel?
 
     private(set) var entries: [Intent] = []
+    private(set) var lastConfirmedManagedFocus: (token: WindowToken, origin: ManagedFocusOrigin)?
     private var nextIntentId: IntentID = 1
 
-    @discardableResult
-    func registerFocusWindow(
+    var activeManagedRequest: ManagedFocusRequest? {
+        entries.last { $0.phase == .pending && $0.kind.isFocusWindow }?.asManagedFocusRequest
+    }
+
+    func activeManagedRequest(for pid: pid_t) -> ManagedFocusRequest? {
+        guard let request = activeManagedRequest, request.token.pid == pid else { return nil }
+        return request
+    }
+
+    func activeManagedRequest(for token: WindowToken) -> ManagedFocusRequest? {
+        guard let request = activeManagedRequest, request.token == token else { return nil }
+        return request
+    }
+
+    func activeManagedRequest(requestId: UInt64) -> ManagedFocusRequest? {
+        guard let request = activeManagedRequest, request.requestId == requestId else { return nil }
+        return request
+    }
+
+    func beginManagedRequest(
         token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID,
-        origin: ManagedFocusOrigin,
-        correlatedRequestId: UInt64? = nil
-    ) -> Intent {
+        origin: ManagedFocusOrigin = .keyboardOrProgrammatic
+    ) -> ManagedFocusRequest {
         if let index = openIndex(where: { $0.kind == .focusWindow(token: token, workspaceId: workspaceId) }) {
             entries[index].origin = entries[index].origin.merged(with: origin)
-            if let correlatedRequestId {
-                entries[index].correlatedRequestId = correlatedRequestId
-            }
-            return entries[index]
+            return entries[index].asManagedFocusRequest!
         }
-        return append(
+
+        for entry in entries where entry.phase == .pending && entry.kind.isFocusWindow {
+            _ = supersede(id: entry.id)
+            deadlineWheel?.cancel(intentId: entry.id)
+        }
+
+        let intent = append(
             kind: .focusWindow(token: token, workspaceId: workspaceId),
-            origin: origin,
-            correlatedRequestId: correlatedRequestId
+            origin: origin
         )
+        deadlineWheel?.schedule(intentId: intent.id, after: Self.activationSettleDeadline)
+        return intent.asManagedFocusRequest!
+    }
+
+    func recordRetry(
+        requestId: UInt64,
+        source: ActivationEventSource,
+        retryLimit: Int
+    ) -> ManagedFocusRequest? {
+        guard let index = entries.firstIndex(where: { $0.id == requestId && $0.phase == .pending }) else {
+            return nil
+        }
+        let retryCount = entries[index].lastActivationSource == source
+            ? entries[index].retryCount
+            : 0
+        let nextAttempt = retryCount + 1
+        guard nextAttempt <= retryLimit else { return nil }
+
+        entries[index].retryCount = nextAttempt
+        entries[index].lastActivationSource = source
+        deadlineWheel?.schedule(intentId: requestId, after: Self.activationSettleDeadline)
+        return entries[index].asManagedFocusRequest
+    }
+
+    @discardableResult
+    func confirmManagedRequest(
+        token: WindowToken,
+        source: ActivationEventSource
+    ) -> ManagedFocusRequest? {
+        guard let request = activeManagedRequest, request.token == token else { return nil }
+        guard let confirmed = confirm(id: request.requestId, source: source) else { return nil }
+        deadlineWheel?.cancel(intentId: confirmed.id)
+        lastConfirmedManagedFocus = (token: token, origin: confirmed.origin)
+        return confirmed.asManagedFocusRequest
+    }
+
+    @discardableResult
+    func cancelManagedRequest(
+        matching token: WindowToken? = nil,
+        workspaceId: WorkspaceDescriptor.ID? = nil
+    ) -> ManagedFocusRequest? {
+        guard let request = activeManagedRequest else { return nil }
+
+        let matchesToken = token.map { request.token == $0 } ?? true
+        let matchesWorkspace = workspaceId.map { request.workspaceId == $0 } ?? true
+        guard matchesToken, matchesWorkspace else { return nil }
+
+        _ = cancel(id: request.requestId)
+        deadlineWheel?.cancel(intentId: request.requestId)
+        return request
+    }
+
+    @discardableResult
+    func cancelManagedRequest(requestId: UInt64) -> ManagedFocusRequest? {
+        guard let request = activeManagedRequest, request.requestId == requestId else {
+            return nil
+        }
+        _ = cancel(id: requestId)
+        deadlineWheel?.cancel(intentId: requestId)
+        return request
+    }
+
+    func rekeyManagedRequest(from oldToken: WindowToken, to newToken: WindowToken) {
+        rekey(from: oldToken, to: newToken)
+        if let lastConfirmedManagedFocus, lastConfirmedManagedFocus.token == oldToken {
+            self.lastConfirmedManagedFocus = (token: newToken, origin: lastConfirmedManagedFocus.origin)
+        }
+    }
+
+    func discardPendingFocus(_ token: WindowToken) {
+        if lastConfirmedManagedFocus?.token == token {
+            lastConfirmedManagedFocus = nil
+        }
+    }
+
+    func allowsMouseToFocusedWarp(for token: WindowToken) -> Bool {
+        if let request = activeManagedRequest, request.token == token {
+            return request.origin.allowsMouseToFocusedWarp
+        }
+        if let lastConfirmedManagedFocus, lastConfirmedManagedFocus.token == token {
+            return lastConfirmedManagedFocus.origin.allowsMouseToFocusedWarp
+        }
+        return true
     }
 
     @discardableResult
@@ -92,7 +213,7 @@ final class IntentLedger {
         if let index = openIndex(where: { $0.kind == .activateApp(pid: pid) }) {
             return entries[index]
         }
-        return append(kind: .activateApp(pid: pid), origin: .keyboardOrProgrammatic, correlatedRequestId: nil)
+        return append(kind: .activateApp(pid: pid), origin: .keyboardOrProgrammatic)
     }
 
     func intent(id: IntentID) -> Intent? {
@@ -101,10 +222,6 @@ final class IntentLedger {
 
     func openIntent(id: IntentID) -> Intent? {
         entries.first { $0.id == id && $0.phase == .pending }
-    }
-
-    func openFocusIntent(correlatedRequestId: UInt64) -> Intent? {
-        entries.first { $0.correlatedRequestId == correlatedRequestId && $0.phase == .pending }
     }
 
     func openFocusIntent(token: WindowToken) -> Intent? {
@@ -135,16 +252,8 @@ final class IntentLedger {
         retire(id: id, phase: .expired, source: nil)
     }
 
-    @discardableResult
-    func recordRetry(id: IntentID, source: ActivationEventSource?) -> Intent? {
-        guard let index = openIndex(where: { $0.id == id }) else { return nil }
-        entries[index].retryCount += 1
-        entries[index].lastActivationSource = source
-        return entries[index]
-    }
-
     func rekey(from oldToken: WindowToken, to newToken: WindowToken) {
-        for index in entries.indices where entries[index].phase == .pending {
+        for index in entries.indices {
             if case let .focusWindow(token, workspaceId) = entries[index].kind, token == oldToken {
                 entries[index].kind = .focusWindow(token: newToken, workspaceId: workspaceId)
             }
@@ -174,19 +283,18 @@ final class IntentLedger {
 
     func reset() {
         entries.removeAll(keepingCapacity: false)
+        lastConfirmedManagedFocus = nil
     }
 
     private func append(
         kind: IntentKind,
-        origin: ManagedFocusOrigin,
-        correlatedRequestId: UInt64?
+        origin: ManagedFocusOrigin
     ) -> Intent {
         let intent = Intent(
             id: nextIntentId,
             kind: kind,
             origin: origin,
-            issuedAtSeq: seqProvider(),
-            correlatedRequestId: correlatedRequestId
+            issuedAtSeq: seqProvider()
         )
         nextIntentId += 1
         entries.append(intent)

@@ -175,7 +175,7 @@ final class RuntimeArchitectureTests: XCTestCase {
 
     @MainActor
     func testManagedFocusRequestCarriesOriginAndResistsPointerDowngrade() {
-        let bridge = FocusBridgeCoordinator(intentLedger: IntentLedger(), deadlineWheel: DeadlineWheel())
+        let bridge = IntentLedger()
         let workspaceId = WorkspaceDescriptor.ID()
         let token = WindowToken(pid: 100, windowId: 42)
 
@@ -207,7 +207,7 @@ final class RuntimeArchitectureTests: XCTestCase {
 
     @MainActor
     func testConfirmedManagedFocusOriginControlsMouseWarpPolicy() throws {
-        let bridge = FocusBridgeCoordinator(intentLedger: IntentLedger(), deadlineWheel: DeadlineWheel())
+        let bridge = IntentLedger()
         let workspaceId = WorkspaceDescriptor.ID()
         let token = WindowToken(pid: 100, windowId: 42)
         let rekeyedToken = WindowToken(pid: 100, windowId: 43)
@@ -257,50 +257,6 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(keyboardConfirmation.origin, .keyboardOrProgrammatic)
         XCTAssertTrue(bridge.allowsMouseToFocusedWarp(for: token))
-    }
-
-    @MainActor
-    func testDeferredFocusPreservesMergedOrigin() {
-        let bridge = FocusBridgeCoordinator(intentLedger: IntentLedger(), deadlineWheel: DeadlineWheel())
-        let firstToken = WindowToken(pid: 100, windowId: 42)
-        let secondToken = WindowToken(pid: 101, windowId: 43)
-        var performedFocuses: [WindowToken] = []
-        var deferredFocuses: [(WindowToken, ManagedFocusOrigin)] = []
-
-        bridge.focusWindow(
-            firstToken,
-            origin: .keyboardOrProgrammatic,
-            performFocus: {
-                performedFocuses.append(firstToken)
-                bridge.focusWindow(
-                    secondToken,
-                    origin: .pointerHover,
-                    performFocus: {
-                        performedFocuses.append(secondToken)
-                    },
-                    onDeferredFocus: { token, origin in
-                        deferredFocuses.append((token, origin))
-                    }
-                )
-                bridge.focusWindow(
-                    secondToken,
-                    origin: .keyboardOrProgrammatic,
-                    performFocus: {
-                        performedFocuses.append(secondToken)
-                    },
-                    onDeferredFocus: { token, origin in
-                        deferredFocuses.append((token, origin))
-                    }
-                )
-            },
-            onDeferredFocus: { token, origin in
-                deferredFocuses.append((token, origin))
-            }
-        )
-
-        XCTAssertEqual(performedFocuses, [firstToken])
-        XCTAssertEqual(deferredFocuses.map(\.0), [secondToken])
-        XCTAssertEqual(deferredFocuses.map(\.1), [.keyboardOrProgrammatic])
     }
 
     @MainActor
@@ -430,7 +386,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
 
         XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
-        XCTAssertEqual(controller.focusBridge.activeManagedRequest?.origin, .pointerHover)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
     }
 
     @MainActor
@@ -483,7 +439,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
 
         XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
-        XCTAssertEqual(controller.focusBridge.activeManagedRequest?.origin, .pointerHover)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
     }
 
     @MainActor
@@ -544,7 +500,7 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(focusedTokens.last, token)
         XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
-        XCTAssertEqual(controller.focusBridge.activeManagedRequest?.origin, .pointerHover)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
     }
 
     @MainActor
@@ -602,7 +558,7 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(focusedTokens.last, token)
         XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
-        XCTAssertEqual(controller.focusBridge.activeManagedRequest?.origin, .pointerHover)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
     }
 
     @MainActor
@@ -647,7 +603,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.mouseEventHandler.dispatchMouseMoved(at: targetFrame.center)
 
         XCTAssertEqual(focusedTokens, [token, token])
-        let request = try XCTUnwrap(controller.focusBridge.activeManagedRequest)
+        let request = try XCTUnwrap(controller.intentLedger.activeManagedRequest)
         _ = controller.workspaceManager.confirmManagedFocus(
             token,
             in: workspaceId,
@@ -656,7 +612,7 @@ final class RuntimeArchitectureTests: XCTestCase {
             activateWorkspaceOnMonitor: false,
             requestId: request.requestId
         )
-        _ = controller.focusBridge.confirmManagedRequest(token: token, source: .focusedWindowChanged)
+        _ = controller.intentLedger.confirmManagedRequest(token: token, source: .focusedWindowChanged)
 
         try await Task.sleep(for: .milliseconds(120))
         controller.mouseEventHandler.dispatchMouseMoved(at: targetFrame.center)
@@ -717,7 +673,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.mouseEventHandler.dispatchMouseMoved(at: targetFrame.center)
 
         XCTAssertEqual(focusedTokens.last, token)
-        XCTAssertEqual(controller.focusBridge.activeManagedRequest?.workspaceId, rightWorkspaceId)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.workspaceId, rightWorkspaceId)
     }
 
     func testManagedFocusCancelRejectsMismatchedRequestId() {
@@ -3223,7 +3179,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         node.frame = targetFrame
         node.renderedFrame = targetFrame
 
-        let request = controller.focusBridge.beginManagedRequest(
+        let request = controller.intentLedger.beginManagedRequest(
             token: token,
             workspaceId: workspaceId,
             origin: origin
@@ -3258,7 +3214,7 @@ final class RuntimeArchitectureTests: XCTestCase {
             line: line
         )
         XCTAssertNotNil(
-            controller.focusBridge.confirmManagedRequest(
+            controller.intentLedger.confirmManagedRequest(
                 token: entry.token,
                 source: .focusedWindowChanged
             ),
