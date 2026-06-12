@@ -118,6 +118,9 @@ enum StateReducer {
         case let .niriPlacementsResolved(placements, _):
             plan.notes = ["niri_placements=\(placements.count)"]
 
+        case let .layoutOperationPerformed(_, operation, _):
+            plan.notes = ["layout_op=\(operation.summary)"]
+
         case let .scratchpadChanged(token, _):
             plan.notes = ["scratchpad=\(token != nil)"]
 

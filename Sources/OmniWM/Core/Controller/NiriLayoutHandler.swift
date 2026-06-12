@@ -208,6 +208,15 @@ enum NiriWindowMoveResult {
         )
     }
 
+    private func recordLayoutOperation(
+        _ operation: LayoutOperation,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) {
+        controller?.workspaceManager.recordReconcileEvent(
+            .layoutOperationPerformed(workspaceId: workspaceId, operation: operation, source: .command)
+        )
+    }
+
     func requestSelectedWindowFocusAfterLayout(in workspaceId: WorkspaceDescriptor.ID) {
         requestLayoutCommandRelayout(
             in: workspaceId,
@@ -1214,6 +1223,7 @@ enum NiriWindowMoveResult {
 
             engine.toggleFullscreen(windowNode, motion: motion, state: &state)
 
+            recordLayoutOperation(.fullscreenToggled(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1235,6 +1245,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.columnWidthChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1255,6 +1266,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.windowSizeChanged(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1273,6 +1285,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.windowSizeChanged(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1293,6 +1306,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.columnWidthChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1313,6 +1327,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.columnWidthChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1325,6 +1340,7 @@ enum NiriWindowMoveResult {
             else { return }
 
             engine.resetWindowHeight(windowNode, in: wsId)
+            recordLayoutOperation(.windowSizeChanged(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1376,6 +1392,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.columnWidthChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1396,6 +1413,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.windowSizeChanged(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1414,6 +1432,7 @@ enum NiriWindowMoveResult {
                 workingFrame: workingFrame,
                 gaps: gaps
             )
+            recordLayoutOperation(.windowSizeChanged(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
         }
@@ -1428,6 +1447,7 @@ enum NiriWindowMoveResult {
                 workingAreaWidth: workingFrame.width,
                 gaps: gaps
             )
+            recordLayoutOperation(.sizesBalanced, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             if engine.hasAnyColumnAnimationsRunning(in: wsId) {
                 controller.layoutRefreshController.startScrollAnimation(for: wsId)
@@ -1716,8 +1736,10 @@ enum NiriWindowMoveResult {
 
             result = .moved
             if direction == .left || direction == .right {
+                ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
                 return ctx.commitSimple(state: state)
             }
+            ctx.record(.windowMovedInColumn(token: ctx.windowNode.token))
             return ctx.commitWithPredictedAnimation(state: state, oldFrames: oldFrames)
         }
 
@@ -1745,6 +1767,7 @@ enum NiriWindowMoveResult {
             ) else {
                 return false
             }
+            ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
             return ctx.commitSimple(state: state)
         }
     }
@@ -1763,6 +1786,7 @@ enum NiriWindowMoveResult {
             ) else {
                 return false
             }
+            ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
             return ctx.commitSimple(state: state)
         }
     }
@@ -1782,6 +1806,7 @@ enum NiriWindowMoveResult {
             ) else {
                 return false
             }
+            ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
             return ctx.commitSimple(state: state)
         }
     }
@@ -1924,6 +1949,12 @@ struct NodeActivationOptions {
     private func requestLayoutCommandRelayout() {
         controller.layoutRefreshController.requestLayoutCommandRelayout(
             affectedWorkspaceIds: [wsId]
+        )
+    }
+
+    func record(_ operation: LayoutOperation) {
+        controller.workspaceManager.recordReconcileEvent(
+            .layoutOperationPerformed(workspaceId: wsId, operation: operation, source: .command)
         )
     }
 

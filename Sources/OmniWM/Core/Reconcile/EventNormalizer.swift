@@ -114,6 +114,7 @@ enum EventNormalizer {
              .focusForgotten,
              .focusRemembered,
              .interactionMonitorChanged,
+             .layoutOperationPerformed,
              .managedFocusCancelled,
              .managedFocusConfirmed,
              .managedFocusRequested,

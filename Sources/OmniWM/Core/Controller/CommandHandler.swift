@@ -594,6 +594,7 @@ final class CommandHandler {
                 workingFrame: ctx.workingFrame,
                 gaps: ctx.gaps
             ) else { return false }
+            ctx.record(.columnMoved)
             return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
         }
     }
@@ -611,6 +612,7 @@ final class CommandHandler {
                 workingFrame: ctx.workingFrame,
                 gaps: ctx.gaps
             ) else { return false }
+            ctx.record(.columnMoved)
             return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
         }
     }
@@ -628,6 +630,7 @@ final class CommandHandler {
                 workingFrame: ctx.workingFrame,
                 gaps: ctx.gaps
             ) else { return false }
+            ctx.record(.columnMoved)
             return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
         }
     }
@@ -646,6 +649,7 @@ final class CommandHandler {
                 workingFrame: ctx.workingFrame,
                 gaps: ctx.gaps
             ) else { return false }
+            ctx.record(.columnMoved)
             return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
         }
     }
@@ -654,6 +658,9 @@ final class CommandHandler {
         guard let controller else { return }
         controller.niriLayoutHandler.withNiriWorkspaceContext { engine, wsId, motion, state, _, _, _ in
             if engine.toggleColumnTabbed(in: wsId, state: state, motion: motion) {
+                controller.workspaceManager.recordReconcileEvent(
+                    .layoutOperationPerformed(workspaceId: wsId, operation: .displayModeChanged, source: .command)
+                )
                 controller.layoutRefreshController.requestLayoutCommandRelayout(
                     affectedWorkspaceIds: [wsId]
                 )

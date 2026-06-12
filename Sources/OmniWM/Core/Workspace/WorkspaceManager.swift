@@ -468,6 +468,7 @@ final class WorkspaceManager {
              .focusRemembered,
              .hiddenStateChanged,
              .interactionMonitorChanged,
+             .layoutOperationPerformed,
              .managedFocusCancelled,
              .managedFocusConfirmed,
              .managedFocusRequested,
@@ -3821,6 +3822,7 @@ final class WorkspaceManager {
 
         case .focusForgotten,
              .interactionMonitorChanged,
+             .layoutOperationPerformed,
              .nativeFullscreenPlaceholderSelected,
              .nonManagedFocusTargetChanged,
              .scratchpadChanged,

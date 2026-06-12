@@ -174,6 +174,7 @@ final class WorldStore {
              .focusLeaseChanged,
              .focusRemembered,
              .interactionMonitorChanged,
+             .layoutOperationPerformed,
              .managedFocusCancelled,
              .managedFocusConfirmed,
              .managedFocusRequested,

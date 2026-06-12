@@ -110,6 +110,7 @@ struct RestorePlanner {
              .focusRemembered,
              .hiddenStateChanged,
              .interactionMonitorChanged,
+             .layoutOperationPerformed,
              .managedFocusCancelled,
              .managedFocusConfirmed,
              .managedFocusRequested,

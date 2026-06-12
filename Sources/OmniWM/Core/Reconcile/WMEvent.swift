@@ -19,6 +19,38 @@ enum NativeFullscreenLayoutChange: Equatable {
     }
 }
 
+enum LayoutOperation: Equatable {
+    case columnMoved
+    case columnWidthChanged
+    case displayModeChanged
+    case fullscreenToggled(token: WindowToken)
+    case sizesBalanced
+    case windowConsumedOrExpelled(token: WindowToken)
+    case windowMovedInColumn(token: WindowToken)
+    case windowSizeChanged(token: WindowToken)
+
+    var summary: String {
+        switch self {
+        case .columnMoved:
+            "column_moved"
+        case .columnWidthChanged:
+            "column_width_changed"
+        case .displayModeChanged:
+            "display_mode_changed"
+        case let .fullscreenToggled(token):
+            "fullscreen_toggled token=\(token)"
+        case .sizesBalanced:
+            "sizes_balanced"
+        case let .windowConsumedOrExpelled(token):
+            "window_consumed_or_expelled token=\(token)"
+        case let .windowMovedInColumn(token):
+            "window_moved_in_column token=\(token)"
+        case let .windowSizeChanged(token):
+            "window_size_changed token=\(token)"
+        }
+    }
+}
+
 enum WMEvent: Equatable {
     case windowAdmitted(
         token: WindowToken,
@@ -174,6 +206,11 @@ enum WMEvent: Equatable {
         previousMonitorId: Monitor.ID?,
         source: WMEventSource
     )
+    case layoutOperationPerformed(
+        workspaceId: WorkspaceDescriptor.ID,
+        operation: LayoutOperation,
+        source: WMEventSource
+    )
     case viewportChanged(
         workspaceId: WorkspaceDescriptor.ID,
         state: ViewportState,
@@ -229,6 +266,7 @@ enum WMEvent: Equatable {
              .focusLeaseChanged,
              .focusRemembered,
              .interactionMonitorChanged,
+             .layoutOperationPerformed,
              .nativeFullscreenPlaceholderSelected,
              .niriPlacementsResolved,
              .nonManagedFocusChanged,
@@ -276,6 +314,7 @@ enum WMEvent: Equatable {
              let .workspaceFocusCleared(_, source),
              let .nativeFullscreenPlaceholderSelected(_, _, source),
              let .interactionMonitorChanged(_, _, source),
+             let .layoutOperationPerformed(_, _, source),
              let .viewportChanged(_, _, source),
              let .viewportCommitted(_, _, _, source),
              let .viewportForgotten(_, source),
@@ -342,6 +381,8 @@ enum WMEvent: Equatable {
             "native_fullscreen_placeholder_selected token=\(token) workspace=\(workspaceId.uuidString)"
         case let .interactionMonitorChanged(monitorId, previousMonitorId, _):
             "interaction_monitor_changed monitor=\(String(describing: monitorId)) previous=\(String(describing: previousMonitorId))"
+        case let .layoutOperationPerformed(workspaceId, operation, _):
+            "layout_operation workspace=\(workspaceId.uuidString) op=\(operation.summary)"
         case let .viewportChanged(workspaceId, state, _):
             "viewport_changed workspace=\(workspaceId.uuidString) selected=\(state.selectedNodeId.map(String.init(describing:)) ?? "nil") column=\(state.activeColumnIndex) target=\(state.viewOffsetPixels.target())"
         case let .viewportCommitted(workspaceId, state, baseSelectionRevision, _):
