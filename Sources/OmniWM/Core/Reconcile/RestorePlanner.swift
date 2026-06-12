@@ -103,20 +103,23 @@ struct RestorePlanner {
             plan.notes.append("restore_refresh=system_wake")
         case .systemSleep:
             plan.notes.append("restore_refresh=system_sleep")
-        case .windowAdmitted,
+        case .floatingGeometryUpdated,
+             .floatingStateChanged,
+             .focusLeaseChanged,
+             .hiddenStateChanged,
+             .managedFocusCancelled,
+             .managedFocusConfirmed,
+             .managedFocusRequested,
+             .managedReplacementMetadataChanged,
+             .manualLayoutOverrideChanged,
+             .nativeFullscreenTransition,
+             .niriPlacementsResolved,
+             .nonManagedFocusChanged,
+             .windowAdmitted,
+             .windowModeChanged,
              .windowRekeyed,
              .windowRemoved,
-             .workspaceAssigned,
-             .windowModeChanged,
-             .floatingGeometryUpdated,
-             .hiddenStateChanged,
-             .nativeFullscreenTransition,
-             .managedReplacementMetadataChanged,
-             .focusLeaseChanged,
-             .managedFocusRequested,
-             .managedFocusConfirmed,
-             .managedFocusCancelled,
-             .nonManagedFocusChanged:
+             .workspaceAssigned:
             break
         }
 

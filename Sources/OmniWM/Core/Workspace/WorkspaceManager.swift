@@ -446,25 +446,28 @@ final class WorkspaceManager {
 
     private func eventRequiresRuntimeInvalidation(_ event: WMEvent) -> Bool {
         switch event {
-        case .topologyChanged,
-             .activeSpaceChanged,
+        case .activeSpaceChanged,
+             .floatingStateChanged,
+             .manualLayoutOverrideChanged,
              .systemSleep,
-             .systemWake:
+             .systemWake,
+             .topologyChanged:
             return true
-        case .windowAdmitted,
+        case .floatingGeometryUpdated,
+             .focusLeaseChanged,
+             .hiddenStateChanged,
+             .managedFocusCancelled,
+             .managedFocusConfirmed,
+             .managedFocusRequested,
+             .managedReplacementMetadataChanged,
+             .nativeFullscreenTransition,
+             .niriPlacementsResolved,
+             .nonManagedFocusChanged,
+             .windowAdmitted,
+             .windowModeChanged,
              .windowRekeyed,
              .windowRemoved,
-             .workspaceAssigned,
-             .windowModeChanged,
-             .floatingGeometryUpdated,
-             .hiddenStateChanged,
-             .nativeFullscreenTransition,
-             .managedReplacementMetadataChanged,
-             .focusLeaseChanged,
-             .managedFocusRequested,
-             .managedFocusConfirmed,
-             .managedFocusCancelled,
-             .nonManagedFocusChanged:
+             .workspaceAssigned:
             return false
         }
     }
@@ -2734,23 +2737,17 @@ final class WorkspaceManager {
     }
 
     func setNiriRestorePlacements(_ placements: [WindowToken: PersistedNiriPlacement]) {
-        guard !placements.isEmpty else { return }
-
-        var didChange = false
-        for (token, placement) in placements {
-            guard let entry = world.entry(for: token), entry.mode == .tiling else { continue }
-
-            var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
-            guard restoreIntent.niriPlacement != placement else { continue }
-
-            restoreIntent.niriPlacement = placement
-            world.setRestoreIntent(restoreIntent, for: token)
-            didChange = true
+        let changedPlacements = placements.filter { token, placement in
+            guard let entry = world.entry(for: token), entry.mode == .tiling else { return false }
+            return StateReducer.restoreIntent(for: entry, monitors: monitors).niriPlacement != placement
         }
-
-        if didChange {
-            schedulePersistedWindowRestoreCatalogSave()
-        }
+        guard !changedPlacements.isEmpty else { return }
+        recordReconcileEvent(
+            .niriPlacementsResolved(
+                placements: changedPlacements,
+                source: .workspaceManager
+            )
+        )
     }
 
     func replacementCorrelation(for token: WindowToken) -> ReplacementCorrelation? {
@@ -2852,9 +2849,14 @@ final class WorkspaceManager {
     func setFloatingState(_ state: WindowModel.FloatingState?, for token: WindowToken) {
         guard let entry = world.entry(for: token) else { return }
         guard world.floatingState(for: token) != state else { return }
-        world.setFloatingState(state, for: token)
-        bumpRuntimeRevision(for: entry.workspaceId, domains: .layout)
-        schedulePersistedWindowRestoreCatalogSave()
+        recordReconcileEvent(
+            .floatingStateChanged(
+                token: token,
+                workspaceId: entry.workspaceId,
+                state: state,
+                source: .workspaceManager
+            )
+        )
     }
 
     func manualLayoutOverride(for token: WindowToken) -> ManualWindowOverride? {
@@ -2864,8 +2866,14 @@ final class WorkspaceManager {
     func setManualLayoutOverride(_ override: ManualWindowOverride?, for token: WindowToken) {
         guard let entry = world.entry(for: token) else { return }
         guard world.manualLayoutOverride(for: token) != override else { return }
-        world.setManualLayoutOverride(override, for: token)
-        bumpRuntimeRevision(for: entry.workspaceId, domains: .layout)
+        recordReconcileEvent(
+            .manualLayoutOverrideChanged(
+                token: token,
+                workspaceId: entry.workspaceId,
+                layoutOverride: override,
+                source: .workspaceManager
+            )
+        )
     }
 
     func updateFloatingGeometry(
@@ -4183,6 +4191,13 @@ final class WorkspaceManager {
 
         case let .floatingGeometryUpdated(_, workspaceId, _, _, _, _, _):
             bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout])
+
+        case let .floatingStateChanged(_, workspaceId, _, _),
+             let .manualLayoutOverrideChanged(_, workspaceId, _, _):
+            bumpRuntimeRevision(for: workspaceId, domains: .layout)
+
+        case .niriPlacementsResolved:
+            break
 
         case let .windowRekeyed(_, _, workspaceId, _, _, _, _, _):
             bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])

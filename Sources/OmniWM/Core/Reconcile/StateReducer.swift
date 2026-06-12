@@ -104,6 +104,15 @@ enum StateReducer {
             desiredState.rescueEligible = restoreToFloating
             plan.desiredState = desiredState
 
+        case let .floatingStateChanged(_, _, state, _):
+            plan.notes = ["floating_state=\(state != nil)"]
+
+        case let .manualLayoutOverrideChanged(_, _, layoutOverride, _):
+            plan.notes = ["manual_layout_override=\(layoutOverride.map(\.rawValue) ?? "cleared")"]
+
+        case let .niriPlacementsResolved(placements, _):
+            plan.notes = ["niri_placements=\(placements.count)"]
+
         case let .hiddenStateChanged(_, workspaceId, monitorId, hiddenState, _):
             var observedState = baseObservedState(
                 from: existingEntry,

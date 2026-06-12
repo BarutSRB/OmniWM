@@ -25,7 +25,7 @@ final class WorldStore {
         seq &+= 1
         let committedSeq = seq
 
-        applyWindowMutation(event, phase: .beforePlan)
+        applyWindowMutation(event, phase: .beforePlan, monitors: monitors)
         let existingEntry = event.token.flatMap { model.entry(for: $0) }
         let normalizedEvent = EventNormalizer.normalize(
             event: event,
@@ -39,7 +39,7 @@ final class WorldStore {
             monitors: monitors
         )
         let resolvedPlan = resolvePlan(plan, normalizedEvent.token)
-        applyWindowMutation(event, phase: .afterPlan)
+        applyWindowMutation(event, phase: .afterPlan, monitors: monitors)
 
         let committedSnapshot = snapshot()
         let invariantViolations = InvariantChecks.validate(snapshot: committedSnapshot)
@@ -73,7 +73,7 @@ final class WorldStore {
         case afterPlan
     }
 
-    private func applyWindowMutation(_ event: WMEvent, phase: MutationPhase) {
+    private func applyWindowMutation(_ event: WMEvent, phase: MutationPhase, monitors: [Monitor]) {
         switch event {
         case let .windowAdmitted(token, workspaceId, _, mode, axRef, ruleEffects, metadata, _):
             guard phase == .beforePlan else { return }
@@ -119,6 +119,24 @@ final class WorldStore {
                 ),
                 for: token
             )
+
+        case let .floatingStateChanged(token, _, state, _):
+            guard phase == .beforePlan else { return }
+            model.setFloatingState(state, for: token)
+
+        case let .manualLayoutOverrideChanged(token, _, layoutOverride, _):
+            guard phase == .beforePlan else { return }
+            model.setManualLayoutOverride(layoutOverride, for: token)
+
+        case let .niriPlacementsResolved(placements, _):
+            guard phase == .beforePlan else { return }
+            for (token, placement) in placements {
+                guard let entry = model.entry(for: token), entry.mode == .tiling else { continue }
+                var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
+                guard restoreIntent.niriPlacement != placement else { continue }
+                restoreIntent.niriPlacement = placement
+                model.setRestoreIntent(restoreIntent, for: token)
+            }
 
         case let .hiddenStateChanged(token, _, _, hiddenState, _):
             guard phase == .beforePlan else { return }
@@ -283,6 +301,7 @@ extension WorldStore {
     }
 
     func setRestoreIntent(_ intent: RestoreIntent?, for token: WindowToken) {
+        assertInCommit("setRestoreIntent")
         model.setRestoreIntent(intent, for: token)
     }
 
@@ -297,11 +316,8 @@ extension WorldStore {
     }
 
     func setFloatingState(_ state: WindowModel.FloatingState?, for token: WindowToken) {
+        assertInCommit("setFloatingState")
         model.setFloatingState(state, for: token)
-    }
-
-    func setManualLayoutOverride(_ override: ManualWindowOverride?, for token: WindowToken) {
-        model.setManualLayoutOverride(override, for: token)
     }
 
     func setCachedConstraints(_ constraints: WindowSizeConstraints, for token: WindowToken) {

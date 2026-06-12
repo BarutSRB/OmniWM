@@ -68,6 +68,22 @@ enum WMEvent: Equatable {
         restoreToFloating: Bool,
         source: WMEventSource
     )
+    case floatingStateChanged(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        state: WindowModel.FloatingState?,
+        source: WMEventSource
+    )
+    case manualLayoutOverrideChanged(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        layoutOverride: ManualWindowOverride?,
+        source: WMEventSource
+    )
+    case niriPlacementsResolved(
+        placements: [WindowToken: PersistedNiriPlacement],
+        source: WMEventSource
+    )
     case hiddenStateChanged(
         token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID,
@@ -136,6 +152,8 @@ enum WMEvent: Equatable {
              let .workspaceAssigned(token, _, _, _, _),
              let .windowModeChanged(token, _, _, _, _),
              let .floatingGeometryUpdated(token, _, _, _, _, _, _),
+             let .floatingStateChanged(token, _, _, _),
+             let .manualLayoutOverrideChanged(token, _, _, _),
              let .hiddenStateChanged(token, _, _, _, _),
              let .nativeFullscreenTransition(token, _, _, _, _),
              let .managedReplacementMetadataChanged(token, _, _, _, _),
@@ -146,12 +164,13 @@ enum WMEvent: Equatable {
             to
         case let .managedFocusCancelled(token, _, _, _):
             token
-        case .topologyChanged,
-             .activeSpaceChanged,
+        case .activeSpaceChanged,
              .focusLeaseChanged,
+             .niriPlacementsResolved,
              .nonManagedFocusChanged,
              .systemSleep,
-             .systemWake:
+             .systemWake,
+             .topologyChanged:
             nil
         }
     }
@@ -164,6 +183,9 @@ enum WMEvent: Equatable {
              let .workspaceAssigned(_, _, _, _, source),
              let .windowModeChanged(_, _, _, _, source),
              let .floatingGeometryUpdated(_, _, _, _, _, _, source),
+             let .floatingStateChanged(_, _, _, source),
+             let .manualLayoutOverrideChanged(_, _, _, source),
+             let .niriPlacementsResolved(_, source),
              let .hiddenStateChanged(_, _, _, _, source),
              let .nativeFullscreenTransition(_, _, _, _, source),
              let .managedReplacementMetadataChanged(_, _, _, _, source),
@@ -194,6 +216,12 @@ enum WMEvent: Equatable {
             "window_mode_changed token=\(token) workspace=\(workspaceId.uuidString) mode=\(mode)"
         case let .floatingGeometryUpdated(token, workspaceId, _, frame, _, restoreToFloating, _):
             "floating_geometry_updated token=\(token) workspace=\(workspaceId.uuidString) frame=\(frame.debugDescription) restore=\(restoreToFloating)"
+        case let .floatingStateChanged(token, workspaceId, state, _):
+            "floating_state_changed token=\(token) workspace=\(workspaceId.uuidString) state=\(state != nil)"
+        case let .manualLayoutOverrideChanged(token, workspaceId, layoutOverride, _):
+            "manual_layout_override_changed token=\(token) workspace=\(workspaceId.uuidString) override=\(layoutOverride.map(\.rawValue) ?? "nil")"
+        case let .niriPlacementsResolved(placements, _):
+            "niri_placements_resolved count=\(placements.count)"
         case let .hiddenStateChanged(token, workspaceId, _, hiddenState, _):
             "hidden_state_changed token=\(token) workspace=\(workspaceId.uuidString) hidden=\(hiddenState != nil)"
         case let .nativeFullscreenTransition(token, workspaceId, _, change, _):
