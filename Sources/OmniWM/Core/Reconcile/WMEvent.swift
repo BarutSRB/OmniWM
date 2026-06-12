@@ -194,6 +194,10 @@ enum WMEvent: Equatable {
         nodeId: NodeId,
         source: WMEventSource
     )
+    case scratchpadChanged(
+        token: WindowToken?,
+        source: WMEventSource
+    )
     case systemSleep(source: WMEventSource)
     case systemWake(source: WMEventSource)
 
@@ -225,6 +229,7 @@ enum WMEvent: Equatable {
              .niriPlacementsResolved,
              .nonManagedFocusChanged,
              .nonManagedFocusTargetChanged,
+             .scratchpadChanged,
              .selectionChanged,
              .suppressedFocusChanged,
              .systemSleep,
@@ -270,6 +275,7 @@ enum WMEvent: Equatable {
              let .viewportCommitted(_, _, _, source),
              let .viewportForgotten(_, source),
              let .selectionChanged(_, _, source),
+             let .scratchpadChanged(_, source),
              let .systemSleep(source),
              let .systemWake(source):
             source
@@ -338,6 +344,8 @@ enum WMEvent: Equatable {
             "viewport_forgotten workspaces=\(workspaceIds.count)"
         case let .selectionChanged(workspaceId, nodeId, _):
             "selection_changed workspace=\(workspaceId.uuidString) node=\(nodeId)"
+        case let .scratchpadChanged(token, _):
+            "scratchpad_changed token=\(token.map(String.init(describing:)) ?? "nil")"
         case .systemSleep:
             "system_sleep"
         case .systemWake:

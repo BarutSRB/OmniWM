@@ -9,6 +9,7 @@ final class WorldStore {
     private(set) var seq: UInt64 = 0
     private(set) var focus = FocusSessionSnapshot()
     private(set) var viewports: [WorkspaceDescriptor.ID: ViewportState] = [:]
+    private(set) var scratchpadToken: WindowToken?
     private var commitDepth = 0
 
     init(nowProvider: @escaping () -> Date = Date.init) {
@@ -156,6 +157,10 @@ final class WorldStore {
         case let .managedReplacementMetadataChanged(token, _, _, metadata, _):
             guard phase == .beforePlan else { return }
             model.setManagedReplacementMetadata(metadata, for: token)
+
+        case let .scratchpadChanged(token, _):
+            guard phase == .beforePlan else { return }
+            scratchpadToken = token
 
         case .activeSpaceChanged,
              .focusForgotten,

@@ -118,6 +118,9 @@ enum StateReducer {
         case let .niriPlacementsResolved(placements, _):
             plan.notes = ["niri_placements=\(placements.count)"]
 
+        case let .scratchpadChanged(token, _):
+            plan.notes = ["scratchpad=\(token != nil)"]
+
         case let .hiddenStateChanged(_, workspaceId, monitorId, hiddenState, _):
             var observedState = baseObservedState(
                 from: existingEntry,

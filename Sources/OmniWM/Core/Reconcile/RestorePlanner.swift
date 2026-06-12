@@ -120,6 +120,7 @@ struct RestorePlanner {
              .niriPlacementsResolved,
              .nonManagedFocusChanged,
              .nonManagedFocusTargetChanged,
+             .scratchpadChanged,
              .selectionChanged,
              .suppressedFocusChanged,
              .viewportChanged,

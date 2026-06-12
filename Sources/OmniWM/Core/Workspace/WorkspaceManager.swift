@@ -141,7 +141,6 @@ final class WorkspaceManager {
         }
 
         var monitorSessions: [Monitor.ID: MonitorSession] = [:]
-        var scratchpadToken: WindowToken?
     }
 
     private struct MonitorResolutionContext {
@@ -488,6 +487,7 @@ final class WorkspaceManager {
              .niriPlacementsResolved,
              .nonManagedFocusChanged,
              .nonManagedFocusTargetChanged,
+             .scratchpadChanged,
              .selectionChanged,
              .suppressedFocusChanged,
              .viewportChanged,
@@ -1020,7 +1020,7 @@ final class WorkspaceManager {
     }
 
     func scratchpadToken() -> WindowToken? {
-        sessionState.scratchpadToken
+        world.scratchpadToken
     }
 
     @discardableResult
@@ -1034,7 +1034,7 @@ final class WorkspaceManager {
     }
 
     func isScratchpadToken(_ token: WindowToken) -> Bool {
-        sessionState.scratchpadToken == token
+        world.scratchpadToken == token
     }
 
     var hasPendingNativeFullscreenTransition: Bool {
@@ -1926,14 +1926,14 @@ final class WorkspaceManager {
 
     @discardableResult
     private func updateScratchpadToken(_ token: WindowToken?, notify: Bool) -> Bool {
-        let previousToken = sessionState.scratchpadToken
+        let previousToken = world.scratchpadToken
         guard previousToken != token else { return false }
         let previousWorkspaceId = previousToken.flatMap { world.entry(for: $0)?.workspaceId }
         let nextWorkspaceId = token.flatMap { world.entry(for: $0)?.workspaceId }
         if token != nil, nextWorkspaceId == nil {
             return false
         }
-        sessionState.scratchpadToken = token
+        recordReconcileEvent(.scratchpadChanged(token: token, source: .workspaceManager))
         let affectedWorkspaceIds = Set([previousWorkspaceId, nextWorkspaceId].compactMap { $0 })
         for workspaceId in affectedWorkspaceIds {
             bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])
@@ -1946,7 +1946,7 @@ final class WorkspaceManager {
 
     @discardableResult
     private func clearScratchpadToken(matching token: WindowToken, notify: Bool) -> Bool {
-        guard sessionState.scratchpadToken == token else { return false }
+        guard world.scratchpadToken == token else { return false }
         return updateScratchpadToken(nil, notify: notify)
     }
 
@@ -2370,7 +2370,7 @@ final class WorkspaceManager {
         )
 
         let focusChanged = auxiliaryFocusStateChanged(from: previousFocus)
-        let scratchpadChanged = sessionState.scratchpadToken == oldToken
+        let scratchpadChanged = world.scratchpadToken == oldToken
         if scratchpadChanged {
             _ = updateScratchpadToken(newToken, notify: false)
         }
@@ -3827,6 +3827,7 @@ final class WorkspaceManager {
              .interactionMonitorChanged,
              .nativeFullscreenPlaceholderSelected,
              .nonManagedFocusTargetChanged,
+             .scratchpadChanged,
              .selectionChanged,
              .suppressedFocusChanged,
              .viewportChanged,
