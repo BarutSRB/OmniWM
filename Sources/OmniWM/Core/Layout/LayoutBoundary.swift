@@ -130,12 +130,12 @@ struct WorkspaceLayoutPlan {
 
 struct RefreshPostLayoutAction {
     let workspaceSeqs: [WorkspaceDescriptor.ID: UInt64]
-    let domains: RuntimeRevisionDomain
+    let domains: InvalidationDomain
     private let action: @MainActor () -> Void
 
     init(
         workspaceSeqs: [WorkspaceDescriptor.ID: UInt64] = [:],
-        domains: RuntimeRevisionDomain = [.workspace, .layout, .focus, .fullscreen],
+        domains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen],
         action: @escaping @MainActor () -> Void
     ) {
         self.workspaceSeqs = workspaceSeqs
@@ -209,7 +209,7 @@ struct RefreshPostLayoutAction {
 
 struct AcceptedSeq {
     let after: UInt64
-    let domains: RuntimeRevisionDomain
+    let domains: InvalidationDomain
 }
 
 struct RefreshExecutionPlan {

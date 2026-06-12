@@ -115,40 +115,23 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
     }
 
-    func testRuntimeRevisionDomainsRejectOnlyRelevantChanges() {
-        let baseline = RuntimeRevision(
-            runtime: 1,
-            workspace: 10,
-            layout: 20,
-            focus: 30,
-            fullscreen: 40
-        )
-        let focusChanged = RuntimeRevision(
-            runtime: 2,
-            workspace: 10,
-            layout: 20,
-            focus: 31,
-            fullscreen: 40
-        )
-        let layoutChanged = RuntimeRevision(
-            runtime: 3,
-            workspace: 10,
-            layout: 21,
-            focus: 30,
-            fullscreen: 40
-        )
-        let fullscreenChanged = RuntimeRevision(
-            runtime: 4,
-            workspace: 10,
-            layout: 20,
-            focus: 30,
-            fullscreen: 41
-        )
+    func testInvalidationMarksRejectOnlyRelevantDomains() {
+        var marks = InvalidationMarks()
+        marks.record(5, domains: .focus)
+        XCTAssertTrue(marks.isCurrent(4, domains: .layoutCommit))
+        XCTAssertFalse(marks.isCurrent(4, domains: .focusCommit))
 
-        XCTAssertTrue(baseline.matches(focusChanged, domains: .layoutCommit))
-        XCTAssertFalse(baseline.matches(focusChanged, domains: .focusCommit))
-        XCTAssertFalse(baseline.matches(layoutChanged, domains: .layoutCommit))
-        XCTAssertFalse(baseline.matches(fullscreenChanged, domains: .layoutCommit))
+        marks.record(6, domains: .layout)
+        XCTAssertFalse(marks.isCurrent(5, domains: .layoutCommit))
+        XCTAssertTrue(marks.isCurrent(6, domains: [.workspace, .layout, .focus, .fullscreen]))
+
+        marks.record(7, domains: .fullscreen)
+        XCTAssertFalse(marks.isCurrent(6, domains: .layoutCommit))
+        XCTAssertTrue(marks.isCurrent(6, domains: .focusCommit))
+
+        let merged = marks.merged(with: InvalidationMarks(workspace: 9, layout: 0, focus: 0, fullscreen: 0))
+        XCTAssertFalse(merged.isCurrent(8, domains: .layoutCommit))
+        XCTAssertTrue(merged.isCurrent(9, domains: [.workspace, .layout, .focus, .fullscreen]))
     }
 
     func testManagedFocusRequestCarriesRequestId() {
@@ -817,7 +800,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testRejectedManagedFocusConfirmDoesNotBumpRuntimeRevisionThroughRestoreIntentRefresh() throws {
+    func testRejectedManagedFocusConfirmDoesNotInvalidateRuntimeThroughRestoreIntentRefresh() throws {
         let manager = Self.workspaceManager()
         let workspaceId = try XCTUnwrap(manager.workspaceId(for: "1", createIfMissing: true))
         let token = manager.addWindow(
@@ -828,7 +811,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
 
         _ = manager.beginManagedFocusRequest(token, in: workspaceId, requestId: 7)
-        let before = manager.runtimeRevision(for: workspaceId)
+        let before = manager.worldSeq
         let txn = manager.recordReconcileEvent(
             .managedFocusConfirmed(
                 token: token,
@@ -841,7 +824,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
 
         XCTAssertFalse(txn.plan.mutatesRuntimeState)
-        XCTAssertEqual(manager.runtimeRevision(for: workspaceId), before)
+        XCTAssertTrue(
+            manager.isSeqCurrent(before, for: workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
+        )
     }
 
     func testPendingManagedFocusWithoutRequestIdIsInvariantViolation() {
@@ -909,7 +894,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceManagerDoesNotBumpRevisionForNoOpRuntimeSetters() throws {
+    func testWorkspaceManagerDoesNotInvalidateForNoOpRuntimeSetters() throws {
         let manager = Self.workspaceManager()
         let workspaceId = try XCTUnwrap(manager.workspaceId(for: "1", createIfMissing: true))
         let token = manager.addWindow(
@@ -925,10 +910,11 @@ final class RuntimeArchitectureTests: XCTestCase {
             referenceMonitorId: nil,
             reason: .workspaceInactive
         )
+        let allDomains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen]
         manager.setHiddenState(hiddenState, for: token)
-        let afterHiddenState = manager.runtimeRevision(for: workspaceId)
+        let afterHiddenState = manager.worldSeq
         manager.setHiddenState(hiddenState, for: token)
-        XCTAssertEqual(manager.runtimeRevision(for: workspaceId), afterHiddenState)
+        XCTAssertTrue(manager.isSeqCurrent(afterHiddenState, for: workspaceId, domains: allDomains))
 
         let floatingState = FloatingState(
             lastFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
@@ -937,24 +923,24 @@ final class RuntimeArchitectureTests: XCTestCase {
             restoreToFloating: true
         )
         manager.setFloatingState(floatingState, for: token)
-        let afterFloatingState = manager.runtimeRevision(for: workspaceId)
+        let afterFloatingState = manager.worldSeq
         manager.setFloatingState(floatingState, for: token)
-        XCTAssertEqual(manager.runtimeRevision(for: workspaceId), afterFloatingState)
+        XCTAssertTrue(manager.isSeqCurrent(afterFloatingState, for: workspaceId, domains: allDomains))
 
         let constraints = WindowSizeConstraints.fixed(size: CGSize(width: 320, height: 240))
-        let beforeConstraints = manager.runtimeRevision(for: workspaceId)
+        let beforeConstraints = manager.worldSeq
         manager.setCachedConstraints(constraints, for: token)
-        XCTAssertEqual(manager.runtimeRevision(for: workspaceId), beforeConstraints)
-        let afterConstraints = manager.runtimeRevision(for: workspaceId)
+        XCTAssertTrue(manager.isSeqCurrent(beforeConstraints, for: workspaceId, domains: allDomains))
+        let afterConstraints = manager.worldSeq
         manager.setCachedConstraints(constraints, for: token)
-        XCTAssertEqual(manager.runtimeRevision(for: workspaceId), afterConstraints)
+        XCTAssertTrue(manager.isSeqCurrent(afterConstraints, for: workspaceId, domains: allDomains))
     }
 
     @MainActor
     func testWorkspaceManagerDoesNotGlobalInvalidateForMissingTokens() throws {
         let manager = Self.workspaceManager()
         let missingToken = WindowToken(pid: getpid(), windowId: 987_654)
-        let before = manager.runtimeEpoch(for: .layoutCommit)
+        let before = manager.worldSeq
 
         manager.setFloatingState(
             FloatingState(
@@ -977,11 +963,13 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         XCTAssertFalse(manager.setScratchpadToken(missingToken))
 
-        XCTAssertEqual(manager.runtimeEpoch(for: .layoutCommit), before)
+        XCTAssertTrue(
+            manager.isSeqEpochCurrent(before, domains: [.workspace, .layout, .focus, .fullscreen])
+        )
     }
 
     @MainActor
-    func testApplySessionPatchRejectsStaleLayoutRevision() throws {
+    func testApplySessionPatchRejectsStaleLayoutSeq() throws {
         let manager = Self.workspaceManager()
         let workspaceId = try XCTUnwrap(manager.workspaceId(for: "1", createIfMissing: true))
         let token = manager.addWindow(
@@ -1090,7 +1078,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testLayoutPlanAcceptedRevisionIncludesAnimationDirectiveFocusMutation() throws {
+    func testLayoutPlanAcceptedSeqIncludesAnimationDirectiveFocusMutation() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
@@ -1127,7 +1115,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testLayoutCommandPostLayoutDefaultRejectsFocusRevisionChange() throws {
+    func testLayoutCommandPostLayoutDefaultRejectsFocusInvalidation() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let token = controller.workspaceManager.addWindow(
@@ -1612,7 +1600,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testLayoutRuntimeRevisionCancelsPendingAXFrameObserverThroughControllerWiring() throws {
+    func testLayoutInvalidationCancelsPendingAXFrameObserverThroughControllerWiring() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_001
@@ -1645,7 +1633,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testFocusOnlyRevisionDoesNotCancelPendingAXFrameObserverThroughControllerWiring() throws {
+    func testFocusOnlyInvalidationDoesNotCancelPendingAXFrameObserverThroughControllerWiring() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_002
@@ -1673,7 +1661,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testPureLayoutRevisionDoesNotCancelPendingAXFrameObserverThroughControllerWiring() throws {
+    func testPureLayoutInvalidationDoesNotCancelPendingAXFrameObserverThroughControllerWiring() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_008
@@ -1701,7 +1689,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testSuppressedLayoutRevisionDoesNotCancelPendingAXFrameObserverThroughControllerWiring() throws {
+    func testSuppressedLayoutInvalidationDoesNotCancelPendingAXFrameObserverThroughControllerWiring() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_003
@@ -1793,7 +1781,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testPendingScratchpadRevealSuccessActionRejectsStaleFocusRevision() throws {
+    func testPendingScratchpadRevealSuccessActionRejectsStaleFocusSeq() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
@@ -1964,7 +1952,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testNiriPostLayoutFocusRejectsFocusRevisionChange() throws {
+    func testNiriPostLayoutFocusRejectsFocusInvalidation() throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(
             windowFocusOperations: WindowFocusOperations(

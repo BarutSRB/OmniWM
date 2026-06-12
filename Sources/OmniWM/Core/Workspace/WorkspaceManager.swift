@@ -182,7 +182,7 @@ final class WorkspaceManager {
 
     var onGapsChanged: (() -> Void)?
     var onSessionStateChanged: (() -> Void)?
-    var onRuntimeRevisionChanged: ((WorkspaceDescriptor.ID?, RuntimeRevisionDomain) -> Void)?
+    var onRuntimeInvalidation: ((WorkspaceDescriptor.ID?, InvalidationDomain) -> Void)?
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -235,49 +235,18 @@ final class WorkspaceManager {
         ReconcileDebugDump.trace(world.traceRecords(), limit: limit)
     }
 
-    func runtimeRevision(for workspaceId: WorkspaceDescriptor.ID) -> RuntimeRevision {
-        let marks = world.invalidationMarks(for: workspaceId)
-        return RuntimeRevision(
-            runtime: world.epochMarks.maxSeq,
-            workspace: marks.workspace,
-            layout: marks.layout,
-            focus: marks.focus,
-            fullscreen: marks.fullscreen
-        )
-    }
-
-    func runtimeEpoch(for domains: RuntimeRevisionDomain) -> RuntimeRevision {
-        let marks = world.epochMarks
-        return RuntimeRevision(
-            runtime: marks.maxSeq,
-            workspace: marks.workspace,
-            layout: marks.layout,
-            focus: marks.focus,
-            fullscreen: marks.fullscreen
-        )
-    }
-
-    func isRuntimeEpochCurrent(_ epoch: RuntimeRevision, domains: RuntimeRevisionDomain) -> Bool {
-        epoch.matches(runtimeEpoch(for: domains), domains: domains)
-    }
-
-    func isRuntimeRevisionCurrent(
-        _ revision: RuntimeRevision,
-        for workspaceId: WorkspaceDescriptor.ID,
-        domains: RuntimeRevisionDomain
-    ) -> Bool {
-        guard workspacesById[workspaceId] != nil else { return false }
-        return revision.matches(runtimeRevision(for: workspaceId), domains: domains)
-    }
-
     var worldSeq: UInt64 {
         world.seq
+    }
+
+    func isSeqEpochCurrent(_ plannedSeq: UInt64, domains: InvalidationDomain) -> Bool {
+        world.isSeqEpochCurrent(plannedSeq, domains: domains)
     }
 
     func isSeqCurrent(
         _ plannedSeq: UInt64,
         for workspaceId: WorkspaceDescriptor.ID,
-        domains: RuntimeRevisionDomain
+        domains: InvalidationDomain
     ) -> Bool {
         guard workspacesById[workspaceId] != nil else { return false }
         return world.isSeqCurrent(plannedSeq, for: workspaceId, domains: domains)
@@ -322,11 +291,11 @@ final class WorkspaceManager {
             }
         )
         if txn.plan.mutatesRuntimeState || eventRequiresRuntimeInvalidation(event) {
-            bumpRuntimeRevision(for: event)
+            noteInvalidation(for: event)
         }
-        bumpAuxiliaryFocusRevisionIfNeeded(for: event, previousFocus: previousFocus, plan: txn.plan)
+        noteAuxiliaryFocusInvalidationIfNeeded(for: event, previousFocus: previousFocus, plan: txn.plan)
         if let viewportWorkspaceId {
-            bumpViewportRevisionIfNeeded(for: viewportWorkspaceId, previousViewport: previousViewport)
+            noteViewportInvalidationIfNeeded(for: viewportWorkspaceId, previousViewport: previousViewport)
         }
         return txn
     }
@@ -353,16 +322,16 @@ final class WorkspaceManager {
         }
     }
 
-    private func bumpViewportRevisionIfNeeded(
+    private func noteViewportInvalidationIfNeeded(
         for workspaceId: WorkspaceDescriptor.ID,
         previousViewport: ViewportState?
     ) {
         guard let nextViewport = world.viewports[workspaceId],
-              shouldBumpNiriViewportRevision(previous: previousViewport, next: nextViewport)
+              niriViewportChangeRequiresInvalidation(previous: previousViewport, next: nextViewport)
         else {
             return
         }
-        bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout])
+        noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout])
     }
 
     private func auxiliaryFocusStateChanged(from previous: FocusSessionSnapshot) -> Bool {
@@ -373,7 +342,7 @@ final class WorkspaceManager {
             || current.suppressedFocusToken != previous.suppressedFocusToken
     }
 
-    private func bumpAuxiliaryFocusRevisionIfNeeded(
+    private func noteAuxiliaryFocusInvalidationIfNeeded(
         for event: WMEvent,
         previousFocus: FocusSessionSnapshot,
         plan: ActionPlan
@@ -384,19 +353,19 @@ final class WorkspaceManager {
              .windowRekeyed,
              .windowRemoved:
             guard auxiliaryFocusStateChanged(from: previousFocus) else { return }
-            let workspaceId = focusRevisionWorkspaceId(for: world.focus)
-            bumpFocusRevision(previousWorkspaceId: workspaceId, currentWorkspaceId: workspaceId)
+            let workspaceId = focusInvalidationWorkspaceId(for: world.focus)
+            noteFocusInvalidation(previousWorkspaceId: workspaceId, currentWorkspaceId: workspaceId)
         case .nonManagedFocusTargetChanged,
              .suppressedFocusChanged:
             guard plan.focusSession != nil else { return }
-            let workspaceId = focusRevisionWorkspaceId(for: world.focus)
-            bumpFocusRevision(previousWorkspaceId: workspaceId, currentWorkspaceId: workspaceId)
+            let workspaceId = focusInvalidationWorkspaceId(for: world.focus)
+            noteFocusInvalidation(previousWorkspaceId: workspaceId, currentWorkspaceId: workspaceId)
         case .nativeFullscreenPlaceholderSelected,
              .workspaceFocusCleared:
             guard plan.focusSession != nil else { return }
-            bumpFocusRevision(
-                previousWorkspaceId: focusRevisionWorkspaceId(for: previousFocus),
-                currentWorkspaceId: focusRevisionWorkspaceId(for: world.focus)
+            noteFocusInvalidation(
+                previousWorkspaceId: focusInvalidationWorkspaceId(for: previousFocus),
+                currentWorkspaceId: focusInvalidationWorkspaceId(for: world.focus)
             )
         default:
             break
@@ -464,7 +433,7 @@ final class WorkspaceManager {
             }
         )
         if txn.plan.mutatesRuntimeState || eventRequiresRuntimeInvalidation(event) {
-            bumpRuntimeRevision(for: event)
+            noteInvalidation(for: event)
         }
         return txn
     }
@@ -622,7 +591,7 @@ final class WorkspaceManager {
             $0.previousInteractionMonitorId = plan.previousInteractionMonitorId
         }
         if interactionChanged {
-            bumpFocusRevision(
+            noteFocusInvalidation(
                 previousWorkspaceId: previousWorkspaceId,
                 currentWorkspaceId: nextWorkspaceId
             )
@@ -818,15 +787,15 @@ final class WorkspaceManager {
         guard oldMode != mode else { return false }
 
         world.setMode(mode, for: token)
-        let previousWorkspaceId = focusRevisionWorkspaceId(for: world.focus)
+        let previousWorkspaceId = focusInvalidationWorkspaceId(for: world.focus)
         guard world.updateFocus({
             $0.reconcileRememberedFocus(afterModeChangeOf: token, in: workspaceId, to: mode)
         }) else {
             return false
         }
-        bumpFocusRevision(
+        noteFocusInvalidation(
             previousWorkspaceId: previousWorkspaceId,
-            currentWorkspaceId: focusRevisionWorkspaceId(for: world.focus)
+            currentWorkspaceId: focusInvalidationWorkspaceId(for: world.focus)
         )
         return true
     }
@@ -1866,23 +1835,23 @@ final class WorkspaceManager {
         }
     }
 
-    private func focusRevisionWorkspaceId(for focus: FocusSessionSnapshot) -> WorkspaceDescriptor.ID? {
+    private func focusInvalidationWorkspaceId(for focus: FocusSessionSnapshot) -> WorkspaceDescriptor.ID? {
         focus.pendingManagedFocus.workspaceId
             ?? focus.focusedToken.flatMap { world.entry(for: $0)?.workspaceId }
     }
 
-    private func bumpFocusRevision(
+    private func noteFocusInvalidation(
         previousWorkspaceId: WorkspaceDescriptor.ID?,
         currentWorkspaceId: WorkspaceDescriptor.ID?
     ) {
         if let currentWorkspaceId {
-            bumpRuntimeRevision(for: currentWorkspaceId, domains: .focus)
+            noteInvalidation(workspaceId: currentWorkspaceId, domains: .focus)
         }
         if let previousWorkspaceId, previousWorkspaceId != currentWorkspaceId {
-            bumpRuntimeRevision(for: previousWorkspaceId, domains: .focus)
+            noteInvalidation(workspaceId: previousWorkspaceId, domains: .focus)
         }
         if previousWorkspaceId == nil, currentWorkspaceId == nil {
-            bumpAllRuntimeRevisions(domains: .focus)
+            noteInvalidation(workspaceId: nil, domains: .focus)
         }
     }
 
@@ -1941,7 +1910,7 @@ final class WorkspaceManager {
         recordReconcileEvent(.scratchpadChanged(token: token, source: .workspaceManager))
         let affectedWorkspaceIds = Set([previousWorkspaceId, nextWorkspaceId].compactMap { $0 })
         for workspaceId in affectedWorkspaceIds {
-            bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])
+            noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus])
         }
         if notify {
             notifySessionStateChanged()
@@ -2242,7 +2211,7 @@ final class WorkspaceManager {
         let clamped = max(0, min(64, size))
         guard clamped != gaps else { return }
         gaps = clamped
-        bumpAllRuntimeRevisions(domains: [.workspace, .layout])
+        noteInvalidation(workspaceId: nil, domains: [.workspace, .layout])
         onGapsChanged?()
     }
 
@@ -2261,13 +2230,13 @@ final class WorkspaceManager {
             return
         }
         outerGaps = newGaps
-        bumpAllRuntimeRevisions(domains: [.workspace, .layout])
+        noteInvalidation(workspaceId: nil, domains: [.workspace, .layout])
         onGapsChanged?()
     }
 
-    func invalidateLayoutRevision(for workspaceIds: Set<WorkspaceDescriptor.ID>) {
+    func invalidateLayout(for workspaceIds: Set<WorkspaceDescriptor.ID>) {
         for workspaceId in workspaceIds {
-            bumpRuntimeRevision(for: workspaceId, domains: .layout)
+            noteInvalidation(workspaceId: workspaceId, domains: .layout)
         }
     }
 
@@ -2875,16 +2844,16 @@ final class WorkspaceManager {
                 record.transitionId = previous.transitionId
             }
             if previous != record {
-                bumpRuntimeRevision(for: previous.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
+                noteInvalidation(workspaceId: previous.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
                 if previous.workspaceId != record.workspaceId {
-                    bumpRuntimeRevision(for: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
+                    noteInvalidation(workspaceId: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
                 }
             }
         } else {
             record.transitionId = record.transitionId == 0
                 ? mintNativeFullscreenTransitionId()
                 : record.transitionId
-            bumpRuntimeRevision(for: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
+            noteInvalidation(workspaceId: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
         }
         nativeFullscreenRecordsByOriginalToken[record.originalToken] = record
         nativeFullscreenOriginalTokenByCurrentToken[record.currentToken] = record.originalToken
@@ -2920,7 +2889,7 @@ final class WorkspaceManager {
             return nil
         }
         nativeFullscreenOriginalTokenByCurrentToken.removeValue(forKey: record.currentToken)
-        bumpRuntimeRevision(for: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
+        noteInvalidation(workspaceId: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
         return record
     }
 
@@ -3007,8 +2976,8 @@ final class WorkspaceManager {
             workspace.assignedMonitorPoint = monitor2.workspaceAnchorPoint
         }
 
-        bumpRuntimeRevision(for: workspace1Id, domains: [.workspace, .layout, .focus])
-        bumpRuntimeRevision(for: workspace2Id, domains: [.workspace, .layout, .focus])
+        noteInvalidation(workspaceId: workspace1Id, domains: [.workspace, .layout, .focus])
+        noteInvalidation(workspaceId: workspace2Id, domains: [.workspace, .layout, .focus])
         notifySessionStateChanged()
         return true
     }
@@ -3064,7 +3033,7 @@ final class WorkspaceManager {
         )
     }
 
-    private func shouldBumpNiriViewportRevision(
+    private func niriViewportChangeRequiresInvalidation(
         previous: ViewportState?,
         next: ViewportState
     ) -> Bool {
@@ -3288,7 +3257,7 @@ final class WorkspaceManager {
 
         let toRemove = Set(ids)
         for id in toRemove {
-            bumpRuntimeRevision(for: id, domains: [.workspace, .layout, .focus])
+            noteInvalidation(workspaceId: id, domains: [.workspace, .layout, .focus])
         }
         let rememberedIds = toRemove.filter {
             world.focus.lastTiledFocusedByWorkspace[$0] != nil
@@ -3618,18 +3587,18 @@ final class WorkspaceManager {
         if updateInteractionMonitor {
             let interactionChanged = self.updateInteractionMonitor(monitorId, preservePrevious: true, notify: false)
             if workspaceVisibilityChanged || interactionChanged {
-                bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])
+                noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus])
                 if let previousWorkspaceOnMonitor {
-                    bumpRuntimeRevision(for: previousWorkspaceOnMonitor, domains: [.workspace, .layout, .focus])
+                    noteInvalidation(workspaceId: previousWorkspaceOnMonitor, domains: [.workspace, .layout, .focus])
                 }
             }
             if notify, workspaceVisibilityChanged || interactionChanged {
                 notifySessionStateChanged()
             }
         } else if workspaceVisibilityChanged {
-            bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])
+            noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus])
             if let previousWorkspaceOnMonitor {
-                bumpRuntimeRevision(for: previousWorkspaceOnMonitor, domains: [.workspace, .layout, .focus])
+                noteInvalidation(workspaceId: previousWorkspaceOnMonitor, domains: [.workspace, .layout, .focus])
             }
             if notify {
                 notifySessionStateChanged()
@@ -3652,7 +3621,7 @@ final class WorkspaceManager {
         }
         invalidateWorkspaceProjectionCaches()
         if previousWorkspace != workspace {
-            bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout])
+            noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout])
             schedulePersistedWindowRestoreCatalogSave()
         }
     }
@@ -3665,7 +3634,7 @@ final class WorkspaceManager {
         workspaceIdByName[workspace.name] = workspace.id
         _cachedSortedWorkspaces = nil
         invalidateWorkspaceProjectionCaches()
-        bumpRuntimeRevision(for: workspace.id, domains: [.workspace, .layout, .focus])
+        noteInvalidation(workspaceId: workspace.id, domains: [.workspace, .layout, .focus])
         return workspace.id
     }
 
@@ -3741,7 +3710,7 @@ final class WorkspaceManager {
                 source: .workspaceManager
             )
         )
-        bumpFocusRevision(
+        noteFocusInvalidation(
             previousWorkspaceId: previousWorkspaceId,
             currentWorkspaceId: nextWorkspaceId
         )
@@ -3785,54 +3754,54 @@ final class WorkspaceManager {
         onSessionStateChanged?()
     }
 
-    private func bumpRuntimeRevision(for event: WMEvent) {
+    private func noteInvalidation(for event: WMEvent) {
         switch event {
         case let .windowAdmitted(_, workspaceId, _, _, _, _, _, _),
              let .windowModeChanged(_, workspaceId, _, _, _),
              let .hiddenStateChanged(_, workspaceId, _, _, _),
              let .managedReplacementMetadataChanged(_, workspaceId, _, _, _):
-            bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])
+            noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus])
 
         case let .floatingGeometryUpdated(_, workspaceId, _, _, _, _, _):
-            bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout])
+            noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout])
 
         case let .floatingStateChanged(_, workspaceId, _, _),
              let .manualLayoutOverrideChanged(_, workspaceId, _, _):
-            bumpRuntimeRevision(for: workspaceId, domains: .layout)
+            noteInvalidation(workspaceId: workspaceId, domains: .layout)
 
         case .niriPlacementsResolved:
             break
 
         case let .windowRekeyed(_, _, workspaceId, _, _, _, _, _):
-            bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])
+            noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus])
 
         case let .workspaceAssigned(_, fromWorkspaceId, toWorkspaceId, _, _):
-            bumpRuntimeRevision(for: toWorkspaceId, domains: [.workspace, .layout, .focus])
+            noteInvalidation(workspaceId: toWorkspaceId, domains: [.workspace, .layout, .focus])
             if let fromWorkspaceId {
-                bumpRuntimeRevision(for: fromWorkspaceId, domains: [.workspace, .layout, .focus])
+                noteInvalidation(workspaceId: fromWorkspaceId, domains: [.workspace, .layout, .focus])
             }
 
         case let .windowRemoved(token, workspaceId, _):
-            bumpRuntimeRevision(
-                for: workspaceId ?? world.entry(for: token)?.workspaceId,
+            noteInvalidation(
+                workspaceId: workspaceId ?? world.entry(for: token)?.workspaceId,
                 domains: [.workspace, .layout, .focus, .fullscreen]
             )
 
         case let .nativeFullscreenTransition(_, workspaceId, _, _, _):
-            bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
+            noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
 
         case let .managedFocusRequested(_, workspaceId, _, _, _),
              let .managedFocusConfirmed(_, workspaceId, _, _, _, _):
-            bumpRuntimeRevision(for: workspaceId, domains: .focus)
+            noteInvalidation(workspaceId: workspaceId, domains: .focus)
 
         case let .managedFocusCancelled(token, workspaceId, _, _):
-            bumpRuntimeRevision(
-                for: workspaceId ?? token.flatMap { world.entry(for: $0)?.workspaceId },
+            noteInvalidation(
+                workspaceId: workspaceId ?? token.flatMap { world.entry(for: $0)?.workspaceId },
                 domains: .focus
             )
 
         case let .focusRemembered(_, workspaceId, _, _):
-            bumpRuntimeRevision(for: workspaceId, domains: .focus)
+            noteInvalidation(workspaceId: workspaceId, domains: .focus)
 
         case .focusForgotten,
              .interactionMonitorChanged,
@@ -3851,26 +3820,22 @@ final class WorkspaceManager {
 
         case .focusLeaseChanged,
              .nonManagedFocusChanged:
-            bumpAllRuntimeRevisions(domains: .focus)
+            noteInvalidation(workspaceId: nil, domains: .focus)
 
         case .topologyChanged,
              .activeSpaceChanged,
              .systemSleep,
              .systemWake:
-            bumpAllRuntimeRevisions(domains: [.workspace, .layout, .focus, .fullscreen])
+            noteInvalidation(workspaceId: nil, domains: [.workspace, .layout, .focus, .fullscreen])
         }
     }
 
-    private func bumpRuntimeRevision(
-        for workspaceId: WorkspaceDescriptor.ID?,
-        domains: RuntimeRevisionDomain
+    private func noteInvalidation(
+        workspaceId: WorkspaceDescriptor.ID?,
+        domains: InvalidationDomain
     ) {
         world.noteInvalidation(workspaceId: workspaceId, domains: domains)
-        onRuntimeRevisionChanged?(workspaceId, domains)
-    }
-
-    private func bumpAllRuntimeRevisions(domains: RuntimeRevisionDomain) {
-        bumpRuntimeRevision(for: nil, domains: domains)
+        onRuntimeInvalidation?(workspaceId, domains)
     }
 }
 

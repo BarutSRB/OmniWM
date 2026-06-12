@@ -1,24 +1,32 @@
 import CoreGraphics
 import Foundation
 
+struct InvalidationDomain: OptionSet {
+    let rawValue: UInt8
+
+    static let workspace = InvalidationDomain(rawValue: 1 << 0)
+    static let layout = InvalidationDomain(rawValue: 1 << 1)
+    static let focus = InvalidationDomain(rawValue: 1 << 2)
+    static let fullscreen = InvalidationDomain(rawValue: 1 << 3)
+
+    static let layoutCommit: InvalidationDomain = [.workspace, .layout, .fullscreen]
+    static let focusCommit: InvalidationDomain = .focus
+}
+
 struct InvalidationMarks: Equatable {
     var workspace: UInt64 = 0
     var layout: UInt64 = 0
     var focus: UInt64 = 0
     var fullscreen: UInt64 = 0
 
-    var maxSeq: UInt64 {
-        max(max(workspace, layout), max(focus, fullscreen))
-    }
-
-    mutating func record(_ seq: UInt64, domains: RuntimeRevisionDomain) {
+    mutating func record(_ seq: UInt64, domains: InvalidationDomain) {
         if domains.contains(.workspace) { workspace = seq }
         if domains.contains(.layout) { layout = seq }
         if domains.contains(.focus) { focus = seq }
         if domains.contains(.fullscreen) { fullscreen = seq }
     }
 
-    func isCurrent(_ plannedSeq: UInt64, domains: RuntimeRevisionDomain) -> Bool {
+    func isCurrent(_ plannedSeq: UInt64, domains: InvalidationDomain) -> Bool {
         if domains.contains(.workspace), workspace > plannedSeq { return false }
         if domains.contains(.layout), layout > plannedSeq { return false }
         if domains.contains(.focus), focus > plannedSeq { return false }
@@ -112,7 +120,7 @@ final class WorldStore {
         trace.snapshot()
     }
 
-    func noteInvalidation(workspaceId: WorkspaceDescriptor.ID?, domains: RuntimeRevisionDomain) {
+    func noteInvalidation(workspaceId: WorkspaceDescriptor.ID?, domains: InvalidationDomain) {
         seq &+= 1
         epochMarks.record(seq, domains: domains)
         if let workspaceId {
@@ -129,12 +137,12 @@ final class WorldStore {
     func isSeqCurrent(
         _ plannedSeq: UInt64,
         for workspaceId: WorkspaceDescriptor.ID,
-        domains: RuntimeRevisionDomain
+        domains: InvalidationDomain
     ) -> Bool {
         invalidationMarks(for: workspaceId).isCurrent(plannedSeq, domains: domains)
     }
 
-    func isSeqEpochCurrent(_ plannedSeq: UInt64, domains: RuntimeRevisionDomain) -> Bool {
+    func isSeqEpochCurrent(_ plannedSeq: UInt64, domains: InvalidationDomain) -> Bool {
         epochMarks.isCurrent(plannedSeq, domains: domains)
     }
 

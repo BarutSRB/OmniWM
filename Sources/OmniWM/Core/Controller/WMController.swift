@@ -230,8 +230,8 @@ final class WMController {
         workspaceManager.onSessionStateChanged = { [weak self] in
             self?.handleSessionStateChanged()
         }
-        workspaceManager.onRuntimeRevisionChanged = { [weak self] workspaceId, domains in
-            self?.handleRuntimeRevisionChanged(workspaceId: workspaceId, domains: domains)
+        workspaceManager.onRuntimeInvalidation = { [weak self] workspaceId, domains in
+            self?.handleRuntimeInvalidation(workspaceId: workspaceId, domains: domains)
         }
         focusPolicyEngine.onLeaseChanged = { [weak self] lease in
             self?.workspaceManager.recordReconcileEvent(
@@ -841,14 +841,14 @@ final class WMController {
         }
     }
 
-    private func handleRuntimeRevisionChanged(
+    private func handleRuntimeInvalidation(
         workspaceId: WorkspaceDescriptor.ID?,
-        domains: RuntimeRevisionDomain
+        domains: InvalidationDomain
     ) {
         surfaceReconciler.noteWorldChanged()
         guard domains.contains(.workspace) || domains.contains(.fullscreen) else { return }
         guard runtimeFrameJobCancellationSuppressionDepth == 0 else { return }
-        cancelPendingFrameJobsForRuntimeRevision(workspaceId: workspaceId)
+        cancelPendingFrameJobsForInvalidation(workspaceId: workspaceId)
     }
 
     func withRuntimeFrameJobCancellationSuppressed<T>(_ body: () throws -> T) rethrows -> T {
@@ -857,7 +857,7 @@ final class WMController {
         return try body()
     }
 
-    func cancelPendingFrameJobsForRuntimeRevision(workspaceId: WorkspaceDescriptor.ID?) {
+    func cancelPendingFrameJobsForInvalidation(workspaceId: WorkspaceDescriptor.ID?) {
         let entries = workspaceId.map { workspaceManager.entries(in: $0) } ?? workspaceManager.allEntries()
         guard !entries.isEmpty else { return }
         axManager.cancelPendingFrameJobs(entries.map { ($0.pid, $0.windowId) })
@@ -2049,8 +2049,8 @@ final class WMController {
     ) async -> WindowRuleReevaluationOutcome {
         guard !targets.isEmpty else { return .none }
 
-        let runtimeEpochDomains: RuntimeRevisionDomain = [.workspace, .layout, .focus, .fullscreen]
-        let runtimeEpoch = workspaceManager.runtimeEpoch(for: runtimeEpochDomains)
+        let epochDomains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen]
+        let epochSeq = workspaceManager.worldSeq
         var liveWindowsByToken: [WindowToken: AXWindowRef] = [:]
         var tokensToReevaluate: Set<WindowToken> = []
         var pidTargets: Set<pid_t> = []
@@ -2089,7 +2089,7 @@ final class WMController {
             if let app = NSRunningApplication(processIdentifier: pid) {
                 let windows = await axManager.windowsForApp(app)
                 guard !Task.isCancelled,
-                      workspaceManager.isRuntimeEpochCurrent(runtimeEpoch, domains: runtimeEpochDomains)
+                      workspaceManager.isSeqEpochCurrent(epochSeq, domains: epochDomains)
                 else {
                     return staleOutcome()
                 }
@@ -2109,7 +2109,7 @@ final class WMController {
         }
 
         guard !Task.isCancelled,
-              workspaceManager.isRuntimeEpochCurrent(runtimeEpoch, domains: runtimeEpochDomains)
+              workspaceManager.isSeqEpochCurrent(epochSeq, domains: epochDomains)
         else {
             return staleOutcome()
         }

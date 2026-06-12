@@ -199,7 +199,7 @@ enum NiriWindowMoveResult {
     private func requestLayoutCommandRelayout(
         in workspaceId: WorkspaceDescriptor.ID,
         postLayout: LayoutRefreshController.PostLayoutAction? = nil,
-        postLayoutDomains: RuntimeRevisionDomain = .layoutCommit
+        postLayoutDomains: InvalidationDomain = .layoutCommit
     ) {
         controller?.layoutRefreshController.requestLayoutCommandRelayout(
             affectedWorkspaceIds: [workspaceId],

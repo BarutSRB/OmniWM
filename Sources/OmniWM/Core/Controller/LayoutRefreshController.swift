@@ -506,7 +506,7 @@ import QuartzCore
         applyAnimationDirectives(
             plan.animationDirectives,
             workspaceId: plan.workspaceId,
-            focusRevisionAccepted: focusSeqAccepted
+            focusSeqAccepted: focusSeqAccepted
         )
         controller.surfaceReconciler.noteWorldChanged()
         return AcceptedSeq(
@@ -771,7 +771,7 @@ import QuartzCore
     private func applyAnimationDirectives(
         _ directives: [AnimationDirective],
         workspaceId: WorkspaceDescriptor.ID,
-        focusRevisionAccepted: Bool
+        focusSeqAccepted: Bool
     ) {
         guard let controller else { return }
 
@@ -787,7 +787,7 @@ import QuartzCore
             case let .activateWindow(token):
                 guard !controller.shouldSuppressManagedFocusRecovery,
                       !controller.workspaceManager.hasPendingNativeFullscreenTransition,
-                      focusRevisionAccepted
+                      focusSeqAccepted
                 else { continue }
                 if let workspaceId = controller.workspaceManager.workspace(for: token) {
                     controller.recordNiriCreateFocusTrace(
@@ -827,7 +827,7 @@ import QuartzCore
         reason: RefreshReason,
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = [],
         postLayout: PostLayoutAction? = nil,
-        postLayoutDomains: RuntimeRevisionDomain = [.workspace, .layout, .focus, .fullscreen]
+        postLayoutDomains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen]
     ) {
         assert(reason.requestRoute == .immediateRelayout, "Invalid immediate-relayout reason: \(reason)")
         let postLayoutWorkspaceIds = self.postLayoutWorkspaceIds(for: affectedWorkspaceIds)
@@ -849,10 +849,10 @@ import QuartzCore
     func requestLayoutCommandRelayout(
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>,
         postLayout: PostLayoutAction? = nil,
-        postLayoutDomains: RuntimeRevisionDomain = [.workspace, .layout, .focus, .fullscreen]
+        postLayoutDomains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen]
     ) {
         assert(!affectedWorkspaceIds.isEmpty, "Layout command relayout must name affected workspaces")
-        controller?.workspaceManager.invalidateLayoutRevision(for: affectedWorkspaceIds)
+        controller?.workspaceManager.invalidateLayout(for: affectedWorkspaceIds)
         requestImmediateRelayout(
             reason: .layoutCommand,
             affectedWorkspaceIds: affectedWorkspaceIds,
@@ -917,7 +917,7 @@ import QuartzCore
     private func makePostLayoutAction(
         _ postLayout: PostLayoutAction?,
         workspaceIds: Set<WorkspaceDescriptor.ID>,
-        domains: RuntimeRevisionDomain = [.workspace, .layout, .focus, .fullscreen]
+        domains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen]
     ) -> RefreshPostLayoutAction? {
         guard let postLayout else { return nil }
         guard let controller, !workspaceIds.isEmpty else { return nil }
@@ -1307,12 +1307,11 @@ import QuartzCore
     private func buildFullRefreshExecutionPlan() async throws -> RefreshExecutionPlan {
         guard let controller else { return .init() }
 
-        let rescanEpochDomains: RuntimeRevisionDomain = .layoutCommit
-        let rescanEpoch = controller.workspaceManager.runtimeEpoch(for: rescanEpochDomains)
+        let rescanSeq = controller.workspaceManager.worldSeq
         let hadNativeFullscreenLifecycleContextAtStart = controller.workspaceManager.hasNativeFullscreenLifecycleContext
         let enumerationSnapshot = await controller.axManager.fullRescanEnumerationSnapshot()
         try Task.checkCancellation()
-        guard controller.workspaceManager.isRuntimeEpochCurrent(rescanEpoch, domains: rescanEpochDomains) else {
+        guard controller.workspaceManager.isSeqEpochCurrent(rescanSeq, domains: .layoutCommit) else {
             requestFullRescan(reason: .staleFullRescan)
             throw CancellationError()
         }
