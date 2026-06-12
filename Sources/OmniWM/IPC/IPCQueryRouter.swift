@@ -60,7 +60,7 @@ final class IPCQueryRouter {
 
     func activeWorkspaceResult() -> IPCActiveWorkspaceQueryResult {
         let monitor = controller.monitorForInteraction()
-        let workspace = monitor.flatMap { controller.workspaceManager.currentActiveWorkspace(on: $0.id) }
+        let workspace = monitor.flatMap { controller.workspaceManager.activeWorkspace(on: $0.id) }
         let focusedApp: IPCAppRef?
 
         if let workspace,
@@ -82,7 +82,7 @@ final class IPCQueryRouter {
 
     func focusedMonitorResult() -> IPCFocusedMonitorQueryResult {
         let monitor = controller.monitorForInteraction()
-        let activeWorkspace = monitor.flatMap { controller.workspaceManager.currentActiveWorkspace(on: $0.id) }
+        let activeWorkspace = monitor.flatMap { controller.workspaceManager.activeWorkspace(on: $0.id) }
 
         return IPCFocusedMonitorQueryResult(
             display: monitor.map(displayRef(from:)),
@@ -166,7 +166,7 @@ final class IPCQueryRouter {
         let focusedWorkspaceId = controller.workspaceManager.focusedToken
             .flatMap { controller.workspaceManager.workspace(for: $0) }
         let currentWorkspaceId = controller.monitorForInteraction()
-            .flatMap { controller.workspaceManager.currentActiveWorkspace(on: $0.id)?.id }
+            .flatMap { controller.workspaceManager.activeWorkspace(on: $0.id)?.id }
         let visibleWorkspaceIds = controller.workspaceManager.visibleWorkspaceIds()
         let workspaces = orderedWorkspaces()
             .filter { descriptor in
@@ -405,7 +405,7 @@ final class IPCQueryRouter {
         currentMonitorId: Monitor.ID?,
         fields: Set<String>?
     ) -> IPCDisplayQuerySnapshot {
-        let activeWorkspace = controller.workspaceManager.currentActiveWorkspace(on: monitor.id)
+        let activeWorkspace = controller.workspaceManager.activeWorkspace(on: monitor.id)
         return IPCDisplayQuerySnapshot(
             id: include("id", in: fields) ? monitorIdentifier(monitor.id) : nil,
             name: include("name", in: fields) ? monitor.name : nil,

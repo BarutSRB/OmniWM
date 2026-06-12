@@ -604,9 +604,9 @@ final class WorkspaceManager {
         }
 
         let previousWorkspaceId = world.focus.interactionMonitorId
-            .flatMap { currentActiveWorkspace(on: $0)?.id }
+            .flatMap { activeWorkspace(on: $0)?.id }
         let nextWorkspaceId = plan.interactionMonitorId
-            .flatMap { currentActiveWorkspace(on: $0)?.id }
+            .flatMap { activeWorkspace(on: $0)?.id }
         let interactionChanged = world.focus.interactionMonitorId != plan.interactionMonitorId
             || world.focus.previousInteractionMonitorId != plan.previousInteractionMonitorId
         world.updateFocus {
@@ -2150,11 +2150,6 @@ final class WorkspaceManager {
     }
 
     func activeWorkspace(on monitorId: Monitor.ID) -> WorkspaceDescriptor? {
-        ensureVisibleWorkspaces()
-        return currentActiveWorkspace(on: monitorId)
-    }
-
-    func currentActiveWorkspace(on monitorId: Monitor.ID) -> WorkspaceDescriptor? {
         guard let mon = monitor(byId: monitorId) else { return nil }
         guard let workspaceId = visibleWorkspaceId(on: mon.id) else { return nil }
         return descriptor(for: workspaceId)
@@ -2188,7 +2183,6 @@ final class WorkspaceManager {
             return active
         }
         guard let defaultWorkspaceId = defaultVisibleWorkspaceId(on: monitorId) else { return nil }
-        _ = setActiveWorkspaceInternal(defaultWorkspaceId, on: monitorId)
         return descriptor(for: defaultWorkspaceId)
     }
 
@@ -3310,6 +3304,7 @@ final class WorkspaceManager {
                 }
             }
         }
+        reconcileConfiguredVisibleWorkspaces()
     }
 
     private func pruneRestoredDisconnectedVisibleWorkspaces() {
@@ -3361,7 +3356,7 @@ final class WorkspaceManager {
         }
     }
 
-    private func ensureVisibleWorkspaces(previousMonitors: [Monitor]? = nil, notify: Bool = true) {
+    private func ensureVisibleWorkspaces() {
         let currentMonitorIds = Set(monitors.map(\.id))
         let expectedVisibleMonitorIds = expectedVisibleMonitorIds()
         let previousMonitorSessions = sessionState.monitorSessions
@@ -3372,25 +3367,18 @@ final class WorkspaceManager {
 
         let currentVisibleMonitorIds = Set(activeVisibleWorkspaceMap(from: sessionState.monitorSessions).keys)
         if currentVisibleMonitorIds != expectedVisibleMonitorIds {
-            rearrangeWorkspacesOnMonitors(
-                previousMonitors: previousMonitors,
-                previousMonitorSessions: previousMonitorSessions,
-                notify: notify
-            )
+            rearrangeWorkspacesOnMonitors(previousMonitorSessions: previousMonitorSessions)
         }
     }
 
     private func rearrangeWorkspacesOnMonitors(
-        previousMonitors: [Monitor]? = nil,
-        previousMonitorSessions: [Monitor.ID: SessionState.MonitorSession]? = nil,
-        notify: Bool = true
+        previousMonitorSessions: [Monitor.ID: SessionState.MonitorSession]
     ) {
         let context = monitorResolutionContext()
-        let oldForward = activeVisibleWorkspaceMap(from: previousMonitorSessions ?? sessionState.monitorSessions)
+        let oldForward = activeVisibleWorkspaceMap(from: previousMonitorSessions)
         var oldMonitorById: [Monitor.ID: Monitor] = [:]
 
-        let oldCandidates = previousMonitors ?? monitors
-        for monitor in oldCandidates {
+        for monitor in monitors {
             oldMonitorById[monitor.id] = monitor
         }
         let visibleSnapshots = oldForward.compactMap { monitorId, workspaceId -> WorkspaceRestoreSnapshot? in
@@ -3437,9 +3425,7 @@ final class WorkspaceManager {
             }
         }
 
-        if notify {
-            notifySessionStateChanged()
-        }
+        notifySessionStateChanged()
     }
 
     private func defaultVisibleWorkspaceId(on monitorId: Monitor.ID) -> WorkspaceDescriptor.ID? {
@@ -3716,9 +3702,9 @@ final class WorkspaceManager {
     ) -> Bool {
         guard world.focus.interactionMonitorId != monitorId else { return false }
         let previousWorkspaceId = world.focus.interactionMonitorId
-            .flatMap { currentActiveWorkspace(on: $0)?.id }
+            .flatMap { activeWorkspace(on: $0)?.id }
         let nextWorkspaceId = monitorId
-            .flatMap { currentActiveWorkspace(on: $0)?.id }
+            .flatMap { activeWorkspace(on: $0)?.id }
         var previousMonitorId = world.focus.previousInteractionMonitorId
         if preservePrevious, let currentMonitorId = world.focus.interactionMonitorId {
             previousMonitorId = currentMonitorId

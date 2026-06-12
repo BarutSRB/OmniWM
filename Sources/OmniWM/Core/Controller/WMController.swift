@@ -470,7 +470,7 @@ final class WMController {
 
     func activeStatusBarWorkspaceSummary() -> StatusBarWorkspaceSummary? {
         guard let monitor = monitorForInteraction(),
-              let workspace = workspaceManager.currentActiveWorkspace(on: monitor.id)
+              let workspace = workspaceManager.activeWorkspace(on: monitor.id)
         else {
             return nil
         }
