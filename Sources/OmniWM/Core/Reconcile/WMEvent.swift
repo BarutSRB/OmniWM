@@ -24,10 +24,16 @@ enum LayoutOperation: Equatable {
     case columnWidthChanged
     case displayModeChanged
     case fullscreenToggled(token: WindowToken)
+    case preselectionChanged
     case sizesBalanced
+    case splitOrientationToggled
+    case splitRatioChanged
+    case splitSwapped
     case windowConsumedOrExpelled(token: WindowToken)
     case windowMovedInColumn(token: WindowToken)
+    case windowMovedToRoot
     case windowSizeChanged(token: WindowToken)
+    case windowsSwapped
 
     var summary: String {
         switch self {
@@ -39,14 +45,26 @@ enum LayoutOperation: Equatable {
             "display_mode_changed"
         case let .fullscreenToggled(token):
             "fullscreen_toggled token=\(token)"
+        case .preselectionChanged:
+            "preselection_changed"
         case .sizesBalanced:
             "sizes_balanced"
+        case .splitOrientationToggled:
+            "split_orientation_toggled"
+        case .splitRatioChanged:
+            "split_ratio_changed"
+        case .splitSwapped:
+            "split_swapped"
         case let .windowConsumedOrExpelled(token):
             "window_consumed_or_expelled token=\(token)"
         case let .windowMovedInColumn(token):
             "window_moved_in_column token=\(token)"
+        case .windowMovedToRoot:
+            "window_moved_to_root"
         case let .windowSizeChanged(token):
             "window_size_changed token=\(token)"
+        case .windowsSwapped:
+            "windows_swapped"
         }
     }
 }

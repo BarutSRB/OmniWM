@@ -97,12 +97,15 @@ final class DwindleLayoutEngine {
         selectedNodeId[workspaceId] = node?.id
     }
 
-    func setPreselection(_ direction: Direction?, in workspaceId: WorkspaceDescriptor.ID) {
+    @discardableResult
+    func setPreselection(_ direction: Direction?, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard preselection[workspaceId] != direction else { return false }
         if let direction {
             preselection[workspaceId] = direction
         } else {
             preselection.removeValue(forKey: workspaceId)
         }
+        return true
     }
 
     func getPreselection(in workspaceId: WorkspaceDescriptor.ID) -> Direction? {
@@ -891,15 +894,17 @@ final class DwindleLayoutEngine {
         return true
     }
 
-    func toggleOrientation(in workspaceId: WorkspaceDescriptor.ID) {
+    @discardableResult
+    func toggleOrientation(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let selected = selectedNode(in: workspaceId),
               let parent = selected.parent,
               case let .split(orientation, ratio) = parent.kind
         else {
-            return
+            return false
         }
 
         parent.kind = .split(orientation: orientation.perpendicular, ratio: ratio)
+        return true
     }
 
     func toggleFullscreen(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
@@ -959,32 +964,33 @@ final class DwindleLayoutEngine {
         return true
     }
 
-    func moveSelectionToRoot(stable: Bool, in workspaceId: WorkspaceDescriptor.ID) {
-        guard let selected = selectedNode(in: workspaceId) else { return }
+    @discardableResult
+    func moveSelectionToRoot(stable: Bool, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let selected = selectedNode(in: workspaceId) else { return false }
         let leaf = selected.isLeaf ? selected : selected.descendToFirstLeaf()
-        guard let root = roots[workspaceId] else { return }
+        guard let root = roots[workspaceId] else { return false }
 
-        if leaf.id == root.id { return }
+        if leaf.id == root.id { return false }
 
-        guard let leafParent = leaf.parent else { return }
+        guard let leafParent = leaf.parent else { return false }
 
-        if leafParent.id == root.id { return }
+        if leafParent.id == root.id { return false }
 
         var ancestor = leafParent
         while let parent = ancestor.parent, parent.id != root.id {
             ancestor = parent
         }
 
-        guard ancestor.parent?.id == root.id else { return }
+        guard ancestor.parent?.id == root.id else { return false }
 
         guard root.children.count == 2,
               let first = root.firstChild(),
-              let second = root.secondChild() else { return }
+              let second = root.secondChild() else { return false }
 
         let ancestorIsFirst = first.id == ancestor.id
         let swapNode = ancestorIsFirst ? second : first
 
-        guard let leafSibling = leaf.sibling() else { return }
+        guard let leafSibling = leaf.sibling() else { return false }
         let leafIsFirst = leaf.isFirstChild(of: leafParent)
 
         leaf.detach()
@@ -1007,14 +1013,16 @@ final class DwindleLayoutEngine {
             newFirst.detach()
             root.appendChild(newFirst)
         }
+        return true
     }
 
+    @discardableResult
     func resizeSelected(
         by delta: CGFloat,
         direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID
-    ) {
-        guard let selected = selectedNode(in: workspaceId) else { return }
+    ) -> Bool {
+        guard let selected = selectedNode(in: workspaceId) else { return false }
 
         let targetOrientation = direction.dwindleOrientation
         let increaseFirst = !direction.isPositive
@@ -1037,16 +1045,19 @@ final class DwindleLayoutEngine {
                 }
 
                 parent.kind = .split(orientation: orientation, ratio: settings.clampedRatio(newRatio))
-                return
+                return true
             }
 
             current = parent
         }
+        return false
     }
 
-    func balanceSizes(in workspaceId: WorkspaceDescriptor.ID) {
-        guard let root = roots[workspaceId] else { return }
+    @discardableResult
+    func balanceSizes(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let root = roots[workspaceId], case .split = root.kind else { return false }
         balanceSizesRecursive(root)
+        return true
     }
 
     private func balanceSizesRecursive(_ node: DwindleNode) {
@@ -1057,20 +1068,23 @@ final class DwindleLayoutEngine {
         }
     }
 
-    func swapSplit(in workspaceId: WorkspaceDescriptor.ID) {
+    @discardableResult
+    func swapSplit(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let selected = selectedNode(in: workspaceId),
               let parent = selected.parent,
-              parent.children.count == 2 else { return }
+              parent.children.count == 2 else { return false }
 
         let first = parent.children[0]
         let second = parent.children[1]
         parent.children = [second, first]
+        return true
     }
 
-    func cycleSplitRatio(forward: Bool, in workspaceId: WorkspaceDescriptor.ID) {
+    @discardableResult
+    func cycleSplitRatio(forward: Bool, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let selected = selectedNode(in: workspaceId),
               let parent = selected.parent,
-              case let .split(orientation, currentRatio) = parent.kind else { return }
+              case let .split(orientation, currentRatio) = parent.kind else { return false }
 
         let presets: [CGFloat] = [0.3, 0.5, 0.7]
 
@@ -1086,6 +1100,7 @@ final class DwindleLayoutEngine {
         }
 
         parent.kind = .split(orientation: orientation, ratio: presets[newIndex])
+        return true
     }
 
     func tickAnimations(at time: TimeInterval, in workspaceId: WorkspaceDescriptor.ID) {

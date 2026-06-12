@@ -149,6 +149,15 @@ import QuartzCore
         return plans
     }
 
+    func recordLayoutOperation(
+        _ operation: LayoutOperation,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) {
+        controller?.workspaceManager.recordReconcileEvent(
+            .layoutOperationPerformed(workspaceId: workspaceId, operation: operation, source: .command)
+        )
+    }
+
     // MARK: - Layout Capability Commands
 
     func focusNeighbor(direction: Direction) {
@@ -212,6 +221,7 @@ import QuartzCore
         guard let controller else { return }
         withDwindleContext { engine, wsId in
             if engine.swapWindows(direction: direction, in: wsId) {
+                recordLayoutOperation(.windowsSwapped, in: wsId)
                 controller.layoutRefreshController.requestLayoutCommandRelayout(
                     affectedWorkspaceIds: [wsId]
                 )
@@ -223,6 +233,7 @@ import QuartzCore
         guard let controller else { return }
         withDwindleContext { engine, wsId in
             if let token = engine.toggleFullscreen(in: wsId) {
+                recordLayoutOperation(.fullscreenToggled(token: token), in: wsId)
                 _ = controller.workspaceManager.applySessionPatch(
                     .init(
                         workspaceId: wsId,
@@ -241,7 +252,9 @@ import QuartzCore
     func cycleSize(forward: Bool) {
         guard let controller else { return }
         withDwindleContext { engine, wsId in
-            engine.cycleSplitRatio(forward: forward, in: wsId)
+            if engine.cycleSplitRatio(forward: forward, in: wsId) {
+                recordLayoutOperation(.splitRatioChanged, in: wsId)
+            }
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [wsId]
             )
@@ -251,7 +264,9 @@ import QuartzCore
     func balanceSizes() {
         guard let controller else { return }
         withDwindleContext { engine, wsId in
-            engine.balanceSizes(in: wsId)
+            if engine.balanceSizes(in: wsId) {
+                recordLayoutOperation(.sizesBalanced, in: wsId)
+            }
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [wsId]
             )

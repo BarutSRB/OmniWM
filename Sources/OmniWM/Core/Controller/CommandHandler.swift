@@ -681,7 +681,9 @@ final class CommandHandler {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
             let stable = controller.settings.dwindleMoveToRootStable
-            engine.moveSelectionToRoot(stable: stable, in: wsId)
+            if engine.moveSelectionToRoot(stable: stable, in: wsId) {
+                controller.dwindleLayoutHandler.recordLayoutOperation(.windowMovedToRoot, in: wsId)
+            }
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [wsId]
             )
@@ -691,7 +693,9 @@ final class CommandHandler {
     private func toggleSplitInDwindle() {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
-            engine.toggleOrientation(in: wsId)
+            if engine.toggleOrientation(in: wsId) {
+                controller.dwindleLayoutHandler.recordLayoutOperation(.splitOrientationToggled, in: wsId)
+            }
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [wsId]
             )
@@ -701,7 +705,9 @@ final class CommandHandler {
     private func swapSplitInDwindle() {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
-            engine.swapSplit(in: wsId)
+            if engine.swapSplit(in: wsId) {
+                controller.dwindleLayoutHandler.recordLayoutOperation(.splitSwapped, in: wsId)
+            }
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [wsId]
             )
@@ -712,7 +718,9 @@ final class CommandHandler {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
             let delta = grow ? engine.settings.resizeStep : -engine.settings.resizeStep
-            engine.resizeSelected(by: delta, direction: direction, in: wsId)
+            if engine.resizeSelected(by: delta, direction: direction, in: wsId) {
+                controller.dwindleLayoutHandler.recordLayoutOperation(.splitRatioChanged, in: wsId)
+            }
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [wsId]
             )
@@ -722,14 +730,18 @@ final class CommandHandler {
     private func preselectInDwindle(direction: Direction) {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
-            engine.setPreselection(direction, in: wsId)
+            if engine.setPreselection(direction, in: wsId) {
+                controller.dwindleLayoutHandler.recordLayoutOperation(.preselectionChanged, in: wsId)
+            }
         }
     }
 
     private func clearPreselectInDwindle() {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
-            engine.setPreselection(nil, in: wsId)
+            if engine.setPreselection(nil, in: wsId) {
+                controller.dwindleLayoutHandler.recordLayoutOperation(.preselectionChanged, in: wsId)
+            }
         }
     }
 
