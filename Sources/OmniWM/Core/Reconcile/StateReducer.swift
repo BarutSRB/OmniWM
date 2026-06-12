@@ -262,6 +262,35 @@ enum StateReducer {
             focusSession.suppressedFocusToken = token
             setFocusSession(focusSession, current: currentSnapshot.focusSession, plan: &plan)
 
+        case let .workspaceFocusCleared(workspaceId, _):
+            var focusSession = currentSnapshot.focusSession
+            focusSession.clearPendingManagedFocus(
+                matching: nil,
+                workspaceId: workspaceId,
+                requestId: focusSession.pendingManagedFocus.requestId
+            )
+            if let focusedToken = focusSession.focusedToken,
+               currentSnapshot.windows.first(where: { $0.token == focusedToken })?.workspaceId == workspaceId
+            {
+                focusSession.focusedToken = nil
+                focusSession.isAppFullscreenActive = false
+            }
+            setFocusSession(focusSession, current: currentSnapshot.focusSession, plan: &plan)
+
+        case let .nativeFullscreenPlaceholderSelected(token, _, _):
+            var focusSession = currentSnapshot.focusSession
+            focusSession.focusedToken = token
+            focusSession.isNonManagedFocusActive = true
+            focusSession.isAppFullscreenActive = true
+            focusSession.clearPendingManagedFocus()
+            setFocusSession(focusSession, current: currentSnapshot.focusSession, plan: &plan)
+
+        case let .interactionMonitorChanged(monitorId, previousMonitorId, _):
+            var focusSession = currentSnapshot.focusSession
+            focusSession.interactionMonitorId = monitorId
+            focusSession.previousInteractionMonitorId = previousMonitorId
+            setFocusSession(focusSession, current: currentSnapshot.focusSession, plan: &plan)
+
         case .systemSleep:
             plan.notes = ["system_sleep"]
 

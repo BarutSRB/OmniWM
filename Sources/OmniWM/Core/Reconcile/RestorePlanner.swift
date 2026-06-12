@@ -109,11 +109,13 @@ struct RestorePlanner {
              .focusLeaseChanged,
              .focusRemembered,
              .hiddenStateChanged,
+             .interactionMonitorChanged,
              .managedFocusCancelled,
              .managedFocusConfirmed,
              .managedFocusRequested,
              .managedReplacementMetadataChanged,
              .manualLayoutOverrideChanged,
+             .nativeFullscreenPlaceholderSelected,
              .nativeFullscreenTransition,
              .niriPlacementsResolved,
              .nonManagedFocusChanged,
@@ -123,7 +125,8 @@ struct RestorePlanner {
              .windowModeChanged,
              .windowRekeyed,
              .windowRemoved,
-             .workspaceAssigned:
+             .workspaceAssigned,
+             .workspaceFocusCleared:
             break
         }
 

@@ -159,15 +159,18 @@ final class WorldStore {
              .focusForgotten,
              .focusLeaseChanged,
              .focusRemembered,
+             .interactionMonitorChanged,
              .managedFocusCancelled,
              .managedFocusConfirmed,
              .managedFocusRequested,
+             .nativeFullscreenPlaceholderSelected,
              .nonManagedFocusChanged,
              .nonManagedFocusTargetChanged,
              .suppressedFocusChanged,
              .systemSleep,
              .systemWake,
-             .topologyChanged:
+             .topologyChanged,
+             .workspaceFocusCleared:
             break
         }
     }

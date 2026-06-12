@@ -113,16 +113,19 @@ enum EventNormalizer {
              .floatingStateChanged,
              .focusForgotten,
              .focusRemembered,
+             .interactionMonitorChanged,
              .managedFocusCancelled,
              .managedFocusConfirmed,
              .managedFocusRequested,
              .manualLayoutOverrideChanged,
+             .nativeFullscreenPlaceholderSelected,
              .niriPlacementsResolved,
              .nonManagedFocusChanged,
              .nonManagedFocusTargetChanged,
              .suppressedFocusChanged,
              .systemSleep,
-             .systemWake:
+             .systemWake,
+             .workspaceFocusCleared:
             return event
         }
     }

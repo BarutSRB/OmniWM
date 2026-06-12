@@ -160,6 +160,20 @@ enum WMEvent: Equatable {
         token: WindowToken?,
         source: WMEventSource
     )
+    case workspaceFocusCleared(
+        workspaceId: WorkspaceDescriptor.ID,
+        source: WMEventSource
+    )
+    case nativeFullscreenPlaceholderSelected(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        source: WMEventSource
+    )
+    case interactionMonitorChanged(
+        monitorId: Monitor.ID?,
+        previousMonitorId: Monitor.ID?,
+        source: WMEventSource
+    )
     case systemSleep(source: WMEventSource)
     case systemWake(source: WMEventSource)
 
@@ -186,13 +200,16 @@ enum WMEvent: Equatable {
              .focusForgotten,
              .focusLeaseChanged,
              .focusRemembered,
+             .interactionMonitorChanged,
+             .nativeFullscreenPlaceholderSelected,
              .niriPlacementsResolved,
              .nonManagedFocusChanged,
              .nonManagedFocusTargetChanged,
              .suppressedFocusChanged,
              .systemSleep,
              .systemWake,
-             .topologyChanged:
+             .topologyChanged,
+             .workspaceFocusCleared:
             nil
         }
     }
@@ -222,6 +239,9 @@ enum WMEvent: Equatable {
              let .focusForgotten(_, source),
              let .nonManagedFocusTargetChanged(_, source),
              let .suppressedFocusChanged(_, source),
+             let .workspaceFocusCleared(_, source),
+             let .nativeFullscreenPlaceholderSelected(_, _, source),
+             let .interactionMonitorChanged(_, _, source),
              let .systemSleep(source),
              let .systemWake(source):
             source
@@ -276,6 +296,12 @@ enum WMEvent: Equatable {
             "non_managed_focus_target_changed target=\(target.map(String.init(describing:)) ?? "nil")"
         case let .suppressedFocusChanged(token, _):
             "suppressed_focus_changed token=\(token.map(String.init(describing:)) ?? "nil")"
+        case let .workspaceFocusCleared(workspaceId, _):
+            "workspace_focus_cleared workspace=\(workspaceId.uuidString)"
+        case let .nativeFullscreenPlaceholderSelected(token, workspaceId, _):
+            "native_fullscreen_placeholder_selected token=\(token) workspace=\(workspaceId.uuidString)"
+        case let .interactionMonitorChanged(monitorId, previousMonitorId, _):
+            "interaction_monitor_changed monitor=\(String(describing: monitorId)) previous=\(String(describing: previousMonitorId))"
         case .systemSleep:
             "system_sleep"
         case .systemWake:
