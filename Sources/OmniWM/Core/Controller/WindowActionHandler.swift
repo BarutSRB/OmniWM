@@ -428,7 +428,6 @@ final class WindowActionHandler {
                     gap: gap,
                     viewportWidth: workingFrame.width,
                     motion: .disabled,
-                    clock: engine.animationClock,
                     animate: false,
                     centerMode: settings.centerFocusedColumn,
                     alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,

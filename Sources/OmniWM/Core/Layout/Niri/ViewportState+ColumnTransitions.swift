@@ -8,7 +8,6 @@ extension ViewportState {
         gap: CGFloat,
         viewportWidth: CGFloat,
         motion: MotionSnapshot,
-        clock: AnimationClock?,
         animate: Bool,
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false,
@@ -54,7 +53,7 @@ extension ViewportState {
         }
 
         if animate {
-            animateToOffset(targetOffset, motion: motion, clock: clock)
+            animateToOffset(targetOffset, motion: motion)
         } else {
             jumpOffset(to: targetOffset)
         }
@@ -69,7 +68,6 @@ extension ViewportState {
         gap: CGFloat,
         viewportSpan: CGFloat,
         motion: MotionSnapshot,
-        clock: AnimationClock?,
         sizeKeyPath: KeyPath<NiriContainer, CGFloat>,
         animate: Bool = true,
         centerMode: CenterFocusedColumn = .never,
@@ -117,7 +115,6 @@ extension ViewportState {
             animateToOffset(
                 targetOffset,
                 motion: motion,
-                clock: clock,
                 config: animationConfig,
                 scale: scale
             )

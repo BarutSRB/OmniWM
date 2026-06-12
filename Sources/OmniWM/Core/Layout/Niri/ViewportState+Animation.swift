@@ -9,7 +9,6 @@ extension ViewportState {
     mutating func animateToOffset(
         _ offset: CGFloat,
         motion: MotionSnapshot,
-        clock: AnimationClock?,
         config: SpringConfig? = nil,
         scale: CGFloat = 2.0
     ) {
@@ -47,7 +46,7 @@ extension ViewportState {
         viewOffsetToRestore = viewOffset
     }
 
-    mutating func animateViewOffsetRestore(_ offset: CGFloat, motion: MotionSnapshot, clock: AnimationClock?) {
+    mutating func animateViewOffsetRestore(_ offset: CGFloat, motion: MotionSnapshot) {
         if motion.animationsEnabled {
             springOffset(to: offset)
         } else {

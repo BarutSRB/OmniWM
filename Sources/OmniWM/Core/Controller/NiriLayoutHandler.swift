@@ -701,7 +701,6 @@ enum NiriWindowMoveResult {
                         gap: pass.gap,
                         viewportWidth: pass.insetFrame.width,
                         motion: motion,
-                        clock: pass.engine.animationClock,
                         animate: false,
                         centerMode: settings.centerFocusedColumn,
                         alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
