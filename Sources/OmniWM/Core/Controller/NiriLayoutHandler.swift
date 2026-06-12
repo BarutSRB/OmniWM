@@ -905,7 +905,6 @@ enum NiriWindowMoveResult {
                 workspaceId: pass.wsId,
                 viewportState: state,
                 rememberedFocusToken: rememberedFocusToken,
-                baseSelectionRevision: snapshot.viewportState.selectionRevision,
                 plannedSeq: snapshot.plannedSeq
             ),
             diff: diff,

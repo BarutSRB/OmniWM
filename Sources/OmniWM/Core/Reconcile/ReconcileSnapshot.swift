@@ -289,6 +289,7 @@ struct ReconcileSnapshot: Equatable {
     let focusSession: FocusSessionSnapshot
     let windows: [ReconcileWindowSnapshot]
     var viewports: [WorkspaceDescriptor.ID: ViewportState] = [:]
+    var selectionSeqs: [WorkspaceDescriptor.ID: UInt64] = [:]
 
     var focusedToken: WindowToken? {
         focusSession.focusedToken

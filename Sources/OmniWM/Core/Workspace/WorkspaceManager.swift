@@ -223,7 +223,8 @@ final class WorkspaceManager {
             topologyProfile: currentTopologyProfile(),
             focusSession: world.focus,
             windows: windowSnapshots,
-            viewports: world.viewports
+            viewports: world.viewports,
+            selectionSeqs: world.selectionSeqs
         )
     }
 
@@ -1649,7 +1650,7 @@ final class WorkspaceManager {
                 .viewportCommitted(
                     workspaceId: patch.workspaceId,
                     state: viewportState,
-                    baseSelectionRevision: patch.baseSelectionRevision,
+                    plannedSeq: patch.plannedSeq,
                     source: .workspaceManager
                 )
             )

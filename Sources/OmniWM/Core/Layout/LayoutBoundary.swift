@@ -90,7 +90,6 @@ struct WorkspaceSessionPatch {
     let workspaceId: WorkspaceDescriptor.ID
     var viewportState: ViewportState?
     var rememberedFocusToken: WindowToken?
-    var baseSelectionRevision: UInt64? = nil
     var plannedSeq: UInt64
 }
 

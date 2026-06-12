@@ -255,7 +255,7 @@ enum WMEvent: Equatable {
     case viewportCommitted(
         workspaceId: WorkspaceDescriptor.ID,
         state: ViewportState,
-        baseSelectionRevision: UInt64?,
+        plannedSeq: UInt64,
         source: WMEventSource
     )
     case viewportForgotten(
@@ -421,8 +421,8 @@ enum WMEvent: Equatable {
             "layout_operation workspace=\(workspaceId.uuidString) op=\(operation.summary)"
         case let .viewportChanged(workspaceId, state, _):
             "viewport_changed workspace=\(workspaceId.uuidString) selected=\(state.selectedNodeId.map(String.init(describing:)) ?? "nil") column=\(state.activeColumnIndex) target=\(state.viewOffsetPixels.target())"
-        case let .viewportCommitted(workspaceId, state, baseSelectionRevision, _):
-            "viewport_committed workspace=\(workspaceId.uuidString) selected=\(state.selectedNodeId.map(String.init(describing:)) ?? "nil") column=\(state.activeColumnIndex) base_revision=\(baseSelectionRevision.map { String($0) } ?? "nil")"
+        case let .viewportCommitted(workspaceId, state, plannedSeq, _):
+            "viewport_committed workspace=\(workspaceId.uuidString) selected=\(state.selectedNodeId.map(String.init(describing:)) ?? "nil") column=\(state.activeColumnIndex) planned_seq=\(plannedSeq)"
         case let .viewportForgotten(workspaceIds, _):
             "viewport_forgotten workspaces=\(workspaceIds.count)"
         case let .selectionChanged(workspaceId, nodeId, _):

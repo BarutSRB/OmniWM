@@ -168,8 +168,6 @@ struct ViewportState: Equatable {
 
     var selectedNodeId: NodeId?
 
-    var selectionRevision: UInt64 = 0
-
     var viewOffsetToRestore: CGFloat?
 
     var activatePrevColumnOnRemoval: CGFloat?
@@ -180,25 +178,11 @@ struct ViewportState: Equatable {
 }
 
 extension ViewportState {
-    mutating func adoptSelectionRevision(from current: ViewportState?) {
-        if let current {
-            if selectedNodeId != current.selectedNodeId {
-                selectionRevision = max(selectionRevision, current.selectionRevision &+ 1)
-            } else {
-                selectionRevision = max(selectionRevision, current.selectionRevision)
-            }
-        } else if selectedNodeId != nil {
-            selectionRevision = max(selectionRevision, 1)
-        }
-    }
-
-    mutating func resolveCommitConflicts(against current: ViewportState, baseSelectionRevision: UInt64?) {
-        let hasStaleSelection = baseSelectionRevision.map { $0 < current.selectionRevision } ?? false
+    mutating func resolveCommitConflicts(against current: ViewportState, hasStaleSelection: Bool) {
         if hasStaleSelection {
             selectedNodeId = current.selectedNodeId
             activeColumnIndex = current.activeColumnIndex
             selectionProgress = current.selectionProgress
-            selectionRevision = current.selectionRevision
         }
         if viewOffsetPixels.isGesture, case .spring = current.viewOffsetPixels {
             viewOffsetPixels = current.viewOffsetPixels

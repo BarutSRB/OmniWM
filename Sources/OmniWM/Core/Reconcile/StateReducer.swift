@@ -301,18 +301,14 @@ enum StateReducer {
             setFocusSession(focusSession, current: currentSnapshot.focusSession, plan: &plan)
 
         case let .viewportChanged(workspaceId, state, _):
-            var viewport = state
-            viewport.adoptSelectionRevision(from: currentSnapshot.viewports[workspaceId])
-            setViewport(viewport, for: workspaceId, currentSnapshot: currentSnapshot, plan: &plan)
+            setViewport(state, for: workspaceId, currentSnapshot: currentSnapshot, plan: &plan)
 
-        case let .viewportCommitted(workspaceId, state, baseSelectionRevision, _):
-            let current = currentSnapshot.viewports[workspaceId]
+        case let .viewportCommitted(workspaceId, state, plannedSeq, _):
             var viewport = state
             viewport.resolveCommitConflicts(
-                against: current ?? ViewportState(),
-                baseSelectionRevision: baseSelectionRevision
+                against: currentSnapshot.viewports[workspaceId] ?? ViewportState(),
+                hasStaleSelection: currentSnapshot.selectionSeqs[workspaceId, default: 0] > plannedSeq
             )
-            viewport.adoptSelectionRevision(from: current)
             setViewport(viewport, for: workspaceId, currentSnapshot: currentSnapshot, plan: &plan)
 
         case let .viewportForgotten(workspaceIds, _):
@@ -324,7 +320,6 @@ enum StateReducer {
         case let .selectionChanged(workspaceId, nodeId, _):
             var viewport = currentSnapshot.viewports[workspaceId] ?? ViewportState()
             viewport.selectedNodeId = nodeId
-            viewport.adoptSelectionRevision(from: currentSnapshot.viewports[workspaceId])
             setViewport(viewport, for: workspaceId, currentSnapshot: currentSnapshot, plan: &plan)
 
         case .systemSleep:

@@ -57,6 +57,7 @@ final class WorldStore {
     private(set) var niriEngine: NiriLayoutEngine?
     private(set) var dwindleEngine: DwindleLayoutEngine?
     private(set) var epochMarks = InvalidationMarks()
+    private(set) var selectionSeqs: [WorkspaceDescriptor.ID: UInt64] = [:]
     private var broadcastMarks = InvalidationMarks()
     private var workspaceMarks: [WorkspaceDescriptor.ID: InvalidationMarks] = [:]
     private var commitDepth = 0
@@ -458,10 +459,14 @@ extension WorldStore {
         assertInCommit("applyViewportPlan")
         switch viewportPlan {
         case let .set(workspaceId, state):
+            if viewports[workspaceId]?.selectedNodeId != state.selectedNodeId {
+                selectionSeqs[workspaceId] = seq
+            }
             viewports[workspaceId] = state
         case let .remove(workspaceIds):
             for workspaceId in workspaceIds {
                 viewports.removeValue(forKey: workspaceId)
+                selectionSeqs.removeValue(forKey: workspaceId)
             }
         }
     }
