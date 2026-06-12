@@ -7,22 +7,27 @@ enum EventNormalizer {
         monitors _: [Monitor]
     ) -> WMEvent {
         switch event {
-        case let .windowAdmitted(token, workspaceId, monitorId, mode, source):
+        case let .windowAdmitted(token, workspaceId, monitorId, mode, axRef, ruleEffects, metadata, source):
             return .windowAdmitted(
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: monitorId ?? existingEntry?.observedState.monitorId ?? existingEntry?.desiredState.monitorId,
                 mode: mode,
+                axRef: axRef,
+                ruleEffects: ruleEffects,
+                managedReplacementMetadata: metadata,
                 source: source
             )
 
-        case let .windowRekeyed(from, to, workspaceId, monitorId, reason, source):
+        case let .windowRekeyed(from, to, workspaceId, monitorId, reason, newAXRef, metadata, source):
             return .windowRekeyed(
                 from: from,
                 to: to,
                 workspaceId: workspaceId,
                 monitorId: monitorId ?? existingEntry?.observedState.monitorId ?? existingEntry?.desiredState.monitorId,
                 reason: reason,
+                newAXRef: newAXRef,
+                managedReplacementMetadata: metadata,
                 source: source
             )
 

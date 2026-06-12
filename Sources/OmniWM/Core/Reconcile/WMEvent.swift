@@ -16,6 +16,9 @@ enum WMEvent: Equatable {
         workspaceId: WorkspaceDescriptor.ID,
         monitorId: Monitor.ID?,
         mode: TrackedWindowMode,
+        axRef: AXWindowRef,
+        ruleEffects: ManagedWindowRuleEffects,
+        managedReplacementMetadata: ManagedReplacementMetadata?,
         source: WMEventSource
     )
     case windowRekeyed(
@@ -24,6 +27,8 @@ enum WMEvent: Equatable {
         workspaceId: WorkspaceDescriptor.ID,
         monitorId: Monitor.ID?,
         reason: ReplacementCorrelation.Reason,
+        newAXRef: AXWindowRef,
+        managedReplacementMetadata: ManagedReplacementMetadata?,
         source: WMEventSource
     )
     case windowRemoved(
@@ -115,7 +120,7 @@ enum WMEvent: Equatable {
 
     var token: WindowToken? {
         switch self {
-        case let .windowAdmitted(token, _, _, _, _),
+        case let .windowAdmitted(token, _, _, _, _, _, _, _),
              let .windowRemoved(token, _, _),
              let .workspaceAssigned(token, _, _, _, _),
              let .windowModeChanged(token, _, _, _, _),
@@ -126,7 +131,7 @@ enum WMEvent: Equatable {
              let .managedFocusRequested(token, _, _, _, _),
              let .managedFocusConfirmed(token, _, _, _, _, _):
             token
-        case let .windowRekeyed(_, to, _, _, _, _):
+        case let .windowRekeyed(_, to, _, _, _, _, _, _):
             to
         case let .managedFocusCancelled(token, _, _, _):
             token
@@ -142,8 +147,8 @@ enum WMEvent: Equatable {
 
     var source: WMEventSource {
         switch self {
-        case let .windowAdmitted(_, _, _, _, source),
-             let .windowRekeyed(_, _, _, _, _, source),
+        case let .windowAdmitted(_, _, _, _, _, _, _, source),
+             let .windowRekeyed(_, _, _, _, _, _, _, source),
              let .windowRemoved(_, _, source),
              let .workspaceAssigned(_, _, _, _, source),
              let .windowModeChanged(_, _, _, _, source),
@@ -166,9 +171,9 @@ enum WMEvent: Equatable {
 
     var summary: String {
         switch self {
-        case let .windowAdmitted(token, workspaceId, _, mode, _):
+        case let .windowAdmitted(token, workspaceId, _, mode, _, _, _, _):
             "window_admitted token=\(token) workspace=\(workspaceId.uuidString) mode=\(mode)"
-        case let .windowRekeyed(from, to, workspaceId, _, reason, _):
+        case let .windowRekeyed(from, to, workspaceId, _, reason, _, _, _):
             "window_rekeyed from=\(from) to=\(to) workspace=\(workspaceId.uuidString) reason=\(reason.rawValue)"
         case let .windowRemoved(token, workspaceId, _):
             "window_removed token=\(token) workspace=\(workspaceId?.uuidString ?? "nil")"

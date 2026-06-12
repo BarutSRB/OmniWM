@@ -25,6 +25,7 @@ final class WorldStore {
         seq &+= 1
         let committedSeq = seq
 
+        applyWindowMutation(event, phase: .beforePlan)
         let existingEntry = event.token.flatMap { model.entry(for: $0) }
         let normalizedEvent = EventNormalizer.normalize(
             event: event,
@@ -38,6 +39,7 @@ final class WorldStore {
             monitors: monitors
         )
         let resolvedPlan = resolvePlan(plan, normalizedEvent.token)
+        applyWindowMutation(event, phase: .afterPlan)
 
         let committedSnapshot = snapshot()
         let invariantViolations = InvariantChecks.validate(snapshot: committedSnapshot)
@@ -64,6 +66,57 @@ final class WorldStore {
 
     func traceRecords() -> [ReconcileTraceRecord] {
         trace.snapshot()
+    }
+
+    private enum MutationPhase {
+        case beforePlan
+        case afterPlan
+    }
+
+    private func applyWindowMutation(_ event: WMEvent, phase: MutationPhase) {
+        switch event {
+        case let .windowAdmitted(token, workspaceId, _, mode, axRef, ruleEffects, metadata, _):
+            guard phase == .beforePlan else { return }
+            model.upsert(
+                window: axRef,
+                pid: token.pid,
+                windowId: token.windowId,
+                workspace: workspaceId,
+                mode: mode,
+                ruleEffects: ruleEffects,
+                managedReplacementMetadata: metadata
+            )
+
+        case let .windowRekeyed(from, to, _, _, _, newAXRef, metadata, _):
+            guard phase == .beforePlan else { return }
+            model.rekeyWindow(
+                from: from,
+                to: to,
+                newAXRef: newAXRef,
+                managedReplacementMetadata: metadata
+            )
+
+        case let .windowRemoved(token, _, _):
+            guard phase == .afterPlan else { return }
+            model.removeWindow(key: token)
+
+        case .activeSpaceChanged,
+             .floatingGeometryUpdated,
+             .focusLeaseChanged,
+             .hiddenStateChanged,
+             .managedFocusCancelled,
+             .managedFocusConfirmed,
+             .managedFocusRequested,
+             .managedReplacementMetadataChanged,
+             .nativeFullscreenTransition,
+             .nonManagedFocusChanged,
+             .systemSleep,
+             .systemWake,
+             .topologyChanged,
+             .windowModeChanged,
+             .workspaceAssigned:
+            break
+        }
     }
 
     private func assertInCommit(_ operation: StaticString) {
@@ -200,47 +253,6 @@ extension WorldStore {
 
     func setRestoreIntent(_ intent: RestoreIntent?, for token: WindowToken) {
         model.setRestoreIntent(intent, for: token)
-    }
-
-    @discardableResult
-    func upsert(
-        window: AXWindowRef,
-        pid: pid_t,
-        windowId: Int,
-        workspace: WorkspaceDescriptor.ID,
-        mode: TrackedWindowMode = .tiling,
-        ruleEffects: ManagedWindowRuleEffects = .none,
-        managedReplacementMetadata: ManagedReplacementMetadata? = nil
-    ) -> WindowToken {
-        model.upsert(
-            window: window,
-            pid: pid,
-            windowId: windowId,
-            workspace: workspace,
-            mode: mode,
-            ruleEffects: ruleEffects,
-            managedReplacementMetadata: managedReplacementMetadata
-        )
-    }
-
-    @discardableResult
-    func rekeyWindow(
-        from oldToken: WindowToken,
-        to newToken: WindowToken,
-        newAXRef: AXWindowRef,
-        managedReplacementMetadata: ManagedReplacementMetadata? = nil
-    ) -> WindowModel.Entry? {
-        model.rekeyWindow(
-            from: oldToken,
-            to: newToken,
-            newAXRef: newAXRef,
-            managedReplacementMetadata: managedReplacementMetadata
-        )
-    }
-
-    @discardableResult
-    func removeWindow(key: WindowToken) -> WindowModel.Entry? {
-        model.removeWindow(key: key)
     }
 
     func updateWorkspace(for token: WindowToken, workspace: WorkspaceDescriptor.ID) {

@@ -2547,15 +2547,7 @@ final class WorkspaceManager {
         ruleEffects: ManagedWindowRuleEffects = .none,
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowToken {
-        let token = world.upsert(
-            window: ax,
-            pid: pid,
-            windowId: windowId,
-            workspace: workspace,
-            mode: mode,
-            ruleEffects: ruleEffects,
-            managedReplacementMetadata: managedReplacementMetadata
-        )
+        let token = WindowToken(pid: pid, windowId: windowId)
         if let originalToken = nativeFullscreenOriginalToken(for: token),
            var record = nativeFullscreenRecordsByOriginalToken[originalToken],
            record.currentToken == token,
@@ -2570,6 +2562,9 @@ final class WorkspaceManager {
                 workspaceId: workspace,
                 monitorId: monitorId(for: workspace),
                 mode: mode,
+                axRef: ax,
+                ruleEffects: ruleEffects,
+                managedReplacementMetadata: managedReplacementMetadata,
                 source: .workspaceManager
             )
         )
@@ -2583,12 +2578,9 @@ final class WorkspaceManager {
         newAXRef: AXWindowRef,
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowModel.Entry? {
-        guard let entry = world.rekeyWindow(
-            from: oldToken,
-            to: newToken,
-            newAXRef: newAXRef,
-            managedReplacementMetadata: managedReplacementMetadata
-        ) else {
+        guard let existingEntry = world.entry(for: oldToken),
+              oldToken == newToken || world.entry(for: newToken) == nil
+        else {
             return nil
         }
 
@@ -2596,7 +2588,7 @@ final class WorkspaceManager {
            var record = nativeFullscreenRecordsByOriginalToken[originalToken]
         {
             record.currentToken = newToken
-            record.workspaceId = entry.workspaceId
+            record.workspaceId = existingEntry.workspaceId
             upsertNativeFullscreenRecord(record)
         }
 
@@ -2604,9 +2596,11 @@ final class WorkspaceManager {
             .windowRekeyed(
                 from: oldToken,
                 to: newToken,
-                workspaceId: entry.workspaceId,
-                monitorId: monitorId(for: entry.workspaceId),
+                workspaceId: existingEntry.workspaceId,
+                monitorId: monitorId(for: existingEntry.workspaceId),
                 reason: managedReplacementMetadata == nil ? .manualRekey : .managedReplacement,
+                newAXRef: newAXRef,
+                managedReplacementMetadata: managedReplacementMetadata,
                 source: .workspaceManager
             )
         )
@@ -2633,7 +2627,7 @@ final class WorkspaceManager {
             notifySessionStateChanged()
         }
 
-        return entry
+        return world.entry(for: newToken)
     }
 
     func entries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
@@ -3003,7 +2997,6 @@ final class WorkspaceManager {
         )
         _ = removeNativeFullscreenRecord(containing: entry.token)
         handleWindowRemoved(entry.token, in: entry.workspaceId)
-        _ = world.removeWindow(key: entry.token)
         return entry
     }
 
@@ -4199,7 +4192,7 @@ final class WorkspaceManager {
 
     private func bumpRuntimeRevision(for event: WMEvent) {
         switch event {
-        case let .windowAdmitted(_, workspaceId, _, _, _),
+        case let .windowAdmitted(_, workspaceId, _, _, _, _, _, _),
              let .windowModeChanged(_, workspaceId, _, _, _),
              let .hiddenStateChanged(_, workspaceId, _, _, _),
              let .managedReplacementMetadataChanged(_, workspaceId, _, _):
@@ -4208,7 +4201,7 @@ final class WorkspaceManager {
         case let .floatingGeometryUpdated(_, workspaceId, _, _, _, _):
             bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout])
 
-        case let .windowRekeyed(_, _, workspaceId, _, _, _):
+        case let .windowRekeyed(_, _, workspaceId, _, _, _, _, _):
             bumpRuntimeRevision(for: workspaceId, domains: [.workspace, .layout, .focus])
 
         case let .workspaceAssigned(_, fromWorkspaceId, toWorkspaceId, _, _):
