@@ -666,7 +666,7 @@ import QuartzCore
                 if let minH = entry.ruleEffects.minHeight {
                     mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, minH)
                 }
-                if let observedMin = entry.observedMinSize {
+                if let observedMin = controller.workspaceManager.observedMinSize(for: entry.token) {
                     mergedConstraints.minSize.width = max(mergedConstraints.minSize.width, observedMin.width)
                     mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, observedMin.height)
                 }
@@ -1564,21 +1564,21 @@ import QuartzCore
             // Native macOS fullscreen moves the app onto its own Space, so visible-window
             // enumeration temporarily excludes the rest of the managed workspace.
             for entry in trackedEntries {
-                seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
+                seenKeys.insert(.init(pid: entry.pid, windowId: entry.windowId))
             }
         } else {
             for entry in trackedEntries
-                where controller.hiddenAppPIDs.contains(entry.handle.pid)
+                where controller.hiddenAppPIDs.contains(entry.pid)
                 || controller.workspaceManager.layoutReason(for: entry.token) == .macosHiddenApp
                 || controller.workspaceManager.layoutReason(for: entry.token) == .nativeFullscreen
             {
-                seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
+                seenKeys.insert(.init(pid: entry.pid, windowId: entry.windowId))
             }
 
             for entry in trackedEntries
-                where enumerationSnapshot.failedPIDs.contains(entry.handle.pid)
+                where enumerationSnapshot.failedPIDs.contains(entry.pid)
             {
-                seenKeys.insert(.init(pid: entry.handle.pid, windowId: entry.windowId))
+                seenKeys.insert(.init(pid: entry.pid, windowId: entry.windowId))
             }
 
             preserveScratchpadHiddenWindowsDuringFullRescan(
@@ -2313,7 +2313,7 @@ import QuartzCore
         let hiddenPlacementMonitors = controller.workspaceManager.monitors.map(HiddenPlacementMonitorContext.init)
         for snapshot in workspaceEntries where !activeWorkspaceIds.contains(snapshot.workspace.id) {
             for entry in snapshot.entries {
-                inactiveWindowJobs.append((entry.handle.pid, entry.windowId))
+                inactiveWindowJobs.append((entry.pid, entry.windowId))
             }
         }
         if !inactiveWindowJobs.isEmpty {
@@ -2422,7 +2422,7 @@ import QuartzCore
             for: frame,
             monitor: monitor,
             side: side,
-            pid: entry.handle.pid,
+            pid: entry.pid,
             reason: reason,
             hiddenPlacementMonitors: hiddenPlacementMonitors
         ) else {
@@ -2513,7 +2513,7 @@ import QuartzCore
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
     ) {
         guard let controller else { return }
-        let frameEntry = (pid: entry.handle.pid, windowId: entry.windowId)
+        let frameEntry = (pid: entry.pid, windowId: entry.windowId)
         switch resolveHideOperation(
             for: entry,
             monitor: monitor,
@@ -2591,7 +2591,7 @@ import QuartzCore
     ) -> Bool {
         guard let controller else { return false }
         guard let hiddenState = controller.workspaceManager.hiddenState(for: entry.token) else {
-            controller.axManager.unsuppressFrameWrites([(entry.handle.pid, entry.windowId)])
+            controller.axManager.unsuppressFrameWrites([(entry.pid, entry.windowId)])
             return true
         }
         guard hiddenState.workspaceInactive else { return false }
@@ -3137,7 +3137,7 @@ import QuartzCore
     ) -> Bool {
         guard let controller else { return false }
         let entry = controller.workspaceManager.entry(for: entry.token) ?? entry
-        let frameEntry = [(entry.handle.pid, entry.windowId)]
+        let frameEntry = [(entry.pid, entry.windowId)]
         switch restoreWindowFromHiddenState(entry, monitor: monitor, hiddenState: hiddenState) {
         case .none:
             if hiddenState.workspaceInactive {
@@ -3470,11 +3470,11 @@ final class LayoutDiffExecutor {
                 ) {
                 case let .movable(plan, hiddenState):
                     controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
-                    hiddenJobs.append((entry.handle.pid, entry.windowId))
+                    hiddenJobs.append((entry.pid, entry.windowId))
                     hidePlans.append(plan)
                 case let .alreadyHidden(hiddenState):
                     controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
-                    hiddenJobs.append((entry.handle.pid, entry.windowId))
+                    hiddenJobs.append((entry.pid, entry.windowId))
                 case .unavailable:
                     continue
                 }
@@ -3530,14 +3530,14 @@ final class LayoutDiffExecutor {
                 where !blockedRevealTokens.contains(entry.token)
                 && seenTokens.insert(entry.token).inserted
             {
-                visibleJobs.append((entry.handle.pid, entry.windowId))
+                visibleJobs.append((entry.pid, entry.windowId))
             }
 
             for (entry, _) in shownEntries
                 where !blockedRevealTokens.contains(entry.token)
                 && seenTokens.insert(entry.token).inserted
             {
-                visibleJobs.append((entry.handle.pid, entry.windowId))
+                visibleJobs.append((entry.pid, entry.windowId))
             }
 
             if !visibleJobs.isEmpty {

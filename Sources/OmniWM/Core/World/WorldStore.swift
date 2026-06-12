@@ -303,6 +303,10 @@ extension WorldStore {
     func cachedConstraints(for token: WindowToken, maxAge: TimeInterval = 5.0) -> WindowSizeConstraints? {
         model.cachedConstraints(for: token, maxAge: maxAge)
     }
+
+    func observedMinSize(for token: WindowToken) -> CGSize? {
+        model.observedMinSize(for: token)
+    }
 }
 
 extension WorldStore {

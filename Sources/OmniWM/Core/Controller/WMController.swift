@@ -456,15 +456,15 @@ final class WMController {
         surfaceReconciler.noteWorldChanged()
     }
 
-    func isManagedWindowDisplayable(_ handle: WindowHandle) -> Bool {
-        guard workspaceManager.entry(for: handle) != nil else { return false }
-        if hiddenAppPIDs.contains(handle.pid) {
+    func isManagedWindowDisplayable(_ token: WindowToken) -> Bool {
+        guard workspaceManager.entry(for: token) != nil else { return false }
+        if hiddenAppPIDs.contains(token.pid) {
             return false
         }
-        if workspaceManager.layoutReason(for: handle.id) != .standard {
+        if workspaceManager.layoutReason(for: token) != .standard {
             return false
         }
-        return !workspaceManager.isHiddenInCorner(handle.id)
+        return !workspaceManager.isHiddenInCorner(token)
     }
 
     func isManagedWindowSuspendedForNativeFullscreen(_ token: WindowToken) -> Bool {
@@ -1574,7 +1574,7 @@ final class WMController {
                   candidate != excludedToken,
                   let entry = workspaceManager.entry(for: candidate),
                   entry.workspaceId == workspaceId,
-                  isManagedWindowDisplayable(entry.handle)
+                  isManagedWindowDisplayable(entry.token)
             else {
                 continue
             }
@@ -1582,13 +1582,13 @@ final class WMController {
         }
 
         if let tiledEntry = workspaceManager.tiledEntries(in: workspaceId).first(where: {
-            $0.token != excludedToken && isManagedWindowDisplayable($0.handle)
+            $0.token != excludedToken && isManagedWindowDisplayable($0.token)
         }) {
             return tiledEntry.token
         }
 
         return workspaceManager.floatingEntries(in: workspaceId).first(where: {
-            $0.token != excludedToken && isManagedWindowDisplayable($0.handle)
+            $0.token != excludedToken && isManagedWindowDisplayable($0.token)
         })?.token
     }
 
@@ -2436,7 +2436,7 @@ final class WMController {
         }
 
         if entry.workspaceId == target.workspaceId,
-           isManagedWindowDisplayable(entry.handle)
+           isManagedWindowDisplayable(entry.token)
         {
             hideScratchpadWindow(entry, monitor: target.monitor)
             return .executed

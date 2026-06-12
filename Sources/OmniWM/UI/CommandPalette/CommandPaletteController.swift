@@ -572,15 +572,16 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         items.reserveCapacity(entries.count)
 
         for entry in entries {
-            guard entry.layoutReason == .standard else { continue }
+            guard entry.layoutReason == .standard,
+                  let handle = wmController.workspaceManager.handle(for: entry.token) else { continue }
 
             let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)) ?? ""
-            let appInfo = wmController.appInfoCache.info(for: entry.handle.pid)
+            let appInfo = wmController.appInfoCache.info(for: entry.pid)
             let workspaceName = wmController.workspaceManager.descriptor(for: entry.workspaceId)?.name ?? "?"
 
             items.append(CommandPaletteWindowItem(
-                id: entry.handle.id,
-                handle: entry.handle,
+                id: entry.token,
+                handle: handle,
                 title: title,
                 appName: appInfo?.name ?? "Unknown",
                 appIcon: appInfo?.icon,

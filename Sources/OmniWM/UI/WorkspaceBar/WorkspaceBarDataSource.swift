@@ -185,7 +185,7 @@ enum WorkspaceBarDataSource {
             var orderedAppNames: [String] = []
 
             for entry in entries {
-                let appName = appInfoCache.name(for: entry.handle.pid) ?? "Unknown"
+                let appName = appInfoCache.name(for: entry.pid) ?? "Unknown"
 
                 if groupedByApp[appName] == nil {
                     groupedByApp[appName] = []
@@ -197,20 +197,20 @@ enum WorkspaceBarDataSource {
 
             return orderedAppNames.compactMap { appName -> WorkspaceBarWindowItem? in
                 guard let appEntries = groupedByApp[appName], let firstEntry = appEntries.first else { return nil }
-                let appInfo = appInfoCache.info(for: firstEntry.handle.pid)
-                let anyFocused = appEntries.contains { $0.handle.id == focusedToken }
+                let appInfo = appInfoCache.info(for: firstEntry.pid)
+                let anyFocused = appEntries.contains { $0.token == focusedToken }
 
                 let windowInfos = appEntries.map { entry -> WorkspaceBarWindowInfo in
                     WorkspaceBarWindowInfo(
-                        id: entry.handle.id,
+                        id: entry.token,
                         windowId: entry.windowId,
                         title: windowTitle(for: entry) ?? appName,
-                        isFocused: entry.handle.id == focusedToken
+                        isFocused: entry.token == focusedToken
                     )
                 }
 
                 return WorkspaceBarWindowItem(
-                    id: firstEntry.handle.id,
+                    id: firstEntry.token,
                     windowId: firstEntry.windowId,
                     appName: appName,
                     icon: appInfo?.icon,
@@ -222,25 +222,25 @@ enum WorkspaceBarDataSource {
         }
 
         let groupedByApp = Dictionary(grouping: entries) { entry -> String in
-            appInfoCache.name(for: entry.handle.pid) ?? "Unknown"
+            appInfoCache.name(for: entry.pid) ?? "Unknown"
         }
 
         return groupedByApp.map { appName, appEntries -> WorkspaceBarWindowItem in
             let firstEntry = appEntries.first!
-            let appInfo = appInfoCache.info(for: firstEntry.handle.pid)
-            let anyFocused = appEntries.contains { $0.handle.id == focusedToken }
+            let appInfo = appInfoCache.info(for: firstEntry.pid)
+            let anyFocused = appEntries.contains { $0.token == focusedToken }
 
             let windowInfos = appEntries.map { entry -> WorkspaceBarWindowInfo in
                 WorkspaceBarWindowInfo(
-                    id: entry.handle.id,
+                    id: entry.token,
                     windowId: entry.windowId,
                     title: windowTitle(for: entry) ?? appName,
-                    isFocused: entry.handle.id == focusedToken
+                    isFocused: entry.token == focusedToken
                 )
             }
 
             return WorkspaceBarWindowItem(
-                id: firstEntry.handle.id,
+                id: firstEntry.token,
                 windowId: firstEntry.windowId,
                 appName: appName,
                 icon: appInfo?.icon,
@@ -257,23 +257,23 @@ enum WorkspaceBarDataSource {
         focusedToken: WindowToken?
     ) -> [WorkspaceBarWindowItem] {
         entries.map { entry in
-            let appInfo = appInfoCache.info(for: entry.handle.pid)
+            let appInfo = appInfoCache.info(for: entry.pid)
             let appName = appInfo?.name ?? "Unknown"
             let title = windowTitle(for: entry) ?? appName
 
             return WorkspaceBarWindowItem(
-                id: entry.handle.id,
+                id: entry.token,
                 windowId: entry.windowId,
                 appName: appName,
                 icon: appInfo?.icon,
-                isFocused: entry.handle.id == focusedToken,
+                isFocused: entry.token == focusedToken,
                 windowCount: 1,
                 allWindows: [
                     WorkspaceBarWindowInfo(
-                        id: entry.handle.id,
+                        id: entry.token,
                         windowId: entry.windowId,
                         title: title,
-                        isFocused: entry.handle.id == focusedToken
+                        isFocused: entry.token == focusedToken
                     )
                 ]
             )

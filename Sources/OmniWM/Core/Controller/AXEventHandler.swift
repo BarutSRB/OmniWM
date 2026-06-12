@@ -482,7 +482,7 @@ final class AXEventHandler {
         guard let entry = controller.workspaceManager.entry(for: token) else {
             return false
         }
-        return controller.isManagedWindowDisplayable(entry.handle)
+        return controller.isManagedWindowDisplayable(entry.token)
     }
 
     private func handleCGSWindowCreated(windowId: UInt32, spaceId: UInt64) {
@@ -2363,7 +2363,7 @@ final class AXEventHandler {
 
         var preferredMouseFrame: CGRect?
         if let engine = controller.niriEngine,
-           let node = engine.findNode(for: entry.handle),
+           let node = engine.findNode(for: entry.token),
            let _ = controller.workspaceManager.monitor(for: wsId)
         {
             let preferredFrame = node.renderedFrame ?? node.frame

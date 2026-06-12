@@ -54,8 +54,8 @@ struct WorldView {
         return controller.workspaceManager.layoutTopology(for: workspaceId).isFullscreen(token)
     }
 
-    func isManagedWindowDisplayable(_ handle: WindowHandle) -> Bool {
-        controller.isManagedWindowDisplayable(handle)
+    func isManagedWindowDisplayable(_ token: WindowToken) -> Bool {
+        controller.isManagedWindowDisplayable(token)
     }
 
     func isWorkspaceVisible(_ workspaceId: WorkspaceDescriptor.ID) -> Bool {

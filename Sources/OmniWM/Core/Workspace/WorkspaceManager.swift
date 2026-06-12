@@ -1915,15 +1915,11 @@ final class WorkspaceManager {
             return false
         }
 
-        guard entry.hiddenProportionalPosition != nil else {
+        guard let hiddenState = entry.hiddenState else {
             return true
         }
 
-        if case .workspaceInactive = entry.hiddenReason {
-            return true
-        }
-
-        return false
+        return hiddenState.workspaceInactive
     }
 
     @discardableResult
@@ -2937,6 +2933,10 @@ final class WorkspaceManager {
         guard world.entry(for: token) != nil else { return }
         let normalized = constraints.normalized()
         world.setCachedConstraints(normalized, for: token)
+    }
+
+    func observedMinSize(for token: WindowToken) -> CGSize? {
+        world.observedMinSize(for: token)
     }
 
     @discardableResult

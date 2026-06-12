@@ -620,7 +620,7 @@ final class WindowActionHandler {
         for entry in controller.workspaceManager.allEntries() {
             guard entry.layoutReason == .standard else { continue }
 
-            let cachedInfo = controller.appInfoCache.info(for: entry.handle.pid)
+            let cachedInfo = controller.appInfoCache.info(for: entry.pid)
             guard let bundleId = cachedInfo?.bundleId else { continue }
 
             if appInfoMap[bundleId] != nil { continue }

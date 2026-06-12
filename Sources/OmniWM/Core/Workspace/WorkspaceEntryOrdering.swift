@@ -22,18 +22,18 @@ enum WorkspaceEntryOrdering {
         }
 
         let fallbackOrder = Dictionary(uniqueKeysWithValues: entries.enumerated()
-            .map { ($0.element.handle.id, $0.offset) })
+            .map { ($0.element.token, $0.offset) })
 
         return entries.sorted { lhs, rhs in
-            let lhsKey = orderMap[lhs.handle.id] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
-            let rhsKey = orderMap[rhs.handle.id] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
+            let lhsKey = orderMap[lhs.token] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
+            let rhsKey = orderMap[rhs.token] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
 
             if lhsKey.group != rhsKey.group { return lhsKey.group < rhsKey.group }
             if lhsKey.primary != rhsKey.primary { return lhsKey.primary < rhsKey.primary }
             if lhsKey.secondary != rhsKey.secondary { return lhsKey.secondary < rhsKey.secondary }
 
-            let lhsFallback = fallbackOrder[lhs.handle.id] ?? 0
-            let rhsFallback = fallbackOrder[rhs.handle.id] ?? 0
+            let lhsFallback = fallbackOrder[lhs.token] ?? 0
+            let rhsFallback = fallbackOrder[rhs.token] ?? 0
             return lhsFallback < rhsFallback
         }
     }

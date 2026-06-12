@@ -232,13 +232,14 @@ final class OverviewController {
                 ))
 
                 for entry in workspaceManager.entries(in: ws.id) {
-                    guard entry.layoutReason == .standard else { continue }
+                    guard entry.layoutReason == .standard,
+                          let handle = workspaceManager.handle(for: entry.token) else { continue }
 
                     let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)) ?? ""
-                    let appInfo = appInfoCache.info(for: entry.handle.pid)
+                    let appInfo = appInfoCache.info(for: entry.pid)
                     let frame = AXWindowService.framePreferFast(entry.axRef) ?? .zero
 
-                    windowData[entry.handle] = (
+                    windowData[handle] = (
                         entry: entry,
                         title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
                         appName: appInfo?.name ?? "Unknown",
