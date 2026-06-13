@@ -2287,7 +2287,6 @@ final class AXEventHandler {
             activeRequest = nil
         }
         let shouldConfirmRequest = confirmRequest ?? true
-        var confirmedRequestId: UInt64?
 
         if shouldConfirmRequest {
             if let request = activeRequest,
@@ -2325,7 +2324,6 @@ final class AXEventHandler {
             )
 
             if let activeRequest {
-                confirmedRequestId = activeRequest.requestId
                 if activeRequest.token == entry.token {
                     _ = controller.intentLedger.confirmManagedRequest(
                         token: entry.token,
