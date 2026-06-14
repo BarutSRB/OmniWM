@@ -6,6 +6,13 @@ enum SkyLightWindowOrder: Int32 {
     case below = -1
 }
 
+struct ManagedDisplaySpaces: Sendable {
+    let displayIdentifier: String
+    let spaceIds: [UInt64]
+    let currentSpaceId: UInt64
+    let fullscreenSpaceIds: Set<UInt64>
+}
+
 private typealias CFReleaseFunc = @convention(c) (CFTypeRef) -> Void
 private let cfRelease: CFReleaseFunc = {
     let lib = dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_LAZY)!
@@ -57,6 +64,8 @@ final class SkyLight {
         -> CGError
     private typealias TransactionSetWindowLevelFunc = @convention(c) (CFTypeRef, UInt32, Int32) -> CGError
     private typealias CopyManagedDisplaySpacesFunc = @convention(c) (Int32) -> CFArray?
+    private typealias GetActiveSpaceFunc = @convention(c) (Int32) -> UInt64
+    private typealias CopySpacesForWindowsFunc = @convention(c) (Int32, Int32, CFArray) -> CFArray?
     private typealias DisplayCreateUUIDFromDisplayIDFunc = @convention(c) (CGDirectDisplayID) -> Unmanaged<CFUUID>?
 
     typealias ConnectionNotifyCallback = @convention(c) (
@@ -138,6 +147,11 @@ final class SkyLight {
     private let newRegionWithRect: NewRegionWithRectFunc?
     private let transactionSetWindowLevel: TransactionSetWindowLevelFunc?
     private let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFunc?
+    private let getActiveSpace: GetActiveSpaceFunc?
+    private let copySpacesForWindows: CopySpacesForWindowsFunc?
+
+    private static let allSpacesMask: Int32 = 0x7
+    private static let fullscreenSpaceType = 4
 
     private static let displayCreateUUIDFromDisplayID: DisplayCreateUUIDFromDisplayIDFunc? = {
         let handle = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_LAZY)
@@ -277,6 +291,10 @@ final class SkyLight {
             as: CopyManagedDisplaySpacesFunc.self
         )
             ?? resolveOptional("CGSCopyManagedDisplaySpaces", as: CopyManagedDisplaySpacesFunc.self)
+        getActiveSpace = resolveOptional("SLSGetActiveSpace", as: GetActiveSpaceFunc.self)
+            ?? resolveOptional("CGSGetActiveSpace", as: GetActiveSpaceFunc.self)
+        copySpacesForWindows = resolveOptional("SLSCopySpacesForWindows", as: CopySpacesForWindowsFunc.self)
+            ?? resolveOptional("CGSCopySpacesForWindows", as: CopySpacesForWindowsFunc.self)
     }
 
     func getMainConnectionID() -> Int32 {
@@ -386,6 +404,63 @@ final class SkyLight {
         return nil
     }
 
+    func activeSpace() -> UInt64? {
+        guard let getActiveSpace else { return nil }
+        let cid = getMainConnectionID()
+        guard cid != 0 else { return nil }
+        let space = getActiveSpace(cid)
+        return space != 0 ? space : nil
+    }
+
+    func spaceForWindow(_ windowId: UInt32) -> UInt64? {
+        guard let copySpacesForWindows else { return nil }
+        let cid = getMainConnectionID()
+        guard cid != 0 else { return nil }
+        var widValue = Int32(bitPattern: windowId)
+        guard let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue) else { return nil }
+        defer { cfRelease(widNumber) }
+        let windowArray = [widNumber] as CFArray
+        guard let result = copySpacesForWindows(cid, Self.allSpacesMask, windowArray) else { return nil }
+        defer { cfRelease(result) }
+        guard let spaceValues = result as? [Any] else { return nil }
+        for value in spaceValues {
+            if let spaceId = Self.numericUInt64(value), spaceId != 0 {
+                return spaceId
+            }
+        }
+        return nil
+    }
+
+    func managedSpaces() -> [ManagedDisplaySpaces] {
+        guard let copyManagedDisplaySpaces else { return [] }
+        let cid = getMainConnectionID()
+        guard cid != 0, let spacesRef = copyManagedDisplaySpaces(cid) else { return [] }
+        defer { cfRelease(spacesRef) }
+        guard let displaySpaces = spacesRef as? [[String: Any]] else { return [] }
+
+        return displaySpaces.compactMap { display in
+            guard let identifier = display["Display Identifier"] as? String else { return nil }
+            var spaceIds: [UInt64] = []
+            var fullscreenSpaceIds: Set<UInt64> = []
+            if let spaces = display["Spaces"] as? [[String: Any]] {
+                for space in spaces {
+                    guard let spaceId = Self.spaceId(space) else { continue }
+                    spaceIds.append(spaceId)
+                    if Self.spaceType(space) == Self.fullscreenSpaceType {
+                        fullscreenSpaceIds.insert(spaceId)
+                    }
+                }
+            }
+            let currentSpaceId = (display["Current Space"] as? [String: Any]).flatMap(Self.spaceId) ?? 0
+            return ManagedDisplaySpaces(
+                displayIdentifier: identifier,
+                spaceIds: spaceIds,
+                currentSpaceId: currentSpaceId,
+                fullscreenSpaceIds: fullscreenSpaceIds
+            )
+        }
+    }
+
     private static func managedDisplayIdentifier(for displayId: CGDirectDisplayID) -> String? {
         guard let uuid = displayCreateUUIDFromDisplayID?(displayId)?.takeRetainedValue(),
               let string = CFUUIDCreateString(nil, uuid)
@@ -407,6 +482,21 @@ final class SkyLight {
         numericUInt64(space["id64"]) == spaceId ||
             numericUInt64(space["ManagedSpaceID"]) == spaceId ||
             numericUInt64(space["id"]) == spaceId
+    }
+
+    private static func spaceId(_ space: [String: Any]) -> UInt64? {
+        numericUInt64(space["id64"]) ?? numericUInt64(space["ManagedSpaceID"]) ?? numericUInt64(space["id"])
+    }
+
+    private static func spaceType(_ space: [String: Any]) -> Int? {
+        switch space["type"] {
+        case let value as Int:
+            value
+        case let value as NSNumber:
+            value.intValue
+        default:
+            nil
+        }
     }
 
     private static func numericUInt64(_ value: Any?) -> UInt64? {
