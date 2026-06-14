@@ -171,6 +171,7 @@ import QuartzCore
     }
 
     var layoutState = LayoutState()
+    private var layoutBuildMetrics = LayoutBuildMetrics()
     private var activeFrameContext: RefreshFrameContext?
     private var nextPendingRevealTransactionId: UInt64 = 1
     private var pendingRevealTransactionsByWindowId: [Int: PendingRevealTransaction] = [:]
@@ -957,6 +958,7 @@ import QuartzCore
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>,
         postLayoutActions: [RefreshPostLayoutAction]
     ) -> ScheduledRefresh {
+        layoutBuildMetrics.recordStaleReenqueue()
         var refresh = ScheduledRefresh(
             kind: .relayout,
             reason: .staleLayoutPlan,
@@ -1019,10 +1021,18 @@ import QuartzCore
         }
 
         do {
+            let buildStart = CACurrentMediaTime()
             var plan = try await buildRelayoutEffectPlan(
                 useScrollAnimationPath: useScrollAnimationPath,
                 recoverFocus: recoverFocus,
                 affectedWorkspaceIds: refresh.affectedWorkspaceIds
+            )
+            layoutBuildMetrics.recordBuild(
+                seconds: CACurrentMediaTime() - buildStart,
+                workspaceCount: plan.workspacePlans.count,
+                windowCount: plan.workspacePlans.reduce(0) {
+                    $0 + controller.workspaceManager.entries(in: $1.workspaceId).count
+                }
             )
             applyRefreshMetadata(refresh, to: &plan)
             try Task.checkCancellation()
@@ -1151,6 +1161,10 @@ import QuartzCore
             visualIndex: visualIndex,
             expectedToken: expectedToken
         )
+    }
+
+    func layoutBuildMetricsDump() -> String {
+        layoutBuildMetrics.dump()
     }
 
     private func applyRefreshMetadata(_ refresh: ScheduledRefresh, to plan: inout EffectPlan) {
@@ -2007,6 +2021,7 @@ import QuartzCore
         layoutState.didExecuteEffectPlan = false
 
         if didComplete {
+            layoutBuildMetrics.recordCompletedCycle()
             if !didExecuteEffectPlan, let controller {
                 let shouldRequestWorkspaceBarRefresh =
                     completedRefresh.kind != .visibilityRefresh && completedRefresh.needsVisibilityReconciliation

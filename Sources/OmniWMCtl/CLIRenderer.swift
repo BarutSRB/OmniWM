@@ -478,11 +478,16 @@ enum CLIRenderer {
     private static func formattedReconcileDebug(_ payload: IPCReconcileDebugQueryResult) -> String {
         let snapshot = payload.snapshot.isEmpty ? "snapshot empty" : payload.snapshot
         let trace = payload.trace.isEmpty ? "trace empty" : payload.trace
+        let metrics = payload.metrics.isEmpty ? "metrics empty" : payload.metrics
 
         return """
         SNAPSHOT
         --------
         \(snapshot)
+
+        LAYOUT BUILD METRICS
+        --------------------
+        \(metrics)
 
         TRACE (last \(payload.traceLimit))
         ---------------

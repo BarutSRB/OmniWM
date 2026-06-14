@@ -2540,11 +2540,13 @@ public struct IPCFocusedWindowDecisionQueryResult: Codable, Equatable, Sendable 
 public struct IPCReconcileDebugQueryResult: Codable, Equatable, Sendable {
     public let snapshot: String
     public let trace: String
+    public let metrics: String
     public let traceLimit: Int
 
-    public init(snapshot: String, trace: String, traceLimit: Int) {
+    public init(snapshot: String, trace: String, metrics: String = "", traceLimit: Int) {
         self.snapshot = snapshot
         self.trace = trace
+        self.metrics = metrics
         self.traceLimit = traceLimit
     }
 }
