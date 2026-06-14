@@ -524,6 +524,10 @@ extension WorldStore {
         keys activeKeys: Set<WindowToken>,
         requiredConsecutiveMisses: Int = 1
     ) -> [WindowToken] {
-        model.confirmedMissingKeys(keys: activeKeys, requiredConsecutiveMisses: requiredConsecutiveMisses)
+        model.confirmedMissingKeys(
+            keys: activeKeys,
+            requiredConsecutiveMisses: requiredConsecutiveMisses,
+            spaceTopology: spaceTopology
+        )
     }
 }

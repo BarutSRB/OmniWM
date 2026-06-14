@@ -489,7 +489,11 @@ final class WindowModel {
         return true
     }
 
-    func confirmedMissingKeys(keys activeKeys: Set<WindowKey>, requiredConsecutiveMisses: Int = 1) -> [WindowKey] {
+    func confirmedMissingKeys(
+        keys activeKeys: Set<WindowKey>,
+        requiredConsecutiveMisses: Int = 1,
+        spaceTopology: SpaceTopology = SpaceTopology()
+    ) -> [WindowKey] {
         let threshold = max(1, requiredConsecutiveMisses)
         let knownTokens = Array(entries.keys)
 
@@ -503,6 +507,12 @@ final class WindowModel {
 
         for token in missingTokens {
             if entries[token]?.layoutReason == .nativeFullscreen {
+                missingDetectionCountByToken.removeValue(forKey: token)
+                continue
+            }
+            if let windowId = entries[token]?.windowId,
+               spaceTopology.isWindowOnKnownInactiveSpace(windowId)
+            {
                 missingDetectionCountByToken.removeValue(forKey: token)
                 continue
             }
