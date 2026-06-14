@@ -413,8 +413,8 @@ final class IPCQueryRouter {
             frame: include("frame", in: fields) ? rect(from: monitor.frame) : nil,
             visibleFrame: include("visible-frame", in: fields) ? rect(from: monitor.visibleFrame) : nil,
             hasNotch: include("has-notch", in: fields) ? monitor.hasNotch : nil,
-            orientation: include("orientation", in: fields) ? ipcDisplayOrientation(from: monitor.autoOrientation) :
-                nil,
+            orientation: include("orientation", in: fields)
+                ? ipcDisplayOrientation(from: controller.settings.effectiveOrientation(for: monitor)) : nil,
             activeWorkspace: include("active-workspace", in: fields) ? activeWorkspace.map(workspaceRef(from:)) : nil
         )
     }
