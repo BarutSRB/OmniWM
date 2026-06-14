@@ -247,15 +247,11 @@ enum NiriWindowMoveResult {
         activeWorkspaces: Set<WorkspaceDescriptor.ID>,
         useScrollAnimationPath: Bool = false,
         removalSeeds: [WorkspaceDescriptor.ID: NiriWindowRemovalSeed] = [:]
-    ) async throws -> [WorkspaceLayoutPlan] {
+    ) -> [WorkspaceLayoutPlan] {
         guard let controller, let engine = controller.niriEngine else { return [] }
         var plans: [WorkspaceLayoutPlan] = []
         let workspaceIds = activeWorkspaces.sorted(by: { $0.uuidString < $1.uuidString })
-        for (index, wsId) in workspaceIds.enumerated() {
-            if index > 0 {
-                await Task.yield()
-            }
-            try Task.checkCancellation()
+        for wsId in workspaceIds {
             guard let workspace = controller.workspaceManager.descriptor(for: wsId),
                   let monitor = controller.workspaceManager.monitor(for: wsId)
             else { continue }
@@ -280,11 +276,8 @@ enum NiriWindowMoveResult {
                     monitor: monitor
                 )
             )
-
-            try Task.checkCancellation()
         }
 
-        try Task.checkCancellation()
         return plans
     }
 
@@ -386,16 +379,6 @@ enum NiriWindowMoveResult {
     }
 
     private func buildRelayoutPlan(
-        snapshot: NiriWorkspaceSnapshot,
-        engine: NiriLayoutEngine,
-        monitor: Monitor
-    ) -> WorkspaceLayoutPlan {
-        let build = { self.buildRelayoutPlanBody(snapshot: snapshot, engine: engine, monitor: monitor) }
-        guard let workspaceManager = controller?.workspaceManager else { return build() }
-        return workspaceManager.withEngineBuildScope(build)
-    }
-
-    private func buildRelayoutPlanBody(
         snapshot: NiriWorkspaceSnapshot,
         engine: NiriLayoutEngine,
         monitor: Monitor

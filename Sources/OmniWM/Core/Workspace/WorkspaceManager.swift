@@ -2907,6 +2907,51 @@ final class WorkspaceManager {
         return result!
     }
 
+    @discardableResult
+    func withBatchedLayoutBuild(_ build: () -> [WorkspaceLayoutPlan]) -> [WorkspaceLayoutPlan] {
+        var plans: [WorkspaceLayoutPlan] = []
+        world.commit(
+            .userCommand(workspaceId: nil, source: .layoutRefresh),
+            monitors: monitors,
+            snapshot: { self.reconcileSnapshot() },
+            preMutate: {
+                plans = build()
+                for index in plans.indices {
+                    guard let viewportState = plans[index].sessionPatch.viewportState else { continue }
+                    self.applyViewportInBatch(viewportState, for: plans[index].workspaceId)
+                    plans[index].sessionPatch.viewportState = nil
+                }
+                let committedSeq = self.world.seq
+                for index in plans.indices {
+                    plans[index].plannedSeq = committedSeq
+                    plans[index].sessionPatch.plannedSeq = committedSeq
+                }
+            },
+            resolvePlan: { plan, _ in plan }
+        )
+        return plans
+    }
+
+    private func applyViewportInBatch(_ state: ViewportState, for workspaceId: WorkspaceDescriptor.ID) {
+        let previous = world.viewports[workspaceId]
+        var committed = state
+        committed.clearOffsetTransition()
+        if previous != committed {
+            world.applyViewportPlan(.set(workspaceId: workspaceId, state: committed))
+        }
+        noteViewportInvalidationIfNeeded(
+            for: workspaceId,
+            previousViewport: previous,
+            pendingSpringTransition: state.hasPendingSpringTransition
+        )
+        animationDriver.reconcileViewportCommit(
+            workspaceId: workspaceId,
+            previous: previous,
+            next: world.viewports[workspaceId] ?? committed,
+            transition: state.offsetTransition
+        )
+    }
+
     func withEngineBuildScope<T>(_ body: () -> T) -> T {
         world.withEngineBuildScope(body)
     }

@@ -110,15 +110,11 @@ import QuartzCore
         }
     }
 
-    func layoutWithDwindleEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) async throws -> [WorkspaceLayoutPlan] {
+    func layoutWithDwindleEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) -> [WorkspaceLayoutPlan] {
         guard let controller, let engine = controller.dwindleEngine else { return [] }
         var plans: [WorkspaceLayoutPlan] = []
         let workspaceIds = activeWorkspaces.sorted(by: { $0.uuidString < $1.uuidString })
-        for (index, wsId) in workspaceIds.enumerated() {
-            if index > 0 {
-                await Task.yield()
-            }
-            try Task.checkCancellation()
+        for wsId in workspaceIds {
             guard let workspace = controller.workspaceManager.descriptor(for: wsId),
                   let monitor = controller.workspaceManager.monitor(for: wsId)
             else { continue }
@@ -141,11 +137,8 @@ import QuartzCore
                     engine: engine
                 )
             )
-
-            try Task.checkCancellation()
         }
 
-        try Task.checkCancellation()
         return plans
     }
 
@@ -349,15 +342,6 @@ import QuartzCore
     }
 
     private func buildRelayoutPlan(
-        snapshot: DwindleWorkspaceSnapshot,
-        engine: DwindleLayoutEngine
-    ) -> WorkspaceLayoutPlan {
-        let build = { self.buildRelayoutPlanBody(snapshot: snapshot, engine: engine) }
-        guard let workspaceManager = controller?.workspaceManager else { return build() }
-        return workspaceManager.withEngineBuildScope(build)
-    }
-
-    private func buildRelayoutPlanBody(
         snapshot: DwindleWorkspaceSnapshot,
         engine: DwindleLayoutEngine
     ) -> WorkspaceLayoutPlan {

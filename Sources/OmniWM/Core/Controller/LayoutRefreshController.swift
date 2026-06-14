@@ -1035,7 +1035,7 @@ import QuartzCore
 
         do {
             let buildStart = CACurrentMediaTime()
-            var plan = try await buildRelayoutEffectPlan(
+            var plan = buildRelayoutEffectPlan(
                 useScrollAnimationPath: useScrollAnimationPath,
                 recoverFocus: recoverFocus,
                 affectedWorkspaceIds: refresh.affectedWorkspaceIds
@@ -1104,7 +1104,7 @@ import QuartzCore
         }
 
         do {
-            var plan = try await buildWindowRemovalEffectPlan(payloads: payloads)
+            var plan = buildWindowRemovalEffectPlan(payloads: payloads)
             applyRefreshMetadata(refresh, to: &plan)
             try Task.checkCancellation()
             guard isCurrentRefreshGeneration(generation) else { return false }
@@ -1190,11 +1190,18 @@ import QuartzCore
         EffectPlan(effects: EffectPlanEffects())
     }
 
+    private func buildWorkspacePlansInBatch(_ build: () -> [WorkspaceLayoutPlan]) -> [WorkspaceLayoutPlan] {
+        guard let controller else { return [] }
+        return controller.withRuntimeFrameJobCancellationSuppressed {
+            controller.workspaceManager.withBatchedLayoutBuild(build)
+        }
+    }
+
     private func buildRelayoutEffectPlan(
         useScrollAnimationPath: Bool,
         recoverFocus: Bool,
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>
-    ) async throws -> EffectPlan {
+    ) -> EffectPlan {
         guard let controller else { return .init() }
 
         let activeWorkspaceIds = currentActiveWorkspaceIds()
@@ -1205,24 +1212,22 @@ import QuartzCore
             return .init()
         }
         let (niriWorkspaces, dwindleWorkspaces) = partitionWorkspacesByLayoutType(layoutWorkspaceIds)
-        var workspacePlans: [WorkspaceLayoutPlan] = []
-        workspacePlans.reserveCapacity(niriWorkspaces.count + dwindleWorkspaces.count)
 
-        if !niriWorkspaces.isEmpty {
-            try Task.checkCancellation()
-            let plans = try await niriHandler.layoutWithNiriEngine(
-                activeWorkspaces: niriWorkspaces,
-                useScrollAnimationPath: useScrollAnimationPath
-            )
-            try Task.checkCancellation()
-            workspacePlans.append(contentsOf: plans)
-        }
-
-        if !dwindleWorkspaces.isEmpty {
-            try Task.checkCancellation()
-            let plans = try await dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
-            try Task.checkCancellation()
-            workspacePlans.append(contentsOf: plans)
+        let workspacePlans = buildWorkspacePlansInBatch {
+            var plans: [WorkspaceLayoutPlan] = []
+            plans.reserveCapacity(niriWorkspaces.count + dwindleWorkspaces.count)
+            if !niriWorkspaces.isEmpty {
+                plans.append(contentsOf: self.niriHandler.layoutWithNiriEngine(
+                    activeWorkspaces: niriWorkspaces,
+                    useScrollAnimationPath: useScrollAnimationPath
+                ))
+            }
+            if !dwindleWorkspaces.isEmpty {
+                plans.append(
+                    contentsOf: self.dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
+                )
+            }
+            return plans
         }
 
         var effects = EffectPlanEffects()
@@ -1242,7 +1247,7 @@ import QuartzCore
 
     private func buildWindowRemovalEffectPlan(
         payloads: [WindowRemovalPayload]
-    ) async throws -> EffectPlan {
+    ) -> EffectPlan {
         guard let controller else { return .init() }
 
         var dwindleWorkspaces: Set<WorkspaceDescriptor.ID> = []
@@ -1276,25 +1281,22 @@ import QuartzCore
             }
         }
 
-        var workspacePlans: [WorkspaceLayoutPlan] = []
-        workspacePlans.reserveCapacity(dwindleWorkspaces.count + niriRemovalSeeds.count)
-
-        if !niriRemovalSeeds.isEmpty {
-            try Task.checkCancellation()
-            let plans = try await niriHandler.layoutWithNiriEngine(
-                activeWorkspaces: Set(niriRemovalSeeds.keys),
-                useScrollAnimationPath: true,
-                removalSeeds: niriRemovalSeeds
-            )
-            try Task.checkCancellation()
-            workspacePlans.append(contentsOf: plans)
-        }
-
-        if !dwindleWorkspaces.isEmpty {
-            try Task.checkCancellation()
-            let plans = try await dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
-            try Task.checkCancellation()
-            workspacePlans.append(contentsOf: plans)
+        let workspacePlans = buildWorkspacePlansInBatch {
+            var plans: [WorkspaceLayoutPlan] = []
+            plans.reserveCapacity(dwindleWorkspaces.count + niriRemovalSeeds.count)
+            if !niriRemovalSeeds.isEmpty {
+                plans.append(contentsOf: self.niriHandler.layoutWithNiriEngine(
+                    activeWorkspaces: Set(niriRemovalSeeds.keys),
+                    useScrollAnimationPath: true,
+                    removalSeeds: niriRemovalSeeds
+                ))
+            }
+            if !dwindleWorkspaces.isEmpty {
+                plans.append(
+                    contentsOf: self.dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
+                )
+            }
+            return plans
         }
 
         let activeWorkspaceIds = currentActiveWorkspaceIds()
@@ -1574,24 +1576,22 @@ import QuartzCore
 
         let activeWorkspaceIds = currentActiveWorkspaceIds()
         let (niriWorkspaces, dwindleWorkspaces) = partitionWorkspacesByLayoutType(activeWorkspaceIds)
-        var workspacePlans: [WorkspaceLayoutPlan] = []
-        workspacePlans.reserveCapacity(niriWorkspaces.count + dwindleWorkspaces.count)
 
-        if !niriWorkspaces.isEmpty {
-            try Task.checkCancellation()
-            let plans = try await niriHandler.layoutWithNiriEngine(
-                activeWorkspaces: niriWorkspaces,
-                useScrollAnimationPath: false
-            )
-            try Task.checkCancellation()
-            workspacePlans.append(contentsOf: plans)
-        }
-
-        if !dwindleWorkspaces.isEmpty {
-            try Task.checkCancellation()
-            let plans = try await dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
-            try Task.checkCancellation()
-            workspacePlans.append(contentsOf: plans)
+        let workspacePlans = buildWorkspacePlansInBatch {
+            var plans: [WorkspaceLayoutPlan] = []
+            plans.reserveCapacity(niriWorkspaces.count + dwindleWorkspaces.count)
+            if !niriWorkspaces.isEmpty {
+                plans.append(contentsOf: self.niriHandler.layoutWithNiriEngine(
+                    activeWorkspaces: niriWorkspaces,
+                    useScrollAnimationPath: false
+                ))
+            }
+            if !dwindleWorkspaces.isEmpty {
+                plans.append(
+                    contentsOf: self.dwindleHandler.layoutWithDwindleEngine(activeWorkspaces: dwindleWorkspaces)
+                )
+            }
+            return plans
         }
 
         var effects = EffectPlanEffects()

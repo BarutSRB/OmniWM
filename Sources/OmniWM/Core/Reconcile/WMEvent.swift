@@ -8,6 +8,7 @@ enum WMEventSource: String, Equatable {
     case command
     case mouse
     case focusPolicy
+    case layoutRefresh
 }
 
 enum NativeFullscreenLayoutChange: Equatable {

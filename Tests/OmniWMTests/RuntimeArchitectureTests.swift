@@ -2146,7 +2146,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         controller.workspaceManager.setNiriRestorePlacements(placements)
 
-        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        let plans = controller.workspaceManager.withEngineBuildScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        }
         let plan = try XCTUnwrap(plans.first)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState)
         let newTabNode = try XCTUnwrap(engine.findNode(for: newTabToken))
@@ -2207,7 +2209,9 @@ final class RuntimeArchitectureTests: XCTestCase {
             to: workspaceId
         )
 
-        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        let plans = controller.workspaceManager.withEngineBuildScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        }
         let plan = try XCTUnwrap(plans.first)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState)
         let finalColumns = engine.columns(in: workspaceId)
@@ -2295,7 +2299,9 @@ final class RuntimeArchitectureTests: XCTestCase {
             )
         )
 
-        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        let plans = controller.workspaceManager.withEngineBuildScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        }
         let plan = try XCTUnwrap(plans.first)
         let newNode = try XCTUnwrap(engine.findNode(for: newToken))
         let leaderColumn = try XCTUnwrap(engine.column(of: existingNode))
@@ -2392,10 +2398,12 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertNil(controller.workspaceManager.entry(for: oldToken))
         XCTAssertNotNil(controller.workspaceManager.entry(for: newToken))
 
-        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
-            activeWorkspaces: [workspaceId],
-            useScrollAnimationPath: true
-        )
+        let plans = controller.workspaceManager.withEngineBuildScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(
+                activeWorkspaces: [workspaceId],
+                useScrollAnimationPath: true
+            )
+        }
         let plan = try XCTUnwrap(plans.first)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState)
         let finalColumns = engine.columns(in: workspaceId)
@@ -2809,7 +2817,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         controller.workspaceManager.setNiriRestorePlacements(placements)
 
-        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        let plans = controller.workspaceManager.withEngineBuildScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        }
         let plan = try XCTUnwrap(plans.first, file: file, line: line)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState, file: file, line: line)
         let finalColumns = engine.columns(in: workspaceId)
