@@ -151,7 +151,6 @@ struct FocusSessionSnapshot: Equatable {
     var lastFloatingFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
     var focusLease: FocusPolicyLease? = nil
     var isNonManagedFocusActive: Bool = false
-    var isAppFullscreenActive: Bool = false
     var nonManagedFocusToken: WindowToken? = nil
     var suppressedFocusToken: WindowToken? = nil
     var interactionMonitorId: Monitor.ID? = nil

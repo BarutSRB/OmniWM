@@ -1022,11 +1022,11 @@ final class WorkspaceManager {
     }
 
     var isAppFullscreenActive: Bool {
-        world.focus.isAppFullscreenActive
+        nativeFullscreenRecordsByOriginalToken.values.contains { $0.transition == .suspended }
     }
 
     var hasNativeFullscreenLifecycleContext: Bool {
-        world.focus.isAppFullscreenActive || !nativeFullscreenRecordsByOriginalToken.isEmpty
+        !nativeFullscreenRecordsByOriginalToken.isEmpty
     }
 
     func scratchpadToken() -> WindowToken? {
@@ -1073,14 +1073,11 @@ final class WorkspaceManager {
         if let normalizedMonitorId {
             changed = updateInteractionMonitor(normalizedMonitorId, preservePrevious: true, notify: false) || changed
         }
-        let appFullscreen = world.focus.isNonManagedFocusActive ? false : world.focus
-            .isAppFullscreenActive
         changed = applyFocusReconcileEvent(
             .managedFocusConfirmed(
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: normalizedMonitorId,
-                appFullscreen: appFullscreen,
                 requestId: nil,
                 source: .workspaceManager
             )
@@ -1144,7 +1141,6 @@ final class WorkspaceManager {
         _ token: WindowToken,
         in workspaceId: WorkspaceDescriptor.ID,
         onMonitor monitorId: Monitor.ID? = nil,
-        appFullscreen: Bool,
         activateWorkspaceOnMonitor: Bool,
         requestId: UInt64? = nil
     ) -> Bool {
@@ -1177,7 +1173,6 @@ final class WorkspaceManager {
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: normalizedMonitorId,
-                appFullscreen: appFullscreen,
                 requestId: requestId,
                 source: .workspaceManager
             )
@@ -1252,11 +1247,10 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func setManagedAppFullscreen(_ active: Bool) -> Bool {
+    func exitNonManagedFocus() -> Bool {
         let changed = applyFocusReconcileEvent(
             .nonManagedFocusChanged(
                 active: false,
-                appFullscreen: active,
                 preserveFocusedToken: true,
                 preservePendingManagedFocus: false,
                 source: .workspaceManager
@@ -1354,7 +1348,7 @@ final class WorkspaceManager {
             setLayoutReason(.nativeFullscreen, for: token)
             changed = true
         }
-        changed = enterNonManagedFocus(appFullscreen: true) || changed
+        changed = enterNonManagedFocus() || changed
         return changed
     }
 
@@ -1412,7 +1406,7 @@ final class WorkspaceManager {
             _ = removeNativeFullscreenRecord(originalToken: record.originalToken)
         }
         let restored = restoreFromNativeState(for: resolvedToken)
-        _ = setManagedAppFullscreen(false)
+        _ = exitNonManagedFocus()
         return restored
     }
 
@@ -1659,7 +1653,6 @@ final class WorkspaceManager {
 
     @discardableResult
     func enterNonManagedFocus(
-        appFullscreen: Bool,
         preserveFocusedToken: Bool = false,
         preservePendingManagedFocus: Bool = false,
         target: WindowToken? = nil
@@ -1667,7 +1660,6 @@ final class WorkspaceManager {
         var changed = applyFocusReconcileEvent(
             .nonManagedFocusChanged(
                 active: true,
-                appFullscreen: appFullscreen,
                 preserveFocusedToken: preserveFocusedToken,
                 preservePendingManagedFocus: preservePendingManagedFocus,
                 source: .workspaceManager
@@ -3664,7 +3656,7 @@ final class WorkspaceManager {
             noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
 
         case let .managedFocusRequested(_, workspaceId, _, _, _),
-             let .managedFocusConfirmed(_, workspaceId, _, _, _, _):
+             let .managedFocusConfirmed(_, workspaceId, _, _, _):
             noteInvalidation(workspaceId: workspaceId, domains: .focus)
 
         case let .managedFocusCancelled(token, workspaceId, _, _):

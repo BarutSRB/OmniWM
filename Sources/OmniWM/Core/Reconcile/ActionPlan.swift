@@ -124,9 +124,6 @@ struct ActionPlan: Equatable {
         if focusSession.isNonManagedFocusActive {
             parts.append("non_managed=true")
         }
-        if focusSession.isAppFullscreenActive {
-            parts.append("app_fullscreen=true")
-        }
         return parts.joined(separator: ",")
     }
 }

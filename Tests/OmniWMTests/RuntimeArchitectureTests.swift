@@ -591,7 +591,6 @@ final class RuntimeArchitectureTests: XCTestCase {
             token,
             in: workspaceId,
             onMonitor: controller.workspaceManager.monitorId(for: workspaceId),
-            appFullscreen: false,
             activateWorkspaceOnMonitor: false,
             requestId: request.requestId
         )
@@ -718,7 +717,6 @@ final class RuntimeArchitectureTests: XCTestCase {
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: monitorId,
-                appFullscreen: false,
                 requestId: 8,
                 source: .workspaceManager
             ),
@@ -731,7 +729,6 @@ final class RuntimeArchitectureTests: XCTestCase {
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: monitorId,
-                appFullscreen: false,
                 requestId: 7,
                 source: .workspaceManager
             ),
@@ -817,7 +814,6 @@ final class RuntimeArchitectureTests: XCTestCase {
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: nil,
-                appFullscreen: false,
                 requestId: 8,
                 source: .workspaceManager
             )
@@ -2596,7 +2592,6 @@ final class RuntimeArchitectureTests: XCTestCase {
                 pendingManagedFocus: pendingManagedFocus,
                 focusLease: nil,
                 isNonManagedFocusActive: false,
-                isAppFullscreenActive: false,
                 interactionMonitorId: interactionMonitorId,
                 previousInteractionMonitorId: previousInteractionMonitorId
             ),
@@ -3108,7 +3103,6 @@ final class RuntimeArchitectureTests: XCTestCase {
                 entry.token,
                 in: entry.workspaceId,
                 onMonitor: controller.workspaceManager.monitorId(for: entry.workspaceId),
-                appFullscreen: false,
                 activateWorkspaceOnMonitor: false,
                 requestId: requestId
             ),

@@ -1691,7 +1691,6 @@ final class AXEventHandler {
                 )
             }
             _ = controller.workspaceManager.enterNonManagedFocus(
-                appFullscreen: false,
                 preserveFocusedToken: true
             )
             return
@@ -1897,11 +1896,7 @@ final class AXEventHandler {
             return
         }
 
-        let fallbackFullscreen = appFullscreenForFallbackLifecyclePreservation(
-            observedAppFullscreen: appFullscreen
-        )
         _ = controller.workspaceManager.enterNonManagedFocus(
-            appFullscreen: fallbackFullscreen,
             target: token
         )
         controller.surfaceReconciler.noteRestackOccurred()
@@ -2185,7 +2180,6 @@ final class AXEventHandler {
                 entry.token,
                 in: wsId,
                 onMonitor: monitorId,
-                appFullscreen: appFullscreen,
                 activateWorkspaceOnMonitor: shouldActivateWorkspace,
                 requestId: confirmationRequestId
             )
@@ -2401,7 +2395,6 @@ final class AXEventHandler {
         }
         if controller.workspaceManager.renderableFocusToken?.pid == pid {
             _ = controller.workspaceManager.enterNonManagedFocus(
-                appFullscreen: false,
                 preserveFocusedToken: true
             )
         }
@@ -3589,10 +3582,7 @@ final class AXEventHandler {
             break
         }
 
-        let fallbackFullscreen = appFullscreenForFallbackLifecyclePreservation(
-            observedAppFullscreen: false
-        )
-        _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: fallbackFullscreen)
+        _ = controller.workspaceManager.enterNonManagedFocus()
         recordNiriCreateFocusTrace(
             .init(
                 kind: .nonManagedFallbackEntered(
@@ -3601,15 +3591,6 @@ final class AXEventHandler {
                 )
             )
         )
-    }
-
-    private func appFullscreenForFallbackLifecyclePreservation(
-        observedAppFullscreen: Bool
-    ) -> Bool {
-        guard let controller else { return observedAppFullscreen }
-
-        let hasLifecycleContext = controller.workspaceManager.hasNativeFullscreenLifecycleContext
-        return observedAppFullscreen || hasLifecycleContext
     }
 
     private func activationRequestDisposition(

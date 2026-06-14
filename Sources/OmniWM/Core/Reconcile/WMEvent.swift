@@ -193,7 +193,6 @@ enum WMEvent: Equatable {
         token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID,
         monitorId: Monitor.ID?,
-        appFullscreen: Bool,
         requestId: UInt64?,
         source: WMEventSource
     )
@@ -205,7 +204,6 @@ enum WMEvent: Equatable {
     )
     case nonManagedFocusChanged(
         active: Bool,
-        appFullscreen: Bool,
         preserveFocusedToken: Bool,
         preservePendingManagedFocus: Bool,
         source: WMEventSource
@@ -299,7 +297,7 @@ enum WMEvent: Equatable {
              let .nativeFullscreenTransition(token, _, _, _, _),
              let .managedReplacementMetadataChanged(token, _, _, _, _),
              let .managedFocusRequested(token, _, _, _, _),
-             let .managedFocusConfirmed(token, _, _, _, _, _):
+             let .managedFocusConfirmed(token, _, _, _, _):
             token
         case let .windowRekeyed(_, to, _, _, _, _, _, _):
             to
@@ -350,9 +348,9 @@ enum WMEvent: Equatable {
              let .activeSpaceChanged(source),
              let .focusLeaseChanged(_, source),
              let .managedFocusRequested(_, _, _, _, source),
-             let .managedFocusConfirmed(_, _, _, _, _, source),
+             let .managedFocusConfirmed(_, _, _, _, source),
              let .managedFocusCancelled(_, _, _, source),
-             let .nonManagedFocusChanged(_, _, _, _, source),
+             let .nonManagedFocusChanged(_, _, _, source),
              let .focusRemembered(_, _, _, source),
              let .focusForgotten(_, source),
              let .nonManagedFocusTargetChanged(_, source),
@@ -409,12 +407,12 @@ enum WMEvent: Equatable {
             "focus_lease_changed owner=\(lease?.owner.rawValue ?? "nil") reason=\(lease?.reason ?? "")"
         case let .managedFocusRequested(token, workspaceId, monitorId, requestId, _):
             "managed_focus_requested token=\(token) workspace=\(workspaceId.uuidString) monitor=\(String(describing: monitorId)) request=\(requestId)"
-        case let .managedFocusConfirmed(token, workspaceId, monitorId, appFullscreen, requestId, _):
-            "managed_focus_confirmed token=\(token) workspace=\(workspaceId.uuidString) monitor=\(String(describing: monitorId)) fullscreen=\(appFullscreen) request=\(requestId.map { String($0) } ?? "nil")"
+        case let .managedFocusConfirmed(token, workspaceId, monitorId, requestId, _):
+            "managed_focus_confirmed token=\(token) workspace=\(workspaceId.uuidString) monitor=\(String(describing: monitorId)) request=\(requestId.map { String($0) } ?? "nil")"
         case let .managedFocusCancelled(token, workspaceId, requestId, _):
             "managed_focus_cancelled token=\(token.map(String.init(describing:)) ?? "nil") workspace=\(workspaceId?.uuidString ?? "nil") request=\(requestId.map { String($0) } ?? "nil")"
-        case let .nonManagedFocusChanged(active, appFullscreen, preserveFocusedToken, preservePendingManagedFocus, _):
-            "non_managed_focus_changed active=\(active) fullscreen=\(appFullscreen) preserve=\(preserveFocusedToken) preserve_pending=\(preservePendingManagedFocus)"
+        case let .nonManagedFocusChanged(active, preserveFocusedToken, preservePendingManagedFocus, _):
+            "non_managed_focus_changed active=\(active) preserve=\(preserveFocusedToken) preserve_pending=\(preservePendingManagedFocus)"
         case let .focusRemembered(token, workspaceId, mode, _):
             "focus_remembered token=\(token) workspace=\(workspaceId.uuidString) mode=\(mode)"
         case let .focusForgotten(workspaceIds, _):

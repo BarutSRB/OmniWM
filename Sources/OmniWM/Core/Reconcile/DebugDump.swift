@@ -8,7 +8,6 @@ enum ReconcileDebugDump {
             "pending-focus=\(snapshot.focusSession.pendingManagedFocus.token.map(String.init(describing:)) ?? "nil")",
             "focus-lease=\(snapshot.focusSession.focusLease?.owner.rawValue ?? "nil")",
             "non-managed-focus=\(snapshot.focusSession.isNonManagedFocusActive)",
-            "app-fullscreen=\(snapshot.focusSession.isAppFullscreenActive)",
             "interaction-monitor=\(snapshot.interactionMonitorId.map(String.init(describing:)) ?? "nil")",
             "previous-interaction-monitor=\(snapshot.previousInteractionMonitorId.map(String.init(describing:)) ?? "nil")"
         ]

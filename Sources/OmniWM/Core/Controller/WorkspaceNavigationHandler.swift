@@ -132,7 +132,7 @@ final class WorkspaceNavigationHandler {
             )
             controller.intentLedger.discardPendingFocus(canceledRequest.token)
         }
-        _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
+        _ = controller.workspaceManager.enterNonManagedFocus()
     }
 
     private func commitWorkspaceTransitionFocusHandoff(
