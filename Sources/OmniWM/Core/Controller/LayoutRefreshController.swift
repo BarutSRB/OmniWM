@@ -1341,26 +1341,6 @@ import QuartzCore
             let createPlacementContext = existingEntry == nil
                 ? controller.axEventHandler.pendingCreatePlacementContext(for: winId)
                 : nil
-            let temporarilyUnavailableRecord: WorkspaceManager.NativeFullscreenRecord? = if let existingEntry,
-                                                                                            let record = controller
-                                                                                            .workspaceManager
-                                                                                            .nativeFullscreenRecord(
-                                                                                                for: existingEntry
-                                                                                                    .token
-                                                                                            ),
-                                                                                            record
-                                                                                            .availability ==
-                                                                                            .temporarilyUnavailable
-            {
-                record
-            } else {
-                nil
-            }
-            if let temporarilyUnavailableRecord {
-                controller.axEventHandler.cancelNativeFullscreenLifecycleTasks(
-                    containing: temporarilyUnavailableRecord.currentToken
-                )
-            }
             let replacementWorkspace = controller.resolvedWorkspaceId(
                 for: evaluation,
                 axRef: ax,

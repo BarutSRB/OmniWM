@@ -328,7 +328,6 @@ final class AXEventHandler {
     }
 
     private static let managedReplacementGraceDelay: Duration = .milliseconds(150)
-    private static let nativeFullscreenFollowupDelay: Duration = .seconds(1)
     private static let stabilizationRetryDelay: Duration = .milliseconds(100)
     private static let focusedAdmissionReadmitDelay: Duration = .milliseconds(150)
     private static let postCreateLifecycleVerificationDelay: Duration = .milliseconds(75)
@@ -351,8 +350,6 @@ final class AXEventHandler {
     private var createPlacementContextsByWindowId: [UInt32: WindowCreatePlacementContext] = [:]
     private var pendingManagedReplacementBursts: [ManagedReplacementKey: PendingManagedReplacementBurst] = [:]
     private var pendingManagedReplacementTasks: [ManagedReplacementKey: Task<Void, Never>] = [:]
-    private var pendingNativeFullscreenFollowupTasks: [WindowToken: Task<Void, Never>] = [:]
-    private var pendingNativeFullscreenStaleCleanupTasks: [WindowToken: Task<Void, Never>] = [:]
     private var pendingWindowRuleReevaluationTask: Task<Void, Never>?
     private var pendingWindowRuleReevaluationTargets: Set<WindowRuleReevaluationTarget> = []
     private var pendingWindowRuleReevaluationGeneration: UInt64 = 0
@@ -390,7 +387,6 @@ final class AXEventHandler {
         resetManagedReplacementState()
         endWindowCloseFocusRecovery(reason: "cleanup")
         cancelSameAppCloseProbe(reason: "cleanup")
-        resetNativeFullscreenReplacementState()
         resetWindowStabilizationState()
         resetPostCreateLifecycleVerificationState()
         resetCreatedWindowRetryState()
@@ -1344,9 +1340,6 @@ final class AXEventHandler {
 
         cancelPostCreateLifecycleVerification(for: token)
         controller.axManager.removeWindowState(pid: token.pid, windowId: token.windowId)
-        if handleNativeFullscreenDestroy(token) {
-            return
-        }
 
         let shouldRecoverFocus = token == focusedTokenBefore
         let closeRecoveryArmed: Bool
@@ -2447,7 +2440,6 @@ final class AXEventHandler {
     @discardableResult
     private func suspendManagedWindowForNativeFullscreen(_ entry: WindowState) -> Bool {
         guard let controller else { return false }
-        cancelNativeFullscreenLifecycleTasks(containing: entry.token)
         let changed = controller.workspaceManager.markNativeFullscreenSuspended(entry.token)
         if changed {
             controller.layoutRefreshController.requestImmediateRelayout(
@@ -2467,7 +2459,6 @@ final class AXEventHandler {
         guard hadRecord || controller.workspaceManager.layoutReason(for: entry.token) == .nativeFullscreen else {
             return false
         }
-        cancelNativeFullscreenLifecycleTasks(containing: entry.token)
         let restored = controller.workspaceManager.restoreNativeFullscreenRecord(for: entry.token) || hadRecord
         if restored {
             controller.layoutRefreshController.markNativeFullscreenRestoredForFrameApply(entry.token)
@@ -2514,7 +2505,6 @@ final class AXEventHandler {
             guard let entry = controller.workspaceManager.entry(for: token) else {
                 return .notRestored
             }
-            cancelNativeFullscreenLifecycleTasks(for: record.originalToken)
             let scheduledRelayout: Bool
             if appFullscreen {
                 scheduledRelayout = suspendManagedWindowForNativeFullscreen(entry)
@@ -2534,8 +2524,6 @@ final class AXEventHandler {
         else {
             return .notRestored
         }
-
-        cancelNativeFullscreenLifecycleTasks(for: record.originalToken)
 
         let scheduledRelayout: Bool
         if appFullscreen {
@@ -2707,54 +2695,6 @@ final class AXEventHandler {
         }
 
         return entry
-    }
-
-    private func handleNativeFullscreenDestroy(_ token: WindowToken) -> Bool {
-        guard let controller else {
-            return false
-        }
-
-        let existingRecord = controller.workspaceManager.nativeFullscreenRecord(for: token)
-        let unavailableRecord: WorkspaceManager.NativeFullscreenRecord?
-        if existingRecord?.currentToken == token {
-            unavailableRecord = controller.workspaceManager.markNativeFullscreenTemporarilyUnavailable(token)
-        } else if existingRecord != nil {
-            return false
-        } else if shouldSpeculativelyPreserveNativeFullscreenDestroy(token) {
-            unavailableRecord = controller.workspaceManager.markNativeFullscreenSpeculativelyUnavailable(token)
-        } else {
-            return false
-        }
-
-        guard let unavailableRecord else { return false }
-        clearManagedFocusState(matching: token, workspaceId: unavailableRecord.workspaceId)
-        controller.layoutRefreshController.requestImmediateRelayout(
-            reason: .appActivationTransition,
-            affectedWorkspaceIds: [unavailableRecord.workspaceId]
-        )
-        scheduleNativeFullscreenFollowup(
-            for: unavailableRecord.originalToken,
-            transitionId: unavailableRecord.transitionId,
-            unavailableSince: unavailableRecord.unavailableSince
-        )
-        return true
-    }
-
-    private func shouldSpeculativelyPreserveNativeFullscreenDestroy(_ token: WindowToken) -> Bool {
-        guard let controller,
-              let entry = controller.workspaceManager.entry(for: token),
-              entry.mode == .tiling,
-              controller.workspaceManager.focusedToken == token,
-              controller.workspaceManager.scratchpadToken() != token
-        else {
-            return false
-        }
-
-        let layoutType = controller.workspaceManager.descriptor(for: entry.workspaceId)
-            .map { controller.settings.layoutType(for: $0.name) } ?? .defaultLayout
-        guard layoutType != .dwindle else { return false }
-
-        return AXWindowService.isFullscreenAttributeSet(entry.axRef)
     }
 
     func handleAppHidden(pid: pid_t) {
@@ -3073,10 +3013,6 @@ final class AXEventHandler {
         }
 
         let shouldDelayDestroy = shouldDelayManagedReplacementDestroy(candidate)
-        if shouldDelayDestroy, handleNativeFullscreenDestroy(candidate.token) {
-            return
-        }
-
         if shouldDelayDestroy {
             enqueueManagedReplacementDestroy(candidate)
             return
@@ -3646,92 +3582,6 @@ final class AXEventHandler {
             && abs(lhs.midY - rhs.midY) <= 96
             && abs(lhs.width - rhs.width) <= 64
             && abs(lhs.height - rhs.height) <= 64
-    }
-
-    private func resetNativeFullscreenReplacementState() {
-        for (_, task) in pendingNativeFullscreenFollowupTasks {
-            task.cancel()
-        }
-        pendingNativeFullscreenFollowupTasks.removeAll()
-        for (_, task) in pendingNativeFullscreenStaleCleanupTasks {
-            task.cancel()
-        }
-        pendingNativeFullscreenStaleCleanupTasks.removeAll()
-    }
-
-    private func scheduleNativeFullscreenFollowup(
-        for originalToken: WindowToken,
-        transitionId: UInt64,
-        unavailableSince: Date?
-    ) {
-        cancelNativeFullscreenLifecycleTasks(for: originalToken)
-        let staleCleanupDelayNanoseconds = nativeFullscreenStaleCleanupDelayNanoseconds(
-            unavailableSince: unavailableSince
-        )
-        pendingNativeFullscreenFollowupTasks[originalToken] = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: Self.nativeFullscreenFollowupDelay)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let self, let controller = self.controller else { return }
-            defer { self.pendingNativeFullscreenFollowupTasks.removeValue(forKey: originalToken) }
-            guard let record = controller.workspaceManager.nativeFullscreenRecord(for: originalToken),
-                  record.originalToken == originalToken,
-                  record.transitionId == transitionId,
-                  record.availability == .temporarilyUnavailable
-            else {
-                return
-            }
-            controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
-        }
-        pendingNativeFullscreenStaleCleanupTasks[originalToken] = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: staleCleanupDelayNanoseconds)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let self, let controller = self.controller else { return }
-            defer { self.pendingNativeFullscreenStaleCleanupTasks.removeValue(forKey: originalToken) }
-            guard let record = controller.workspaceManager.nativeFullscreenRecord(for: originalToken),
-                  record.originalToken == originalToken,
-                  record.transitionId == transitionId,
-                  record.availability == .temporarilyUnavailable
-            else {
-                return
-            }
-            guard controller.workspaceManager
-                .expireStaleTemporarilyUnavailableNativeFullscreenRecord(
-                    originalToken: originalToken,
-                    transitionId: transitionId
-                ) != nil
-            else { return }
-            controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
-        }
-    }
-
-    private func nativeFullscreenStaleCleanupDelayNanoseconds(unavailableSince: Date?) -> UInt64 {
-        guard let unavailableSince else {
-            return UInt64(WorkspaceManager.staleUnavailableNativeFullscreenTimeout * 1_000_000_000)
-        }
-        let elapsed = Date().timeIntervalSince(unavailableSince)
-        let remaining = max(0, WorkspaceManager.staleUnavailableNativeFullscreenTimeout - elapsed)
-        return UInt64(remaining * 1_000_000_000)
-    }
-
-    func cancelNativeFullscreenLifecycleTasks(for originalToken: WindowToken) {
-        pendingNativeFullscreenFollowupTasks.removeValue(forKey: originalToken)?.cancel()
-        pendingNativeFullscreenStaleCleanupTasks.removeValue(forKey: originalToken)?.cancel()
-    }
-
-    func cancelNativeFullscreenLifecycleTasks(containing token: WindowToken) {
-        if let controller,
-           let originalToken = controller.workspaceManager.nativeFullscreenRecord(for: token)?.originalToken
-        {
-            cancelNativeFullscreenLifecycleTasks(for: originalToken)
-            return
-        }
-        cancelNativeFullscreenLifecycleTasks(for: token)
     }
 
     private func managedReplacementGraceDelay(for policy: ManagedReplacementCorrelationPolicy) -> Duration {

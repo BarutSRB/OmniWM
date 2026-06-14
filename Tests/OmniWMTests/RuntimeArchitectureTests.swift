@@ -1178,45 +1178,6 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testNativeFullscreenTransitionIdsFenceStaleExpiry() throws {
-        let manager = Self.workspaceManager()
-        let workspaceId = try XCTUnwrap(manager.workspaceId(for: "1", createIfMissing: true))
-        let token = manager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 9_301),
-            pid: getpid(),
-            windowId: 9_301,
-            to: workspaceId
-        )
-
-        XCTAssertTrue(manager.requestNativeFullscreenEnter(token, in: workspaceId))
-        let enterTransitionId = try XCTUnwrap(manager.nativeFullscreenRecord(for: token)?.transitionId)
-        let unavailableRecord = try XCTUnwrap(
-            manager.markNativeFullscreenTemporarilyUnavailable(token, now: Date(timeIntervalSince1970: 1))
-        )
-        let unavailableTransitionId = unavailableRecord.transitionId
-        let refreshedUnavailableRecord = try XCTUnwrap(
-            manager.markNativeFullscreenTemporarilyUnavailable(token, now: Date(timeIntervalSince1970: 2))
-        )
-
-        XCTAssertNotEqual(unavailableTransitionId, enterTransitionId)
-        XCTAssertEqual(refreshedUnavailableRecord.transitionId, unavailableTransitionId)
-        XCTAssertTrue(manager.showsNativeFullscreenPlaceholder(for: token))
-
-        XCTAssertTrue(manager.requestNativeFullscreenExit(token, initiatedByCommand: true))
-        let exitTransitionId = try XCTUnwrap(manager.nativeFullscreenRecord(for: token)?.transitionId)
-
-        XCTAssertNotEqual(exitTransitionId, unavailableTransitionId)
-        XCTAssertNil(
-            manager.expireStaleTemporarilyUnavailableNativeFullscreenRecord(
-                originalToken: token,
-                transitionId: unavailableTransitionId,
-                now: Date(timeIntervalSince1970: 10),
-                staleInterval: 0
-            )
-        )
-    }
-
-    @MainActor
     func testAXFrameLedgerIgnoresStaleResultsAfterNewerRequest() throws {
         let ledger = AXFrameApplicationLedger()
         let firstFrame = CGRect(x: 10, y: 20, width: 300, height: 200)

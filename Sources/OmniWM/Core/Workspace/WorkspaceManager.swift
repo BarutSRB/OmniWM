@@ -1478,30 +1478,6 @@ final class WorkspaceManager {
         return record
     }
 
-    @discardableResult
-    func markNativeFullscreenSpeculativelyUnavailable(
-        _ token: WindowToken,
-        now: Date = Date()
-    ) -> NativeFullscreenRecord? {
-        guard let entry = entry(for: token) else { return nil }
-
-        _ = rememberFocus(token, in: entry.workspaceId)
-        setLayoutReason(.nativeFullscreen, for: token)
-        let record = NativeFullscreenRecord(
-            originalToken: token,
-            currentToken: token,
-            workspaceId: workspace(for: token) ?? entry.workspaceId,
-            transitionId: 0,
-            exitRequestedByCommand: false,
-            transition: .enterRequested,
-            availability: .temporarilyUnavailable,
-            unavailableSince: now
-        )
-        let storedRecord = upsertNativeFullscreenRecord(record)
-        _ = setManagedAppFullscreen(false)
-        return storedRecord
-    }
-
     func nativeFullscreenUnavailableCandidate(
         for pid: pid_t,
         activeWorkspaceId: WorkspaceDescriptor.ID?,
@@ -1601,31 +1577,6 @@ final class WorkspaceManager {
         }
         guard candidates.count == 1 else { return nil }
         return candidates[0].currentToken
-    }
-
-    @discardableResult
-    func expireStaleTemporarilyUnavailableNativeFullscreenRecord(
-        originalToken: WindowToken,
-        transitionId: UInt64,
-        now: Date = Date(),
-        staleInterval: TimeInterval = staleUnavailableNativeFullscreenTimeout
-    ) -> WindowState? {
-        guard let record = nativeFullscreenRecordsByOriginalToken[originalToken],
-              record.transitionId == transitionId,
-              record.availability == .temporarilyUnavailable,
-              let unavailableSince = record.unavailableSince,
-              now.timeIntervalSince(unavailableSince) >= staleInterval
-        else {
-            return nil
-        }
-
-        guard let removedRecord = removeNativeFullscreenRecord(originalToken: originalToken) else {
-            return nil
-        }
-        if layoutReason(for: removedRecord.currentToken) == .nativeFullscreen {
-            restoreFromNativeState(for: removedRecord.currentToken)
-        }
-        return removeWindow(pid: removedRecord.currentToken.pid, windowId: removedRecord.currentToken.windowId)
     }
 
     @discardableResult
