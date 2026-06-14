@@ -15,15 +15,19 @@ This document is for contributors who want to understand OmniWM's internals. It 
 - [1. Project Structure](#1-project-structure)
 - [2. Startup & Bootstrap](#2-startup--bootstrap)
 - [3. Core Mental Model](#3-core-mental-model)
-  - [3.1 The Event-Driven Pipeline](#31-the-event-driven-pipeline)
+  - [3.1 The Four-Stage Pipeline](#31-the-four-stage-pipeline)
   - [3.2 Window Identity](#32-window-identity)
   - [3.3 Window Lifecycle](#33-window-lifecycle)
-  - [3.4 The Refresh Pipeline](#34-the-refresh-pipeline)
-  - [3.5 Layout Engines as Pure State Machines](#35-layout-engines-as-pure-state-machines)
-  - [3.6 Thread Safety Model](#36-thread-safety-model)
+  - [3.4 Stage 2 — WorldStore, the Single Writer](#34-stage-2--worldstore-the-single-writer)
+  - [3.5 Stage 3 — The Effector & Refresh Pipeline](#35-stage-3--the-effector--refresh-pipeline)
+  - [3.6 Stage 4 — Surface Reconciliation](#36-stage-4--surface-reconciliation)
+  - [3.7 Echo Classification & Intents](#37-echo-classification--intents)
+  - [3.8 Layout Engines as Pure State Machines](#38-layout-engines-as-pure-state-machines)
+  - [3.9 The Ungated Animation Tier](#39-the-ungated-animation-tier)
+  - [3.10 Thread Safety Model](#310-thread-safety-model)
 - [4. Key Subsystems](#4-key-subsystems)
-  - [4.1 WMController — The Orchestrator](#41-wmcontroller--the-orchestrator)
-  - [4.2 Workspace & Window State](#42-workspace--window-state)
+  - [4.1 WMController — The Coordinator](#41-wmcontroller--the-coordinator)
+  - [4.2 World State: WorldStore, WorkspaceManager, WindowState](#42-world-state-worldstore-workspacemanager-windowstate)
   - [4.3 Niri Layout Engine (Scrolling Columns)](#43-niri-layout-engine-scrolling-columns)
   - [4.4 Dwindle Layout Engine (BSP)](#44-dwindle-layout-engine-bsp)
   - [4.5 Focus Lifecycle](#45-focus-lifecycle)
@@ -31,12 +35,15 @@ This document is for contributors who want to understand OmniWM's internals. It 
   - [4.7 Window Rules Engine](#47-window-rules-engine)
   - [4.8 IPC System](#48-ipc-system)
   - [4.9 Accessibility Layer](#49-accessibility-layer)
-  - [4.10 Animation System](#410-animation-system)
-  - [4.11 Border System](#411-border-system)
-  - [4.12 Additional Features](#412-additional-features)
+  - [4.10 Spaces & Native Fullscreen](#410-spaces--native-fullscreen)
+  - [4.11 Surface System](#411-surface-system)
+  - [4.12 Animation System](#412-animation-system)
+  - [4.13 Clipboard History](#413-clipboard-history)
+  - [4.14 Additional Features](#414-additional-features)
 - [5. Data Flow Diagrams](#5-data-flow-diagrams)
 - [6. Common Contribution Patterns](#6-common-contribution-patterns)
 - [7. Glossary](#7-glossary)
+- [8. Design Decisions & Terminology Changes](#8-design-decisions--terminology-changes)
 
 ---
 
@@ -44,7 +51,7 @@ This document is for contributors who want to understand OmniWM's internals. It 
 
 ### SwiftPM Targets
 
-OmniWM is built with Swift Package Manager (Swift 6.3.2, strict concurrency). There are four targets with a clear dependency graph:
+OmniWM is built with Swift Package Manager (Swift 6.3, strict concurrency, language mode v6). There are four first-party targets plus one binary target, with a clear dependency graph:
 
 ```
 OmniWMIPC          (zero dependencies — shared IPC protocol models)
@@ -65,76 +72,72 @@ OmniWMCtl      OmniWM + GhosttyKit   (CLI tool)       (main library)
 
 ### Source Directory Map
 
+The `OmniWM` library (~77K LOC) is organized by pipeline stage and subsystem:
+
 ```
 Sources/
-├── OmniWM/                          Main library (~38K LOC)
-│   ├── App/                         Application bootstrap, delegate, updater,
-│   │                                and owned-window registry (5 files)
+├── OmniWM/                          Main library
+│   ├── App/                         Bootstrap, delegate, updater, owned-window facade (5 files)
 │   ├── Core/
 │   │   ├── AppInfoCache.swift       App icon/name cache
 │   │   ├── CommandPaletteMode.swift Command palette mode enum
 │   │   ├── PrivateAPIs.swift        Private API declarations via @_silgen_name
-│   │   ├── Animation/               Spring, cubic & workspace-switch animations (6 files)
-│   │   ├── Ax/                      Accessibility wrappers, DefaultFloatingApps (10 files)
-│   │   ├── Border/                  Focused window border rendering (3 files)
-│   │   ├── Config/                  Settings store, migrations, export, per-monitor settings (16 files)
-│   │   ├── Controller/              WMController, event handlers, refresh pipeline (17 files)
-│   │   ├── Input/                   Hotkey action catalog, binding persistence,
-│   │   │                            and secure input monitoring (7 files)
+│   │   ├── Intake/                  STAGE 1 — EventIntake, EventInterpreter, FactResolver (3)
+│   │   ├── Intent/                  IntentLedger, DeadlineWheel — echo classification (2)
+│   │   ├── World/                   STAGE 2 — WorldStore, the single writer (1)
+│   │   ├── Reconcile/               Reducer, plans, snapshots, invariants, trace (12)
+│   │   ├── Workspace/               WorkspaceManager, WindowModel, WindowState (6)
+│   │   ├── Controller/              STAGE 3 — WMController, handlers, refresh pipeline (17)
+│   │   ├── Ax/                      AXManager, per-app threads, frame ledger (11)
+│   │   ├── Surface/                 STAGE 4 — SurfaceReconciler, WorldView, SurfaceScene (4)
+│   │   ├── Border/                  Border config, applier, server-side border window (3)
+│   │   ├── Spaces/                  SpaceTracker, SpaceTopology (2)
 │   │   ├── Layout/
-│   │   │   ├── DNode.swift          Shared types: WindowToken, WindowHandle
-│   │   │   ├── LayoutBoundary.swift Layout snapshots & workspace geometry
-│   │   │   ├── SideHiding.swift     Side-hiding edge types
-│   │   │   ├── Niri/                Scrolling columns layout engine (28 files)
-│   │   │   └── Dwindle/             Binary space partition layout engine (5 files)
-│   │   ├── LockScreen/              Lock screen detection (1 file)
-│   │   ├── Menu/                    Menu extraction for MenuAnywhere (3 files)
-│   │   ├── Monitor/                 Display detection, OutputId, restore assignments (5 files)
-│   │   ├── Overview/                Bird's-eye workspace overview mode (9 files)
-│   │   ├── Reconcile/               Runtime snapshot/trace, restore planning,
-│   │   │                            and persisted restore models (14 files)
-│   │   ├── Rules/                   Window rule evaluation engine (1 file)
-│   │   ├── SkyLight/                Private macOS API wrappers (2 files)
-│   │   ├── Sleep/                   Sleep prevention manager (1 file)
-│   │   ├── Support/                 Utility types & extensions (3 files)
-│   │   ├── Surface/                 Shared surface policy, hit-testing,
-│   │   │                            and capture eligibility (2 files)
-│   │   └── Workspace/               Workspace model, session state,
-│   │                                and runtime coordination (6 files)
-│   ├── IPC/                         IPC server, connections, routing (9 files)
-│   ├── QuakeTerminal/               Drop-down terminal, Ghostty integration (9 files)
-│   └── UI/                          SwiftUI settings, status bar, workspace bar,
-│                                    command palette, hidden bar, updater popup
-│                                    (34 files)
+│   │   │   ├── DNode.swift          WindowToken, WindowHandle identity types
+│   │   │   ├── LayoutBoundary.swift EffectPlan + layout snapshot/geometry types
+│   │   │   ├── LayoutTopology.swift Read-only layout structure projection
+│   │   │   ├── SideHiding.swift     Off-screen placement geometry
+│   │   │   ├── Niri/                Scrolling-columns layout engine (31 files)
+│   │   │   └── Dwindle/             Binary-partition layout engine (5 files)
+│   │   ├── Animation/               Springs, cubic easing, viewport motion, policy (7)
+│   │   ├── Config/                  SettingsStore, TOML codec, runtime state, rules (22)
+│   │   ├── Rules/                   Window rule evaluation engine (1)
+│   │   ├── Input/                   Action catalog, bindings, Carbon hotkeys (9)
+│   │   ├── Monitor/                 Display detection, OutputId, restore assignments (5)
+│   │   ├── Overview/                Expose-style workspace overview (9)
+│   │   ├── Clipboard/               Clipboard history service/store/models (3)
+│   │   ├── Menu/                    Menu extraction for Menu Anywhere (3)
+│   │   ├── SkyLight/                Private SkyLight/CGS wrappers (2)
+│   │   ├── Sleep/                   Sleep prevention manager (1)
+│   │   ├── LockScreen/              Lock screen detection (1)
+│   │   └── Support/                 Utility types & extensions (3)
+│   ├── IPC/                         IPC server, connections, routing, broker (9)
+│   ├── QuakeTerminal/               Drop-down terminal, Ghostty integration (12)
+│   └── UI/                          SwiftUI/AppKit settings, bars, palette, status (37)
 ├── OmniWMApp/                       2 files: @main entry + settings redirect
 ├── OmniWMCtl/                       7 files: CLI parser, IPC client, renderer
-└── OmniWMIPC/                       5 files: models, wire format, socket path
+└── OmniWMIPC/                       6 files: models, wire format, socket path
 ```
 
 ### External Dependencies
 
-OmniWM has **zero third-party package dependencies**. All functionality is built on:
+OmniWM has a single third-party Swift package and otherwise builds on system frameworks:
 
-- **System frameworks**: AppKit, ApplicationServices, Carbon, Metal, MetalKit, QuartzCore
-- **SkyLight**: A private Apple framework for low-latency window server access, linked via `-framework SkyLight` unsafe flag
-- **GhosttyKit**: A local binary xcframework at `Frameworks/GhosttyKit.xcframework` prepared outside git, providing terminal emulation for the Quake Terminal feature
-- **System libraries**: libz, libc++
+- **`swift-toml`** — the only third-party package; used exclusively by `Core/Config/SettingsTOMLCodec.swift` to read/write `settings.toml`. The import is deliberately confined to that one file so the dependency stays swappable.
+- **System frameworks**: AppKit, ApplicationServices, Carbon, Metal/MetalKit (Ghostty surface only), QuartzCore, ScreenCaptureKit, IOKit.pwr_mgt, os.
+- **SkyLight**: a private Apple framework for low-latency window-server access, linked via `-framework SkyLight` and additionally `dlopen`/`dlsym`-loaded for SLS* symbols.
+- **GhosttyKit**: a local binary xcframework at `Frameworks/GhosttyKit.xcframework` (prepared outside git) providing the Quake Terminal.
+- **System libraries**: libz, libc++ (required by GhosttyKit).
 
 ### Building & Running
 
 ```bash
-# Debug build
-swift build
-
-# Code quality
-make format        # Rewrite Swift formatting with SwiftFormat
-make format-check  # Verify SwiftFormat output without rewriting
-make lint          # Run SwiftLint diagnostics
-make check         # Verify formatting, lint, audit, and build
-
-# Create distributable app bundle
-./Scripts/package-app.sh release true    # Run checks, build, sign, notarize
-./Scripts/package-app.sh debug false     # Run checks, debug build only
+swift build                  # Debug build
+make format                  # Rewrite formatting with SwiftFormat
+make lint                    # Run SwiftLint
+make check                   # format-check + lint + audit + build
+make verify                  # Full gate run before any commit lands
+./Scripts/package-app.sh release true   # Checks, build, sign, notarize
 ```
 
 ---
@@ -149,130 +152,108 @@ The application starts in `Sources/OmniWMApp/OmniWMApp.swift`:
 @main OmniWMApp (SwiftUI App)
   └─ @NSApplicationDelegateAdaptor → AppDelegate
        └─ applicationDidFinishLaunching()
-            └─ bootstrapApplication()
+            └─ bootstrapApplication() → finishBootstrap()
 ```
 
-### Bootstrap Decision Tree
+### Bootstrap Decision
 
-`AppBootstrapPlanner.decision()` evaluates two preconditions before booting:
+`AppBootstrapPlanner.decision()` (`Core` → `App/AppBootstrapPlanner.swift`) is now degenerate: `AppBootstrapDecision` has a single case `.boot`, and `decision()` always returns `.boot`. The earlier first-run / settings-migration branching was removed under the clean-break purge — OmniWM has no external users and carries no migration paths.
 
-```
-                        ┌─────────────────────────┐
-                        │ AppBootstrapPlanner      │
-                        │   .decision()            │
-                        └────────┬────────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │ "Displays have separate  │
-                    │  Spaces" disabled?        │
-                    └────────┬───────────┬─────┘
-                          NO │           │ YES
-                             │           │
-              ┌──────────────┘      ┌────┴────────────┐
-              │ Show modal:         │ Settings epoch   │
-              │ .requireDisplays... │ matches?         │
-              └─────────────────┘   └──┬──────────┬───┘
-                                    NO │          │ YES
-                                       │          │
-                          ┌────────────┘     ┌────┴────┐
-                          │ Show modal:      │ .boot   │
-                          │ .requireSettings │ (normal)│
-                          │  Reset           └─────────┘
-                          └─────────────────┘
-```
+### Boot Object Graph
 
-### Normal Boot Sequence
+`AppDelegate.finishBootstrap()` (`App/AppDelegate.swift`) builds the object graph in dependency order:
 
-When the decision is `.boot`, `finishBootstrap()` runs:
+1. **`OmniWMStoragePaths.live`** — resolves on-disk locations.
+2. **`RuntimeStateStore`** — JSON store for non-settings runtime state (`runtime-state.json`).
+3. **`SettingsStore`** — `@MainActor @Observable`, loaded from `~/.config/omniwm/settings.toml`. `UserDefaults` is not used for settings; TOML is the single source of truth.
+4. **`HiddenBarController`** — menu-bar collapse/expand management.
+5. **`WMController`** — central coordinator (see [4.1](#41-wmcontroller--the-coordinator)); passed the clipboard-history directory.
+6. **`AppCLIManager`** and **`UpdateCoordinator`** — CLI exposure plus GitHub release polling/popup.
+7. **`StatusBarController`** — menu-bar UI and manual update checks.
+8. **`IPCServer`** — started only if `ipcEnabled` is set.
+9. **Automatic update checks** — started last, only after bootstrap succeeds.
 
-1. **SettingsStore** created — loads settings from UserDefaults
-2. **WMController** created — central orchestrator (see [4.1](#41-wmcontroller--the-orchestrator))
-3. **`applyPersistedSettings()`** — creates both layout engines, registers hotkeys, configures borders, workspaces, gaps, etc.
-4. **AppCLIManager** and **UpdateCoordinator** created — CLI exposure workflow plus GitHub release polling and popup coordination
-5. **AppBootstrapState** populated — shares `SettingsStore`, `WMController`, and `UpdateCoordinator` with SwiftUI redirect flows
-6. **StatusBarController** created — menu bar UI, settings entry point, and manual `Check for Updates...` action
-7. **IPCServer** started (if enabled in settings) — Unix domain socket server
-8. **Automatic update checks** started — only after bootstrap succeeds and after the status bar / IPC setup paths have completed
-
-The updater is intentionally bootstrap-gated. Release polling and popup presentation do not run during the settings-reset gate or the Displays Have Separate Spaces gate.
+`applicationWillTerminate` flushes the window-restore catalog, settings, and runtime state, then stops the IPC server.
 
 ### Service Startup
 
-`WMController.setEnabled(true)` triggers `ServiceLifecycleManager.start()`:
+`WMController.setEnabled(true)` drives `ServiceLifecycleManager.start()`:
 
-1. Polls for accessibility permissions (blocks until granted)
-2. Once trusted: `startServices()` connects all event plumbing:
-   - `LayoutRefreshController.setup()` — display links, refresh scheduling
-   - `AXEventHandler.setup()` — SkyLight event observation
-   - Hotkey registration via `HotkeyCenter`
-   - `MouseEventHandler.setup()` — CGEvent taps
-   - Display configuration observer
-   - App activation/termination/hide/unhide observers
-   - Workspace change observation
-   - Initial full rescan refresh
+1. Polls for accessibility permission (blocks until granted).
+2. Once trusted, `startServices()` connects all event plumbing:
+   - `eventIntake.open(sink: eventInterpreter)` — opens the intake buffer and wires the drain sink.
+   - `spaceTracker.start()` — begins space-topology tracking (if `spacesTrackingEnabled`).
+   - `AXEventHandler` setup — SkyLight/CGS event observation via `CGSEventObserver`.
+   - `HotkeyCenter` — Carbon hotkey registration.
+   - `MouseEventHandler` — CGEvent taps.
+   - `DisplayConfigurationObserver` — display reconfiguration.
+   - App activation/termination/hide/unhide observers and `NSWorkspace.activeSpaceDidChange` (which posts `.activeSpaceChanged` into the intake).
+   - An initial full-rescan refresh.
 
 ---
 
 ## 3. Core Mental Model
 
-### 3.1 The Event-Driven Pipeline
+### 3.1 The Four-Stage Pipeline
 
-OmniWM is fundamentally **reactive**. It responds to two categories of events, processes them through a pipeline, and applies the resulting window frames:
+OmniWM is fundamentally **reactive**. Every signal — a window appearing, a hotkey, a mouse gesture, an IPC command, a timer firing — is funnelled through one pipeline with four named stages and exactly one mutation point.
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        EVENT SOURCES                             │
-├──────────────────────────┬───────────────────────────────────────┤
-│  System Events           │  User Input                          │
-│  (SkyLight/CGS)          │  (Carbon/CGEvent)                    │
-│  - Window created        │  - Hotkey pressed                    │
-│  - Window destroyed      │  - Mouse moved/dragged              │
-│  - Frame changed         │  - Scroll wheel (gestures)          │
-│  - Front app changed     │  - IPC command (omniwmctl)          │
-│  - Title changed         │                                     │
-└──────────┬───────────────┴──────────┬───────────────────────────┘
-           │                          │
-           v                          v
-┌──────────────────┐    ┌────────────────────────┐
-│ CGSEventObserver │    │ HotkeyCenter /          │
-│                  │    │ MouseEventHandler /     │
-│                  │    │ IPCCommandRouter        │
-└────────┬─────────┘    └──────────┬─────────────┘
-         │                         │
-         v                         v
-┌──────────────────┐    ┌──────────────────┐
-│ AXEventHandler   │    │ CommandHandler   │
-│ (window lifecycle│    │ (command routing │
-│  & focus)        │    │  & execution)    │
-└────────┬─────────┘    └────────┬─────────┘
-         │                       │
-         └───────────┬───────────┘
-                     v
-         ┌───────────────────────┐
-         │LayoutRefreshController│
-         │ (scheduling,          │
-         │  coalescing,          │
-         │  debouncing)          │
-         └───────────┬───────────┘
-                     v
-         ┌───────────────────────┐
-         │ Layout Engine         │
-         │ (Niri or Dwindle)     │
-         │                       │
-         │ Input: window list,   │
-         │   workspace geometry  │
-         │ Output: [WindowToken: │
-         │   CGRect] frame map   │
-         └───────────┬───────────┘
-                     v
-         ┌───────────────────────┐
-         │ AXManager             │
-         │ .applyFramesParallel()│
-         │                       │
-         │ Writes frames to      │
-         │ windows via AX APIs   │
-         └───────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  TRANSPORTS                                                            │
+│  CGSEventObserver (SkyLight)   HotkeyCenter (Carbon)   MouseEventHandler│
+│  per-app AXObservers           IPCApplicationBridge    DeadlineWheel   │
+│  DisplayConfigurationObserver  FactResolver            ServiceLifecycle │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                 │  EventIntake.post(IntakeEvent)
+                                 v
+┌───────────────────────────────────────────────────────────────────────┐
+│  STAGE 1 — INTAKE   (Core/Intake, Core/Intent)                         │
+│  EventIntake: one lock-guarded ordered buffer, monotonic global seq,   │
+│    coalesces mouse/CGS-frame bursts, drains ONCE per cycle via         │
+│    CFRunLoopPerformBlock on the main run loop.                         │
+│  EventInterpreter: the drain sink — a pure switch that DISPATCHES each │
+│    stamped event to the owning WMController sub-handler.               │
+│  IntentLedger: classifies AX focus echoes (echoOf / lateEcho /        │
+│    external) so our own actions aren't mistaken for the user's.       │
+│  FactResolver: gathers one off-main fact (activation focus) and        │
+│    re-enters the intake.                                              │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                 │  WorkspaceManager.recordReconcileEvent(WMEvent)
+                                 v
+┌───────────────────────────────────────────────────────────────────────┐
+│  STAGE 2 — WORLD   (Core/World, Core/Reconcile, Core/Workspace)        │
+│  WorldStore.commit(WMEvent): the SINGLE synchronous writer.           │
+│    EventNormalizer → StateReducer (pure) → resolve → InvariantChecks. │
+│    Owns WindowModel, focus, viewports, monitor sessions, space        │
+│    topology, and BOTH layout engines — all private; seq is bumped.    │
+│    Output: an ActionPlan (state deltas).                              │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                 │  requestRelayout(reason:) / EffectPlan
+                                 v
+┌───────────────────────────────────────────────────────────────────────┐
+│  STAGE 3 — EFFECTOR   (Core/Controller, Core/Ax, Core/Layout)         │
+│  LayoutRefreshController: schedules/coalesces refreshes, drives the    │
+│    engines under a build scope to build an EffectPlan, drops stale    │
+│    plans via seq/InvalidationMarks, executes frame diffs.            │
+│  AXManager → AppAXContext: writes CGRects on per-app run-loop threads.│
+│  AXFrameApplicationLedger: dedup / verify / retry / learn quantum.   │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                 │  noteWorldChanged()
+                                 v
+┌───────────────────────────────────────────────────────────────────────┐
+│  STAGE 4 — SURFACE   (Core/Surface, Core/Border)                      │
+│  SurfaceReconciler: derives every auxiliary surface (focus border,    │
+│    workspace bars, tab rails, native-fullscreen placeholders) from a  │
+│    read-only WorldView facade, diffs against the applied scene, and   │
+│    applies only what changed.                                        │
+└───────────────────────────────────────────────────────────────────────┘
 ```
+
+Two properties are load-bearing:
+
+- **One buffer, one drain, one writer.** All transports enqueue into a single `EventIntake` buffer that drains once per main-run-loop cycle in seq order; all state mutation flows through `WorldStore.commit`. Sub-handlers never mutate world state directly.
+- **The interpreter dispatches; it does not classify or commit.** `EventInterpreter` is a pure switch that routes each `IntakeEvent` to a `WMController` sub-handler. Echo classification lives in `IntentLedger`; commits happen in `WorldStore` reached via `WorkspaceManager.recordReconcileEvent`.
 
 ### 3.2 Window Identity
 
@@ -280,215 +261,242 @@ Windows are identified at three levels, each serving a different purpose:
 
 ```swift
 // 1. WindowToken — value type, used as dictionary keys everywhere
+//    Core/Layout/DNode.swift
 struct WindowToken: Hashable, Sendable {
     let pid: pid_t       // Process ID
     let windowId: Int    // SkyLight/CGS window ID
 }
 
 // 2. WindowHandle — reference type, identity-compared (===)
+//    Core/Layout/DNode.swift
 final class WindowHandle: Hashable {
-    var id: WindowToken
+    var id: WindowToken              // re-pointed on rekey
     // hash/equality use ObjectIdentifier (reference identity)
 }
 
 // 3. AXWindowRef — accessibility bridge to the actual window
+//    Core/Ax/AXWindow.swift
 struct AXWindowRef: Hashable, @unchecked Sendable {
     let element: AXUIElement   // Accessibility handle for read/write
-    let windowId: Int          // SkyLight window ID
+    let windowId: Int          // equality/hash by windowId only
 }
 ```
 
 **Why three layers?**
-- `WindowToken` is a lightweight value type that survives across relayouts, is `Sendable`, and works as a dictionary key without holding any reference to the accessibility system.
-- `WindowHandle` provides reference identity for layout engine tree nodes — two handles wrapping the same token are NOT equal unless they are the same object.
-- `AXWindowRef` is the bridge to macOS accessibility APIs for actually reading/writing window attributes (position, size, title). It holds the `AXUIElement` which is a heavyweight system resource.
+
+- `WindowToken` is a lightweight `Sendable` value type that survives relayouts and works as a dictionary key without holding any AX resource. When an app destroys and recreates a window, `WindowModel.rekeyWindow` re-points everything from the old token to the new one so identity is preserved.
+- `WindowHandle` provides reference identity for layout-tree holders; it is re-pointed during rekey so a holder keeps a stable handle even as the token changes. (Its legacy `init(id:pid:axElement:)` still exists but the `pid`/`axElement` arguments are ignored — the handle no longer carries a live AX element.)
+- `AXWindowRef` is the bridge to the macOS Accessibility APIs and holds the heavyweight `AXUIElement`. It is stored on `WindowState.axRef`.
 
 ### 3.3 Window Lifecycle
 
-From creation to destruction, a window passes through these stages:
+**Creation** (see the full trace in [5.2](#52-external-window-event-flow)):
 
-**Creation:**
-1. `CGSEventObserver` receives `.created(windowId, spaceId)` from SkyLight
-2. `AXEventHandler` queries window attributes via accessibility APIs (role, subrole, title, size, buttons)
-3. `WindowRuleEngine.evaluate()` produces a `WindowDecision`:
-   - `.managed` — tiled in the layout engine
-   - `.floating` — tracked but positioned independently
-   - `.unmanaged` — ignored entirely (e.g., system UI, panels)
-4. If tracked: `WindowModel` creates an `Entry`, layout engine inserts a node
-5. `LayoutRefreshController` schedules a refresh to compute and apply frames
+1. `CGSEventObserver` receives `.created(windowId, spaceId)` from SkyLight and posts `.cgs(...)` into `EventIntake`.
+2. After the drain, `EventInterpreter` routes it to `AXEventHandler.handleCGSEvent` → `handleCGSWindowCreated` → `processCreatedWindow` → `trackPreparedCreate`, which reads AX attributes and runs the rules.
+3. `WindowRuleEngine.decision(facts)` produces a `WindowDecision` (`.managed` / `.floating` / `.unmanaged` / deferral).
+4. If tracked, `WorkspaceManager.addWindow` calls `recordReconcileEvent(.windowAdmitted(...))`, which commits the event through `WorldStore`. The commit `upsert`s the window into the private `WindowModel`, reduces to an `ActionPlan`, and runs invariants.
+5. `AXEventHandler` then calls `layoutRefreshController.requestRelayout(reason: .axWindowCreated, ...)` to schedule the effector.
 
 **Destruction:**
-1. `CGSEventObserver` receives `.destroyed(windowId, spaceId)`
-2. `WindowModel` removes the entry
-3. Layout engine removes the node from its tree
-4. `LayoutRefreshController` schedules a `windowRemoval` refresh
-5. Focus recovery runs if the destroyed window was focused
+
+1. `CGSEventObserver` / per-app AX observer reports the window gone; the event drains to `AXEventHandler`.
+2. A `.windowRemoved` commit removes the entry from `WindowModel` and the engine node.
+3. `requestRelayout` (route `windowRemoval`) re-lays out and runs focus recovery if the destroyed window was focused.
 
 **Managed Replacement:**
-Some apps (Ghostty, Safari, browsers) destroy and recreate windows during internal operations. `AXEventHandler` detects these patterns via `ManagedReplacementMetadata` correlation — matching a destroy+create pair within a 150ms grace period to preserve the window's workspace assignment and position.
 
-### 3.4 The Refresh Pipeline
+Some apps (Ghostty, browsers) destroy and recreate windows during internal operations. `AXEventHandler` correlates a destroy+create pair via `ManagedReplacementMetadata` and emits a `.windowRekeyed` event so the new window inherits the old one's workspace, mode, and position instead of being admitted fresh.
 
-`LayoutRefreshController` is the central coordination point between events and window frame application. It manages scheduling, debouncing, and coalescing of layout refreshes.
+### 3.4 Stage 2 — WorldStore, the Single Writer
 
-**Five Refresh Routes:**
+`WorldStore` (`Core/World/WorldStore.swift`) is the heart of the architecture: the **only** path that mutates window-manager state. It is `@MainActor` and owns, as private properties, everything that constitutes the "world":
 
-| Route | When Used | What It Does |
-|-------|-----------|--------------|
-| `fullRescan` | Startup, app launch/termination, space change, display change | Full window enumeration + relayout |
-| `relayout` | Config change, window created, window frame changed | Recompute layout from current state |
-| `immediateRelayout` | User commands, gestures, workspace switch | Synchronous immediate layout |
-| `visibilityRefresh` | App hidden/unhidden | Show/hide windows, no relayout |
-| `windowRemoval` | Window destroyed | Remove from layout + relayout + focus recovery |
-
-**RefreshReason → Route Mapping:**
-
-Each `RefreshReason` maps to a route and a scheduling policy:
-
-```
-RefreshReason              → Route              → Scheduling
-────────────────────────────────────────────────────────────
-.startup                   → fullRescan          → plain
-.appLaunched               → fullRescan          → plain
-.activeSpaceChanged        → fullRescan          → plain
-.layoutCommand             → immediateRelayout   → plain
-.interactiveGesture        → immediateRelayout   → plain
-.workspaceTransition       → immediateRelayout   → plain
-.axWindowCreated           → relayout            → debounced(4ms)
-.axWindowChanged           → relayout            → debounced(8ms, dropWhileBusy)
-.windowDestroyed           → windowRemoval       → plain
-.appHidden / .appUnhidden  → visibilityRefresh   → plain
+```swift
+@MainActor final class WorldStore {
+    private let model = WindowModel()              // per-window registry (private!)
+    private(set) var seq: UInt64 = 0               // monotonic mutation counter
+    private(set) var focus = FocusSessionSnapshot()
+    private(set) var viewports: [WorkspaceDescriptor.ID: ViewportState] = [:]
+    private(set) var scratchpadToken: WindowToken?
+    private(set) var monitorSessions: [Monitor.ID: MonitorSession] = [:]
+    private(set) var spaceTopology = SpaceTopology()
+    private(set) var niriEngine: NiriLayoutEngine?      // layout engines are
+    private(set) var dwindleEngine: DwindleLayoutEngine? //   PRIVATE to the world
+    // ... InvalidationMarks bookkeeping
+}
 ```
 
-**Coalescing:** If a refresh is already in progress, incoming requests are merged into a `pendingRefresh`. When the active refresh completes, the pending refresh fires. This prevents redundant layout calculations during bursts of events.
+**The commit pipeline.** `commit(_:monitors:snapshot:resolvePlan:)` is **synchronous**. Each call:
 
-**DisplayLink Integration:** When animations are active (spring-based viewport scrolling, workspace switch effects), a `CADisplayLink` per display fires at the native refresh rate, driving per-frame layout recalculation.
+1. Bumps `seq` (`seq &+= 1`).
+2. Applies the window mutation in the `.beforePlan` phase (e.g. `model.upsert`).
+3. Runs `EventNormalizer.normalize` (fills missing monitor/workspace/from fields from the existing entry).
+4. Runs `StateReducer.reduce(event:existingEntry:currentSnapshot:monitors:)` — a **pure** function — to produce an `ActionPlan`.
+5. Lets the caller resolve/augment the plan (`resolvePlan`), then applies any `.afterPlan` mutation.
+6. Runs `InvariantChecks.validate(snapshot:)` on the committed snapshot.
+7. Records a `ReconcileTxn` into the private `ReconcileTraceRecorder` (a bounded 256-entry ring exposed via IPC for debugging).
 
-### 3.5 Layout Engines as Pure State Machines
+**Reads vs. writes.** `WorldStore` exposes a large read-accessor surface (`entry(for:)`, `windows(in:)`, `focus`, …) that delegates to the private `WindowModel`. Every *mutator* is guarded by `assertInCommit` (`commitDepth > 0`), so nothing can mutate the world outside a commit.
 
-Both layout engines follow the same contract:
+**Engine mutation sanction.** The two layout engines are private to the world. They may only be mutated when `isEngineMutationSanctioned` is true — i.e. inside `commit` *or* inside `withEngineBuildScope { … }`. The build scope exists because plan-building (Stage 3) must call into the engines (`syncWindows`/`removeWindows`/`restoreInitialPlacements`) without that being a state commit. The build scope sets each engine's `isMutationSanctioned` flag and the engines assert on any out-of-scope mutation.
 
-1. They own their own **tree data structures** (columns/windows for Niri, BSP nodes for Dwindle)
-2. They receive workspace geometry and gap configuration as input
-3. They produce a `[WindowToken: CGRect]` frame dictionary as output
-4. They **never touch windows directly** — no accessibility calls, no frame writes
+**Staleness machinery (`InvalidationMarks`).** Because plan-building is asynchronous (Stage 3 `await`s between workspaces), a plan can be built against a world that a newer commit has already moved past. `WorldStore` tracks per-domain seq watermarks (`workspace` / `layout` / `focus` / `fullscreen`) via `noteInvalidation(...)`. The effector stamps each plan with a `plannedSeq` and calls `isSeqCurrent(plannedSeq, for:domains:)` before applying; a plan built before a relevant mutation is dropped rather than applied stale.
 
-This separation keeps layout logic independent of macOS UI and accessibility infrastructure. The `LayoutRefreshController` feeds workspace snapshots to the active engine and collects frame outputs, then `AXManager.applyFramesParallel()` writes the frames to actual windows.
+**Invariants — `.trace` vs `.assert`.** `InvariantChecks.validate` returns violations carrying a `Severity`. Most invariants default to `.assert`, which triggers an `assertionFailure` in debug builds (e.g. `duplicate_window_token`, `focused_token_missing`, the observed/desired/restore workspace-mismatch checks). Exactly three checks are intentionally softened to `.trace` (log-only): `layout_token_missing`, `layout_token_wrong_workspace`, and `selection_unresolved`. These three describe the one-cycle window where the engine tree can briefly lag `WindowModel` because plan-building runs outside commit — see [§8](#8-design-decisions--terminology-changes) for why closing that window is deferred.
 
-### 3.6 Thread Safety Model
+### 3.5 Stage 3 — The Effector & Refresh Pipeline
 
-**`@MainActor` everywhere.** Nearly all code in OmniWM runs on the main thread, including:
-- All UI code (AppKit, SwiftUI)
-- All accessibility API calls
-- All layout computation
-- All event handling
+`LayoutRefreshController` (`Core/Controller/LayoutRefreshController.swift`) is the effector: it turns world state into actual window frames.
 
-**Exceptions:**
-- **Per-app AX threads**: `AppAXContext` runs a dedicated thread per application for accessibility observer callbacks. These callbacks post back to the main actor.
-- **IPC actors**: `IPCApplicationBridge` and `IPCEventBroker` are Swift actors handling concurrent client connections. They dispatch to `@MainActor` for any window management operations.
-- **Lock-based Sendable types**: `CGSEventObserver` uses `OSAllocatedUnfairLock` for the pending event buffer that bridges between the SkyLight callback thread and the main thread.
+**Scheduling.** It owns a single-slot scheduler (`activeRefresh` + `pendingRefresh`): if a refresh is in flight, incoming requests merge into the pending slot and fire when the active one completes. Each `RefreshReason` (`Core/Controller/RefreshReason.swift`, ~27 cases) maps to a `RefreshRequestRoute` and a per-reason debounce policy.
+
+> **Two route enums.** `RefreshReason.RefreshRequestRoute` has five cases including `fullRescan`. `LayoutRefreshController.RefreshRoute` is a distinct four-case enum used internally for execution (no `fullRescan`). They are not the same type.
+
+| Route | When | What it does |
+|-------|------|--------------|
+| `fullRescan` | Startup, app launch/terminate, space change, display change | Full enumeration + relayout |
+| `relayout` | Config change, window created, frame changed | Recompute from current state (debounced) |
+| `immediateRelayout` | Commands, gestures, workspace switch | Synchronous relayout |
+| `visibilityRefresh` | App hidden/unhidden | Show/hide only |
+| `windowRemoval` | Window destroyed | Remove + relayout + focus recovery |
+
+**Plan-building is async.** `buildRelayoutEffectPlan` `await`s `NiriLayoutHandler.layoutWithNiriEngine` (and the Dwindle equivalent), which run `syncWindows`/`removeWindows`/`restoreInitialPlacements` on the engines inside `workspaceManager.withEngineBuildScope`. It is async because it `Task.yield`s and `checkCancellation`s between workspaces so a newer event can pre-empt a long layout pass. The layout engines return raw `[WindowToken: CGRect]` frame maps; the handlers wrap those into a `WorkspaceLayoutPlan` → `WorkspaceLayoutDiff` → `EffectPlan` (`Core/Layout/LayoutBoundary.swift`).
+
+**Frame application.** `executeEffectPlan` hands each plan's diff to `LayoutDiffExecutor`, which calls `AXManager.applyFramesParallel`. After an accepted layout plan it calls `surfaceReconciler.noteWorldChanged()` to hand off to Stage 4.
+
+### 3.6 Stage 4 — Surface Reconciliation
+
+Auxiliary UI — the focus border, per-monitor workspace bars, tabbed-column rails, and native-fullscreen placeholder panels — is no longer pushed ad hoc by individual managers. `SurfaceReconciler` (`Core/Surface/SurfaceReconciler.swift`) derives all of it in one place:
+
+1. State-mutating paths call `surfaceReconciler.noteWorldChanged()` (or `noteRestackOccurred()`). These are coalesced into a single `CFRunLoopPerformBlock` drain on the main run loop.
+2. On drain, `runReconcile` builds a fresh `WorldView` (a read-only facade over the world), and `SurfaceDerivation.derive` produces a `DesiredSurfaceScene` (optional border, tab rails, placeholders, bars).
+3. The desired scene is diffed (by value equality) against the last applied scene; only changed surfaces are touched, routed to `BorderSurfaceApplier`, `WorkspaceBarManager.apply(_:)`, `TabbedColumnOverlayManager`, and `NativeFullscreenPlaceholderManager`.
+
+The reconciler is *not* called from inside `WorldStore.commit`; it reads current state at drain time through a freshly constructed `WorldView`, not a captured commit snapshot.
+
+### 3.7 Echo Classification & Intents
+
+When OmniWM activates an app or focuses a window, macOS emits an AX focus-changed event — an *echo* of our own action. Without bookkeeping, the system can't tell that echo apart from the user genuinely clicking another window. The Intent subsystem (`Core/Intent/`) solves this.
+
+- **`IntentLedger`** is a `@MainActor` ring buffer (capacity 256) of `Intent` records. `IntentKind` has exactly five cases: `activateApp`, `focusPolicyLease`, `focusWindow`, `replacementFocus`, `sameAppCloseProbe`. Each record carries the global intake `seq` at issue time, a lifecycle `phase` (`pending`/`confirmed`/`superseded`/`expired`/`cancelled`), and retry state.
+- **`classifyFocusObservation(token:)`** returns an `EchoClassification`: `.echoOf(intent)` when an open intent targets the token, `.lateEcho(intent)` when a recently-retired intent (within a 1-second window) matches, otherwise `.external`. The consumer is `AXEventHandler`, which treats `.echoOf`/`.lateEcho` as confirmation of our pending request and only processes `.external` as a genuine user focus change.
+- **`DeadlineWheel`** is a main-actor timing wheel keyed by `IntentID`: it arms a single `Task` that sleeps until the nearest deadline, then posts `.intentExpired(intentId:)` back into `EventIntake` (it does not fire callbacks). `AXEventHandler.handleIntentExpired` decides what to do — e.g. a still-active `focusWindow` intent drives a focus *retry* rather than expiring. Activation-settle deadlines are 100ms. The `DeadlineWheel` serves focus/activation/lease intents only; AX frame-write retries are a separate mechanism (see [4.9](#49-accessibility-layer)).
+- **`FactResolver`** gathers the one fact that can't be read on the main actor cheaply: the focused window of an activating app. It reads `kAXFocusedWindow` (+ fullscreen flag) off-main on the app's AX thread, then re-enters the pipeline via `EventIntake.post(.activationFactsResolved(...))`.
+
+### 3.8 Layout Engines as Pure State Machines
+
+Both engines follow the same contract:
+
+1. They own their own **tree state** — per-workspace `NiriRoot` trees for Niri, per-workspace `DwindleNode` trees for Dwindle.
+2. They are **owned privately by `WorldStore`** and may only be mutated under commit/build-scope sanction.
+3. Given a workspace's snapshot, monitor geometry, gaps, and (for Niri) a `ViewportState`, they compute a `[WindowToken: CGRect]` frame map.
+4. They **never touch windows** — no AX calls, no frame writes, no `@Observable`, no actor isolation. They are plain `final class` types that run on the main actor only because their owner does.
+
+The Controller-layer handlers (`NiriLayoutHandler`/`DwindleLayoutHandler`) translate the engines' frame maps into `EffectPlan`s; the engines themselves never build an `EffectPlan`. Note that `ViewportState` is stored in `WorldStore.viewports`, not inside the Niri engine — the engine receives it as a call parameter.
+
+### 3.9 The Ungated Animation Tier
+
+There is one deliberate exception to "all mutation goes through commit": **per-frame animation**.
+
+`LayoutRefreshController` owns a `CADisplayLink` per display (via `NSScreen.displayLink(target:selector:)`). On each tick (`displayLinkFired`, at `displayLink.targetTimestamp`) it fans out to `NiriLayoutHandler.tickScrollAnimation`, the Dwindle tick, closing animations, and `surfaceReconciler.reconcileAnimationTick`. These ticks advance spring/gesture math and push interpolated frames to AX **outside `WorldStore.commit`** — committing 60–120 times per second would be both wasteful and impossible (commit is synchronous and seq-bumping). The committed `ViewportState` offset is the *anchor*; the animation adds a transient delta on top. When motion settles, the handler finalizes and stops the display link.
+
+`AnimationDriver` (`Core/Animation/`) owns only the per-workspace viewport scroll motion (gesture or spring). Per-window and per-column animations live inside `NiriLayoutEngine` (`tickAllWindowAnimations`/`tickAllColumnAnimations`); Dwindle node animations use `CubicAnimation`.
+
+### 3.10 Thread Safety Model
+
+**`@MainActor` is the default.** Nearly everything — UI, event handling, layout computation, the world, the reconciler — runs on the main actor.
+
+**Exceptions, all explicitly bounded:**
+
+- **Per-app AX threads.** `AppAXContext` runs a dedicated `NSThread` + `CFRunLoop` per application. All `AXUIElement` reads/writes for that app happen there. State pinned to the thread is wrapped in `ThreadGuardedValue` and checked against a `@TaskLocal appThreadToken` (a `precondition` in debug). The bridge back to the main actor is `Thread.runInLoop` (async/await + `CheckedContinuation`, 2-second timeout).
+- **The intake buffer.** `EventIntake` holds its buffer in a `nonisolated OSAllocatedUnfairLock`, so `EventIntake.post(...)` is callable from any transport thread; the drain re-enters the main actor via `CFRunLoopPerformBlock` + `MainActor.assumeIsolated`.
+- **IPC actors.** `IPCApplicationBridge`, `IPCConnection`, `IPCEventBroker`, and `IPCConnectionRegistry` are Swift actors; they hop to `@MainActor` for any window-management work.
+- **Clipboard store.** `ClipboardHistoryStore` is a Swift actor; pasteboard reads happen on a utility `DispatchQueue`.
 
 ---
 
 ## 4. Key Subsystems
 
-### 4.1 WMController — The Orchestrator
+### 4.1 WMController — The Coordinator
 
 **File:** `Sources/OmniWM/Core/Controller/WMController.swift`
 
-`WMController` is the central object that owns or references every major subsystem. It does NOT contain business logic itself — it delegates to specialized handlers.
+`WMController` is a `@MainActor @Observable` coordinator. After the redesign it owns the *plumbing* and the *handlers*, but **not** the window-manager state — that lives behind `WorkspaceManager` → `WorldStore`. Its job is wiring callbacks, applying settings, resolving workspace placement for new windows, and being the host object every lazy sub-handler captures as `controller: self`.
 
-**Handler constellation** (all lazy-initialized, all hold `weak var controller: WMController?`):
+**Pipeline objects it owns:** `eventIntake`, `eventInterpreter`, `factResolver`, `intentLedger`, `deadlineWheel`, `spaceTracker`, `surfaceReconciler`.
+
+**Sub-handlers it owns:**
 
 | Handler | Responsibility |
 |---------|---------------|
-| `commandHandler` | Routes `HotkeyCommand` cases to appropriate handler methods |
-| `axEventHandler` | Processes window create/destroy events, manages replacement correlation |
-| `mouseEventHandler` | CGEvent tap for mouse events, gestures, focus-follows-mouse |
-| `mouseWarpHandler` | Warps cursor to focused window when configured |
-| `layoutRefreshController` | Refresh scheduling, DisplayLink animation, frame application |
-| `workspaceNavigationHandler` | Workspace switching, window-to-workspace moves |
-| `windowActionHandler` | Window close, fullscreen toggle, float toggle |
-| `serviceLifecycleManager` | App lifecycle, observer setup, permission polling |
-| `borderCoordinator` | Orchestrates border updates after layout/focus changes |
-| `focusNotificationDispatcher` | Publishes focus change events to IPC subscribers |
+| `axEventHandler` | CGS/AX events → admissions, focus confirm/retry, native-fullscreen detection |
+| `commandHandler` | Routes `HotkeyCommand` to layout/workspace calls; enforces the layout-compatibility guard |
+| `mouseEventHandler` / `mouseWarpHandler` | CGEvent tap, focus-follows-mouse, gestures; cursor warp |
+| `workspaceNavigationHandler` | Workspace switch / window-to-workspace moves |
+| `windowActionHandler` | Close, fullscreen, float toggle |
+| `serviceLifecycleManager` | Observer setup, permission polling, service start/stop |
+| `layoutRefreshController` | Refresh scheduling, the display-link loop, frame application (owns `niriLayoutHandler`/`dwindleLayoutHandler`) |
+| `focusNotificationDispatcher` | Publishes focus-change events to IPC subscribers |
 
-**Core managers** (owned directly):
+**Core managers it owns directly:** `settings: SettingsStore`, `workspaceManager: WorkspaceManager`, `axManager: AXManager`, `windowRuleEngine: WindowRuleEngine`, `hotkeys: HotkeyCenter`, `motionPolicy: MotionPolicy`, `animationClock: AnimationClock`, plus surface managers (`workspaceBarManager`, `nativeFullscreenPlaceholderManager`) and feature controllers (overview, quake, clipboard).
 
-| Manager | Purpose |
-|---------|---------|
-| `settings: SettingsStore` | Persisted user configuration |
-| `workspaceManager: WorkspaceManager` | Workspace definitions, window tracking, session state |
-| `axManager: AXManager` | Per-app accessibility contexts, frame application |
-| `focusBridge: FocusBridgeCoordinator` | Focus state machine with retry logic |
-| `windowRuleEngine: WindowRuleEngine` | Window rule evaluation |
-| `hotkeys: HotkeyCenter` | Global hotkey registration via Carbon |
-| `borderManager: BorderManager` | Focus border window management |
-| `niriEngine: NiriLayoutEngine?` | Niri layout state (nil if not in use) |
-| `dwindleEngine: DwindleLayoutEngine?` | Dwindle layout state (nil if not in use) |
-| `animationClock: AnimationClock` | Monotonic time source for animations |
+> The layout engines are **not** owned by `WMController`. `WMController.niriEngine`/`dwindleEngine` are pass-through accessors that ultimately reach `WorldStore`'s private engines.
 
-### 4.2 Workspace & Window State
+### 4.2 World State: WorldStore, WorkspaceManager, WindowState
 
-**WorkspaceManager** (`Sources/OmniWM/Core/Workspace/WorkspaceManager.swift`)
-
-Owns workspace definitions, the window model, session state, monitor tracking, and the reconcile runtime used for debugging and relaunch restore behavior.
+**`WorkspaceManager`** (`Core/Workspace/WorkspaceManager.swift`) is the authoritative state facade. It owns the only `WorldStore` instance (`private let world = WorldStore()`), the workspace descriptors (`workspacesById` / `workspaceIdByName`), the monitor list, gaps, the native-fullscreen record store, and the persisted-restore catalog. It exposes the commit entry point and a large derived-read surface, and emits `onSessionStateChanged` / `onRuntimeInvalidation` / `onGapsChanged`.
 
 ```
 WorkspaceManager
-├── monitors: [Monitor]                     Display geometry
-├── workspacesById: [ID: WorkspaceDescriptor]   Workspace names & monitor assignments
-├── windows: WindowModel                    All tracked windows
-├── reconcileTrace / runtimeStore           Replayed runtime snapshot and trace state
-├── restorePlanner                          Restore and rescue planning
-├── bootPersistedWindowRestoreCatalog       Relaunch restore intents loaded from settings
-├── session: SessionState                   Ephemeral runtime state
-│   ├── monitorSessions: [MonitorID: MonitorSession]
-│   │   ├── visibleWorkspaceId
-│   │   └── previousVisibleWorkspaceId
-│   ├── workspaceSessions: [WorkspaceID: WorkspaceSession]
-│   │   └── niriViewportState: ViewportState?
-│   ├── focus: FocusSession
-│   │   ├── focusedToken: WindowToken?
-│   │   ├── pendingManagedFocus
-│   │   ├── lastTiledFocusedByWorkspace
-│   │   ├── lastFloatingFocusedByWorkspace
-│   │   ├── isNonManagedFocusActive
-│   │   └── isAppFullscreenActive
-│   ├── scratchpadToken: WindowToken?
-│   └── interactionMonitorId: Monitor.ID?
-└── nativeFullscreenRecords                 Fullscreen transition tracking
+├── workspacesById / workspaceIdByName          Workspace descriptors (id = UUID)
+├── monitors + indexes, gaps / outerGaps
+├── nativeFullscreenRecordsByOriginalToken      Native-fullscreen records
+├── bootPersistedWindowRestoreCatalog           Relaunch restore intent
+└── world: WorldStore  (private)                THE single writer
+    ├── model: WindowModel  (private)           [WindowToken: WindowState]
+    ├── focus: FocusSessionSnapshot             focused token, pending managed focus, …
+    ├── viewports: [WorkspaceID: ViewportState] Niri scroll/selection per workspace
+    ├── monitorSessions: [MonitorID: MonitorSession]   visible workspace per monitor
+    ├── scratchpadToken: WindowToken?
+    ├── spaceTopology: SpaceTopology
+    └── niriEngine / dwindleEngine  (private)   layout trees, mutation-gated
 ```
 
-Post-`v0.4.5`, `WorkspaceManager` also owns the reconcile runtime. `RuntimeStore` and `ReconcileTraceRecorder` capture normalized window-management events into a replayable snapshot, exposed through `reconcileSnapshotDump()` and `reconcileTraceDump()` for IPC diagnostics. `PersistedWindowRestoreCatalog` stores relaunch restore intent such as workspace target, preferred monitor, and floating geometry so managed floating windows can be restored or rescued across launches.
+**`WorldStore.commit` is the only mutation path**, entered through `WorkspaceManager.recordReconcileEvent(_ event: WMEvent)` (which supplies the snapshot/resolve closures and writes the resolved `ActionPlan` back through the in-commit mutators).
 
-**WindowModel** (`Sources/OmniWM/Core/Workspace/WindowModel.swift`)
+**`WindowModel`** (`Core/Workspace/WindowModel.swift`) is a reference-type per-window registry — but it is now **private to `WorldStore`**, not a shared source of truth. It stores one `WindowState` per `WindowToken` plus reverse indexes (`windowIdToToken`, `tokensByWorkspace`, `tokensByWorkspaceMode`, `tokensByPid`), constraint/min-size caches, and missing-detection counters.
 
-The single source of truth for all tracked windows. Each `Entry` contains:
+**`WindowState`** (`Core/Workspace/WindowState.swift`) is the per-window record — a `struct` (the old nested `WindowModel.Entry` is gone):
 
 ```swift
-struct Entry {
-    let handle: WindowHandle
+struct WindowState: Equatable {
+    let token: WindowToken
     let axRef: AXWindowRef
     var workspaceId: WorkspaceDescriptor.ID
-    var mode: TrackedWindowMode          // .tiling or .floating
-    var ruleEffects: ManagedWindowRuleEffects
-    var floatingState: FloatingState?    // Last frame, normalized position
-    var hiddenReason: HiddenReason?      // .workspaceInactive, .layoutTransient, .scratchpad
+    var mode: TrackedWindowMode                 // .tiling or .floating
+    var lifecyclePhase: WindowLifecyclePhase
+    var observedState: ObservedWindowState
+    var desiredState: DesiredWindowState
+    var restoreIntent: RestoreIntent?
+    var replacementCorrelation: ReplacementCorrelation?
+    var managedReplacementMetadata: ManagedReplacementMetadata?
+    var floatingState: FloatingState?
     var manualLayoutOverride: ManualWindowOverride?
-    // ... constraints, parent kind, layout reason
+    var ruleEffects: ManagedWindowRuleEffects
+    var hiddenState: HiddenState?
+    var layoutReason: LayoutReason
+    // pid / windowId are derived from token
 }
 ```
 
-Entries are indexed by both `WindowToken` and raw `windowId` for fast lookup from different event sources.
+The focus session (`FocusSessionSnapshot`) and per-monitor visible-workspace state (`MonitorSession`) are value types defined in `Core/Reconcile/ReconcileSnapshot.swift` and held on `WorldStore`. There is no single `SessionState` type.
 
 ### 4.3 Niri Layout Engine (Scrolling Columns)
 
-**Directory:** `Sources/OmniWM/Core/Layout/Niri/`
+**Directory:** `Sources/OmniWM/Core/Layout/Niri/` (~31 files)
 
 Niri arranges windows in vertical columns that scroll horizontally, inspired by the [Niri](https://github.com/YaLTeR/niri) Wayland compositor.
-
-**Node Tree:**
 
 ```
 NiriRoot (per workspace)
@@ -502,143 +510,93 @@ NiriRoot (per workspace)
     └── NiriWindow (window E)    ← hidden tab
 ```
 
-All three types inherit from `NiriNode` (base class with `id: NodeId`, `parent`, `children`, `size`, `frame`).
-
-**Key types:**
-
 | Type | Purpose |
 |------|---------|
-| `NiriRoot` | Per-workspace container. Owns column list and node index. |
-| `NiriContainer` | A column. Has `displayMode` (`.normal` or `.tabbed`), `width: ProportionalSize`, `activeTileIdx`. |
-| `NiriWindow` | Leaf node. Has `token: WindowToken`, `height: WeightedSize`, `constraints`. |
-| `ProportionalSize` | `.proportion(CGFloat)` or `.fixed(CGFloat)` — column width relative to monitor |
-| `WeightedSize` | `.auto(weight:)` or `.fixed(CGFloat)` — window height within column |
-| `ViewportState` | Horizontal scroll offset: `.static`, `.gesture(ViewGesture)`, or `.spring(SpringAnimation)` |
-| `NodeId` | UUID-based identifier for tree nodes |
+| `NiriLayoutEngine` | Owns per-workspace `roots`, per-monitor `NiriMonitor` state, `tokenToNode` index, axis-solve cache, config. |
+| `NiriRoot` | Per-workspace container; cached columns / all-windows / id set. |
+| `NiriContainer` | A column: `displayMode` (`.normal`/`.tabbed`), `width: ProportionalSize`, `activeTileIdx`, width/move springs. |
+| `NiriWindow` | Leaf: `token`, `SizingMode` (`.normal`/`.maximized`/`.fullscreen`), `height: WeightedSize`, constraints, move animations. |
+| `ProportionalSize` | `.proportion(CGFloat)` or `.fixed(CGFloat)` — column width. |
+| `WeightedSize` | `.auto(weight:)` or `.fixed(CGFloat)` — window height within a column. |
+| `ViewportState` | Per-workspace scroll/selection snapshot. **Stored in `WorldStore.viewports`**, passed into `calculateLayout`. |
 
-**Column width presets** cycle through configurable proportions (default: 1/3, 1/2, 2/3). Full-width mode expands a column to fill the monitor.
+**Layout computation** lives in `NiriLayout.swift` (`calculateLayout(...) -> [WindowToken: CGRect]`). **Constraint solving** is `NiriAxisSolver` in `NiriConstraintSolver.swift` — a pure 1-D solver distributing span across weighted windows while honoring min/max/fixed constraints, memoized in the engine's axis-solve cache.
 
-**Viewport scrolling:** The viewport tracks which columns are visible. User gestures (trackpad swipe) drive the viewport via `ViewGesture` → `SwipeTracker`, which accumulates deltas and produces spring animations that snap to column boundaries.
+**File organization.** The core engine is split across `NiriLayoutEngine.swift` plus twelve `NiriLayoutEngine+*.swift` extensions (`+Animation`, `+ColumnOps`, `+Monitors`, `+Sizing`, `+TabbedMode`, `+WindowOps`, `+Windows`, `+WorkspaceOps`, `+InteractiveMove`, `+InteractiveResize`, …), with navigation in `NiriNavigation.swift`, the node tree in `NiriNode.swift`, viewport math in `ViewportState.swift` (+4 extensions), and overlays for interactive move/resize, tabbed columns, drag ghost, and swap targets.
 
-**File Organization (28 files):**
-
-The Niri directory is the largest subsystem. Files are organized by responsibility:
-
-| Category | Files | Purpose |
-|----------|-------|---------|
-| Core engine | `NiriLayoutEngine.swift`, `NiriNode.swift`, `NiriLayout.swift` | Engine class, node tree (Root/Container/Window), pixel-rounding utilities |
-| Navigation | `NiriNavigation.swift` | Focus movement between columns and windows |
-| Constraint solving | `NiriConstraintSolver.swift` | `NiriAxisSolver` distributes space among windows respecting min/max size constraints |
-| Monitor model | `NiriMonitor.swift` | Per-monitor state: geometry, workspace roots, workspace switch animation |
-| Viewport | `ViewportState.swift`, `+Animation`, `+ColumnTransitions`, `+Geometry`, `+Gestures` | Horizontal scroll offset, spring physics, gesture tracking |
-| Interactive move | `InteractiveMove.swift`, `+InteractiveMove`, `DragGhostController.swift`, `DragGhostWindow.swift`, `SwapTargetOverlay.swift` | Mouse-driven window dragging with ghost thumbnail and swap target indicators |
-| Interactive resize | `InteractiveResize.swift`, `+InteractiveResize` | Mouse-driven edge resizing with `ResizeEdge` option set |
-| Engine extensions | `+Animation`, `+ColumnOps`, `+Monitors`, `+Sizing`, `+TabbedMode`, `+WindowOps`, `+Windows`, `+WorkspaceOps` | Modular engine operations (see [6.4](#64-modifying-layout-behavior)) |
-| UI overlays | `TabbedColumnOverlay.swift` | Visual indicator for tabbed columns |
-| Overview bridge | `NiriOverviewSnapshot.swift` | Produces layout snapshots for the Overview renderer |
-
-**Interactive Move/Resize:** Users can drag windows between columns using Option+Shift+click. `InteractiveMove` tracks the drag state (origin column, hover target). `DragGhostController` captures a `ScreenCaptureKit` thumbnail of the dragged window and displays it as a semi-transparent ghost. `SwapTargetOverlay` highlights the drop target. On release, the engine performs a column insertion or window swap. Interactive resize (`InteractiveResize`) allows edge-dragging to change column widths or window heights.
-
-**Constraint Solving:** `NiriAxisSolver` (in `NiriConstraintSolver.swift`) distributes available space among windows in a column while respecting per-window min/max size constraints. Windows with `isConstraintFixed` get exact sizes; remaining space is distributed by weight. This runs during every layout calculation and handles edge cases like tabbed columns (all windows share the same height).
+**Interactive move/resize.** Option+Shift+drag moves windows between columns; `DragGhostController` captures a ScreenCaptureKit thumbnail shown as a translucent ghost and `SwapTargetOverlay` highlights the drop target. Edge-dragging resizes column widths / window heights.
 
 ### 4.4 Dwindle Layout Engine (BSP)
 
-**Directory:** `Sources/OmniWM/Core/Layout/Dwindle/`
+**Directory:** `Sources/OmniWM/Core/Layout/Dwindle/` (5 files)
 
-Dwindle recursively divides screen space using binary splits, similar to bspwm.
-
-**BSP Tree:**
-
-```
-DwindleNode (split: horizontal, ratio: 0.5)
-├── DwindleNode (leaf: window A)
-└── DwindleNode (split: vertical, ratio: 0.5)
-    ├── DwindleNode (leaf: window B)
-    └── DwindleNode (leaf: window C)
-```
-
-**Key types:**
+Dwindle recursively divides screen space using binary splits, in the style of Hyprland's dwindle / bspwm.
 
 ```swift
 final class DwindleNode {
-    let id: DwindleNodeId          // UUID
+    let id: DwindleNodeId            // UUID
     var kind: DwindleNodeKind
     var parent: DwindleNode?
-    var children: [DwindleNode]    // 0 (leaf) or 2 (split)
-    // Animation properties for smooth transitions
+    var children: [DwindleNode]      // 0 (leaf) or 2 (split)
+    var cachedFrame, cachedMinSize
+    // CubicRectAnimation for smooth transitions
 }
 
 enum DwindleNodeKind {
     case split(orientation: DwindleOrientation, ratio: CGFloat)
     case leaf(handle: WindowToken?, fullscreen: Bool)
 }
-
-enum DwindleOrientation {
-    case horizontal   // Left/right split
-    case vertical     // Top/bottom split
-}
 ```
 
-**Smart split** chooses orientation based on the available space dimensions. **Preselection** lets users choose where the next window will be inserted.
+`DwindleLayoutEngine.calculateLayout(for:screen:) -> [WindowToken: CGRect]`. **Smart split** (`planSplit`) chooses orientation from the available rectangle's slope vs. aspect; **preselection** lets the user direct where the next window inserts. The engine also supports resize/balance/swap/toggle-orientation/toggle-fullscreen and geometric-neighbor navigation. Like Niri it is a plain `final class`, AX-free, mutation-gated by `WorldStore`.
 
 ### 4.5 Focus Lifecycle
 
-**File:** `Sources/OmniWM/Core/Controller/KeyboardFocusLifecycleCoordinator.swift`
+Focus management is split across several objects (there is no single coordinator class — `KeyboardFocusLifecycleCoordinator.swift` now holds only value types: `KeyboardFocusTarget`, `ManagedFocusOrigin`, `ManagedFocusRequest`).
 
-Focus management is complex because OmniWM must coordinate its intent with what macOS actually does. The `FocusBridgeCoordinator` manages this:
-
-**The Deferred Focus Pattern:**
+**The managed-focus loop** (see the full trace in [5.1](#51-focus-hotkey-flow)):
 
 ```
-1. User presses focus-left
-2. CommandHandler identifies target window
-3. FocusBridgeCoordinator.beginManagedRequest(token, workspaceId)
-   → Creates ManagedFocusRequest with status = .pending
-4. Private APIs activate the target app + window
-   (_SLPSSetFrontProcessWithOptions, makeKeyWindow)
-5. macOS confirms focus via AX callback
-6. FocusBridgeCoordinator.confirmManagedRequest(token, source)
-   → Marks request as .confirmed
-   → If no confirmation within retries, re-attempts activation
+1. User presses focus-left.
+2. CommandHandler resolves the target window in the engine.
+3. WMController.focusWindow:
+     a. intentLedger.beginManagedRequest(token, workspaceId, origin)
+        → records a .focusWindow Intent + a 100ms settle deadline,
+          so the upcoming AX echo classifies as echoOf (not external).
+     b. workspaceManager.beginManagedFocusRequest
+        → commits WMEvent.managedFocusRequested (records the request in the world).
+4. WMController.performWindowFronting activates the app + window via private APIs
+   (activateApp, focusSpecificWindow, raiseWindow), then probes the focused window.
+5. macOS emits an AX focused-window-changed echo → posted into EventIntake.
+6. FactResolver gathers the focused-window fact off-main, re-enters the intake.
+7. AXEventHandler.handleActivationFactsResolved:
+     intentLedger.classifyFocusObservation(token) → .echoOf
+     → treat as confirmation, not a competing external focus.
+8. workspaceManager.confirmManagedFocus commits .managedFocusConfirmed;
+   intentLedger.confirmManagedRequest cancels the deadline.
 ```
-
-**Key types:**
 
 | Type | Purpose |
 |------|---------|
-| `KeyboardFocusTarget` | Resolved focus: `token`, `axRef`, `workspaceId`, `isManaged` |
-| `ManagedFocusRequest` | In-flight request with `requestId`, `retryCount`, `status` (`.pending`/`.confirmed`) |
-| `ActivationEventSource` | How focus was confirmed: `.focusedWindowChanged` (authoritative), `.workspaceDidActivateApplication`, `.cgsFrontAppChanged` |
+| `KeyboardFocusTarget` | Resolved focus: `token`, `axRef`, `workspaceId`, `isManaged`. |
+| `ManagedFocusRequest` | In-flight request: `requestId`, `token`, `workspaceId`, `origin`, `retryCount`, `status` (`.pending`/`.confirmed`). |
+| `EchoClassification` | `.echoOf` / `.lateEcho` / `.external` — see [3.7](#37-echo-classification--intents). |
 
-**Focus serialization:** `focusWindow(_:performFocus:onDeferredFocus:)` serializes focus operations. If a focus request arrives while one is in-flight, it queues as `pendingFocusToken` and fires after the current request completes or times out.
+`FocusPolicyEngine` (`Core/Reconcile/`) is a separate concern: time-bounded `FocusPolicyLease`s that suppress focus-follows-mouse during menus and app-switch transitions, scheduled on the same `DeadlineWheel`.
 
 ### 4.6 Input Handling
 
 **Hotkeys** (`Sources/OmniWM/Core/Input/`)
 
-`ActionCatalog` is the source of truth for the 67 hotkey-triggerable actions. It defines each action's title, category, layout compatibility, search terms, default and alternate bindings, and optional IPC command linkage. `HotkeyBinding` persists a `bindings` array per action, and `HotkeyBindingRegistry` canonicalizes both legacy single-binding payloads and newer multi-binding settings data.
+`ActionCatalog` is the source of truth for bindable actions. `buildSpecs()` materializes **144** `ActionSpec`s (90 standalone actions + 6 loop templates × 9), each with a title, search keywords, category, layout compatibility, and default binding. `HotkeyBinding`/`HotkeyBindingRegistry` persist and canonicalize per-action bindings (an action can have several shortcuts).
 
-`HotkeyCenter` flattens those action bindings and registers each key+modifiers combination via Carbon's `RegisterEventHotKey` API, so a single action can be triggered by multiple shortcuts. Actions are still tagged with layout compatibility:
+`HotkeyCenter` (`Hotkeys.swift`) installs one Carbon `InstallEventHandler` and registers each binding via `RegisterEventHotKey`, plus a virtual-hyper synthesis path. On a press it fires `onCommand(command)`, which `WMController` wires to `eventIntake.enqueue(.hotkeyCommand(command))` — commands enter the same single-writer pipeline as everything else (falling back to a direct `CommandHandler` call only if the intake is closed).
 
-- `.shared` — works with any layout (focus, move, workspace switch, float, scratchpad, UI toggles)
-- `.niri` — Niri-only (moveColumn, toggleColumnTabbed, focusPrevious, cycleColumnWidth)
-- `.dwindle` — Dwindle-only (moveToRoot, toggleSplit, swapSplit, preselect, resizeInDirection)
+**Command routing** (`Core/Controller/CommandHandler.swift`). `performCommand` enforces `isEnabled`, overview suppression, and a **layout-compatibility guard**: a `.niri`-only command is ignored under Dwindle and vice versa (`.shared` commands work everywhere).
 
-**Command routing** (`Sources/OmniWM/Core/Controller/CommandHandler.swift`)
+**Mouse events** (`Core/Controller/MouseEventHandler.swift`). A `CGEventTap` drives focus-follows-mouse (debounced), trackpad swipe gestures (a phase state machine for workspace switching), and interactive move/resize. Transient mouse events are coalesced *in the intake* before draining.
 
-`CommandHandler.performCommand()` is a switch statement over all 67 `HotkeyCommand` cases, delegating to the appropriate handler. It first checks layout compatibility — a Niri command is ignored when Dwindle is active, and vice versa.
-
-**Mouse events** (`Sources/OmniWM/Core/Controller/MouseEventHandler.swift`)
-
-Uses `CGEventTap` for system-wide mouse event interception:
-- **Focus-follows-mouse**: Debounced (100ms) focus change on mouse hover
-- **Trackpad gestures**: Three-phase state machine (`idle` → `armed` → `committed`) for workspace switching via swipe
-- **Interactive move/resize**: Option+Shift+drag for window repositioning
-- **Event coalescing**: Transient mouse events are batched and drained in coalesced bursts
-
-**SkyLight events** (`Sources/OmniWM/Core/SkyLight/CGSEventObserver.swift`)
-
-Registers for window server notifications via private APIs:
+**SkyLight events** (`Core/SkyLight/CGSEventObserver.swift`). Registers for window-server notifications and posts them into the intake:
 
 ```swift
 enum CGSWindowEvent {
@@ -651,186 +609,184 @@ enum CGSWindowEvent {
 }
 ```
 
-Events are buffered in a lock-protected `PendingCGSEventState` and drained on the main run loop via `CFRunLoopPerformBlock`. Frame change events are coalesced by windowId.
+Window create/move/front-app events originate here; AX *destroy/miniaturize/focused-window-changed* come from the per-app AX observers.
 
 ### 4.7 Window Rules Engine
 
 **File:** `Sources/OmniWM/Core/Rules/WindowRuleEngine.swift`
 
-Evaluates windows against rules to produce a `WindowDecision`. Evaluation order (first match wins):
+`decision(facts) -> WindowDecision` compiles user rules + built-in rules into `CompiledRule`s and ranks matches by specificity then declaration order. Evaluation precedence (first decisive match wins):
 
-1. **Manual overrides** — user has explicitly toggled float/tile on this window
-2. **User-defined rules** — configured in settings, matching on bundle ID, app name, title (literal or regex), AX role/subrole
-3. **Built-in rules** — hardcoded rules for known system UI
-4. **Heuristics** — size constraints, window role/subrole analysis
-
-**Key types:**
+1. System text-input panels → unmanaged
+2. Explicit user rule (bundle ID, app name, title literal/regex, AX role/subrole)
+3. Explicit built-in rule (default-floating apps, browser PiP regex, Steam tile)
+4. CleanShot recording overlay → unmanaged
+5. Required-title-missing → deferral
+6. App in native fullscreen → managed
+7. Attribute-fetch failure → deferral
+8. `AXWindowService` heuristic (size constraints, role/subrole)
 
 ```swift
 struct WindowDecision {
-    let disposition: WindowDecisionDisposition  // .managed, .floating, .unmanaged, .undecided
-    let source: WindowDecisionSource            // .manualOverride, .userRule(UUID), .builtInRule, .heuristic
-    let workspaceName: String?                  // Target workspace (if rule specifies)
-    let ruleEffects: ManagedWindowRuleEffects   // minWidth, minHeight constraints
-}
-
-struct WindowRuleFacts {
-    let appName: String?
-    let ax: AXWindowFacts           // role, subrole, title, buttons
-    let sizeConstraints: WindowSizeConstraints?
-    let windowServer: WindowServerInfo?
+    let disposition: WindowDecisionDisposition  // .managed/.floating/.unmanaged/.undecided
+    let source: WindowDecisionSource            // .manualOverride/.userRule(UUID)/.builtInRule/.heuristic
+    let workspaceName: String?
+    let ruleEffects: ManagedWindowRuleEffects   // minWidth/minHeight
 }
 ```
 
 ### 4.8 IPC System
 
-For the protocol specification, wire format, and CLI command reference, see [IPC-CLI.md](IPC-CLI.md). This section covers the internal code architecture.
+For the protocol spec, wire format, and CLI reference, see [IPC-CLI.md](IPC-CLI.md). This section covers the internal code architecture. The current wire protocol version is **5** (`Sources/OmniWMIPC/IPCModels.swift`).
 
 ```
 omniwmctl                         OmniWM process
 ─────────                         ──────────────
-CLIParser                         IPCServer
-    │                                 │
-CLIRuntime                        acceptConnections() on DispatchQueue
-    │                                 │
-IPCClient ──── Unix Socket ────► IPCConnection (per client)
+CLIParser                         IPCServer  (AF_UNIX accept loop on a DispatchQueue)
+    │                                 │  getpeereid == geteuid
+IPCClient ──── Unix socket ────► IPCConnection (actor, per client; NDJSON, 64 KiB/line)
   (NDJSON)                            │
                                  IPCApplicationBridge (actor)
-                                      │ auth check, protocol version
-                                      │
-                              ┌───────┼───────┐
-                              │       │       │
-                     IPCCommand  IPCQuery  IPCRule
-                      Router     Router    Router
-                              │       │       │
-                              └───────┼───────┘
-                                      │  @MainActor
-                                      v
-                                 CommandHandler /
-                                 WorkspaceManager /
-                                 WindowRuleEngine
+                                      │ auth token + protocol version
+                          ┌───────────┼───────────────┐
+                          │           │               │
+               commands/window/   queries          rule ops
+               workspace          (read projection) (add/replace/…)
+                          │           │               │
+        EventIntake.post(.ipcCommand) │   @MainActor routers built fresh per request
+                          v           v               v
+                  single-writer    IPCQueryRouter   IPCRuleRouter
+                  pipeline         (live WM state)  (settings + reevaluate)
 ```
 
-**Key actors:**
-- `IPCApplicationBridge` — Swift actor that receives deserialized requests, checks authorization, and dispatches to the appropriate router on `@MainActor`
-- `IPCEventBroker` — Swift actor managing event subscriptions. Uses `AsyncStream` with continuations per channel per connection. `IPCEventDemandTracker` tracks whether any client is subscribed to a channel (so events aren't computed when nobody is listening)
+**Mutating commands enter the single-writer pipeline.** `IPCApplicationBridge` posts an `IPCCommandIntake` into `EventIntake` (`.ipcCommand`); the interpreter runs `intake.perform(controller)` on the main actor and completes the request. IPC commands do not mutate state directly — they flow through the same intake → world path as hotkeys.
 
-**Public surface registry:** `IPCAutomationManifest` is the source of truth for public IPC commands, queries, rule actions, subscriptions, and CLI discoverability metadata (including completion/help surfaces). The routers execute the behavior; the manifest defines what is exposed.
+**Actors and routers.** `IPCApplicationBridge`, `IPCConnection`, `IPCEventBroker`, and `IPCConnectionRegistry` are actors; the routers (`IPCCommandRouter`/`IPCQueryRouter`/`IPCRuleRouter`) and `IPCRuleProjection` are `@MainActor` and constructed fresh per request. `IPCEventBroker` holds per-channel `AsyncStream` continuations; `IPCEventDemandTracker` is an `NSLock`-guarded refcount so `hasSubscribers` can be checked nonisolated to skip producing events nobody wants. `IPCAutomationManifest` (in `OmniWMIPC`) is the shared declarative source of truth for commands/queries/channels.
 
-**Security:** The trust boundary is the local macOS user account, not individual client processes. Each request carries a per-session authorization token stored in plaintext at `<socket-path>.secret`; the server also enforces socket permissions `0o600`, creates new socket directories with `0o700`, and verifies peer UID via `getpeereid()`. If `OMNIWM_SOCKET` points into an existing directory, OmniWM reuses that directory as-is instead of re-permissioning it, so custom socket paths should live in a private directory owned by the same user.
+**Security.** The trust boundary is the local user account. Each session carries an authorization token written newline-terminated at `<socket-path>.secret` with `0600` perms; the server enforces socket permissions `0600`, creates socket directories `0700`, and verifies the peer UID via `getpeereid()`.
 
 ### 4.9 Accessibility Layer
 
-**File:** `Sources/OmniWM/Core/Ax/AXManager.swift`
+**Directory:** `Sources/OmniWM/Core/Ax/`
 
-**Per-app threading model:** `AXManager` maintains an `AppAXContext` per process. Each context runs an AX observer on a dedicated thread to receive accessibility callbacks (focused-window-changed, window-destroyed).
+**Per-app threading.** `AXManager` keeps an `AppAXContext` per process. Each context spins a dedicated `NSThread`/`CFRunLoop` and performs all of that app's `AXUIElement` reads and writes there, plus its AX observers (window destroy/miniaturize + focused-window-changed). Per-thread state is pinned with `ThreadGuardedValue` against a `@TaskLocal appThreadToken`.
 
-**Frame application pipeline** (`applyFramesParallel()`):
+**Frame application.** `AXManager.applyFramesParallel` (still the live entry point — "parallel" refers to the per-app *thread* fan-out, not GCD) coalesces requests per pid and dispatches one `setFramesBatch` to each app's thread. The verification and retry bookkeeping lives in **`AXFrameApplicationLedger`**:
 
-1. Collect requested frames from the layout engine: `[WindowToken: CGRect]`
-2. Deduplicate against `lastAppliedFrames` — skip windows whose frame hasn't changed
-3. Group frames by PID into `framesByPidBuffer`
-4. Dispatch frame writes to per-app contexts in parallel (each with 0.5s timeout)
-5. Each context writes size then position (or vice versa) to the `AXUIElement`
-6. Collect `AXFrameWriteResult` with any errors
-7. Track `recentFrameWriteFailures` for retry budgeting
+1. `prepareFrameApplication` dedups a target against the last-applied / pending frame within tolerance.
+2. The write happens on the app thread via `AXWindowService.setFrame` (writes `kAXSize`/`kAXPosition` in order, then reads back to verify).
+3. `handleFrameApplyResults` verifies observed vs. target; on mismatch it retries within a per-window budget (`retryBudgetByWindowId`, default 1) — re-enqueued synchronously by `AXManager`, scheduled via a per-window `Task { @MainActor }` generation counter, **not** the `DeadlineWheel`.
+4. On repeated mismatch it calls `learnSizeQuantum` to record the app's snap quantum (capped at 16pt), so OmniWM stops fighting apps that round their own size to a grid.
 
-**Inactive workspace suppression:** Windows on non-visible workspaces are tracked in `inactiveWorkspaceWindowIds`. Frame writes to these windows are skipped, preventing unnecessary AX API calls and visual glitches.
+**Inactive-workspace suppression.** Windows on non-visible workspaces are tracked in `AXManager.inactiveWorkspaceWindowIds` (a `Set<Int>` rebuilt by `LayoutRefreshController`) and checked live before each write, avoiding pointless AX calls and visual glitches.
 
-### 4.10 Animation System
+### 4.10 Spaces & Native Fullscreen
+
+**Directory:** `Sources/OmniWM/Core/Spaces/`
+
+`SpaceTopology` is a pure value model of the macOS Spaces layout: per-display space lists + current space, the global active space, the set of fullscreen-type spaces, and a window→space map, with read-only derivations (`isFullscreenSpace`, `isWindowOnFullscreenSpace`, …). `SpaceTracker` is a `@MainActor` **stateless transform**: gated by `settings.spacesTrackingEnabled` (default-on), it rebuilds a fresh `SpaceTopology` from read-only SkyLight queries (`CGSCopyManagedDisplaySpaces`, `CGSCopySpacesForWindows`) and commits it through `WorldStore` via the `.spaceTopologyChanged` event. The durable topology lives on `WorldStore` (`private(set) var spaceTopology`), not in the tracker.
+
+**Native fullscreen** is now derived from facts, not inferred from AX element lifecycle:
+
+- The old AX **destroy/recreate inference** (speculative-preserve heuristics, recreate-before-admission, timeout cleanup) was fully removed.
+- The `NativeFullscreenAvailability` enum and the `isAppFullscreenActive` *stored boolean* were removed. `NativeFullscreenRecord` now holds only `originalToken`, `currentToken`, `workspaceId`, `exitRequestedByCommand`, and `transition`.
+- `WorkspaceManager.isAppFullscreenActive` is a **computed property** derived from the records: `nativeFullscreenRecordsByOriginalToken.values.contains { $0.transition == .suspended }`.
+
+Native fullscreen is co-driven by two observed facts: (1) SkyLight fullscreen-space membership (`SpaceTracker.reconcileNativeFullscreenWithTopology`) and (2) the AX-observed `focusedWindow.isFullscreen` at activation (`AXEventHandler`). When a managed window enters native fullscreen its management is suspended (`markNativeFullscreenSuspended`) and `SurfaceReconciler` derives an "In macOS Full Screen" placeholder panel (`NativeFullscreenPlaceholderManager`); on exit the record is removed and management restored.
+
+### 4.11 Surface System
+
+**Directories:** `Sources/OmniWM/Core/Surface/`, `Sources/OmniWM/Core/Border/`
+
+`WorldView` is a read-only `@MainActor` facade wrapping a single `WMController`. It exposes exactly the state `SurfaceDerivation` needs (renderable focus token, fullscreen flags, monitors, space topology, border config, per-window observed/pending frames) plus helpers that build tab-rail infos, bar surfaces, and native-fullscreen placeholders. It holds no mutable state and is constructed fresh per reconcile pass.
+
+`SurfaceDerivation.derive(world:)` is a pure transform `WorldView → DesiredSurfaceScene`. The border-eligibility gate in `deriveBorder` is the load-bearing logic: border config enabled, target not an owned OmniWM surface, no pending native-fullscreen transition, not suppressed/fullscreen, workspace visible, valid frame.
+
+**The focus border** is no longer an `NSWindow` managed by a dedicated controller. It is a derived surface applied by `BorderSurfaceApplier`, which drives a `BorderWindow` — a private **SkyLight/CGS server-side window** (created via `SkyLight.createBorderWindow`, drawn into a `CGContext`), positioned one level *below* the target window via `transactionMoveAndOrder(.below)`, and registered with `SurfaceCoordinator` by CGS window *number*.
+
+**`SurfaceCoordinator`** (a `.shared` singleton) is the registry of OmniWM-owned surfaces, backed by `SurfaceScene`. Beyond "exclude from tiling" it answers hit-testing (`containsInteractive`), ScreenCaptureKit capture-eligibility (`isCaptureEligible`), and focus-recovery suppression (`hasFrontmostSuppressingWindow`). The vocabulary lives in `SurfaceScene.swift`: `SurfaceKind` (`border`, `workspaceBar`, `overview`, `nativeFullscreenPlaceholder`, `tabbedColumnOverlay`, `dragGhost`, `utility`, `quake`), `HitTestPolicy`, `CapturePolicy`, and `SurfacePolicy` (which bundles them plus `suppressesManagedFocusRecovery`). `OwnedWindowRegistry` (in `App/`) is now a thin facade over `SurfaceCoordinator.shared`.
+
+### 4.12 Animation System
 
 **Directory:** `Sources/OmniWM/Core/Animation/`
 
-**SpringAnimation** — critically-damped spring physics for smooth, responsive motion:
+- **`SpringAnimation` / `SpringConfig`** — a closed-form damped-spring solver sampled by absolute `CACurrentMediaTime`. `offsetBy(_:)` rebases both endpoints so the world can re-anchor a viewport mid-flight. The named presets (`niriHorizontalViewMovement`, `niriWindowMovement`, `niriWindowResize`, and the `snappy`/`balanced`/`gentle`/`reducedMotion`/`default` aliases) are all the same critically-damped curve (`dampingRatio 1.0`, `stiffness 800`); `resolvedForReduceMotion` is currently a no-op.
+- **`CubicAnimation`** — cubic-bezier easing used by the Dwindle path.
+- **`AnimationDriver`** — owns the per-workspace **viewport scroll motion only** (gesture or spring). It is seeded from inside the commit path (`reconcileViewportCommit` re-seeds the spring from a committed `ViewportState` transition) and sampled per frame by `NiriLayoutHandler`. Per-window/column animations live in the Niri engine, not here.
+- **`SwipeTracker`** — accumulates trackpad deltas over a 150ms window and projects an inertial throw target that a spring snaps to.
+- **`AnimationClock`** — a monotonic accumulating clock over `CACurrentMediaTime`, held by the engines and `WMController`.
+- **`MotionPolicy`** — a `@MainActor @Observable` single boolean (`animationsEnabled`) seeded from settings; it gates non-gesture scroll animations. It does **not** read the OS reduce-motion setting (that is consulted separately in UI views).
 
-```swift
-struct SpringConfig {
-    // Presets:
-    static let snappy   = SpringConfig(response: 0.22, dampingFraction: 0.95)
-    static let balanced = SpringConfig(response: 0.30, dampingFraction: 0.88)
-    static let gentle   = SpringConfig(response: 0.45, dampingFraction: 0.78)
-    static let reducedMotion = SpringConfig(response: 0.18, dampingFraction: 0.98)
-}
-```
+The per-frame **display link** is owned by `LayoutRefreshController` (not by `Animation/`); see [3.9](#39-the-ungated-animation-tier).
 
-Used for: viewport scrolling (Niri), workspace switch transitions, window movement animations.
+### 4.13 Clipboard History
 
-**CubicAnimation** — cubic easing for Dwindle node transitions (position and size).
+**Directory:** `Sources/OmniWM/Core/Clipboard/`
 
-**AnimationClock** — monotonic time wrapper around `CACurrentMediaTime()`.
+`ClipboardHistoryService` polls `NSPasteboard.changeCount` every 0.5s, captures changed contents off-main through a pasteboard reader (filtering out 1Password/transient/concealed types), and feeds them to `ClipboardHistoryStore` — a Swift **actor** that deduplicates by SHA-256 digest, maintains MRU ordering, prunes by item/byte limits, and atomically persists to `clipboard-history.json` (`0600`). History is surfaced as the **clipboard mode** of the Command Palette; `WMController` exposes `clipboardPaletteItems()` / `copyClipboardItem(id:)` / `deleteClipboardItem(id:)` / `clearClipboardHistory()`.
 
-**DisplayLink integration:** `LayoutRefreshController` manages a `CADisplayLink` per display. On each frame tick, it recalculates animated layouts and applies frames, producing 60/120Hz smooth animations.
-
-**Accessibility:** All animation configs support `resolvedForReduceMotion()`, which returns the `reducedMotion` preset when the user has enabled "Reduce Motion" in macOS accessibility settings.
-
-### 4.11 Border System
-
-**Files:** `Sources/OmniWM/Core/Border/BorderManager.swift`, `BorderWindow.swift`
-
-A lightweight `NSWindow` overlay that draws a rounded rectangle around the focused window:
-
-- `BorderManager` tracks the current focused window's frame and windowId
-- `BorderWindow` renders the border using SkyLight private APIs for window ordering (stays above managed windows but below floating panels)
-- Deduplication: skips updates if windowId and frame haven't changed (0.5pt tolerance)
-- Configurable: enable/disable, width (points), color (RGBA)
-
-### 4.12 Additional Features
+### 4.14 Additional Features
 
 | Feature | Key Files | Description |
 |---------|-----------|-------------|
-| **Overview** | `Core/Overview/OverviewController.swift` | Bird's-eye view of all workspaces with window thumbnails (ScreenCaptureKit), search, drag-to-reorganize |
-| **Quake Terminal** | `QuakeTerminal/QuakeTerminalController.swift` | Drop-down terminal using GhosttyKit. Supports tabs and split panes. Toggles with hotkey. |
-| **Command Palette** | `UI/CommandPalette/CommandPaletteController.swift` | Fuzzy-search interface for windows, commands, and menu items |
-| **Menu Anywhere** | `UI/MenuAnywhere/MenuAnywhereController.swift` | UI controller that uses the Core menu extraction layer to display any app's menu at cursor position |
-| **Workspace Bar** | `UI/WorkspaceBar/WorkspaceBarManager.swift` | Visual workspace indicators with window icons per workspace |
-| **Hidden Bar** | `UI/HiddenBar/HiddenBarController.swift` | Collapsible menu bar icon management |
-| **Scratchpad** | `Core/Workspace/WorkspaceManager.swift` | Tracks the transient scratchpad window via `scratchpadToken()`. Show/hide and focus recovery are coordinated by `WMController`. |
-| **Status Bar** | `UI/StatusBar/StatusBarController.swift` | Menu bar icon with settings access, manual update checks, and workspace summary |
-| **Release Updater** | `App/UpdateCoordinator.swift`, `UI/UpdateWindowController.swift` | Polls the latest GitHub release once per day on launch, supports manual checks from Settings and the status bar, and shows a manual-action popup with release notes |
-
-OmniWM utility windows such as Settings, App Rules, Sponsors, and the updater popup still register through `OwnedWindowRegistry`, but that type now acts as a facade over `SurfaceCoordinator` and `SurfaceScene`. The shared surface system assigns each owned UI surface a `SurfaceKind` and `SurfacePolicy`, centralizing hit-testing, screen-capture inclusion, and managed-focus-recovery suppression across overview, workspace bar, border, quake, and utility windows.
+| **Overview** | `Core/Overview/OverviewController.swift` | Expose-style workspace overview. Rendered with **Core Graphics** (`OverviewView.draw → OverviewRenderer.render(context: CGContext)`), not Metal; thumbnails via ScreenCaptureKit (`SCScreenshotManager`, ≤4 concurrent). Search, drag-to-reorganize. |
+| **Quake Terminal** | `QuakeTerminal/QuakeTerminalController.swift` | Drop-down terminal on GhosttyKit. Each tab is a tree of split panes (`QuakeTerminalTab` → `QuakeSplitContainer`/`SplitNode`), each a `GhosttySurfaceView` (CAMetalLayer-backed). Slide-in/out animation; registers as a `.quake` surface. |
+| **Command Palette** | `UI/CommandPalette/CommandPaletteController.swift` | Fuzzy search over windows, commands, and clipboard history. |
+| **Menu Anywhere** | `UI/MenuAnywhere/MenuAnywhereController.swift` | Pops the frontmost app's menu bar as a native `NSMenu` at the cursor, via `MenuExtractor` (ObjC runtime AX-tree walk). |
+| **Workspace Bar** | `UI/WorkspaceBar/WorkspaceBarManager.swift` | Per-monitor workspace bars — now **driven by `SurfaceReconciler`** via `apply([DesiredBarSurface])`, not self-polling. |
+| **Hidden Bar** | `UI/HiddenBar/HiddenBarController.swift` | Menu-bar collapse/expand separator. |
+| **Status Bar** | `UI/StatusBar/StatusBarController.swift` | Menu-bar icon, settings access, manual update checks. |
+| **Scratchpad** | `Core/Workspace/WorkspaceManager.swift` | Single transient window (`scratchpadToken` on `WorldStore`); show/hide coordinated by `WMController`. |
+| **Monitors** | `Core/Monitor/` | Display detection (`Monitor.current()`), stable identity (`OutputId`), and `MonitorRestoreAssignments` (re-maps saved per-monitor workspaces after a topology change by displayId then geometry/name best-match). Orientation reported over IPC is the **effective** orientation (`settings.effectiveOrientation` — override or auto). |
+| **Sleep / Lock** | `Core/Sleep/`, `Core/LockScreen/` | `SleepPreventionManager` (IOPM assertion), `LockScreenObserver` (DistributedNotificationCenter lock/unlock). |
+| **Release Updater** | `App/UpdateCoordinator.swift` | Polls the latest GitHub release once per day, supports manual checks, shows a release-notes popup. |
 
 ---
 
 ## 5. Data Flow Diagrams
 
-### 5.1 Hotkey Command Flow
+### 5.1 Focus Hotkey Flow
 
-User presses a hotkey (e.g., Hyper+Left to focus left):
+User presses a focus hotkey (e.g. focus-left). Note how the `IntentLedger` makes the resulting AX echo classifiable as our own action:
 
 ```
-Carbon EventHandler callback
+HotkeyCenter.dispatch → onCommand                         [INTAKE transport]
+    │  Hotkeys.swift:463
+    v
+EventIntake.enqueue(.hotkeyCommand) → drain               [STAGE 1]
+    │  CFRunLoopPerformBlock on main
+    v
+EventInterpreter.handleIntakeEvent → CommandHandler.handleHotkeyCommand
+    │  EventInterpreter.swift:60
+    v
+CommandHandler → executeCombinedNavigation → WMController.focusWindow
+    │  resolves the target NiriNode
+    ├──> IntentLedger.beginManagedRequest(token)          records .focusWindow Intent
+    │       + DeadlineWheel 100ms settle deadline          (so the echo = echoOf)
+    └──> WorkspaceManager.beginManagedFocusRequest
+            v
+        WorldStore.commit(.managedFocusRequested)         [STAGE 2] seq++
     │
     v
-HotkeyCenter.dispatch(id)
-    │ lookup HotkeyCommand by registration ID
+WMController.performWindowFronting                        [STAGE 3 — effector]
+    │  activateApp + focusSpecificWindow + raiseWindow (private APIs)
     v
-CommandHandler.handleCommand(.focus(.left))
-    │ check: isEnabled? layout compatible? overview open?
+macOS emits AX focused-window-changed echo
+    │  AppAXContext observer → EventIntake.post(.axFocusedWindowChanged)
     v
-layoutHandler(as: LayoutFocusable.self)?.focusNeighbor(direction: .left)
-    │ e.g., NiriLayoutHandler.focusNeighbor()
-    │ determines target window in the Niri tree
+EventInterpreter → AXEventHandler.handleAppActivation     [STAGE 1 re-entry]
+    │  FactResolver.resolveActivationFacts (off-main) → EventIntake.post(.activationFactsResolved)
     v
-FocusBridgeCoordinator.focusWindow(targetToken)
-    │ activates app + window via private APIs
+AXEventHandler.handleActivationFactsResolved
+    │  IntentLedger.classifyFocusObservation → .echoOf  (confirmation, not external)
     v
-LayoutRefreshController.scheduleRefresh(.immediateRelayout, reason: .layoutCommand)
-    │
+WorkspaceManager.confirmManagedFocus → WorldStore.commit(.managedFocusConfirmed)  seq++
+    │  IntentLedger.confirmManagedRequest cancels the deadline
     v
-NiriLayoutEngine.calculateLayout(...)
-    │ produces [WindowToken: CGRect]
+WMController.handleSessionStateChanged → SurfaceReconciler.noteWorldChanged   [STAGE 4]
+    │  SurfaceDerivation.deriveBorder reads WorldView.renderableFocusToken
     v
-AXManager.applyFramesParallel(frames)
-    │ writes new positions to windows
-    v
-BorderCoordinator.updateBorder(for: targetToken)
-    │ moves border to newly focused window
-    v
-FocusNotificationDispatcher.publish(focusEvent)
-    │ notifies IPC subscribers
-    v
-Done
+BorderSurfaceApplier moves the focus border to the newly focused window
 ```
 
 ### 5.2 External Window Event Flow
@@ -841,30 +797,28 @@ An application opens a new window:
 macOS window server creates window
     │
     v
-CGSEventObserver receives .created(windowId, spaceId)
-    │ buffered in PendingCGSEventState (lock-protected)
-    │ drained via CFRunLoopPerformBlock on main thread
+CGSEventObserver.handleRawCGSEvent → EventIntake.post(.cgs(.created))   [INTAKE]
+    │  CGSEventObserver.swift:120
     v
-AXEventHandler.handleWindowCreated(windowId)
-    │ creates AXWindowRef from AXUIElement
-    │ queries: role, subrole, title, buttons, size
+EventIntake stamps seq + schedules one drain (CFRunLoopPerformBlock)    [STAGE 1]
     v
-WindowRuleEngine.evaluate(facts)
-    │ returns WindowDecision (.managed / .floating / .unmanaged)
+EventInterpreter → AXEventHandler.handleCGSEvent → handleCGSWindowCreated
+    │  → processCreatedWindow → trackPreparedCreate (reads AX attrs, runs rules)
     v
-WindowModel.track(handle, axRef, workspaceId, mode)
-    │ creates Entry, indexes by token and windowId
+WindowRuleEngine.decision(facts) → .managed / .floating / .unmanaged
     v
-NiriLayoutEngine.insertWindow(token, into: workspaceRoot)
-    │ creates NiriWindow node, appends to active column or new column
+WorkspaceManager.addWindow → recordReconcileEvent(.windowAdmitted)      [STAGE 2]
+    │  WorldStore.commit: seq++, model.upsert, EventNormalizer,
+    │  StateReducer.reduce → ActionPlan, InvariantChecks, ReconcileTxn
     v
-LayoutRefreshController.scheduleRefresh(.relayout, reason: .axWindowCreated)
-    │ debounced: 4ms
+AXEventHandler → LayoutRefreshController.requestRelayout(.axWindowCreated)  [STAGE 3]
+    │  buildRelayoutEffectPlan (async, under withEngineBuildScope) → EffectPlan
     v
-Layout calculation → AXManager.applyFramesParallel()
-    │
+LayoutRefreshController.executeEffectPlan → AXManager.applyFramesParallel
+    │  per-pid batch → AppAXContext.setFramesBatch on the app's AX thread
+    │  AXFrameApplicationLedger verifies / retries / learns size quantum
     v
-All windows repositioned to accommodate the new one
+SurfaceReconciler.noteWorldChanged → WorldView → border/bar diff-applied [STAGE 4]
 ```
 
 ### 5.3 IPC Command Flow
@@ -872,29 +826,21 @@ All windows repositioned to accommodate the new one
 User runs `omniwmctl command focus left`:
 
 ```
-CLIParser.parse(["command", "focus", "left"])
-    │ produces IPCRequest { kind: .command, payload: .command(.focus(direction: .left)) }
+CLIParser.parse → IPCRequest { kind: .command, payload: focus(left) }
     v
-IPCClient connects to Unix socket (~/.../ipc.sock)
-    │ sends NDJSON: {"version":3,"id":"...","kind":"command","authorizationToken":"...","payload":{"name":"focus","arguments":{"direction":"left"}}}\n
+IPCClient connects to the Unix socket, sends NDJSON
     v
-IPCServer accepts connection → IPCConnection reads line
-    │ deserializes to IPCRequest
+IPCServer accepts → IPCConnection (actor) reads the line → IPCRequest
     v
-IPCApplicationBridge.response(request) [actor]
-    │ verifies authorization token
-    │ checks protocol version
+IPCApplicationBridge (actor): verify token + protocol version 5
+    │  for mutating commands: EventIntake.post(.ipcCommand(intake))
     v
-IPCCommandRouter.handle(.focus(direction: .left)) [@MainActor]
-    │ maps to HotkeyCommand.focus(.left)
+EventInterpreter (.ipcCommand) → intake.perform(controller)             [STAGE 1]
+    │  → CommandHandler.performCommand(.focus(.left))  (same path as 5.1 from here)
     v
-CommandHandler.performCommand(.focus(.left))
-    │ (same flow as hotkey from here — see 5.1)
-    │ returns ExternalCommandResult
+ExternalCommandResult → IPCResponse { ok: true } → NDJSON → client
     v
-IPCResponse { ok: true } → serialized as NDJSON → sent to client
-    v
-CLIRenderer displays result
+CLIRenderer displays the result
 ```
 
 ---
@@ -903,88 +849,34 @@ CLIRenderer displays result
 
 ### 6.1 Adding a New Hotkey Command
 
-1. **Add the enum case** in `Sources/OmniWM/Core/Input/HotkeyCommand.swift`:
-   ```swift
-   case myNewCommand
-   ```
-   Set `layoutCompatibility` (`.shared`, `.niri`, or `.dwindle`).
-
-2. **Handle it** in `Sources/OmniWM/Core/Controller/CommandHandler.swift`:
-   ```swift
-   case .myNewCommand:
-       // implementation or delegation to a handler
-   ```
-
-3. **Add the action spec** in `Sources/OmniWM/Core/Input/ActionCatalog.swift` so the command has its title, category, search metadata, and default or alternate bindings. `DefaultHotkeyBindings.swift` is only a thin wrapper over this catalog.
-
-4. **Expose via IPC** in `Sources/OmniWM/IPC/IPCCommandRouter.swift` — add the routing to the new command when it should be scriptable.
-
-5. **Add CLI support** in `Sources/OmniWMCtl/CLIParser.swift` — add the command name.
-
-6. **Update the automation manifest** in `Sources/OmniWMIPC/IPCAutomationManifest.swift` — add the command description.
-
-Actions can carry multiple persisted bindings, so any extra default shortcuts should be modeled in `ActionCatalog` rather than as separate commands.
+1. **Add the enum case** in `Core/Input/HotkeyCommand.swift`.
+2. **Add the action spec** in `Core/Input/ActionCatalog.swift` (title, keywords, category, layout compatibility, default binding). This is the source of truth for the command palette and default bindings.
+3. **Handle it** in `Core/Controller/CommandHandler.swift` — set the right `LayoutCompatibility` so the guard accepts it under the active layout. Mutations must reach the world through `WorkspaceManager.recordReconcileEvent`, never by touching `WindowModel`/engines directly.
+4. **Expose via IPC** (optional) in `IPC/IPCCommandRouter.swift` and the manifest (`OmniWMIPC/IPCAutomationManifest.swift`); add the CLI name in `OmniWMCtl/CLIParser.swift`.
 
 ### 6.2 Adding a New IPC Query
 
-1. **Define the response model** in `Sources/OmniWMIPC/IPCModels.swift`.
-
-2. **Implement the query** in `Sources/OmniWM/IPC/IPCQueryRouter.swift`:
-   ```swift
-   case "my-query":
-       let result = // gather data from WorkspaceManager, etc.
-       return .success(result)
-   ```
-
-3. **Add CLI rendering** in `Sources/OmniWMCtl/CLIRenderer.swift` — format the response for terminal output.
-
-4. **Add CLI parsing** in `Sources/OmniWMCtl/CLIParser.swift` — add the query name.
-
-5. **Update the manifest** in `Sources/OmniWMIPC/IPCAutomationManifest.swift`.
+1. Define the response model in `OmniWMIPC/IPCModels.swift`.
+2. Implement the read-only projection in `IPC/IPCQueryRouter.swift` from live `WMController`/`WorkspaceManager` state.
+3. Add CLI rendering/parsing in `OmniWMCtl/`, and the descriptor in `IPCAutomationManifest.swift`.
 
 ### 6.3 Adding a New Setting
 
-1. **Add the property** to `Sources/OmniWM/Core/Config/SettingsStore.swift`.
-
-2. **Wire the runtime behavior** in `WMController.applyPersistedSettings()` or the relevant handler that consumes the setting.
-
-3. **Add UI** in the appropriate settings tab under `Sources/OmniWM/UI/`.
-
-4. **Update the TOML settings model** in `Sources/OmniWM/Core/Config/SettingsExport.swift`, `Sources/OmniWM/Core/Config/CanonicalTOMLConfig.swift`, and `Sources/OmniWM/Core/Config/SettingsTOMLCodec.swift` for persisted user preferences that belong in editable config. Do not include remote payloads or operational cache state such as updater release notes, release URLs, last-check timestamps, or skipped-release markers.
-
-5. **Check settings-file touchpoints** when the change affects config discoverability or UX. `Sources/OmniWM/UI/SettingsFileWorkflow.swift` is the open/reveal workflow layer, and the `Settings File` section in `Sources/OmniWM/UI/SettingsView.swift` is the main user-facing entry point; most new settings do not need workflow code changes, but contributor-facing config behavior and copy should remain accurate.
-
-6. **Handle schema compatibility** in the TOML codec if needed. `settings.toml` is the only settings source of truth.
-
-7. **Verify persistence** by checking the setting survives store load/save and TOML encode/decode so it cannot silently disappear from `~/.config/omniwm/settings.toml`.
+1. Add the property to `Core/Config/SettingsStore.swift` (give it a `didSet` that calls `scheduleSave()` if it should persist).
+2. Wire runtime behavior in `WMController.applyPersistedSettings()` or the consuming handler.
+3. Add UI under `Sources/OmniWM/UI/`.
+4. Thread it through the TOML model: `SettingsExport.swift`, `CanonicalTOMLConfig.swift`, `SettingsTOMLCodec.swift`. `settings.toml` is the only settings source of truth — verify it survives encode/decode. Operational/runtime state (updater timestamps, restore catalog, palette mode) belongs in `RuntimeStateStore` (`runtime-state.json`), not the TOML.
 
 ### 6.4 Modifying Layout Behavior
 
-1. **Identify the engine**: Niri code is in `Sources/OmniWM/Core/Layout/Niri/`, Dwindle in `Sources/OmniWM/Core/Layout/Dwindle/`.
-
-2. **Find the relevant extension**: Niri splits logic across extensions:
-   - `NiriLayoutEngine+Animation.swift` — animation tick and spring updates
-   - `NiriLayoutEngine+ColumnOps.swift` — column add/remove/reorder
-   - `NiriLayoutEngine+InteractiveMove.swift` — mouse-driven window moving
-   - `NiriLayoutEngine+InteractiveResize.swift` — mouse-driven edge resizing
-   - `NiriLayoutEngine+Monitors.swift` — multi-monitor layout
-   - `NiriLayoutEngine+Sizing.swift` — width/height calculation
-   - `NiriLayoutEngine+TabbedMode.swift` — tabbed column logic
-   - `NiriLayoutEngine+WindowOps.swift` — window insert/remove/reorder
-   - `NiriLayoutEngine+Windows.swift` — window query and lookup
-   - `NiriLayoutEngine+WorkspaceOps.swift` — workspace-level operations
-
-   Focus navigation lives in `NiriNavigation.swift`. Constraint solving lives in `NiriConstraintSolver.swift`.
+1. Pick the engine: `Core/Layout/Niri/` or `Core/Layout/Dwindle/`.
+2. For Niri, find the right `NiriLayoutEngine+*.swift` extension (`+ColumnOps`, `+Sizing`, `+TabbedMode`, `+WindowOps`, `+WorkspaceOps`, `+Animation`, …); navigation is in `NiriNavigation.swift`, constraint solving in `NiriConstraintSolver.swift`.
+3. Keep engines pure: no AX calls, no frame writes. Any engine mutation must run inside a commit or a `withEngineBuildScope` — the engines assert otherwise. Emit a frame map; let `NiriLayoutHandler`/`DwindleLayoutHandler` build the `EffectPlan`.
 
 ### 6.5 Working with Private APIs
 
-OmniWM uses SkyLight (private macOS framework) for low-latency window operations. The wrapper pattern is:
-
-1. **Function declarations** use `@_silgen_name` in `Sources/OmniWM/Core/PrivateAPIs.swift`
-2. **Dynamic loading** via `dlopen`/`dlsym` in `Sources/OmniWM/Core/SkyLight/SkyLight.swift` for functions that can't use `@_silgen_name`
-3. All private API usage is wrapped in safe Swift functions with fallback behavior
-
-**Risk model:** Private APIs can break across macOS versions. When adding new private API usage, provide a fallback path using public APIs where possible, and verify behavior across macOS versions.
+1. `@_silgen_name` declarations live in `Core/PrivateAPIs.swift`; runtime `dlopen`/`dlsym` wrappers in `Core/SkyLight/SkyLight.swift`.
+2. Wrap every private call in a safe Swift function with a fallback. Private APIs can break across macOS versions — verify behavior across versions and prefer public APIs where possible.
 
 ---
 
@@ -992,29 +884,67 @@ OmniWM uses SkyLight (private macOS framework) for low-latency window operations
 
 | Term | Definition |
 |------|-----------|
-| `WindowToken` | Value type (`pid` + `windowId`) identifying a window. Used as dictionary keys throughout. |
-| `WindowHandle` | Reference-type wrapper around `WindowToken`. Identity-compared (`===`). Used in layout trees. |
-| `AXWindowRef` | Accessibility bridge (`AXUIElement` + `windowId`) for reading/writing window properties. |
-| `TrackedWindowMode` | `.tiling` or `.floating` — whether a window is managed by the layout engine. |
-| `WorkspaceDescriptor` | A workspace definition: `id` (UUID), `name`, optional `assignedMonitorPoint`. |
-| `SessionState` | Ephemeral runtime state in `WorkspaceManager`: focused window, visible workspace per monitor, viewport states. |
-| `NiriRoot` / `NiriContainer` / `NiriWindow` | The three-level Niri layout tree: root → columns → windows. |
-| `DwindleNode` | BSP tree node. Kind is either `.split(orientation, ratio)` or `.leaf(handle, fullscreen)`. |
-| `ViewportState` | Niri's horizontal scroll state: `.static`, `.gesture`, or `.spring`. |
-| `LayoutRefreshController` | Central refresh coordinator. Schedules, debounces, and coalesces layout recalculations. |
-| `RefreshReason` | Why a refresh was requested (e.g., `.axWindowCreated`, `.layoutCommand`). Maps to a refresh route. |
-| `RefreshRoute` | How the refresh executes: `fullRescan`, `relayout`, `immediateRelayout`, `visibilityRefresh`, `windowRemoval`. |
-| `ManagedFocusRequest` | In-flight focus request with status (`.pending`/`.confirmed`) and retry tracking. |
-| `FocusBridgeCoordinator` | Focus state machine coordinating OmniWM's focus intent with macOS confirmation. |
-| `CGSEventObserver` | SkyLight event listener for window create/destroy/frame-change/front-app-change. |
-| `HotkeyCommand` | Enum of all 67 commands that can be triggered by hotkeys or IPC. |
-| `IPCApplicationBridge` | Swift actor routing IPC requests to `@MainActor` command/query/rule handlers. |
-| `IPCEventBroker` | Swift actor managing real-time event subscriptions for IPC clients. |
-| `ProportionalSize` | `.proportion(CGFloat)` or `.fixed(CGFloat)` — Niri column width specification. |
-| `WeightedSize` | `.auto(weight:)` or `.fixed(CGFloat)` — Niri window height within a column. |
-| `NodeId` | UUID-based identifier for Niri layout tree nodes. |
-| `SpringConfig` | Animation parameters: `response`, `dampingFraction`. Presets: `.snappy`, `.balanced`, `.gentle`. |
-| `WindowDecision` | Result of rule evaluation: `disposition`, `source`, `workspaceName`, `ruleEffects`. |
-| `WindowRuleFacts` | Input for rule evaluation: app name, AX facts (role, subrole, title), size constraints. |
-| `LayoutType` | `.defaultLayout`, `.niri`, or `.dwindle` — per-workspace layout selection. |
-| `Scratchpad` | A special slot for a single transient window that can be toggled in/out of view. |
+| `EventIntake` | The single ordered buffer all transports post into; monotonic global `seq`; one main-run-loop drain per cycle. |
+| `EventInterpreter` | The drain sink — a pure switch that dispatches each `IntakeEvent` to a `WMController` sub-handler. Does not classify or commit. |
+| `FactResolver` | Gathers the off-main activation-focus fact and re-enters the intake via `.activationFactsResolved`. |
+| `IntentLedger` | Ring buffer of focus/activation `Intent`s; `classifyFocusObservation` returns `echoOf`/`lateEcho`/`external`. |
+| `DeadlineWheel` | Main-actor timing wheel; posts `.intentExpired` back into the intake. Drives intent settle/expiry, not frame retries. |
+| `WMEvent` | The typed, exhaustive event consumed by `WorldStore.commit`. |
+| `WorldStore` | The single synchronous writer. Owns `WindowModel`, focus, viewports, monitor sessions, space topology, and both engines (all private). |
+| `commit` | `WorldStore.commit(_:…)` — normalize → reduce → resolve → invariants; bumps `seq`. The only mutation path. |
+| `withEngineBuildScope` | Sanctions engine mutation outside a commit (for async plan-building) without bumping `seq`. |
+| `ActionPlan` | Pure output of `StateReducer.reduce` — per-domain state deltas + a `ViewportPlan` + notes. |
+| `EffectPlan` | Effector-side plan (`Core/Layout/LayoutBoundary.swift`): per-workspace layout diffs + seq-gated post-layout actions. Built by the layout handlers. |
+| `InvalidationMarks` | Per-domain `seq` watermarks used to drop layout plans that were built against a now-stale world. |
+| `InvariantChecks` | Post-commit consistency checks. `.assert` violations crash in debug; three layout checks are `.trace` (log-only). |
+| `WindowToken` | Value type (`pid` + `windowId`). Primary dictionary key; survives AX recreation via rekey. |
+| `WindowHandle` | Reference-identity wrapper around a `WindowToken`; re-pointed on rekey. |
+| `AXWindowRef` | Accessibility bridge (`AXUIElement` + `windowId`); equality by `windowId`. |
+| `WindowState` | Per-window value record stored in `WindowModel` (replaces the old `WindowModel.Entry`). |
+| `WindowModel` | Reference-type per-window registry, now **private to `WorldStore`**. |
+| `FocusSessionSnapshot` | Value type holding focused token, pending managed focus, per-workspace last-focused, lease, etc. (on `WorldStore.focus`). |
+| `MonitorSession` | Per-monitor visible/previous workspace (on `WorldStore.monitorSessions`). |
+| `ViewportState` | Niri per-workspace scroll/selection state, stored in `WorldStore.viewports`. |
+| `LayoutRefreshController` | The effector: schedules refreshes, runs the display-link loop, executes `EffectPlan`s. |
+| `RefreshReason` / `RefreshRequestRoute` | Why a refresh was requested, and which route it maps to (`fullRescan`/`relayout`/`immediateRelayout`/`visibilityRefresh`/`windowRemoval`). |
+| `AXManager` | Per-app AX frame writer; owns `AXFrameApplicationLedger`. `applyFramesParallel` = per-app thread fan-out. |
+| `AXFrameApplicationLedger` | Dedups, verifies, retries, and learns a per-window size quantum for frame writes. |
+| `SurfaceReconciler` | Stage 4: derives border/bars/tab-rails/native-fullscreen placeholders from `WorldView` and diff-applies them. |
+| `WorldView` | Read-only facade over world state used by `SurfaceDerivation`. |
+| `SurfaceCoordinator` / `SurfaceScene` | Registry + policy store for OmniWM-owned surfaces (hit-testing, capture exclusion, focus-recovery suppression). |
+| `SpaceTopology` | Pure value model of the macOS Spaces layout (per-display spaces, current/fullscreen spaces, window→space map). |
+| `SpaceTracker` | Stateless transform that rebuilds `SpaceTopology` from read-only SkyLight queries and commits it. |
+| `NativeFullscreenRecord` | Per-window record (`originalToken`, `currentToken`, `workspaceId`, `exitRequestedByCommand`, `transition`) from which `isAppFullscreenActive` is derived. |
+| `AnimationDriver` | Owns per-workspace viewport scroll motion (gesture/spring). |
+| `SpringConfig` | Spring parameters; presets are all the same critically-damped curve. |
+| `MotionPolicy` | Single-boolean animations-enabled gate (does not read OS reduce-motion). |
+| `HotkeyCommand` | Enum of every command that can be triggered by hotkey or IPC; carries `LayoutCompatibility`. |
+| `WindowDecision` | Rule-evaluation result: `disposition`, `source`, `workspaceName`, `ruleEffects`. |
+
+---
+
+## 8. Design Decisions & Terminology Changes
+
+### Single source of truth, by design
+
+The redesign's north star is one authoritative world with one writer. Several otherwise-reasonable refactors were **deliberately not pursued** because they would distribute truth or mutation across more objects, working against that goal:
+
+- **Ledger fold (not pursued).** Folding `IntentLedger` (focus/activation intents) and `AXFrameApplicationLedger` (frame-write verification) into one type was considered and rejected. They are two clean, non-overlapping truths on different stages of the pipeline; merging them would add coupling with no single-source-of-truth benefit.
+- **God-file dissolution (not pursued).** `WMController`, `WorkspaceManager`, `LayoutRefreshController`, and `AXEventHandler` are large, but their size comes from *logic*, not from duplicated state — the world is already centralized in `WorldStore`. Mechanically extracting sub-objects would scatter state and mutation across more coordinating objects, i.e. move *away* from the single-writer model. Size alone is not a reason to split here.
+- **"Everything through commit" (deferred, tracked separately).** Today the async layout plan-build mutates the engines under `withEngineBuildScope` rather than inside `commit`, and the 60–120Hz animation tier mutates engine/viewport offsets outside `commit` entirely (see [3.9](#39-the-ungated-animation-tier)). Routing plan-build through `commit` would let the three `.trace` invariant checks (`layout_token_missing`, `layout_token_wrong_workspace`, `selection_unresolved`) become hard asserts and close a one-cycle staleness window. But `commit` is synchronous while plan-build is async, and the animation tier must stay ungated for responsiveness — so this is a multi-week redesign with real risk to animation/responsiveness for a modest gain. It is deferred and scoped on its own, not bundled here.
+
+### Terminology changes since the previous architecture
+
+Long-standing names that a returning contributor may search for, and what replaced them:
+
+| Removed / renamed | Now |
+|-------------------|-----|
+| `RuntimeStore` / `RuntimeStore.transact` | `WorldStore.commit` (`Core/World/`), entered via `WorkspaceManager.recordReconcileEvent` |
+| `SessionState` (single type) | Split into `FocusSessionSnapshot`, `MonitorSession`, `viewports`, `scratchpadToken` on `WorldStore` |
+| `WindowModel.Entry` (nested struct) | `WindowState` (top-level value type) |
+| `BorderManager` / `FocusBorderController` / `BorderCoordinator` | Derived surface: `SurfaceReconciler` → `BorderSurfaceApplier` → `BorderWindow` |
+| `FocusBridgeCoordinator` | Managed focus split across `WMController`, `AXEventHandler`, `WorkspaceManager`, `IntentLedger` |
+| `isAppFullscreenActive` (stored flag) | Derived from `NativeFullscreenRecord`s |
+| AX destroy/recreate native-fullscreen inference | Topology (`SpaceTracker`) + AX-observed fullscreen at activation |
+
+`KeyboardFocusLifecycleCoordinator.swift` still exists but now holds only value types (`KeyboardFocusTarget`, `ManagedFocusOrigin`, `ManagedFocusRequest`); it is not a coordinator class. `WindowModel`, `AXManager`, and `ReconcileTraceRecorder` were *not* removed — `WindowModel` is now private to `WorldStore`, and `AXManager` remains the per-app frame writer.
