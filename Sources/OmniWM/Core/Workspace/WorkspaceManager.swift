@@ -116,20 +116,12 @@ final class WorkspaceManager {
         case exitRequested
     }
 
-    enum NativeFullscreenAvailability: Equatable {
-        case present
-        case temporarilyUnavailable
-    }
-
     struct NativeFullscreenRecord: Equatable {
         let originalToken: WindowToken
         var currentToken: WindowToken
         var workspaceId: WorkspaceDescriptor.ID
-        var transitionId: UInt64
         var exitRequestedByCommand: Bool
         var transition: NativeFullscreenTransition
-        var availability: NativeFullscreenAvailability
-        var unavailableSince: Date?
     }
 
     private struct MonitorResolutionContext {
@@ -160,7 +152,6 @@ final class WorkspaceManager {
     private let bootPersistedWindowRestoreCatalog: PersistedWindowRestoreCatalog
     private var nativeFullscreenRecordsByOriginalToken: [WindowToken: NativeFullscreenRecord] = [:]
     private var nativeFullscreenOriginalTokenByCurrentToken: [WindowToken: WindowToken] = [:]
-    private var nextNativeFullscreenTransitionId: UInt64 = 1
     private var consumedBootPersistedWindowRestoreEntries: Set<PersistedWindowRestoreConsumptionKey> = []
     private var persistedWindowRestoreCatalogDirty = false
     private var persistedWindowRestoreCatalogSaveScheduled = false
@@ -1058,7 +1049,7 @@ final class WorkspaceManager {
 
     var hasPendingNativeFullscreenTransition: Bool {
         nativeFullscreenRecordsByOriginalToken.values.contains {
-            $0.transition == .enterRequested || $0.availability == .temporarilyUnavailable
+            $0.transition == .enterRequested
         }
     }
 
@@ -1296,11 +1287,8 @@ final class WorkspaceManager {
             originalToken: originalToken,
             currentToken: token,
             workspaceId: workspaceId,
-            transitionId: 0,
             exitRequestedByCommand: false,
-            transition: .enterRequested,
-            availability: .present,
-            unavailableSince: nil
+            transition: .enterRequested
         )
 
         if record.currentToken != token {
@@ -1317,14 +1305,6 @@ final class WorkspaceManager {
         }
         if record.transition != .enterRequested {
             record.transition = .enterRequested
-            changed = true
-        }
-        if record.availability != .present {
-            record.availability = .present
-            changed = true
-        }
-        if record.unavailableSince != nil {
-            record.unavailableSince = nil
             changed = true
         }
         if existing == nil || changed {
@@ -1346,11 +1326,8 @@ final class WorkspaceManager {
             originalToken: originalToken,
             currentToken: token,
             workspaceId: workspaceId,
-            transitionId: 0,
             exitRequestedByCommand: false,
-            transition: .suspended,
-            availability: .present,
-            unavailableSince: nil
+            transition: .suspended
         )
 
         if record.currentToken != token {
@@ -1367,14 +1344,6 @@ final class WorkspaceManager {
         }
         if record.transition != .suspended {
             record.transition = .suspended
-            changed = true
-        }
-        if record.availability != .present {
-            record.availability = .present
-            changed = true
-        }
-        if record.unavailableSince != nil {
-            record.unavailableSince = nil
             changed = true
         }
         if existing == nil || changed {
@@ -1407,11 +1376,8 @@ final class WorkspaceManager {
             originalToken: originalToken,
             currentToken: token,
             workspaceId: workspaceId,
-            transitionId: 0,
             exitRequestedByCommand: initiatedByCommand,
-            transition: .exitRequested,
-            availability: .present,
-            unavailableSince: nil
+            transition: .exitRequested
         )
 
         var changed = existing == nil
@@ -1429,14 +1395,6 @@ final class WorkspaceManager {
         }
         if record.transition != .exitRequested {
             record.transition = .exitRequested
-            changed = true
-        }
-        if record.availability != .present {
-            record.availability = .present
-            changed = true
-        }
-        if record.unavailableSince != nil {
-            record.unavailableSince = nil
             changed = true
         }
         if changed {
@@ -2732,20 +2690,11 @@ final class WorkspaceManager {
         return true
     }
 
-    func isNativeFullscreenTemporarilyUnavailable(_ token: WindowToken) -> Bool {
-        nativeFullscreenRecord(for: token)?.availability == .temporarilyUnavailable
-    }
-
     func showsNativeFullscreenPlaceholder(for token: WindowToken) -> Bool {
         guard layoutReason(for: token) == .nativeFullscreen else { return false }
         guard let record = nativeFullscreenRecord(for: token) else { return false }
         guard record.currentToken == token else { return false }
-        switch record.availability {
-        case .present:
-            return record.transition != .enterRequested
-        case .temporarilyUnavailable:
-            return true
-        }
+        return record.transition != .enterRequested
     }
 
     private func nativeFullscreenOriginalToken(for token: WindowToken) -> WindowToken? {
@@ -2756,15 +2705,9 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    private func upsertNativeFullscreenRecord(_ incomingRecord: NativeFullscreenRecord) -> NativeFullscreenRecord {
-        var record = incomingRecord
+    private func upsertNativeFullscreenRecord(_ record: NativeFullscreenRecord) -> NativeFullscreenRecord {
         if let previous = nativeFullscreenRecordsByOriginalToken[record.originalToken] {
             nativeFullscreenOriginalTokenByCurrentToken.removeValue(forKey: previous.currentToken)
-            if shouldMintNativeFullscreenTransitionId(previous: previous, next: record) {
-                record.transitionId = mintNativeFullscreenTransitionId()
-            } else {
-                record.transitionId = previous.transitionId
-            }
             if previous != record {
                 noteInvalidation(workspaceId: previous.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
                 if previous.workspaceId != record.workspaceId {
@@ -2772,37 +2715,11 @@ final class WorkspaceManager {
                 }
             }
         } else {
-            record.transitionId = record.transitionId == 0
-                ? mintNativeFullscreenTransitionId()
-                : record.transitionId
             noteInvalidation(workspaceId: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
         }
         nativeFullscreenRecordsByOriginalToken[record.originalToken] = record
         nativeFullscreenOriginalTokenByCurrentToken[record.currentToken] = record.originalToken
         return record
-    }
-
-    private func shouldMintNativeFullscreenTransitionId(
-        previous: NativeFullscreenRecord,
-        next: NativeFullscreenRecord
-    ) -> Bool {
-        if previous.availability == .temporarilyUnavailable,
-           next.availability == .temporarilyUnavailable
-        {
-            return previous.exitRequestedByCommand != next.exitRequestedByCommand
-                || previous.transition != next.transition
-        }
-        return previous.currentToken != next.currentToken
-            || previous.workspaceId != next.workspaceId
-            || previous.exitRequestedByCommand != next.exitRequestedByCommand
-            || previous.transition != next.transition
-            || previous.availability != next.availability
-    }
-
-    private func mintNativeFullscreenTransitionId() -> UInt64 {
-        let id = nextNativeFullscreenTransitionId
-        nextNativeFullscreenTransitionId &+= 1
-        return id
     }
 
     @discardableResult
