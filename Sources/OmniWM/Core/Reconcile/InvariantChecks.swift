@@ -206,8 +206,7 @@ enum InvariantChecks {
                         violations.append(
                             .init(
                                 code: "layout_token_missing",
-                                message: "Layout token \(tile.token) in workspace \(workspaceId.uuidString) is missing from the window registry.",
-                                severity: .trace
+                                message: "Layout token \(tile.token) in workspace \(workspaceId.uuidString) is missing from the window registry."
                             )
                         )
                         continue
@@ -216,8 +215,7 @@ enum InvariantChecks {
                         violations.append(
                             .init(
                                 code: "layout_token_wrong_workspace",
-                                message: "Layout token \(tile.token) is laid out in workspace \(workspaceId.uuidString) but the window registry has it in \(window.workspaceId.uuidString).",
-                                severity: .trace
+                                message: "Layout token \(tile.token) is laid out in workspace \(workspaceId.uuidString) but the window registry has it in \(window.workspaceId.uuidString)."
                             )
                         )
                     }
@@ -231,8 +229,7 @@ enum InvariantChecks {
                 violations.append(
                     .init(
                         code: "selection_unresolved",
-                        message: "Selected node \(selectedNodeId) in workspace \(workspaceId.uuidString) does not resolve to any laid-out window.",
-                        severity: .trace
+                        message: "Selected node \(selectedNodeId) in workspace \(workspaceId.uuidString) does not resolve to any laid-out window."
                     )
                 )
             }

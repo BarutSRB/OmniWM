@@ -2566,6 +2566,130 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testInvariantChecksDistinguishesConsistentAndDivergentLayouts() {
+        let ws1: WorkspaceDescriptor.ID = UUID()
+        let ws2: WorkspaceDescriptor.ID = UUID()
+        let token = WindowToken(pid: 1, windowId: 1)
+        let nodeId = NodeId()
+        let layout = LayoutTopology(
+            columns: [.init(tiles: [.init(nodeId: nodeId, token: token, isFullscreen: false)])]
+        )
+        var viewport = ViewportState()
+        viewport.selectedNodeId = nodeId
+
+        XCTAssertTrue(
+            InvariantChecks.validate(
+                snapshot: Self.snapshot(
+                    windows: [Self.window(token: token, workspaceId: ws1)],
+                    viewports: [ws1: viewport],
+                    layouts: [ws1: layout]
+                )
+            ).isEmpty
+        )
+
+        XCTAssertEqual(
+            Set(InvariantChecks.validate(
+                snapshot: Self.snapshot(windows: [], layouts: [ws1: layout])
+            ).map(\.code)),
+            ["layout_token_missing"]
+        )
+
+        XCTAssertEqual(
+            Set(InvariantChecks.validate(
+                snapshot: Self.snapshot(
+                    windows: [Self.window(token: token, workspaceId: ws2)],
+                    layouts: [ws1: layout]
+                )
+            ).map(\.code)),
+            ["layout_token_wrong_workspace"]
+        )
+
+        var strayViewport = ViewportState()
+        strayViewport.selectedNodeId = NodeId()
+        XCTAssertEqual(
+            Set(InvariantChecks.validate(
+                snapshot: Self.snapshot(
+                    windows: [Self.window(token: token, workspaceId: ws1)],
+                    viewports: [ws1: strayViewport],
+                    layouts: [ws1: layout]
+                )
+            ).map(\.code)),
+            ["selection_unresolved"]
+        )
+    }
+
+    @MainActor
+    func testCrossWorkspaceMoveRecordsNoLayoutInvariantViolations() throws {
+        let controller = Self.controller()
+        let ws1 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let movingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(910_001), windowId: 910_101),
+            pid: 910_001, windowId: 910_101, to: ws1
+        )
+        let sourceSibling = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(910_002), windowId: 910_102),
+            pid: 910_002, windowId: 910_102, to: ws1
+        )
+        let targetSeed = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(910_003), windowId: 910_103),
+            pid: 910_003, windowId: 910_103, to: ws2
+        )
+        let movingNode = engine.addWindow(token: movingToken, to: ws1, afterSelection: nil)
+        _ = engine.addWindow(token: sourceSibling, to: ws1, afterSelection: movingNode.id)
+        _ = engine.addWindow(token: targetSeed, to: ws2, afterSelection: nil)
+
+        controller.workspaceManager.withBatchedWorkspaceMove(
+            sourceWorkspaceId: ws1,
+            targetWorkspaceId: ws2
+        ) { sourceState, targetState in
+            guard let moveResult = engine.moveWindowToWorkspace(
+                movingNode, from: ws1, to: ws2, sourceState: &sourceState, targetState: &targetState
+            ) else { return nil }
+            return (moveResult, [movingToken])
+        }
+
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertEqual(controller.workspaceManager.workspace(for: movingToken), ws2)
+    }
+
+    @MainActor
+    func testWindowRemovalRecordsNoLayoutInvariantViolations() async throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let closingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(920_001), windowId: 920_101),
+            pid: 920_001, windowId: 920_101, to: ws
+        )
+        let sibling = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(920_002), windowId: 920_102),
+            pid: 920_002, windowId: 920_102, to: ws
+        )
+        let closingNode = engine.addWindow(token: closingToken, to: ws, afterSelection: nil)
+        _ = engine.addWindow(token: sibling, to: ws, afterSelection: closingNode.id, focusedToken: closingToken)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: closingNode.id,
+            focusedToken: nil,
+            in: ws,
+            onMonitor: controller.workspaceManager.monitorId(for: ws)
+        )
+
+        controller.axEventHandler.handleRemoved(token: closingToken)
+        await Self.waitForRemovalRefresh(controller, removedToken: closingToken)
+
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertNil(controller.workspaceManager.entry(for: closingToken))
+    }
+
+    @MainActor
     func testNiriFocusedRemovalPreferredRecoveryUsesLayoutRememberedToken() async throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(
@@ -2733,7 +2857,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         pendingManagedFocus: PendingManagedFocusSnapshot = .empty,
         interactionMonitorId: Monitor.ID? = nil,
         previousInteractionMonitorId: Monitor.ID? = nil,
-        windows: [ReconcileWindowSnapshot] = []
+        windows: [ReconcileWindowSnapshot] = [],
+        viewports: [WorkspaceDescriptor.ID: ViewportState] = [:],
+        layouts: [WorkspaceDescriptor.ID: LayoutTopology] = [:]
     ) -> ReconcileSnapshot {
         ReconcileSnapshot(
             topologyProfile: TopologyProfile(sortedMonitors: []),
@@ -2745,7 +2871,9 @@ final class RuntimeArchitectureTests: XCTestCase {
                 interactionMonitorId: interactionMonitorId,
                 previousInteractionMonitorId: previousInteractionMonitorId
             ),
-            windows: windows
+            windows: windows,
+            viewports: viewports,
+            layouts: layouts
         )
     }
 
