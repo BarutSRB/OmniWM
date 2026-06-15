@@ -214,6 +214,7 @@ import QuartzCore
 
     private func handleScreenParametersChanged() {
         detectRefreshRates()
+        controller?.syncMonitorsToNiriEngine()
         controller?.surfaceReconciler.noteWorldChanged()
     }
 

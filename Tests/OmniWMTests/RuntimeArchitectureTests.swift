@@ -2527,6 +2527,66 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testNiriViewportOperationNormalizesDisplayRefreshRateFromEngineMonitor() throws {
+        let fixture = try Self.niriRefreshRateFixture(displayId: 98_765)
+        let controller = fixture.controller
+        let workspaceId = fixture.workspaceId
+        let monitor = fixture.monitor
+        let engine = fixture.engine
+        _ = Self.addNiriRuntimeWindows(
+            count: 2,
+            pidBase: 766_200,
+            windowBase: 766_300,
+            to: workspaceId,
+            controller: controller
+        )
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+        controller.layoutRefreshController.layoutState.refreshRateByDisplay[monitor.displayId] = 120.0
+
+        let plans = controller.workspaceManager.withBatchedLayoutBuild {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
+        }
+
+        XCTAssertFalse(plans.isEmpty)
+        XCTAssertEqual(controller.workspaceManager.niriViewportState(for: workspaceId).displayRefreshRate, 120.0)
+        XCTAssertEqual(engine.displayRefreshRate(in: workspaceId), 60.0)
+
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { _ in }
+
+        XCTAssertEqual(
+            controller.workspaceManager.niriViewportState(for: workspaceId).displayRefreshRate,
+            engine.displayRefreshRate(in: workspaceId)
+        )
+    }
+
+    @MainActor
+    func testApplySessionPatchNormalizesNiriViewportDisplayRefreshRate() throws {
+        let fixture = try Self.niriRefreshRateFixture(displayId: 98_766)
+        let controller = fixture.controller
+        let workspaceId = fixture.workspaceId
+        let engine = fixture.engine
+        var viewportState = ViewportState()
+        viewportState.activeColumnIndex = 3
+        viewportState.viewOffset = 42.0
+        viewportState.displayRefreshRate = 120.0
+
+        let changed = controller.workspaceManager.applySessionPatch(
+            WorkspaceSessionPatch(
+                workspaceId: workspaceId,
+                viewportState: viewportState,
+                plannedSeq: controller.workspaceManager.worldSeq
+            )
+        )
+
+        let storedState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        XCTAssertTrue(changed)
+        XCTAssertEqual(storedState.activeColumnIndex, 3)
+        XCTAssertEqual(storedState.viewOffset, 42.0)
+        XCTAssertEqual(storedState.displayRefreshRate, engine.displayRefreshRate(in: workspaceId))
+        XCTAssertEqual(engine.displayRefreshRate(in: workspaceId), 60.0)
+    }
+
+    @MainActor
     func testBatchedLayoutBuildLeavesDwindlePlansWithoutViewportAndStampsPostBuildSeq() throws {
         let settings = Self.settingsStore()
         settings.workspaceConfigurations = settings.workspaceConfigurations.map {
@@ -3383,6 +3443,38 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertFalse(engine.hasAnyWindowAnimationsRunning(in: workspaceId), file: file, line: line)
         XCTAssertFalse(plan.animationDirectives.containsStartNiriScroll(for: workspaceId), file: file, line: line)
         XCTAssertTrue(plan.animationDirectives.containsActivateWindow(newTabToken), file: file, line: line)
+    }
+
+    @MainActor
+    private static func niriRefreshRateFixture(
+        displayId: CGDirectDisplayID,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> (
+        controller: WMController,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        engine: NiriLayoutEngine
+    ) {
+        let controller = Self.controller(file: file, line: line)
+        let monitor = Monitor(
+            id: .init(displayId: displayId),
+            displayId: displayId,
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 860),
+            hasNotch: false,
+            name: "Refresh Rate Test"
+        )
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true),
+            file: file,
+            line: line
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine, file: file, line: line)
+        return (controller, workspaceId, monitor, engine)
     }
 
     @MainActor

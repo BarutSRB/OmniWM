@@ -1540,7 +1540,8 @@ final class WorkspaceManager {
 
         var changed = false
 
-        if let viewportState = patch.viewportState {
+        if var viewportState = patch.viewportState {
+            normalizeNiriRefreshRate(&viewportState, for: patch.workspaceId)
             recordReconcileEvent(
                 .viewportCommitted(
                     workspaceId: patch.workspaceId,
@@ -1563,7 +1564,6 @@ final class WorkspaceManager {
 
         return changed
     }
-
 
     func lastFocusedToken(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
         world.focus.lastTiledFocusedByWorkspace[workspaceId]
@@ -2858,10 +2858,20 @@ final class WorkspaceManager {
         world.viewports[workspaceId] ?? ViewportState()
     }
 
+    private func normalizeNiriRefreshRate(
+        _ state: inout ViewportState,
+        for workspaceId: WorkspaceDescriptor.ID
+    ) {
+        guard let refreshRate = niriEngine?.monitorForWorkspace(workspaceId)?.refreshRate else { return }
+        state.displayRefreshRate = refreshRate
+    }
+
     func updateNiriViewportState(
         _ state: ViewportState,
         for workspaceId: WorkspaceDescriptor.ID
     ) {
+        var state = state
+        normalizeNiriRefreshRate(&state, for: workspaceId)
         recordReconcileEvent(
             .viewportChanged(
                 workspaceId: workspaceId,
@@ -2955,6 +2965,8 @@ final class WorkspaceManager {
             preMutate: {
                 guard let moved = engineMove(&sourceState, &targetState) else { return }
                 captured = moved.result
+                self.normalizeNiriRefreshRate(&sourceState, for: sourceWorkspaceId)
+                self.normalizeNiriRefreshRate(&targetState, for: targetWorkspaceId)
                 self.applyViewportInBatch(sourceState, for: sourceWorkspaceId)
                 self.applyViewportInBatch(targetState, for: targetWorkspaceId)
                 for token in moved.tokens {
@@ -2977,6 +2989,7 @@ final class WorkspaceManager {
             snapshot: { self.reconcileSnapshot() },
             preMutate: {
                 engineMutation(&sourceState)
+                self.normalizeNiriRefreshRate(&sourceState, for: workspaceId)
                 self.applyViewportInBatch(sourceState, for: workspaceId)
             },
             resolvePlan: { plan, _ in plan }
