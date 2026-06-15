@@ -1417,16 +1417,35 @@ final class WorkspaceManager {
         let topology = world.spaceTopology
         guard topology.isPopulated else { return }
         for entry in world.allEntries() where entry.mode == .tiling {
-            let windowId = entry.windowId
-            guard windowId > 0, let spaceId = topology.spaceForWindow(windowId) else { continue }
-            let onFullscreenSpace = topology.isFullscreenSpace(spaceId)
-            let isSuspended = entry.layoutReason == .nativeFullscreen
-            if onFullscreenSpace, !isSuspended, spaceId == topology.activeSpaceId {
-                markNativeFullscreenSuspended(entry.token)
-            } else if !onFullscreenSpace, isSuspended {
-                restoreNativeFullscreenRecord(for: entry.token)
-            }
+            reconcileNativeFullscreenWithTopology(for: entry.token)
         }
+    }
+
+    @discardableResult
+    func reconcileNativeFullscreenWithTopology(for token: WindowToken) -> Bool {
+        let topology = world.spaceTopology
+        guard topology.isPopulated,
+              let entry = entry(for: token),
+              entry.mode == .tiling,
+              entry.windowId > 0,
+              let spaceId = topology.spaceForWindow(entry.windowId)
+        else {
+            return false
+        }
+
+        let onFullscreenSpace = topology.isFullscreenSpace(spaceId)
+        let isSuspended = entry.layoutReason == .nativeFullscreen
+        if onFullscreenSpace, !isSuspended, spaceId == topology.activeSpaceId {
+            return markNativeFullscreenSuspended(entry.token)
+        }
+        if !onFullscreenSpace, isSuspended {
+            return restoreNativeFullscreenRecord(for: entry.token)
+        }
+        return false
+    }
+
+    func isWindowOnObservedNativeFullscreenSpace(_ windowId: Int) -> Bool {
+        world.spaceTopology.isWindowOnFullscreenSpace(windowId)
     }
 
     func nativeFullscreenCommandTarget(frontmostToken: WindowToken?) -> WindowToken? {

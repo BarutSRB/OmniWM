@@ -2690,6 +2690,280 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testNativeFullscreenDestroyPreservesConsumedNiriColumn() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let targetToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(930_001), windowId: 930_101),
+            pid: 930_001, windowId: 930_101, to: ws
+        )
+        let peerToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(930_002), windowId: 930_102),
+            pid: 930_002, windowId: 930_102, to: ws
+        )
+        let targetNode = engine.addWindow(token: targetToken, to: ws, afterSelection: nil)
+        _ = engine.addWindow(token: peerToken, to: ws, afterSelection: targetNode.id, focusedToken: targetToken)
+
+        var state = controller.workspaceManager.niriViewportState(for: ws)
+        state.selectedNodeId = targetNode.id
+        state.activeColumnIndex = 0
+        let targetColumn = try XCTUnwrap(engine.column(of: targetNode))
+        XCTAssertTrue(
+            controller.workspaceManager.withEngineMutationScope(in: ws) {
+                engine.consumeWindowIntoColumn(
+                    focusedColumn: targetColumn,
+                    in: ws,
+                    motion: .disabled,
+                    state: &state,
+                    gaps: CGFloat(controller.workspaceManager.gaps)
+                )
+            }
+        )
+        _ = controller.workspaceManager.applySessionPatch(
+            WorkspaceSessionPatch(
+                workspaceId: ws,
+                viewportState: state,
+                plannedSeq: controller.workspaceManager.worldSeq
+            )
+        )
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: targetNode.id,
+            focusedToken: targetToken,
+            in: ws,
+            onMonitor: controller.workspaceManager.monitorId(for: ws)
+        )
+
+        let consumedColumn = try XCTUnwrap(engine.column(of: targetNode))
+        let consumedTokens = consumedColumn.windowNodes.map(\.token)
+        XCTAssertEqual(engine.columns(in: ws).count, 1)
+        XCTAssertEqual(consumedTokens.count, 2)
+        XCTAssertTrue(consumedTokens.contains(targetToken))
+        XCTAssertTrue(consumedTokens.contains(peerToken))
+        XCTAssertTrue(controller.workspaceManager.requestNativeFullscreenEnter(targetToken, in: ws))
+
+        controller.axEventHandler.handleRemoved(token: targetToken)
+
+        let record = try XCTUnwrap(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+        XCTAssertEqual(record.transition, .suspended)
+        XCTAssertTrue(controller.workspaceManager.showsNativeFullscreenPlaceholder(for: targetToken))
+        XCTAssertNotNil(controller.workspaceManager.entry(for: targetToken))
+        XCTAssertEqual(engine.columns(in: ws).count, 1)
+        XCTAssertEqual(consumedColumn.windowNodes.map(\.token), consumedTokens)
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+    }
+
+    @MainActor
+    func testNativeFullscreenSpaceObservationSuspendsBeforeFocusObservation() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+
+        let targetToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(931_001), windowId: 931_101),
+            pid: 931_001, windowId: 931_101, to: ws
+        )
+        _ = controller.niriEngine?.addWindow(token: targetToken, to: ws, afterSelection: nil)
+
+        let fullscreenSpaceId: UInt64 = 9_310
+        controller.workspaceManager.commitSpaceTopology(
+            SpaceTopology(
+                displays: [
+                    SpaceTopology.DisplaySpaces(
+                        displayIdentifier: "test-display",
+                        spaceIds: [fullscreenSpaceId],
+                        currentSpaceId: fullscreenSpaceId
+                    ),
+                ],
+                activeSpaceId: fullscreenSpaceId,
+                fullscreenSpaceIds: [fullscreenSpaceId],
+                windowSpace: [:]
+            )
+        )
+
+        XCTAssertNil(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+
+        controller.spaceTracker.noteWindowSpace(
+            windowId: targetToken.windowId,
+            spaceId: fullscreenSpaceId
+        )
+
+        let record = try XCTUnwrap(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+        XCTAssertEqual(record.transition, .suspended)
+        XCTAssertEqual(controller.workspaceManager.layoutReason(for: targetToken), .nativeFullscreen)
+        XCTAssertTrue(controller.workspaceManager.observedState(for: targetToken)?.isNativeFullscreen == true)
+    }
+
+    @MainActor
+    func testNativeFullscreenDestroyUsesObservedFullscreenSpaceBeforeAXFallback() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let targetToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(932_001), windowId: 932_101),
+            pid: 932_001, windowId: 932_101, to: ws
+        )
+        let targetNode = engine.addWindow(token: targetToken, to: ws, afterSelection: nil)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: targetNode.id,
+            focusedToken: targetToken,
+            in: ws,
+            onMonitor: controller.workspaceManager.monitorId(for: ws)
+        )
+        XCTAssertTrue(
+            controller.workspaceManager.setManagedFocus(
+                targetToken,
+                in: ws,
+                onMonitor: controller.workspaceManager.monitorId(for: ws)
+            )
+        )
+
+        let fullscreenSpaceId: UInt64 = 9_320
+        controller.workspaceManager.commitSpaceTopology(
+            SpaceTopology(
+                displays: [
+                    SpaceTopology.DisplaySpaces(
+                        displayIdentifier: "test-display",
+                        spaceIds: [fullscreenSpaceId],
+                        currentSpaceId: fullscreenSpaceId
+                    ),
+                ],
+                activeSpaceId: fullscreenSpaceId,
+                fullscreenSpaceIds: [fullscreenSpaceId],
+                windowSpace: [targetToken.windowId: fullscreenSpaceId]
+            )
+        )
+
+        XCTAssertNil(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+
+        controller.axEventHandler.handleRemoved(token: targetToken)
+
+        let record = try XCTUnwrap(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+        XCTAssertEqual(record.transition, .suspended)
+        XCTAssertTrue(controller.workspaceManager.showsNativeFullscreenPlaceholder(for: targetToken))
+        XCTAssertNotNil(controller.workspaceManager.entry(for: targetToken))
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+    }
+
+    @MainActor
+    func testNativeFullscreenCGSDestroyPreservesBeforeTopologyCleanup() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let targetToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(933_001), windowId: 933_101),
+            pid: 933_001, windowId: 933_101, to: ws
+        )
+        let targetNode = engine.addWindow(token: targetToken, to: ws, afterSelection: nil)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: targetNode.id,
+            focusedToken: targetToken,
+            in: ws,
+            onMonitor: controller.workspaceManager.monitorId(for: ws)
+        )
+        XCTAssertTrue(
+            controller.workspaceManager.setManagedFocus(
+                targetToken,
+                in: ws,
+                onMonitor: controller.workspaceManager.monitorId(for: ws)
+            )
+        )
+
+        let fullscreenSpaceId: UInt64 = 9_330
+        controller.workspaceManager.commitSpaceTopology(
+            SpaceTopology(
+                displays: [
+                    SpaceTopology.DisplaySpaces(
+                        displayIdentifier: "test-display",
+                        spaceIds: [fullscreenSpaceId],
+                        currentSpaceId: fullscreenSpaceId
+                    ),
+                ],
+                activeSpaceId: fullscreenSpaceId,
+                fullscreenSpaceIds: [fullscreenSpaceId],
+                windowSpace: [targetToken.windowId: fullscreenSpaceId]
+            )
+        )
+
+        XCTAssertNil(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+        XCTAssertTrue(controller.workspaceManager.isWindowOnObservedNativeFullscreenSpace(targetToken.windowId))
+
+        controller.axEventHandler.handleCGSEvent(
+            .destroyed(windowId: UInt32(targetToken.windowId), spaceId: fullscreenSpaceId)
+        )
+
+        let record = try XCTUnwrap(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+        XCTAssertEqual(record.transition, .suspended)
+        XCTAssertTrue(controller.workspaceManager.showsNativeFullscreenPlaceholder(for: targetToken))
+        XCTAssertNotNil(controller.workspaceManager.entry(for: targetToken))
+        XCTAssertFalse(controller.workspaceManager.isWindowOnObservedNativeFullscreenSpace(targetToken.windowId))
+        XCTAssertNil(controller.workspaceManager.spaceTopology.spaceForWindow(targetToken.windowId))
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+    }
+
+    @MainActor
+    func testNativeFullscreenTopologyRestoreClearsSuspension() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+
+        let targetToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(934_001), windowId: 934_101),
+            pid: 934_001, windowId: 934_101, to: ws
+        )
+        _ = controller.niriEngine?.addWindow(token: targetToken, to: ws, afterSelection: nil)
+
+        let fullscreenSpaceId: UInt64 = 9_340
+        let normalSpaceId: UInt64 = 9_341
+        controller.workspaceManager.commitSpaceTopology(
+            SpaceTopology(
+                displays: [
+                    SpaceTopology.DisplaySpaces(
+                        displayIdentifier: "test-display",
+                        spaceIds: [fullscreenSpaceId, normalSpaceId],
+                        currentSpaceId: fullscreenSpaceId
+                    ),
+                ],
+                activeSpaceId: fullscreenSpaceId,
+                fullscreenSpaceIds: [fullscreenSpaceId],
+                windowSpace: [:]
+            )
+        )
+
+        controller.spaceTracker.noteWindowSpace(
+            windowId: targetToken.windowId,
+            spaceId: fullscreenSpaceId
+        )
+
+        let suspendedRecord = try XCTUnwrap(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+        XCTAssertEqual(suspendedRecord.transition, .suspended)
+        XCTAssertEqual(controller.workspaceManager.layoutReason(for: targetToken), .nativeFullscreen)
+        XCTAssertTrue(controller.workspaceManager.observedState(for: targetToken)?.isNativeFullscreen == true)
+
+        controller.spaceTracker.noteWindowSpace(
+            windowId: targetToken.windowId,
+            spaceId: normalSpaceId
+        )
+
+        XCTAssertNil(controller.workspaceManager.nativeFullscreenRecord(for: targetToken))
+        XCTAssertEqual(controller.workspaceManager.layoutReason(for: targetToken), .standard)
+        XCTAssertTrue(controller.workspaceManager.observedState(for: targetToken)?.isNativeFullscreen == false)
+        XCTAssertEqual(controller.workspaceManager.spaceTopology.spaceForWindow(targetToken.windowId), normalSpaceId)
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+    }
+
+    @MainActor
     func testNiriFocusedRemovalPreferredRecoveryUsesLayoutRememberedToken() async throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(

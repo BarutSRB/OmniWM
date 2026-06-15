@@ -42,11 +42,14 @@ final class SpaceTracker {
 
     func noteWindowSpace(windowId: Int, spaceId: UInt64) {
         guard let controller, isEnabled, spaceId != 0 else { return }
-        guard controller.workspaceManager.entry(forWindowId: windowId) != nil else { return }
+        guard let entry = controller.workspaceManager.entry(forWindowId: windowId) else { return }
         var topology = controller.workspaceManager.spaceTopology
-        guard topology.windowSpace[windowId] != spaceId else { return }
+        if topology.activeSpaceId == 0 || !topology.isKnownSpace(spaceId) {
+            topology = refreshedTopology(preserving: topology) ?? topology
+        }
         topology.windowSpace[windowId] = spaceId
         controller.workspaceManager.commitSpaceTopology(topology)
+        controller.workspaceManager.reconcileNativeFullscreenWithTopology(for: entry.token)
     }
 
     func noteWindowDestroyed(windowId: Int) {
@@ -54,5 +57,24 @@ final class SpaceTracker {
         var topology = controller.workspaceManager.spaceTopology
         guard topology.windowSpace.removeValue(forKey: windowId) != nil else { return }
         controller.workspaceManager.commitSpaceTopology(topology)
+    }
+
+    private func refreshedTopology(preserving topology: SpaceTopology) -> SpaceTopology? {
+        let managed = SkyLight.shared.managedSpaces()
+        guard !managed.isEmpty else { return nil }
+
+        var refreshed = topology
+        refreshed.displays = managed.map {
+            SpaceTopology.DisplaySpaces(
+                displayIdentifier: $0.displayIdentifier,
+                spaceIds: $0.spaceIds,
+                currentSpaceId: $0.currentSpaceId
+            )
+        }
+        refreshed.fullscreenSpaceIds = managed.reduce(into: Set<UInt64>()) {
+            $0.formUnion($1.fullscreenSpaceIds)
+        }
+        refreshed.activeSpaceId = SkyLight.shared.activeSpace() ?? topology.activeSpaceId
+        return refreshed
     }
 }

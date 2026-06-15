@@ -395,12 +395,12 @@ final class AXEventHandler {
             controller.spaceTracker.noteWindowSpace(windowId: Int(windowId), spaceId: spaceId)
 
         case let .destroyed(windowId, _):
-            controller.spaceTracker.noteWindowDestroyed(windowId: Int(windowId))
             handleCGSWindowDestroyed(windowId: windowId)
+            controller.spaceTracker.noteWindowDestroyed(windowId: Int(windowId))
 
         case let .closed(windowId):
-            controller.spaceTracker.noteWindowDestroyed(windowId: Int(windowId))
             handleCGSWindowDestroyed(windowId: windowId)
+            controller.spaceTracker.noteWindowDestroyed(windowId: Int(windowId))
 
         case let .frameChanged(windowId):
             handleFrameChanged(windowId: windowId)
@@ -1285,6 +1285,9 @@ final class AXEventHandler {
 
         cancelPostCreateLifecycleVerification(for: token)
         controller.axManager.removeWindowState(pid: token.pid, windowId: token.windowId)
+        if handleNativeFullscreenDestroy(token) {
+            return
+        }
 
         let shouldRecoverFocus = token == focusedTokenBefore
         let closeRecoveryArmed: Bool
@@ -2307,14 +2310,57 @@ final class AXEventHandler {
         guard let controller else { return false }
         let changed = controller.workspaceManager.markNativeFullscreenSuspended(entry.token)
         if changed {
-            controller.layoutRefreshController.requestImmediateRelayout(
-                reason: .appActivationTransition,
-                affectedWorkspaceIds: [
-                    controller.workspaceManager.workspace(for: entry.token) ?? entry.workspaceId,
-                ]
-            )
+            requestNativeFullscreenRelayout(for: entry.token, fallback: entry.workspaceId)
         }
         return changed
+    }
+
+    private func requestNativeFullscreenRelayout(
+        for token: WindowToken,
+        fallback workspaceId: WorkspaceDescriptor.ID
+    ) {
+        guard let controller else { return }
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .appActivationTransition,
+            affectedWorkspaceIds: [
+                controller.workspaceManager.workspace(for: token) ?? workspaceId,
+            ]
+        )
+    }
+
+    private func handleNativeFullscreenDestroy(_ token: WindowToken) -> Bool {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: token)
+        else {
+            return false
+        }
+
+        if let record = controller.workspaceManager.nativeFullscreenRecord(for: token) {
+            guard record.currentToken == token else { return false }
+        } else if !shouldPreserveNativeFullscreenDestroy(entry) {
+            return false
+        }
+
+        _ = controller.workspaceManager.markNativeFullscreenSuspended(entry.token)
+        clearManagedFocusState(matching: token, workspaceId: entry.workspaceId)
+        requestNativeFullscreenRelayout(for: token, fallback: entry.workspaceId)
+        return true
+    }
+
+    private func shouldPreserveNativeFullscreenDestroy(_ entry: WindowState) -> Bool {
+        guard let controller else { return false }
+        guard entry.mode == .tiling else { return false }
+        guard controller.workspaceManager.focusedToken == entry.token else { return false }
+        guard controller.workspaceManager.scratchpadToken() != entry.token else { return false }
+        guard let descriptor = controller.workspaceManager.descriptor(for: entry.workspaceId) else { return false }
+        guard controller.settings.layoutType(for: descriptor.name) != .dwindle else { return false }
+        if entry.observedState.isNativeFullscreen {
+            return true
+        }
+        if controller.workspaceManager.isWindowOnObservedNativeFullscreenSpace(entry.windowId) {
+            return true
+        }
+        return AXWindowService.isFullscreenAttributeSet(entry.axRef)
     }
 
     @discardableResult
@@ -2693,6 +2739,9 @@ final class AXEventHandler {
         }
 
         let shouldDelayDestroy = shouldDelayManagedReplacementDestroy(candidate)
+        if shouldDelayDestroy, handleNativeFullscreenDestroy(candidate.token) {
+            return
+        }
         if shouldDelayDestroy {
             enqueueManagedReplacementDestroy(candidate)
             return
