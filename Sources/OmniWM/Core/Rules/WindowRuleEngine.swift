@@ -240,7 +240,9 @@ final class WindowRuleEngine {
         }
 
         func matches(_ facts: WindowRuleFacts) -> Bool {
-            if rule.bundleId.caseInsensitiveCompare(facts.ax.bundleId ?? "") != .orderedSame {
+            if let bundleId = nonEmpty(rule.bundleId),
+               bundleId.caseInsensitiveCompare(facts.ax.bundleId ?? "") != .orderedSame
+            {
                 return false
             }
 
@@ -288,6 +290,7 @@ final class WindowRuleEngine {
     private var compiledUserRules: [CompiledRule] = []
     private let builtInRules: [CompiledRule]
     private var titleFetchBundleIds: Set<String> = []
+    private var fetchTitleForUnidentifiedWindow = false
     private(set) var invalidRegexMessagesByRuleId: [UUID: String] = [:]
 
     private(set) var requiresTitle = false
@@ -296,7 +299,8 @@ final class WindowRuleEngine {
     init() {
         builtInRules = Self.makeBuiltInRules()
         titleFetchBundleIds = Self.titleBundleIds(from: builtInRules)
-        requiresTitle = !titleFetchBundleIds.isEmpty
+        fetchTitleForUnidentifiedWindow = Self.requiresUnidentifiedTitle(from: builtInRules)
+        requiresTitle = !titleFetchBundleIds.isEmpty || fetchTitleForUnidentifiedWindow
         hasDynamicReevaluationRules = builtInRules.contains { $0.requiresDynamicReevaluation }
     }
 
@@ -305,14 +309,14 @@ final class WindowRuleEngine {
     }
 
     func requiresTitle(for bundleId: String?) -> Bool {
-        guard let bundleId else { return false }
+        guard let bundleId, !bundleId.isEmpty else { return fetchTitleForUnidentifiedWindow }
         return titleFetchBundleIds.contains(bundleId.lowercased())
     }
 
     func rebuild(rules: [AppRule]) {
         var invalidRegexMessagesByRuleId: [UUID: String] = [:]
         compiledUserRules = rules.enumerated().compactMap { index, rule in
-            guard rule.hasAnyRule else { return nil }
+            guard rule.hasAnyRule, rule.hasIdentifyingMatcher else { return nil }
             return compile(
                 rule: rule,
                 source: .user,
@@ -324,7 +328,9 @@ final class WindowRuleEngine {
 
         titleFetchBundleIds = Self.titleBundleIds(from: builtInRules)
         titleFetchBundleIds.formUnion(Self.titleBundleIds(from: compiledUserRules))
-        requiresTitle = !titleFetchBundleIds.isEmpty
+        fetchTitleForUnidentifiedWindow = Self.requiresUnidentifiedTitle(from: builtInRules)
+            || Self.requiresUnidentifiedTitle(from: compiledUserRules)
+        requiresTitle = !titleFetchBundleIds.isEmpty || fetchTitleForUnidentifiedWindow
         hasDynamicReevaluationRules = compiledUserRules.contains { $0.requiresDynamicReevaluation }
             || builtInRules.contains { $0.requiresDynamicReevaluation }
     }
@@ -566,10 +572,14 @@ final class WindowRuleEngine {
     private static func titleBundleIds(from rules: [CompiledRule]) -> Set<String> {
         Set(
             rules.compactMap { compiled in
-                guard compiled.requiresTitle else { return nil }
+                guard compiled.requiresTitle, compiled.rule.hasBundleId else { return nil }
                 return compiled.rule.bundleId.lowercased()
             }
         )
+    }
+
+    private static func requiresUnidentifiedTitle(from rules: [CompiledRule]) -> Bool {
+        rules.contains { $0.requiresTitle && !$0.rule.hasBundleId }
     }
 
     private func compile(

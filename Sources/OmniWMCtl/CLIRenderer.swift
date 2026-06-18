@@ -347,7 +347,7 @@ enum CLIRenderer {
             [
                 String(rule.position),
                 rule.id,
-                rule.bundleId,
+                rule.bundleId.isEmpty ? "—" : rule.bundleId,
                 rule.layout.rawValue,
                 rule.assignToWorkspace ?? "-",
                 rule.titleRegex ?? "-",
@@ -497,7 +497,7 @@ enum CLIRenderer {
 
     private static func formatAppSummary(_ apps: [IPCManagedAppSummary], format: CLIOutputFormat) -> String {
         let rows = apps.map { app in
-            [app.appName, app.bundleId, sizeDescription(app.windowSize)]
+            [app.appName, app.bundleId.isEmpty ? "—" : app.bundleId, sizeDescription(app.windowSize)]
         }
         return formatRows(headers: ["APP", "BUNDLE ID", "WINDOW SIZE"], rows: rows, format: format)
     }

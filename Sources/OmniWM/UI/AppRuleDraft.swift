@@ -91,9 +91,15 @@ struct AppRuleDraft: Identifiable, Equatable {
     }
 
     static func guided(from snapshot: WindowDecisionDebugSnapshot) -> AppRuleDraft? {
-        guard let bundleId = snapshot.bundleId?.trimmedNonEmpty else { return nil }
+        let bundleId = snapshot.bundleId?.trimmedNonEmpty
+        let appName = snapshot.appName?.trimmedNonEmpty
+        guard bundleId != nil || appName != nil else { return nil }
 
-        var draft = AppRuleDraft(bundleId: bundleId)
+        var draft = AppRuleDraft(bundleId: bundleId ?? "")
+        if bundleId == nil, let appName {
+            draft.appNameMatcherEnabled = true
+            draft.appNameSubstring = appName
+        }
         if let title = snapshot.title?.trimmedNonEmpty {
             draft.titleMatcherMode = .substring
             draft.titleSubstring = title

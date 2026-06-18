@@ -26,6 +26,7 @@ enum IPCRuleProjection {
         let validation = IPCRuleValidator.validate(definition)
         let invalidRegexMessage = invalidRegexMessagesByRuleId[rule.id] ?? validation.invalidRegexMessage
         let isValid = validation.bundleIdError == nil && invalidRegexMessage == nil
+            && validation.identifierError == nil
 
         return IPCRuleSnapshot(
             id: rule.id.uuidString,

@@ -508,7 +508,7 @@ omniwmctl rule <action> [arguments...] [options...]
 
 | Option | Value | Description |
 |--------|-------|-------------|
-| `--bundle-id` | `<bundle-id>` | Application bundle identifier (required for add/replace) |
+| `--bundle-id` | `<bundle-id>` | Application bundle identifier. Optional: omit it to match apps with no runtime bundle ID, but then supply at least one of `--app-name-substring` / `--title-substring` / `--title-regex` |
 | `--app-name-substring` | `<text>` | Match app name containing this substring |
 | `--title-substring` | `<text>` | Match window title containing this substring |
 | `--title-regex` | `<pattern>` | Match window title against this regex |
@@ -519,25 +519,29 @@ omniwmctl rule <action> [arguments...] [options...]
 | `--min-width` | `<points>` | Minimum window width in points |
 | `--min-height` | `<points>` | Minimum window height in points |
 
-Bundle IDs must match the pattern: `^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$`
+When supplied, bundle IDs must match the pattern: `^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$`. Every rule needs
+at least one identifier — a bundle ID, app-name substring, or title (substring/regex). The bundle ID is
+the app's *runtime* identifier (`NSRunningApplication.bundleIdentifier`); apps without one (e.g. ad-hoc
+or wrapper apps) are matched by app name and/or title. AX role/subrole refine an existing match but cannot
+identify a rule on their own.
 
 ### Rule Actions
 
 **Add a rule:**
 
 ```bash
-omniwmctl rule add --bundle-id <bundle-id> [options...]
+omniwmctl rule add [options...]
 ```
 
-Appends a new rule to the end of the rule list. First matching app windows use its placement defaults; already managed windows are not moved.
+Supply `--bundle-id` and/or at least one matcher (`--app-name-substring`, `--title-substring`, `--title-regex`). Appends a new rule to the end of the rule list. First matching app windows use its placement defaults; already managed windows are not moved.
 
 **Replace a rule:**
 
 ```bash
-omniwmctl rule replace <rule-id> --bundle-id <bundle-id> [options...]
+omniwmctl rule replace <rule-id> [options...]
 ```
 
-Replaces a rule in-place by its UUID. The rule ID is preserved. Already managed windows are not moved until rules are explicitly applied.
+Replaces a rule in-place by its UUID (same identifier requirement as `add`). The rule ID is preserved. Already managed windows are not moved until rules are explicitly applied.
 
 **Remove a rule:**
 
@@ -580,6 +584,9 @@ omniwmctl rule add --bundle-id com.apple.Safari --layout tile --assign-to-worksp
 
 # Float windows with "Preferences" in the title
 omniwmctl rule add --bundle-id com.apple.Safari --title-substring Preferences --layout float
+
+# Float an app that has no runtime bundle ID, matched by app name
+omniwmctl rule add --app-name-substring VMD --layout float
 
 # Remove a rule
 omniwmctl rule remove 550e8400-e29b-41d4-a716-446655440000

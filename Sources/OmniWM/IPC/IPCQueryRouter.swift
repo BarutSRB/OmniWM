@@ -94,7 +94,7 @@ final class IPCQueryRouter {
         IPCAppsQueryResult(
             apps: controller.runningAppsWithWindows().map { app in
                 IPCManagedAppSummary(
-                    bundleId: app.bundleId,
+                    bundleId: app.bundleId ?? "",
                     appName: app.appName,
                     windowSize: IPCSize(
                         width: app.windowSize.width,

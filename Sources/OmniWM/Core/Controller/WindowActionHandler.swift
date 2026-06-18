@@ -626,14 +626,15 @@ final class WindowActionHandler {
             guard entry.layoutReason == .standard else { continue }
 
             let cachedInfo = controller.appInfoCache.info(for: entry.pid)
-            guard let bundleId = cachedInfo?.bundleId else { continue }
+            let bundleId = cachedInfo?.bundleId
+            let key = bundleId ?? "pid:\(entry.pid)"
 
-            if appInfoMap[bundleId] != nil { continue }
+            if appInfoMap[key] != nil { continue }
 
             let frame = (AXWindowService.framePreferFast(entry.axRef)) ?? .zero
 
-            appInfoMap[bundleId] = RunningAppInfo(
-                id: bundleId,
+            appInfoMap[key] = RunningAppInfo(
+                id: key,
                 bundleId: bundleId,
                 appName: cachedInfo?.name ?? "Unknown",
                 icon: cachedInfo?.icon,

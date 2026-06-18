@@ -2,7 +2,7 @@ import SwiftUI
 
 struct RunningAppInfo: Identifiable {
     let id: String
-    let bundleId: String
+    let bundleId: String?
     let appName: String
     let icon: NSImage?
     let windowSize: CGSize
@@ -73,7 +73,7 @@ struct AppRulesView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { rule in
-            Text("Delete the rule for \(rule.bundleId)?")
+            Text("Delete the rule for \(rule.displayLabel)?")
         }
         .frame(minWidth: 580, minHeight: 400)
     }
@@ -151,7 +151,7 @@ struct AppRuleSidebarRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(rule.bundleId)
+            Text(rule.displayLabel)
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
 
@@ -245,10 +245,17 @@ struct AppRuleDetailView: View {
     var body: some View {
         Form {
             Section("Application") {
-                LabeledContent("Bundle ID") {
-                    Text(draft.bundleId)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundColor(.secondary)
+                if draft.bundleId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    LabeledContent("Matches") {
+                        Text(draft.makeRule().displayLabel)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    LabeledContent("Bundle ID") {
+                        Text(draft.bundleId)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 
@@ -405,7 +412,7 @@ struct AppRuleAddSheet: View {
                                     ForEach(runningApps) { app in
                                         RunningAppRow(
                                             app: app,
-                                            isSelected: draft.bundleId == app.bundleId,
+                                            isSelected: selectedAppInfo?.id == app.id,
                                             onSelect: { selectApp(app) }
                                         )
                                     }
@@ -435,6 +442,19 @@ struct AppRuleAddSheet: View {
                     Text("Examples: com.apple.finder or dentalplus-air")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    Text(
+                        "Bundle ID is the app's runtime identifier. Some apps (e.g. VMD) have none — "
+                            + "leave it blank and match by App Name or Title below. A codesign identifier won't match."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                    if let identifierHint {
+                        Text(identifierHint)
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
                 }
 
                 Section("Window Behavior") {
@@ -537,11 +557,15 @@ struct AppRuleAddSheet: View {
     }
 
     private var isValid: Bool {
-        let trimmedBundleId = draft.bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedBundleId.isEmpty &&
-            bundleIdError == nil &&
+        bundleIdError == nil &&
             titleRegexError == nil &&
-            draft.hasAnyRule
+            draft.hasAnyRule &&
+            draft.makeRule().hasIdentifyingMatcher
+    }
+
+    private var identifierHint: String? {
+        guard draft.hasAnyRule, !draft.makeRule().hasIdentifyingMatcher else { return nil }
+        return "Add a bundle ID, app name, or title — AX role/subrole alone match too broadly."
     }
 
     private func seedWorkspaceIfNeeded() {
@@ -551,7 +575,18 @@ struct AppRuleAddSheet: View {
     }
 
     private func selectApp(_ app: RunningAppInfo) {
-        draft.bundleId = app.bundleId
+        if let bundleId = app.bundleId {
+            draft.bundleId = bundleId
+            if selectedAppInfo?.bundleId == nil, draft.appNameSubstring == selectedAppInfo?.appName {
+                draft.appNameMatcherEnabled = false
+                draft.appNameSubstring = ""
+            }
+        } else {
+            draft.bundleId = ""
+            draft.appNameMatcherEnabled = true
+            draft.appNameSubstring = app.appName
+            isAdvancedMatchersExpanded = true
+        }
         selectedAppInfo = app
         isPickerExpanded = false
     }
@@ -714,7 +749,7 @@ struct RunningAppRow: View {
                     Text(app.appName)
                         .font(.body)
                         .foregroundColor(.primary)
-                    Text(app.bundleId)
+                    Text(app.bundleId ?? "No bundle ID")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

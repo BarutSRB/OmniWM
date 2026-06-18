@@ -123,8 +123,28 @@ struct AppRule: Codable, Identifiable, Equatable {
             axSubrole?.isEmpty == false
     }
 
+    var hasBundleId: Bool {
+        !bundleId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasIdentifyingMatcher: Bool {
+        hasBundleId ||
+            appNameSubstring?.isEmpty == false ||
+            titleSubstring?.isEmpty == false ||
+            titleRegex?.isEmpty == false
+    }
+
+    var displayLabel: String {
+        if hasBundleId { return bundleId }
+        for candidate in [appNameSubstring, titleSubstring, titleRegex, axRole, axSubrole] {
+            if let candidate, !candidate.isEmpty { return candidate }
+        }
+        return "Any window"
+    }
+
     var specificity: Int {
-        var score = 1
+        var score = 0
+        if hasBundleId { score += 2 }
         if appNameSubstring?.isEmpty == false { score += 1 }
         if titleSubstring?.isEmpty == false { score += 1 }
         if titleRegex?.isEmpty == false { score += 1 }

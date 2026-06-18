@@ -946,17 +946,16 @@ public enum IPCAutomationManifest {
 
     public static let ruleActionDescriptors: [IPCRuleActionDescriptor] = [
         .init(
-            path: "rule add --bundle-id <bundle-id> [options]",
+            path: "rule add [options]",
             name: .add,
             summary: "Append a new persisted user rule.",
-            arguments: ["bundle-id"],
             options: ruleDefinitionOptionDescriptors
         ),
         .init(
-            path: "rule replace <rule-id> --bundle-id <bundle-id> [options]",
+            path: "rule replace <rule-id> [options]",
             name: .replace,
             summary: "Replace a persisted user rule in place.",
-            arguments: ["rule-id", "bundle-id"],
+            arguments: ["rule-id"],
             options: ruleDefinitionOptionDescriptors
         ),
         .init(
