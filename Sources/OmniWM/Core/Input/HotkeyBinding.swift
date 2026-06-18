@@ -4,53 +4,41 @@ import Foundation
 struct KeyBinding: Equatable, Hashable {
     let keyCode: UInt32
     let modifiers: UInt32
-    let usesHyper: Bool
 
     static let unassigned = KeyBinding(keyCode: UInt32.max, modifiers: 0)
 
-    init(keyCode: UInt32, modifiers: UInt32, usesHyper: Bool = false) {
+    init(keyCode: UInt32, modifiers: UInt32) {
         self.keyCode = keyCode
         self.modifiers = modifiers
-        self.usesHyper = usesHyper
     }
 
     var isUnassigned: Bool {
-        keyCode == UInt32.max && modifiers == 0 && !usesHyper
+        keyCode == UInt32.max && modifiers == 0
     }
 
     var displayString: String {
         if isUnassigned {
             return "Unassigned"
         }
-        return KeySymbolMapper.displayString(keyCode: keyCode, modifiers: modifiers, usesHyper: usesHyper)
+        return KeySymbolMapper.displayString(keyCode: keyCode, modifiers: modifiers)
     }
 
     var humanReadableString: String {
         if isUnassigned {
             return "Unassigned"
         }
-        return KeySymbolMapper.humanReadableString(keyCode: keyCode, modifiers: modifiers, usesHyper: usesHyper)
+        return KeySymbolMapper.humanReadableString(keyCode: keyCode, modifiers: modifiers)
     }
 
-    func conflicts(with other: KeyBinding, hyperTrigger: HyperKeyTrigger) -> Bool {
-        guard !isUnassigned, !other.isUnassigned, keyCode == other.keyCode else { return false }
-        if modifiers == other.modifiers && usesHyper == other.usesHyper {
-            return true
-        }
-        return carbonCompatibilityBinding(for: hyperTrigger) == other ||
-            other.carbonCompatibilityBinding(for: hyperTrigger) == self
-    }
-
-    func carbonCompatibilityBinding(for hyperTrigger: HyperKeyTrigger) -> KeyBinding? {
-        guard usesHyper, !isUnassigned else { return nil }
-        guard hyperTrigger == .system, modifiers == 0 else { return nil }
-        return KeyBinding(keyCode: keyCode, modifiers: KeySymbolMapper.hyperModifiers)
+    func conflicts(with other: KeyBinding) -> Bool {
+        guard !isUnassigned, !other.isUnassigned else { return false }
+        return keyCode == other.keyCode && modifiers == other.modifiers
     }
 }
 
 extension KeyBinding: Codable {
     private enum CodingKeys: String, CodingKey {
-        case keyCode, modifiers, usesHyper
+        case keyCode, modifiers
     }
 
     init(from decoder: Decoder) throws {
@@ -64,7 +52,6 @@ extension KeyBinding: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         keyCode = try container.decode(UInt32.self, forKey: .keyCode)
         modifiers = try container.decode(UInt32.self, forKey: .modifiers)
-        usesHyper = try container.decodeIfPresent(Bool.self, forKey: .usesHyper) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -75,24 +62,46 @@ extension KeyBinding: Codable {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(keyCode, forKey: .keyCode)
             try container.encode(modifiers, forKey: .modifiers)
-            if usesHyper {
-                try container.encode(usesHyper, forKey: .usesHyper)
-            }
         }
     }
 }
 
-enum HyperKeyTrigger: Equatable, Hashable {
-    case system
+enum SystemHyperTrigger: Equatable, Hashable {
+    case none
     case key(UInt32)
     case mouseButton(Int64)
 
-    static let `default`: HyperKeyTrigger = .key(UInt32(kVK_Option))
+    static let `default`: SystemHyperTrigger = .none
+
+    static let selectableKeyCodes: [UInt32] = [
+        UInt32(kVK_CapsLock),
+        UInt32(kVK_F13), UInt32(kVK_F14), UInt32(kVK_F15), UInt32(kVK_F16),
+        UInt32(kVK_F17), UInt32(kVK_F18), UInt32(kVK_F19), UInt32(kVK_F20),
+        UInt32(kVK_RightOption), UInt32(kVK_RightCommand),
+        UInt32(kVK_RightControl), UInt32(kVK_RightShift)
+    ]
+
+    static let selectableMouseButtons: [Int64] = [3, 4, 5]
+
+    var isEnabled: Bool {
+        self != .none
+    }
+
+    var isSupported: Bool {
+        switch self {
+        case .none:
+            return true
+        case let .key(keyCode):
+            return Self.selectableKeyCodes.contains(keyCode)
+        case let .mouseButton(button):
+            return Self.selectableMouseButtons.contains(button)
+        }
+    }
 
     var displayString: String {
         switch self {
-        case .system:
-            return "⌃⌥⇧⌘"
+        case .none:
+            return "None"
         case let .key(keyCode):
             return KeySymbolMapper.keySymbol(keyCode)
         case let .mouseButton(button):
@@ -102,22 +111,12 @@ enum HyperKeyTrigger: Equatable, Hashable {
 
     var humanReadableString: String {
         switch self {
-        case .system:
-            return "Control+Option+Shift+Command"
+        case .none:
+            return "None"
         case let .key(keyCode):
             return KeySymbolMapper.keyName(keyCode)
         case let .mouseButton(button):
             return "MouseButton\(button)"
-        }
-    }
-
-    var requiresEventTap: Bool {
-        switch self {
-        case .system:
-            return false
-        case .key,
-             .mouseButton:
-            return true
         }
     }
 
@@ -135,82 +134,40 @@ enum HyperKeyTrigger: Equatable, Hashable {
         keyboardKeyCode == UInt32(kVK_CapsLock)
     }
 
-    var modifierMaskToExclude: UInt32 {
-        switch self {
-        case .system,
-             .mouseButton:
-            return 0
-        case let .key(keyCode):
-            return Self.modifierMask(for: keyCode)
-        }
-    }
-
-    func matchesPhysicalKeyCode(_ keyCode: UInt32) -> Bool {
-        switch self {
-        case .system,
-             .mouseButton:
-            return false
-        case let .key(triggerKeyCode):
-            return keyCode == triggerKeyCode
-        }
-    }
-
-    static func fromHumanReadable(_ string: String) -> HyperKeyTrigger? {
+    static func fromHumanReadable(_ string: String) -> SystemHyperTrigger? {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return nil }
-        if trimmed.localizedCaseInsensitiveCompare("System Hyper") == .orderedSame ||
-            trimmed.localizedCaseInsensitiveCompare("Real Hyper") == .orderedSame ||
-            trimmed.localizedCaseInsensitiveCompare("Control+Option+Shift+Command") == .orderedSame
-        {
-            return .system
+        if trimmed.isEmpty || trimmed.localizedCaseInsensitiveCompare("None") == .orderedSame {
+            return SystemHyperTrigger.none
         }
 
         let compactMouse = trimmed.replacingOccurrences(of: " ", with: "")
         if compactMouse.lowercased().hasPrefix("mousebutton"),
-           let button = Int64(compactMouse.dropFirst("MouseButton".count)),
-           button >= 2
+           let button = Int64(compactMouse.dropFirst("MouseButton".count))
         {
-            return .mouseButton(button)
+            let trigger = SystemHyperTrigger.mouseButton(button)
+            return trigger.isSupported ? trigger : nil
         }
 
         if let keyCode = KeySymbolMapper.keyCode(named: trimmed) {
-            return .key(keyCode)
+            let trigger = SystemHyperTrigger.key(keyCode)
+            return trigger.isSupported ? trigger : nil
         }
 
         return nil
     }
-
-    static func modifierMask(for keyCode: UInt32) -> UInt32 {
-        switch Int(keyCode) {
-        case kVK_Shift,
-             kVK_RightShift:
-            return UInt32(shiftKey)
-        case kVK_Control,
-             kVK_RightControl:
-            return UInt32(controlKey)
-        case kVK_Option,
-             kVK_RightOption:
-            return UInt32(optionKey)
-        case kVK_Command,
-             kVK_RightCommand:
-            return UInt32(cmdKey)
-        default:
-            return 0
-        }
-    }
 }
 
-extension HyperKeyTrigger: Codable {
+extension SystemHyperTrigger: Codable {
     init(from decoder: Decoder) throws {
         if let container = try? decoder.singleValueContainer(),
            let string = try? container.decode(String.self),
-           let trigger = HyperKeyTrigger.fromHumanReadable(string)
+           let trigger = SystemHyperTrigger.fromHumanReadable(string)
         {
             self = trigger
             return
         }
         throw DecodingError.dataCorrupted(
-            .init(codingPath: decoder.codingPath, debugDescription: "Invalid Hyper key trigger")
+            .init(codingPath: decoder.codingPath, debugDescription: "Invalid system Hyper trigger")
         )
     }
 
@@ -256,11 +213,11 @@ enum HotkeyTrigger: Equatable, Hashable {
         return binding
     }
 
-    func conflicts(with other: HotkeyTrigger, hyperTrigger: HyperKeyTrigger) -> Bool {
+    func conflicts(with other: HotkeyTrigger) -> Bool {
         guard !isUnassigned, !other.isUnassigned else { return false }
         switch (self, other) {
         case let (.chord(lhs), .chord(rhs)):
-            return lhs.conflicts(with: rhs, hyperTrigger: hyperTrigger)
+            return lhs.conflicts(with: rhs)
         default:
             return false
         }

@@ -14,276 +14,144 @@ struct HotkeyPlannedRegistration: Equatable {
 
 enum HotkeyRegistrationFailureReason: Equatable {
     case duplicateBinding
-    case hyperTriggerConflict
-    case unsupportedHyperModifiers
+    case systemReserved
+}
+
+enum SystemHyperTriggerFailure: Equatable {
     case eventTapUnavailable
     case capsLockRemapUnavailable
-    case systemReserved
 }
 
 struct HotkeyRegistrationPlan: Equatable {
     let registrations: [HotkeyPlannedRegistration]
-    let virtualHyperRegistrations: [HotkeyPlannedRegistration]
     var failures: [HotkeyCommand: HotkeyRegistrationFailureReason]
 }
 
 struct HotkeyRuntimeConfiguration: Equatable {
     let bindings: [HotkeyBinding]
-    let hyperTrigger: HyperKeyTrigger
-    let hyperKeyHoldThresholdMilliseconds: Int
+    let systemHyperTrigger: SystemHyperTrigger
 
-    init(
-        bindings: [HotkeyBinding] = [],
-        hyperTrigger: HyperKeyTrigger = .default,
-        hyperKeyHoldThresholdMilliseconds: Int = 150
-    ) {
+    init(bindings: [HotkeyBinding] = [], systemHyperTrigger: SystemHyperTrigger = .default) {
         self.bindings = bindings
-        self.hyperTrigger = hyperTrigger
-        self.hyperKeyHoldThresholdMilliseconds = max(0, min(1500, hyperKeyHoldThresholdMilliseconds))
+        self.systemHyperTrigger = systemHyperTrigger
     }
 }
 
-enum VirtualHyperKeyDownDecision: Equatable {
-    case passThrough
-    case suppress
-    case dispatch(HotkeyCommand)
-}
-
-struct SmallValueSet<Element: Equatable>: Equatable {
-    private var first: Element?
-    private var second: Element?
-    private var third: Element?
-    private var fourth: Element?
-    private var overflow: [Element] = []
-
-    var isEmpty: Bool {
-        first == nil && second == nil && third == nil && fourth == nil && overflow.isEmpty
+struct HyperTriggerStateMachine: Equatable {
+    enum Decision: Equatable {
+        case suppress
+        case passThrough
+        case inject
+        case toggleCapsLock
     }
 
-    mutating func reserveCapacity(_ capacity: Int) {
-        overflow.reserveCapacity(max(0, capacity - 4))
-    }
-
-    func contains(_ value: Element) -> Bool {
-        first == value || second == value || third == value || fourth == value || overflow.contains(value)
-    }
-
-    mutating func insert(_ value: Element) {
-        guard !contains(value) else { return }
-        if first == nil {
-            first = value
-        } else if second == nil {
-            second = value
-        } else if third == nil {
-            third = value
-        } else if fourth == nil {
-            fourth = value
-        } else {
-            overflow.append(value)
-        }
-    }
-
-    @discardableResult
-    mutating func remove(_ value: Element) -> Element? {
-        if first == value {
-            first = nil
-            return value
-        }
-        if second == value {
-            second = nil
-            return value
-        }
-        if third == value {
-            third = nil
-            return value
-        }
-        if fourth == value {
-            fourth = nil
-            return value
-        }
-        guard let index = overflow.firstIndex(of: value) else { return nil }
-        return overflow.remove(at: index)
-    }
-
-    mutating func removeAll(keepingCapacity: Bool = false) {
-        first = nil
-        second = nil
-        third = nil
-        fourth = nil
-        overflow.removeAll(keepingCapacity: keepingCapacity)
-    }
-}
-
-struct VirtualHyperEventState: Equatable {
-    private enum PendingTrigger: Equatable {
+    private enum Trigger: Equatable {
+        case none
         case key(UInt32)
+        case capsLockF18
+        case modifier(keyCode: UInt32, mask: UInt64)
         case mouseButton(Int64)
     }
 
-    var isActive = false
-    var consumedKeyCodes = SmallValueSet<UInt32>()
-    var consumedMouseButtons = SmallValueSet<Int64>()
-    private var pendingTrigger: PendingTrigger?
+    static let capsLockTapTimeout: TimeInterval = 0.3
 
-    var isPending: Bool {
-        pendingTrigger != nil
+    private let trigger: Trigger
+    private(set) var isActive = false
+    private var capsAlone = false
+    private var capsDownTimestamp: TimeInterval?
+
+    init(trigger: SystemHyperTrigger, capsLockRemapped: Bool) {
+        guard trigger.isSupported else {
+            self.trigger = .none
+            return
+        }
+        switch trigger {
+        case .none:
+            self.trigger = .none
+        case let .key(keyCode):
+            if capsLockRemapped, keyCode == UInt32(kVK_CapsLock) {
+                self.trigger = .capsLockF18
+            } else if let mask = Self.modifierMask(for: keyCode) {
+                self.trigger = .modifier(keyCode: keyCode, mask: mask)
+            } else {
+                self.trigger = .key(keyCode)
+            }
+        case let .mouseButton(button):
+            self.trigger = .mouseButton(button)
+        }
     }
 
-    var isDormant: Bool {
-        !isActive && pendingTrigger == nil && consumedKeyCodes.isEmpty && consumedMouseButtons.isEmpty
+    mutating func handleKeyDown(_ keyCode: UInt32, timestamp: TimeInterval = 0) -> Decision {
+        handleKey(keyCode, isDown: true, timestamp: timestamp)
+    }
+
+    mutating func handleKeyUp(_ keyCode: UInt32, timestamp: TimeInterval = 0) -> Decision {
+        handleKey(keyCode, isDown: false, timestamp: timestamp)
+    }
+
+    mutating func handleFlagsChanged(keyCode: UInt32, rawFlags: UInt64) -> Decision {
+        guard case let .modifier(triggerKeyCode, mask) = trigger, keyCode == triggerKeyCode else {
+            return .passThrough
+        }
+        isActive = rawFlags & mask != 0
+        return .suppress
+    }
+
+    mutating func handleMouseDown(_ button: Int64) -> Decision {
+        handleMouse(button, isDown: true)
+    }
+
+    mutating func handleMouseUp(_ button: Int64) -> Decision {
+        handleMouse(button, isDown: false)
     }
 
     mutating func reset() {
         isActive = false
-        pendingTrigger = nil
-        consumedKeyCodes.removeAll(keepingCapacity: true)
-        consumedMouseButtons.removeAll(keepingCapacity: true)
+        capsAlone = false
+        capsDownTimestamp = nil
     }
 
-    func pendingKeyMatches(_ keyCode: UInt32, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.keyboardKeyCode == keyCode,
-              case let .key(pendingKeyCode) = pendingTrigger
-        else { return false }
-        return pendingKeyCode == keyCode
-    }
-
-    func pendingMouseButtonMatches(_ button: Int64, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.mouseButtonNumber == button,
-              case let .mouseButton(pendingButton) = pendingTrigger
-        else { return false }
-        return pendingButton == button
-    }
-
-    mutating func beginPendingKeyDown(_ keyCode: UInt32, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.keyboardKeyCode == keyCode,
-              pendingTrigger == nil,
-              !isActive
-        else { return false }
-        pendingTrigger = .key(keyCode)
-        consumedKeyCodes.insert(keyCode)
-        return true
-    }
-
-    mutating func beginPendingMouseDown(_ button: Int64, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.mouseButtonNumber == button,
-              pendingTrigger == nil,
-              !isActive
-        else { return false }
-        pendingTrigger = .mouseButton(button)
-        consumedMouseButtons.insert(button)
-        return true
-    }
-
-    mutating func promotePending() -> Bool {
-        guard pendingTrigger != nil else { return false }
-        pendingTrigger = nil
-        isActive = true
-        return true
-    }
-
-    mutating func cancelPending() -> Bool {
-        guard let pendingTrigger else { return false }
-        switch pendingTrigger {
-        case let .key(keyCode):
-            consumedKeyCodes.remove(keyCode)
-        case let .mouseButton(button):
-            consumedMouseButtons.remove(button)
-        }
-        self.pendingTrigger = nil
-        return true
-    }
-
-    mutating func handleTriggerMouseDown(_ button: Int64, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.mouseButtonNumber == button else { return false }
-        pendingTrigger = nil
-        isActive = true
-        consumedMouseButtons.insert(button)
-        return true
-    }
-
-    mutating func handleTriggerMouseUp(_ button: Int64, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.mouseButtonNumber == button else {
-            return consumedMouseButtons.remove(button) != nil
-        }
-        isActive = false
-        consumedMouseButtons.remove(button)
-        return true
-    }
-
-    mutating func handleTriggerKeyDown(_ keyCode: UInt32, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.keyboardKeyCode == keyCode else { return false }
-        pendingTrigger = nil
-        isActive = true
-        consumedKeyCodes.insert(keyCode)
-        return true
-    }
-
-    mutating func handleTriggerKeyUp(_ keyCode: UInt32, trigger: HyperKeyTrigger) -> Bool {
-        guard trigger.keyboardKeyCode == keyCode else {
-            return consumedKeyCodes.remove(keyCode) != nil
-        }
-        isActive = false
-        consumedKeyCodes.remove(keyCode)
-        return true
-    }
-
-    mutating func handleTriggerFlagsChanged(
-        keyCode: UInt32,
-        flags: CGEventFlags,
-        trigger: HyperKeyTrigger
-    ) -> Bool {
-        guard trigger.keyboardKeyCode == keyCode else { return false }
-
-        if let modifierActive = Self.modifierFlagIsActive(for: keyCode, flags: flags) {
-            if consumedKeyCodes.contains(keyCode) {
-                isActive = false
-            } else {
-                isActive = modifierActive
+    private mutating func handleKey(_ keyCode: UInt32, isDown: Bool, timestamp: TimeInterval) -> Decision {
+        switch trigger {
+        case let .key(triggerKeyCode) where keyCode == triggerKeyCode:
+            isActive = isDown
+            return .suppress
+        case .capsLockF18 where keyCode == CapsLockHyperMapping.f18KeyCode:
+            if isDown {
+                if !isActive {
+                    capsAlone = true
+                    capsDownTimestamp = timestamp
+                }
+                isActive = true
+                return .suppress
             }
-        } else if keyCode == UInt32(kVK_CapsLock) {
-            isActive = flags.contains(.maskAlphaShift)
-        } else {
-            isActive = true
+            let shouldToggle = isActive
+                && capsAlone
+                && timestamp - (capsDownTimestamp ?? timestamp) < Self.capsLockTapTimeout
+            isActive = false
+            capsAlone = false
+            capsDownTimestamp = nil
+            return shouldToggle ? .toggleCapsLock : .suppress
+        default:
+            if isActive, isDown {
+                capsAlone = false
+            }
+            return isActive ? .inject : .passThrough
         }
-
-        if isActive {
-            consumedKeyCodes.insert(keyCode)
-        } else {
-            consumedKeyCodes.remove(keyCode)
-        }
-        return true
     }
 
-    mutating func consumeKeyCode(_ keyCode: UInt32) {
-        consumedKeyCodes.insert(keyCode)
-    }
-
-    mutating func handleKeyDown(
-        keyCode: UInt32,
-        isAutorepeat: Bool,
-        trigger: HyperKeyTrigger,
-        command: HotkeyCommand?
-    ) -> VirtualHyperKeyDownDecision {
-        if handleTriggerKeyDown(keyCode, trigger: trigger) {
+    private mutating func handleMouse(_ button: Int64, isDown: Bool) -> Decision {
+        if case let .mouseButton(triggerButton) = trigger, button == triggerButton {
+            isActive = isDown
             return .suppress
         }
-        guard isActive else {
-            return consumedKeyCodes.contains(keyCode) ? .suppress : .passThrough
+        if case .capsLockF18 = trigger, isActive {
+            if isDown {
+                capsAlone = false
+            }
+            return .inject
         }
-
-        guard let command else {
-            return .passThrough
-        }
-        if isAutorepeat {
-            return .suppress
-        }
-        consumeKeyCode(keyCode)
-        return .dispatch(command)
-    }
-
-    private static func modifierFlagIsActive(for keyCode: UInt32, flags: CGEventFlags) -> Bool? {
-        guard let mask = modifierMask(for: keyCode) else { return nil }
-        return flags.rawValue & mask != 0
+        return .passThrough
     }
 
     private static func modifierMask(for keyCode: UInt32) -> UInt64? {
@@ -313,32 +181,37 @@ struct VirtualHyperEventState: Equatable {
 @MainActor
 final class HotkeyCenter {
     var onCommand: ((HotkeyCommand) -> Void)?
-    var virtualHyperTapSetupOverride: (() -> Bool)?
 
     private var refs: [EventHotKeyRef?] = []
     private var handler: EventHandlerRef?
     private var isRunning = false
+    private var commandHotkeysSuspended = false
     private var idToCommand: [UInt32: HotkeyCommand] = [:]
 
     private var configuration = HotkeyRuntimeConfiguration()
-    private var pendingCommands: [HotkeyCommand] = []
-    private var pendingCommandDrainScheduled = false
-    private var virtualHyperRegistrations: [KeyBinding: HotkeyCommand] = [:]
-    private var virtualHyperTap: CFMachPort?
-    private var virtualHyperRunLoopSource: CFRunLoopSource?
-    private var virtualHyperState = VirtualHyperEventState()
-    private var pendingVirtualHyperDownEvent: CGEvent?
-    private var virtualHyperHoldWorkItem: DispatchWorkItem?
+    private var hyperTriggerTap: CFMachPort?
+    private var hyperTriggerRunLoopSource: CFRunLoopSource?
+    private var hyperTrigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
     private let capsLockHyperRemapper = CapsLockHyperRemapper()
+    private let capsLockToggler = CapsLockToggler()
     private var capsLockHyperRemapActive = false
 
     private(set) var registrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
+    private(set) var systemHyperTriggerFailure: SystemHyperTriggerFailure?
 
-    private nonisolated static let virtualHyperReplayEventUserData: Int64 = 0x4F4D_4E49_5648_5950
+    private static let hyperFlagMask: UInt64 =
+        CGEventFlags.maskCommand.rawValue |
+        CGEventFlags.maskControl.rawValue |
+        CGEventFlags.maskAlternate.rawValue |
+        CGEventFlags.maskShift.rawValue
+
+    var isHyperTriggerActive: Bool {
+        hyperTrigger.isActive
+    }
 
     deinit {
         MainActor.assumeIsolated {
-            stopVirtualHyperTap()
+            stopHyperTriggerTap()
             restoreCapsLockHyperRemap()
         }
     }
@@ -369,73 +242,69 @@ final class HotkeyCenter {
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventSpec, selfPtr, &handler)
 
-        registerHotkeys()
+        reconcileSystemHyperTrigger()
+        refreshCommandHotkeyRegistrations()
     }
 
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        unregisterAll()
+        unregisterCommandHotkeys()
+        stopHyperTriggerTap()
+        restoreCapsLockHyperRemap()
         if let handler {
             RemoveEventHandler(handler)
             self.handler = nil
         }
     }
 
+    func setCommandHotkeysSuspended(_ suspended: Bool) {
+        guard commandHotkeysSuspended != suspended else { return }
+        commandHotkeysSuspended = suspended
+        if isRunning {
+            refreshCommandHotkeyRegistrations()
+        }
+    }
+
     func updateBindings(
         _ newBindings: [HotkeyBinding],
-        hyperTrigger newHyperTrigger: HyperKeyTrigger = .default,
-        hyperKeyHoldThresholdMilliseconds newHyperKeyHoldThresholdMilliseconds: Int = 150,
+        systemHyperTrigger newSystemHyperTrigger: SystemHyperTrigger = .default,
         force: Bool = false
     ) {
         let nextConfiguration = HotkeyRuntimeConfiguration(
             bindings: newBindings,
-            hyperTrigger: newHyperTrigger,
-            hyperKeyHoldThresholdMilliseconds: newHyperKeyHoldThresholdMilliseconds
+            systemHyperTrigger: newSystemHyperTrigger
         )
         guard force || nextConfiguration != configuration else { return }
         configuration = nextConfiguration
         if isRunning {
-            registerHotkeys()
+            reconcileSystemHyperTrigger()
+            refreshCommandHotkeyRegistrations()
         }
     }
 
-    private func unregisterAll() {
+    private func unregisterCommandHotkeys() {
         for ref in refs {
             if let ref { UnregisterEventHotKey(ref) }
         }
         refs.removeAll()
         idToCommand.removeAll()
-        pendingCommands.removeAll()
-        pendingCommandDrainScheduled = false
-        virtualHyperRegistrations.removeAll()
-        stopVirtualHyperTap()
-        restoreCapsLockHyperRemap()
     }
 
-    private func registerHotkeys() {
-        unregisterAll()
-        let plan = Self.registrationPlan(
-            for: configuration.bindings,
-            hyperTrigger: configuration.hyperTrigger
-        )
-        virtualHyperRegistrations = Dictionary(
-            plan.virtualHyperRegistrations.map { ($0.binding, $0.command) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        registrationFailures = plan.failures
-        let needsSemanticHyperTap = configuration.hyperTrigger.requiresEventTap &&
-            (!virtualHyperRegistrations.isEmpty || configuration.hyperTrigger.requiresCapsLockRemap)
-        if needsSemanticHyperTap {
-            if !activateCapsLockHyperRemapIfNeeded() {
-                markVirtualHyperUnavailable(.capsLockRemapUnavailable)
-            } else if !setupVirtualHyperTapIfNeeded() {
-                markVirtualHyperUnavailable(.eventTapUnavailable)
-                restoreCapsLockHyperRemap()
-            }
-        }
-        var nextId: UInt32 = 1
+    private func reconcileSystemHyperTrigger() {
+        stopHyperTriggerTap()
+        restoreCapsLockHyperRemap()
+        systemHyperTriggerFailure = nil
+        setupSystemHyperTriggerIfNeeded()
+    }
 
+    private func refreshCommandHotkeyRegistrations() {
+        unregisterCommandHotkeys()
+        let plan = Self.registrationPlan(for: configuration.bindings)
+        registrationFailures = plan.failures
+        guard !commandHotkeysSuspended else { return }
+
+        var nextId: UInt32 = 1
         for registration in plan.registrations {
             guard registrationFailures[registration.command] == nil else {
                 continue
@@ -454,7 +323,7 @@ final class HotkeyCenter {
                 refs.append(ref)
                 idToCommand[nextId] = registration.command
             } else {
-                markSystemReservedFailure(for: registration.command)
+                registrationFailures[registration.command] = .systemReserved
             }
             nextId += 1
         }
@@ -465,33 +334,26 @@ final class HotkeyCenter {
         onCommand?(command)
     }
 
-    private func markSystemReservedFailure(for command: HotkeyCommand) {
-        registrationFailures[command] = .systemReserved
-    }
-
-    private func markVirtualHyperUnavailable(_ reason: HotkeyRegistrationFailureReason) {
-        let commands = Array(virtualHyperRegistrations.values)
-        virtualHyperRegistrations.removeAll()
-        for command in commands {
-            markVirtualHyperUnavailable(for: command, reason: reason)
+    private func setupSystemHyperTriggerIfNeeded() {
+        hyperTrigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
+        guard configuration.systemHyperTrigger.isEnabled else { return }
+        if !activateCapsLockHyperRemapIfNeeded() {
+            systemHyperTriggerFailure = .capsLockRemapUnavailable
+            return
         }
-    }
-
-    private func markVirtualHyperUnavailable(for command: HotkeyCommand, reason: HotkeyRegistrationFailureReason) {
-        if registrationFailures[command] == nil {
-            registrationFailures[command] = reason
+        hyperTrigger = HyperTriggerStateMachine(
+            trigger: configuration.systemHyperTrigger,
+            capsLockRemapped: capsLockHyperRemapActive
+        )
+        if !setupHyperTriggerTapIfNeeded() {
+            systemHyperTriggerFailure = .eventTapUnavailable
+            restoreCapsLockHyperRemap()
+            hyperTrigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
         }
-    }
-
-    private var effectiveHyperTrigger: HyperKeyTrigger {
-        if capsLockHyperRemapActive, configuration.hyperTrigger.requiresCapsLockRemap {
-            return .key(CapsLockHyperMapping.f18KeyCode)
-        }
-        return configuration.hyperTrigger
     }
 
     private func activateCapsLockHyperRemapIfNeeded() -> Bool {
-        guard configuration.hyperTrigger.requiresCapsLockRemap else { return true }
+        guard configuration.systemHyperTrigger.requiresCapsLockRemap else { return true }
         guard !capsLockHyperRemapActive else { return true }
         guard capsLockHyperRemapper.apply() else { return false }
         capsLockHyperRemapActive = true
@@ -504,11 +366,8 @@ final class HotkeyCenter {
         capsLockHyperRemapActive = false
     }
 
-    private func setupVirtualHyperTapIfNeeded() -> Bool {
-        if virtualHyperTap != nil { return true }
-        if let virtualHyperTapSetupOverride {
-            return virtualHyperTapSetupOverride()
-        }
+    private func setupHyperTriggerTapIfNeeded() -> Bool {
+        if hyperTriggerTap != nil { return true }
         let eventMask =
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
@@ -519,11 +378,11 @@ final class HotkeyCenter {
             guard let userInfo else { return Unmanaged.passUnretained(event) }
             let center = Unmanaged<HotkeyCenter>.fromOpaque(userInfo).takeUnretainedValue()
             return MainActor.assumeIsolated {
-                center.handleVirtualHyperEvent(type: type, event: event)
+                center.handleHyperTriggerEvent(type: type, event: event)
             }
         }
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        virtualHyperTap = CGEvent.tapCreate(
+        hyperTriggerTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
@@ -531,10 +390,10 @@ final class HotkeyCenter {
             callback: callback,
             userInfo: selfPtr
         )
-        guard let tap = virtualHyperTap else { return false }
-        virtualHyperRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        guard let source = virtualHyperRunLoopSource else {
-            virtualHyperTap = nil
+        guard let tap = hyperTriggerTap else { return false }
+        hyperTriggerRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        guard let source = hyperTriggerRunLoopSource else {
+            hyperTriggerTap = nil
             return false
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
@@ -542,343 +401,103 @@ final class HotkeyCenter {
         return true
     }
 
-    private func stopVirtualHyperTap() {
-        resetVirtualHyperState()
-        if let source = virtualHyperRunLoopSource {
+    private func stopHyperTriggerTap() {
+        hyperTrigger.reset()
+        if let source = hyperTriggerRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            virtualHyperRunLoopSource = nil
+            hyperTriggerRunLoopSource = nil
         }
-        if let tap = virtualHyperTap {
+        if let tap = hyperTriggerTap {
             CGEvent.tapEnable(tap: tap, enable: false)
-            virtualHyperTap = nil
+            hyperTriggerTap = nil
         }
     }
 
-    private func dispatchCommandLater(_ command: HotkeyCommand) {
-        pendingCommands.append(command)
-        guard !pendingCommandDrainScheduled else { return }
-        pendingCommandDrainScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            self?.drainPendingCommands()
-        }
-    }
-
-    private func drainPendingCommands() {
-        pendingCommandDrainScheduled = false
-        var index = 0
-        while index < pendingCommands.count {
-            let command = pendingCommands[index]
-            index += 1
-            onCommand?(command)
-        }
-        pendingCommands.removeAll(keepingCapacity: true)
-    }
-
-    private func handleVirtualHyperEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        if Self.isSyntheticVirtualHyperReplayEvent(event) {
-            return Unmanaged.passUnretained(event)
-        }
+    private func handleHyperTriggerEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout:
-            if let tap = virtualHyperTap {
+            if let tap = hyperTriggerTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
+            hyperTrigger.reset()
             return Unmanaged.passUnretained(event)
         case .tapDisabledByUserInput:
-            resetVirtualHyperState()
+            hyperTrigger.reset()
             return Unmanaged.passUnretained(event)
-        default:
-            break
-        }
-        if virtualHyperState.isDormant,
-           !dormantVirtualHyperEventRequiresHandling(type: type, event: event)
-        {
-            return Unmanaged.passUnretained(event)
-        }
-        switch type {
-        case .otherMouseDown:
-            return handleVirtualHyperMouseDown(event)
-        case .otherMouseUp:
-            return handleVirtualHyperMouseUp(event)
-        case .keyDown:
-            return handleVirtualHyperKeyDown(event)
-        case .keyUp:
-            return handleVirtualHyperKeyUp(event)
-        case .flagsChanged:
-            return handleVirtualHyperFlagsChanged(event)
-        default:
-            return Unmanaged.passUnretained(event)
-        }
-    }
-
-    private func dormantVirtualHyperEventRequiresHandling(type: CGEventType, event: CGEvent) -> Bool {
-        switch type {
         case .keyDown,
-             .keyUp,
-             .flagsChanged:
-            let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
-            return Self.dormantEventMatchesHyperTrigger(
-                type: type,
-                keyCode: keyCode,
-                trigger: effectiveHyperTrigger
-            )
+             .keyUp:
+            return handleHyperTriggerKeyEvent(type: type, event: event)
+        case .flagsChanged:
+            return handleHyperTriggerFlagsChanged(event)
         case .otherMouseDown,
              .otherMouseUp:
-            let button = event.getIntegerValueField(.mouseEventButtonNumber)
-            return Self.dormantEventMatchesHyperTrigger(
-                type: type,
-                mouseButton: button,
-                trigger: effectiveHyperTrigger
+            return handleHyperTriggerMouseEvent(type: type, event: event)
+        default:
+            return Unmanaged.passUnretained(event)
+        }
+    }
+
+    private func handleHyperTriggerKeyEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
+        let timestamp = TimeInterval(event.timestamp) / 1_000_000_000
+        switch type {
+        case .keyDown:
+            return applyHyperTriggerDecision(
+                hyperTrigger.handleKeyDown(keyCode, timestamp: timestamp),
+                to: event
+            )
+        case .keyUp:
+            return applyHyperTriggerDecision(
+                hyperTrigger.handleKeyUp(keyCode, timestamp: timestamp),
+                to: event
             )
         default:
-            return false
-        }
-    }
-
-    private func handleVirtualHyperMouseDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        let button = event.getIntegerValueField(.mouseEventButtonNumber)
-        let trigger = effectiveHyperTrigger
-        if configuration.hyperKeyHoldThresholdMilliseconds > 0 {
-            if virtualHyperState.pendingMouseButtonMatches(button, trigger: trigger) {
-                return nil
-            }
-            if virtualHyperState.beginPendingMouseDown(button, trigger: trigger) {
-                pendingVirtualHyperDownEvent = event.copy()
-                scheduleVirtualHyperHoldPromotion()
-                return nil
-            }
-        }
-        if virtualHyperState.isPending {
-            promotePendingVirtualHyper()
-        }
-        guard virtualHyperState.handleTriggerMouseDown(button, trigger: trigger) else {
             return Unmanaged.passUnretained(event)
         }
-        return nil
     }
 
-    private func handleVirtualHyperMouseUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        let button = event.getIntegerValueField(.mouseEventButtonNumber)
-        let trigger = effectiveHyperTrigger
-        if virtualHyperState.pendingMouseButtonMatches(button, trigger: trigger) {
-            finishPendingVirtualHyperTap(releaseEvent: event)
-            return nil
-        }
-        return virtualHyperState.handleTriggerMouseUp(button, trigger: trigger)
-            ? nil
-            : Unmanaged.passUnretained(event)
-    }
-
-    private func handleVirtualHyperKeyDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+    private func handleHyperTriggerFlagsChanged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
-        let trigger = effectiveHyperTrigger
-        if configuration.hyperKeyHoldThresholdMilliseconds > 0 {
-            if virtualHyperState.pendingKeyMatches(keyCode, trigger: trigger) {
-                return nil
-            }
-            if virtualHyperState.beginPendingKeyDown(keyCode, trigger: trigger) {
-                pendingVirtualHyperDownEvent = event.copy()
-                scheduleVirtualHyperHoldPromotion()
-                return nil
-            }
-        }
-        if virtualHyperState.isPending {
-            promotePendingVirtualHyper()
-        }
-        let command: HotkeyCommand?
-        if virtualHyperState.isActive {
-            let modifiers = matchingModifiers(from: event.flags)
-            command = virtualHyperRegistrations[KeyBinding(keyCode: keyCode, modifiers: modifiers, usesHyper: true)]
-        } else {
-            command = nil
-        }
-        let decision = virtualHyperState.handleKeyDown(
-            keyCode: keyCode,
-            isAutorepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
-            trigger: trigger,
-            command: command
+        return applyHyperTriggerDecision(
+            hyperTrigger.handleFlagsChanged(keyCode: keyCode, rawFlags: event.flags.rawValue),
+            to: event
         )
-        switch decision {
-        case .passThrough:
+    }
+
+    private func handleHyperTriggerMouseEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let button = event.getIntegerValueField(.mouseEventButtonNumber)
+        switch type {
+        case .otherMouseDown:
+            return applyHyperTriggerDecision(hyperTrigger.handleMouseDown(button), to: event)
+        case .otherMouseUp:
+            return applyHyperTriggerDecision(hyperTrigger.handleMouseUp(button), to: event)
+        default:
             return Unmanaged.passUnretained(event)
+        }
+    }
+
+    private func applyHyperTriggerDecision(
+        _ decision: HyperTriggerStateMachine.Decision,
+        to event: CGEvent
+    ) -> Unmanaged<CGEvent>? {
+        switch decision {
         case .suppress:
             return nil
-        case let .dispatch(command):
-            dispatchCommandLater(command)
-            return nil
-        }
-    }
-
-    private func handleVirtualHyperKeyUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
-        let trigger = effectiveHyperTrigger
-        if virtualHyperState.pendingKeyMatches(keyCode, trigger: trigger) {
-            finishPendingVirtualHyperTap(releaseEvent: event)
-            return nil
-        }
-        return virtualHyperState.handleTriggerKeyUp(keyCode, trigger: trigger)
-            ? nil
-            : Unmanaged.passUnretained(event)
-    }
-
-    private func handleVirtualHyperFlagsChanged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
-        let trigger = effectiveHyperTrigger
-        let sourceIsModifier = Self.isModifierKeyCode(keyCode) && trigger.keyboardKeyCode == keyCode
-        if configuration.hyperKeyHoldThresholdMilliseconds > 0,
-           trigger.keyboardKeyCode == keyCode
-        {
-            let isPressed = Self.flagsChangedTriggerIsPressed(keyCode: keyCode, flags: event.flags)
-            if virtualHyperState.pendingKeyMatches(keyCode, trigger: trigger) {
-                if isPressed {
-                    return sourceIsModifier ? Unmanaged.passUnretained(event) : nil
-                }
-                finishPendingVirtualHyperTap(releaseEvent: event)
-                return sourceIsModifier ? Unmanaged.passUnretained(event) : nil
-            }
-            if isPressed,
-               virtualHyperState.beginPendingKeyDown(keyCode, trigger: trigger)
-            {
-                pendingVirtualHyperDownEvent = event.copy()
-                scheduleVirtualHyperHoldPromotion()
-                return sourceIsModifier ? Unmanaged.passUnretained(event) : nil
-            }
-        }
-        if virtualHyperState.isPending {
-            promotePendingVirtualHyper()
-        }
-        guard virtualHyperState.handleTriggerFlagsChanged(keyCode: keyCode, flags: event.flags, trigger: trigger) else {
+        case .passThrough:
             return Unmanaged.passUnretained(event)
-        }
-        return sourceIsModifier ? Unmanaged.passUnretained(event) : nil
-    }
-
-    private func scheduleVirtualHyperHoldPromotion() {
-        virtualHyperHoldWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            self?.promotePendingVirtualHyper()
-        }
-        virtualHyperHoldWorkItem = item
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(configuration.hyperKeyHoldThresholdMilliseconds),
-            execute: item
-        )
-    }
-
-    private func promotePendingVirtualHyper() {
-        guard virtualHyperState.promotePending() else { return }
-        virtualHyperHoldWorkItem?.cancel()
-        virtualHyperHoldWorkItem = nil
-        pendingVirtualHyperDownEvent = nil
-    }
-
-    private func finishPendingVirtualHyperTap(releaseEvent: CGEvent) {
-        virtualHyperHoldWorkItem?.cancel()
-        virtualHyperHoldWorkItem = nil
-        guard shouldReplayPendingVirtualHyperTap else {
-            _ = virtualHyperState.cancelPending()
-            pendingVirtualHyperDownEvent = nil
-            return
-        }
-        guard virtualHyperState.cancelPending(),
-              let down = pendingVirtualHyperDownEvent,
-              let up = releaseEvent.copy()
-        else {
-            pendingVirtualHyperDownEvent = nil
-            return
-        }
-        pendingVirtualHyperDownEvent = nil
-        Self.markSyntheticVirtualHyperReplayEvent(down)
-        Self.markSyntheticVirtualHyperReplayEvent(up)
-        down.post(tap: .cgSessionEventTap)
-        up.post(tap: .cgSessionEventTap)
-    }
-
-    private var shouldReplayPendingVirtualHyperTap: Bool {
-        let trigger = effectiveHyperTrigger
-        if capsLockHyperRemapActive {
-            return false
-        }
-        guard let keyCode = trigger.keyboardKeyCode else {
-            return trigger.mouseButtonNumber != nil
-        }
-        return !Self.isModifierKeyCode(keyCode)
-    }
-
-    private func resetVirtualHyperState() {
-        virtualHyperHoldWorkItem?.cancel()
-        virtualHyperHoldWorkItem = nil
-        pendingVirtualHyperDownEvent = nil
-        virtualHyperState.reset()
-    }
-
-    private func matchingModifiers(from flags: CGEventFlags) -> UInt32 {
-        Self.carbonModifiers(from: flags) & ~effectiveHyperTrigger.modifierMaskToExclude
-    }
-
-    private static func carbonModifiers(from flags: CGEventFlags) -> UInt32 {
-        var modifiers: UInt32 = 0
-        if flags.contains(.maskControl) { modifiers |= UInt32(controlKey) }
-        if flags.contains(.maskAlternate) { modifiers |= UInt32(optionKey) }
-        if flags.contains(.maskShift) { modifiers |= UInt32(shiftKey) }
-        if flags.contains(.maskCommand) { modifiers |= UInt32(cmdKey) }
-        return modifiers
-    }
-
-    private nonisolated static func markSyntheticVirtualHyperReplayEvent(_ event: CGEvent) {
-        event.setIntegerValueField(.eventSourceUserData, value: virtualHyperReplayEventUserData)
-    }
-
-    private nonisolated static func isSyntheticVirtualHyperReplayEvent(_ event: CGEvent) -> Bool {
-        event.getIntegerValueField(.eventSourceUserData) == virtualHyperReplayEventUserData
-    }
-
-    private nonisolated static func flagsChangedTriggerIsPressed(keyCode: UInt32, flags: CGEventFlags) -> Bool {
-        if let modifierActive = modifierFlagIsActive(for: keyCode, rawFlags: flags.rawValue) {
-            return modifierActive
-        }
-        switch Int(keyCode) {
-        case kVK_CapsLock:
-            return flags.contains(.maskAlphaShift)
-        default:
-            return true
-        }
-    }
-
-    private nonisolated static func isModifierKeyCode(_ keyCode: UInt32) -> Bool {
-        modifierMask(for: keyCode) != nil
-    }
-
-    private nonisolated static func modifierMask(for keyCode: UInt32) -> UInt64? {
-        switch Int(keyCode) {
-        case kVK_Shift:
-            return UInt64(NX_DEVICELSHIFTKEYMASK)
-        case kVK_RightShift:
-            return UInt64(NX_DEVICERSHIFTKEYMASK)
-        case kVK_Control:
-            return UInt64(NX_DEVICELCTLKEYMASK)
-        case kVK_RightControl:
-            return UInt64(NX_DEVICERCTLKEYMASK)
-        case kVK_Option:
-            return UInt64(NX_DEVICELALTKEYMASK)
-        case kVK_RightOption:
-            return UInt64(NX_DEVICERALTKEYMASK)
-        case kVK_Command:
-            return UInt64(NX_DEVICELCMDKEYMASK)
-        case kVK_RightCommand:
-            return UInt64(NX_DEVICERCMDKEYMASK)
-        default:
+        case .inject:
+            injectHyperFlags(into: event)
+            return Unmanaged.passUnretained(event)
+        case .toggleCapsLock:
+            capsLockToggler.toggle()
             return nil
         }
     }
 
-    private nonisolated static func modifierFlagIsActive(for keyCode: UInt32, rawFlags: UInt64) -> Bool? {
-        guard let mask = modifierMask(for: keyCode) else { return nil }
-        return rawFlags & mask != 0
+    private func injectHyperFlags(into event: CGEvent) {
+        event.flags = CGEventFlags(rawValue: event.flags.rawValue | Self.hyperFlagMask)
     }
-}
 
-extension HotkeyCenter {
     nonisolated static func eventTapAccessGranted() -> Bool {
         CGPreflightListenEventAccess()
     }
@@ -888,120 +507,28 @@ extension HotkeyCenter {
         CGRequestListenEventAccess()
     }
 
-    nonisolated static func registrationPlan(
-        for bindings: [HotkeyBinding],
-        hyperTrigger: HyperKeyTrigger = .default
-    ) -> HotkeyRegistrationPlan {
-        struct DirectCandidate {
-            let command: HotkeyCommand
-            let binding: KeyBinding
-        }
-
-        var directOwners: [KeyBinding: [HotkeyCommand]] = [:]
-        var directCandidates: [DirectCandidate] = []
+    nonisolated static func registrationPlan(for bindings: [HotkeyBinding]) -> HotkeyRegistrationPlan {
+        var owners: [KeyBinding: [HotkeyCommand]] = [:]
+        var candidates: [(command: HotkeyCommand, binding: KeyBinding)] = []
         var failures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
 
-        func mark(_ command: HotkeyCommand, _ reason: HotkeyRegistrationFailureReason) {
-            if failures[command] == nil {
-                failures[command] = reason
-            }
-        }
-
-        func usesUnsupportedHyperModifiers(_ binding: KeyBinding) -> Bool {
-            guard binding.usesHyper else { return false }
-            if hyperTrigger == .system {
-                return binding.modifiers != 0
-            }
-            let excludedModifiers = hyperTrigger.modifierMaskToExclude
-            return excludedModifiers != 0 && binding.modifiers & excludedModifiers != 0
-        }
-
         for binding in bindings {
-            switch binding.binding {
-            case .unassigned:
-                continue
-            case let .chord(keyBinding):
-                guard !keyBinding.isUnassigned else { continue }
-                directOwners[keyBinding, default: []].append(binding.command)
-                directCandidates.append(DirectCandidate(command: binding.command, binding: keyBinding))
+            guard case let .chord(keyBinding) = binding.binding, !keyBinding.isUnassigned else { continue }
+            owners[keyBinding, default: []].append(binding.command)
+            candidates.append((binding.command, keyBinding))
+        }
+
+        for commands in owners.values where commands.count > 1 {
+            for command in commands where failures[command] == nil {
+                failures[command] = .duplicateBinding
             }
         }
 
-        for owners in directOwners.values where owners.count > 1 {
-            for command in owners {
-                mark(command, .duplicateBinding)
-            }
-        }
+        let registrations = candidates
+            .filter { failures[$0.command] == nil }
+            .map { HotkeyPlannedRegistration(binding: $0.binding, command: $0.command) }
 
-        for lhsIndex in directCandidates.indices {
-            for rhsIndex in directCandidates.indices where rhsIndex > lhsIndex {
-                let lhs = directCandidates[lhsIndex]
-                let rhs = directCandidates[rhsIndex]
-                guard lhs.binding.conflicts(with: rhs.binding, hyperTrigger: hyperTrigger) else { continue }
-                mark(lhs.command, .duplicateBinding)
-                mark(rhs.command, .duplicateBinding)
-            }
-        }
-
-        for candidate in directCandidates where candidate.binding.physicalKeyConflicts(with: hyperTrigger) {
-            mark(candidate.command, .hyperTriggerConflict)
-        }
-
-        for candidate in directCandidates where usesUnsupportedHyperModifiers(candidate.binding) {
-            mark(candidate.command, .unsupportedHyperModifiers)
-        }
-
-        var registrations: [HotkeyPlannedRegistration] = []
-        var virtualHyperRegistrations: [HotkeyPlannedRegistration] = []
-        for candidate in directCandidates {
-            let binding = candidate.binding
-            let command = candidate.command
-            guard failures[command] == nil else { continue }
-            if binding.usesHyper, hyperTrigger.requiresEventTap {
-                virtualHyperRegistrations.append(HotkeyPlannedRegistration(binding: binding, command: command))
-            }
-            let carbonBinding = binding.usesHyper && hyperTrigger.requiresEventTap
-                ? nil
-                : binding.carbonCompatibilityBinding(for: hyperTrigger) ?? (binding.usesHyper ? nil : binding)
-            if let carbonBinding {
-                registrations.append(HotkeyPlannedRegistration(binding: carbonBinding, command: command))
-            }
-        }
-
-        return HotkeyRegistrationPlan(
-            registrations: registrations,
-            virtualHyperRegistrations: virtualHyperRegistrations,
-            failures: failures
-        )
+        return HotkeyRegistrationPlan(registrations: registrations, failures: failures)
     }
 
-    nonisolated static func dormantEventMatchesHyperTrigger(
-        type: CGEventType,
-        keyCode: UInt32? = nil,
-        mouseButton: Int64? = nil,
-        trigger: HyperKeyTrigger
-    ) -> Bool {
-        switch type {
-        case .keyDown,
-             .keyUp,
-             .flagsChanged:
-            guard let keyCode else { return true }
-            guard let triggerKeyCode = trigger.keyboardKeyCode else { return false }
-            return keyCode == triggerKeyCode
-        case .otherMouseDown,
-             .otherMouseUp:
-            guard let mouseButton else { return true }
-            guard let triggerButton = trigger.mouseButtonNumber else { return false }
-            return mouseButton == triggerButton
-        default:
-            return false
-        }
-    }
-}
-
-private extension KeyBinding {
-    func physicalKeyConflicts(with hyperTrigger: HyperKeyTrigger) -> Bool {
-        guard !isUnassigned else { return false }
-        return hyperTrigger.matchesPhysicalKeyCode(keyCode)
-    }
 }

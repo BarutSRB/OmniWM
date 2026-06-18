@@ -126,7 +126,7 @@ enum ActionCatalog {
                     id: "switchWorkspace.\(idx)",
                     command: .switchWorkspace(idx),
                     category: .workspace,
-                    binding: KeyBinding(keyCode: code, modifiers: 0, usesHyper: true)
+                    binding: KeyBinding(keyCode: code, modifiers: UInt32(optionKey))
                 )
             )
             specs.append(
@@ -856,19 +856,8 @@ enum ActionCatalog {
             category: category,
             visibility: visibility,
             layoutCompatibility: compatibility(for: command),
-            defaultBinding: defaultBinding(for: binding),
+            defaultBinding: binding,
             ipcCommandName: ipcCommandName(for: command)
-        )
-    }
-
-    private static func defaultBinding(for binding: KeyBinding) -> KeyBinding {
-        guard !binding.isUnassigned, !binding.usesHyper, binding.modifiers & UInt32(optionKey) != 0 else {
-            return binding
-        }
-        return KeyBinding(
-            keyCode: binding.keyCode,
-            modifiers: binding.modifiers & ~UInt32(optionKey),
-            usesHyper: true
         )
     }
 

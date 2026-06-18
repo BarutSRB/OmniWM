@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import CoreGraphics
 @testable import OmniWM
@@ -22,9 +23,36 @@ final class HotkeyChordTests: XCTestCase {
         let same = HotkeyTrigger.chord(KeyBinding(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(optionKey)))
         let different = HotkeyTrigger.chord(KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: UInt32(optionKey)))
 
-        XCTAssertTrue(lhs.conflicts(with: same, hyperTrigger: .default))
-        XCTAssertFalse(lhs.conflicts(with: different, hyperTrigger: .default))
-        XCTAssertFalse(lhs.conflicts(with: .unassigned, hyperTrigger: .default))
+        XCTAssertTrue(lhs.conflicts(with: same))
+        XCTAssertFalse(lhs.conflicts(with: different))
+        XCTAssertFalse(lhs.conflicts(with: .unassigned))
+    }
+
+    func testHyperDisplaySugarRoundTrips() {
+        let binding = KeyBinding(keyCode: UInt32(kVK_ANSI_1), modifiers: KeySymbolMapper.hyperModifiers)
+
+        XCTAssertEqual(binding.humanReadableString, "Hyper+1")
+        XCTAssertEqual(binding.displayString, "Hyper+1")
+        XCTAssertEqual(KeySymbolMapper.fromHumanReadable("Hyper+1"), binding)
+    }
+
+    func testHyperAliasEqualsLiteralFourModifiers() {
+        XCTAssertEqual(
+            KeySymbolMapper.fromHumanReadable("Control+Option+Shift+Command+1"),
+            KeySymbolMapper.fromHumanReadable("Hyper+1")
+        )
+    }
+
+    func testKeyBindingConflictRequiresIdenticalKeyAndModifiers() {
+        let binding = KeyBinding(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(optionKey))
+        let same = KeyBinding(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(optionKey))
+        let otherModifiers = KeyBinding(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(cmdKey))
+        let otherKey = KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: UInt32(optionKey))
+
+        XCTAssertTrue(binding.conflicts(with: same))
+        XCTAssertFalse(binding.conflicts(with: otherModifiers))
+        XCTAssertFalse(binding.conflicts(with: otherKey))
+        XCTAssertFalse(binding.conflicts(with: .unassigned))
     }
 
     func testRegistrationPlanMarksDuplicateChordBindings() {
@@ -39,113 +67,215 @@ final class HotkeyChordTests: XCTestCase {
         XCTAssertEqual(plan.failures[.focus(.left)], .duplicateBinding)
         XCTAssertEqual(plan.failures[.focus(.right)], .duplicateBinding)
         XCTAssertTrue(plan.registrations.isEmpty)
-        XCTAssertTrue(plan.virtualHyperRegistrations.isEmpty)
     }
 
-    func testRegistrationPlanMarksPhysicalHyperTriggerConflict() {
-        let binding = KeyBinding(keyCode: UInt32(kVK_CapsLock), modifiers: 0)
+    func testRegistrationPlanRegistersHyperBindingLiterally() {
+        let hyperBinding = KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: KeySymbolMapper.hyperModifiers)
         let bindings = [
-            HotkeyBinding(id: "focus.left", command: .focus(.left), binding: binding)
-        ]
-
-        let plan = HotkeyCenter.registrationPlan(
-            for: bindings,
-            hyperTrigger: .key(UInt32(kVK_CapsLock))
-        )
-
-        XCTAssertEqual(plan.failures[.focus(.left)], .hyperTriggerConflict)
-        XCTAssertTrue(plan.registrations.isEmpty)
-        XCTAssertTrue(plan.virtualHyperRegistrations.isEmpty)
-    }
-
-    func testRegistrationPlanProducesDirectAndVirtualHyperRegistrations() {
-        let directBinding = KeyBinding(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(optionKey))
-        let hyperBinding = KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: 0, usesHyper: true)
-        let bindings = [
-            HotkeyBinding(id: "focus.left", command: .focus(.left), binding: directBinding),
             HotkeyBinding(id: "focus.right", command: .focus(.right), binding: hyperBinding)
         ]
 
-        let plan = HotkeyCenter.registrationPlan(
-            for: bindings,
-            hyperTrigger: .key(UInt32(kVK_CapsLock))
-        )
+        let plan = HotkeyCenter.registrationPlan(for: bindings)
 
         XCTAssertEqual(
             plan.registrations,
-            [HotkeyPlannedRegistration(binding: directBinding, command: .focus(.left))]
-        )
-        XCTAssertEqual(
-            plan.virtualHyperRegistrations,
             [HotkeyPlannedRegistration(binding: hyperBinding, command: .focus(.right))]
         )
         XCTAssertTrue(plan.failures.isEmpty)
     }
 
-    func testRegistrationPlanRoutesSideSpecificModifierHyperThroughEventTap() {
-        let hyperBinding = KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: 0, usesHyper: true)
-        let bindings = [
-            HotkeyBinding(id: "focus.right", command: .focus(.right), binding: hyperBinding)
-        ]
+    func testSystemHyperTriggerCodableRoundTrips() throws {
+        for trigger in [SystemHyperTrigger.none, .key(UInt32(kVK_CapsLock)), .mouseButton(4)] {
+            let data = try JSONEncoder().encode(trigger)
+            let decoded = try JSONDecoder().decode(SystemHyperTrigger.self, from: data)
+            XCTAssertEqual(decoded, trigger)
+        }
+    }
 
-        let plan = HotkeyCenter.registrationPlan(
-            for: bindings,
-            hyperTrigger: .key(UInt32(kVK_RightOption))
-        )
+    func testSystemHyperTriggerHumanReadableNames() {
+        XCTAssertEqual(SystemHyperTrigger.none.humanReadableString, "None")
+        XCTAssertEqual(SystemHyperTrigger.key(UInt32(kVK_CapsLock)).humanReadableString, "Caps Lock")
+        XCTAssertEqual(SystemHyperTrigger.mouseButton(4).humanReadableString, "MouseButton4")
+    }
 
-        XCTAssertTrue(plan.registrations.isEmpty)
+    func testSystemHyperTriggerParsing() {
+        XCTAssertEqual(SystemHyperTrigger.fromHumanReadable("None"), SystemHyperTrigger.none)
+        XCTAssertEqual(SystemHyperTrigger.fromHumanReadable(""), SystemHyperTrigger.none)
+        XCTAssertEqual(SystemHyperTrigger.fromHumanReadable("Caps Lock"), .key(UInt32(kVK_CapsLock)))
+        XCTAssertEqual(SystemHyperTrigger.fromHumanReadable("F13"), .key(UInt32(kVK_F13)))
+        XCTAssertEqual(SystemHyperTrigger.fromHumanReadable("MouseButton4"), .mouseButton(4))
+        XCTAssertNil(SystemHyperTrigger.fromHumanReadable("A"))
+        XCTAssertNil(SystemHyperTrigger.fromHumanReadable("Space"))
+        XCTAssertNil(SystemHyperTrigger.fromHumanReadable("MouseButton2"))
+        XCTAssertNil(SystemHyperTrigger.fromHumanReadable("not a key"))
+    }
+
+    func testSystemHyperTriggerSupportUsesSelectableSets() {
+        XCTAssertTrue(SystemHyperTrigger.none.isSupported)
+        for keyCode in SystemHyperTrigger.selectableKeyCodes {
+            XCTAssertTrue(SystemHyperTrigger.key(keyCode).isSupported)
+        }
+        for button in SystemHyperTrigger.selectableMouseButtons {
+            XCTAssertTrue(SystemHyperTrigger.mouseButton(button).isSupported)
+        }
+
+        XCTAssertFalse(SystemHyperTrigger.key(UInt32(kVK_ANSI_A)).isSupported)
+        XCTAssertFalse(SystemHyperTrigger.key(UInt32(kVK_Space)).isSupported)
+        XCTAssertFalse(SystemHyperTrigger.mouseButton(0).isSupported)
+        XCTAssertFalse(SystemHyperTrigger.mouseButton(1).isSupported)
+        XCTAssertFalse(SystemHyperTrigger.mouseButton(2).isSupported)
+        XCTAssertFalse(SystemHyperTrigger.mouseButton(6).isSupported)
+    }
+
+    func testSystemHyperTriggerDirectDecodeRejectsUnsupportedValues() {
+        XCTAssertThrowsError(try JSONDecoder().decode(SystemHyperTrigger.self, from: Data(#""A""#.utf8)))
+        XCTAssertThrowsError(try JSONDecoder().decode(SystemHyperTrigger.self, from: Data(#""MouseButton2""#.utf8)))
+    }
+
+    func testSystemHyperTriggerProperties() {
+        XCTAssertFalse(SystemHyperTrigger.none.isEnabled)
+        XCTAssertTrue(SystemHyperTrigger.key(UInt32(kVK_F13)).isEnabled)
+        XCTAssertTrue(SystemHyperTrigger.key(UInt32(kVK_CapsLock)).requiresCapsLockRemap)
+        XCTAssertFalse(SystemHyperTrigger.key(UInt32(kVK_F13)).requiresCapsLockRemap)
+        XCTAssertEqual(SystemHyperTrigger.mouseButton(4).mouseButtonNumber, 4)
+    }
+
+    func testHyperTriggerStateMachineHandlesKeyTrigger() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_F13)), capsLockRemapped: false)
+
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_F13)), .suppress)
+        XCTAssertTrue(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_A)), .inject)
+        XCTAssertEqual(trigger.handleKeyUp(UInt32(kVK_F13)), .suppress)
+        XCTAssertFalse(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_A)), .passThrough)
+    }
+
+    func testHyperTriggerStateMachineHandlesCapsLockRemap() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_CapsLock)), capsLockRemapped: true)
+
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_CapsLock)), .passThrough)
+        XCTAssertFalse(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(CapsLockHyperMapping.f18KeyCode), .suppress)
+        XCTAssertTrue(trigger.isActive)
+    }
+
+    func testHyperTriggerStateMachineTogglesCapsLockOnQuickTap() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_CapsLock)), capsLockRemapped: true)
+
+        XCTAssertEqual(trigger.handleKeyDown(CapsLockHyperMapping.f18KeyCode, timestamp: 1.0), .suppress)
+        XCTAssertTrue(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyUp(CapsLockHyperMapping.f18KeyCode, timestamp: 1.1), .toggleCapsLock)
+        XCTAssertFalse(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_A), timestamp: 1.2), .passThrough)
+    }
+
+    func testHyperTriggerStateMachineCapsLockWithKeyDoesNotToggleOnRelease() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_CapsLock)), capsLockRemapped: true)
+
+        XCTAssertEqual(trigger.handleKeyDown(CapsLockHyperMapping.f18KeyCode, timestamp: 2.0), .suppress)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_K), timestamp: 2.1), .inject)
+        XCTAssertEqual(trigger.handleKeyUp(UInt32(kVK_ANSI_K), timestamp: 2.2), .inject)
+        XCTAssertEqual(trigger.handleKeyUp(CapsLockHyperMapping.f18KeyCode, timestamp: 2.3), .suppress)
+        XCTAssertFalse(trigger.isActive)
+    }
+
+    func testHyperTriggerStateMachineLongCapsLockHoldDoesNotToggle() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_CapsLock)), capsLockRemapped: true)
+
+        XCTAssertEqual(trigger.handleKeyDown(CapsLockHyperMapping.f18KeyCode, timestamp: 3.0), .suppress)
         XCTAssertEqual(
-            plan.virtualHyperRegistrations,
-            [HotkeyPlannedRegistration(binding: hyperBinding, command: .focus(.right))]
+            trigger.handleKeyUp(
+                CapsLockHyperMapping.f18KeyCode,
+                timestamp: 3.0 + HyperTriggerStateMachine.capsLockTapTimeout + 0.01
+            ),
+            .suppress
         )
-        XCTAssertTrue(plan.failures.isEmpty)
+        XCTAssertFalse(trigger.isActive)
     }
 
-    func testRegistrationPlanMapsSystemHyperToRealFourModifierChord() {
-        let hyperBinding = KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: 0, usesHyper: true)
-        let bindings = [
-            HotkeyBinding(id: "focus.right", command: .focus(.right), binding: hyperBinding)
-        ]
+    func testHyperTriggerStateMachineCapsLockWithMouseDoesNotToggleOnRelease() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_CapsLock)), capsLockRemapped: true)
 
-        let plan = HotkeyCenter.registrationPlan(for: bindings, hyperTrigger: .system)
+        XCTAssertEqual(trigger.handleKeyDown(CapsLockHyperMapping.f18KeyCode, timestamp: 4.0), .suppress)
+        XCTAssertEqual(trigger.handleMouseDown(4), .inject)
+        XCTAssertEqual(trigger.handleMouseUp(4), .inject)
+        XCTAssertEqual(trigger.handleKeyUp(CapsLockHyperMapping.f18KeyCode, timestamp: 4.1), .suppress)
+        XCTAssertFalse(trigger.isActive)
+    }
+
+    func testHyperTriggerStateMachineRealF18NeverTogglesCapsLock() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_F18)), capsLockRemapped: false)
+
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_F18), timestamp: 5.0), .suppress)
+        XCTAssertTrue(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_K), timestamp: 5.1), .inject)
+        XCTAssertEqual(trigger.handleKeyUp(UInt32(kVK_F18), timestamp: 5.2), .suppress)
+        XCTAssertFalse(trigger.isActive)
+    }
+
+    func testHyperTriggerStateMachineHandlesRightSideModifierTrigger() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_RightOption)), capsLockRemapped: false)
 
         XCTAssertEqual(
-            plan.registrations,
-            [
-                HotkeyPlannedRegistration(
-                    binding: KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: KeySymbolMapper.hyperModifiers),
-                    command: .focus(.right)
-                )
-            ]
+            trigger.handleFlagsChanged(
+                keyCode: UInt32(kVK_RightOption),
+                rawFlags: UInt64(NX_DEVICERALTKEYMASK)
+            ),
+            .suppress
         )
-        XCTAssertTrue(plan.virtualHyperRegistrations.isEmpty)
-        XCTAssertTrue(plan.failures.isEmpty)
+        XCTAssertTrue(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_A)), .inject)
+        XCTAssertEqual(
+            trigger.handleFlagsChanged(keyCode: UInt32(kVK_RightOption), rawFlags: 0),
+            .suppress
+        )
+        XCTAssertFalse(trigger.isActive)
     }
 
-    func testSideSpecificHyperTriggerConflictsOnlyWithMatchingSide() {
-        let leftOptionBinding = KeyBinding(keyCode: UInt32(kVK_Option), modifiers: 0)
-        let rightOptionBinding = KeyBinding(keyCode: UInt32(kVK_RightOption), modifiers: 0)
-        let bindings = [
-            HotkeyBinding(id: "focus.left", command: .focus(.left), binding: leftOptionBinding),
-            HotkeyBinding(id: "focus.right", command: .focus(.right), binding: rightOptionBinding)
-        ]
+    func testHyperTriggerStateMachineHandlesMouseTrigger() {
+        var trigger = HyperTriggerStateMachine(trigger: .mouseButton(4), capsLockRemapped: false)
 
-        let plan = HotkeyCenter.registrationPlan(
-            for: bindings,
-            hyperTrigger: .key(UInt32(kVK_RightOption))
-        )
-
-        XCTAssertNil(plan.failures[.focus(.left)])
-        XCTAssertEqual(plan.failures[.focus(.right)], .hyperTriggerConflict)
+        XCTAssertEqual(trigger.handleMouseDown(4), .suppress)
+        XCTAssertTrue(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_A)), .inject)
+        XCTAssertEqual(trigger.handleMouseUp(4), .suppress)
+        XCTAssertFalse(trigger.isActive)
+        XCTAssertEqual(trigger.handleMouseDown(3), .passThrough)
     }
 
-    func testHyperTriggerEncodingUsesSideSpecificModifierNames() throws {
-        let data = try JSONEncoder().encode(HyperKeyTrigger.default)
-        let encoded = String(decoding: data, as: UTF8.self)
-        let decoded = try JSONDecoder().decode(HyperKeyTrigger.self, from: data)
+    func testHyperTriggerStateMachineResetClearsActiveState() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_F13)), capsLockRemapped: false)
 
-        XCTAssertEqual(encoded, #""Left Option""#)
-        XCTAssertEqual(decoded, .key(UInt32(kVK_Option)))
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_F13)), .suppress)
+        XCTAssertTrue(trigger.isActive)
+        trigger.reset()
+        XCTAssertFalse(trigger.isActive)
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_A)), .passThrough)
+    }
+
+    func testHyperTriggerStateMachineNonePassesThrough() {
+        var trigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
+
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_F13)), .passThrough)
+        XCTAssertEqual(trigger.handleKeyUp(UInt32(kVK_F13)), .passThrough)
+        XCTAssertEqual(
+            trigger.handleFlagsChanged(
+                keyCode: UInt32(kVK_RightOption),
+                rawFlags: UInt64(NX_DEVICERALTKEYMASK)
+            ),
+            .passThrough
+        )
+        XCTAssertEqual(trigger.handleMouseDown(4), .passThrough)
+        XCTAssertEqual(trigger.handleMouseUp(4), .passThrough)
+        XCTAssertFalse(trigger.isActive)
+    }
+
+    func testHyperTriggerStateMachineIgnoresUnsupportedTrigger() {
+        var trigger = HyperTriggerStateMachine(trigger: .key(UInt32(kVK_ANSI_A)), capsLockRemapped: false)
+
+        XCTAssertEqual(trigger.handleKeyDown(UInt32(kVK_ANSI_A)), .passThrough)
+        XCTAssertFalse(trigger.isActive)
     }
 
     func testCapsLockHyperMappingPreservesUnrelatedMappingsWhenApplying() {
@@ -189,187 +319,63 @@ final class HotkeyChordTests: XCTestCase {
         XCTAssertEqual(mappings, [externalCapsLock])
     }
 
-    func testVirtualHyperStateDispatchesAndConsumesMatchedCombo() {
-        var state = VirtualHyperEventState()
-        let trigger = HyperKeyTrigger.key(UInt32(kVK_ANSI_H))
-
-        XCTAssertEqual(state.handleTriggerKeyDown(UInt32(kVK_ANSI_H), trigger: trigger), true)
+    func testKeyRecorderBindingResolverRecordsHyperModifiedKey() {
         XCTAssertEqual(
-            state.handleKeyDown(
-                keyCode: UInt32(kVK_ANSI_J),
-                isAutorepeat: false,
-                trigger: trigger,
-                command: .focus(.down)
+            KeyRecorderBindingResolver.binding(
+                keyCode: UInt32(kVK_ANSI_K),
+                modifiers: 0,
+                hyperActive: true,
+                allowsBareKeys: false
             ),
-            .dispatch(.focus(.down))
-        )
-        XCTAssertEqual(state.handleTriggerKeyUp(UInt32(kVK_ANSI_J), trigger: trigger), true)
-    }
-
-    func testVirtualHyperStatePassesThroughUnmatchedCombo() {
-        var state = VirtualHyperEventState()
-        let trigger = HyperKeyTrigger.key(UInt32(kVK_ANSI_H))
-
-        XCTAssertEqual(state.handleTriggerKeyDown(UInt32(kVK_ANSI_H), trigger: trigger), true)
-        XCTAssertEqual(
-            state.handleKeyDown(
-                keyCode: UInt32(kVK_ANSI_J),
-                isAutorepeat: false,
-                trigger: trigger,
-                command: nil
-            ),
-            .passThrough
-        )
-        XCTAssertEqual(state.handleTriggerKeyUp(UInt32(kVK_ANSI_J), trigger: trigger), false)
-    }
-
-    func testVirtualHyperStateSupportsQuickTapCancellation() {
-        var state = VirtualHyperEventState()
-        let trigger = HyperKeyTrigger.key(UInt32(kVK_ANSI_H))
-
-        XCTAssertEqual(state.beginPendingKeyDown(UInt32(kVK_ANSI_H), trigger: trigger), true)
-        XCTAssertEqual(state.pendingKeyMatches(UInt32(kVK_ANSI_H), trigger: trigger), true)
-        XCTAssertEqual(state.cancelPending(), true)
-        XCTAssertEqual(state.isPending, false)
-    }
-
-    func testVirtualHyperStateDormantTracksActivePendingAndConsumedInputs() {
-        var state = VirtualHyperEventState()
-        let trigger = HyperKeyTrigger.key(UInt32(kVK_ANSI_H))
-
-        XCTAssertTrue(state.isDormant)
-
-        XCTAssertEqual(state.handleTriggerKeyDown(UInt32(kVK_ANSI_H), trigger: trigger), true)
-        XCTAssertFalse(state.isDormant)
-
-        state.reset()
-        XCTAssertTrue(state.beginPendingKeyDown(UInt32(kVK_ANSI_H), trigger: trigger))
-        XCTAssertFalse(state.isDormant)
-
-        XCTAssertTrue(state.cancelPending())
-        XCTAssertTrue(state.isDormant)
-
-        state.consumeKeyCode(UInt32(kVK_ANSI_J))
-        XCTAssertFalse(state.isDormant)
-
-        state.reset()
-        state.consumedMouseButtons.insert(3)
-        XCTAssertFalse(state.isDormant)
-    }
-
-    func testVirtualHyperStateConsumedKeyKeepsDormantFastPathDisabledUntilKeyUp() {
-        var state = VirtualHyperEventState()
-        let trigger = HyperKeyTrigger.key(UInt32(kVK_ANSI_H))
-
-        state.consumeKeyCode(UInt32(kVK_ANSI_J))
-
-        XCTAssertFalse(state.isDormant)
-        XCTAssertEqual(state.handleTriggerKeyUp(UInt32(kVK_ANSI_J), trigger: trigger), true)
-        XCTAssertTrue(state.isDormant)
-    }
-
-    func testDormantVirtualHyperPredicateHandlesTriggerEvents() {
-        let keyTrigger = HyperKeyTrigger.key(UInt32(kVK_ANSI_H))
-
-        XCTAssertTrue(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .keyDown,
-                keyCode: UInt32(kVK_ANSI_H),
-                trigger: keyTrigger
-            )
-        )
-        XCTAssertTrue(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .keyUp,
-                keyCode: UInt32(kVK_ANSI_H),
-                trigger: keyTrigger
-            )
-        )
-        XCTAssertTrue(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .flagsChanged,
-                keyCode: UInt32(kVK_ANSI_H),
-                trigger: keyTrigger
-            )
-        )
-
-        let mouseTrigger = HyperKeyTrigger.mouseButton(4)
-
-        XCTAssertTrue(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .otherMouseDown,
-                mouseButton: 4,
-                trigger: mouseTrigger
-            )
-        )
-        XCTAssertTrue(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .otherMouseUp,
-                mouseButton: 4,
-                trigger: mouseTrigger
-            )
+            KeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: KeySymbolMapper.hyperModifiers)
         )
     }
 
-    func testDormantVirtualHyperPredicateSkipsNonTriggerEvents() {
-        let keyTrigger = HyperKeyTrigger.key(UInt32(kVK_ANSI_H))
-
-        XCTAssertFalse(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .keyDown,
-                keyCode: UInt32(kVK_ANSI_J),
-                trigger: keyTrigger
-            )
-        )
-        XCTAssertFalse(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .keyUp,
-                keyCode: UInt32(kVK_ANSI_J),
-                trigger: keyTrigger
-            )
-        )
-        XCTAssertFalse(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .flagsChanged,
-                keyCode: UInt32(kVK_ANSI_J),
-                trigger: keyTrigger
-            )
-        )
-
-        let mouseTrigger = HyperKeyTrigger.mouseButton(4)
-
-        XCTAssertFalse(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .otherMouseDown,
-                mouseButton: 5,
-                trigger: mouseTrigger
-            )
-        )
-        XCTAssertFalse(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .otherMouseUp,
-                mouseButton: 5,
-                trigger: mouseTrigger
-            )
-        )
-    }
-
-    func testDormantVirtualHyperPredicateUsesEffectiveCapsLockRemapTrigger() {
-        let remappedTrigger = HyperKeyTrigger.key(CapsLockHyperMapping.f18KeyCode)
-
-        XCTAssertTrue(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .keyDown,
+    func testKeyRecorderBindingResolverIgnoresBareHyperTriggerKey() {
+        XCTAssertNil(
+            KeyRecorderBindingResolver.binding(
                 keyCode: CapsLockHyperMapping.f18KeyCode,
-                trigger: remappedTrigger
+                modifiers: 0,
+                hyperActive: true,
+                allowsBareKeys: false
             )
         )
-        XCTAssertFalse(
-            HotkeyCenter.dormantEventMatchesHyperTrigger(
-                type: .keyDown,
+        XCTAssertNil(
+            KeyRecorderBindingResolver.binding(
                 keyCode: UInt32(kVK_CapsLock),
-                trigger: remappedTrigger
+                modifiers: 0,
+                hyperActive: true,
+                allowsBareKeys: false
             )
+        )
+    }
+
+    func testKeyRecorderBindingResolverKeepsExistingInactiveBehavior() {
+        XCTAssertNil(
+            KeyRecorderBindingResolver.binding(
+                keyCode: UInt32(kVK_ANSI_K),
+                modifiers: 0,
+                hyperActive: false,
+                allowsBareKeys: false
+            )
+        )
+        XCTAssertEqual(
+            KeyRecorderBindingResolver.binding(
+                keyCode: UInt32(kVK_ANSI_K),
+                modifiers: UInt32(optionKey),
+                hyperActive: false,
+                allowsBareKeys: false
+            ),
+            KeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(optionKey))
+        )
+        XCTAssertEqual(
+            KeyRecorderBindingResolver.binding(
+                keyCode: UInt32(kVK_F13),
+                modifiers: 0,
+                hyperActive: false,
+                allowsBareKeys: false
+            ),
+            KeyBinding(keyCode: UInt32(kVK_F13), modifiers: 0)
         )
     }
 

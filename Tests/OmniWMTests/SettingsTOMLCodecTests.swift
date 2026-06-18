@@ -149,6 +149,20 @@ final class SettingsTOMLCodecTests: XCTestCase {
         XCTAssertEqual(try SettingsTOMLCodec.decode(withoutKey).trackpadScrollStyle, TrackpadScrollStyle.snap.rawValue)
     }
 
+    func testUnsupportedSystemHyperTriggerRecoversToNone() throws {
+        let unsupportedKey = try defaultsWithReplacements(
+            ("systemHyperTrigger = \"None\"\n", "systemHyperTrigger = \"A\"\n")
+        )
+        XCTAssertTrue(String(decoding: unsupportedKey, as: UTF8.self).contains("systemHyperTrigger = \"A\""))
+        XCTAssertEqual(try SettingsTOMLCodec.decode(unsupportedKey).systemHyperTrigger, .none)
+
+        let unsupportedMouse = try defaultsWithReplacements(
+            ("systemHyperTrigger = \"None\"\n", "systemHyperTrigger = \"MouseButton2\"\n")
+        )
+        XCTAssertTrue(String(decoding: unsupportedMouse, as: UTF8.self).contains("systemHyperTrigger = \"MouseButton2\""))
+        XCTAssertEqual(try SettingsTOMLCodec.decode(unsupportedMouse).systemHyperTrigger, .none)
+    }
+
     private func defaultsWithReplacements(_ replacements: (String, String)...) throws -> Data {
         var toml = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
         for (target, replacement) in replacements {

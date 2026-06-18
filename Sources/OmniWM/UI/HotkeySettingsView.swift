@@ -45,7 +45,6 @@ enum HotkeyCaptureResult {
 
 private enum HotkeyRecordingTarget: Equatable {
     case chord(String)
-    case hyperTrigger
 }
 
 enum HotkeyInputMonitoringStatus: Equatable {
@@ -98,8 +97,7 @@ enum HotkeySettingsDisplayModel {
         if binding.isUnassigned {
             return "Unassigned"
         }
-        let prefix = binding.usesHyper ? "OmniWM+" : ""
-        return prefix + KeySymbolMapper.displayString(keyCode: binding.keyCode, modifiers: binding.modifiers)
+        return KeySymbolMapper.displayString(keyCode: binding.keyCode, modifiers: binding.modifiers)
     }
 
     static func displayString(for trigger: HotkeyTrigger) -> String {
@@ -115,11 +113,10 @@ enum HotkeySettingsDisplayModel {
         if binding.isUnassigned {
             return "Unassigned"
         }
-        let base = KeySymbolMapper.humanReadableString(
+        return KeySymbolMapper.humanReadableString(
             keyCode: binding.keyCode,
             modifiers: binding.modifiers
         )
-        return binding.usesHyper ? "OmniWM modifier+\(base)" : base
     }
 
     static func humanReadableString(for trigger: HotkeyTrigger) -> String {
@@ -162,46 +159,31 @@ struct HotkeySettingsView: View {
                         .toggleStyle(.switch)
                 }
 
-                LabeledContent("OmniWM Modifier") {
-                    HStack(spacing: 8) {
-                        if recordingTarget == .hyperTrigger {
-                            HyperTriggerRecorderView(
-                                accessibilityLabel: "Recording OmniWM modifier",
-                                onCapture: handleHyperTriggerCaptured,
-                                onCancel: cancelRecording
-                            )
-                            .frame(minWidth: 180, idealWidth: 210, minHeight: 34)
-                        } else {
-                            Button {
-                                startHyperTriggerRecording()
-                            } label: {
-                                Text(settings.hyperTrigger.displayString)
-                                    .font(.system(.body, design: .monospaced))
-                                    .lineLimit(1)
-                                    .frame(minWidth: 112, alignment: .center)
-                            }
-                            .buttonStyle(.bordered)
-                            .help(
-                                "Change OmniWM modifier. Current OmniWM modifier: \(settings.hyperTrigger.humanReadableString)"
-                            )
-                            .accessibilityLabel("Change OmniWM modifier")
-                            .accessibilityValue(settings.hyperTrigger.humanReadableString)
+                LabeledContent("System Hyper Trigger") {
+                    Picker("System Hyper Trigger", selection: $settings.systemHyperTrigger) {
+                        Text("None").tag(SystemHyperTrigger.none)
+                        ForEach(SystemHyperTrigger.selectableKeyCodes, id: \.self) { code in
+                            Text(KeySymbolMapper.keyName(code)).tag(SystemHyperTrigger.key(code))
+                        }
+                        ForEach(SystemHyperTrigger.selectableMouseButtons, id: \.self) { button in
+                            Text("Mouse Button \(button)").tag(SystemHyperTrigger.mouseButton(button))
                         }
                     }
-
-                    LabeledContent("Hold Threshold") {
-                        Stepper(value: $settings.hyperKeyHoldThresholdMilliseconds, in: 0 ... 1500, step: 50) {
-                            Text("\(settings.hyperKeyHoldThresholdMilliseconds) ms")
-                                .monospacedDigit()
-                        }
-                        .onChange(of: settings.hyperKeyHoldThresholdMilliseconds) { _, _ in
-                            controller.updateHotkeyBindings(settings.hotkeyBindings)
-                        }
+                    .labelsHidden()
+                    .frame(minWidth: 160)
+                    .onChange(of: settings.systemHyperTrigger) { _, _ in
+                        controller.updateHotkeyBindings(settings.hotkeyBindings, force: true)
                     }
-                    SettingsCaption(
-                        "How long to hold the Hyper key before it activates. 0 ms = immediate (no tap-through to native key)."
-                    )
+                    .accessibilityLabel("System Hyper trigger")
+                    .accessibilityValue(settings.systemHyperTrigger.humanReadableString)
                 }
+                if let triggerFailure = controller.systemHyperTriggerFailure {
+                    SettingsCaption(systemHyperTriggerFailureMessage(triggerFailure))
+                }
+                SettingsCaption(
+                    "Hold this key or button to act as ⌃⌥⇧⌘ (Hyper). Needs Input Monitoring permission. "
+                        + "Leave as None to use a Hyper key set up elsewhere, such as Karabiner."
+                )
 
                 LabeledContent("Input Monitoring") {
                     HStack(spacing: 10) {
@@ -255,8 +237,10 @@ struct HotkeySettingsView: View {
                             HotkeyBindingRow(
                                 binding: binding,
                                 recordingTarget: $recordingTarget,
-                                hyperTrigger: settings.hyperTrigger,
                                 failureReason: controller.hotkeyRegistrationFailures[binding.command],
+                                isHyperActive: {
+                                    controller.isHyperTriggerActive
+                                },
                                 onStartChordRecording: startChordRecording,
                                 onChordCaptured: handleChordCaptured,
                                 onCancelRecording: cancelRecording,
@@ -338,8 +322,13 @@ struct HotkeySettingsView: View {
         recordingTarget = .chord(actionId)
     }
 
-    private func startHyperTriggerRecording() {
-        recordingTarget = .hyperTrigger
+    private func systemHyperTriggerFailureMessage(_ failure: SystemHyperTriggerFailure) -> String {
+        switch failure {
+        case .eventTapUnavailable:
+            "System Hyper trigger is unavailable: grant Input Monitoring permission."
+        case .capsLockRemapUnavailable:
+            "System Hyper trigger is unavailable: Caps Lock remapping failed."
+        }
     }
 
     private func handleChordCaptured(actionId: String, newBinding: KeyBinding) {
@@ -347,12 +336,6 @@ struct HotkeySettingsView: View {
             actionId: actionId,
             newTrigger: newBinding.isUnassigned ? .unassigned : .chord(newBinding)
         )
-    }
-
-    private func handleHyperTriggerCaptured(_ newTrigger: HyperKeyTrigger) {
-        settings.hyperTrigger = newTrigger
-        controller.updateHotkeyBindings(settings.hotkeyBindings)
-        cancelRecording()
     }
 
     private func handleTriggerCaptured(actionId: String, newTrigger: HotkeyTrigger) {
@@ -403,7 +386,7 @@ struct HotkeySettingsView: View {
     }
 
     private func syncHotkeyRecordingState() {
-        controller.setHotkeysEnabled(isRecordingOrDrafting ? false : settings.hotkeysEnabled)
+        controller.setHotkeyRecordingActive(isRecordingOrDrafting)
     }
 }
 
@@ -433,8 +416,8 @@ struct ConflictAlert: Identifiable {
 private struct HotkeyBindingRow: View {
     let binding: HotkeyBinding
     @Binding var recordingTarget: HotkeyRecordingTarget?
-    let hyperTrigger: HyperKeyTrigger
     let failureReason: HotkeyRegistrationFailureReason?
+    let isHyperActive: () -> Bool
     let onStartChordRecording: (String) -> Void
     let onChordCaptured: (String, KeyBinding) -> Void
     let onCancelRecording: () -> Void
@@ -457,7 +440,7 @@ private struct HotkeyBindingRow: View {
                     binding: binding.binding,
                     commandName: binding.command.displayName,
                     isRecordingChord: recordingTarget == .chord(binding.id),
-                    hyperTrigger: hyperTrigger,
+                    isHyperActive: isHyperActive,
                     onStartChordRecording: {
                         onStartChordRecording(binding.id)
                     },
@@ -512,14 +495,6 @@ private struct HotkeyBindingRow: View {
         switch reason {
         case .duplicateBinding:
             return "Failed to register: this key combination is already assigned to another OmniWM command"
-        case .hyperTriggerConflict:
-            return "Failed to register: this hotkey uses the same physical key as the configured OmniWM modifier"
-        case .unsupportedHyperModifiers:
-            return "Failed to register: OmniWM modifier cannot reuse its trigger modifier in the same binding"
-        case .eventTapUnavailable:
-            return "Failed to register: OmniWM modifier capture is unavailable"
-        case .capsLockRemapUnavailable:
-            return "Failed to register: Caps Lock remapping is unavailable"
         case .systemReserved:
             return "Failed to register: this key combination may be reserved by the system"
         }
@@ -543,7 +518,7 @@ private struct HotkeyBindingControl: View {
     let binding: HotkeyTrigger
     let commandName: String
     let isRecordingChord: Bool
-    let hyperTrigger: HyperKeyTrigger
+    let isHyperActive: () -> Bool
     let onStartChordRecording: () -> Void
     let onCaptured: (KeyBinding) -> Void
     let onCancel: () -> Void
@@ -554,7 +529,7 @@ private struct HotkeyBindingControl: View {
             if isRecordingChord {
                 KeyRecorderView(
                     accessibilityLabel: "Recording hotkey for \(commandName)",
-                    hyperTrigger: hyperTrigger,
+                    isHyperActive: isHyperActive,
                     onCapture: onCaptured,
                     onCancel: onCancel
                 )

@@ -175,7 +175,7 @@ OmniWM is built for high responsiveness and smooth, crisp animations.
 
 - macOS 15+ (Sequoia)
 - Accessibility permissions (prompted on launch)
-- Input Monitoring permission for custom Hyper key shortcuts
+- Input Monitoring permission when using a System Hyper Trigger
 - Displays have separate spaces **ON** (the macOS default; OmniWM pauses window management until it is enabled)
 
 ## Installation
@@ -194,7 +194,7 @@ brew install omniwm
 3. In System Settings > Desktop & Dock > Mission Control, turn **ON** `Displays have separate Spaces`
 4. Log out of macOS and log back in for that change to take effect unless you had it on already
 5. Launch OmniWM and grant Accessibility permissions when prompted
-6. For custom Hyper key shortcuts, grant Input Monitoring from Settings > Hotkeys
+6. To use a System Hyper Trigger, grant Input Monitoring from Settings > Hotkeys
 
 ## Updates
 
@@ -251,7 +251,7 @@ Use the `Toggle Workspace Layout` shortcut below to switch layouts per workspace
 
 ### Keyboard Shortcuts
 
-All shortcuts are customizable in Settings > Hotkeys. Single-key chords and the `Hyper` modifier are configured there. `Hyper` defaults to Control + Option + Shift + Command, and you can choose another key or mouse button as the OmniWM modifier. The tables below list all the default hotkeys:
+All shortcuts are customizable in Settings > Hotkeys. `Hyper` is the literal `Control + Option + Shift + Command` chord. Optionally pick a **System Hyper Trigger** — a single key (Caps Lock, F13–F20, or a right-side modifier) or an extra mouse button that acts as `Hyper` while held (this needs Input Monitoring permission). Leave the trigger as `None` if you already produce `Hyper` another way, such as a Karabiner Elements remap. The tables below list all the default hotkeys:
 
 Layout legend:
 - `Shared` works in any active layout.
@@ -262,7 +262,7 @@ Layout legend:
 
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
-| Switch to Workspace 1-9 | `Hyper + 1-9` | `Shared` |
+| Switch to Workspace 1-9 | `Option + 1-9` | `Shared` |
 | Move Window to Workspace 1-9 | `Option + Shift + 1-9` | `Shared` |
 | Switch to Previous Workspace (Back and Forth) | `Control + Option + Tab` | `Shared` |
 | Switch to Next Workspace | `Unassigned` | `Shared` |

@@ -114,6 +114,49 @@ extension NiriLayoutEngine {
         }
     }
 
+    func workspaceIds(containing token: WindowToken) -> [WorkspaceDescriptor.ID] {
+        roots.compactMap { $0.value.windowIdSet.contains(token) ? $0.key : nil }
+    }
+
+    func findNode(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> NiriWindow? {
+        root(for: workspaceId)?.allWindows.first { $0.token == token }
+    }
+
+    func removeWindow(token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) {
+        assertSanctionedMutation()
+        guard let node = findNode(for: token, in: workspaceId),
+              let column = node.parent as? NiriContainer else { return }
+
+        column.adjustActiveTileIdxForRemoval(of: node)
+        node.remove()
+
+        let remaining = roots.values.lazy.compactMap { root in
+            root.allWindows.first { $0.token == token }
+        }.first
+        if let remaining {
+            if tokenToNode[token] === node { tokenToNode[token] = remaining }
+        } else {
+            closingTokens.remove(token)
+            tokenToNode.removeValue(forKey: token)
+        }
+
+        if column.displayMode == .tabbed, !column.children.isEmpty {
+            column.clampActiveTileIdx()
+            updateTabbedColumnVisibility(column: column)
+        }
+
+        if column.children.isEmpty {
+            let root = column.parent as? NiriRoot
+            column.remove()
+
+            if let root {
+                for col in root.columns {
+                    col.cachedWidth = 0
+                }
+            }
+        }
+    }
+
     @discardableResult
     func removeWindows(
         _ tokens: Set<WindowToken>,

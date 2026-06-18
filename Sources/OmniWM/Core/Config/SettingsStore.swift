@@ -146,11 +146,7 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
-    var hyperTrigger = SettingsStore.defaultExport.hyperTrigger {
-        didSet { scheduleSave() }
-    }
-
-    var hyperKeyHoldThresholdMilliseconds = SettingsStore.defaultExport.hyperKeyHoldThresholdMilliseconds {
+    var systemHyperTrigger = SettingsStore.defaultExport.systemHyperTrigger {
         didSet { scheduleSave() }
     }
 
@@ -534,8 +530,7 @@ final class SettingsStore {
             borderColorBlue: borderColorBlue,
             borderColorAlpha: borderColorAlpha,
             hotkeyBindings: hotkeyBindings,
-            hyperTrigger: hyperTrigger,
-            hyperKeyHoldThresholdMilliseconds: hyperKeyHoldThresholdMilliseconds,
+            systemHyperTrigger: systemHyperTrigger,
             workspaceBarEnabled: workspaceBarEnabled,
             workspaceBarShowLabels: workspaceBarShowLabels,
             workspaceBarShowFloatingWindows: workspaceBarShowFloatingWindows,
@@ -638,8 +633,7 @@ final class SettingsStore {
         borderColorAlpha = export.borderColorAlpha
 
         hotkeyBindings = export.hotkeyBindings
-        hyperTrigger = export.hyperTrigger
-        hyperKeyHoldThresholdMilliseconds = max(0, min(1500, export.hyperKeyHoldThresholdMilliseconds))
+        systemHyperTrigger = export.systemHyperTrigger
 
         workspaceBarEnabled = export.workspaceBarEnabled
         workspaceBarShowLabels = export.workspaceBarShowLabels
@@ -739,18 +733,14 @@ final class SettingsStore {
 
     func resetHotkeysToDefaults() {
         hotkeyBindings = HotkeyBindingRegistry.defaults()
-        hyperTrigger = SettingsStore.defaultExport.hyperTrigger
-        hyperKeyHoldThresholdMilliseconds = SettingsStore.defaultExport.hyperKeyHoldThresholdMilliseconds
+        systemHyperTrigger = SettingsStore.defaultExport.systemHyperTrigger
     }
 
     func hotkeyBindings(applyingPreset mappings: [(id: String, trigger: HotkeyTrigger)]) -> [HotkeyBinding] {
         var proposed = hotkeyBindings
         for mapping in mappings {
             for index in proposed.indices where proposed[index].id != mapping.id &&
-                proposed[index].binding.conflicts(
-                    with: mapping.trigger,
-                    hyperTrigger: hyperTrigger
-                )
+                proposed[index].binding.conflicts(with: mapping.trigger)
             {
                 proposed[index] = HotkeyBinding(
                     id: proposed[index].id,
@@ -799,7 +789,7 @@ final class SettingsStore {
     func findConflicts(for trigger: HotkeyTrigger, excluding commandId: String) -> [HotkeyBinding] {
         hotkeyBindings.filter { hotkeyBinding in
             hotkeyBinding.id != commandId &&
-                hotkeyBinding.binding.conflicts(with: trigger, hyperTrigger: hyperTrigger)
+                hotkeyBinding.binding.conflicts(with: trigger)
         }
     }
 

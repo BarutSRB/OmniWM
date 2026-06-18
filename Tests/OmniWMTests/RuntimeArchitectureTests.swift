@@ -2815,6 +2815,206 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testReAdmittingExistingWindowToNewWorkspaceRemovesStaleNiriNode() throws {
+        let controller = Self.controller()
+        let ws1 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let movingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(930_001), windowId: 930_101),
+            pid: 930_001, windowId: 930_101, to: ws1
+        )
+        let siblingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(930_002), windowId: 930_102),
+            pid: 930_002, windowId: 930_102, to: ws1
+        )
+        let movingNode = engine.addWindow(token: movingToken, to: ws1, afterSelection: nil)
+        _ = engine.addWindow(token: siblingToken, to: ws1, afterSelection: movingNode.id)
+
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(930_001), windowId: 930_101),
+            pid: 930_001, windowId: 930_101, to: ws2
+        )
+
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertEqual(controller.workspaceManager.workspace(for: movingToken), ws2)
+        XCTAssertNil(engine.findNode(for: movingToken))
+        XCTAssertNotNil(engine.findNode(for: siblingToken))
+    }
+
+    @MainActor
+    func testWorkspaceAssignmentRemovesStaleNiriNode() throws {
+        let controller = Self.controller()
+        let ws1 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let movingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(931_001), windowId: 931_101),
+            pid: 931_001, windowId: 931_101, to: ws1
+        )
+        let siblingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(931_002), windowId: 931_102),
+            pid: 931_002, windowId: 931_102, to: ws1
+        )
+        let movingNode = engine.addWindow(token: movingToken, to: ws1, afterSelection: nil)
+        _ = engine.addWindow(token: siblingToken, to: ws1, afterSelection: movingNode.id)
+
+        controller.workspaceManager.setWorkspace(for: movingToken, to: ws2)
+
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertEqual(controller.workspaceManager.workspace(for: movingToken), ws2)
+        XCTAssertNil(engine.findNode(for: movingToken))
+        XCTAssertNotNil(engine.findNode(for: siblingToken))
+    }
+
+    @MainActor
+    func testReAdmittingExistingTiledWindowAsFloatingRemovesNiriNode() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let floatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(932_001), windowId: 932_101),
+            pid: 932_001, windowId: 932_101, to: ws
+        )
+        let siblingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(932_002), windowId: 932_102),
+            pid: 932_002, windowId: 932_102, to: ws
+        )
+        let floatingNode = engine.addWindow(token: floatingToken, to: ws, afterSelection: nil)
+        _ = engine.addWindow(token: siblingToken, to: ws, afterSelection: floatingNode.id)
+
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(932_001), windowId: 932_101),
+            pid: 932_001,
+            windowId: 932_101,
+            to: ws,
+            mode: .floating
+        )
+
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertEqual(controller.workspaceManager.entry(for: floatingToken)?.mode, .floating)
+        XCTAssertNil(engine.findNode(for: floatingToken))
+        XCTAssertNotNil(engine.findNode(for: siblingToken))
+    }
+
+    @MainActor
+    func testAdmittingTokenWithNoModelEntryRemovesStaleNiriNode() throws {
+        let controller = Self.controller()
+        let ws1 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let siblingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(940_002), windowId: 940_102),
+            pid: 940_002, windowId: 940_102, to: ws1
+        )
+        _ = engine.addWindow(token: siblingToken, to: ws1, afterSelection: nil)
+
+        let restoredToken = WindowToken(pid: 940_001, windowId: 940_101)
+        _ = engine.addWindow(token: restoredToken, to: ws1, afterSelection: nil)
+
+        let admittedToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(940_001), windowId: 940_101),
+            pid: 940_001, windowId: 940_101, to: ws2
+        )
+
+        XCTAssertEqual(admittedToken, restoredToken)
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertEqual(controller.workspaceManager.workspace(for: restoredToken), ws2)
+        XCTAssertNil(engine.findNode(for: restoredToken, in: ws1))
+        XCTAssertNotNil(engine.findNode(for: siblingToken, in: ws1))
+    }
+
+    @MainActor
+    func testAdmittingTokenAlreadyInTargetWorkspacePreservesNiriNode() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let restoredToken = WindowToken(pid: 941_001, windowId: 941_101)
+        let restoredNode = engine.addWindow(token: restoredToken, to: ws, afterSelection: nil)
+
+        let admittedToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(941_001), windowId: 941_101),
+            pid: 941_001, windowId: 941_101, to: ws
+        )
+
+        XCTAssertEqual(admittedToken, restoredToken)
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertEqual(engine.findNode(for: restoredToken, in: ws)?.id, restoredNode.id)
+    }
+
+    @MainActor
+    func testAdmittingTokenWithDuplicateNiriNodesKeepsTargetWorkspace() throws {
+        let controller = Self.controller()
+        let ws1 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let siblingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(942_002), windowId: 942_102),
+            pid: 942_002, windowId: 942_102, to: ws1
+        )
+        _ = engine.addWindow(token: siblingToken, to: ws1, afterSelection: nil)
+
+        let dupToken = WindowToken(pid: 942_001, windowId: 942_101)
+        _ = engine.addWindow(token: dupToken, to: ws1, afterSelection: nil)
+        let dupNodeInTarget = engine.addWindow(token: dupToken, to: ws2, afterSelection: nil)
+
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(942_001), windowId: 942_101),
+            pid: 942_001, windowId: 942_101, to: ws2
+        )
+
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertNil(engine.findNode(for: dupToken, in: ws1))
+        XCTAssertEqual(engine.findNode(for: dupToken, in: ws2)?.id, dupNodeInTarget.id)
+        XCTAssertEqual(engine.findNode(for: dupToken)?.id, dupNodeInTarget.id)
+    }
+
+    @MainActor
+    func testAdmittingRestoredNodeAsFloatingRemovesNiriNode() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+
+        let siblingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(944_002), windowId: 944_102),
+            pid: 944_002, windowId: 944_102, to: ws
+        )
+        _ = engine.addWindow(token: siblingToken, to: ws, afterSelection: nil)
+
+        let restoredToken = WindowToken(pid: 944_001, windowId: 944_101)
+        _ = engine.addWindow(token: restoredToken, to: ws, afterSelection: nil)
+
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(944_001), windowId: 944_101),
+            pid: 944_001, windowId: 944_101, to: ws, mode: .floating
+        )
+
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+        XCTAssertNil(engine.findNode(for: restoredToken, in: ws))
+        XCTAssertNotNil(engine.findNode(for: siblingToken, in: ws))
+    }
+
+    @MainActor
     func testWindowRemovalRecordsNoLayoutInvariantViolations() async throws {
         let controller = Self.controller()
         let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))

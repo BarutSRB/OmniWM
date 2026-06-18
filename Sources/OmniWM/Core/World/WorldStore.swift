@@ -200,6 +200,7 @@ final class WorldStore {
                 ruleEffects: ruleEffects,
                 managedReplacementMetadata: metadata
             )
+            reconcileNiriMembership(for: token, keeping: mode == .tiling ? workspaceId : nil)
 
         case let .windowRekeyed(from, to, workspaceId, _, _, newAXRef, metadata, _):
             guard phase == .beforePlan else { return }
@@ -212,18 +213,18 @@ final class WorldStore {
             _ = niriEngine?.rekeyWindow(from: from, to: to)
             _ = dwindleEngine?.rekeyWindow(from: from, to: to, in: workspaceId)
 
-        case let .windowRemoved(token, workspaceId, _):
+        case let .windowRemoved(token, _, _):
             guard phase == .afterPlan else { return }
             model.removeWindow(key: token)
-            removeLayoutNode(for: token, in: workspaceId)
+            reconcileNiriMembership(for: token, keeping: nil)
 
         case let .workspaceAssigned(token, _, to, _, _):
             guard phase == .beforePlan else { return }
-            model.updateWorkspace(for: token, workspace: to)
+            updateWorkspace(for: token, workspace: to)
 
         case let .windowModeChanged(token, _, _, mode, _):
             guard phase == .beforePlan else { return }
-            model.setMode(mode, for: token)
+            setMode(mode, for: token)
 
         case let .floatingGeometryUpdated(token, _, referenceMonitorId, frame, normalizedOrigin, restoreToFloating, _):
             guard phase == .beforePlan else { return }
@@ -455,11 +456,13 @@ extension WorldStore {
     func updateWorkspace(for token: WindowToken, workspace: WorkspaceDescriptor.ID) {
         assertInCommit("updateWorkspace")
         model.updateWorkspace(for: token, workspace: workspace)
+        reconcileNiriMembership(for: token, keeping: model.mode(for: token) == .tiling ? workspace : nil)
     }
 
     func setMode(_ mode: TrackedWindowMode, for token: WindowToken) {
         assertInCommit("setMode")
         model.setMode(mode, for: token)
+        reconcileNiriMembership(for: token, keeping: mode == .tiling ? model.workspace(for: token) : nil)
     }
 
     func setFloatingState(_ state: FloatingState?, for token: WindowToken) {
@@ -478,16 +481,30 @@ extension WorldStore {
         return mutate(&focus)
     }
 
-    private func removeLayoutNode(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID?) {
-        guard let engine = niriEngine, let node = engine.findNode(for: token) else { return }
-        if let workspaceId,
-           var state = viewports[workspaceId],
-           state.selectedNodeId == node.id
+    private func reconcileNiriMembership(
+        for token: WindowToken,
+        keeping authoritativeWorkspaceId: WorkspaceDescriptor.ID?
+    ) {
+        guard let engine = niriEngine else { return }
+        for staleWorkspaceId in engine.workspaceIds(containing: token)
+            where staleWorkspaceId != authoritativeWorkspaceId
         {
-            state.selectedNodeId = engine.fallbackSelectionOnRemoval(removing: node.id, in: workspaceId)
-            applyViewportPlan(.set(workspaceId: workspaceId, state: state))
+            repairViewportSelection(in: staleWorkspaceId, removing: token, engine: engine)
+            engine.removeWindow(token: token, in: staleWorkspaceId)
         }
-        engine.removeWindow(token: token)
+    }
+
+    private func repairViewportSelection(
+        in workspaceId: WorkspaceDescriptor.ID,
+        removing token: WindowToken,
+        engine: NiriLayoutEngine
+    ) {
+        guard let node = engine.findNode(for: token, in: workspaceId),
+              var state = viewports[workspaceId],
+              state.selectedNodeId == node.id
+        else { return }
+        state.selectedNodeId = engine.fallbackSelectionOnRemoval(removing: node.id, in: workspaceId)
+        applyViewportPlan(.set(workspaceId: workspaceId, state: state))
     }
 
     func layoutTopology(for workspaceId: WorkspaceDescriptor.ID) -> LayoutTopology {

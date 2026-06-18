@@ -29,8 +29,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
 
     struct General: Codable, Equatable {
         var hotkeysEnabled: Bool
-        var hyperTrigger: HyperKeyTrigger
-        var hyperKeyHoldThresholdMilliseconds: Int
+        var systemHyperTrigger: SystemHyperTrigger
         var defaultLayoutType: String
         var preventSleepEnabled: Bool
         var updateChecksEnabled: Bool
@@ -210,6 +209,22 @@ private extension KeyedDecodingContainer {
         }
         return try decode(superDecoder(forKey: key), defaultValue, recovering)
     }
+
+    func decodeSystemHyperTrigger(
+        forKey key: Key,
+        default defaultValue: SystemHyperTrigger,
+        recovering: Bool
+    ) throws -> SystemHyperTrigger {
+        do {
+            return try decode(SystemHyperTrigger.self, forKey: key)
+        } catch DecodingError.dataCorrupted {
+            return defaultValue
+        } catch DecodingError.keyNotFound(_, _) where recovering {
+            return defaultValue
+        } catch DecodingError.valueNotFound(_, _) where recovering {
+            return defaultValue
+        }
+    }
 }
 
 private extension CanonicalTOMLConfig {
@@ -350,16 +365,9 @@ extension CanonicalTOMLConfig.General {
             default: defaults.hotkeysEnabled,
             recovering: recovering
         )
-        hyperTrigger = try container.decode(
-            HyperKeyTrigger.self,
-            forKey: .hyperTrigger,
-            default: defaults.hyperTrigger,
-            recovering: recovering
-        )
-        hyperKeyHoldThresholdMilliseconds = try container.decode(
-            Int.self,
-            forKey: .hyperKeyHoldThresholdMilliseconds,
-            default: defaults.hyperKeyHoldThresholdMilliseconds,
+        systemHyperTrigger = try container.decodeSystemHyperTrigger(
+            forKey: .systemHyperTrigger,
+            default: defaults.systemHyperTrigger,
             recovering: recovering
         )
         defaultLayoutType = try container.decode(
@@ -833,8 +841,7 @@ extension CanonicalTOMLConfig {
     init(export: SettingsExport) {
         general = General(
             hotkeysEnabled: export.hotkeysEnabled,
-            hyperTrigger: export.hyperTrigger,
-            hyperKeyHoldThresholdMilliseconds: export.hyperKeyHoldThresholdMilliseconds,
+            systemHyperTrigger: export.systemHyperTrigger,
             defaultLayoutType: export.defaultLayoutType,
             preventSleepEnabled: export.preventSleepEnabled,
             updateChecksEnabled: export.updateChecksEnabled,
@@ -977,8 +984,7 @@ extension CanonicalTOMLConfig {
             borderColorBlue: borders.color.blue,
             borderColorAlpha: borders.color.alpha,
             hotkeyBindings: HotkeyBindingRegistry.migrateLegacyDefaultWorkspaceBindings(hotkeys),
-            hyperTrigger: general.hyperTrigger,
-            hyperKeyHoldThresholdMilliseconds: general.hyperKeyHoldThresholdMilliseconds,
+            systemHyperTrigger: general.systemHyperTrigger,
             workspaceBarEnabled: workspaceBar.enabled,
             workspaceBarShowLabels: workspaceBar.showLabels,
             workspaceBarShowFloatingWindows: workspaceBar.showFloatingWindows,

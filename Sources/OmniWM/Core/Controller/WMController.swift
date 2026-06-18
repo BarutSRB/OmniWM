@@ -69,6 +69,11 @@ final class WMController {
     let settings: SettingsStore
     let workspaceManager: WorkspaceManager
     private let hotkeys = HotkeyCenter()
+    private(set) var hotkeyRegistrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
+    private(set) var systemHyperTriggerFailure: SystemHyperTriggerFailure?
+    var isHyperTriggerActive: Bool {
+        hotkeys.isHyperTriggerActive
+    }
     let secureInputMonitor = SecureInputMonitor()
     let lockScreenObserver = LockScreenObserver()
     var isLockScreenActive: Bool = false {
@@ -367,6 +372,11 @@ final class WMController {
         reconcileEnabledAndHotkeysState()
     }
 
+    func setHotkeyRecordingActive(_ active: Bool) {
+        hotkeys.setCommandHotkeysSuspended(active)
+        refreshHotkeyFailureSnapshots()
+    }
+
     func updateAccessibilityPermissionGranted(_ granted: Bool) {
         accessibilityPermissionGranted = granted
         reconcileEnabledAndHotkeysState()
@@ -404,6 +414,7 @@ final class WMController {
             && !serviceLifecycleManager.isSecureInputActive
         hotkeysEnabled = shouldEnableHotkeys
         shouldEnableHotkeys ? hotkeys.start() : hotkeys.stop()
+        refreshHotkeyFailureSnapshots()
     }
 
     func setGapSize(_ size: Double) {
@@ -719,10 +730,15 @@ final class WMController {
     func updateHotkeyBindings(_ bindings: [HotkeyBinding], force: Bool = false) {
         hotkeys.updateBindings(
             bindings,
-            hyperTrigger: settings.hyperTrigger,
-            hyperKeyHoldThresholdMilliseconds: settings.hyperKeyHoldThresholdMilliseconds,
+            systemHyperTrigger: settings.systemHyperTrigger,
             force: force
         )
+        refreshHotkeyFailureSnapshots()
+    }
+
+    private func refreshHotkeyFailureSnapshots() {
+        hotkeyRegistrationFailures = hotkeys.registrationFailures
+        systemHyperTriggerFailure = hotkeys.systemHyperTriggerFailure
     }
 
     func updateWorkspaceConfig() {
@@ -738,10 +754,6 @@ final class WMController {
     func updateAppRules() {
         rebuildAppRulesCache()
         layoutRefreshController.requestFullRescan(reason: .appRulesChanged)
-    }
-
-    var hotkeyRegistrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason] {
-        hotkeys.registrationFailures
     }
 
     private var workspaceBarRefreshIsEnabled: Bool {
