@@ -1232,6 +1232,8 @@ enum NiriWindowMoveResult {
                 )
             )
             requestSelectedWindowFocusAfterLayout(in: wsId)
+        } else {
+            controller.workspaceNavigationHandler.focusMonitor(direction: direction)
         }
     }
 

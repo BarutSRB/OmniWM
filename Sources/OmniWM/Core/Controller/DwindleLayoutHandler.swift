@@ -153,8 +153,10 @@ import QuartzCore
 
     func focusNeighbor(direction: Direction) {
         guard let controller else { return }
+        var moved = false
         withDwindleContext { engine, wsId in
             if let token = engine.moveFocus(direction: direction, in: wsId) {
+                moved = true
                 _ = controller.workspaceManager.applySessionPatch(
                     .init(
                         workspaceId: wsId,
@@ -169,6 +171,9 @@ import QuartzCore
                     controller?.focusWindow(token)
                 }
             }
+        }
+        if !moved {
+            controller.workspaceNavigationHandler.focusMonitor(direction: direction)
         }
     }
 

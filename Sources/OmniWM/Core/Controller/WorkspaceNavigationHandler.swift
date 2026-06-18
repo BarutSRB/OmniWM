@@ -155,6 +155,21 @@ final class WorkspaceNavigationHandler {
         switchToMonitor(previousId, fromMonitor: currentMonitorId)
     }
 
+    @discardableResult
+    func focusMonitor(direction: Direction) -> Bool {
+        guard let controller else { return false }
+        guard let currentMonitorId = interactionMonitorId(for: controller)
+        else { return false }
+
+        guard let target = controller.workspaceManager.adjacentMonitor(
+            from: currentMonitorId,
+            direction: direction
+        ) else { return false }
+
+        switchToMonitor(target.id, fromMonitor: currentMonitorId)
+        return true
+    }
+
     private func switchToMonitor(_ targetMonitorId: Monitor.ID, fromMonitor currentMonitorId: Monitor.ID) {
         guard let controller else { return }
 
