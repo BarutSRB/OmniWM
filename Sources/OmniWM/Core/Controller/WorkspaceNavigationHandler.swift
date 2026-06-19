@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 import OmniWMIPC
@@ -181,6 +184,68 @@ final class WorkspaceNavigationHandler {
             _ = controller.workspaceManager.rememberFocus(chosen, in: targetWorkspace.id)
         }
         switchToMonitor(target.id, fromMonitor: currentMonitorId)
+    }
+
+    func moveWindowToMonitor(direction: Direction) {
+        guard let controller else { return }
+        guard let token = controller.workspaceManager.focusedToken else { return }
+        guard let currentMonitorId = interactionMonitorId(for: controller) else { return }
+        guard let currentWsId = controller.workspaceManager.workspace(for: token) else { return }
+
+        guard let targetMonitor = controller.workspaceManager.adjacentMonitor(
+            from: currentMonitorId,
+            direction: direction
+        ) else { return }
+        guard let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: targetMonitor.id),
+              targetWorkspace.id != currentWsId
+        else { return }
+
+        let targetLayout = controller.workspaceManager.descriptor(for: targetWorkspace.id)
+            .map { controller.settings.layoutType(for: $0.name) } ?? .defaultLayout
+
+        controller.isTransferringWindow = true
+        defer { controller.isTransferringWindow = false }
+
+        saveNiriViewportState(for: currentWsId)
+
+        let anchorToken: WindowToken? = targetLayout == .dwindle ? nil : Self.spatialNeighborToken(
+            from: controller.preferredKeyboardFocusFrame(for: token),
+            candidates: controller.workspaceManager.tiledEntries(in: targetWorkspace.id)
+                .compactMap { entry in
+                    controller.preferredKeyboardFocusFrame(for: entry.token).map { (token: entry.token, frame: $0) }
+                },
+            direction: direction,
+            targetFrame: controller.insetWorkingFrame(for: targetMonitor)
+        )
+
+        let transferResult = transferWindowFromSourceEngine(token: token, from: currentWsId, to: targetWorkspace.id)
+        guard transferResult.succeeded else { return }
+
+        _ = controller.workspaceManager.setActiveWorkspace(targetWorkspace.id, on: targetMonitor.id)
+        _ = controller.workspaceManager.setInteractionMonitor(targetMonitor.id)
+
+        if targetLayout == .dwindle {
+            applySessionPatch(workspaceId: targetWorkspace.id, rememberedFocusToken: token)
+        } else {
+            controller.niriLayoutHandler.consumeTransferredWindow(
+                token, in: targetWorkspace.id, enteringFrom: direction, anchorToken: anchorToken
+            )
+        }
+
+        if let sourceMonitor = controller.workspaceManager.monitor(for: currentWsId) {
+            controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
+        }
+
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            affectedWorkspaces: affectedWorkspaceIds(
+                sourceWorkspaceId: currentWsId,
+                targetWorkspaceId: targetWorkspace.id
+            ),
+            reason: .workspaceTransition,
+            postLayoutGateWorkspaceIds: [targetWorkspace.id]
+        ) { [weak controller] in
+            controller?.focusWindow(token)
+        }
     }
 
     static func spatialNeighborToken(

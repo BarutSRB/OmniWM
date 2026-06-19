@@ -1,12 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import CoreGraphics
 import Foundation
 
 @MainActor
 struct WorldView {
     private let controller: WMController
+    private let borderFrameResolver: ((Int) -> CGRect?)?
 
-    init(controller: WMController) {
+    init(controller: WMController, borderFrameResolver: ((Int) -> CGRect?)? = nil) {
         self.controller = controller
+        self.borderFrameResolver = borderFrameResolver
     }
 
     var hasStartedServices: Bool {
@@ -143,6 +148,9 @@ struct WorldView {
     }
 
     func borderFrame(forWindowId windowId: Int) -> CGRect? {
+        if let borderFrameResolver {
+            return borderFrameResolver(windowId)
+        }
         if let pending = controller.axManager.pendingFrameWrite(for: windowId) {
             return pending
         }

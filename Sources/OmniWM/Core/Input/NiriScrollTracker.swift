@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import Foundation
 
 /// Swift port of Niri's `input/scroll_tracker.rs` for wheel/touchpad bind ticks.

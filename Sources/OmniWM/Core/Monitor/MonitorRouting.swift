@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
+import CoreGraphics
+
+enum MonitorRouting {
+    enum Adjacency: Equatable {
+        case monitor(Monitor)
+        case edge
+        case fallBackToMacOS
+    }
+
+    static func gridAdjacent(
+        from source: Monitor,
+        direction: Direction,
+        layout: [MonitorRoutingSettings],
+        monitors: [Monitor],
+        wrapAround: Bool
+    ) -> Adjacency {
+        let placed = monitors.compactMap { monitor -> PlacedMonitor? in
+            guard let settings = MonitorSettingsStore.get(for: monitor, in: layout) else { return nil }
+            return PlacedMonitor(monitor: monitor, column: settings.gridColumn, row: settings.gridRow)
+        }
+        guard let origin = placed.first(where: { $0.monitor.id == source.id }) else {
+            return .fallBackToMacOS
+        }
+        if Set(placed.map(\.cell)).count != placed.count {
+            return .fallBackToMacOS
+        }
+
+        let line = placed.filter {
+            $0.monitor.id != origin.monitor.id && $0.sharesLine(with: origin, direction: direction)
+        }
+        let ahead = line.filter { $0.offset(from: origin, direction: direction) > 0 }
+        if let nearest = ahead.min(by: {
+            $0.offset(from: origin, direction: direction) < $1.offset(from: origin, direction: direction)
+        }) {
+            return .monitor(nearest.monitor)
+        }
+
+        guard wrapAround, let wrapped = line.min(by: {
+            $0.offset(from: origin, direction: direction) < $1.offset(from: origin, direction: direction)
+        }) else {
+            return .edge
+        }
+        return .monitor(wrapped.monitor)
+    }
+
+    static func seedLayout(from monitors: [Monitor]) -> [MonitorRoutingSettings] {
+        let columns = sortedDistinct(monitors.map(\.frame.center.x), ascending: true)
+        let rows = sortedDistinct(monitors.map(\.frame.center.y), ascending: false)
+        return monitors.map { monitor in
+            MonitorRoutingSettings(
+                monitorName: monitor.name,
+                monitorDisplayId: monitor.displayId,
+                gridColumn: columns.firstIndex(of: monitor.frame.center.x) ?? 0,
+                gridRow: rows.firstIndex(of: monitor.frame.center.y) ?? 0
+            )
+        }
+    }
+
+    private static func sortedDistinct(_ values: [CGFloat], ascending: Bool) -> [CGFloat] {
+        let unique = Array(Set(values))
+        return ascending ? unique.sorted() : unique.sorted(by: >)
+    }
+}
+
+private struct PlacedMonitor {
+    let monitor: Monitor
+    let column: Int
+    let row: Int
+
+    var cell: GridCell {
+        GridCell(column: column, row: row)
+    }
+
+    func sharesLine(with origin: PlacedMonitor, direction: Direction) -> Bool {
+        switch direction {
+        case .left,
+             .right: row == origin.row
+        case .up,
+             .down: column == origin.column
+        }
+    }
+
+    func offset(from origin: PlacedMonitor, direction: Direction) -> Int {
+        switch direction {
+        case .right: column - origin.column
+        case .left: origin.column - column
+        case .down: row - origin.row
+        case .up: origin.row - row
+        }
+    }
+}
+
+private struct GridCell: Hashable {
+    let column: Int
+    let row: Int
+}

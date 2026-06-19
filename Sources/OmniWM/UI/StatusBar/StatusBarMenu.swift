@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 
 private let menuWidth: CGFloat = 280
@@ -102,6 +105,7 @@ final class StatusBarMenuBuilder {
         toggleViews["focusFollowsMouse"]?.isOn = settings.focusFollowsMouse
         toggleViews["focusFollowsWindowToMonitor"]?.isOn = settings.focusFollowsWindowToMonitor
         toggleViews["focusCrossesMonitorAtEdge"]?.isOn = settings.focusCrossesMonitorAtEdge
+        toggleViews["moveCrossesMonitorAtEdge"]?.isOn = settings.moveCrossesMonitorAtEdge
         toggleViews["moveMouseToFocusedWindow"]?.isOn = settings.moveMouseToFocusedWindow
         toggleViews["bordersEnabled"]?.isOn = settings.bordersEnabled
         toggleViews["workspaceBarEnabled"]?.isOn = settings.workspaceBarEnabled
@@ -155,7 +159,7 @@ final class StatusBarMenuBuilder {
 
         let followMoveToggle = MenuToggleRowView(
             icon: "arrow.right.square",
-            label: "Follow Window to Workspace",
+            label: "Follow Window to Monitor",
             isOn: settings.focusFollowsWindowToMonitor,
             motionPolicy: motionPolicy
         ) { [weak self] newValue in
@@ -168,7 +172,7 @@ final class StatusBarMenuBuilder {
 
         let crossMonitorToggle = MenuToggleRowView(
             icon: "display.2",
-            label: "Cross Monitor at Edge",
+            label: "Focus Across Monitor at Edge",
             isOn: settings.focusCrossesMonitorAtEdge,
             motionPolicy: motionPolicy
         ) { [weak self] newValue in
@@ -178,6 +182,32 @@ final class StatusBarMenuBuilder {
         let crossMonitorItem = NSMenuItem()
         crossMonitorItem.view = crossMonitorToggle
         menu.addItem(crossMonitorItem)
+
+        let moveCrossMonitorToggle = MenuToggleRowView(
+            icon: "macwindow.on.rectangle",
+            label: "Move Window Across Monitor at Edge",
+            isOn: settings.moveCrossesMonitorAtEdge,
+            motionPolicy: motionPolicy
+        ) { [weak self] newValue in
+            self?.settings.moveCrossesMonitorAtEdge = newValue
+        }
+        toggleViews["moveCrossesMonitorAtEdge"] = moveCrossMonitorToggle
+        let moveCrossMonitorItem = NSMenuItem()
+        moveCrossMonitorItem.view = moveCrossMonitorToggle
+        menu.addItem(moveCrossMonitorItem)
+
+        let mouseWarpToggle = MenuToggleRowView(
+            icon: "arrow.left.arrow.right",
+            label: "Mouse Warp",
+            isOn: settings.mouseWarpEnabled,
+            motionPolicy: motionPolicy
+        ) { [weak self] newValue in
+            self?.settings.mouseWarpEnabled = newValue
+        }
+        toggleViews["mouseWarpEnabled"] = mouseWarpToggle
+        let mouseWarpItem = NSMenuItem()
+        mouseWarpItem.view = mouseWarpToggle
+        menu.addItem(mouseWarpItem)
 
         let mouseToFocusedToggle = MenuToggleRowView(
             icon: "arrow.up.left.and.down.right.magnifyingglass",
@@ -192,6 +222,8 @@ final class StatusBarMenuBuilder {
         let mouseItem = NSMenuItem()
         mouseItem.view = mouseToFocusedToggle
         menu.addItem(mouseItem)
+
+        menu.addItem(createDivider())
 
         let bordersToggle = MenuToggleRowView(
             icon: "square.dashed",

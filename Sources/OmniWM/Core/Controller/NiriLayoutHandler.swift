@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 import QuartzCore
@@ -12,13 +15,6 @@ import QuartzCore
         || driver.hasMotion(in: workspaceId)
         || engine.hasAnyWindowAnimationsRunning(in: workspaceId)
         || engine.hasAnyColumnAnimationsRunning(in: workspaceId)
-}
-
-enum NiriWindowMoveResult {
-    case moved
-    case atColumnEdge
-    case notFound
-    case blocked
 }
 
 @MainActor final class NiriLayoutHandler {
@@ -1744,11 +1740,17 @@ enum NiriWindowMoveResult {
     }
 
     @discardableResult
-    func moveWindow(direction: Direction) -> NiriWindowMoveResult {
-        var result = NiriWindowMoveResult.notFound
+    func moveWindow(direction: Direction) -> WindowMoveOutcome {
+        let allowEdgeWrap = !(controller?.settings.moveCrossesMonitorAtEdge ?? false)
+        var result = WindowMoveOutcome.blocked
 
         withNiriOperationContext { ctx, state in
-            let edgeResult = windowMoveEdgeResult(for: ctx.windowNode, direction: direction)
+            let edgeOutcome = windowMoveOutcomeAtEdge(
+                for: ctx.windowNode,
+                direction: direction,
+                engine: ctx.engine,
+                in: ctx.wsId
+            )
             let oldFrames = direction == .left || direction == .right
                 ? [:]
                 : ctx.engine.captureWindowFrames(in: ctx.wsId)
@@ -1759,13 +1761,14 @@ enum NiriWindowMoveResult {
                 motion: ctx.motion,
                 state: &state,
                 workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps
+                gaps: ctx.gaps,
+                allowEdgeWrap: allowEdgeWrap
             ) else {
-                result = edgeResult
+                result = edgeOutcome
                 return false
             }
 
-            result = .moved
+            result = .movedWithinWorkspace
             if direction == .left || direction == .right {
                 ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
                 return ctx.commitSimple(state: state)
@@ -1779,8 +1782,63 @@ enum NiriWindowMoveResult {
 
     func moveWindowOrToAdjacentWorkspace(direction: Direction) {
         guard direction == .down || direction == .up else { return }
-        guard moveWindow(direction: direction) == .atColumnEdge else { return }
+        guard moveWindow(direction: direction) == .atWorkspaceEdge else { return }
         controller?.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(direction: direction)
+    }
+
+    func consumeTransferredWindow(
+        _ token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID,
+        enteringFrom direction: Direction,
+        anchorToken: WindowToken?
+    ) {
+        guard let controller, let engine = controller.niriEngine else { return }
+        guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let gaps = CGFloat(controller.workspaceManager.gaps)
+        var targetState = controller.workspaceManager.niriViewportState(for: workspaceId)
+
+        var consumed = false
+
+        controller.workspaceManager.withEngineMutationScope(in: workspaceId) {
+            guard let movedNode = engine.findNode(for: token) as? NiriWindow,
+                  let column = engine.findColumn(containing: movedNode, in: workspaceId)
+            else { return }
+
+            movedNode.stopMoveAnimations()
+
+            let anchorColumn = anchorToken
+                .flatMap { engine.findNode(for: $0) }
+                .flatMap { engine.findColumn(containing: $0, in: workspaceId) }
+
+            if let anchorColumn, anchorColumn.id != column.id {
+                consumed = engine.consumeWindow(
+                    movedNode, into: anchorColumn, enteringFrom: direction,
+                    in: workspaceId, motion: .disabled, state: &targetState,
+                    workingFrame: workingFrame, gaps: gaps
+                )
+            }
+
+            if !consumed {
+                engine.activateWindow(movedNode.id)
+                targetState.selectedNodeId = movedNode.id
+                engine.ensureSelectionVisible(
+                    node: movedNode, in: workspaceId, motion: .disabled, state: &targetState,
+                    workingFrame: workingFrame, gaps: gaps
+                )
+            }
+        }
+
+        targetState.cancelAnimation()
+
+        _ = controller.workspaceManager.applySessionPatch(
+            .init(
+                workspaceId: workspaceId,
+                viewportState: targetState,
+                rememberedFocusToken: token,
+                plannedSeq: controller.workspaceManager.worldSeq
+            )
+        )
     }
 
     func consumeOrExpelWindow(direction: Direction) {
@@ -1842,19 +1900,49 @@ enum NiriWindowMoveResult {
         }
     }
 
-    private func windowMoveEdgeResult(for node: NiriWindow, direction: Direction) -> NiriWindowMoveResult {
+    private func windowMoveOutcomeAtEdge(
+        for node: NiriWindow,
+        direction: Direction,
+        engine: NiriLayoutEngine,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> WindowMoveOutcome {
         guard node.parent is NiriContainer else {
             return .blocked
         }
 
         switch direction {
         case .down:
-            return node.prevSibling() == nil ? .atColumnEdge : .blocked
+            return node.prevSibling() == nil ? .atWorkspaceEdge : .blocked
         case .up:
-            return node.nextSibling() == nil ? .atColumnEdge : .blocked
+            return node.nextSibling() == nil ? .atWorkspaceEdge : .blocked
         case .left,
              .right:
-            return .blocked
+            return isAtHorizontalWorkspaceEdge(node, direction: direction, engine: engine, in: workspaceId)
+                ? .atWorkspaceEdge : .blocked
+        }
+    }
+
+    private func isAtHorizontalWorkspaceEdge(
+        _ node: NiriWindow,
+        direction: Direction,
+        engine: NiriLayoutEngine,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        guard let column = engine.findColumn(containing: node, in: workspaceId),
+              column.windowNodes.count == 1,
+              let index = engine.columnIndex(of: column, in: workspaceId)
+        else {
+            return false
+        }
+
+        switch direction {
+        case .left:
+            return index == 0
+        case .right:
+            return index == engine.columns(in: workspaceId).count - 1
+        case .up,
+             .down:
+            return false
         }
     }
 

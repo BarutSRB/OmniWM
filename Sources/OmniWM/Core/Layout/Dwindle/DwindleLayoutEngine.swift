@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import CoreGraphics
 import Foundation
 import QuartzCore
@@ -879,16 +882,20 @@ final class DwindleLayoutEngine {
         return neighborHandle
     }
 
-    func swapWindows(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    func swapWindowOutcome(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> WindowMoveOutcome {
         assertSanctionedMutation()
         guard let current = selectedNode(in: workspaceId),
               case let .leaf(currentHandle, currentFullscreen) = current.kind,
-              let ch = currentHandle,
-              let neighborHandle = findGeometricNeighbor(from: ch, direction: direction, in: workspaceId),
+              let ch = currentHandle
+        else {
+            return .blocked
+        }
+
+        guard let neighborHandle = findGeometricNeighbor(from: ch, direction: direction, in: workspaceId),
               let neighbor = findNode(for: neighborHandle),
               case let .leaf(nh, neighborFullscreen) = neighbor.kind
         else {
-            return false
+            return .atWorkspaceEdge
         }
 
         current.kind = .leaf(handle: nh, fullscreen: neighborFullscreen)
@@ -908,7 +915,7 @@ final class DwindleLayoutEngine {
 
         selectedNodeId[workspaceId] = neighbor.id
 
-        return true
+        return .movedWithinWorkspace
     }
 
     @discardableResult

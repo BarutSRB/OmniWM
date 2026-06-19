@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import Foundation
 
 extension CodingUserInfoKey {
@@ -8,6 +11,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var general: General
     var focus: Focus
     var mouseWarp: MouseWarp
+    var routing: Routing
     var gaps: Gaps
     var niri: Niri
     var dwindle: Dwindle
@@ -26,6 +30,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var monitorNiriOverrides: [MonitorNiriSettings]
     var monitorDwindleOverrides: [MonitorDwindleSettings]
     var monitorGapOverrides: [MonitorGapSettings]
+    var monitorRoutingOverrides: [MonitorRoutingSettings]
 
     struct General: Codable, Equatable {
         var hotkeysEnabled: Bool
@@ -43,13 +48,16 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var moveMouseToFocusedWindow: Bool
         var followsWindowToMonitor: Bool
         var crossesMonitorAtEdge: Bool
+        var moveCrossesMonitorAtEdge: Bool
     }
 
     struct MouseWarp: Codable, Equatable {
-        // monitorOrder is a flat string array for now; future revision may use a typed OutputId.
-        var monitorOrder: [String]
-        var axis: String?
         var margin: Int
+        var enabled: Bool
+    }
+
+    struct Routing: Codable, Equatable {
+        var mode: String
     }
 
     struct Gaps: Codable, Equatable {
@@ -253,6 +261,12 @@ extension CanonicalTOMLConfig {
             default: defaults.mouseWarp,
             recovering: recovering
         )
+        routing = try container.decode(
+            Routing.self,
+            forKey: .routing,
+            default: defaults.routing,
+            recovering: recovering
+        )
         gaps = try container.decode(Gaps.self, forKey: .gaps, default: defaults.gaps, recovering: recovering)
         niri = try container.decode(Niri.self, forKey: .niri, default: defaults.niri, recovering: recovering)
         dwindle = try container.decode(
@@ -351,6 +365,12 @@ extension CanonicalTOMLConfig {
             default: defaults.monitorGapOverrides,
             recovering: recovering
         )
+        monitorRoutingOverrides = try container.decode(
+            [MonitorRoutingSettings].self,
+            forKey: .monitorRoutingOverrides,
+            default: defaults.monitorRoutingOverrides,
+            recovering: recovering
+        )
     }
 }
 
@@ -440,6 +460,12 @@ extension CanonicalTOMLConfig.Focus {
             default: defaults.crossesMonitorAtEdge,
             recovering: recovering
         )
+        moveCrossesMonitorAtEdge = try container.decode(
+            Bool.self,
+            forKey: .moveCrossesMonitorAtEdge,
+            default: defaults.moveCrossesMonitorAtEdge,
+            recovering: recovering
+        )
     }
 }
 
@@ -449,14 +475,23 @@ extension CanonicalTOMLConfig.MouseWarp {
         let recovering = decoder.recoversMissingSettingsTOMLKeys
         let defaults = CanonicalTOMLConfig.recoveryDefaults().mouseWarp
 
-        monitorOrder = try container.decode(
-            [String].self,
-            forKey: .monitorOrder,
-            default: defaults.monitorOrder,
+        margin = try container.decode(Int.self, forKey: .margin, default: defaults.margin, recovering: recovering)
+        enabled = try container.decode(
+            Bool.self,
+            forKey: .enabled,
+            default: defaults.enabled,
             recovering: recovering
         )
-        axis = try container.decodeIfPresent(String.self, forKey: .axis)
-        margin = try container.decode(Int.self, forKey: .margin, default: defaults.margin, recovering: recovering)
+    }
+}
+
+extension CanonicalTOMLConfig.Routing {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let recovering = decoder.recoversMissingSettingsTOMLKeys
+        let defaults = CanonicalTOMLConfig.recoveryDefaults().routing
+
+        mode = try container.decode(String.self, forKey: .mode, default: defaults.mode, recovering: recovering)
     }
 }
 
@@ -860,13 +895,14 @@ extension CanonicalTOMLConfig {
             followsMouse: export.focusFollowsMouse,
             moveMouseToFocusedWindow: export.moveMouseToFocusedWindow,
             followsWindowToMonitor: export.focusFollowsWindowToMonitor,
-            crossesMonitorAtEdge: export.focusCrossesMonitorAtEdge
+            crossesMonitorAtEdge: export.focusCrossesMonitorAtEdge,
+            moveCrossesMonitorAtEdge: export.moveCrossesMonitorAtEdge
         )
         mouseWarp = MouseWarp(
-            monitorOrder: export.mouseWarpMonitorOrder,
-            axis: export.mouseWarpAxis,
-            margin: export.mouseWarpMargin
+            margin: export.mouseWarpMargin,
+            enabled: export.mouseWarpEnabled
         )
+        routing = Routing(mode: export.monitorRoutingMode)
         gaps = Gaps(
             size: export.gapSize,
             outer: Gaps.Outer(
@@ -960,6 +996,7 @@ extension CanonicalTOMLConfig {
         monitorNiriOverrides = export.monitorNiriSettings
         monitorDwindleOverrides = export.monitorDwindleSettings
         monitorGapOverrides = export.monitorGapSettings
+        monitorRoutingOverrides = export.monitorRoutingSettings
     }
 
     func toSettingsExport() -> SettingsExport {
@@ -969,9 +1006,11 @@ extension CanonicalTOMLConfig {
             moveMouseToFocusedWindow: focus.moveMouseToFocusedWindow,
             focusFollowsWindowToMonitor: focus.followsWindowToMonitor,
             focusCrossesMonitorAtEdge: focus.crossesMonitorAtEdge,
-            mouseWarpMonitorOrder: mouseWarp.monitorOrder,
-            mouseWarpAxis: mouseWarp.axis,
+            moveCrossesMonitorAtEdge: focus.moveCrossesMonitorAtEdge,
             mouseWarpMargin: mouseWarp.margin,
+            mouseWarpEnabled: mouseWarp.enabled,
+            monitorRoutingMode: routing.mode,
+            monitorRoutingSettings: monitorRoutingOverrides,
             gapSize: gaps.size,
             outerGapLeft: gaps.outer.left,
             outerGapRight: gaps.outer.right,

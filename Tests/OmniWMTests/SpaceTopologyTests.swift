@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 @testable import OmniWM
 import XCTest
 
@@ -6,7 +9,7 @@ final class SpaceTopologyTests: XCTestCase {
         SpaceTopology(
             displays: [
                 SpaceTopology.DisplaySpaces(displayIdentifier: "primary", spaceIds: [1, 2], currentSpaceId: 1),
-                SpaceTopology.DisplaySpaces(displayIdentifier: "secondary", spaceIds: [3, 4], currentSpaceId: 3),
+                SpaceTopology.DisplaySpaces(displayIdentifier: "secondary", spaceIds: [3, 4], currentSpaceId: 3)
             ],
             activeSpaceId: 1,
             fullscreenSpaceIds: [4],
@@ -45,7 +48,7 @@ final class SpaceTopologyTests: XCTestCase {
     func testSelectWindowSpaceFallsBackToCurrentFullscreen() {
         let topology = SpaceTopology(
             displays: [
-                SpaceTopology.DisplaySpaces(displayIdentifier: "d", spaceIds: [5], currentSpaceId: 5),
+                SpaceTopology.DisplaySpaces(displayIdentifier: "d", spaceIds: [5], currentSpaceId: 5)
             ],
             activeSpaceId: 5,
             fullscreenSpaceIds: [5],

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import Foundation
 import TOML
 
@@ -19,10 +22,12 @@ enum SettingsTOMLCodec {
                 [String: TOMLNode].self,
                 from: encodeCanonical(decode(previous))
             )
-            let merged = TOMLNode.mergeUnknownKeys(
-                base: newCanonicalTree,
-                oldRaw: oldRawTree,
-                oldSchemaKnown: oldSchemaKnownTree
+            let merged = TOMLNode.strippingRetiredKeys(
+                TOMLNode.mergeUnknownKeys(
+                    base: newCanonicalTree,
+                    oldRaw: oldRawTree,
+                    oldSchemaKnown: oldSchemaKnownTree
+                )
             )
             guard merged != newCanonicalTree else { return canonicalData }
 
@@ -160,6 +165,15 @@ private enum TOMLNode: Codable, Equatable {
         var merged = base
         preserveUnknownKeys(from: oldRaw, known: oldSchemaKnown, into: &merged)
         return merged
+    }
+
+    static func strippingRetiredKeys(_ tree: [String: TOMLNode]) -> [String: TOMLNode] {
+        guard case .table(var mouseWarp)? = tree["mouseWarp"] else { return tree }
+        mouseWarp.removeValue(forKey: "monitorOrder")
+        mouseWarp.removeValue(forKey: "axis")
+        var result = tree
+        result["mouseWarp"] = .table(mouseWarp)
+        return result
     }
 
     private static func preserveUnknownKeys(

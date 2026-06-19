@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import Foundation
 import OmniWMIPC
 
@@ -16,9 +19,11 @@ struct SettingsExport: Equatable {
     var moveMouseToFocusedWindow: Bool
     var focusFollowsWindowToMonitor: Bool
     var focusCrossesMonitorAtEdge: Bool
-    var mouseWarpMonitorOrder: [String]
-    var mouseWarpAxis: String?
+    var moveCrossesMonitorAtEdge: Bool
     var mouseWarpMargin: Int
+    var mouseWarpEnabled: Bool
+    var monitorRoutingMode: String
+    var monitorRoutingSettings: [MonitorRoutingSettings]
     var gapSize: Double
     var outerGapLeft: Double
     var outerGapRight: Double
@@ -123,9 +128,11 @@ extension SettingsExport {
             moveMouseToFocusedWindow: false,
             focusFollowsWindowToMonitor: false,
             focusCrossesMonitorAtEdge: false,
-            mouseWarpMonitorOrder: [],
-            mouseWarpAxis: MouseWarpAxis.horizontal.rawValue,
+            moveCrossesMonitorAtEdge: false,
             mouseWarpMargin: 1,
+            mouseWarpEnabled: true,
+            monitorRoutingMode: MonitorRoutingMode.macOS.rawValue,
+            monitorRoutingSettings: [],
             gapSize: 16,
             outerGapLeft: 0,
             outerGapRight: 0,

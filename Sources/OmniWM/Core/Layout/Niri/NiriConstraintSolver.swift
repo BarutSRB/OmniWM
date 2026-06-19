@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import Foundation
 
 enum NiriAxisSolver {
@@ -28,7 +31,6 @@ struct NiriAxisSolveKey: Hashable {
 }
 
 extension NiriAxisSolver {
-
     @inlinable
     static func solve(
         windows: [Input],

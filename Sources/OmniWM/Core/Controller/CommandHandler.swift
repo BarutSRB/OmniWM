@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 
@@ -59,7 +62,10 @@ final class CommandHandler {
         case .focusPrevious:
             focusPreviousInNiri()
         case let .move(direction):
-            moveWindow(direction: direction)
+            let outcome = moveWindow(direction: direction)
+            if outcome == .atWorkspaceEdge, controller.settings.moveCrossesMonitorAtEdge {
+                controller.workspaceNavigationHandler.moveWindowToMonitor(direction: direction)
+            }
         case .moveWindowDown:
             controller.niriLayoutHandler.moveWindow(direction: .down)
         case .moveWindowUp:
@@ -510,10 +516,10 @@ final class CommandHandler {
         controller.niriLayoutHandler.requestSelectedWindowFocusAfterLayout(in: wsId)
     }
 
-    private func moveWindow(direction: Direction) {
+    private func moveWindow(direction: Direction) -> WindowMoveOutcome {
         switch currentLayoutType() {
         case .dwindle:
-            controller?.dwindleLayoutHandler.swapWindow(direction: direction)
+            controller?.dwindleLayoutHandler.swapWindow(direction: direction) ?? .blocked
         case .niri,
              .defaultLayout:
             moveWindowInNiri(direction: direction)
@@ -530,8 +536,8 @@ final class CommandHandler {
         }
     }
 
-    private func moveWindowInNiri(direction: Direction) {
-        controller?.niriLayoutHandler.moveWindow(direction: direction)
+    private func moveWindowInNiri(direction: Direction) -> WindowMoveOutcome {
+        controller?.niriLayoutHandler.moveWindow(direction: direction) ?? .blocked
     }
 
     private func toggleNativeFullscreenForFocused() {

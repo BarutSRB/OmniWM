@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 
@@ -9,7 +12,8 @@ extension NiriLayoutEngine {
         motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
-        gaps: CGFloat
+        gaps: CGFloat,
+        allowEdgeWrap: Bool = true
     ) -> Bool {
         assertSanctionedMutation()
         return switch direction {
@@ -25,7 +29,8 @@ extension NiriLayoutEngine {
                 motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
-                gaps: gaps
+                gaps: gaps,
+                allowEdgeWrap: allowEdgeWrap
             )
         }
     }

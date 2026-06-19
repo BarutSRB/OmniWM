@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 import OmniWMIPC
@@ -2726,7 +2729,10 @@ final class WorkspaceManager {
             if previous != record {
                 noteInvalidation(workspaceId: previous.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
                 if previous.workspaceId != record.workspaceId {
-                    noteInvalidation(workspaceId: record.workspaceId, domains: [.workspace, .layout, .focus, .fullscreen])
+                    noteInvalidation(
+                        workspaceId: record.workspaceId,
+                        domains: [.workspace, .layout, .focus, .fullscreen]
+                    )
                 }
             }
         } else {
@@ -3064,6 +3070,28 @@ final class WorkspaceManager {
 
     func adjacentMonitor(from monitorId: Monitor.ID, direction: Direction, wrapAround: Bool = false) -> Monitor? {
         guard let current = monitor(byId: monitorId) else { return nil }
+
+        if settings.monitorRoutingMode == .custom {
+            switch MonitorRouting.gridAdjacent(
+                from: current,
+                direction: direction,
+                layout: settings.monitorRoutingSettings,
+                monitors: monitors,
+                wrapAround: wrapAround
+            ) {
+            case let .monitor(target):
+                return target
+            case .edge:
+                return nil
+            case .fallBackToMacOS:
+                break
+            }
+        }
+
+        return macOSAdjacentMonitor(from: current, direction: direction, wrapAround: wrapAround)
+    }
+
+    private func macOSAdjacentMonitor(from current: Monitor, direction: Direction, wrapAround: Bool) -> Monitor? {
         let others = monitors.filter { $0.id != current.id }
         guard !others.isEmpty else { return nil }
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 import ScreenCaptureKit
@@ -83,6 +86,7 @@ final class OverviewController {
         let request: OverviewThumbnailCaptureRequest
         let scWindow: SCWindow
     }
+
     private var keyEventMonitor: Any?
     private var flagsEventMonitor: Any?
     private var applicationDidResignObserver: NSObjectProtocol?

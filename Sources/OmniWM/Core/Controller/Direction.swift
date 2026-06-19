@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 
 enum Direction: String, Codable {
@@ -49,6 +52,12 @@ enum Direction: String, Codable {
             }
         }
     }
+}
+
+enum WindowMoveOutcome {
+    case movedWithinWorkspace
+    case atWorkspaceEdge
+    case blocked
 }
 
 extension ScrollModifierKey {

@@ -1,5 +1,5 @@
 # SwiftLint configuration for OmniWM
-# Swift 6.2 with strict concurrency
+# Swift 6.3 with strict concurrency
 
 included:
   - Sources

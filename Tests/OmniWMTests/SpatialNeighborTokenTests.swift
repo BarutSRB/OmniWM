@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import CoreGraphics
 import Foundation
 @testable import OmniWM
@@ -31,7 +34,7 @@ final class SpatialNeighborTokenTests: XCTestCase {
             from: CGRect(x: 0, y: 200, width: 500, height: 600),
             [
                 (right, CGRect(x: 1500, y: 0, width: 400, height: 1000)),
-                (left, CGRect(x: 1000, y: 0, width: 400, height: 1000)),
+                (left, CGRect(x: 1000, y: 0, width: 400, height: 1000))
             ],
             direction: .right,
             targetFrame: target
@@ -47,7 +50,7 @@ final class SpatialNeighborTokenTests: XCTestCase {
             from: CGRect(x: 1500, y: 200, width: 500, height: 600),
             [
                 (far, CGRect(x: 0, y: 0, width: 400, height: 1000)),
-                (near, CGRect(x: 500, y: 0, width: 400, height: 1000)),
+                (near, CGRect(x: 500, y: 0, width: 400, height: 1000))
             ],
             direction: .left,
             targetFrame: target
@@ -63,7 +66,7 @@ final class SpatialNeighborTokenTests: XCTestCase {
             from: CGRect(x: 200, y: 1100, width: 600, height: 400),
             [
                 (bottom, CGRect(x: 0, y: 0, width: 1000, height: 400)),
-                (top, CGRect(x: 0, y: 600, width: 1000, height: 400)),
+                (top, CGRect(x: 0, y: 600, width: 1000, height: 400))
             ],
             direction: .down,
             targetFrame: target
@@ -79,7 +82,7 @@ final class SpatialNeighborTokenTests: XCTestCase {
             from: CGRect(x: 200, y: 200, width: 600, height: 400),
             [
                 (top, CGRect(x: 0, y: 1600, width: 1000, height: 400)),
-                (bottom, CGRect(x: 0, y: 1000, width: 1000, height: 400)),
+                (bottom, CGRect(x: 0, y: 1000, width: 1000, height: 400))
             ],
             direction: .up,
             targetFrame: target
@@ -95,7 +98,7 @@ final class SpatialNeighborTokenTests: XCTestCase {
             from: CGRect(x: 0, y: 400, width: 500, height: 200),
             [
                 (edgeButUnaligned, CGRect(x: 1000, y: 0, width: 100, height: 100)),
-                (alignedButFar, CGRect(x: 1500, y: 400, width: 100, height: 200)),
+                (alignedButFar, CGRect(x: 1500, y: 400, width: 100, height: 200))
             ],
             direction: .right,
             targetFrame: target
@@ -111,7 +114,7 @@ final class SpatialNeighborTokenTests: XCTestCase {
             from: nil,
             [
                 (offCenter, CGRect(x: 0, y: 600, width: 200, height: 400)),
-                (centered, CGRect(x: 400, y: 600, width: 200, height: 400)),
+                (centered, CGRect(x: 400, y: 600, width: 200, height: 400))
             ],
             direction: .down,
             targetFrame: target
@@ -137,7 +140,7 @@ final class SpatialNeighborTokenTests: XCTestCase {
             from: CGRect(x: 100, y: 100, width: 600, height: 600),
             [
                 (bottom, CGRect(x: 0, y: -1080, width: 1920, height: 400)),
-                (top, CGRect(x: 0, y: -400, width: 1920, height: 400)),
+                (top, CGRect(x: 0, y: -400, width: 1920, height: 400))
             ],
             direction: .down,
             targetFrame: target

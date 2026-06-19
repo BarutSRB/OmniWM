@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import ApplicationServices
 import CoreGraphics
-import XCTest
 @testable import OmniWM
+import XCTest
 
 final class EventIntakeReplayTests: XCTestCase {
     @MainActor
@@ -294,10 +297,13 @@ final class EventIntakeReplayTests: XCTestCase {
         scenario.drainToQuiescence()
 
         controller.workspaceManager.setSystemModalFocus(scenario.tokenA)
+        let world = WorldView(controller: controller, borderFrameResolver: { windowId in
+            windowId == scenario.tokenB.windowId ? CGRect(x: 0, y: 0, width: 200, height: 150) : nil
+        })
 
         XCTAssertEqual(controller.workspaceManager.renderableFocusToken, scenario.tokenB)
-        XCTAssertEqual(WorldView(controller: controller).systemModalFocusToken, scenario.tokenA)
-        XCTAssertNotNil(SurfaceDerivation.deriveBorder(world: WorldView(controller: controller)))
+        XCTAssertEqual(world.systemModalFocusToken, scenario.tokenA)
+        XCTAssertNotNil(SurfaceDerivation.deriveBorder(world: world))
     }
 
     @MainActor

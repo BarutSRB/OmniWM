@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 
@@ -19,7 +22,7 @@ final class MultitouchGestureSource {
         let timestamp: Double
     }
 
-    nonisolated(unsafe) static weak var shared: MultitouchGestureSource?
+    nonisolated(unsafe) weak static var shared: MultitouchGestureSource?
 
     var onSnapshot: ((MouseEventHandler.GestureEventSnapshot) -> Void)?
 

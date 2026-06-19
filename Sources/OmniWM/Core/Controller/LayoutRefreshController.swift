@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 import QuartzCore
@@ -757,10 +760,12 @@ import QuartzCore
         reason: RefreshReason,
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> = [],
         postLayout: PostLayoutAction? = nil,
-        postLayoutDomains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen]
+        postLayoutDomains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen],
+        postLayoutGateWorkspaceIds: Set<WorkspaceDescriptor.ID>? = nil
     ) {
         assert(reason.requestRoute == .immediateRelayout, "Invalid immediate-relayout reason: \(reason)")
-        let postLayoutWorkspaceIds = self.postLayoutWorkspaceIds(for: affectedWorkspaceIds)
+        let postLayoutWorkspaceIds = postLayoutGateWorkspaceIds
+            ?? self.postLayoutWorkspaceIds(for: affectedWorkspaceIds)
         let postLayoutAction = makePostLayoutAction(
             postLayout,
             workspaceIds: postLayoutWorkspaceIds,
@@ -849,12 +854,14 @@ import QuartzCore
     func commitWorkspaceTransition(
         affectedWorkspaces: Set<WorkspaceDescriptor.ID> = [],
         reason: RefreshReason = .workspaceTransition,
+        postLayoutGateWorkspaceIds: Set<WorkspaceDescriptor.ID>? = nil,
         postLayout: PostLayoutAction? = nil
     ) {
         requestImmediateRelayout(
             reason: reason,
             affectedWorkspaceIds: affectedWorkspaces,
-            postLayout: postLayout
+            postLayout: postLayout,
+            postLayoutGateWorkspaceIds: postLayoutGateWorkspaceIds
         )
     }
 
@@ -3504,7 +3511,6 @@ final class LayoutDiffExecutor {
                 }
             )
         }
-
     }
 
     private func resolveMonitor(

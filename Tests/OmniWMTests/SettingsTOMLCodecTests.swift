@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import Foundation
 @testable import OmniWM
 import XCTest
@@ -83,16 +86,13 @@ final class SettingsTOMLCodecTests: XCTestCase {
         let previous = try SettingsTOMLCodec.encode(.defaults())
 
         var export = try SettingsTOMLCodec.decode(previous)
-        export.mouseWarpAxis = nil
         export.quakeTerminalOpacity = nil
 
         let rewrittenData = try SettingsTOMLCodec.encode(export, preservingUnknownKeysFrom: previous)
         let rewritten = String(decoding: rewrittenData, as: UTF8.self)
         let decoded = try SettingsTOMLCodec.decode(rewrittenData)
 
-        XCTAssertFalse(rewritten.contains("axis = \"horizontal\""))
         XCTAssertFalse(rewritten.contains("opacity = 1.0"))
-        XCTAssertNil(decoded.mouseWarpAxis)
         XCTAssertNil(decoded.quakeTerminalOpacity)
     }
 
@@ -159,7 +159,8 @@ final class SettingsTOMLCodecTests: XCTestCase {
         let unsupportedMouse = try defaultsWithReplacements(
             ("systemHyperTrigger = \"None\"\n", "systemHyperTrigger = \"MouseButton2\"\n")
         )
-        XCTAssertTrue(String(decoding: unsupportedMouse, as: UTF8.self).contains("systemHyperTrigger = \"MouseButton2\""))
+        XCTAssertTrue(String(decoding: unsupportedMouse, as: UTF8.self)
+            .contains("systemHyperTrigger = \"MouseButton2\""))
         XCTAssertEqual(try SettingsTOMLCodec.decode(unsupportedMouse).systemHyperTrigger, .none)
     }
 
@@ -179,6 +180,24 @@ final class SettingsTOMLCodecTests: XCTestCase {
             ("crossesMonitorAtEdge = false\n", "")
         )
         XCTAssertFalse(try SettingsTOMLCodec.decode(withoutKey).focusCrossesMonitorAtEdge)
+    }
+
+    func testMoveCrossesMonitorAtEdgeRoundTrips() throws {
+        XCTAssertFalse(SettingsExport.defaults().moveCrossesMonitorAtEdge)
+
+        var export = SettingsExport.defaults()
+        export.moveCrossesMonitorAtEdge = true
+        let data = try SettingsTOMLCodec.encode(export)
+
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("moveCrossesMonitorAtEdge = true"))
+        XCTAssertTrue(try SettingsTOMLCodec.decode(data).moveCrossesMonitorAtEdge)
+    }
+
+    func testMoveCrossesMonitorAtEdgeRecoversToFalseWhenMissing() throws {
+        let withoutKey = try defaultsWithReplacements(
+            ("moveCrossesMonitorAtEdge = false\n", "")
+        )
+        XCTAssertFalse(try SettingsTOMLCodec.decode(withoutKey).moveCrossesMonitorAtEdge)
     }
 
     private func defaultsWithReplacements(_ replacements: (String, String)...) throws -> Data {

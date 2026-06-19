@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 
@@ -523,6 +526,40 @@ extension NiriLayoutEngine {
         let neighborColumn = cols[neighborIdx]
         guard neighborColumn.id != currentColumn.id else { return false }
 
+        return consumeWindow(
+            window,
+            into: neighborColumn,
+            enteringFrom: direction,
+            in: workspaceId,
+            motion: motion,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: gaps
+        )
+    }
+
+    @discardableResult
+    func consumeWindow(
+        _ window: NiriWindow,
+        into targetColumn: NiriContainer,
+        enteringFrom direction: Direction,
+        in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot,
+        state: inout ViewportState,
+        workingFrame: CGRect,
+        gaps: CGFloat
+    ) -> Bool {
+        assertSanctionedMutation()
+        guard let currentColumn = findColumn(containing: window, in: workspaceId),
+              let currentIdx = columnIndex(of: currentColumn, in: workspaceId),
+              currentColumn.id != targetColumn.id
+        else {
+            return false
+        }
+
+        let targetInsertionPolicy: TargetColumnInsertionPolicy = direction == .down ? .append : .visualBottom
+
+        let cols = columns(in: workspaceId)
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let previousActiveColumnIndex = state.activeColumnIndex
         let previousActiveColumnPosition = state.columnX(
@@ -538,9 +575,9 @@ extension NiriLayoutEngine {
         let transfer = moveWindowToColumn(
             window,
             from: currentColumn,
-            to: neighborColumn,
+            to: targetColumn,
             in: workspaceId,
-            targetInsertionPolicy: .visualBottom,
+            targetInsertionPolicy: targetInsertionPolicy,
             activateInsertedWindowInTarget: true
         )
 
@@ -558,11 +595,11 @@ extension NiriLayoutEngine {
         }
 
         let newCols = columns(in: workspaceId)
-        let targetColIdx = columnIndex(of: neighborColumn, in: workspaceId) ?? transfer.targetColumnIndexAfterInsert
+        let targetColIdx = columnIndex(of: targetColumn, in: workspaceId) ?? transfer.targetColumnIndexAfterInsert
         let targetColX = state.columnX(at: targetColIdx, columns: newCols, gap: gaps)
-        let targetColRenderOffset = neighborColumn.renderOffset()
+        let targetColRenderOffset = targetColumn.renderOffset()
         let targetTileOffset = computeTileOffset(
-            column: neighborColumn,
+            column: targetColumn,
             tileIdx: transfer.insertedTileIndex,
             gaps: gaps
         )

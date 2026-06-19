@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Carbon
 import Foundation
@@ -37,11 +39,7 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
-    var mouseWarpMonitorOrder = SettingsStore.defaultExport.mouseWarpMonitorOrder {
-        didSet { scheduleSave() }
-    }
-
-    var mouseWarpAxis = MouseWarpAxis(rawValue: SettingsStore.defaultExport.mouseWarpAxis ?? "") ?? .horizontal {
+    var moveCrossesMonitorAtEdge = SettingsStore.defaultExport.moveCrossesMonitorAtEdge {
         didSet { scheduleSave() }
     }
 
@@ -65,6 +63,18 @@ final class SettingsStore {
     }
 
     var mouseWarpMargin = SettingsStore.defaultExport.mouseWarpMargin {
+        didSet { scheduleSave() }
+    }
+
+    var mouseWarpEnabled = SettingsStore.defaultExport.mouseWarpEnabled {
+        didSet { scheduleSave() }
+    }
+
+    var monitorRoutingMode = MonitorRoutingMode(rawValue: SettingsStore.defaultExport.monitorRoutingMode) ?? .macOS {
+        didSet { scheduleSave() }
+    }
+
+    var monitorRoutingSettings = SettingsStore.defaultExport.monitorRoutingSettings {
         didSet { scheduleSave() }
     }
 
@@ -511,9 +521,11 @@ final class SettingsStore {
             moveMouseToFocusedWindow: moveMouseToFocusedWindow,
             focusFollowsWindowToMonitor: focusFollowsWindowToMonitor,
             focusCrossesMonitorAtEdge: focusCrossesMonitorAtEdge,
-            mouseWarpMonitorOrder: mouseWarpMonitorOrder,
-            mouseWarpAxis: mouseWarpAxis.rawValue,
+            moveCrossesMonitorAtEdge: moveCrossesMonitorAtEdge,
             mouseWarpMargin: mouseWarpMargin,
+            mouseWarpEnabled: mouseWarpEnabled,
+            monitorRoutingMode: monitorRoutingMode.rawValue,
+            monitorRoutingSettings: monitorRoutingSettings,
             gapSize: gapSize,
             outerGapLeft: outerGapLeft,
             outerGapRight: outerGapRight,
@@ -606,9 +618,11 @@ final class SettingsStore {
         moveMouseToFocusedWindow = export.moveMouseToFocusedWindow
         focusFollowsWindowToMonitor = export.focusFollowsWindowToMonitor
         focusCrossesMonitorAtEdge = export.focusCrossesMonitorAtEdge
-        mouseWarpMonitorOrder = export.mouseWarpMonitorOrder
-        mouseWarpAxis = MouseWarpAxis(rawValue: export.mouseWarpAxis ?? baseline.mouseWarpAxis ?? "") ?? .horizontal
+        moveCrossesMonitorAtEdge = export.moveCrossesMonitorAtEdge
         mouseWarpMargin = export.mouseWarpMargin
+        mouseWarpEnabled = export.mouseWarpEnabled
+        monitorRoutingMode = MonitorRoutingMode(rawValue: export.monitorRoutingMode) ?? .macOS
+        monitorRoutingSettings = SettingsStore.reboundMonitorSettings(export.monitorRoutingSettings, monitors: monitors)
         gapSize = export.gapSize
         outerGapLeft = export.outerGapLeft
         outerGapRight = export.outerGapRight
@@ -817,30 +831,6 @@ final class SettingsStore {
         workspaceConfigurations.first(where: { $0.name == workspaceName })?.effectiveDisplayName ?? workspaceName
     }
 
-    func effectiveMouseWarpMonitorOrder(for monitors: [Monitor], axis: MouseWarpAxis? = nil) -> [String] {
-        let sortedNames = (axis ?? mouseWarpAxis).sortedMonitors(monitors).map(\.name)
-        guard !sortedNames.isEmpty else { return [] }
-
-        var remainingCounts = sortedNames.reduce(into: [String: Int]()) { counts, name in
-            counts[name, default: 0] += 1
-        }
-        var resolved: [String] = []
-
-        for name in mouseWarpMonitorOrder {
-            guard let remaining = remainingCounts[name], remaining > 0 else { continue }
-            resolved.append(name)
-            remainingCounts[name] = remaining - 1
-        }
-
-        for name in sortedNames {
-            guard let remaining = remainingCounts[name], remaining > 0 else { continue }
-            resolved.append(name)
-            remainingCounts[name] = remaining - 1
-        }
-
-        return resolved
-    }
-
     static func normalizedWorkspaceConfigurations(
         _ configs: [WorkspaceConfiguration],
         monitors: [Monitor] = []
@@ -980,6 +970,18 @@ final class SettingsStore {
 
     func removeOrientationSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorOrientationSettings)
+    }
+
+    func routingSettings(for monitor: Monitor) -> MonitorRoutingSettings? {
+        MonitorSettingsStore.get(for: monitor, in: monitorRoutingSettings)
+    }
+
+    func updateRoutingSettings(_ settings: MonitorRoutingSettings) {
+        MonitorSettingsStore.update(settings, in: &monitorRoutingSettings)
+    }
+
+    func removeRoutingSettings(for monitor: Monitor) {
+        MonitorSettingsStore.remove(for: monitor, from: &monitorRoutingSettings)
     }
 
     func niriSettings(for monitor: Monitor) -> MonitorNiriSettings? {

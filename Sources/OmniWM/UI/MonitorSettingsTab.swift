@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import SwiftUI
 
@@ -8,28 +11,16 @@ struct MonitorSettingsTab: View {
     @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
 
-    private var warpAxis: MouseWarpAxis {
-        settings.mouseWarpAxis
-    }
-
     private var sortedMonitors: [Monitor] {
-        MonitorSettingsTabModel.sortedMonitors(connectedMonitors, axis: warpAxis)
+        MonitorSettingsTabModel.sortedMonitors(connectedMonitors)
     }
 
     private var displayLabels: [Monitor.ID: MonitorDisplayLabel] {
-        MonitorSettingsTabModel.displayLabels(for: sortedMonitors, axis: warpAxis)
-    }
-
-    private var warpOrderEntries: [MonitorOrderEntry] {
-        MonitorSettingsTabModel.orderEntries(
-            for: sortedMonitors,
-            orderedNames: settings.effectiveMouseWarpMonitorOrder(for: sortedMonitors, axis: warpAxis),
-            axis: warpAxis
-        )
+        MonitorSettingsTabModel.displayLabels(for: sortedMonitors)
     }
 
     private var effectiveSelectedMonitorID: Monitor.ID? {
-        MonitorSettingsTabModel.normalizedSelection(selectedMonitor, entries: warpOrderEntries)
+        MonitorSettingsTabModel.normalizedSelection(selectedMonitor, monitors: sortedMonitors)
     }
 
     private var selectedConnectedMonitor: Monitor? {
@@ -37,30 +28,111 @@ struct MonitorSettingsTab: View {
         return sortedMonitors.first(where: { $0.id == monitorID })
     }
 
+    private var routingTiles: [RoutingArrangementCanvas.Tile] {
+        sortedMonitors.compactMap { monitor in
+            guard let entry = settings.routingSettings(for: monitor) else { return nil }
+            return RoutingArrangementCanvas.Tile(
+                id: monitor.id,
+                column: entry.gridColumn,
+                row: entry.gridRow,
+                displayLabel: displayLabels[monitor.id],
+                fallbackName: monitor.name,
+                isMain: monitor.isMain
+            )
+        }
+    }
+
+    private var routingRows: [RoutingAccessibleEditor.Row] {
+        sortedMonitors.map { monitor in
+            RoutingAccessibleEditor.Row(
+                id: monitor.id,
+                name: displayLabels[monitor.id]?.accessibilityName ?? monitor.name
+            )
+        }
+    }
+
+    private var routingNeighborPreview: [(direction: String, name: String)] {
+        guard let monitor = selectedConnectedMonitor else { return [] }
+        let directions: [(String, Direction)] = [("Left", .left), ("Right", .right), ("Up", .up), ("Down", .down)]
+        return directions.map { label, direction in
+            let neighbor = routingNeighbor(of: monitor, direction)
+            let name = neighbor.flatMap { displayLabels[$0.id]?.name } ?? neighbor?.name ?? "None"
+            return (label, name)
+        }
+    }
+
     var body: some View {
         SettingsPage(
-            subtitle: "Configure mouse warp order and per-monitor orientation without changing macOS display arrangement."
+            subtitle: "Route cross-monitor focus, move, and mouse warp independently of the macOS display arrangement."
         ) {
-            Section("Mouse Warp") {
-                LabeledContent("Warp Axis") {
-                    Picker("Warp Axis", selection: Binding(
-                        get: { settings.mouseWarpAxis },
-                        set: { settings.mouseWarpAxis = $0 }
-                    )) {
-                        ForEach(MouseWarpAxis.allCases, id: \.self) { axis in
-                            Text(axis.displayName).tag(axis)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 260)
+            Section("macOS Arrangement") {
+                if sortedMonitors.isEmpty {
+                    Text("No monitors detected.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    MonitorArrangementCanvas(
+                        monitors: sortedMonitors,
+                        displayLabels: displayLabels,
+                        selected: effectiveSelectedMonitorID,
+                        onSelect: { selectedMonitor = $0 }
+                    )
+                    SettingsCaption(
+                        "How macOS arranges your displays (used for actual window placement). "
+                            + "Click a display to edit its orientation below."
+                    )
                 }
+            }
 
-                LabeledContent("Trigger Margin") {
-                    Stepper(value: Binding(
-                        get: { settings.mouseWarpMargin },
-                        set: { settings.mouseWarpMargin = $0 }
-                    ), in: 1 ... 10) {
+            Section("OmniWM Routing Arrangement") {
+                Picker("Arrangement", selection: $settings.monitorRoutingMode) {
+                    Text("Use macOS Arrangement").tag(MonitorRoutingMode.macOS)
+                    Text("Custom Arrangement").tag(MonitorRoutingMode.custom)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: settings.monitorRoutingMode) { _, _ in ensureRoutingSeeded() }
+
+                if settings.monitorRoutingMode == .custom {
+                    if routingTiles.isEmpty {
+                        Text("No monitors detected.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        RoutingArrangementCanvas(
+                            tiles: routingTiles,
+                            selected: effectiveSelectedMonitorID,
+                            onSelect: { selectedMonitor = $0 },
+                            onPlace: { placeRouting($0, column: $1, row: $2) }
+                        )
+
+                        if !routingNeighborPreview.isEmpty {
+                            ForEach(routingNeighborPreview, id: \.direction) { entry in
+                                LabeledContent(entry.direction) {
+                                    Text(entry.name).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        RoutingAccessibleEditor(rows: routingRows, onMove: { moveRouting($0, $1) })
+
+                        Button("Reset / Use macOS Arrangement") { seedFromMacOS() }
+                    }
+
+                    SettingsCaption(
+                        "Drag monitors into your physical layout. OmniWM uses this for cross-monitor focus, "
+                            + "move, and mouse warp — not for window placement."
+                    )
+                } else {
+                    SettingsCaption("Routing follows the macOS arrangement shown above.")
+                }
+            }
+
+            Section("Cross-Monitor Behavior") {
+                Toggle("Focus Across Monitor at Edge", isOn: $settings.focusCrossesMonitorAtEdge)
+                Toggle("Move Window Across Monitor at Edge", isOn: $settings.moveCrossesMonitorAtEdge)
+                Toggle("Follow Window to Monitor", isOn: $settings.focusFollowsWindowToMonitor)
+                Toggle("Mouse Warp", isOn: $settings.mouseWarpEnabled)
+
+                LabeledContent("Mouse Warp Margin") {
+                    Stepper(value: $settings.mouseWarpMargin, in: 1 ... 10) {
                         Text("\(settings.mouseWarpMargin) px")
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -68,47 +140,8 @@ struct MonitorSettingsTab: View {
                 }
 
                 SettingsCaption(
-                    "Horizontal mode uses left and right edges. Vertical mode uses top and bottom edges."
+                    "These use the OmniWM Routing Arrangement, not necessarily the macOS arrangement."
                 )
-            }
-
-            Section("Warp Order") {
-                if warpOrderEntries.isEmpty {
-                    Text("No monitors detected.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(warpOrderEntries.enumerated()), id: \.element.id) { index, entry in
-                        MonitorOrderRow(
-                            position: index + 1,
-                            entry: entry,
-                            axis: warpAxis,
-                            isSelected: effectiveSelectedMonitorID == entry.id,
-                            canMoveLeft: MonitorSettingsTabModel.canMove(
-                                entries: warpOrderEntries,
-                                moving: entry.id,
-                                direction: .left
-                            ),
-                            canMoveRight: MonitorSettingsTabModel.canMove(
-                                entries: warpOrderEntries,
-                                moving: entry.id,
-                                direction: .right
-                            ),
-                            onSelect: { selectedMonitor = entry.id },
-                            onMoveLeft: {
-                                selectedMonitor = entry.id
-                                moveMonitor(entry.id, .left)
-                            },
-                            onMoveRight: {
-                                selectedMonitor = entry.id
-                                moveMonitor(entry.id, .right)
-                            }
-                        )
-                    }
-
-                    SettingsCaption(
-                        "This is the \(warpAxis.orderDescription) order OmniWM uses when the pointer crosses a monitor edge."
-                    )
-                }
             }
 
             Section("Monitor Orientation") {
@@ -121,11 +154,8 @@ struct MonitorSettingsTab: View {
                         monitor: monitor,
                         displayLabel: displayLabel
                     )
-                } else if sortedMonitors.isEmpty {
-                    Text("No monitors detected.")
-                        .foregroundStyle(.secondary)
                 } else {
-                    Text("Select a monitor in Warp Order to configure its orientation.")
+                    Text("No monitors detected.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -143,119 +173,95 @@ struct MonitorSettingsTab: View {
         connectedMonitors = monitors
         selectedMonitor = MonitorSettingsTabModel.normalizedSelection(
             selectedMonitor,
-            entries: MonitorSettingsTabModel.orderEntries(
-                for: MonitorSettingsTabModel.sortedMonitors(monitors, axis: warpAxis),
-                orderedNames: settings.effectiveMouseWarpMonitorOrder(for: monitors, axis: warpAxis),
-                axis: warpAxis
-            )
+            monitors: MonitorSettingsTabModel.sortedMonitors(monitors)
         )
+        ensureRoutingSeeded()
     }
 
-    private func moveMonitor(_ monitorID: Monitor.ID, _ direction: MonitorOrderMoveDirection) {
-        guard let reordered = MonitorSettingsTabModel.reorderedNames(
-            entries: warpOrderEntries,
-            moving: monitorID,
-            direction: direction
-        ) else {
+    private func routingNeighbor(of monitor: Monitor, _ direction: Direction) -> Monitor? {
+        switch MonitorRouting.gridAdjacent(
+            from: monitor,
+            direction: direction,
+            layout: settings.monitorRoutingSettings,
+            monitors: connectedMonitors,
+            wrapAround: false
+        ) {
+        case let .monitor(neighbor): neighbor
+        case .edge,
+             .fallBackToMacOS: nil
+        }
+    }
+
+    private func ensureRoutingSeeded() {
+        guard settings.monitorRoutingMode == .custom else { return }
+        let placed = connectedMonitors.filter { settings.routingSettings(for: $0) != nil }
+        if placed.isEmpty {
+            settings.monitorRoutingSettings = MonitorRouting.seedLayout(from: connectedMonitors)
             return
         }
-        settings.mouseWarpMonitorOrder = reordered
+        let missing = connectedMonitors.filter { settings.routingSettings(for: $0) == nil }
+        guard !missing.isEmpty else { return }
+        var nextColumn = (placed.compactMap { settings.routingSettings(for: $0)?.gridColumn }.max() ?? -1) + 1
+        for monitor in missing {
+            settings.updateRoutingSettings(
+                MonitorRoutingSettings(
+                    monitorName: monitor.name,
+                    monitorDisplayId: monitor.displayId,
+                    gridColumn: nextColumn,
+                    gridRow: 0
+                )
+            )
+            nextColumn += 1
+        }
     }
-}
 
-private struct MonitorOrderRow: View {
-    let position: Int
-    let entry: MonitorOrderEntry
-    let axis: MouseWarpAxis
-    let isSelected: Bool
-    let canMoveLeft: Bool
-    let canMoveRight: Bool
-    let onSelect: () -> Void
-    let onMoveLeft: () -> Void
-    let onMoveRight: () -> Void
+    private func seedFromMacOS() {
+        settings.monitorRoutingSettings = MonitorRouting.seedLayout(from: connectedMonitors)
+    }
 
-    var body: some View {
-        HStack(spacing: 12) {
-            Text("\(position)")
-                .font(.body.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .trailing)
-                .accessibilityHidden(true)
-
-            Button(action: onSelect) {
-                HStack(spacing: 10) {
-                    Image(systemName: "display")
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                        .accessibilityHidden(true)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text(entry.displayLabel.name)
-                                .font(.body)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-
-                            MonitorBadgeRow(displayLabel: entry.displayLabel, isMain: entry.isMain)
-                        }
-
-                        Text(isSelected ? "Selected for orientation settings" : "Select to edit orientation")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer(minLength: 8)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(entry.displayLabel.accessibilityName)
-            .accessibilityValue(isSelected ? "Selected, position \(position)" : "Position \(position)")
-            .accessibilityHint("Selects this monitor for orientation settings")
-
-            HStack(spacing: 6) {
-                MonitorMoveButton(
-                    symbolName: axis.leadingSymbolName,
-                    accessibilityLabel: axis.leadingAccessibilityLabel(
-                        for: entry.displayLabel.accessibilityName,
-                        position: position
-                    ),
-                    isEnabled: canMoveLeft,
-                    action: onMoveLeft
-                )
-
-                MonitorMoveButton(
-                    symbolName: axis.trailingSymbolName,
-                    accessibilityLabel: axis.trailingAccessibilityLabel(
-                        for: entry.displayLabel.accessibilityName,
-                        position: position
-                    ),
-                    isEnabled: canMoveRight,
-                    action: onMoveRight
-                )
+    private func placeRouting(_ monitorID: Monitor.ID, column: Int, row: Int) {
+        var cells: [Monitor.ID: (column: Int, row: Int)] = [:]
+        for monitor in connectedMonitors {
+            if let entry = settings.routingSettings(for: monitor) {
+                cells[monitor.id] = (entry.gridColumn, entry.gridRow)
             }
         }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct MonitorMoveButton: View {
-    let symbolName: String
-    let accessibilityLabel: String
-    let isEnabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(accessibilityLabel, systemImage: symbolName)
-                .labelStyle(.iconOnly)
-                .frame(width: 44, height: 44)
+        guard let moving = cells[monitorID] else { return }
+        if let occupant = cells.first(where: {
+            $0.key != monitorID && $0.value.column == column && $0.value.row == row
+        })?.key {
+            cells[occupant] = moving
         }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
-        .disabled(!isEnabled)
-        .help(isEnabled ? accessibilityLabel : "\(accessibilityLabel) unavailable")
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(isEnabled ? "Available" : "Unavailable")
+        cells[monitorID] = (column, row)
+
+        let minColumn = cells.values.map { $0.column }.min() ?? 0
+        let minRow = cells.values.map { $0.row }.min() ?? 0
+        for monitor in connectedMonitors {
+            guard let cell = cells[monitor.id] else { continue }
+            settings.updateRoutingSettings(
+                MonitorRoutingSettings(
+                    monitorName: monitor.name,
+                    monitorDisplayId: monitor.displayId,
+                    gridColumn: cell.column - minColumn,
+                    gridRow: cell.row - minRow
+                )
+            )
+        }
+    }
+
+    private func moveRouting(_ monitorID: Monitor.ID, _ direction: Direction) {
+        guard let monitor = connectedMonitors.first(where: { $0.id == monitorID }),
+              let entry = settings.routingSettings(for: monitor)
+        else { return }
+        var column = entry.gridColumn
+        var row = entry.gridRow
+        switch direction {
+        case .left: column -= 1
+        case .right: column += 1
+        case .up: row -= 1
+        case .down: row += 1
+        }
+        placeRouting(monitorID, column: column, row: row)
     }
 }
 
@@ -381,50 +387,25 @@ struct MonitorDisplayLabel: Equatable {
     }
 }
 
-struct MonitorOrderEntry: Identifiable, Equatable {
-    let monitor: Monitor
-    let displayLabel: MonitorDisplayLabel
-
-    var id: Monitor.ID {
-        monitor.id
-    }
-
-    var name: String {
-        monitor.name
-    }
-
-    var isMain: Bool {
-        monitor.isMain
-    }
-}
-
-enum MonitorOrderMoveDirection {
-    case left
-    case right
-}
-
 enum MonitorSettingsTabModel {
-    static func sortedMonitors(_ monitors: [Monitor], axis: MouseWarpAxis = .horizontal) -> [Monitor] {
-        axis.sortedMonitors(monitors)
+    static func sortedMonitors(_ monitors: [Monitor]) -> [Monitor] {
+        Monitor.sortedByPosition(monitors)
     }
 
-    static func normalizedSelection(_ selectedMonitor: Monitor.ID?, entries: [MonitorOrderEntry]) -> Monitor.ID? {
-        guard !entries.isEmpty else { return nil }
+    static func normalizedSelection(_ selectedMonitor: Monitor.ID?, monitors: [Monitor]) -> Monitor.ID? {
+        guard !monitors.isEmpty else { return nil }
 
         if let selectedMonitor,
-           entries.contains(where: { $0.id == selectedMonitor })
+           monitors.contains(where: { $0.id == selectedMonitor })
         {
             return selectedMonitor
         }
 
-        return entries.first?.id
+        return monitors.first?.id
     }
 
-    static func displayLabels(
-        for monitors: [Monitor],
-        axis: MouseWarpAxis = .horizontal
-    ) -> [Monitor.ID: MonitorDisplayLabel] {
-        let sorted = sortedMonitors(monitors, axis: axis)
+    static func displayLabels(for monitors: [Monitor]) -> [Monitor.ID: MonitorDisplayLabel] {
+        let sorted = sortedMonitors(monitors)
         let totals = sorted.reduce(into: [String: Int]()) { counts, monitor in
             counts[monitor.name, default: 0] += 1
         }
@@ -440,73 +421,6 @@ enum MonitorSettingsTabModel {
 
         return labels
     }
-
-    static func orderEntries(
-        for monitors: [Monitor],
-        orderedNames: [String],
-        axis: MouseWarpAxis = .horizontal
-    ) -> [MonitorOrderEntry] {
-        let sorted = sortedMonitors(monitors, axis: axis)
-        let labels = displayLabels(for: sorted, axis: axis)
-        let monitorsByName = Dictionary(grouping: sorted, by: \.name)
-        var usedCounts: [String: Int] = [:]
-        var entries: [MonitorOrderEntry] = []
-
-        for name in orderedNames {
-            let usedCount = usedCounts[name, default: 0]
-            guard let monitor = monitorsByName[name]?[usedCount],
-                  let displayLabel = labels[monitor.id]
-            else {
-                continue
-            }
-
-            entries.append(MonitorOrderEntry(monitor: monitor, displayLabel: displayLabel))
-            usedCounts[name] = usedCount + 1
-        }
-
-        return entries
-    }
-
-    static func canMove(
-        entries: [MonitorOrderEntry],
-        moving selectedMonitor: Monitor.ID?,
-        direction: MonitorOrderMoveDirection
-    ) -> Bool {
-        guard let currentIndex = entries.firstIndex(where: { $0.id == selectedMonitor }) else {
-            return false
-        }
-
-        switch direction {
-        case .left:
-            return currentIndex > 0
-        case .right:
-            return currentIndex < entries.count - 1
-        }
-    }
-
-    static func reorderedNames(
-        entries: [MonitorOrderEntry],
-        moving selectedMonitor: Monitor.ID?,
-        direction: MonitorOrderMoveDirection
-    ) -> [String]? {
-        guard let currentIndex = entries.firstIndex(where: { $0.id == selectedMonitor }) else {
-            return nil
-        }
-
-        let targetIndex: Int
-        switch direction {
-        case .left:
-            targetIndex = currentIndex - 1
-        case .right:
-            targetIndex = currentIndex + 1
-        }
-
-        guard entries.indices.contains(targetIndex) else { return nil }
-
-        var reorderedEntries = entries
-        reorderedEntries.swapAt(currentIndex, targetIndex)
-        return reorderedEntries.map(\.name)
-    }
 }
 
 extension Monitor.Orientation {
@@ -514,22 +428,6 @@ extension Monitor.Orientation {
         switch self {
         case .horizontal: "Horizontal"
         case .vertical: "Vertical"
-        }
-    }
-}
-
-private extension MouseWarpAxis {
-    func leadingAccessibilityLabel(for monitorName: String, position: Int) -> String {
-        switch self {
-        case .horizontal: "Move \(monitorName), position \(position), left"
-        case .vertical: "Move \(monitorName), position \(position), up"
-        }
-    }
-
-    func trailingAccessibilityLabel(for monitorName: String, position: Int) -> String {
-        switch self {
-        case .horizontal: "Move \(monitorName), position \(position), right"
-        case .vertical: "Move \(monitorName), position \(position), down"
         }
     }
 }

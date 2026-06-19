@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 
@@ -152,434 +155,56 @@ final class MouseWarpHandler: NSObject {
         guard let controller else { return }
         guard !state.isWarping else { return }
         guard controller.isEnabled else { return }
+        guard controller.settings.mouseWarpEnabled else { return }
 
         let monitors = controller.workspaceManager.monitors
         guard monitors.count > 1 else { return }
-        let axis = controller.settings.mouseWarpAxis
-        let effectiveOrder = controller.settings.effectiveMouseWarpMonitorOrder(for: monitors, axis: axis)
-        guard effectiveOrder.count >= 2 else { return }
 
         let margin = CGFloat(controller.settings.mouseWarpMargin)
 
-        guard let currentMonitor = monitors.first(where: { $0.frame.contains(location) }) else {
-            let attemptedWarp = switch axis {
-            case .horizontal:
-                mouseWarpAttemptHorizontalWarpFromLastMonitor(
-                    location: location,
-                    in: effectiveOrder,
-                    monitors: monitors,
-                    margin: margin
-                )
-            case .vertical:
-                mouseWarpAttemptVerticalWarpFromLastMonitor(
-                    location: location,
-                    in: effectiveOrder,
-                    monitors: monitors,
-                    margin: margin
-                )
-            }
-            if attemptedWarp {
-                return
-            }
+        if let currentMonitor = monitors.first(where: { $0.frame.contains(location) }) {
+            state.lastMonitorId = currentMonitor.id
+            _ = attemptWarp(from: currentMonitor, location: location, margin: margin)
             return
         }
 
-        if let lastMonitorId = state.lastMonitorId {
-            if let lastMonitor = controller.workspaceManager.monitor(byId: lastMonitorId) {
-                if lastMonitor.id != currentMonitor.id {
-                    let attemptedWarp = if mouseWarpLocationCrossedAxis(location, from: lastMonitor, axis: axis),
-                                           let lastIndex = mouseWarpCurrentIndex(
-                                               for: lastMonitor,
-                                               in: effectiveOrder,
-                                               monitors: monitors,
-                                               axis: axis
-                                           )
-                    {
-                        switch axis {
-                        case .horizontal:
-                            mouseWarpAttemptHorizontalWarp(
-                                from: lastMonitor,
-                                sourceIndex: lastIndex,
-                                location: location,
-                                in: effectiveOrder,
-                                monitors: monitors,
-                                margin: margin
-                            )
-                        case .vertical:
-                            mouseWarpAttemptVerticalWarp(
-                                from: lastMonitor,
-                                sourceIndex: lastIndex,
-                                location: location,
-                                in: effectiveOrder,
-                                monitors: monitors,
-                                margin: margin
-                            )
-                        }
-                    } else {
-                        false
-                    }
-                    if attemptedWarp {
-                        return
-                    }
-                    state.lastMonitorId = currentMonitor.id
-                    return
-                }
-            } else {
-                state.lastMonitorId = currentMonitor.id
-            }
-        } else {
-            state.lastMonitorId = currentMonitor.id
-        }
-
-        state.lastMonitorId = currentMonitor.id
-        guard let currentIndex = mouseWarpCurrentIndex(
-            for: currentMonitor,
-            in: effectiveOrder,
-            monitors: monitors,
-            axis: axis
-        ) else { return }
-
-        switch axis {
-        case .horizontal:
-            _ = mouseWarpAttemptHorizontalWarp(
-                from: currentMonitor,
-                sourceIndex: currentIndex,
-                location: location,
-                in: effectiveOrder,
-                monitors: monitors,
-                margin: margin
-            )
-        case .vertical:
-            _ = mouseWarpAttemptVerticalWarp(
-                from: currentMonitor,
-                sourceIndex: currentIndex,
-                location: location,
-                in: effectiveOrder,
-                monitors: monitors,
-                margin: margin
-            )
-        }
-    }
-
-    private func mouseWarpCalculateYRatio(_ point: CGPoint, in frame: CGRect) -> CGFloat {
-        guard frame.height > 0 else { return 0.5 }
-        return (frame.maxY - point.y) / frame.height
-    }
-
-    private func mouseWarpCalculateXRatio(_ point: CGPoint, in frame: CGRect) -> CGFloat {
-        guard frame.width > 0 else { return 0.5 }
-        return (point.x - frame.minX) / frame.width
-    }
-
-    private func mouseWarpLocationCrossedAxis(
-        _ location: CGPoint,
-        from monitor: Monitor,
-        axis: MouseWarpAxis
-    ) -> Bool {
-        switch axis {
-        case .horizontal:
-            location.x < monitor.frame.minX || location.x >= monitor.frame.maxX
-        case .vertical:
-            location.y < monitor.frame.minY || location.y >= monitor.frame.maxY
-        }
-    }
-
-    private func mouseWarpAttemptHorizontalWarpFromLastMonitor(
-        location: CGPoint,
-        in effectiveOrder: [String],
-        monitors: [Monitor],
-        margin: CGFloat
-    ) -> Bool {
         guard let lastMonitorId = state.lastMonitorId,
-              let lastMonitor = controller?.workspaceManager.monitor(byId: lastMonitorId)
-        else {
-            return false
-        }
-        guard let sourceIndex = mouseWarpCurrentIndex(
-            for: lastMonitor,
-            in: effectiveOrder,
-            monitors: monitors,
-            axis: .horizontal
-        )
-        else {
-            return false
-        }
+              let lastMonitor = controller.workspaceManager.monitor(byId: lastMonitorId)
+        else { return }
+        _ = attemptWarp(from: lastMonitor, location: location, margin: margin)
+    }
 
-        return mouseWarpAttemptHorizontalWarp(
-            from: lastMonitor,
-            sourceIndex: sourceIndex,
+    private func attemptWarp(from sourceMonitor: Monitor, location: CGPoint, margin: CGFloat) -> Bool {
+        guard let controller else { return false }
+        guard let crossing = MouseWarpGeometry.crossing(
             location: location,
-            in: effectiveOrder,
-            monitors: monitors,
+            frame: sourceMonitor.frame,
             margin: margin
-        )
-    }
-
-    private func mouseWarpAttemptHorizontalWarp(
-        from sourceMonitor: Monitor,
-        sourceIndex: Int,
-        location: CGPoint,
-        in effectiveOrder: [String],
-        monitors: [Monitor],
-        margin: CGFloat
-    ) -> Bool {
-        let frame = sourceMonitor.frame
-
-        if location.x <= frame.minX + margin {
-            let leftIndex = sourceIndex - 1
-            guard leftIndex >= 0 else { return false }
-            let yRatio = mouseWarpCalculateYRatio(location, in: frame)
-            mouseWarpToMonitor(
-                named: effectiveOrder[leftIndex],
-                edge: .right,
-                transferRatio: yRatio,
-                axis: .horizontal,
-                monitors: monitors,
-                margin: margin
-            )
-            return true
-        }
-
-        if location.x >= frame.maxX - margin {
-            let rightIndex = sourceIndex + 1
-            guard rightIndex < effectiveOrder.count else { return false }
-            let yRatio = mouseWarpCalculateYRatio(location, in: frame)
-            mouseWarpToMonitor(
-                named: effectiveOrder[rightIndex],
-                edge: .left,
-                transferRatio: yRatio,
-                axis: .horizontal,
-                monitors: monitors,
-                margin: margin
-            )
-            return true
-        }
-
-        return false
-    }
-
-    private func mouseWarpAttemptVerticalWarpFromLastMonitor(
-        location: CGPoint,
-        in effectiveOrder: [String],
-        monitors: [Monitor],
-        margin: CGFloat
-    ) -> Bool {
-        guard let lastMonitorId = state.lastMonitorId,
-              let lastMonitor = controller?.workspaceManager.monitor(byId: lastMonitorId)
-        else {
+        ) else {
             return false
         }
-        guard let sourceIndex = mouseWarpCurrentIndex(
-            for: lastMonitor,
-            in: effectiveOrder,
-            monitors: monitors,
-            axis: .vertical
-        )
-        else {
+        guard let target = controller.workspaceManager.adjacentMonitor(
+            from: sourceMonitor.id,
+            direction: crossing.direction
+        ) else {
             return false
         }
 
-        return mouseWarpAttemptVerticalWarp(
-            from: lastMonitor,
-            sourceIndex: sourceIndex,
-            location: location,
-            in: effectiveOrder,
-            monitors: monitors,
-            margin: margin
-        )
-    }
-
-    private func mouseWarpAttemptVerticalWarp(
-        from sourceMonitor: Monitor,
-        sourceIndex: Int,
-        location: CGPoint,
-        in effectiveOrder: [String],
-        monitors: [Monitor],
-        margin: CGFloat
-    ) -> Bool {
-        let frame = sourceMonitor.frame
-
-        if location.y >= frame.maxY - margin {
-            let upperIndex = sourceIndex - 1
-            guard upperIndex >= 0 else { return false }
-            let xRatio = mouseWarpCalculateXRatio(location, in: frame)
-            mouseWarpToMonitor(
-                named: effectiveOrder[upperIndex],
-                edge: .bottom,
-                transferRatio: xRatio,
-                axis: .vertical,
-                monitors: monitors,
-                margin: margin
-            )
-            return true
-        }
-
-        if location.y <= frame.minY + margin {
-            let lowerIndex = sourceIndex + 1
-            guard lowerIndex < effectiveOrder.count else { return false }
-            let xRatio = mouseWarpCalculateXRatio(location, in: frame)
-            mouseWarpToMonitor(
-                named: effectiveOrder[lowerIndex],
-                edge: .top,
-                transferRatio: xRatio,
-                axis: .vertical,
-                monitors: monitors,
-                margin: margin
-            )
-            return true
-        }
-
-        return false
-    }
-
-    private func mouseWarpToMonitor(
-        named name: String,
-        edge: Edge,
-        transferRatio: CGFloat,
-        axis: MouseWarpAxis,
-        monitors: [Monitor],
-        margin: CGFloat
-    ) {
-        let candidates = controller?.workspaceManager.monitors(named: name) ?? monitors.filter { $0.name == name }
-        guard !candidates.isEmpty else { return }
-
-        guard let targetMonitor = mouseWarpTargetMonitor(from: candidates, edge: edge, axis: axis) else { return }
-
-        let destination = mouseWarpDestinationPoint(
-            on: targetMonitor.frame,
-            edge: edge,
-            transferRatio: transferRatio,
-            axis: axis,
+        let destination = MouseWarpGeometry.destinationPoint(
+            on: target.frame,
+            entryEdge: crossing.entryEdge,
+            ratio: crossing.ratio,
             margin: margin
         )
 
         state.isWarping = true
-        state.lastMonitorId = targetMonitor.id
+        state.lastMonitorId = target.id
         let warpPoint = ScreenCoordinateSpace.toWindowServer(point: destination)
-
         warpCursor(warpPoint)
-        _ = controller?.workspaceManager.setInteractionMonitor(targetMonitor.id)
+        _ = controller.workspaceManager.setInteractionMonitor(target.id)
         postMouseMovedEvent(warpPoint)
-
         scheduleWarpCooldownReset()
-    }
-
-    private func mouseWarpDestinationPoint(
-        on frame: CGRect,
-        edge: Edge,
-        transferRatio: CGFloat,
-        axis: MouseWarpAxis,
-        margin: CGFloat
-    ) -> CGPoint {
-        let clampedRatio = min(max(transferRatio, 0), 1)
-
-        switch axis {
-        case .horizontal:
-            let x: CGFloat
-            switch edge {
-            case .left:
-                x = frame.minX + margin + 1
-            case .right:
-                x = frame.maxX - margin - 1
-            case .top,
-                 .bottom:
-                x = mouseWarpClampCoordinate(
-                    frame.minX + (clampedRatio * frame.width),
-                    minCoordinate: frame.minX,
-                    maxCoordinate: frame.maxX,
-                    margin: margin
-                )
-            }
-
-            let y = mouseWarpClampMappedCoordinate(
-                frame.maxY - (clampedRatio * frame.height),
-                minCoordinate: frame.minY,
-                maxCoordinate: frame.maxY
-            )
-            return CGPoint(x: x, y: y)
-        case .vertical:
-            let y: CGFloat
-            switch edge {
-            case .top:
-                y = frame.maxY - margin - 1
-            case .bottom:
-                y = frame.minY + margin + 1
-            case .left,
-                 .right:
-                y = mouseWarpClampCoordinate(
-                    frame.maxY - (clampedRatio * frame.height),
-                    minCoordinate: frame.minY,
-                    maxCoordinate: frame.maxY,
-                    margin: margin
-                )
-            }
-
-            let x = mouseWarpClampMappedCoordinate(
-                frame.minX + (clampedRatio * frame.width),
-                minCoordinate: frame.minX,
-                maxCoordinate: frame.maxX
-            )
-            return CGPoint(x: x, y: y)
-        }
-    }
-
-    private func mouseWarpClampMappedCoordinate(
-        _ value: CGFloat,
-        minCoordinate: CGFloat,
-        maxCoordinate: CGFloat
-    ) -> CGFloat {
-        guard minCoordinate < maxCoordinate else { return minCoordinate }
-        return min(max(value, minCoordinate), maxCoordinate.nextDown)
-    }
-
-    private func mouseWarpClampCoordinate(
-        _ value: CGFloat,
-        minCoordinate: CGFloat,
-        maxCoordinate: CGFloat,
-        margin: CGFloat
-    ) -> CGFloat {
-        let lowerBound = minCoordinate + margin + 1
-        let upperBound = maxCoordinate - margin - 1
-
-        guard lowerBound <= upperBound else {
-            return (minCoordinate + maxCoordinate) / 2
-        }
-
-        return min(max(value, lowerBound), upperBound)
-    }
-
-    private func mouseWarpCurrentIndex(
-        for currentMonitor: Monitor,
-        in monitorOrder: [String],
-        monitors: [Monitor],
-        axis: MouseWarpAxis
-    ) -> Int? {
-        let matchingIndices = monitorOrder.indices.filter { monitorOrder[$0] == currentMonitor.name }
-        guard !matchingIndices.isEmpty else { return nil }
-        guard matchingIndices.count > 1 else { return matchingIndices[0] }
-
-        let sameNameMonitors = controller?.workspaceManager.monitors(named: currentMonitor.name)
-            ?? monitors.filter { $0.name == currentMonitor.name }
-        let sortedSameName = axis.sortedMonitors(sameNameMonitors)
-        guard let rank = sortedSameName.firstIndex(where: { $0.id == currentMonitor.id }) else {
-            return matchingIndices[0]
-        }
-
-        let clampedRank = min(rank, matchingIndices.count - 1)
-        return matchingIndices[clampedRank]
-    }
-
-    private func mouseWarpTargetMonitor(from candidates: [Monitor], edge: Edge, axis: MouseWarpAxis) -> Monitor? {
-        guard !candidates.isEmpty else { return nil }
-        if candidates.count == 1 {
-            return candidates[0]
-        }
-
-        let sorted = axis.sortedMonitors(candidates)
-        if edge.prefersLeadingMonitor {
-            return sorted.first
-        }
-        return sorted.last
+        return true
     }
 
     private func scheduleWarpCooldownReset() {
@@ -595,24 +220,6 @@ final class MouseWarpHandler: NSObject {
 
         if let cooldownTimer = state.cooldownTimer {
             RunLoop.main.add(cooldownTimer, forMode: .common)
-        }
-    }
-
-    private enum Edge {
-        case left
-        case right
-        case top
-        case bottom
-
-        var prefersLeadingMonitor: Bool {
-            switch self {
-            case .left,
-                 .top:
-                true
-            case .right,
-                 .bottom:
-                false
-            }
         }
     }
 

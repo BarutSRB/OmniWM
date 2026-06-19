@@ -1,7 +1,7 @@
 # SwiftFormat configuration for OmniWM
 # Visual formatting only. SwiftLint owns diagnostics and semantic style.
 
---swiftversion 6.2
+--swiftversion 6.3
 --indent 4
 --maxwidth 120
 --wraparguments before-first
@@ -11,7 +11,7 @@
 --commas inline
 --trimwhitespace always
 --semicolons never
---header strip
+--header "// SPDX-License-Identifier: GPL-2.0-only\n// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM"
 
 --disable all
 --enable blankLineAfterImports,blankLinesAroundMark,blankLinesAtEndOfScope,blankLinesAtStartOfScope

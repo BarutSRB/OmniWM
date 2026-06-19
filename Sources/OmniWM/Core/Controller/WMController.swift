@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 import OmniWMIPC
@@ -74,6 +77,7 @@ final class WMController {
     var isHyperTriggerActive: Bool {
         hotkeys.isHyperTriggerActive
     }
+
     let secureInputMonitor = SecureInputMonitor()
     let lockScreenObserver = LockScreenObserver()
     var isLockScreenActive: Bool = false {

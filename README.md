@@ -461,3 +461,9 @@ For deeper technical context, the docs pages that back the documentation site ar
 - [Architecture Guide](docs/ARCHITECTURE.md)
 - [IPC & CLI Reference](docs/IPC-CLI.md)
 - [Contribution Docs](docs/CONTRIBUTING.md)
+
+## License
+
+OmniWM is licensed under the [GNU General Public License v2.0-only](LICENSE). Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM.
+
+Every source file carries an SPDX license header. Forks and redistributions must retain these notices and the `LICENSE` file, and remain GPL-2.0 with source available.

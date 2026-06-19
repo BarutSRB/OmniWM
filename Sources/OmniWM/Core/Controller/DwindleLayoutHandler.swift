@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 import QuartzCore
@@ -212,16 +215,18 @@ import QuartzCore
         }
     }
 
-    func swapWindow(direction: Direction) {
-        guard let controller else { return }
+    func swapWindow(direction: Direction) -> WindowMoveOutcome {
+        guard let controller else { return .blocked }
+        var outcome = WindowMoveOutcome.blocked
         withDwindleContext { engine, wsId in
-            if engine.swapWindows(direction: direction, in: wsId) {
-                recordLayoutOperation(.windowsSwapped, in: wsId)
-                controller.layoutRefreshController.requestLayoutCommandRelayout(
-                    affectedWorkspaceIds: [wsId]
-                )
-            }
+            outcome = engine.swapWindowOutcome(direction: direction, in: wsId)
+            guard outcome == .movedWithinWorkspace else { return }
+            recordLayoutOperation(.windowsSwapped, in: wsId)
+            controller.layoutRefreshController.requestLayoutCommandRelayout(
+                affectedWorkspaceIds: [wsId]
+            )
         }
+        return outcome
     }
 
     func toggleFullscreen() {

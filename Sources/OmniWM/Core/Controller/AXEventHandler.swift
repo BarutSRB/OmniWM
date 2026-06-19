@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import Foundation
 
@@ -2345,7 +2348,7 @@ final class AXEventHandler {
         controller.layoutRefreshController.requestImmediateRelayout(
             reason: .appActivationTransition,
             affectedWorkspaceIds: [
-                controller.workspaceManager.workspace(for: token) ?? workspaceId,
+                controller.workspaceManager.workspace(for: token) ?? workspaceId
             ]
         )
     }

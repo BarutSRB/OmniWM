@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
 import AppKit
 import ApplicationServices
 import Foundation
@@ -97,7 +100,10 @@ final class AppAXContext {
     private let axApp: ThreadGuardedValue<AXUIElement>
     private let windows: ThreadGuardedValue<[Int: AXUIElement]>
     private nonisolated(unsafe) var thread: Thread?
-    nonisolated var axThread: Thread? { thread }
+    nonisolated var axThread: Thread? {
+        thread
+    }
+
     private var activeFrameBatchJobs: [UUID: RunLoopJob] = [:]
     private let frameWriteGenerations = LockedWindowGenerationMap()
     let suppressedFrameWindowIds = LockedWindowIdSet()
