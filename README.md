@@ -429,6 +429,11 @@ Requirements:
 - macOS 15.0+
 - Ghostty's universal `libghostty.a` (build Ghostty and copy it to `Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a` so it includes both `arm64` and `x86_64`)
 
+## Related Forks
+
+- **[Nehir](https://github.com/apphane-dev/nehir)** is an endorsed OmniWM fork focused on a narrower, more opinionated Niri-style scrolling-column workflow. It may be friendlier for beginners who want guided defaults and a smaller feature surface, while OmniWM remains the broader upstream project with multiple layout modes and the full feature set.
+- **[choru-k/OmniWM](https://github.com/choru-k/OmniWM)** is an interesting personal OmniWM fork experimenting with opt-in workflow layers on top of upstream OmniWM, including zone anchors for the Niri strip, a configurable F13-F20 leader-key chord menu, tabbed-column keyboard cycling, and trackpad-friendly modifier resizing. It is best read as a power-user workflow branch rather than a replacement for the main OmniWM release.
+
 ## Support
 
 If you find OmniWM useful, consider supporting development:
