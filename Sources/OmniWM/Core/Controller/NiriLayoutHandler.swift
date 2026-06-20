@@ -201,13 +201,12 @@ import QuartzCore
 
     private func requestLayoutCommandRelayout(
         in workspaceId: WorkspaceDescriptor.ID,
-        postLayout: LayoutRefreshController.PostLayoutAction? = nil,
-        postLayoutDomains: InvalidationDomain = .layoutCommit
+        postLayout: LayoutRefreshController.PostLayoutAction? = nil
     ) {
         controller?.layoutRefreshController.requestLayoutCommandRelayout(
             affectedWorkspaceIds: [workspaceId],
             postLayout: postLayout,
-            postLayoutDomains: postLayoutDomains
+            postLayoutDomains: .layoutCommit
         )
     }
 
@@ -219,7 +218,7 @@ import QuartzCore
         controller?.workspaceManager.recordLayoutOperation(operation, in: workspaceId, source: source)
     }
 
-    func requestSelectedWindowFocusAfterLayout(in workspaceId: WorkspaceDescriptor.ID) {
+    func focusSelectedWindowAndRequestRelayout(in workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
         let viewportState = controller.workspaceManager.niriViewportState(for: workspaceId)
         if let selectedNodeId = viewportState.selectedNodeId,
@@ -1222,7 +1221,7 @@ import QuartzCore
                 plannedSeq: controller.workspaceManager.worldSeq
             )
         )
-        requestSelectedWindowFocusAfterLayout(in: wsId)
+        focusSelectedWindowAndRequestRelayout(in: wsId)
         return true
     }
 

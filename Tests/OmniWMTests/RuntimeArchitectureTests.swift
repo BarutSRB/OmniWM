@@ -1324,6 +1324,49 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testLayoutCommandPostLayoutRejectsLayoutInvalidation() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_060), windowId: 765_160),
+            pid: 765_060,
+            windowId: 765_160,
+            to: workspaceId
+        )
+        let blocker = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .layoutCommand,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        defer {
+            blocker.cancel()
+            controller.layoutRefreshController.layoutState.activeRefreshTask = nil
+            controller.layoutRefreshController.layoutState.activeRefresh = nil
+            controller.layoutRefreshController.layoutState.pendingRefresh = nil
+        }
+
+        var didRun = false
+        controller.layoutRefreshController.requestLayoutCommandRelayout(
+            affectedWorkspaceIds: [workspaceId]
+        ) {
+            didRun = true
+        }
+        let action = try XCTUnwrap(controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions
+            .first)
+        controller.workspaceManager.invalidateLayout(for: [workspaceId])
+
+        action.runIfCurrent(using: controller.workspaceManager)
+
+        XCTAssertFalse(didRun)
+    }
+
+    @MainActor
     func testResetStateDropsOldCancelledRefreshCompletion() async throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
@@ -2146,7 +2189,7 @@ final class RuntimeArchitectureTests: XCTestCase {
                 plannedSeq: controller.workspaceManager.worldSeq
             )
         )
-        controller.niriLayoutHandler.requestSelectedWindowFocusAfterLayout(in: workspaceId)
+        controller.niriLayoutHandler.focusSelectedWindowAndRequestRelayout(in: workspaceId)
 
         XCTAssertEqual(focusedTokens.last, selectedToken)
 
@@ -2154,6 +2197,212 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(focusedTokens.last, selectedToken)
         XCTAssertEqual(controller.workspaceManager.lastFocusedToken(in: workspaceId), staleLastFocusedToken)
+    }
+
+    @MainActor
+    func testNiriRapidFocusNavigationAppliesFinalSelectionSynchronously() throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        let firstToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_030), windowId: 765_130),
+            pid: 765_030,
+            windowId: 765_130,
+            to: workspaceId
+        )
+        let secondToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_031), windowId: 765_131),
+            pid: 765_031,
+            windowId: 765_131,
+            to: workspaceId
+        )
+        let thirdToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_032), windowId: 765_132),
+            pid: 765_032,
+            windowId: 765_132,
+            to: workspaceId
+        )
+        let engine = try XCTUnwrap(controller.niriEngine)
+        let firstNode = engine.addWindow(token: firstToken, to: workspaceId, afterSelection: nil)
+        let secondNode = engine.addWindow(
+            token: secondToken,
+            to: workspaceId,
+            afterSelection: firstNode.id,
+            focusedToken: firstToken
+        )
+        let thirdNode = engine.addWindow(
+            token: thirdToken,
+            to: workspaceId,
+            afterSelection: secondNode.id,
+            focusedToken: secondToken
+        )
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: firstNode.id,
+            focusedToken: firstToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+
+        let blocker = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .layoutCommand,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        defer {
+            blocker.cancel()
+            controller.layoutRefreshController.layoutState.activeRefreshTask = nil
+            controller.layoutRefreshController.layoutState.activeRefresh = nil
+            controller.layoutRefreshController.layoutState.pendingRefresh = nil
+        }
+
+        XCTAssertTrue(controller.niriLayoutHandler.focusNeighbor(direction: .right))
+        XCTAssertTrue(controller.niriLayoutHandler.focusNeighbor(direction: .right))
+        XCTAssertTrue(controller.niriLayoutHandler.focusNeighbor(direction: .left))
+
+        XCTAssertEqual(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId, secondNode.id)
+        XCTAssertEqual(thirdNode.token, thirdToken)
+        XCTAssertEqual(focusedTokens, [secondToken, thirdToken, secondToken])
+    }
+
+    @MainActor
+    func testDwindleFocusNeighborFocusesSelectedWindowSynchronously() throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        let engine = DwindleLayoutEngine()
+        engine.animationClock = controller.animationClock
+        controller.dwindleEngine = engine
+        let firstToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_040), windowId: 765_140),
+            pid: 765_040,
+            windowId: 765_140,
+            to: workspaceId
+        )
+        let secondToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_041), windowId: 765_141),
+            pid: 765_041,
+            windowId: 765_141,
+            to: workspaceId
+        )
+        let thirdToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_042), windowId: 765_142),
+            pid: 765_042,
+            windowId: 765_142,
+            to: workspaceId
+        )
+        _ = engine.addWindow(token: firstToken, to: workspaceId, activeWindowFrame: nil)
+        _ = engine.addWindow(token: secondToken, to: workspaceId, activeWindowFrame: nil)
+        _ = engine.addWindow(token: thirdToken, to: workspaceId, activeWindowFrame: nil)
+        _ = engine.calculateLayout(for: workspaceId, screen: CGRect(x: 0, y: 0, width: 1600, height: 1000))
+        let firstLeaf = try XCTUnwrap(engine.findNode(for: firstToken))
+        controller.workspaceManager.withEngineMutationScope {
+            engine.setSelectedNode(firstLeaf, in: workspaceId)
+        }
+
+        let blocker = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .layoutCommand,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        defer {
+            blocker.cancel()
+            controller.layoutRefreshController.layoutState.activeRefreshTask = nil
+            controller.layoutRefreshController.layoutState.activeRefresh = nil
+            controller.layoutRefreshController.layoutState.pendingRefresh = nil
+        }
+
+        XCTAssertTrue(controller.dwindleLayoutHandler.focusNeighbor(direction: .right))
+        XCTAssertTrue(controller.dwindleLayoutHandler.focusNeighbor(direction: .right))
+        XCTAssertTrue(controller.dwindleLayoutHandler.focusNeighbor(direction: .left))
+
+        XCTAssertEqual(focusedTokens, [secondToken, thirdToken, secondToken])
+        XCTAssertEqual(engine.selectedNode(in: workspaceId)?.windowToken, secondToken)
+    }
+
+    @MainActor
+    func testDwindleActivateWindowFocusesSynchronouslyWhenLayoutRefreshBlocked() throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        let engine = DwindleLayoutEngine()
+        engine.animationClock = controller.animationClock
+        controller.dwindleEngine = engine
+        let firstToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_050), windowId: 765_150),
+            pid: 765_050,
+            windowId: 765_150,
+            to: workspaceId
+        )
+        let secondToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_051), windowId: 765_151),
+            pid: 765_051,
+            windowId: 765_151,
+            to: workspaceId
+        )
+        _ = engine.addWindow(token: firstToken, to: workspaceId, activeWindowFrame: nil)
+        _ = engine.addWindow(token: secondToken, to: workspaceId, activeWindowFrame: nil)
+
+        let blocker = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .layoutCommand,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        defer {
+            blocker.cancel()
+            controller.layoutRefreshController.layoutState.activeRefreshTask = nil
+            controller.layoutRefreshController.layoutState.activeRefresh = nil
+            controller.layoutRefreshController.layoutState.pendingRefresh = nil
+        }
+
+        controller.dwindleLayoutHandler.activateWindow(firstToken, in: workspaceId, layoutRefresh: true)
+
+        XCTAssertEqual(focusedTokens, [firstToken])
     }
 
     @MainActor

@@ -168,11 +168,10 @@ import QuartzCore
                     plannedSeq: controller.workspaceManager.worldSeq
                 )
             )
+            controller.focusWindow(token)
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [wsId]
-            ) { [weak controller] in
-                controller?.focusWindow(token)
-            }
+            )
         }
         return didMove
     }
@@ -204,14 +203,11 @@ import QuartzCore
             )
         )
 
+        controller.focusWindow(token, origin: origin)
         if layoutRefresh {
             controller.layoutRefreshController.requestLayoutCommandRelayout(
                 affectedWorkspaceIds: [workspaceId]
-            ) { [weak controller] in
-                controller?.focusWindow(token, origin: origin)
-            }
-        } else {
-            controller.focusWindow(token, origin: origin)
+            )
         }
     }
 

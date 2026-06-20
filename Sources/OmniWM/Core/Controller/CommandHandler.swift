@@ -289,7 +289,7 @@ final class CommandHandler {
                 plannedSeq: controller.workspaceManager.worldSeq
             )
         )
-        controller.niriLayoutHandler.requestSelectedWindowFocusAfterLayout(in: wsId)
+        controller.niriLayoutHandler.focusSelectedWindowAndRequestRelayout(in: wsId)
 
         if controller.workspaceManager.animationDriver.hasMotion(in: wsId) {
             controller.layoutRefreshController.startScrollAnimation(for: wsId)
@@ -513,7 +513,7 @@ final class CommandHandler {
                 plannedSeq: controller.workspaceManager.worldSeq
             )
         )
-        controller.niriLayoutHandler.requestSelectedWindowFocusAfterLayout(in: wsId)
+        controller.niriLayoutHandler.focusSelectedWindowAndRequestRelayout(in: wsId)
     }
 
     private func moveWindow(direction: Direction) -> WindowMoveOutcome {
