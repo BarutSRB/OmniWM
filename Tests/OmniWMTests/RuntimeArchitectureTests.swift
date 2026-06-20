@@ -2080,7 +2080,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testNiriPostLayoutFocusRejectsFocusInvalidation() throws {
+    func testNiriPostLayoutFocusAppliesSynchronously() throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(
             windowFocusOperations: WindowFocusOperations(
@@ -2124,23 +2124,6 @@ final class RuntimeArchitectureTests: XCTestCase {
             in: workspaceId,
             onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
         )
-        let blocker = Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
-        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
-        controller.layoutRefreshController.layoutState.activeRefresh = .init(
-            kind: .immediateRelayout,
-            reason: .layoutCommand,
-            affectedWorkspaceIds: [workspaceId]
-        )
-        defer {
-            blocker.cancel()
-            controller.layoutRefreshController.layoutState.activeRefreshTask = nil
-            controller.layoutRefreshController.layoutState.activeRefresh = nil
-            controller.layoutRefreshController.layoutState.pendingRefresh = nil
-        }
 
         var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         controller.niriLayoutHandler.activateNode(
@@ -2164,13 +2147,12 @@ final class RuntimeArchitectureTests: XCTestCase {
             )
         )
         controller.niriLayoutHandler.requestSelectedWindowFocusAfterLayout(in: workspaceId)
-        let action = try XCTUnwrap(controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions
-            .first)
+
+        XCTAssertEqual(focusedTokens.last, selectedToken)
+
         _ = controller.workspaceManager.rememberFocus(staleLastFocusedToken, in: workspaceId)
 
-        action.runIfCurrent(using: controller.workspaceManager)
-
-        XCTAssertNil(focusedTokens.last)
+        XCTAssertEqual(focusedTokens.last, selectedToken)
         XCTAssertEqual(controller.workspaceManager.lastFocusedToken(in: workspaceId), staleLastFocusedToken)
     }
 

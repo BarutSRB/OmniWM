@@ -220,23 +220,15 @@ import QuartzCore
     }
 
     func requestSelectedWindowFocusAfterLayout(in workspaceId: WorkspaceDescriptor.ID) {
-        requestLayoutCommandRelayout(
-            in: workspaceId,
-            postLayout: { [weak controller] in
-                guard let controller else {
-                    return
-                }
-                let viewportState = controller.workspaceManager.niriViewportState(for: workspaceId)
-                guard let selectedNodeId = viewportState.selectedNodeId,
-                      let selectedWindow = controller.niriEngine?.findNode(by: selectedNodeId) as? NiriWindow,
-                      controller.workspaceManager.entry(for: selectedWindow.token)?.workspaceId == workspaceId
-                else {
-                    return
-                }
-                controller.focusWindow(selectedWindow.token)
-            },
-            postLayoutDomains: [.workspace, .layout, .focus, .fullscreen]
-        )
+        guard let controller else { return }
+        let viewportState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        if let selectedNodeId = viewportState.selectedNodeId,
+           let selectedWindow = controller.niriEngine?.findNode(by: selectedNodeId) as? NiriWindow,
+           controller.workspaceManager.entry(for: selectedWindow.token)?.workspaceId == workspaceId
+        {
+            controller.focusWindow(selectedWindow.token)
+        }
+        requestLayoutCommandRelayout(in: workspaceId)
     }
 
     func layoutWithNiriEngine(
