@@ -240,8 +240,9 @@ final class WMController {
             self?.endWorkspaceBarHoldVisibility()
         }
         hotkeys.onHyperTriggerActiveChanged = { [weak self] isActive in
-            guard let self, self.settings.workspaceBarVisibilityMode == .holdKey else { return }
+            guard let self else { return }
             if isActive {
+                guard self.settings.workspaceBarVisibilityMode == .holdKey else { return }
                 self.beginWorkspaceBarHoldVisibility()
             } else {
                 self.endWorkspaceBarHoldVisibility()
