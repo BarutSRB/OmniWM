@@ -168,6 +168,12 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var workspaceBarVisibilityMode = WorkspaceBarVisibilityMode(
+        rawValue: SettingsStore.defaultExport.workspaceBarVisibilityMode
+    ) ?? .always {
+        didSet { scheduleSave() }
+    }
+
     var workspaceBarShowLabels = SettingsStore.defaultExport.workspaceBarShowLabels {
         didSet { scheduleSave() }
     }
@@ -549,6 +555,7 @@ final class SettingsStore {
             hotkeyBindings: hotkeyBindings,
             systemHyperTrigger: systemHyperTrigger,
             workspaceBarEnabled: workspaceBarEnabled,
+            workspaceBarVisibilityMode: workspaceBarVisibilityMode.rawValue,
             workspaceBarShowLabels: workspaceBarShowLabels,
             workspaceBarShowFloatingWindows: workspaceBarShowFloatingWindows,
             workspaceBarWindowLevel: workspaceBarWindowLevel.rawValue,
@@ -656,6 +663,7 @@ final class SettingsStore {
         systemHyperTrigger = export.systemHyperTrigger
 
         workspaceBarEnabled = export.workspaceBarEnabled
+        workspaceBarVisibilityMode = WorkspaceBarVisibilityMode(rawValue: export.workspaceBarVisibilityMode) ?? .always
         workspaceBarShowLabels = export.workspaceBarShowLabels
         workspaceBarShowFloatingWindows = export.workspaceBarShowFloatingWindows
         workspaceBarWindowLevel = WorkspaceBarWindowLevel(rawValue: export.workspaceBarWindowLevel) ?? .popup

@@ -58,6 +58,15 @@ private struct GlobalBarSettingsSection: View {
                 }
 
             if settings.workspaceBarEnabled {
+                Picker("Show", selection: $settings.workspaceBarVisibilityMode) {
+                    ForEach(WorkspaceBarVisibilityMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .onChange(of: settings.workspaceBarVisibilityMode) { _, _ in
+                    controller.updateWorkspaceBarSettings()
+                }
+
                 Toggle("Show Workspace Labels", isOn: $settings.workspaceBarShowLabels)
                     .onChange(of: settings.workspaceBarShowLabels) { _, _ in
                         controller.updateWorkspaceBarSettings()

@@ -196,19 +196,26 @@ struct HyperTriggerStateMachine: Equatable {
 @MainActor
 final class HotkeyCenter {
     var onCommand: ((HotkeyCommand) -> Void)?
+    var onCommandRelease: ((HotkeyCommand) -> Void)?
+    var onHyperTriggerActiveChanged: ((Bool) -> Void)?
 
     private var refs: [EventHotKeyRef?] = []
     private var handler: EventHandlerRef?
     private var isRunning = false
     private var commandHotkeysSuspended = false
     private var idToCommand: [UInt32: HotkeyCommand] = [:]
+    private var activeMomentaryCommands: Set<HotkeyCommand> = []
 
     private var configuration = HotkeyRuntimeConfiguration()
     private var sideSpecificDispatch: [CommandHotkeyTapMatcher.Entry] = []
     private var suppressedHotkeyKeyCodes: Set<UInt32> = []
+    private var suppressedKeyDownCommands: [UInt32: HotkeyCommand] = [:]
     private var hyperTriggerTap: CFMachPort?
     private var hyperTriggerRunLoopSource: CFRunLoopSource?
     private var hyperTrigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
+    private var previousHyperTriggerActive = false
+    private var modifierChordWatchEnabled = false
+    private var modifierChordActive = false
     private let capsLockHyperRemapper = CapsLockHyperRemapper()
     private let capsLockToggler = CapsLockToggler()
     private var capsLockHyperRemapActive = false
@@ -237,7 +244,10 @@ final class HotkeyCenter {
         guard !isRunning else { return }
         isRunning = true
 
-        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventSpecs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let callback: EventHandlerUPP = { _, event, userData in
             guard let userData, let event else { return noErr }
             let center = Unmanaged<HotkeyCenter>.fromOpaque(userData).takeUnretainedValue()
@@ -251,13 +261,14 @@ final class HotkeyCenter {
                 nil,
                 &hotKeyID
             )
+            let eventKind = GetEventKind(event)
             MainActor.assumeIsolated {
-                center.dispatch(id: hotKeyID.id)
+                center.dispatch(id: hotKeyID.id, isRelease: eventKind == UInt32(kEventHotKeyReleased))
             }
             return noErr
         }
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventSpec, selfPtr, &handler)
+        InstallEventHandler(GetApplicationEventTarget(), callback, 2, &eventSpecs, selfPtr, &handler)
 
         refreshCommandHotkeyRegistrations()
     }
@@ -299,6 +310,7 @@ final class HotkeyCenter {
     }
 
     private func unregisterCommandHotkeys() {
+        releaseActiveMomentaryCommands()
         for ref in refs {
             if let ref { UnregisterEventHotKey(ref) }
         }
@@ -311,9 +323,14 @@ final class HotkeyCenter {
         restoreCapsLockHyperRemap()
         systemHyperTriggerFailure = nil
         hyperTrigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
+        modifierChordWatchEnabled = false
+        modifierChordActive = false
 
         let hyperEnabled = configuration.systemHyperTrigger.isEnabled
-        guard hyperEnabled || !sideSpecificDispatch.isEmpty else { return }
+        let hasMomentary = configuration.bindings.contains { $0.command.isMomentary }
+        let needsTap = hyperEnabled || !sideSpecificDispatch.isEmpty || hasMomentary
+
+        guard needsTap else { return }
 
         if hyperEnabled {
             if activateCapsLockHyperRemapIfNeeded() {
@@ -324,6 +341,8 @@ final class HotkeyCenter {
             } else {
                 systemHyperTriggerFailure = .capsLockRemapUnavailable
             }
+        } else if hasMomentary {
+            modifierChordWatchEnabled = true
         }
 
         if !setupHyperTriggerTapIfNeeded() {
@@ -332,6 +351,7 @@ final class HotkeyCenter {
             }
             restoreCapsLockHyperRemap()
             hyperTrigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
+            modifierChordWatchEnabled = false
         }
     }
 
@@ -382,9 +402,33 @@ final class HotkeyCenter {
         }
     }
 
-    private func dispatch(id: UInt32) {
+    private func dispatch(id: UInt32, isRelease: Bool = false) {
         guard let command = idToCommand[id] else { return }
+        if isRelease {
+            if command.isMomentary, activeMomentaryCommands.remove(command) != nil {
+                onCommandRelease?(command)
+            }
+            return
+        }
+        if command.isMomentary {
+            guard activeMomentaryCommands.insert(command).inserted else { return }
+        }
         onCommand?(command)
+    }
+
+    private func releaseActiveMomentaryCommands() {
+        let commands = activeMomentaryCommands
+        activeMomentaryCommands.removeAll()
+        for command in commands {
+            onCommandRelease?(command)
+        }
+    }
+
+    private func checkHyperTriggerActiveChanged() {
+        let isActive = hyperTrigger.isActive || modifierChordActive
+        guard previousHyperTriggerActive != isActive else { return }
+        previousHyperTriggerActive = isActive
+        onHyperTriggerActiveChanged?(isActive)
     }
 
     private func activateCapsLockHyperRemapIfNeeded() -> Bool {
@@ -438,7 +482,11 @@ final class HotkeyCenter {
 
     private func stopHyperTriggerTap() {
         hyperTrigger.reset()
+        modifierChordActive = false
+        checkHyperTriggerActiveChanged()
         suppressedHotkeyKeyCodes.removeAll()
+        suppressedKeyDownCommands.removeAll()
+        releaseActiveMomentaryCommands()
         if let source = hyperTriggerRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             hyperTriggerRunLoopSource = nil
@@ -450,29 +498,40 @@ final class HotkeyCenter {
     }
 
     private func handleHyperTriggerEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let result: Unmanaged<CGEvent>?
         switch type {
         case .tapDisabledByTimeout:
             if let tap = hyperTriggerTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
             hyperTrigger.reset()
+            modifierChordActive = false
             suppressedHotkeyKeyCodes.removeAll()
+            suppressedKeyDownCommands.removeAll()
+            releaseActiveMomentaryCommands()
+            checkHyperTriggerActiveChanged()
             return Unmanaged.passUnretained(event)
         case .tapDisabledByUserInput:
             hyperTrigger.reset()
+            modifierChordActive = false
             suppressedHotkeyKeyCodes.removeAll()
+            suppressedKeyDownCommands.removeAll()
+            releaseActiveMomentaryCommands()
+            checkHyperTriggerActiveChanged()
             return Unmanaged.passUnretained(event)
         case .keyDown,
              .keyUp:
-            return handleHyperTriggerKeyEvent(type: type, event: event)
+            result = handleHyperTriggerKeyEvent(type: type, event: event)
         case .flagsChanged:
-            return handleHyperTriggerFlagsChanged(event)
+            result = handleHyperTriggerFlagsChanged(event)
         case .otherMouseDown,
              .otherMouseUp:
-            return handleHyperTriggerMouseEvent(type: type, event: event)
+            result = handleHyperTriggerMouseEvent(type: type, event: event)
         default:
             return Unmanaged.passUnretained(event)
         }
+        checkHyperTriggerActiveChanged()
+        return result
     }
 
     private func handleHyperTriggerKeyEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -502,12 +561,22 @@ final class HotkeyCenter {
                )
             {
                 suppressedHotkeyKeyCodes.insert(keyCode)
+                suppressedKeyDownCommands[keyCode] = command
+                if command.isMomentary {
+                    guard activeMomentaryCommands.insert(command).inserted else { return nil }
+                }
                 onCommand?(command)
                 return nil
             }
             return Unmanaged.passUnretained(event)
         case .keyUp:
             if suppressedHotkeyKeyCodes.remove(keyCode) != nil {
+                if let command = suppressedKeyDownCommands.removeValue(forKey: keyCode),
+                   command.isMomentary,
+                   activeMomentaryCommands.remove(command) != nil
+                {
+                    onCommandRelease?(command)
+                }
                 return nil
             }
             return applyHyperTriggerDecision(
@@ -520,6 +589,10 @@ final class HotkeyCenter {
     }
 
     private func handleHyperTriggerFlagsChanged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        if modifierChordWatchEnabled {
+            let flags = event.flags.rawValue
+            modifierChordActive = (flags & Self.hyperFlagMask) == Self.hyperFlagMask
+        }
         let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
         return applyHyperTriggerDecision(
             hyperTrigger.handleFlagsChanged(keyCode: keyCode, rawFlags: event.flags.rawValue),

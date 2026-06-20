@@ -810,6 +810,13 @@ enum ActionCatalog {
                 keywords: ["workspace bar", "bar"]
             ),
             action(
+                id: "holdWorkspaceBarVisibility",
+                command: .holdWorkspaceBarVisibility,
+                category: .focus,
+                binding: .unassigned,
+                keywords: ["workspace bar", "bar", "hold", "show while pressed"]
+            ),
+            action(
                 id: "toggleHiddenBar",
                 command: .toggleHiddenBar,
                 category: .focus,
@@ -947,6 +954,7 @@ enum ActionCatalog {
              .toggleScratchpadWindow,
              .openMenuAnywhere,
              .toggleWorkspaceBarVisibility,
+             .holdWorkspaceBarVisibility,
              .toggleHiddenBar,
              .toggleQuakeTerminal,
              .toggleWorkspaceLayout,
@@ -1032,6 +1040,7 @@ enum ActionCatalog {
         case .toggleScratchpadWindow: "Toggle Scratchpad Window"
         case .openMenuAnywhere: "Open Menu Anywhere"
         case .toggleWorkspaceBarVisibility: "Toggle Workspace Bar"
+        case .holdWorkspaceBarVisibility: "Hold Workspace Bar"
         case .toggleHiddenBar: "Toggle Hidden Bar"
         case .toggleQuakeTerminal: "Toggle Quake Terminal"
         case .toggleWorkspaceLayout: "Toggle Workspace Layout"
@@ -1189,6 +1198,8 @@ enum ActionCatalog {
             .toggleQuakeTerminal
         case .toggleWorkspaceBarVisibility:
             .toggleWorkspaceBar
+        case .holdWorkspaceBarVisibility:
+            nil
         case .toggleHiddenBar:
             .toggleHiddenBar
         case .toggleFocusedWindowFloating:

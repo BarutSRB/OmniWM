@@ -106,6 +106,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
 
     struct WorkspaceBar: Codable, Equatable {
         var enabled: Bool
+        var visibilityMode: String
         var showLabels: Bool
         var showFloatingWindows: Bool
         var windowLevel: String
@@ -121,6 +122,64 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var labelFontSize: Double
         var accentColor: Color?
         var textColor: Color?
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case visibilityMode
+            case showLabels
+            case showFloatingWindows
+            case windowLevel
+            case position
+            case notchAware
+            case deduplicateAppIcons
+            case hideEmptyWorkspaces
+            case reserveLayoutSpace
+            case height
+            case backgroundOpacity
+            case xOffset
+            case yOffset
+            case labelFontSize
+            case accentColor
+            case textColor
+        }
+
+        init(
+            enabled: Bool,
+            visibilityMode: String,
+            showLabels: Bool,
+            showFloatingWindows: Bool,
+            windowLevel: String,
+            position: String,
+            notchAware: Bool,
+            deduplicateAppIcons: Bool,
+            hideEmptyWorkspaces: Bool,
+            reserveLayoutSpace: Bool,
+            height: Double,
+            backgroundOpacity: Double,
+            xOffset: Double,
+            yOffset: Double,
+            labelFontSize: Double,
+            accentColor: Color?,
+            textColor: Color?
+        ) {
+            self.enabled = enabled
+            self.visibilityMode = visibilityMode
+            self.showLabels = showLabels
+            self.showFloatingWindows = showFloatingWindows
+            self.windowLevel = windowLevel
+            self.position = position
+            self.notchAware = notchAware
+            self.deduplicateAppIcons = deduplicateAppIcons
+            self.hideEmptyWorkspaces = hideEmptyWorkspaces
+            self.reserveLayoutSpace = reserveLayoutSpace
+            self.height = height
+            self.backgroundOpacity = backgroundOpacity
+            self.xOffset = xOffset
+            self.yOffset = yOffset
+            self.labelFontSize = labelFontSize
+            self.accentColor = accentColor
+            self.textColor = textColor
+        }
 
         struct Color: Codable, Equatable {
             var red: Double
@@ -637,6 +696,12 @@ extension CanonicalTOMLConfig.WorkspaceBar {
         let defaults = CanonicalTOMLConfig.recoveryDefaults().workspaceBar
 
         enabled = try container.decode(Bool.self, forKey: .enabled, default: defaults.enabled, recovering: recovering)
+        visibilityMode = try container.decode(
+            String.self,
+            forKey: .visibilityMode,
+            default: defaults.visibilityMode,
+            recovering: recovering
+        )
         showLabels = try container.decode(
             Bool.self,
             forKey: .showLabels,
@@ -941,6 +1006,7 @@ extension CanonicalTOMLConfig {
         )
         workspaceBar = WorkspaceBar(
             enabled: export.workspaceBarEnabled,
+            visibilityMode: export.workspaceBarVisibilityMode,
             showLabels: export.workspaceBarShowLabels,
             showFloatingWindows: export.workspaceBarShowFloatingWindows,
             windowLevel: export.workspaceBarWindowLevel,
@@ -1034,6 +1100,7 @@ extension CanonicalTOMLConfig {
             hotkeyBindings: HotkeyBindingRegistry.migrateLegacyDefaultWorkspaceBindings(hotkeys),
             systemHyperTrigger: general.systemHyperTrigger,
             workspaceBarEnabled: workspaceBar.enabled,
+            workspaceBarVisibilityMode: workspaceBar.visibilityMode,
             workspaceBarShowLabels: workspaceBar.showLabels,
             workspaceBarShowFloatingWindows: workspaceBar.showFloatingWindows,
             workspaceBarWindowLevel: workspaceBar.windowLevel,
