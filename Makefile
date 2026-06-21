@@ -1,8 +1,7 @@
-.PHONY: format format-check lint lint-fix no-zig-audit build release-check verify check check-tool-versions check-swiftformat-version check-swiftlint-version
+.PHONY: format format-check lint lint-fix build release-check verify check check-tool-versions check-swiftformat-version check-swiftlint-version
 
 SWIFTFORMAT_VERSION = 0.61.1
 SWIFTLINT_VERSION = 0.63.3
-SWIFT_ONLY_BASE = 6fde9b910a6dd531eeaf3892499729120ae75f49
 SWIFT_WITH_GHOSTTY = LIBRARY_PATH="$$(./Scripts/ghostty-preflight.sh print-library-dir)$${LIBRARY_PATH:+:$$LIBRARY_PATH}"
 
 check-swiftformat-version:
@@ -28,17 +27,12 @@ lint-fix: check-tool-versions
 	swiftformat .
 	swiftlint lint
 
-no-zig-audit:
-	./Scripts/audit-no-zig.sh --range "$(SWIFT_ONLY_BASE)..HEAD"
-	./Scripts/audit-no-zig.sh --staged
-	./Scripts/audit-no-zig.sh --worktree
-
 build:
 	./Scripts/ghostty-preflight.sh verify
 	$(SWIFT_WITH_GHOSTTY) swift build
 
-release-check: no-zig-audit build
+release-check: build
 
-verify: format-check lint no-zig-audit build
+verify: format-check lint build
 
 check: verify

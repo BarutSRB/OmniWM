@@ -16,9 +16,7 @@ Bug fixes, documentation improvements, performance work, focused cleanups, featu
 ## Project Direction
 
 - Refactors are fine when they solve a real problem, but they should come with a detailed reason. Explain what is not working well today, why the refactor is needed, and what it improves.
-- Low-level rewrites in **C** or **Zig** are **very welcome** when there is a strong technical reason they fit the problem better, especially for macOS specific or performance sensitive work.
-- Otherwise, please keep contributions in Swift so the codebase stays cohesive.
-- Rust rewrites are not a project direction for OmniWM. For this project on macOS, C or Zig is a better fit when Swift is not the right tool.
+- Please keep contributions in Swift so the codebase stays cohesive.
 
 ## Before Opening a Pull Request
 

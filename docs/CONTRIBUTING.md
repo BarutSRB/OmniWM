@@ -18,6 +18,4 @@ This page stays short on purpose so the actual project rules only have one sourc
 ## Project Direction at a Glance
 
 - Refactors are welcome when they come with a detailed reason and a clear benefit.
-- **C** or **Zig** rewrites are **very welcome** where there is a strong technical reason they fit better.
-- Otherwise, keep contributions in Swift.
-- Rust rewrites are not a project direction for OmniWM.
+- Keep contributions in Swift.
