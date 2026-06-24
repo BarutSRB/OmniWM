@@ -29,12 +29,13 @@ final class SponsorsWindowController {
         let hosting = NSHostingController(rootView: makeSponsorsView())
         let window = NSWindow(contentViewController: hosting)
         window.title = "Omni Sponsors"
-        window.styleMask = [.titled, .fullSizeContentView]
+        window.styleMask = [.titled, .resizable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.setContentSize(NSSize(width: 700, height: 400))
+        window.setContentSize(NSSize(width: 640, height: 540))
+        window.minSize = NSSize(width: 480, height: 440)
         window.center()
         window.isReleasedWhenClosed = false
         ownedWindowRegistry.register(window)

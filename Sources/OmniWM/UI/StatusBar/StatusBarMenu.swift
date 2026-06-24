@@ -6,7 +6,7 @@ import AppKit
 private let menuWidth: CGFloat = 280
 
 @MainActor
-private func applyCurrentAppAppearance(to view: NSView) {
+func applyCurrentAppAppearance(to view: NSView) {
     view.appearance = NSApplication.shared.appearance
 }
 
@@ -24,6 +24,7 @@ final class StatusBarMenuBuilder {
     var updateCoordinator: (any AppUpdateCoordinating)?
 
     private var toggleViews: [String: MenuToggleRowView] = [:]
+    private var toggleGrid: MenuToggleGridView?
 
     init(settings: SettingsStore, controller: WMController) {
         self.settings = settings
@@ -58,6 +59,7 @@ final class StatusBarMenuBuilder {
 
     func buildMenu() -> NSMenu {
         toggleViews.removeAll(keepingCapacity: true)
+        toggleGrid = nil
 
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -73,25 +75,11 @@ final class StatusBarMenuBuilder {
         addSeparateSpacesWarning(to: menu)
 
         menu.addItem(createSectionLabel("CONTROLS"))
-        addControlsSection(to: menu)
+        addControlsGrid(to: menu)
 
         menu.addItem(createDivider())
 
-        if ipcMenuEnabled {
-            menu.addItem(createSectionLabel("IPC / CLI"))
-            addIPCSection(to: menu)
-            menu.addItem(createDivider())
-        }
-
-        menu.addItem(createSectionLabel("SETTINGS"))
-        addSettingsSection(to: menu)
-
-        menu.addItem(createDivider())
-
-        addDiagnosticsSection(to: menu)
-
-        menu.addItem(createSectionLabel("LINKS"))
-        addLinksSection(to: menu)
+        addPrimaryActions(to: menu)
 
         menu.addItem(createDivider())
 
@@ -105,14 +93,15 @@ final class StatusBarMenuBuilder {
     }
 
     func updateToggles() {
-        toggleViews["focusFollowsMouse"]?.isOn = settings.focusFollowsMouse
-        toggleViews["focusFollowsWindowToMonitor"]?.isOn = settings.focusFollowsWindowToMonitor
-        toggleViews["focusCrossesMonitorAtEdge"]?.isOn = settings.focusCrossesMonitorAtEdge
-        toggleViews["moveCrossesMonitorAtEdge"]?.isOn = settings.moveCrossesMonitorAtEdge
-        toggleViews["moveMouseToFocusedWindow"]?.isOn = settings.moveMouseToFocusedWindow
-        toggleViews["bordersEnabled"]?.isOn = settings.bordersEnabled
-        toggleViews["workspaceBarEnabled"]?.isOn = settings.workspaceBarEnabled
-        toggleViews["preventSleepEnabled"]?.isOn = settings.preventSleepEnabled
+        toggleGrid?.setOn(settings.focusFollowsMouse, forKey: "focusFollowsMouse")
+        toggleGrid?.setOn(settings.focusFollowsWindowToMonitor, forKey: "focusFollowsWindowToMonitor")
+        toggleGrid?.setOn(settings.focusCrossesMonitorAtEdge, forKey: "focusCrossesMonitorAtEdge")
+        toggleGrid?.setOn(settings.moveCrossesMonitorAtEdge, forKey: "moveCrossesMonitorAtEdge")
+        toggleGrid?.setOn(settings.moveMouseToFocusedWindow, forKey: "moveMouseToFocusedWindow")
+        toggleGrid?.setOn(settings.mouseWarpEnabled, forKey: "mouseWarpEnabled")
+        toggleGrid?.setOn(settings.bordersEnabled, forKey: "bordersEnabled")
+        toggleGrid?.setOn(settings.workspaceBarEnabled, forKey: "workspaceBarEnabled")
+        toggleGrid?.setOn(settings.preventSleepEnabled, forKey: "preventSleepEnabled")
         toggleViews["ipcEnabled"]?.isOn = settings.ipcEnabled
     }
 
@@ -170,9 +159,8 @@ final class StatusBarMenuBuilder {
         return item
     }
 
-    private func addDiagnosticsSection(to menu: NSMenu) {
+    private func addDiagnosticsRows(to menu: NSMenu) {
         guard let controller else { return }
-        menu.addItem(createSectionLabel("TROUBLESHOOTING"))
 
         let recording = controller.isTraceCaptureActive
         let recordRow = MenuActionRowView(
@@ -217,134 +205,105 @@ final class StatusBarMenuBuilder {
         let openItem = NSMenuItem()
         openItem.view = openRow
         menu.addItem(openItem)
-
-        menu.addItem(createDivider())
     }
 
-    private func addControlsSection(to menu: NSMenu) {
-        let focusToggle = MenuToggleRowView(
-            icon: "cursorarrow.motionlines",
-            label: "Focus Follows Mouse",
-            isOn: settings.focusFollowsMouse,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.focusFollowsMouse = newValue
-            self?.controller?.setFocusFollowsMouse(newValue)
-        }
-        toggleViews["focusFollowsMouse"] = focusToggle
-        let focusItem = NSMenuItem()
-        focusItem.view = focusToggle
-        menu.addItem(focusItem)
+    private func addControlsGrid(to menu: NSMenu) {
+        let grid = MenuToggleGridView(width: menuWidth, configs: controlTileConfigs(), motionPolicy: motionPolicy)
+        toggleGrid = grid
+        let item = NSMenuItem()
+        item.view = grid
+        menu.addItem(item)
+    }
 
-        let followMoveToggle = MenuToggleRowView(
-            icon: "arrow.right.square",
-            label: "Follow Window to Monitor",
-            isOn: settings.focusFollowsWindowToMonitor,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.focusFollowsWindowToMonitor = newValue
-        }
-        toggleViews["focusFollowsWindowToMonitor"] = followMoveToggle
-        let followMoveItem = NSMenuItem()
-        followMoveItem.view = followMoveToggle
-        menu.addItem(followMoveItem)
-
-        let crossMonitorToggle = MenuToggleRowView(
-            icon: "display.2",
-            label: "Focus Across Monitor at Edge",
-            isOn: settings.focusCrossesMonitorAtEdge,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.focusCrossesMonitorAtEdge = newValue
-        }
-        toggleViews["focusCrossesMonitorAtEdge"] = crossMonitorToggle
-        let crossMonitorItem = NSMenuItem()
-        crossMonitorItem.view = crossMonitorToggle
-        menu.addItem(crossMonitorItem)
-
-        let moveCrossMonitorToggle = MenuToggleRowView(
-            icon: "macwindow.on.rectangle",
-            label: "Move Window Across Monitor at Edge",
-            isOn: settings.moveCrossesMonitorAtEdge,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.moveCrossesMonitorAtEdge = newValue
-        }
-        toggleViews["moveCrossesMonitorAtEdge"] = moveCrossMonitorToggle
-        let moveCrossMonitorItem = NSMenuItem()
-        moveCrossMonitorItem.view = moveCrossMonitorToggle
-        menu.addItem(moveCrossMonitorItem)
-
-        let mouseWarpToggle = MenuToggleRowView(
-            icon: "arrow.left.arrow.right",
-            label: "Mouse Warp",
-            isOn: settings.mouseWarpEnabled,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.mouseWarpEnabled = newValue
-        }
-        toggleViews["mouseWarpEnabled"] = mouseWarpToggle
-        let mouseWarpItem = NSMenuItem()
-        mouseWarpItem.view = mouseWarpToggle
-        menu.addItem(mouseWarpItem)
-
-        let mouseToFocusedToggle = MenuToggleRowView(
-            icon: "arrow.up.left.and.down.right.magnifyingglass",
-            label: "Mouse to Focused",
-            isOn: settings.moveMouseToFocusedWindow,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.moveMouseToFocusedWindow = newValue
-            self?.controller?.setMoveMouseToFocusedWindow(newValue)
-        }
-        toggleViews["moveMouseToFocusedWindow"] = mouseToFocusedToggle
-        let mouseItem = NSMenuItem()
-        mouseItem.view = mouseToFocusedToggle
-        menu.addItem(mouseItem)
-
-        menu.addItem(createDivider())
-
-        let bordersToggle = MenuToggleRowView(
-            icon: "square.dashed",
-            label: "Window Borders",
-            isOn: settings.bordersEnabled,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.bordersEnabled = newValue
-            self?.controller?.borderSettingsChanged()
-        }
-        toggleViews["bordersEnabled"] = bordersToggle
-        let bordersItem = NSMenuItem()
-        bordersItem.view = bordersToggle
-        menu.addItem(bordersItem)
-
-        let workspaceBarToggle = MenuToggleRowView(
-            icon: "menubar.rectangle",
-            label: "Workspace Bar",
-            isOn: settings.workspaceBarEnabled,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.workspaceBarEnabled = newValue
-            self?.controller?.setWorkspaceBarEnabled(newValue)
-        }
-        toggleViews["workspaceBarEnabled"] = workspaceBarToggle
-        let workspaceItem = NSMenuItem()
-        workspaceItem.view = workspaceBarToggle
-        menu.addItem(workspaceItem)
-
-        let keepAwakeToggle = MenuToggleRowView(
-            icon: "moon.zzz",
-            label: "Keep Awake",
-            isOn: settings.preventSleepEnabled,
-            motionPolicy: motionPolicy
-        ) { [weak self] newValue in
-            self?.settings.preventSleepEnabled = newValue
-            self?.controller?.setPreventSleepEnabled(newValue)
-        }
-        toggleViews["preventSleepEnabled"] = keepAwakeToggle
-        let keepAwakeItem = NSMenuItem()
-        keepAwakeItem.view = keepAwakeToggle
-        menu.addItem(keepAwakeItem)
+    private func controlTileConfigs() -> [MenuToggleTileConfig] {
+        [
+            MenuToggleTileConfig(
+                key: "bordersEnabled",
+                icon: "square.dashed",
+                label: "Borders",
+                accessibilityName: "Window Borders",
+                isOn: settings.bordersEnabled
+            ) { [weak self] newValue in
+                self?.settings.bordersEnabled = newValue
+                self?.controller?.borderSettingsChanged()
+            },
+            MenuToggleTileConfig(
+                key: "workspaceBarEnabled",
+                icon: "menubar.rectangle",
+                label: "Workspace Bar",
+                accessibilityName: "Workspace Bar",
+                isOn: settings.workspaceBarEnabled
+            ) { [weak self] newValue in
+                self?.settings.workspaceBarEnabled = newValue
+                self?.controller?.setWorkspaceBarEnabled(newValue)
+            },
+            MenuToggleTileConfig(
+                key: "preventSleepEnabled",
+                icon: "moon.zzz",
+                label: "Keep Awake",
+                accessibilityName: "Keep Awake",
+                isOn: settings.preventSleepEnabled
+            ) { [weak self] newValue in
+                self?.settings.preventSleepEnabled = newValue
+                self?.controller?.setPreventSleepEnabled(newValue)
+            },
+            MenuToggleTileConfig(
+                key: "focusFollowsMouse",
+                icon: "cursorarrow.motionlines",
+                label: "Focus Mouse",
+                accessibilityName: "Focus Follows Mouse",
+                isOn: settings.focusFollowsMouse
+            ) { [weak self] newValue in
+                self?.settings.focusFollowsMouse = newValue
+                self?.controller?.setFocusFollowsMouse(newValue)
+            },
+            MenuToggleTileConfig(
+                key: "focusCrossesMonitorAtEdge",
+                icon: "display.2",
+                label: "Focus Edge",
+                accessibilityName: "Focus Across Monitor at Edge",
+                isOn: settings.focusCrossesMonitorAtEdge
+            ) { [weak self] newValue in
+                self?.settings.focusCrossesMonitorAtEdge = newValue
+            },
+            MenuToggleTileConfig(
+                key: "moveMouseToFocusedWindow",
+                icon: "arrow.up.left.and.down.right.magnifyingglass",
+                label: "Mouse to Focused",
+                accessibilityName: "Mouse to Focused",
+                isOn: settings.moveMouseToFocusedWindow
+            ) { [weak self] newValue in
+                self?.settings.moveMouseToFocusedWindow = newValue
+                self?.controller?.setMoveMouseToFocusedWindow(newValue)
+            },
+            MenuToggleTileConfig(
+                key: "focusFollowsWindowToMonitor",
+                icon: "arrow.right.square",
+                label: "Follow Monitor",
+                accessibilityName: "Follow Window to Monitor",
+                isOn: settings.focusFollowsWindowToMonitor
+            ) { [weak self] newValue in
+                self?.settings.focusFollowsWindowToMonitor = newValue
+            },
+            MenuToggleTileConfig(
+                key: "moveCrossesMonitorAtEdge",
+                icon: "macwindow.on.rectangle",
+                label: "Move Edge",
+                accessibilityName: "Move Window Across Monitor at Edge",
+                isOn: settings.moveCrossesMonitorAtEdge
+            ) { [weak self] newValue in
+                self?.settings.moveCrossesMonitorAtEdge = newValue
+            },
+            MenuToggleTileConfig(
+                key: "mouseWarpEnabled",
+                icon: "arrow.left.arrow.right",
+                label: "Mouse Warp",
+                accessibilityName: "Mouse Warp",
+                isOn: settings.mouseWarpEnabled
+            ) { [weak self] newValue in
+                self?.settings.mouseWarpEnabled = newValue
+            }
+        ]
     }
 
     private func addIPCSection(to menu: NSMenu) {
@@ -395,33 +354,7 @@ final class StatusBarMenuBuilder {
         menu.addItem(item)
     }
 
-    private func addSettingsSection(to menu: NSMenu) {
-        if checkForUpdatesAction != nil {
-            let updatesRow = MenuActionRowView(
-                icon: "arrow.down.circle",
-                label: "Check for Updates...",
-                motionPolicy: motionPolicy
-            ) { [weak self] in
-                self?.performCheckForUpdatesAction()
-            }
-            let updatesItem = NSMenuItem()
-            updatesItem.view = updatesRow
-            menu.addItem(updatesItem)
-        }
-
-        let appRulesRow = MenuActionRowView(
-            icon: "slider.horizontal.3",
-            label: "App Rules",
-            showChevron: true,
-            motionPolicy: motionPolicy
-        ) { [weak self] in
-            guard let self, let controller = self.controller else { return }
-            AppRulesWindowController.shared.show(settings: self.settings, controller: controller)
-        }
-        let appRulesItem = NSMenuItem()
-        appRulesItem.view = appRulesRow
-        menu.addItem(appRulesItem)
-
+    private func addPrimaryActions(to menu: NSMenu) {
         let settingsRow = MenuActionRowView(
             icon: "gearshape",
             label: "Settings",
@@ -439,8 +372,82 @@ final class StatusBarMenuBuilder {
         settingsItem.view = settingsRow
         menu.addItem(settingsItem)
 
-        menu.addItem(createSectionLabel("SETTINGS FILE"))
+        let appRulesRow = MenuActionRowView(
+            icon: "slider.horizontal.3",
+            label: "App Rules",
+            showChevron: true,
+            motionPolicy: motionPolicy
+        ) { [weak self] in
+            guard let self, let controller = self.controller else { return }
+            AppRulesWindowController.shared.show(settings: self.settings, controller: controller)
+        }
+        let appRulesItem = NSMenuItem()
+        appRulesItem.view = appRulesRow
+        menu.addItem(appRulesItem)
 
+        if checkForUpdatesAction != nil {
+            let updatesRow = MenuActionRowView(
+                icon: "arrow.down.circle",
+                label: "Check for Updates...",
+                motionPolicy: motionPolicy
+            ) { [weak self] in
+                self?.performCheckForUpdatesAction()
+            }
+            let updatesItem = NSMenuItem()
+            updatesItem.view = updatesRow
+            menu.addItem(updatesItem)
+        }
+
+        menu.addItem(createDivider())
+
+        menu.addItem(submenuParent(title: "Advanced", icon: "slider.horizontal.3", submenu: buildAdvancedSubmenu()))
+        menu.addItem(submenuParent(title: "Diagnostics", icon: "stethoscope", submenu: buildDiagnosticsSubmenu()))
+        menu.addItem(submenuParent(
+            title: "Help & Links",
+            icon: "questionmark.circle",
+            submenu: buildHelpLinksSubmenu()
+        ))
+    }
+
+    private func submenuParent(title: String, icon: String, submenu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
+        item.submenu = submenu
+        return item
+    }
+
+    private func freshSubmenu() -> NSMenu {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        submenu.appearance = NSApplication.shared.appearance
+        return submenu
+    }
+
+    private func buildAdvancedSubmenu() -> NSMenu {
+        let submenu = freshSubmenu()
+        if ipcMenuEnabled {
+            submenu.addItem(createSectionLabel("IPC / CLI"))
+            addIPCSection(to: submenu)
+            submenu.addItem(createDivider())
+        }
+        submenu.addItem(createSectionLabel("SETTINGS FILE"))
+        addSettingsFileRows(to: submenu)
+        return submenu
+    }
+
+    private func buildDiagnosticsSubmenu() -> NSMenu {
+        let submenu = freshSubmenu()
+        addDiagnosticsRows(to: submenu)
+        return submenu
+    }
+
+    private func buildHelpLinksSubmenu() -> NSMenu {
+        let submenu = freshSubmenu()
+        addLinksSection(to: submenu)
+        return submenu
+    }
+
+    private func addSettingsFileRows(to menu: NSMenu) {
         let revealSettingsFileRow = MenuActionRowView(
             icon: "folder",
             label: "Reveal Settings File",

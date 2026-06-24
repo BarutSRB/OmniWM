@@ -36,23 +36,7 @@ struct SponsorsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var motionPolicy: MotionPolicy
     @State private var appeared = false
-    @State private var currentIndex = 0
     let onClose: () -> Void
-
-    private let visibleCount = 1
-
-    private var canNavigateLeft: Bool {
-        currentIndex > 0
-    }
-
-    private var canNavigateRight: Bool {
-        currentIndex < sponsors.count - visibleCount
-    }
-
-    private var visibleSponsors: ArraySlice<Sponsor> {
-        let endIndex = min(currentIndex + visibleCount, sponsors.count)
-        return sponsors[currentIndex ..< endIndex]
-    }
 
     private func tier(for index: Int) -> SponsorTier {
         switch index {
@@ -88,100 +72,52 @@ struct SponsorsView: View {
         return "\(rank)\(suffix)"
     }
 
-    private func navigateLeft() {
-        guard canNavigateLeft else { return }
-        if motionPolicy.animationsEnabled {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                currentIndex -= 1
-            }
-        } else {
-            currentIndex -= 1
-        }
+    private func openURL(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
     }
 
-    private func navigateRight() {
-        guard canNavigateRight else { return }
-        if motionPolicy.animationsEnabled {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                currentIndex += 1
-            }
-        } else {
-            currentIndex += 1
-        }
-    }
-
-    private var leftArrowButton: some View {
-        Button(action: navigateLeft) {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 16, weight: .semibold))
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(GlassButtonStyle())
-        .opacity(canNavigateLeft ? 1.0 : 0.3)
-        .disabled(!canNavigateLeft)
-    }
-
-    private var rightArrowButton: some View {
-        Button(action: navigateRight) {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 16, weight: .semibold))
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(GlassButtonStyle())
-        .opacity(canNavigateRight ? 1.0 : 0.3)
-        .disabled(!canNavigateRight)
+    private var sparkleGradient: LinearGradient {
+        LinearGradient(
+            colors: [.yellow, .orange],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 18) {
             headerSection
 
-            HStack(spacing: 16) {
-                if sponsors.count > visibleCount {
-                    leftArrowButton
-                }
-
-                HStack(spacing: 0) {
-                    ForEach(Array(Array(visibleSponsors).enumerated()), id: \.element.id) { offset, sponsor in
+            ScrollView {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 150), spacing: 16)],
+                    spacing: 16
+                ) {
+                    ForEach(Array(sponsors.enumerated()), id: \.element.id) { index, sponsor in
                         SponsorCardView(
                             motionPolicy: motionPolicy,
                             name: sponsor.name,
                             githubUsername: sponsor.githubUsername,
                             imageName: sponsor.imageName,
                             imageExtension: sponsor.imageExtension,
-                            tier: tier(for: currentIndex + offset),
-                            rankLabel: rankLabel(for: currentIndex + offset)
+                            tier: tier(for: index),
+                            rankLabel: rankLabel(for: index)
                         )
-                        .frame(maxWidth: 360)
                     }
                 }
-
-                if sponsors.count > visibleCount {
-                    rightArrowButton
-                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, 24)
 
-            VStack(spacing: 8) {
-                Button(action: onClose) {
-                    Text("Close")
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 100)
-                }
-                .buttonStyle(GlassButtonStyle())
-
-                Text("Ranks reflect sponsorship order, not donation amounts")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            }
+            footerSection
         }
-        .padding(32)
-        .frame(width: 700, height: 400)
+        .padding(.vertical, 26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: 480, minHeight: 440)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .scaleEffect(appeared ? 1.0 : 0.95)
+        .scaleEffect(appeared ? 1.0 : 0.98)
         .opacity(appeared ? 1.0 : 0.0)
         .onAppear {
             if motionPolicy.animationsEnabled {
@@ -200,34 +136,54 @@ struct SponsorsView: View {
     }
 
     private var headerSection: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 24))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.yellow, .orange],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .font(.system(size: 22))
+                    .foregroundStyle(sparkleGradient)
                 Text("Omni Sponsors")
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 26, weight: .bold))
                 Image(systemName: "sparkles")
-                    .font(.system(size: 24))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.yellow, .orange],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .font(.system(size: 22))
+                    .foregroundStyle(sparkleGradient)
             }
 
             Text("Thank you to our amazing supporters!")
-                .font(.system(size: 15))
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
+
+            Button(action: { openURL("https://github.com/sponsors/BarutSRB") }) {
+                Label("Become a Sponsor", systemImage: "heart.fill")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(GlassButtonStyle(isProminent: true))
+            .accessibilityLabel("Become a sponsor on GitHub")
         }
+        .padding(.horizontal, 28)
+    }
+
+    private var footerSection: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Button(action: { openURL("https://paypal.me/beacon2024") }) {
+                    Text("Sponsor on PayPal")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .buttonStyle(GlassButtonStyle())
+
+                Button(action: onClose) {
+                    Text("Close")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 80)
+                }
+                .buttonStyle(GlassButtonStyle())
+            }
+
+            Text("Ranks reflect sponsorship order, not donation amounts")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 28)
     }
 }
 
@@ -448,7 +404,7 @@ struct GlowingAvatarView: View {
     }
 
     private func updateAnimationState() {
-        guard motionPolicy.animationsEnabled else {
+        guard motionPolicy.animationsEnabled, tier != .standard else {
             isAnimating = false
             return
         }
