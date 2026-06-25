@@ -26,15 +26,16 @@ final class BorderSurfaceApplier {
         self.cornerRadiusProvider = cornerRadiusProvider
     }
 
-    func apply(_ desired: DesiredBorderSurface?, forceOrdering: Bool) {
+    @discardableResult
+    func apply(_ desired: DesiredBorderSurface?, forceOrdering: Bool) -> Bool {
         guard let desired else {
             hide()
-            return
+            return true
         }
 
         if borderWindow == nil {
             borderWindow = BorderWindow(config: desired.config, operations: borderWindowOperations)
-        } else if let applied, applied.config != desired.config {
+        } else {
             borderWindow?.updateConfig(desired.config)
         }
 
@@ -48,7 +49,7 @@ final class BorderSurfaceApplier {
             if forceOrdering {
                 borderWindow?.reorder(relativeTo: UInt32(desired.windowId))
             }
-            return
+            return true
         }
 
         guard borderWindow?.update(
@@ -60,11 +61,12 @@ final class BorderSurfaceApplier {
             applied = nil
             appliedCornerRadius = nil
             clearCornerRadiusCache()
-            return
+            return false
         }
         applied = desired
         appliedCornerRadius = cornerRadius
         syncSurfaceRegistration()
+        return true
     }
 
     func cleanup() {

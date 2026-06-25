@@ -307,6 +307,43 @@ final class EventIntakeReplayTests: XCTestCase {
     }
 
     @MainActor
+    func testDisabledBorderConfigYieldsNoBorder() throws {
+        let pid: pid_t = 100
+        let scenario = try makeScenario(pid: pid)
+        defer { scenario.tearDown() }
+        let controller = scenario.controller
+
+        scenario.system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        scenario.drainToQuiescence()
+
+        let frame = CGRect(x: 0, y: 0, width: 200, height: 150)
+        let enabledWorld = WorldView(controller: controller, borderFrameResolver: { _ in frame })
+        let border = try XCTUnwrap(SurfaceDerivation.deriveBorder(world: enabledWorld))
+        XCTAssertEqual(border.windowId, scenario.tokenB.windowId)
+        XCTAssertEqual(border.frame, frame)
+
+        controller.settings.bordersEnabled = false
+        let disabledWorld = WorldView(controller: controller, borderFrameResolver: { _ in frame })
+        XCTAssertNil(SurfaceDerivation.deriveBorder(world: disabledWorld))
+    }
+
+    @MainActor
+    func testZeroSizedBorderFrameYieldsNoBorder() throws {
+        let pid: pid_t = 100
+        let scenario = try makeScenario(pid: pid)
+        defer { scenario.tearDown() }
+        let controller = scenario.controller
+
+        scenario.system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        scenario.drainToQuiescence()
+
+        let world = WorldView(controller: controller, borderFrameResolver: { _ in .zero })
+        XCTAssertNil(SurfaceDerivation.deriveBorder(world: world))
+    }
+
+    @MainActor
     private func makeScenario(pid: pid_t) throws -> ReplayScenario {
         let system = FakeWindowSystem()
         let controller = WMController(

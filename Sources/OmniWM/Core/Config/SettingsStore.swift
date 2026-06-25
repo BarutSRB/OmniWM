@@ -646,11 +646,11 @@ final class SettingsStore {
         defaultLayoutType = LayoutType(rawValue: export.defaultLayoutType) ?? .niri
 
         bordersEnabled = export.bordersEnabled
-        borderWidth = export.borderWidth
-        borderColorRed = export.borderColorRed
-        borderColorGreen = export.borderColorGreen
-        borderColorBlue = export.borderColorBlue
-        borderColorAlpha = export.borderColorAlpha
+        borderWidth = SettingsStore.validatedBorderWidth(export.borderWidth)
+        borderColorRed = SettingsStore.validatedColorComponent(export.borderColorRed)
+        borderColorGreen = SettingsStore.validatedColorComponent(export.borderColorGreen)
+        borderColorBlue = SettingsStore.validatedColorComponent(export.borderColorBlue)
+        borderColorAlpha = SettingsStore.validatedColorComponent(export.borderColorAlpha)
 
         hotkeyBindings = export.hotkeyBindings
         systemHyperTrigger = export.systemHyperTrigger
@@ -1105,5 +1105,13 @@ final class SettingsStore {
     static func validatedDefaultColumnWidth(_ width: Double?) -> Double? {
         guard let width else { return nil }
         return min(1.0, max(0.05, width))
+    }
+
+    static func validatedBorderWidth(_ width: Double) -> Double {
+        min(12.0, max(1.0, width))
+    }
+
+    static func validatedColorComponent(_ value: Double) -> Double {
+        min(1.0, max(0.0, value))
     }
 }

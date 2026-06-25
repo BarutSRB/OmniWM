@@ -139,7 +139,7 @@ final class SurfaceReconciler {
             }
         }
         guard desired != appliedScene || forceOrdering else { return }
-        borderApplier.apply(desired.border, forceOrdering: forceOrdering)
+        let borderApplied = borderApplier.apply(desired.border, forceOrdering: forceOrdering)
         if desired.tabRails != appliedScene.tabRails || forceOrdering {
             controller.tabbedOverlayManager.updateOverlays(desired.tabRails, forceOrdering: forceOrdering)
         }
@@ -147,5 +147,8 @@ final class SurfaceReconciler {
             controller.nativeFullscreenPlaceholderManager.apply(desired.placeholders)
         }
         appliedScene = desired
+        if !borderApplied {
+            appliedScene.border = nil
+        }
     }
 }

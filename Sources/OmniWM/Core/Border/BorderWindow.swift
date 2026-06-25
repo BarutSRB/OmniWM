@@ -150,8 +150,13 @@ final class BorderWindow {
         let tags: UInt64 = (1 << 1) | (1 << 9)
         operations.setWindowTags(wid, tags)
 
-        context = operations.createWindowContext(wid)
-        context?.interpolationQuality = .none
+        guard let context = operations.createWindowContext(wid) else {
+            operations.releaseBorderWindow(wid)
+            wid = 0
+            return
+        }
+        context.interpolationQuality = .none
+        self.context = context
     }
 
     private func reshapeWindow(frame: CGRect) {
@@ -226,19 +231,11 @@ final class BorderWindow {
     }
 
     func updateConfig(_ newConfig: BorderConfig) {
-        let needsRedrawForColor = config.color != newConfig.color
-        let needsRedrawForWidth = config.width != newConfig.width
-        config = newConfig
-        if needsRedrawForColor || needsRedrawForWidth {
-            if wid != 0, isVisible, currentTargetWid != 0 {
-                needsRedraw = true
-                update(
-                    frame: currentTargetFrame,
-                    targetWid: currentTargetWid,
-                    cornerRadius: currentCornerRadius
-                )
-            }
+        guard config != newConfig else { return }
+        if config.color != newConfig.color || config.width != newConfig.width {
+            needsRedraw = true
         }
+        config = newConfig
     }
 
     var windowId: UInt32? {

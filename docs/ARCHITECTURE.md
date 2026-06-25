@@ -51,7 +51,7 @@ This document is for contributors who want to understand OmniWM's internals. It 
 
 ### SwiftPM Targets
 
-OmniWM is built with Swift Package Manager (Swift 6.3, strict concurrency, language mode v6). There are four first-party targets plus one binary target, with a clear dependency graph:
+OmniWM is built with Swift Package Manager (Swift 6.4, strict concurrency, language mode v6). There are four first-party targets plus one binary target, with a clear dependency graph:
 
 ```
 OmniWMIPC          (zero dependencies — shared IPC protocol models)
