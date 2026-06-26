@@ -174,6 +174,7 @@ final class WorkspaceNavigationHandler {
             .compactMap { entry in
                 controller.preferredKeyboardFocusFrame(for: entry.token).map { (token: entry.token, frame: $0) }
             }
+        guard !candidates.isEmpty else { return }
 
         if let chosen = Self.spatialNeighborToken(
             from: sourceFrame,

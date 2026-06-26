@@ -546,7 +546,7 @@ final class AppAXContext {
         let batchId = UUID()
         let currentPid = pid
 
-        let batchJob = appThread.runInLoopAsync { [axApp, windows] job in
+        let batchJob = appThread.runInLoopAsync { [self, axApp, windows] job in
             let latencyActive = AXWriteLatencyTrace.shared.isActive
             let batchStart = latencyActive ? CACurrentMediaTime() : 0
             var slowestWriteMs = 0.0

@@ -1864,7 +1864,7 @@ import QuartzCore
         var consumed = false
 
         controller.workspaceManager.withEngineMutationScope(in: workspaceId) {
-            guard let movedNode = engine.findNode(for: token) as? NiriWindow,
+            guard let movedNode = engine.findNode(for: token),
                   let column = engine.findColumn(containing: movedNode, in: workspaceId)
             else { return }
 
