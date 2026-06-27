@@ -1367,8 +1367,8 @@ import QuartzCore
                 continue
             }
 
-            let structuralReplacementWorkspaceId = existingEntry == nil
-                ? controller.axEventHandler.structuralReplacementWorkspaceIdForCreate(
+            let structuralMatch = existingEntry == nil
+                ? controller.axEventHandler.structuralReplacementMatch(
                     token: token,
                     bundleId: bundleId ?? evaluation.facts.ax.bundleId,
                     mode: trackedMode,
@@ -1377,7 +1377,9 @@ import QuartzCore
                 : nil
             if existingEntry == nil,
                let windowId = UInt32(exactly: winId),
-               controller.axEventHandler.rekeyStructuralManagedReplacementIfNeeded(
+               let structuralMatch,
+               controller.axEventHandler.rekeyStructuralManagedReplacement(
+                   match: structuralMatch,
                    token: token,
                    windowId: windowId,
                    axRef: ax,
@@ -1396,7 +1398,7 @@ import QuartzCore
                 axRef: ax,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId,
-                structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+                structuralReplacementWorkspaceId: structuralMatch?.workspaceId,
                 restrictWorkspaceRuleToPlacementMonitor: trackedMode != .floating,
                 createPlacementContext: createPlacementContext
             )

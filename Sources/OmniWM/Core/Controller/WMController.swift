@@ -2199,8 +2199,8 @@ final class WMController {
             let oldEffects = existingEntry?.ruleEffects ?? .none
             let oldMode = existingEntry?.mode
             let oldWorkspaceId = existingEntry?.workspaceId
-            let structuralReplacementWorkspaceId = existingEntry == nil
-                ? axEventHandler.structuralReplacementWorkspaceIdForCreate(
+            let structuralMatch = existingEntry == nil
+                ? axEventHandler.structuralReplacementMatch(
                     token: token,
                     bundleId: evaluation.facts.ax.bundleId,
                     mode: effectiveTrackedMode,
@@ -2212,7 +2212,7 @@ final class WMController {
                 axRef: axRef,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: activeWorkspace()?.id,
-                structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+                structuralReplacementWorkspaceId: structuralMatch?.workspaceId,
                 restrictWorkspaceRuleToPlacementMonitor: effectiveTrackedMode != .floating,
                 createPlacementContext: createPlacementContext,
                 context: context
@@ -2220,7 +2220,9 @@ final class WMController {
 
             if existingEntry == nil,
                let windowId = UInt32(exactly: token.windowId),
-               axEventHandler.rekeyStructuralManagedReplacementIfNeeded(
+               let structuralMatch,
+               axEventHandler.rekeyStructuralManagedReplacement(
+                   match: structuralMatch,
                    token: token,
                    windowId: windowId,
                    axRef: axRef,

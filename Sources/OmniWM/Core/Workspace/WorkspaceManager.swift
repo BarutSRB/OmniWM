@@ -2404,7 +2404,8 @@ final class WorkspaceManager {
         guard var metadata = world.managedReplacementMetadata(for: token) else {
             return false
         }
-        guard metadata.frame != frame else {
+        if let existingFrame = metadata.frame,
+           existingFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite) {
             return false
         }
         metadata.frame = frame

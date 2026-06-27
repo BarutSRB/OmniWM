@@ -305,12 +305,12 @@ final class AXEventHandler {
         }
     }
 
-    private enum StructuralReplacementMatchSource {
+    enum StructuralReplacementMatchSource {
         case pendingDestroy
         case liveInvisible
     }
 
-    private struct StructuralReplacementMatch {
+    struct StructuralReplacementMatch {
         let token: WindowToken
         let workspaceId: WorkspaceDescriptor.ID
         let source: StructuralReplacementMatchSource
@@ -571,22 +571,9 @@ final class AXEventHandler {
         discardCreatePlacementContext(windowId: windowId)
     }
 
-    func structuralReplacementWorkspaceIdForCreate(
-        token: WindowToken,
-        bundleId: String?,
-        mode: TrackedWindowMode,
-        facts: WindowRuleFacts
-    ) -> WorkspaceDescriptor.ID? {
-        structuralReplacementMatch(
-            token: token,
-            bundleId: bundleId,
-            mode: mode,
-            facts: facts
-        )?.workspaceId
-    }
-
     @discardableResult
-    func rekeyStructuralManagedReplacementIfNeeded(
+    func rekeyStructuralManagedReplacement(
+        match: StructuralReplacementMatch,
         token: WindowToken,
         windowId: UInt32,
         axRef: AXWindowRef,
@@ -594,15 +581,6 @@ final class AXEventHandler {
         mode: TrackedWindowMode,
         facts: WindowRuleFacts
     ) -> Bool {
-        guard let match = structuralReplacementMatch(
-            token: token,
-            bundleId: bundleId,
-            mode: mode,
-            facts: facts
-        ) else {
-            return false
-        }
-
         let metadata = makeManagedReplacementMetadata(
             bundleId: bundleId,
             workspaceId: match.workspaceId,
@@ -2878,6 +2856,9 @@ final class AXEventHandler {
                 deadlineReset: resetExistingDeadline
             )
         )
+        if flushManagedReplacementBurstIfUnambiguouslyMatched(for: key) {
+            return
+        }
         scheduleManagedReplacementFlush(
             for: key,
             policy: policy,
@@ -2911,11 +2892,26 @@ final class AXEventHandler {
                 deadlineReset: resetExistingDeadline
             )
         )
+        if flushManagedReplacementBurstIfUnambiguouslyMatched(for: key) {
+            return
+        }
         scheduleManagedReplacementFlush(
             for: key,
             policy: policy,
             resetExistingDeadline: resetExistingDeadline
         )
+    }
+
+    private func flushManagedReplacementBurstIfUnambiguouslyMatched(for key: ManagedReplacementKey) -> Bool {
+        guard let burst = pendingManagedReplacementBursts[key],
+              burst.destroys.count == 1,
+              burst.creates.count == 1,
+              matchedManagedReplacementPair(in: burst) != nil
+        else {
+            return false
+        }
+        flushManagedReplacementBurst(for: key)
+        return true
     }
 
     private func matchedManagedReplacementPair(
@@ -3126,7 +3122,7 @@ final class AXEventHandler {
         return !managedReplacementHasStructuralAnchor(metadata)
     }
 
-    private func structuralReplacementMatch(
+    func structuralReplacementMatch(
         token: WindowToken,
         bundleId: String?,
         mode: TrackedWindowMode,

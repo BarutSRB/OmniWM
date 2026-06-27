@@ -2677,7 +2677,8 @@ final class RuntimeArchitectureTests: XCTestCase {
             ]
         }
         XCTAssertFalse(
-            controller.axEventHandler.rekeyStructuralManagedReplacementIfNeeded(
+            Self.rekeyStructuralManagedReplacementIfNeeded(
+                controller.axEventHandler,
                 token: newToken,
                 windowId: UInt32(newToken.windowId),
                 axRef: AXWindowRef(
@@ -2785,7 +2786,8 @@ final class RuntimeArchitectureTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            controller.axEventHandler.rekeyStructuralManagedReplacementIfNeeded(
+            Self.rekeyStructuralManagedReplacementIfNeeded(
+                controller.axEventHandler,
                 token: newToken,
                 windowId: UInt32(newToken.windowId),
                 axRef: AXWindowRef(
@@ -4641,6 +4643,35 @@ final class RuntimeArchitectureTests: XCTestCase {
                 savedHeight: nil,
                 windowWidth: .auto(weight: 1)
             )
+        )
+    }
+
+    @MainActor
+    private static func rekeyStructuralManagedReplacementIfNeeded(
+        _ handler: AXEventHandler,
+        token: WindowToken,
+        windowId: UInt32,
+        axRef: AXWindowRef,
+        bundleId: String?,
+        mode: TrackedWindowMode,
+        facts: WindowRuleFacts
+    ) -> Bool {
+        guard let match = handler.structuralReplacementMatch(
+            token: token,
+            bundleId: bundleId,
+            mode: mode,
+            facts: facts
+        ) else {
+            return false
+        }
+        return handler.rekeyStructuralManagedReplacement(
+            match: match,
+            token: token,
+            windowId: windowId,
+            axRef: axRef,
+            bundleId: bundleId,
+            mode: mode,
+            facts: facts
         )
     }
 
