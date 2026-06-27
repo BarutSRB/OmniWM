@@ -63,10 +63,6 @@ final class MultitouchBinding {
         "MTUnregisterContactFrameCallback"
     ]
 
-    static func probeAvailability() -> Bool {
-        MultitouchBinding() != nil
-    }
-
     static func resolvedSymbols() -> [(name: String, resolved: Bool)] {
         guard let lib = dlopen(
             "/System/Library/PrivateFrameworks/MultitouchSupport.framework/MultitouchSupport",

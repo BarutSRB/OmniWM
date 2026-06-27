@@ -65,7 +65,7 @@ final class DragGhostController {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let scWindow = content.windows.first(where: { $0.windowID == CGWindowID(windowId) }) else {
-                FallbackFiringRecorder.shared.note("capture", "dragGhostWindowMapMiss")
+                FallbackFiringRecorder.shared.note(.capture, "dragGhostWindowMapMiss")
                 return nil
             }
 
@@ -82,7 +82,7 @@ final class DragGhostController {
                 configuration: config
             )
         } catch {
-            FallbackFiringRecorder.shared.note("capture", "dragGhostCaptureException")
+            FallbackFiringRecorder.shared.note(.capture, "dragGhostCaptureException")
             return nil
         }
     }

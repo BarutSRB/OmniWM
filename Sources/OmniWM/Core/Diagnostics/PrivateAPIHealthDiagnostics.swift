@@ -44,7 +44,7 @@ final class PrivateAPIProbeStore {
 
 struct PrivateAPIHealthSnapshot: Sendable {
     let connectionId: Int32
-    let symbols: [SkyLightSymbolStatus]
+    let symbols: [String]
     let displayUUIDResolved: Bool
     let multitouchSymbols: [(name: String, resolved: Bool)]
     let cgsRegistration: String
@@ -52,20 +52,10 @@ struct PrivateAPIHealthSnapshot: Sendable {
     let lastProbe: PrivateAPIProbeReport?
 
     func formatted() -> String {
-        let resolvedNames = Set(symbols.filter(\.resolved).map(\.name))
-        let resolved = resolvedNames.count
-        let missingRequired = symbols.filter { $0.required && !$0.resolved }.map(\.name)
-        let missingOptional = symbols
-            .filter { !$0.required && !$0.resolved && !Self.alternateCovered($0.name, resolvedNames) }
-            .map(\.name)
-        let alternates = symbols.filter { $0.resolved && Self.alternateNames.contains($0.name) }.map(\.name)
         let trackpad = multitouchSymbols.map { "\($0.name)=\($0.resolved)" }.joined(separator: " ")
         var lines = [
             "skylightConnection=\(connectionId)\(connectionId == 0 ? " (UNAVAILABLE)" : "")",
-            "skylightSymbols=\(resolved)/\(symbols.count) resolved",
-            "requiredMissing=\(missingRequired.isEmpty ? "none" : missingRequired.joined(separator: ", "))",
-            "optionalMissing=\(missingOptional.isEmpty ? "none" : missingOptional.joined(separator: ", "))",
-            "alternateVariantsResolved=\(alternates.isEmpty ? "none" : alternates.joined(separator: ", "))",
+            "skylightSymbols=\(symbols.count) resolved",
             "displayUUID=\(displayUUIDResolved ? "resolved" : "MISSING")",
             "multitouchSymbols: \(trackpad)",
             "cgsEventRegistration=\(cgsRegistration)",
@@ -81,27 +71,6 @@ struct PrivateAPIHealthSnapshot: Sendable {
             lines.append("  not run — use Settings ▸ Diagnostics ▸ Run Private-API Probe")
         }
         return lines.joined(separator: "\n")
-    }
-
-    private static let alternateNames: Set<String> = [
-        "SLSRemoveConnectionNotifyProc",
-        "SLSRemoveNotifyProc",
-        "CGSCopyManagedDisplaySpaces",
-        "CGSGetActiveSpace",
-        "CGSCopySpacesForWindows"
-    ]
-
-    private static let alternateForPrimary: [String: String] = [
-        "SLSUnregisterConnectionNotifyProc": "SLSRemoveConnectionNotifyProc",
-        "SLSUnregisterNotifyProc": "SLSRemoveNotifyProc",
-        "SLSCopyManagedDisplaySpaces": "CGSCopyManagedDisplaySpaces",
-        "SLSGetActiveSpace": "CGSGetActiveSpace",
-        "SLSCopySpacesForWindows": "CGSCopySpacesForWindows"
-    ]
-
-    private static func alternateCovered(_ name: String, _ resolved: Set<String>) -> Bool {
-        guard let alternate = alternateForPrimary[name] else { return false }
-        return resolved.contains(alternate)
     }
 
     private static func formatProbe(_ report: PrivateAPIProbeReport) -> [String] {
@@ -416,6 +385,11 @@ extension PrivateAPIHealthDiagnostics {
         }
         let originSLS = (sky.getWindowBounds(sample.id) ?? sample.frame).origin
         let before = independentOrigin(sample.id)
+        DiagnosticsEventRecorder.shared.recordVerbose(
+            name: "privateAPIProbe.foreignMove",
+            pid: sample.pid,
+            windowId: sample.id
+        )
         _ = sky.moveWindow(sample.id, to: CGPoint(x: originSLS.x + 6, y: originSLS.y + 6))
         let after = independentOrigin(sample.id)
         let delta: CGPoint? = {
@@ -472,6 +446,15 @@ private func privateAPIProbeAXObserverCallback(
 extension WMController {
     @discardableResult
     func runPrivateAPIProbe() async -> PrivateAPIProbeReport {
-        await PrivateAPIHealthDiagnostics.runProbe()
+        let report = await PrivateAPIHealthDiagnostics.runProbe()
+        if let wid = report.foreign?.targetWid,
+           let entry = workspaceManager.entry(forWindowId: Int(wid))
+        {
+            layoutRefreshController.requestRelayout(
+                reason: .axWindowChanged,
+                affectedWorkspaceIds: [entry.workspaceId]
+            )
+        }
+        return report
     }
 }

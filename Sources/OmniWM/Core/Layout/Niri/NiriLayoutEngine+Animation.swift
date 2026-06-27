@@ -356,7 +356,6 @@ extension NiriLayoutEngine {
     func computeTileOffsets(column: NiriContainer, gaps: CGFloat) -> [CGFloat] {
         let windows = column.windowNodes
         guard !windows.isEmpty else { return [] }
-        guard !column.isTabbed else { return Array(repeating: gaps, count: windows.count) }
 
         var offsets: [CGFloat] = [gaps]
         var y: CGFloat = gaps

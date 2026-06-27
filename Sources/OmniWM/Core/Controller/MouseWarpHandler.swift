@@ -100,11 +100,11 @@ final class MouseWarpHandler: NSObject {
             if let source = state.runLoopSource {
                 CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             } else {
-                FallbackFiringRecorder.shared.note("input", "mouseWarpTapRunLoopSourceFailed")
+                FallbackFiringRecorder.shared.note(.input, "mouseWarpTapRunLoopSourceFailed")
             }
             CGEvent.tapEnable(tap: tap, enable: true)
         } else {
-            FallbackFiringRecorder.shared.note("input", "mouseWarpTapCreateFailed")
+            FallbackFiringRecorder.shared.note(.input, "mouseWarpTapCreateFailed")
         }
     }
 

@@ -133,8 +133,9 @@ struct DiagnosticsSettingsTab: View {
             }
             statusLabel(probeStatus)
             SettingsCaption(
-                "Checks every private window-server API on this Mac and confirms it actually works — including a "
-                    + "quick test that nudges a real window a few pixels and restores it. The full result is written "
+                "On-demand check of every private window-server API on this Mac, confirming each actually works. "
+                    + "It briefly nudges one of your real open windows a few pixels and moves it back, so you may see "
+                    + "a window jump for an instant; OmniWM re-tiles immediately afterward. The full result is written "
                     + "into the Private API Capability section of your next diagnostics report."
             )
         }

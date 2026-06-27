@@ -513,7 +513,7 @@ final class OverviewController {
             guard !Task.isCancelled else { return }
             updateWindowDisplays()
         } catch {
-            FallbackFiringRecorder.shared.note("capture", "overviewContentException")
+            FallbackFiringRecorder.shared.note(.capture, "overviewContentException")
             return
         }
     }
@@ -570,7 +570,7 @@ final class OverviewController {
             )
             return image
         } catch {
-            FallbackFiringRecorder.shared.note("capture", "screenshotException")
+            FallbackFiringRecorder.shared.note(.capture, "screenshotException")
             return nil
         }
     }

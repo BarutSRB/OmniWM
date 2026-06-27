@@ -368,7 +368,7 @@ final class HotkeyCenter {
             } else {
                 systemHyperTriggerFailure = .capsLockRemapUnavailable
                 DiagnosticsEventRecorder.shared.recordLifecycle(name: "hotkeys.capsLockRemap.failed")
-                FallbackFiringRecorder.shared.note("input", "capsLockHyperRemapFailed")
+                FallbackFiringRecorder.shared.note(.input, "capsLockHyperRemapFailed")
             }
         }
 
@@ -379,7 +379,7 @@ final class HotkeyCenter {
                 systemHyperTriggerFailure = .eventTapUnavailable
             }
             DiagnosticsEventRecorder.shared.recordLifecycle(name: "hotkeys.hyperTap.failed")
-            FallbackFiringRecorder.shared.note("input", "hyperTapSetupFailed")
+            FallbackFiringRecorder.shared.note(.input, "hyperTapSetupFailed")
             restoreCapsLockHyperRemap()
             hyperTrigger = HyperTriggerStateMachine(trigger: .none, capsLockRemapped: false)
         }
@@ -417,7 +417,7 @@ final class HotkeyCenter {
                 idToCommand[nextId] = registration.command
             } else {
                 registrationFailures[registration.command] = .systemReserved
-                FallbackFiringRecorder.shared.note("input", "hotkeyRegistrationFailed")
+                FallbackFiringRecorder.shared.note(.input, "hotkeyRegistrationFailed")
             }
             nextId += 1
         }
@@ -483,12 +483,12 @@ final class HotkeyCenter {
             userInfo: selfPtr
         )
         guard let tap = hyperTriggerTap else {
-            FallbackFiringRecorder.shared.note("input", "hyperTapCreateFailed")
+            FallbackFiringRecorder.shared.note(.input, "hyperTapCreateFailed")
             return false
         }
         hyperTriggerRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         guard let source = hyperTriggerRunLoopSource else {
-            FallbackFiringRecorder.shared.note("input", "hyperTapRunLoopSourceFailed")
+            FallbackFiringRecorder.shared.note(.input, "hyperTapRunLoopSourceFailed")
             hyperTriggerTap = nil
             return false
         }

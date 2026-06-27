@@ -40,7 +40,7 @@ final class SleepPreventionManager {
 
         if let assertionID = sleepAssertionID {
             if IOPMAssertionRelease(assertionID) != kIOReturnSuccess {
-                FallbackFiringRecorder.shared.note("system", "sleepAssertionReleaseFailed")
+                FallbackFiringRecorder.shared.note(.system, "sleepAssertionReleaseFailed")
             }
         }
 
@@ -60,14 +60,14 @@ final class SleepPreventionManager {
         if result == kIOReturnSuccess {
             sleepAssertionID = assertionID
         } else {
-            FallbackFiringRecorder.shared.note("system", "sleepAssertionCreateFailed")
+            FallbackFiringRecorder.shared.note(.system, "sleepAssertionCreateFailed")
         }
     }
 
     private func releaseSleepAssertion() {
         if let assertionID = sleepAssertionID {
             if IOPMAssertionRelease(assertionID) != kIOReturnSuccess {
-                FallbackFiringRecorder.shared.note("system", "sleepAssertionReleaseFailed")
+                FallbackFiringRecorder.shared.note(.system, "sleepAssertionReleaseFailed")
             }
             sleepAssertionID = nil
         }

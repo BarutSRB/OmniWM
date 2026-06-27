@@ -47,7 +47,7 @@ final class CGSEventObserver {
             if success {
                 successCount += 1
             } else {
-                FallbackFiringRecorder.shared.note("skylight", "eventRegistrationFailed")
+                FallbackFiringRecorder.shared.note(.skylight, "eventRegistrationFailed")
             }
         }
 
@@ -65,7 +65,7 @@ final class CGSEventObserver {
                 successCount += 1
                 isWindowClosedNotifyRegistered = true
             } else {
-                FallbackFiringRecorder.shared.note("skylight", "windowClosedRegistrationFailed")
+                FallbackFiringRecorder.shared.note(.skylight, "windowClosedRegistrationFailed")
             }
         }
 

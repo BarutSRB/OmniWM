@@ -70,11 +70,11 @@ final class SecureInputMonitor {
             if let source = runLoopSource {
                 CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             } else {
-                FallbackFiringRecorder.shared.note("input", "secureInputTapRunLoopSourceFailed")
+                FallbackFiringRecorder.shared.note(.input, "secureInputTapRunLoopSourceFailed")
             }
             CGEvent.tapEnable(tap: tap, enable: true)
         } else {
-            FallbackFiringRecorder.shared.note("input", "secureInputTapCreateFailed")
+            FallbackFiringRecorder.shared.note(.input, "secureInputTapCreateFailed")
         }
     }
 

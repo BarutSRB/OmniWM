@@ -22,7 +22,7 @@ struct Monitor: Identifiable, Hashable {
     static func current() -> [Monitor] {
         NSScreen.screens.compactMap { screen -> Monitor? in
             guard let displayId = screen.displayId else {
-                FallbackFiringRecorder.shared.note("monitor", "nsScreenDisplayIdNil")
+                FallbackFiringRecorder.shared.note(.monitor, "nsScreenDisplayIdNil")
                 return nil
             }
             var hasNotch = false
@@ -42,7 +42,7 @@ struct Monitor: Identifiable, Hashable {
 
     static func refreshRate(for displayId: CGDirectDisplayID) -> Double {
         guard let mode = CGDisplayCopyDisplayMode(displayId), mode.refreshRate > 0 else {
-            FallbackFiringRecorder.shared.note("monitor", "refreshRateFallback60")
+            FallbackFiringRecorder.shared.note(.monitor, "refreshRateFallback60")
             return 60.0
         }
         return mode.refreshRate
@@ -50,7 +50,7 @@ struct Monitor: Identifiable, Hashable {
 
     static func fallback() -> Monitor {
         if NSScreen.main == nil {
-            FallbackFiringRecorder.shared.note("monitor", "nsScreenMainNil")
+            FallbackFiringRecorder.shared.note(.monitor, "nsScreenMainNil")
         }
         let frame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let displayId = NSScreen.main?.displayId ?? CGMainDisplayID()

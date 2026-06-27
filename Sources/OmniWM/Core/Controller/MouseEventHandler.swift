@@ -158,11 +158,11 @@ final class MouseEventHandler {
             if let source = state.runLoopSource {
                 CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             } else {
-                FallbackFiringRecorder.shared.note("input", "mouseTapRunLoopSourceFailed")
+                FallbackFiringRecorder.shared.note(.input, "mouseTapRunLoopSourceFailed")
             }
             CGEvent.tapEnable(tap: tap, enable: true)
         } else {
-            FallbackFiringRecorder.shared.note("input", "mouseTapCreateFailed")
+            FallbackFiringRecorder.shared.note(.input, "mouseTapCreateFailed")
         }
         DiagnosticsEventRecorder.shared.recordLifecycle(
             name: state.eventTap != nil ? "mouse.tap.installed" : "mouse.tap.failed"

@@ -78,14 +78,10 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
         if !app.isActive {
             app.activate(options: [])
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.appActivationDelay) {
-                if AXUIElementPerformAction(element, Self.kAXPressAction) != .success {
-                    FallbackFiringRecorder.shared.note("ax", "performPressFailed")
-                }
+                performAXAction(element, Self.kAXPressAction, noteKey: "performPressFailed")
             }
         } else {
-            if AXUIElementPerformAction(element, Self.kAXPressAction) != .success {
-                FallbackFiringRecorder.shared.note("ax", "performPressFailed")
-            }
+            performAXAction(element, Self.kAXPressAction, noteKey: "performPressFailed")
         }
     }
 

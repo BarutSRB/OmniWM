@@ -3,39 +3,37 @@
 
 import os
 
+enum FallbackCategory: String, CaseIterable, Sendable {
+    case skylight
+    case ax
+    case input
+    case capture
+    case monitor
+    case system
+}
+
 final class FallbackFiringRecorder: @unchecked Sendable {
     static let shared = FallbackFiringRecorder()
 
-    static let categories = ["skylight", "ax", "input", "capture", "monitor", "system"]
-
     private let counts = OSAllocatedUnfairLock(initialState: [String: Int]())
 
-    func note(_ category: String, _ key: String, _ amount: Int = 1) {
+    func note(_ category: FallbackCategory, _ key: String, _ amount: Int = 1) {
         guard amount > 0 else { return }
-        counts.withLock { $0["\(category)/\(key)", default: 0] += amount }
+        counts.withLock { $0["\(category.rawValue)/\(key)", default: 0] += amount }
     }
 
     func dump() -> String {
         let snapshot = counts.withLock { $0 }
         guard !snapshot.isEmpty else { return "none — no fallback/failure has fired since launch" }
         var lines: [String] = []
-        for category in Self.categories {
+        for category in FallbackCategory.allCases {
             let entries = snapshot
-                .filter { $0.key.hasPrefix("\(category)/") }
+                .filter { $0.key.hasPrefix("\(category.rawValue)/") }
                 .sorted { $0.key < $1.key }
             guard !entries.isEmpty else { continue }
-            lines.append("[\(category)]")
+            lines.append("[\(category.rawValue)]")
             for (key, value) in entries {
-                lines.append("  \(key.dropFirst(category.count + 1))=\(value)")
-            }
-        }
-        let other = snapshot
-            .filter { entry in !Self.categories.contains { entry.key.hasPrefix("\($0)/") } }
-            .sorted { $0.key < $1.key }
-        if !other.isEmpty {
-            lines.append("[other]")
-            for (key, value) in other {
-                lines.append("  \(key)=\(value)")
+                lines.append("  \(key.dropFirst(category.rawValue.count + 1))=\(value)")
             }
         }
         return lines.joined(separator: "\n")

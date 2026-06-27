@@ -28,12 +28,6 @@ private let cfRelease: CFReleaseFunc = {
     return unsafeBitCast(dlsym(lib, "CFRelease"), to: CFReleaseFunc.self)
 }()
 
-struct SkyLightSymbolStatus: Sendable, Equatable {
-    let name: String
-    let required: Bool
-    let resolved: Bool
-}
-
 @MainActor
 final class SkyLight {
     static let shared = SkyLight()
@@ -167,7 +161,7 @@ final class SkyLight {
     private let copySpacesForWindows: CopySpacesForWindowsFunc
     private let getSpaceManagementMode: GetSpaceManagementModeFunc
 
-    private let capabilitySymbols: [SkyLightSymbolStatus]
+    private let capabilitySymbols: [String]
 
     private static let allSpacesMask: Int32 = 0x7
     private static let fullscreenSpaceType = 4
@@ -188,13 +182,13 @@ final class SkyLight {
             fatalError("Failed to load SkyLight framework")
         }
 
-        var capability: [SkyLightSymbolStatus] = []
+        var capability: [String] = []
 
         func resolve<T>(_ symbol: String, as _: T.Type) -> T {
             guard let pointer = dlsym(lib, symbol) else {
                 fatalError("SkyLight missing required symbol: \(symbol)")
             }
-            capability.append(SkyLightSymbolStatus(name: symbol, required: true, resolved: true))
+            capability.append(symbol)
             return unsafeBitCast(pointer, to: T.self)
         }
 
@@ -268,7 +262,7 @@ final class SkyLight {
         mainConnectionID()
     }
 
-    func capabilityReport() -> [SkyLightSymbolStatus] {
+    func capabilityReport() -> [String] {
         capabilitySymbols
     }
 
@@ -312,7 +306,8 @@ final class SkyLight {
     func orderWindow(_ wid: UInt32, relativeTo targetWid: UInt32, order: SkyLightWindowOrder = .above) {
         let cid = getMainConnectionID()
         guard let transaction = transactionCreate(cid) else {
-            fatalError("Failed to create SkyLight transaction")
+            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
+            return
         }
         defer { cfRelease(transaction) }
         transactionOrderWindow(transaction, wid, order.rawValue, targetWid)
@@ -494,7 +489,10 @@ final class SkyLight {
 
     func batchMoveWindows(_ positions: [(windowId: UInt32, origin: CGPoint)]) {
         let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else { return }
+        guard let transaction = transactionCreate(cid) else {
+            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
+            return
+        }
         defer { cfRelease(transaction) }
 
         for (windowId, origin) in positions {
@@ -662,7 +660,7 @@ final class SkyLight {
 
         var wid: UInt32 = 0
         if newWindow(cid, 2, -9999, -9999, region, &wid) != .success {
-            FallbackFiringRecorder.shared.note("skylight", "newWindowFailed")
+            FallbackFiringRecorder.shared.note(.skylight, "newWindowFailed")
         }
         return wid
     }
@@ -671,7 +669,7 @@ final class SkyLight {
         let cid = getMainConnectionID()
         guard cid != 0 else { return }
         if releaseWindow(cid, wid) != .success {
-            FallbackFiringRecorder.shared.note("skylight", "releaseWindowFailed")
+            FallbackFiringRecorder.shared.note(.skylight, "releaseWindowFailed")
         }
     }
 
@@ -694,7 +692,7 @@ final class SkyLight {
         disableUpdate(cid)
         let ok = setWindowShape(cid, wid, -9999, -9999, region) == .success
         reenableUpdate(cid)
-        if !ok { FallbackFiringRecorder.shared.note("skylight", "setWindowShapeFailed") }
+        if !ok { FallbackFiringRecorder.shared.note(.skylight, "setWindowShapeFailed") }
         return ok
     }
 
@@ -704,7 +702,7 @@ final class SkyLight {
         guard cid != 0 else { return (false, false) }
         let resolutionOk = setWindowResolution(cid, wid, resolution) == .success
         let opacityOk = setWindowOpacity(cid, wid, opaque ? 1 : 0) == .success
-        if !opacityOk { FallbackFiringRecorder.shared.note("skylight", "setWindowOpacityFailed") }
+        if !opacityOk { FallbackFiringRecorder.shared.note(.skylight, "setWindowOpacityFailed") }
         return (resolutionOk, opacityOk)
     }
 
@@ -714,7 +712,7 @@ final class SkyLight {
         guard cid != 0 else { return false }
         var tagsValue = tags
         let ok = setWindowTags(cid, wid, &tagsValue, 64) == .success
-        if !ok { FallbackFiringRecorder.shared.note("skylight", "setWindowTagsFailed") }
+        if !ok { FallbackFiringRecorder.shared.note(.skylight, "setWindowTagsFailed") }
         return ok
     }
 
@@ -723,13 +721,16 @@ final class SkyLight {
         let cid = getMainConnectionID()
         guard cid != 0 else { return false }
         let ok = flushWindowContentRegion(cid, wid, nil) == .success
-        if !ok { FallbackFiringRecorder.shared.note("skylight", "flushWindowFailed") }
+        if !ok { FallbackFiringRecorder.shared.note(.skylight, "flushWindowFailed") }
         return ok
     }
 
     func transactionMove(_ wid: UInt32, origin: CGPoint) {
         let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else { return }
+        guard let transaction = transactionCreate(cid) else {
+            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
+            return
+        }
         defer { cfRelease(transaction) }
         _ = transactionMoveWindowWithGroup(transaction, wid, origin)
         _ = commit(transaction)
@@ -743,7 +744,10 @@ final class SkyLight {
         order: SkyLightWindowOrder
     ) {
         let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else { return }
+        guard let transaction = transactionCreate(cid) else {
+            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
+            return
+        }
         defer { cfRelease(transaction) }
 
         _ = transactionMoveWindowWithGroup(transaction, wid, origin)
@@ -754,7 +758,10 @@ final class SkyLight {
 
     func transactionHide(_ wid: UInt32) {
         let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else { return }
+        guard let transaction = transactionCreate(cid) else {
+            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
+            return
+        }
         defer { cfRelease(transaction) }
         transactionOrderWindow(transaction, wid, 0, 0)
         _ = commit(transaction)

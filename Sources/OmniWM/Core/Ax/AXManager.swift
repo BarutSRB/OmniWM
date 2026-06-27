@@ -275,10 +275,10 @@ final class AXManager {
                 pidsWithWindows.insert(pid_t(pidNumber))
             }
         } else {
-            FallbackFiringRecorder.shared.note("capture", "cgWindowListNull")
+            FallbackFiringRecorder.shared.note(.capture, "cgWindowListNull")
         }
         FallbackFiringRecorder.shared.note(
-            "capture",
+            .capture,
             "cgWindowListSupplementPids",
             pidsWithWindows.count - skyLightPidCount
         )

@@ -2356,7 +2356,7 @@ import QuartzCore
                abs(observedOrigin.x - plan.origin.x) > verifyEpsilon
                || abs(observedOrigin.y - plan.origin.y) > verifyEpsilon
             {
-                FallbackFiringRecorder.shared.note("skylight", "moveAXFallback")
+                FallbackFiringRecorder.shared.note(.skylight, "moveAXFallback")
                 let fallbackFrame = CGRect(origin: plan.origin, size: plan.frameSize)
                 let axRef = plan.entry.axRef
                 AppAXContext.contexts[plan.entry.pid]?.axThread?.runInLoopAsync { _ in

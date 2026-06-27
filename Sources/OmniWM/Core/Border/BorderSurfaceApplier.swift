@@ -97,7 +97,7 @@ final class BorderSurfaceApplier {
         BorderOpMetricsRecorder.shared.noteCornerRadiusQuery()
         let providedCornerRadius = cornerRadiusProvider(windowId)
         if providedCornerRadius == nil {
-            FallbackFiringRecorder.shared.note("skylight", "cornerRadiusDefault")
+            FallbackFiringRecorder.shared.note(.skylight, "cornerRadiusDefault")
         }
         let cornerRadius = max(providedCornerRadius ?? defaultCornerRadius, 0)
         cachedCornerRadiusWindowId = windowId
