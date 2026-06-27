@@ -130,42 +130,42 @@ final class SkyLight {
     private let windowQueryResultCopyWindows: WindowQueryResultCopyWindowsFunc
     private let windowIteratorGetCount: WindowIteratorGetCountFunc
     private let windowIteratorAdvance: WindowIteratorAdvanceFunc
-    private let windowIteratorGetCornerRadii: WindowIteratorGetCornerRadiiFunc?
-    private let windowIteratorGetBounds: WindowIteratorGetBoundsFunc?
-    private let windowIteratorGetWindowID: WindowIteratorGetWindowIDFunc?
-    private let windowIteratorGetPID: WindowIteratorGetPIDFunc?
-    private let windowIteratorGetLevel: WindowIteratorGetLevelFunc?
-    private let windowIteratorGetTags: WindowIteratorGetTagsFunc?
-    private let windowIteratorGetAttributes: WindowIteratorGetAttributesFunc?
-    private let windowIteratorGetParentID: WindowIteratorGetParentIDFunc?
+    private let windowIteratorGetCornerRadii: WindowIteratorGetCornerRadiiFunc
+    private let windowIteratorGetBounds: WindowIteratorGetBoundsFunc
+    private let windowIteratorGetWindowID: WindowIteratorGetWindowIDFunc
+    private let windowIteratorGetPID: WindowIteratorGetPIDFunc
+    private let windowIteratorGetLevel: WindowIteratorGetLevelFunc
+    private let windowIteratorGetTags: WindowIteratorGetTagsFunc
+    private let windowIteratorGetAttributes: WindowIteratorGetAttributesFunc
+    private let windowIteratorGetParentID: WindowIteratorGetParentIDFunc
     private let transactionCreate: TransactionCreateFunc
     private let transactionCommit: TransactionCommitFunc
     private let transactionOrderWindow: TransactionOrderWindowFunc
-    private let windowIsOrderedIn: WindowIsOrderedInFunc?
-    private let transactionMoveWindowWithGroup: TransactionMoveWindowWithGroupFunc?
+    private let windowIsOrderedIn: WindowIsOrderedInFunc
+    private let transactionMoveWindowWithGroup: TransactionMoveWindowWithGroupFunc
     private let disableUpdate: DisableUpdateFunc
     private let reenableUpdate: ReenableUpdateFunc
-    private let moveWindow: MoveWindowFunc?
-    private let getWindowBounds: GetWindowBoundsFunc?
-    private let registerConnectionNotifyProc: RegisterConnectionNotifyProcFunc?
-    private let unregisterConnectionNotifyProc: UnregisterConnectionNotifyProcFunc?
-    private let requestNotificationsForWindows: RequestNotificationsForWindowsFunc?
-    private let registerNotifyProc: RegisterNotifyProcFunc?
-    private let unregisterNotifyProcFunc: UnregisterNotifyProcFunc?
-    private let newWindow: NewWindowFunc?
-    private let releaseWindow: ReleaseWindowFunc?
-    private let windowContextCreate: WindowContextCreateFunc?
-    private let setWindowShape: SetWindowShapeFunc?
-    private let setWindowResolution: SetWindowResolutionFunc?
-    private let setWindowOpacity: SetWindowOpacityFunc?
-    private let setWindowTags: SetWindowTagsFunc?
-    private let flushWindowContentRegion: FlushWindowContentRegionFunc?
-    private let newRegionWithRect: NewRegionWithRectFunc?
-    private let transactionSetWindowLevel: TransactionSetWindowLevelFunc?
-    private let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFunc?
-    private let getActiveSpace: GetActiveSpaceFunc?
-    private let copySpacesForWindows: CopySpacesForWindowsFunc?
-    private let getSpaceManagementMode: GetSpaceManagementModeFunc?
+    private let moveWindow: MoveWindowFunc
+    private let getWindowBounds: GetWindowBoundsFunc
+    private let registerConnectionNotifyProc: RegisterConnectionNotifyProcFunc
+    private let unregisterConnectionNotifyProc: UnregisterConnectionNotifyProcFunc
+    private let requestNotificationsForWindows: RequestNotificationsForWindowsFunc
+    private let registerNotifyProc: RegisterNotifyProcFunc
+    private let unregisterNotifyProcFunc: UnregisterNotifyProcFunc
+    private let newWindow: NewWindowFunc
+    private let releaseWindow: ReleaseWindowFunc
+    private let windowContextCreate: WindowContextCreateFunc
+    private let setWindowShape: SetWindowShapeFunc
+    private let setWindowResolution: SetWindowResolutionFunc
+    private let setWindowOpacity: SetWindowOpacityFunc
+    private let setWindowTags: SetWindowTagsFunc
+    private let flushWindowContentRegion: FlushWindowContentRegionFunc
+    private let newRegionWithRect: NewRegionWithRectFunc
+    private let transactionSetWindowLevel: TransactionSetWindowLevelFunc
+    private let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFunc
+    private let getActiveSpace: GetActiveSpaceFunc
+    private let copySpacesForWindows: CopySpacesForWindowsFunc
+    private let getSpaceManagementMode: GetSpaceManagementModeFunc
 
     private let capabilitySymbols: [SkyLightSymbolStatus]
 
@@ -189,142 +189,77 @@ final class SkyLight {
         }
 
         var capability: [SkyLightSymbolStatus] = []
-        var missingRequiredSymbols: [String] = []
 
-        func resolve<T>(_ symbol: String, as _: T.Type, required: Bool) -> T? {
-            let resolved: T? = dlsym(lib, symbol).map { unsafeBitCast($0, to: T.self) }
-            capability.append(SkyLightSymbolStatus(name: symbol, required: required, resolved: resolved != nil))
-            if required, resolved == nil {
-                missingRequiredSymbols.append(symbol)
+        func resolve<T>(_ symbol: String, as _: T.Type) -> T {
+            guard let pointer = dlsym(lib, symbol) else {
+                fatalError("SkyLight missing required symbol: \(symbol)")
             }
-            return resolved
+            capability.append(SkyLightSymbolStatus(name: symbol, required: true, resolved: true))
+            return unsafeBitCast(pointer, to: T.self)
         }
 
-        func resolveOptional<T>(_ symbol: String, as type: T.Type) -> T? {
-            resolve(symbol, as: type, required: false)
-        }
-
-        func resolveRequired<T>(_ symbol: String, as type: T.Type) -> T? {
-            resolve(symbol, as: type, required: true)
-        }
-
-        let mainConnectionID = resolveRequired("SLSMainConnectionID", as: MainConnectionIDFunc.self)
-        let windowQueryWindows = resolveRequired("SLSWindowQueryWindows", as: WindowQueryWindowsFunc.self)
-        let windowQueryResultCopyWindows = resolveRequired(
+        mainConnectionID = resolve("SLSMainConnectionID", as: MainConnectionIDFunc.self)
+        windowQueryWindows = resolve("SLSWindowQueryWindows", as: WindowQueryWindowsFunc.self)
+        windowQueryResultCopyWindows = resolve(
             "SLSWindowQueryResultCopyWindows",
             as: WindowQueryResultCopyWindowsFunc.self
         )
-        let windowIteratorGetCount = resolveRequired("SLSWindowIteratorGetCount", as: WindowIteratorGetCountFunc.self)
-        let windowIteratorAdvance = resolveRequired("SLSWindowIteratorAdvance", as: WindowIteratorAdvanceFunc.self)
-        let transactionCreate = resolveRequired("SLSTransactionCreate", as: TransactionCreateFunc.self)
-        let transactionCommit = resolveRequired("SLSTransactionCommit", as: TransactionCommitFunc.self)
-        let transactionOrderWindow = resolveRequired("SLSTransactionOrderWindow", as: TransactionOrderWindowFunc.self)
-        let disableUpdate = resolveRequired("SLSDisableUpdate", as: DisableUpdateFunc.self)
-        let reenableUpdate = resolveRequired("SLSReenableUpdate", as: ReenableUpdateFunc.self)
-
-        if !missingRequiredSymbols.isEmpty {
-            let message = "SkyLight missing required symbols: \(missingRequiredSymbols.joined(separator: ", "))"
-            if let data = "OmniWM: \(message)\n".data(using: .utf8) {
-                FileHandle.standardError.write(data)
-            }
-            fatalError(message)
-        }
-
-        guard let mainConnectionID,
-              let windowQueryWindows,
-              let windowQueryResultCopyWindows,
-              let windowIteratorGetCount,
-              let windowIteratorAdvance,
-              let transactionCreate,
-              let transactionCommit,
-              let transactionOrderWindow,
-              let disableUpdate,
-              let reenableUpdate
-        else {
-            fatalError("SkyLight required symbol resolution failed")
-        }
-
-        self.mainConnectionID = mainConnectionID
-        self.windowQueryWindows = windowQueryWindows
-        self.windowQueryResultCopyWindows = windowQueryResultCopyWindows
-        self.windowIteratorGetCount = windowIteratorGetCount
-        self.windowIteratorAdvance = windowIteratorAdvance
-        self.transactionCreate = transactionCreate
-        self.transactionCommit = transactionCommit
-        self.transactionOrderWindow = transactionOrderWindow
-        self.disableUpdate = disableUpdate
-        self.reenableUpdate = reenableUpdate
-
-        windowIteratorGetCornerRadii = resolveOptional(
+        windowIteratorGetCount = resolve("SLSWindowIteratorGetCount", as: WindowIteratorGetCountFunc.self)
+        windowIteratorAdvance = resolve("SLSWindowIteratorAdvance", as: WindowIteratorAdvanceFunc.self)
+        windowIteratorGetCornerRadii = resolve(
             "SLSWindowIteratorGetCornerRadii",
             as: WindowIteratorGetCornerRadiiFunc.self
         )
-
-        windowIsOrderedIn = resolveOptional("SLSWindowIsOrderedIn", as: WindowIsOrderedInFunc.self)
-        transactionMoveWindowWithGroup = resolveOptional(
-            "SLSTransactionMoveWindowWithGroup",
-            as: TransactionMoveWindowWithGroupFunc.self
-        )
-        moveWindow = resolveOptional("SLSMoveWindow", as: MoveWindowFunc.self)
-        getWindowBounds = resolveOptional("SLSGetWindowBounds", as: GetWindowBoundsFunc.self)
-
-        windowIteratorGetBounds = resolveOptional("SLSWindowIteratorGetBounds", as: WindowIteratorGetBoundsFunc.self)
-        windowIteratorGetWindowID = resolveOptional(
-            "SLSWindowIteratorGetWindowID",
-            as: WindowIteratorGetWindowIDFunc.self
-        )
-        windowIteratorGetPID = resolveOptional("SLSWindowIteratorGetPID", as: WindowIteratorGetPIDFunc.self)
-        windowIteratorGetLevel = resolveOptional("SLSWindowIteratorGetLevel", as: WindowIteratorGetLevelFunc.self)
-        windowIteratorGetTags = resolveOptional("SLSWindowIteratorGetTags", as: WindowIteratorGetTagsFunc.self)
-        windowIteratorGetAttributes = resolveOptional(
+        windowIteratorGetBounds = resolve("SLSWindowIteratorGetBounds", as: WindowIteratorGetBoundsFunc.self)
+        windowIteratorGetWindowID = resolve("SLSWindowIteratorGetWindowID", as: WindowIteratorGetWindowIDFunc.self)
+        windowIteratorGetPID = resolve("SLSWindowIteratorGetPID", as: WindowIteratorGetPIDFunc.self)
+        windowIteratorGetLevel = resolve("SLSWindowIteratorGetLevel", as: WindowIteratorGetLevelFunc.self)
+        windowIteratorGetTags = resolve("SLSWindowIteratorGetTags", as: WindowIteratorGetTagsFunc.self)
+        windowIteratorGetAttributes = resolve(
             "SLSWindowIteratorGetAttributes",
             as: WindowIteratorGetAttributesFunc.self
         )
-        windowIteratorGetParentID = resolveOptional(
-            "SLSWindowIteratorGetParentID",
-            as: WindowIteratorGetParentIDFunc.self
+        windowIteratorGetParentID = resolve("SLSWindowIteratorGetParentID", as: WindowIteratorGetParentIDFunc.self)
+        transactionCreate = resolve("SLSTransactionCreate", as: TransactionCreateFunc.self)
+        transactionCommit = resolve("SLSTransactionCommit", as: TransactionCommitFunc.self)
+        transactionOrderWindow = resolve("SLSTransactionOrderWindow", as: TransactionOrderWindowFunc.self)
+        windowIsOrderedIn = resolve("SLSWindowIsOrderedIn", as: WindowIsOrderedInFunc.self)
+        transactionMoveWindowWithGroup = resolve(
+            "SLSTransactionMoveWindowWithGroup",
+            as: TransactionMoveWindowWithGroupFunc.self
         )
-
-        registerConnectionNotifyProc = resolveOptional(
+        disableUpdate = resolve("SLSDisableUpdate", as: DisableUpdateFunc.self)
+        reenableUpdate = resolve("SLSReenableUpdate", as: ReenableUpdateFunc.self)
+        moveWindow = resolve("SLSMoveWindow", as: MoveWindowFunc.self)
+        getWindowBounds = resolve("SLSGetWindowBounds", as: GetWindowBoundsFunc.self)
+        registerConnectionNotifyProc = resolve(
             "SLSRegisterConnectionNotifyProc",
             as: RegisterConnectionNotifyProcFunc.self
         )
-        unregisterConnectionNotifyProc = resolveOptional(
-            "SLSUnregisterConnectionNotifyProc",
+        unregisterConnectionNotifyProc = resolve(
+            "SLSRemoveConnectionNotifyProc",
             as: UnregisterConnectionNotifyProcFunc.self
         )
-            ?? resolveOptional("SLSRemoveConnectionNotifyProc", as: UnregisterConnectionNotifyProcFunc.self)
-        requestNotificationsForWindows = resolveOptional(
+        requestNotificationsForWindows = resolve(
             "SLSRequestNotificationsForWindows",
             as: RequestNotificationsForWindowsFunc.self
         )
-        registerNotifyProc = resolveOptional("SLSRegisterNotifyProc", as: RegisterNotifyProcFunc.self)
-        unregisterNotifyProcFunc = resolveOptional("SLSUnregisterNotifyProc", as: UnregisterNotifyProcFunc.self)
-            ?? resolveOptional("SLSRemoveNotifyProc", as: UnregisterNotifyProcFunc.self)
-
-        newWindow = resolveOptional("SLSNewWindow", as: NewWindowFunc.self)
-        releaseWindow = resolveOptional("SLSReleaseWindow", as: ReleaseWindowFunc.self)
-        windowContextCreate = resolveOptional("SLWindowContextCreate", as: WindowContextCreateFunc.self)
-        setWindowShape = resolveOptional("SLSSetWindowShape", as: SetWindowShapeFunc.self)
-        setWindowResolution = resolveOptional("SLSSetWindowResolution", as: SetWindowResolutionFunc.self)
-        setWindowOpacity = resolveOptional("SLSSetWindowOpacity", as: SetWindowOpacityFunc.self)
-        setWindowTags = resolveOptional("SLSSetWindowTags", as: SetWindowTagsFunc.self)
-        flushWindowContentRegion = resolveOptional("SLSFlushWindowContentRegion", as: FlushWindowContentRegionFunc.self)
-        newRegionWithRect = resolveOptional("CGSNewRegionWithRect", as: NewRegionWithRectFunc.self)
-        transactionSetWindowLevel = resolveOptional(
-            "SLSTransactionSetWindowLevel",
-            as: TransactionSetWindowLevelFunc.self
-        )
-        copyManagedDisplaySpaces = resolveOptional(
-            "SLSCopyManagedDisplaySpaces",
-            as: CopyManagedDisplaySpacesFunc.self
-        )
-            ?? resolveOptional("CGSCopyManagedDisplaySpaces", as: CopyManagedDisplaySpacesFunc.self)
-        getActiveSpace = resolveOptional("SLSGetActiveSpace", as: GetActiveSpaceFunc.self)
-            ?? resolveOptional("CGSGetActiveSpace", as: GetActiveSpaceFunc.self)
-        copySpacesForWindows = resolveOptional("SLSCopySpacesForWindows", as: CopySpacesForWindowsFunc.self)
-            ?? resolveOptional("CGSCopySpacesForWindows", as: CopySpacesForWindowsFunc.self)
-        getSpaceManagementMode = resolveOptional("SLSGetSpaceManagementMode", as: GetSpaceManagementModeFunc.self)
+        registerNotifyProc = resolve("SLSRegisterNotifyProc", as: RegisterNotifyProcFunc.self)
+        unregisterNotifyProcFunc = resolve("SLSRemoveNotifyProc", as: UnregisterNotifyProcFunc.self)
+        newWindow = resolve("SLSNewWindow", as: NewWindowFunc.self)
+        releaseWindow = resolve("SLSReleaseWindow", as: ReleaseWindowFunc.self)
+        windowContextCreate = resolve("SLWindowContextCreate", as: WindowContextCreateFunc.self)
+        setWindowShape = resolve("SLSSetWindowShape", as: SetWindowShapeFunc.self)
+        setWindowResolution = resolve("SLSSetWindowResolution", as: SetWindowResolutionFunc.self)
+        setWindowOpacity = resolve("SLSSetWindowOpacity", as: SetWindowOpacityFunc.self)
+        setWindowTags = resolve("SLSSetWindowTags", as: SetWindowTagsFunc.self)
+        flushWindowContentRegion = resolve("SLSFlushWindowContentRegion", as: FlushWindowContentRegionFunc.self)
+        newRegionWithRect = resolve("CGSNewRegionWithRect", as: NewRegionWithRectFunc.self)
+        transactionSetWindowLevel = resolve("SLSTransactionSetWindowLevel", as: TransactionSetWindowLevelFunc.self)
+        copyManagedDisplaySpaces = resolve("SLSCopyManagedDisplaySpaces", as: CopyManagedDisplaySpacesFunc.self)
+        getActiveSpace = resolve("SLSGetActiveSpace", as: GetActiveSpaceFunc.self)
+        copySpacesForWindows = resolve("SLSCopySpacesForWindows", as: CopySpacesForWindowsFunc.self)
+        getSpaceManagementMode = resolve("SLSGetSpaceManagementMode", as: GetSpaceManagementModeFunc.self)
 
         capabilitySymbols = capability
     }
@@ -338,7 +273,6 @@ final class SkyLight {
     }
 
     func cornerRadius(forWindowId wid: Int) -> CGFloat? {
-        guard let windowIteratorGetCornerRadii else { return nil }
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
 
@@ -386,7 +320,6 @@ final class SkyLight {
     }
 
     func isWindowOrderedIn(_ wid: UInt32) -> Bool? {
-        guard let windowIsOrderedIn else { return nil }
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
         var orderedIn: UInt8 = 0
@@ -396,7 +329,6 @@ final class SkyLight {
     }
 
     func moveWindow(_ wid: UInt32, to point: CGPoint) -> Bool {
-        guard let moveWindow else { return false }
         let cid = getMainConnectionID()
         guard cid != 0 else { return false }
         var pt = point
@@ -405,7 +337,6 @@ final class SkyLight {
     }
 
     func getWindowBounds(_ wid: UInt32) -> CGRect? {
-        guard let getWindowBounds else { return nil }
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
         var rect = CGRect.zero
@@ -415,7 +346,7 @@ final class SkyLight {
     }
 
     func displayId(forSpaceId spaceId: UInt64, among monitors: [Monitor]) -> CGDirectDisplayID? {
-        guard spaceId != 0, let copyManagedDisplaySpaces, !monitors.isEmpty else { return nil }
+        guard spaceId != 0, !monitors.isEmpty else { return nil }
         let cid = getMainConnectionID()
         guard cid != 0, let spacesRef = copyManagedDisplaySpaces(cid) else { return nil }
         defer { cfRelease(spacesRef) }
@@ -446,7 +377,6 @@ final class SkyLight {
     }
 
     func activeSpace() -> UInt64? {
-        guard let getActiveSpace else { return nil }
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
         let space = getActiveSpace(cid)
@@ -454,14 +384,12 @@ final class SkyLight {
     }
 
     var displaysHaveSeparateSpaces: DisplaySpacesMode {
-        guard let getSpaceManagementMode else { return .unavailable }
         let cid = getMainConnectionID()
         guard cid != 0 else { return .unavailable }
         return getSpaceManagementMode(cid) == 1 ? .enabled : .disabled
     }
 
     func spacesForWindow(_ windowId: UInt32) -> [UInt64] {
-        guard let copySpacesForWindows else { return [] }
         let cid = getMainConnectionID()
         guard cid != 0 else { return [] }
         var widValue = Int32(bitPattern: windowId)
@@ -479,7 +407,6 @@ final class SkyLight {
     }
 
     func managedSpaces() -> [ManagedDisplaySpaces] {
-        guard let copyManagedDisplaySpaces else { return [] }
         let cid = getMainConnectionID()
         guard cid != 0, let spacesRef = copyManagedDisplaySpaces(cid) else { return [] }
         defer { cfRelease(spacesRef) }
@@ -566,22 +493,8 @@ final class SkyLight {
     }
 
     func batchMoveWindows(_ positions: [(windowId: UInt32, origin: CGPoint)]) {
-        guard let transactionMoveWindowWithGroup else {
-            FallbackFiringRecorder.shared.note("skylight", "batchMoveLoop")
-            for (windowId, origin) in positions {
-                _ = moveWindow(windowId, to: origin)
-            }
-            return
-        }
-
         let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else {
-            FallbackFiringRecorder.shared.note("skylight", "batchMoveLoop")
-            for (windowId, origin) in positions {
-                _ = moveWindow(windowId, to: origin)
-            }
-            return
-        }
+        guard let transaction = transactionCreate(cid) else { return }
         defer { cfRelease(transaction) }
 
         for (windowId, origin) in positions {
@@ -592,15 +505,6 @@ final class SkyLight {
     }
 
     func queryAllVisibleWindows() -> [WindowServerInfo] {
-        guard let windowIteratorGetBounds,
-              let windowIteratorGetWindowID,
-              let windowIteratorGetPID,
-              let windowIteratorGetLevel,
-              let windowIteratorGetTags,
-              let windowIteratorGetAttributes,
-              let windowIteratorGetParentID
-        else { return [] }
-
         let cid = getMainConnectionID()
         guard cid != 0 else { return [] }
 
@@ -650,15 +554,6 @@ final class SkyLight {
     }
 
     func queryWindowInfo(_ windowId: UInt32) -> WindowServerInfo? {
-        guard let windowIteratorGetBounds,
-              let windowIteratorGetWindowID,
-              let windowIteratorGetPID,
-              let windowIteratorGetLevel,
-              let windowIteratorGetTags,
-              let windowIteratorGetAttributes,
-              let windowIteratorGetParentID
-        else { return nil }
-
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
 
@@ -697,9 +592,6 @@ final class SkyLight {
         callback: @escaping ConnectionNotifyCallback,
         context: UnsafeMutableRawPointer? = nil
     ) -> Bool {
-        guard let registerConnectionNotifyProc else {
-            return false
-        }
         let cid = getMainConnectionID()
         guard cid != 0 else {
             return false
@@ -712,9 +604,6 @@ final class SkyLight {
         event: CGSEventType,
         callback: @escaping ConnectionNotifyCallback
     ) -> Bool {
-        guard let unregisterConnectionNotifyProc else {
-            return false
-        }
         let cid = getMainConnectionID()
         guard cid != 0 else { return false }
         let result = unregisterConnectionNotifyProc(cid, callback, event.rawValue)
@@ -726,9 +615,6 @@ final class SkyLight {
         callback: @escaping NotifyCallback,
         context: UnsafeMutableRawPointer? = nil
     ) -> Bool {
-        guard let registerNotifyProc else {
-            return false
-        }
         let result = registerNotifyProc(callback, event.rawValue, context)
         return result == 0
     }
@@ -738,17 +624,11 @@ final class SkyLight {
         callback: @escaping NotifyCallback,
         context: UnsafeMutableRawPointer? = nil
     ) -> Bool {
-        guard let unregisterNotifyProcFunc else {
-            return false
-        }
         let result = unregisterNotifyProcFunc(callback, event.rawValue, context)
         return result == 0
     }
 
     func subscribeToWindowNotifications(_ windowIds: [UInt32]) -> Bool {
-        guard let requestNotificationsForWindows else {
-            return false
-        }
         guard !windowIds.isEmpty else {
             return true
         }
@@ -772,7 +652,6 @@ final class SkyLight {
     }
 
     func createBorderWindow(frame: CGRect) -> UInt32 {
-        guard let newWindow, let newRegionWithRect else { return 0 }
         let cid = getMainConnectionID()
         guard cid != 0 else { return 0 }
 
@@ -789,7 +668,6 @@ final class SkyLight {
     }
 
     func releaseBorderWindow(_ wid: UInt32) {
-        guard let releaseWindow else { return }
         let cid = getMainConnectionID()
         guard cid != 0 else { return }
         if releaseWindow(cid, wid) != .success {
@@ -798,7 +676,6 @@ final class SkyLight {
     }
 
     func createWindowContext(for wid: UInt32) -> CGContext? {
-        guard let windowContextCreate else { return nil }
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
         return windowContextCreate(cid, wid, nil)
@@ -806,10 +683,6 @@ final class SkyLight {
 
     @discardableResult
     func setWindowShape(_ wid: UInt32, frame: CGRect) -> Bool {
-        guard let setWindowShape, let newRegionWithRect else {
-            FallbackFiringRecorder.shared.note("skylight", "setWindowShapeUnavailable")
-            return false
-        }
         let cid = getMainConnectionID()
         guard cid != 0 else { return false }
 
@@ -829,18 +702,14 @@ final class SkyLight {
     func configureWindow(_ wid: UInt32, resolution: Float, opaque: Bool) -> (resolution: Bool, opacity: Bool) {
         let cid = getMainConnectionID()
         guard cid != 0 else { return (false, false) }
-        let resolutionOk = setWindowResolution.map { $0(cid, wid, resolution) == .success } ?? false
-        let opacityOk = setWindowOpacity.map { $0(cid, wid, opaque ? 1 : 0) == .success } ?? false
+        let resolutionOk = setWindowResolution(cid, wid, resolution) == .success
+        let opacityOk = setWindowOpacity(cid, wid, opaque ? 1 : 0) == .success
         if !opacityOk { FallbackFiringRecorder.shared.note("skylight", "setWindowOpacityFailed") }
         return (resolutionOk, opacityOk)
     }
 
     @discardableResult
     func setWindowTags(_ wid: UInt32, tags: UInt64) -> Bool {
-        guard let setWindowTags else {
-            FallbackFiringRecorder.shared.note("skylight", "setWindowTagsUnavailable")
-            return false
-        }
         let cid = getMainConnectionID()
         guard cid != 0 else { return false }
         var tagsValue = tags
@@ -851,10 +720,6 @@ final class SkyLight {
 
     @discardableResult
     func flushWindow(_ wid: UInt32) -> Bool {
-        guard let flushWindowContentRegion else {
-            FallbackFiringRecorder.shared.note("skylight", "flushWindowUnavailable")
-            return false
-        }
         let cid = getMainConnectionID()
         guard cid != 0 else { return false }
         let ok = flushWindowContentRegion(cid, wid, nil) == .success
@@ -863,21 +728,11 @@ final class SkyLight {
     }
 
     func transactionMove(_ wid: UInt32, origin: CGPoint) {
-        if let transactionMoveWindowWithGroup {
-            let cid = getMainConnectionID()
-            guard let transaction = transactionCreate(cid) else {
-                FallbackFiringRecorder.shared.note("skylight", "transactionMoveDirect")
-                _ = moveWindow(wid, to: origin)
-                return
-            }
-            defer { cfRelease(transaction) }
-            _ = transactionMoveWindowWithGroup(transaction, wid, origin)
-            _ = commit(transaction)
-            return
-        }
-
-        FallbackFiringRecorder.shared.note("skylight", "transactionMoveDirect")
-        _ = moveWindow(wid, to: origin)
+        let cid = getMainConnectionID()
+        guard let transaction = transactionCreate(cid) else { return }
+        defer { cfRelease(transaction) }
+        _ = transactionMoveWindowWithGroup(transaction, wid, origin)
+        _ = commit(transaction)
     }
 
     func transactionMoveAndOrder(
@@ -891,14 +746,8 @@ final class SkyLight {
         guard let transaction = transactionCreate(cid) else { return }
         defer { cfRelease(transaction) }
 
-        if let transactionMoveWindowWithGroup {
-            _ = transactionMoveWindowWithGroup(transaction, wid, origin)
-        }
-        if let transactionSetWindowLevel {
-            _ = transactionSetWindowLevel(transaction, wid, level)
-        } else {
-            FallbackFiringRecorder.shared.note("skylight", "transactionLevelSkipped")
-        }
+        _ = transactionMoveWindowWithGroup(transaction, wid, origin)
+        _ = transactionSetWindowLevel(transaction, wid, level)
         transactionOrderWindow(transaction, wid, order.rawValue, targetWid)
         _ = commit(transaction)
     }
