@@ -986,6 +986,9 @@ final class AXEventHandler {
     }
 
     private func handleCGSWindowDestroyed(windowId: UInt32) {
+        if resolveWindowInfo(windowId) != nil {
+            return
+        }
         AXWindowService.invalidateCachedTitle(windowId: windowId)
         cancelCreatedWindowRetry(windowId: windowId)
         discardCreatePlacementContext(windowId: windowId)
