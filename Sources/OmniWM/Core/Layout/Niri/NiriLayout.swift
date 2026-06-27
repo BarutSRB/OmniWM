@@ -233,6 +233,17 @@ extension NiriLayoutEngine {
             ) {
             case .visible:
                 renderedContainerRect = visibilityRect
+                if containers[idx].isTabbed {
+                    let parkEdge = hiddenEdge(
+                        for: visibilityRect,
+                        viewportFrame: workingFrame,
+                        fallback: idx == 0 ? .minimum : .maximum,
+                        orientation: orientation
+                    )
+                    for window in containerWindowNodes[idx] where window.isHiddenInTabbedMode {
+                        hiddenHandles[window.token] = parkEdge.encodedHideSide
+                    }
+                }
             case let .hidden(hiddenEdge):
                 for window in containerWindowNodes[idx] {
                     hiddenHandles[window.token] = hiddenEdge.encodedHideSide
