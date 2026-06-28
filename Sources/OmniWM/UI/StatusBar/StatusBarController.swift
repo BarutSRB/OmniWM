@@ -58,8 +58,7 @@ final class StatusBarController: NSObject {
         statusItem = ownedStatusItem
 
         guard let button = statusItem?.button else { return }
-        button.image = NSImage(systemSymbolName: "o.circle", accessibilityDescription: "OmniWM")
-        button.image?.isTemplate = true
+        button.image = OmniWMBrandMark.statusItemImage(pointSize: 18)
         button.target = self
         button.action = #selector(handleClick(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -137,8 +136,7 @@ final class StatusBarController: NSObject {
         } else {
             button.layer?.removeAnimation(forKey: recordingPulseKey)
             button.layer?.opacity = 1
-            button.image = NSImage(systemSymbolName: "o.circle", accessibilityDescription: "OmniWM")
-            button.image?.isTemplate = true
+            button.image = OmniWMBrandMark.statusItemImage(pointSize: 18)
             button.contentTintColor = nil
             button.toolTip = nil
         }

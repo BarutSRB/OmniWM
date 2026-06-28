@@ -13,6 +13,7 @@ enum SurfaceKind: String, Equatable {
     case dragGhost
     case utility
     case quake
+    case launchOverlay
 }
 
 enum HitTestPolicy: Equatable {

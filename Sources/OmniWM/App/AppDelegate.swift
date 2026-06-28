@@ -53,6 +53,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cliManager: AppCLIManager?
     private var updateCoordinator: (any AppUpdateCoordinating)?
     private var runtimeStateStore: RuntimeStateStore?
+    private var launchOverlayController: LaunchOverlayController?
 
     public func applicationDidFinishLaunching(_: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -150,6 +151,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             settings.ipcEnabled = false
         }
         updateCoordinator.startAutomaticChecks()
+
+        let overlay = LaunchOverlayController()
+        launchOverlayController = overlay
+        overlay.play { [weak self] in self?.launchOverlayController = nil }
     }
 
     func startIPCServer(controller: WMController) throws {
