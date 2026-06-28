@@ -847,6 +847,10 @@ final class WMController {
         )
     }
 
+    func balanceNiriSizesAllWorkspaces() {
+        niriLayoutHandler.balanceSizesAllWorkspaces()
+    }
+
     func enableDwindleLayout() {
         dwindleLayoutHandler.enableDwindleLayout()
     }

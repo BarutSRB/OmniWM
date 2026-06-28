@@ -347,6 +347,7 @@ private struct GlobalNiriSettingsSection: View {
             set: { useAuto in
                 settings.niriDefaultColumnWidth = useAuto ? nil : (settings.niriDefaultColumnWidth ?? 0.5)
                 controller.updateNiriConfig(defaultColumnWidth: settings.niriDefaultColumnWidth)
+                controller.balanceNiriSizesAllWorkspaces()
             }
         )
         let defaultColumnWidthPercent = Binding(
@@ -354,6 +355,7 @@ private struct GlobalNiriSettingsSection: View {
             set: { newPercent in
                 settings.niriDefaultColumnWidth = Double(min(100, max(5, newPercent))) / 100.0
                 controller.updateNiriConfig(defaultColumnWidth: settings.niriDefaultColumnWidth)
+                controller.balanceNiriSizesAllWorkspaces()
             }
         )
         let presets = settings.niriColumnWidthPresets
@@ -371,7 +373,12 @@ private struct GlobalNiriSettingsSection: View {
                 valueWidth: 32
             )
             .onChange(of: settings.niriMaxVisibleColumns) { _, newValue in
-                controller.updateNiriConfig(maxVisibleColumns: newValue)
+                settings.niriDefaultColumnWidth = nil
+                controller.updateNiriConfig(
+                    maxVisibleColumns: newValue,
+                    defaultColumnWidth: settings.niriDefaultColumnWidth
+                )
+                controller.balanceNiriSizesAllWorkspaces()
             }
 
             Toggle("Infinite Loop Navigation", isOn: $settings.niriInfiniteLoop)
@@ -523,7 +530,12 @@ private struct MonitorNiriSettingsSection: View {
                 range: 1 ... 5,
                 step: 1,
                 formatter: { "\(Int($0))" },
-                onChange: { newValue in updateSetting { $0.maxVisibleColumns = Int(newValue) } },
+                onChange: { newValue in
+                    updateSetting { $0.maxVisibleColumns = Int(newValue) }
+                    settings.niriDefaultColumnWidth = nil
+                    controller.updateNiriConfig(defaultColumnWidth: settings.niriDefaultColumnWidth)
+                    controller.balanceNiriSizesAllWorkspaces()
+                },
                 onReset: { updateSetting { $0.maxVisibleColumns = nil } }
             )
 

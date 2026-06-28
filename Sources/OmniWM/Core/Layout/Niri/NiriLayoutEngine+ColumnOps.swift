@@ -252,15 +252,16 @@ extension NiriLayoutEngine {
         }
     }
 
+    @discardableResult
     func balanceSizes(
         in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot,
         workingAreaWidth: CGFloat,
         gaps: CGFloat
-    ) {
+    ) -> Bool {
         assertSanctionedMutation()
         let cols = columns(in: workspaceId)
-        guard !cols.isEmpty else { return }
+        guard !cols.isEmpty else { return false }
 
         let resolvedWidth = resolvedColumnResetWidth(in: workspaceId)
         let targetPixels = (workingAreaWidth - gaps) * resolvedWidth.proportion - gaps
@@ -284,6 +285,7 @@ extension NiriLayoutEngine {
                 window.size = 1.0
             }
         }
+        return true
     }
 
     func moveColumn(

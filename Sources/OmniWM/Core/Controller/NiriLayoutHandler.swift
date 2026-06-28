@@ -1524,17 +1524,41 @@ import QuartzCore
     func balanceSizes() {
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, motion, _, _, workingFrame, gaps in
-            engine.balanceSizes(
+            guard engine.balanceSizes(
                 in: wsId,
                 motion: motion,
                 workingAreaWidth: workingFrame.width,
                 gaps: gaps
-            )
+            ) else { return }
             recordLayoutOperation(.sizesBalanced, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
             if engine.hasAnyColumnAnimationsRunning(in: wsId) {
                 controller.layoutRefreshController.startScrollAnimation(for: wsId)
             }
+        }
+    }
+
+    func balanceSizesAllWorkspaces() {
+        guard let controller else { return }
+        var changed: Set<WorkspaceDescriptor.ID> = []
+        for descriptor in controller.workspaceManager.workspaces {
+            guard controller.settings.layoutType(for: descriptor.name) != .dwindle else { continue }
+            withNiriWorkspaceContext(for: descriptor.id) { engine, wsId, motion, _, _, workingFrame, gaps in
+                guard engine.balanceSizes(
+                    in: wsId,
+                    motion: motion,
+                    workingAreaWidth: workingFrame.width,
+                    gaps: gaps
+                ) else { return }
+                changed.insert(wsId)
+                recordLayoutOperation(.sizesBalanced, in: wsId)
+                if engine.hasAnyColumnAnimationsRunning(in: wsId) {
+                    controller.layoutRefreshController.startScrollAnimation(for: wsId)
+                }
+            }
+        }
+        if !changed.isEmpty {
+            controller.layoutRefreshController.requestLayoutCommandRelayout(affectedWorkspaceIds: changed)
         }
     }
 
