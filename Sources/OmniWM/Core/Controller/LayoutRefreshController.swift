@@ -639,7 +639,7 @@ import QuartzCore
             }
 
             let hiddenState = controller.workspaceManager.hiddenState(for: entry.token)
-            let layoutConstraints = resolvedLayoutConstraints(
+            let layoutConstraints = Self.resolvedLayoutConstraints(
                 for: mergedConstraints,
                 layoutReason: layoutReason,
                 hiddenState: hiddenState,
@@ -660,7 +660,7 @@ import QuartzCore
         return snapshots
     }
 
-    private func resolvedLayoutConstraints(
+    nonisolated static func resolvedLayoutConstraints(
         for constraints: WindowSizeConstraints,
         layoutReason: LayoutReason,
         hiddenState: HiddenState?,
@@ -673,7 +673,7 @@ import QuartzCore
         }
 
         guard layoutReason == .standard,
-              hiddenState == nil,
+              hiddenState == nil || hiddenState?.offscreenSide != nil,
               let workingFrame
         else {
             return effectiveConstraints.relaxedForOversizedMinimum()
