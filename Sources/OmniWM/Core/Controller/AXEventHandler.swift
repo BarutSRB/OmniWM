@@ -944,7 +944,6 @@ final class AXEventHandler {
 
         guard controller.axManager.pendingFrameWrite(for: entry.windowId) == nil else { return nil }
         guard let frame = observedFrame(for: entry) else { return nil }
-        updateManagedReplacementFrame(frame, for: entry)
         return frame
     }
 
@@ -1075,7 +1074,6 @@ final class AXEventHandler {
             let preferredMonitor = controller.workspaceManager.monitor(for: trackedEntry.workspaceId)
 
             if let observedFrame {
-                updateManagedReplacementFrame(observedFrame, for: trackedEntry)
                 if controller.workspaceManager.floatingState(for: trackedToken) == nil {
                     controller.workspaceManager.updateFloatingGeometry(
                         frame: observedFrame,
@@ -3074,6 +3072,13 @@ final class AXEventHandler {
         metadata.bundleId = metadata.bundleId ?? fallbackBundleId
         metadata.workspaceId = entry.workspaceId
         metadata.mode = entry.mode
+        if entry.mode == .floating,
+           let floatingFrame = controller?.workspaceManager.floatingState(for: entry.token)?.lastFrame
+        {
+            metadata.frame = floatingFrame
+        } else if let appliedFrame = controller?.axManager.lastAppliedFrame(for: entry.windowId) {
+            metadata.frame = appliedFrame
+        }
         return metadata
     }
 
@@ -3424,11 +3429,6 @@ final class AXEventHandler {
     private func nextManagedReplacementSequence() -> UInt64 {
         defer { nextManagedReplacementEventSequence += 1 }
         return nextManagedReplacementEventSequence
-    }
-
-    private func updateManagedReplacementFrame(_ frame: CGRect, for entry: WindowState) {
-        guard let controller else { return }
-        _ = controller.workspaceManager.updateManagedReplacementFrame(frame, for: entry.token)
     }
 
     private func updateManagedReplacementTitle(windowId: UInt32, token: WindowToken) {

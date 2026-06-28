@@ -2397,22 +2397,6 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func updateManagedReplacementFrame(
-        _ frame: CGRect,
-        for token: WindowToken
-    ) -> Bool {
-        guard var metadata = world.managedReplacementMetadata(for: token) else {
-            return false
-        }
-        if let existingFrame = metadata.frame,
-           existingFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite) {
-            return false
-        }
-        metadata.frame = frame
-        return setManagedReplacementMetadata(metadata, for: token)
-    }
-
-    @discardableResult
     func updateManagedReplacementTitle(
         _ title: String,
         for token: WindowToken
