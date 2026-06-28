@@ -255,6 +255,7 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case toggleSplit = "toggle-split"
     case swapSplit = "swap-split"
     case resize
+    case resizeFocused = "resize-focused"
     case preselect
     case preselectClear = "preselect-clear"
     case openCommandPalette = "open-command-palette"
@@ -384,6 +385,7 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case toggleSplit
     case swapSplit
     case resize(direction: IPCDirection, operation: IPCResizeOperation)
+    case resizeFocused(operation: IPCResizeOperation)
     case preselect(direction: IPCDirection)
     case preselectClear
     case openCommandPalette
@@ -530,6 +532,8 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .swapSplit
         case .resize:
             .resize
+        case .resizeFocused:
+            .resizeFocused
         case .preselect:
             .preselect
         case .preselectClear:
@@ -610,6 +614,13 @@ public enum IPCCommandRequest: Equatable, Sendable {
                 throw IPCCommandRequestConstructionError.invalidArgumentType
             }
             return (direction, operation)
+        }
+
+        func requireResizeOperation() throws -> IPCResizeOperation {
+            guard argumentValues.count == 1, case let .resizeOperation(operation) = argumentValues[0] else {
+                throw IPCCommandRequestConstructionError.invalidArgumentType
+            }
+            return operation
         }
 
         func requireWorkspaceAndDirection() throws -> (workspaceNumber: Int, direction: IPCDirection) {
@@ -801,6 +812,8 @@ public enum IPCCommandRequest: Equatable, Sendable {
         case .resize:
             let arguments = try requireResizeArguments()
             self = .resize(direction: arguments.direction, operation: arguments.operation)
+        case .resizeFocused:
+            self = .resizeFocused(operation: try requireResizeOperation())
         case .preselect:
             self = .preselect(direction: try requireDirection())
         case .preselectClear:
@@ -887,6 +900,10 @@ extension IPCCommandRequest: Codable {
 
     private struct IPCResizeArguments: Codable, Equatable, Sendable {
         let direction: IPCDirection
+        let operation: IPCResizeOperation
+    }
+
+    private struct IPCResizeOperationArguments: Codable, Equatable, Sendable {
         let operation: IPCResizeOperation
     }
 
@@ -1041,6 +1058,9 @@ extension IPCCommandRequest: Codable {
         case .resize:
             let arguments = try container.decode(IPCResizeArguments.self, forKey: .arguments)
             self = .resize(direction: arguments.direction, operation: arguments.operation)
+        case .resizeFocused:
+            let arguments = try container.decode(IPCResizeOperationArguments.self, forKey: .arguments)
+            self = .resizeFocused(operation: arguments.operation)
         case .preselect:
             let arguments = try container.decode(IPCDirectionArguments.self, forKey: .arguments)
             self = .preselect(direction: arguments.direction)
@@ -1217,6 +1237,8 @@ extension IPCCommandRequest: Codable {
                 IPCResizeArguments(direction: direction, operation: operation),
                 forKey: .arguments
             )
+        case let .resizeFocused(operation):
+            try container.encode(IPCResizeOperationArguments(operation: operation), forKey: .arguments)
         case let .preselect(direction):
             try container.encode(IPCDirectionArguments(direction: direction), forKey: .arguments)
         case .preselectClear:

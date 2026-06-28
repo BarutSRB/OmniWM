@@ -314,6 +314,7 @@ Layout legend:
 | Swap Split | `Unassigned` | `Dwindle` |
 | Grow Left / Right / Up / Down | `Unassigned` | `Dwindle` |
 | Shrink Left / Right / Up / Down | `Unassigned` | `Dwindle` |
+| Grow / Shrink Focused Window | `Unassigned` | `Dwindle` |
 | Preselect Left / Right / Up / Down | `Unassigned` | `Dwindle` |
 | Clear Preselection | `Unassigned` | `Dwindle` |
 | Raise All Floating Windows | `Option + Shift + R` | `Shared` |

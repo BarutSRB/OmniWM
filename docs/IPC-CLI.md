@@ -325,6 +325,7 @@ Workspace IDs are positive numeric strings. Direct hotkeys stay limited to `1-9`
 | `command toggle-split` | — | dwindle | Toggle the active split orientation |
 | `command swap-split` | — | dwindle | Swap the active split |
 | `command resize` | `<left\|right\|up\|down> <grow\|shrink>` | dwindle | Resize the selected window |
+| `command resize-focused` | `<grow\|shrink>` | dwindle | Grow or shrink the focused window |
 | `command preselect` | `<left\|right\|up\|down>` | dwindle | Set the preselection direction |
 | `command preselect clear` | — | dwindle | Clear the preselection |
 

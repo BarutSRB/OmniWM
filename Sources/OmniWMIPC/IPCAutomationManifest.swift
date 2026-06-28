@@ -790,6 +790,13 @@ public enum IPCAutomationManifest {
             layoutCompatibility: .dwindle
         ),
         command(
+            ["resize-focused"],
+            name: .resizeFocused,
+            summary: "Grow or shrink the focused Dwindle window.",
+            arguments: [resizeOperationArgument],
+            layoutCompatibility: .dwindle
+        ),
+        command(
             ["preselect"],
             name: .preselect,
             summary: "Set the Dwindle preselection direction.",

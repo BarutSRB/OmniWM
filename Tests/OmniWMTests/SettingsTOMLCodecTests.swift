@@ -1,11 +1,37 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
+import Carbon
 import Foundation
 @testable import OmniWM
 import XCTest
 
 final class SettingsTOMLCodecTests: XCTestCase {
+    func testLoadingReinjectsNewlyAddedDefaultActionsMissingFromFile() throws {
+        var export = SettingsExport.defaults()
+        let customTrigger = HotkeyTrigger.chord(
+            KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey))
+        )
+        export.hotkeyBindings = export.hotkeyBindings
+            .filter { !$0.id.hasPrefix("resizeFocusedWindow") }
+            .map { binding in
+                binding.id == "swapSplit"
+                    ? HotkeyBinding(id: binding.id, command: binding.command, trigger: customTrigger)
+                    : binding
+            }
+        XCTAssertFalse(export.hotkeyBindings.contains { $0.id.hasPrefix("resizeFocusedWindow") })
+
+        let decoded = try SettingsTOMLCodec.decode(SettingsTOMLCodec.encode(export))
+
+        XCTAssertTrue(
+            decoded.hotkeyBindings.contains { $0.id == "resizeFocusedWindow.grow" && $0.binding == .unassigned }
+        )
+        XCTAssertTrue(
+            decoded.hotkeyBindings.contains { $0.id == "resizeFocusedWindow.shrink" && $0.binding == .unassigned }
+        )
+        XCTAssertEqual(decoded.hotkeyBindings.first { $0.id == "swapSplit" }?.binding, customTrigger)
+    }
+
     func testPreservingEncodeKeepsUnknownKeysInsideKnownTables() throws {
         let previous = try defaultsWithReplacements(
             ("[general]\n", "[general]\nfutureSetting = \"keep-me\"\n"),

@@ -184,6 +184,8 @@ final class CommandHandler {
             swapSplitInDwindle()
         case let .resizeInDirection(direction, grow):
             resizeInDirectionInDwindle(direction: direction, grow: grow)
+        case let .resizeFocusedWindow(grow):
+            resizeFocusedWindowInDwindle(grow: grow)
         case let .preselect(direction):
             preselectInDwindle(direction: direction)
         case .preselectClear:
@@ -729,6 +731,19 @@ final class CommandHandler {
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
             let delta = grow ? engine.settings.resizeStep : -engine.settings.resizeStep
             if engine.resizeSelected(by: delta, direction: direction, in: wsId) {
+                controller.dwindleLayoutHandler.recordLayoutOperation(.splitRatioChanged, in: wsId)
+            }
+            controller.layoutRefreshController.requestLayoutCommandRelayout(
+                affectedWorkspaceIds: [wsId]
+            )
+        }
+    }
+
+    private func resizeFocusedWindowInDwindle(grow: Bool) {
+        guard let controller else { return }
+        controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
+            let delta = grow ? engine.settings.resizeStep : -engine.settings.resizeStep
+            if engine.resizeFocusedWindow(by: delta, in: wsId) {
                 controller.dwindleLayoutHandler.recordLayoutOperation(.splitRatioChanged, in: wsId)
             }
             controller.layoutRefreshController.requestLayoutCommandRelayout(

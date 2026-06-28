@@ -1087,6 +1087,27 @@ final class DwindleLayoutEngine {
     }
 
     @discardableResult
+    func resizeFocusedWindow(by delta: CGFloat, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        assertSanctionedMutation()
+        guard let selected = selectedNode(in: workspaceId) else { return false }
+
+        var current = selected
+        while let parent = current.parent {
+            guard case let .split(orientation, ratio) = parent.kind else {
+                current = parent
+                continue
+            }
+            let isFirst = current.isFirstChild(of: parent)
+            let newRatio = isFirst ? ratio + delta : ratio - delta
+            let clampedRatio = settings.clampedRatio(newRatio)
+            guard clampedRatio != ratio else { return false }
+            parent.kind = .split(orientation: orientation, ratio: clampedRatio)
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
     func balanceSizes(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         assertSanctionedMutation()
         guard let root = roots[workspaceId] else { return false }

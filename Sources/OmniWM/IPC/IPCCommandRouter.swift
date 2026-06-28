@@ -171,6 +171,8 @@ final class IPCCommandRouter {
             return controller.commandHandler.performCommand(
                 .resizeInDirection(direction(for: ipcDirection), operation == .grow)
             )
+        case let .resizeFocused(operation):
+            return controller.commandHandler.performCommand(.resizeFocusedWindow(operation == .grow))
         case let .preselect(ipcDirection):
             return controller.commandHandler.performCommand(.preselect(direction(for: ipcDirection)))
         case .preselectClear:

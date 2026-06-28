@@ -317,12 +317,13 @@ extension CanonicalTOMLConfig {
             default: defaults.appearance,
             recovering: recovering
         )
-        hotkeys = try container.decode(
-            [HotkeyBinding].self,
+        let persistedHotkeys = try container.decode(
+            [PersistedHotkeyBinding].self,
             forKey: .hotkeys,
-            default: defaults.hotkeys,
+            default: [],
             recovering: recovering
         )
+        hotkeys = HotkeyBindingRegistry.canonicalize(persistedHotkeys)
         workspaces = try container.decode(
             [WorkspaceConfiguration].self,
             forKey: .workspaces,

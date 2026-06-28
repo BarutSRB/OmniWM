@@ -716,6 +716,22 @@ enum ActionCatalog {
                 keywords: ["resize", "shrink"]
             ),
             action(
+                id: "resizeFocusedWindow.grow",
+                command: .resizeFocusedWindow(true),
+                category: .layout,
+                binding: .unassigned,
+                visibility: .advanced,
+                keywords: ["resize", "grow"]
+            ),
+            action(
+                id: "resizeFocusedWindow.shrink",
+                command: .resizeFocusedWindow(false),
+                category: .layout,
+                binding: .unassigned,
+                visibility: .advanced,
+                keywords: ["resize", "shrink"]
+            ),
+            action(
                 id: "preselect.left",
                 command: .preselect(.left),
                 category: .layout,
@@ -871,7 +887,8 @@ enum ActionCatalog {
              .swapSplit,
              .preselect,
              .preselectClear,
-             .resizeInDirection:
+             .resizeInDirection,
+             .resizeFocusedWindow:
             .dwindle
 
         case .moveWindowDown,
@@ -1019,6 +1036,7 @@ enum ActionCatalog {
         case .toggleSplit: "Toggle Split"
         case .swapSplit: "Swap Split"
         case let .resizeInDirection(dir, grow): "\(grow ? "Grow" : "Shrink") \(dir.displayName)"
+        case let .resizeFocusedWindow(grow): "\(grow ? "Grow" : "Shrink") Focused Window"
         case let .preselect(dir): "Preselect \(dir.displayName)"
         case .preselectClear: "Clear Preselection"
         case .workspaceBackAndForth: "Switch to Last Active Workspace"
@@ -1167,6 +1185,8 @@ enum ActionCatalog {
             .swapSplit
         case .resizeInDirection:
             .resize
+        case .resizeFocusedWindow:
+            .resizeFocused
         case .preselect:
             .preselect
         case .preselectClear:
