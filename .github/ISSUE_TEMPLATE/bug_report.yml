@@ -6,19 +6,66 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report a bug.
-  - type: textarea
-    id: what-happened
+        Thanks for taking the time to report a bug. Before opening, please search the existing [open and closed issues](https://github.com/BarutSRB/OmniWM/issues?q=is%3Aissue) to avoid duplicates, and make sure you're on the latest OmniWM version.
+  - type: dropdown
+    id: issue-type
     attributes:
-      label: What happened?
-      description: Describe the bug and the exact steps to reproduce it.
+      label: Issue type
+      description: What kind of problem is this?
+      options:
+        - Tiling layout (Niri / Dwindle)
+        - Focus / focus-follows-mouse
+        - Multi-monitor / workspaces
+        - Window placement or sizing
+        - Crash
+        - Performance / animation
+        - Visual (borders, bar, overview)
+        - Other
     validations:
       required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened? (actual behavior)
+      description: Describe the bug — what OmniWM actually did.
+      placeholder: |
+        When I move a window to the second display, it snaps back to the first one after about a second.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe what you expected OmniWM to do instead.
+      placeholder: |
+        The window stays on the second display where I moved it.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Connect a second display.
+        2. Focus a tiled window on display 1.
+        3. Move it to display 2 with the move hotkey.
+        4. Wait ~1s — it jumps back to display 1.
+    validations:
+      required: true
+  - type: input
+    id: affected-apps
+    attributes:
+      label: Affected app(s)
+      description: Which application(s) does this involve? Window-manager bugs are often specific to one app's Accessibility behavior.
+      placeholder: e.g. Safari, VS Code, Slack — or "any app"
+    validations:
+      required: false
   - type: input
     id: omniwm-version
     attributes:
       label: OmniWM version
-      description: From the status-bar menu / About.
+      description: Shown in the status-bar menu (e.g. v0.5.1).
     validations:
       required: true
   - type: input
@@ -37,11 +84,38 @@ body:
         - Not sure / both
     validations:
       required: true
-  - type: textarea
-    id: logs
+  - type: input
+    id: regression
     attributes:
-      label: Logs / diagnostics (optional)
-      render: shell
+      label: Did this work in an earlier version?
+      description: If this is a regression, tell us the last version where it worked.
+      placeholder: e.g. worked in 0.4.6, broke in 0.5.0
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostics-bundle
+    attributes:
+      label: Diagnostics bundle (strongly recommended)
+      description: |
+        The single most useful thing you can attach. In OmniWM: open **Settings → Diagnostics → Start Recording**, reproduce the bug, then **Stop & Save Recording**. Drag the resulting `omniwm-bundle-*.zip` (saved in `~/.local/state/omniwm/diagnostics/`) into this box to upload it. It bundles the trace, any crash log, a focused-window snapshot, and your settings.
+    validations:
+      required: false
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or screen recording
+      description: If the bug is visual (layout glitch, jitter, wrong placement), a screenshot or short screen recording helps a lot. Drag it in here.
+    validations:
+      required: false
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing open and closed issues and confirmed this isn't a duplicate.
+          required: true
+        - label: I'm on a recent OmniWM version and the issue still occurs.
+          required: true
   - type: markdown
     attributes:
       value: |
