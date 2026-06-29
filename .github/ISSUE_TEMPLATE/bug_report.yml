@@ -1,0 +1,49 @@
+name: Bug Report
+description: Report a bug in OmniWM
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and the exact steps to reproduce it.
+    validations:
+      required: true
+  - type: input
+    id: omniwm-version
+    attributes:
+      label: OmniWM version
+      description: From the status-bar menu / About.
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: dropdown
+    id: layout
+    attributes:
+      label: Active layout
+      options:
+        - Niri
+        - Dwindle
+        - Not sure / both
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / diagnostics (optional)
+      render: shell
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        OmniWM is free and open source. If you find it useful, starring the repo helps others discover it — entirely optional and unrelated to how your issue is handled.

@@ -1,0 +1,21 @@
+name: Greetings
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v3
+        with:
+          issue_message: |
+            Thanks for opening your first OmniWM issue, and welcome.
+
+            Clear reproduction steps, OmniWM version, macOS version, and logs make reports much easier to investigate.
+
+            OmniWM is free and open source. If you find it useful, starring the repo helps more people discover it. Totally optional; thanks either way.
