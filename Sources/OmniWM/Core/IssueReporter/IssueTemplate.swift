@@ -30,6 +30,37 @@ enum IssueTemplate {
             .joined(separator: "\n\n")
     }
 
+    static func compose(_ content: IssueComposition) -> String {
+        var sections: [String] = []
+
+        func addSection(_ header: String, _ text: String) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            sections.append("\(header)\n\(trimmed)")
+        }
+
+        if content.category != .unspecified {
+            sections.append("**Category:** \(content.category.displayName)")
+        }
+        addSection("## What happened", content.actual)
+        addSection("## Expected behavior", content.expected)
+        addSection("## Steps to reproduce", content.repro)
+        addSection("## Affected app(s)", content.affectedApps)
+        sections.append("**Active layout:** \(content.layout.displayName)")
+
+        switch content.regression {
+        case .unknown:
+            break
+        case .no:
+            sections.append("**Regression:** No, it never worked.")
+        case .yes:
+            let version = content.regressionVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+            sections.append("**Regression:** Yes" + (version.isEmpty ? "." : " — last worked in \(version)."))
+        }
+
+        return sections.joined(separator: "\n\n")
+    }
+
     static let rewriteInstructions = loadPrompt("issue-rewrite-prompt")
 
     static let hotkeyContextPreamble = loadPrompt("issue-hotkey-context-preamble")

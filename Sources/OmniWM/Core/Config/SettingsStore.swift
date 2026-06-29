@@ -474,6 +474,16 @@ final class SettingsStore {
         runtimeState.windowRestoreCatalog = catalog.entries.isEmpty ? nil : catalog
     }
 
+    var issueDraft: IssueDraft? {
+        get { runtimeState.issueDraft }
+        set { runtimeState.issueDraft = newValue }
+    }
+
+    var hasSeenIssueWalkthrough: Bool {
+        get { runtimeState.hasSeenIssueWalkthrough }
+        set { runtimeState.hasSeenIssueWalkthrough = newValue }
+    }
+
     init(
         persistence: SettingsFilePersistence = SettingsFilePersistence(),
         runtimeState: RuntimeStateStore = RuntimeStateStore(),

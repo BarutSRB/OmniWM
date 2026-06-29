@@ -69,24 +69,26 @@ final class IssueReporterTests: XCTestCase {
         let engine = FakeIssueEngine(rewriteResult: .success(RewrittenIssue(title: "Clean title", body: "Clean body")))
         let model = makeModel(engine: engine)
         model.title = "rough title"
-        model.body = "rough body"
+        model.actual = "rough body"
         await model.requestRewrite()
         XCTAssertEqual(model.suggestion, RewrittenIssue(title: "Clean title", body: "Clean body"))
         XCTAssertEqual(model.title, "rough title")
-        XCTAssertEqual(model.body, "rough body")
+        XCTAssertEqual(model.actual, "rough body")
+        XCTAssertNil(model.polishedBody)
         XCTAssertEqual(model.phase, .editing)
         XCTAssertNil(model.errorMessage)
     }
 
-    func testApplyRewriteReplacesTitleAndBody() async {
+    func testApplyRewriteSetsTitleAndPolishedBody() async {
         let engine = FakeIssueEngine(rewriteResult: .success(RewrittenIssue(title: "Clean title", body: "Clean body")))
         let model = makeModel(engine: engine)
         model.title = "rough title"
-        model.body = "rough body"
+        model.actual = "rough body"
         await model.requestRewrite()
         model.applyRewrite()
         XCTAssertEqual(model.title, "Clean title")
-        XCTAssertEqual(model.body, "Clean body")
+        XCTAssertEqual(model.polishedBody, "Clean body")
+        XCTAssertEqual(model.submissionBody, "Clean body")
         XCTAssertNil(model.suggestion)
     }
 
@@ -95,7 +97,7 @@ final class IssueReporterTests: XCTestCase {
         let context = "KNOWN SHORTCUTS:\n- \"shift+o\" is bound to: Toggle Overview"
         let model = makeModel(engine: engine, hotkeyContextProvider: { _ in context })
         model.title = "rough title"
-        model.body = "rough body"
+        model.actual = "rough body"
         await model.requestRewrite()
         XCTAssertEqual(engine.lastHotkeyContext, context)
     }
@@ -128,7 +130,7 @@ final class IssueReporterTests: XCTestCase {
         let engine = FakeIssueEngine(rewriteResult: .failure(IssueReportError.generationFailed("nope")))
         let model = makeModel(engine: engine)
         model.title = "rough title"
-        model.body = "rough body"
+        model.actual = "rough body"
         await model.requestRewrite()
         XCTAssertEqual(model.errorMessage, "nope")
         XCTAssertNil(model.suggestion)
@@ -136,24 +138,22 @@ final class IssueReporterTests: XCTestCase {
         XCTAssertTrue(model.canSubmit)
     }
 
-    func testRequestRewriteDeterministicWhenAIUnavailable() async {
+    func testRequestRewriteIsNoOpWhenAIUnavailable() async {
         let model = makeModel(engine: nil, availability: .unsupportedOS)
         model.title = "Crash on launch"
-        model.body = "It crashes every time I open it."
+        model.actual = "It crashes every time I open it."
+        XCTAssertFalse(model.canRequestRewrite)
         await model.requestRewrite()
-        let suggestion = try? XCTUnwrap(model.suggestion)
-        XCTAssertEqual(suggestion?.title, "Crash on launch")
-        XCTAssertTrue(suggestion?.body.contains("## Summary") ?? false)
-        XCTAssertTrue(suggestion?.body.contains("It crashes every time I open it.") ?? false)
-        XCTAssertTrue(suggestion?.body.contains(IssueTemplate.notProvided) ?? false)
+        XCTAssertNil(model.suggestion)
+        XCTAssertNil(model.polishedBody)
     }
 
-    func testCanRequestRewriteRequiresTitleAndBody() {
+    func testCanRequestRewriteRequiresTitleAndActual() {
         let model = makeModel(engine: FakeIssueEngine())
         XCTAssertFalse(model.canRequestRewrite)
         model.title = "Title"
         XCTAssertFalse(model.canRequestRewrite)
-        model.body = "Message"
+        model.actual = "Message"
         XCTAssertTrue(model.canRequestRewrite)
     }
 
@@ -161,11 +161,40 @@ final class IssueReporterTests: XCTestCase {
         let engine = FakeIssueEngine(rewriteResult: .success(RewrittenIssue(title: "Clean title", body: "Clean body")))
         let model = makeModel(engine: engine)
         model.title = "rough title"
-        model.body = "rough body"
+        model.actual = "rough body"
         await model.requestRewrite()
         XCTAssertNotNil(model.suggestion)
-        model.body += " more detail"
+        model.actual += " more detail"
         XCTAssertNil(model.suggestion)
+    }
+
+    func testComposeIncludesFilledFieldsAndOmitsEmptyOptional() {
+        let model = makeModel(engine: FakeIssueEngine())
+        model.title = "Bug"
+        model.actual = "It crashed"
+        model.category = .crash
+        model.layout = .dwindle
+        model.regression = .yes
+        model.regressionVersion = "0.4.6"
+        let composed = model.submissionBody
+        XCTAssertTrue(composed.contains("## What happened\nIt crashed"))
+        XCTAssertTrue(composed.contains("Crash"))
+        XCTAssertTrue(composed.contains("Dwindle"))
+        XCTAssertTrue(composed.contains("0.4.6"))
+        XCTAssertFalse(composed.contains("## Expected behavior"))
+    }
+
+    func testStartOverClearsFields() {
+        let model = makeModel(engine: FakeIssueEngine())
+        model.title = "Bug"
+        model.actual = "It crashed"
+        model.category = .crash
+        XCTAssertTrue(model.hasDraftContent)
+        model.startOver()
+        XCTAssertTrue(model.title.isEmpty)
+        XCTAssertTrue(model.actual.isEmpty)
+        XCTAssertEqual(model.category, .unspecified)
+        XCTAssertFalse(model.hasDraftContent)
     }
 
     func testAssembleSubstitutesNotProvidedForEmptyFields() {
@@ -187,7 +216,7 @@ final class IssueReporterTests: XCTestCase {
         var opened: [URL] = []
         let model = makeModel(engine: FakeIssueEngine(), openURL: { opened.append($0) })
         model.title = "Bug"
-        model.body = "Body"
+        model.actual = "Body"
         model.submit()
         XCTAssertEqual(model.phase, .submitted(.openedBrowser))
         XCTAssertEqual(opened.count, 1)
@@ -204,7 +233,7 @@ final class IssueReporterTests: XCTestCase {
             copyToClipboard: { copied.append($0) }
         )
         model.title = "Bug"
-        model.body = String(repeating: "x", count: 500)
+        model.actual = String(repeating: "x", count: 500)
         model.submit()
         XCTAssertEqual(model.phase, .submitted(.copiedToClipboard))
         XCTAssertEqual(opened.count, 1)
@@ -221,7 +250,7 @@ final class IssueReporterTests: XCTestCase {
             revealInFinder: { revealed.append($0) }
         )
         model.title = "Bug"
-        model.body = "Body"
+        model.actual = "Body"
         model.submit()
         XCTAssertEqual(model.phase, .submitted(.openedBrowser))
         XCTAssertEqual(model.lastBundleURL, bundle)
@@ -237,7 +266,7 @@ final class IssueReporterTests: XCTestCase {
             openURL: { opened.append($0) }
         )
         model.title = "Bug"
-        model.body = "Body"
+        model.actual = "Body"
         model.submit()
         XCTAssertEqual(model.phase, .submitted(.openedBrowser))
         XCTAssertNil(model.lastBundleURL)

@@ -20,23 +20,44 @@ final class ReportIssueViewModel {
     }
 
     var title = "" {
-        didSet {
-            if title != oldValue {
-                suggestion = nil
-            }
-        }
+        didSet { handleEdit(oldValue, title) }
     }
 
-    var body = "" {
-        didSet {
-            if body != oldValue {
-                suggestion = nil
-            }
-        }
+    var actual = "" {
+        didSet { handleEdit(oldValue, actual) }
+    }
+
+    var expected = "" {
+        didSet { handleEdit(oldValue, expected) }
+    }
+
+    var repro = "" {
+        didSet { handleEdit(oldValue, repro) }
+    }
+
+    var affectedApps = "" {
+        didSet { handleEdit(oldValue, affectedApps) }
+    }
+
+    var regressionVersion = "" {
+        didSet { handleEdit(oldValue, regressionVersion) }
+    }
+
+    var category: IssueCategory = .unspecified {
+        didSet { handleSelection(oldValue != category) }
+    }
+
+    var layout: LayoutType = .niri {
+        didSet { handleSelection(oldValue != layout) }
+    }
+
+    var regression: IssueRegression = .unknown {
+        didSet { handleSelection(oldValue != regression) }
     }
 
     private(set) var phase: Phase = .editing
     private(set) var suggestion: RewrittenIssue?
+    private(set) var polishedBody: String?
     private(set) var errorMessage: String?
     private(set) var lastBundleURL: URL?
     private(set) var lastBundleError: String?
@@ -50,10 +71,13 @@ final class ReportIssueViewModel {
     private let revealInFinder: @MainActor (URL) -> Void
     private let openURL: @MainActor (URL) -> Void
     private let copyToClipboard: @MainActor (String) -> Void
+    private let saveDraft: @MainActor (IssueDraft?) -> Void
+    private var isRestoring = false
 
     init(
         engine: (any IssueRewriting)? = nil,
         availability: IssueAIAvailability? = nil,
+        defaultLayout: LayoutType = .niri,
         urlBuilder: GitHubIssueURLBuilder = GitHubIssueURLBuilder(),
         makeDiagnosticsBundle: @MainActor @escaping () throws -> URL = { throw IssueReportError.unavailable },
         hotkeyContextProvider: @MainActor @escaping (String) -> String = { _ in "" },
@@ -62,7 +86,9 @@ final class ReportIssueViewModel {
         copyToClipboard: @MainActor @escaping (String) -> Void = { string in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(string, forType: .string)
-        }
+        },
+        loadDraft: @MainActor () -> IssueDraft? = { nil },
+        saveDraft: @MainActor @escaping (IssueDraft?) -> Void = { _ in }
     ) {
         if engine != nil || availability != nil {
             self.engine = engine
@@ -78,47 +104,69 @@ final class ReportIssueViewModel {
         self.revealInFinder = revealInFinder
         self.openURL = openURL
         self.copyToClipboard = copyToClipboard
+        self.saveDraft = saveDraft
+        restore(draft: loadDraft(), defaultLayout: defaultLayout.normalizedForReport)
     }
 
     var canRequestRewrite: Bool {
-        phase == .editing && !isTitleEmpty && !isBodyEmpty
+        phase == .editing && availability == .available && !isTitleEmpty && !isActualEmpty
     }
 
     var canSubmit: Bool {
-        phase == .editing && !isTitleEmpty && !isBodyEmpty
+        phase == .editing && !isTitleEmpty && !isActualEmpty
+    }
+
+    var hasDraftContent: Bool {
+        [title, actual, expected, repro, affectedApps, regressionVersion].contains { !$0.isEmpty }
+            || category != .unspecified
+            || regression != .unknown
+    }
+
+    var submitRequirementHint: String? {
+        guard phase == .editing, !canSubmit else { return nil }
+        var missing: [String] = []
+        if isTitleEmpty { missing.append("a title") }
+        if isActualEmpty { missing.append("what happened") }
+        return missing.isEmpty ? nil : "Add \(missing.joined(separator: " and ")) to submit."
+    }
+
+    var submissionBody: String {
+        if let polishedBody { return polishedBody }
+        return IssueTemplate.compose(
+            IssueComposition(
+                category: category,
+                actual: actual,
+                expected: expected,
+                repro: repro,
+                affectedApps: affectedApps,
+                layout: layout,
+                regression: regression,
+                regressionVersion: regressionVersion
+            )
+        )
     }
 
     func requestRewrite() async {
-        guard canRequestRewrite else { return }
+        guard canRequestRewrite, let engine else { return }
         phase = .rewriting
         errorMessage = nil
-        if availability == .available, let engine {
-            do {
-                let prompt = "Title: \(title)\n\nMessage: \(body)"
-                suggestion = try await engine.rewrite(prompt, hotkeyContext: hotkeyContextProvider(prompt))
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        } else {
-            suggestion = RewrittenIssue(
-                title: title,
-                body: IssueTemplate.assemble(
-                    summary: body,
-                    stepsToReproduce: "",
-                    expectedBehavior: "",
-                    actualBehavior: "",
-                    additionalContext: ""
-                )
-            )
+        do {
+            let prompt = "Title: \(title)\n\nMessage: \(submissionBody)"
+            suggestion = try await engine.rewrite(prompt, hotkeyContext: hotkeyContextProvider(prompt))
+        } catch {
+            errorMessage = error.localizedDescription
         }
         phase = .editing
     }
 
     func applyRewrite() {
         guard let suggestion else { return }
+        isRestoring = true
         title = suggestion.title
-        body = suggestion.body
+        isRestoring = false
+        polishedBody = suggestion.body
         self.suggestion = nil
+        persistDraft()
     }
 
     func dismissSuggestion() {
@@ -136,7 +184,7 @@ final class ReportIssueViewModel {
         } catch {
             lastBundleError = error.localizedDescription
         }
-        switch urlBuilder.submission(title: title, body: body) {
+        switch urlBuilder.submission(title: title, body: submissionBody) {
         case let .url(url):
             openURL(url)
             phase = .submitted(.openedBrowser)
@@ -145,6 +193,7 @@ final class ReportIssueViewModel {
             openURL(fallbackURL)
             phase = .submitted(.copiedToClipboard)
         }
+        saveDraft(nil)
     }
 
     func revealLastBundle() {
@@ -153,20 +202,85 @@ final class ReportIssueViewModel {
     }
 
     func startOver() {
+        isRestoring = true
         title = ""
-        body = ""
+        actual = ""
+        expected = ""
+        repro = ""
+        affectedApps = ""
+        regressionVersion = ""
+        category = .unspecified
+        regression = .unknown
+        isRestoring = false
         suggestion = nil
+        polishedBody = nil
         errorMessage = nil
         lastBundleURL = nil
         lastBundleError = nil
         phase = .editing
+        saveDraft(nil)
+    }
+
+    private func restore(draft: IssueDraft?, defaultLayout: LayoutType) {
+        isRestoring = true
+        defer { isRestoring = false }
+        guard let draft else {
+            layout = defaultLayout
+            return
+        }
+        title = draft.title
+        actual = draft.actual
+        expected = draft.expected
+        repro = draft.repro
+        affectedApps = draft.affectedApps
+        regressionVersion = draft.regressionVersion
+        category = IssueCategory(rawValue: draft.category) ?? .unspecified
+        layout = LayoutType(rawValue: draft.layout)?.normalizedForReport ?? defaultLayout
+        regression = IssueRegression(rawValue: draft.regression) ?? .unknown
+    }
+
+    private func handleEdit(_ oldValue: String, _ newValue: String) {
+        guard oldValue != newValue else { return }
+        invalidateSuggestion()
+        persistDraft()
+    }
+
+    private func handleSelection(_ changed: Bool) {
+        guard changed else { return }
+        invalidateSuggestion()
+        persistDraft()
+    }
+
+    private func invalidateSuggestion() {
+        guard !isRestoring else { return }
+        suggestion = nil
+        polishedBody = nil
+    }
+
+    private func persistDraft() {
+        guard !isRestoring else { return }
+        saveDraft(hasDraftContent ? currentDraft : nil)
+    }
+
+    private var currentDraft: IssueDraft {
+        IssueDraft(
+            title: title,
+            actual: actual,
+            expected: expected,
+            repro: repro,
+            affectedApps: affectedApps,
+            category: category.rawValue,
+            layout: layout.rawValue,
+            regression: regression.rawValue,
+            regressionVersion: regressionVersion
+        )
     }
 
     private var isTitleEmpty: Bool {
         title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var isBodyEmpty: Bool {
-        body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var isActualEmpty: Bool {
+        actual.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

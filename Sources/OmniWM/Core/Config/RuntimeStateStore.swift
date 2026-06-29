@@ -30,6 +30,18 @@ struct RuntimeQuakeTerminalFrame: Codable, Equatable {
     }
 }
 
+struct IssueDraft: Codable, Equatable {
+    var title: String = ""
+    var actual: String = ""
+    var expected: String = ""
+    var repro: String = ""
+    var affectedApps: String = ""
+    var category: String = ""
+    var layout: String = ""
+    var regression: String = ""
+    var regressionVersion: String = ""
+}
+
 struct RuntimeState: Codable, Equatable {
     var windowRestoreCatalog: PersistedWindowRestoreCatalog?
     var updaterLastCheckedAt: Date?
@@ -38,6 +50,8 @@ struct RuntimeState: Codable, Equatable {
     var hiddenBarIsCollapsed: Bool?
     var quakeTerminalUseCustomFrame: Bool?
     var quakeTerminalCustomFrame: RuntimeQuakeTerminalFrame?
+    var issueDraft: IssueDraft?
+    var hasSeenIssueWalkthrough: Bool?
 }
 
 @MainActor
@@ -207,6 +221,24 @@ final class RuntimeStateStore {
             if frame == nil {
                 state.quakeTerminalUseCustomFrame = false
             }
+            scheduleSave()
+        }
+    }
+
+    var issueDraft: IssueDraft? {
+        get { state.issueDraft }
+        set {
+            guard state.issueDraft != newValue else { return }
+            state.issueDraft = newValue
+            scheduleSave()
+        }
+    }
+
+    var hasSeenIssueWalkthrough: Bool {
+        get { state.hasSeenIssueWalkthrough ?? false }
+        set {
+            guard hasSeenIssueWalkthrough != newValue else { return }
+            state.hasSeenIssueWalkthrough = newValue
             scheduleSave()
         }
     }

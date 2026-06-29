@@ -6,7 +6,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report a bug. Before opening, please search the existing [open and closed issues](https://github.com/BarutSRB/OmniWM/issues?q=is%3Aissue) to avoid duplicates, and make sure you're on the latest OmniWM version.
+        **Tip:** the easiest way to file a great report is from inside OmniWM — open the status-bar menu and choose **Report a Bug…**. It attaches a diagnostics bundle automatically and walks you through recording a trace first.
+        <!-- video guide placeholder: add link once recorded -->
+
+        Prefer the web form? Continue below. Please first search the existing [open and closed issues](https://github.com/BarutSRB/OmniWM/issues?q=is%3Aissue) to avoid duplicates, and make sure you're on the latest OmniWM version. Before opening, please search the existing [open and closed issues](https://github.com/BarutSRB/OmniWM/issues?q=is%3Aissue) to avoid duplicates, and make sure you're on the latest OmniWM version.
   - type: dropdown
     id: issue-type
     attributes:

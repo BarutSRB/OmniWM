@@ -453,6 +453,12 @@ If you find OmniWM useful, consider supporting development:
 - [GitHub Sponsors](https://github.com/sponsors/BarutSRB)
 - [PayPal](https://paypal.me/beacon2024)
 
+## Reporting Bugs
+
+The best way to report a bug is from inside OmniWM: open the status-bar menu and choose **Report a Bug…**. It records an optional diagnostics trace, attaches a diagnostics bundle automatically, and opens a pre-filled GitHub issue — OmniWM never sees your GitHub login.
+
+Prefer the web? The [GitHub issue form](https://github.com/BarutSRB/OmniWM/issues/new/choose) works too; please include your OmniWM and macOS versions there.
+
 ## Contributing
 
 Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM).

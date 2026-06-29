@@ -372,6 +372,8 @@ final class StatusBarMenuBuilder {
         settingsItem.view = settingsRow
         menu.addItem(settingsItem)
 
+        menu.addItem(makeReportIssueItem())
+
         let appRulesRow = MenuActionRowView(
             icon: "slider.horizontal.3",
             label: "App Rules",
@@ -407,6 +409,25 @@ final class StatusBarMenuBuilder {
             icon: "questionmark.circle",
             submenu: buildHelpLinksSubmenu()
         ))
+    }
+
+    private func makeReportIssueItem() -> NSMenuItem {
+        let target = MenuActionTarget { [weak self] in self?.openReportIssue() }
+        let item = NSMenuItem(title: "Report a Bug…", action: #selector(MenuActionTarget.fire), keyEquivalent: "")
+        item.target = target
+        item.representedObject = target
+        item.image = NSImage(systemSymbolName: "ladybug", accessibilityDescription: "Report a Bug")
+        return item
+    }
+
+    private func openReportIssue() {
+        guard let controller else { return }
+        SettingsWindowController.shared.show(
+            settings: settings,
+            controller: controller,
+            updateCoordinator: updateCoordinator,
+            section: .reportIssue
+        )
     }
 
     private func submenuParent(title: String, icon: String, submenu: NSMenu) -> NSMenuItem {
@@ -1047,6 +1068,12 @@ final class MenuActionRowView: NSView {
             }
         }
 
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(label)
+        labelField?.setAccessibilityElement(false)
+        iconView?.setAccessibilityElement(false)
+
         updateTrackingAreas()
     }
 
@@ -1131,5 +1158,18 @@ final class MenuActionRowView: NSView {
             iconView?.contentTintColor = hovered ? .white : .secondaryLabelColor
             labelField?.textColor = hovered ? .white : .labelColor
         }
+    }
+}
+
+@MainActor
+private final class MenuActionTarget: NSObject {
+    private let handler: () -> Void
+
+    init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+
+    @objc func fire() {
+        handler()
     }
 }
