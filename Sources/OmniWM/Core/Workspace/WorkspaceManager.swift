@@ -375,6 +375,7 @@ final class WorkspaceManager {
         let current = world.focus
         return current.lastTiledFocusedByWorkspace != previous.lastTiledFocusedByWorkspace
             || current.lastFloatingFocusedByWorkspace != previous.lastFloatingFocusedByWorkspace
+            || current.lastTiledFocusedToken != previous.lastTiledFocusedToken
             || current.nonManagedFocusToken != previous.nonManagedFocusToken
             || current.suppressedFocusToken != previous.suppressedFocusToken
             || current.systemModalFocusToken != previous.systemModalFocusToken
@@ -1004,6 +1005,10 @@ final class WorkspaceManager {
 
     var focusedToken: WindowToken? {
         world.focus.focusedToken
+    }
+
+    var lastTiledFocusedToken: WindowToken? {
+        world.focus.lastTiledFocusedToken
     }
 
     var focusedHandle: WindowHandle? {

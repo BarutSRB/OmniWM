@@ -220,7 +220,8 @@ enum StateReducer {
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: monitorId,
-                requestId: requestId
+                requestId: requestId,
+                mode: currentSnapshot.windows.first(where: { $0.token == token })?.mode
             )
             if focusSession.suppressedFocusToken == token {
                 focusSession.suppressedFocusToken = nil
@@ -457,7 +458,8 @@ enum StateReducer {
         token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID,
         monitorId: Monitor.ID?,
-        requestId: UInt64?
+        requestId: UInt64?,
+        mode: TrackedWindowMode?
     ) -> FocusSessionSnapshot {
         var focusSession = focusSession
         if let requestId {
@@ -477,6 +479,9 @@ enum StateReducer {
         }
         focusSession.focusedToken = token
         focusSession.pendingManagedFocus = .empty
+        if mode == .tiling {
+            focusSession.lastTiledFocusedToken = token
+        }
         if focusSession.interactionMonitorId != monitorId {
             if let currentMonitorId = focusSession.interactionMonitorId,
                currentMonitorId != monitorId

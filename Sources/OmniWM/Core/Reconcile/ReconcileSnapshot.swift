@@ -152,6 +152,7 @@ struct FocusSessionSnapshot: Equatable {
     var pendingManagedFocus: PendingManagedFocusSnapshot = .empty
     var lastTiledFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
     var lastFloatingFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
+    var lastTiledFocusedToken: WindowToken? = nil
     var focusLease: FocusPolicyLease? = nil
     var isNonManagedFocusActive: Bool = false
     var nonManagedFocusToken: WindowToken? = nil
@@ -187,6 +188,11 @@ extension FocusSessionSnapshot {
     ) -> Bool {
         var changed = false
 
+        if lastTiledFocusedToken == token {
+            lastTiledFocusedToken = nil
+            changed = true
+        }
+
         if let workspaceId {
             if lastTiledFocusedByWorkspace[workspaceId] == token {
                 lastTiledFocusedByWorkspace[workspaceId] = nil
@@ -214,6 +220,11 @@ extension FocusSessionSnapshot {
     @discardableResult
     mutating func replaceRememberedFocus(from oldToken: WindowToken, to newToken: WindowToken) -> Bool {
         var changed = false
+
+        if lastTiledFocusedToken == oldToken {
+            lastTiledFocusedToken = newToken
+            changed = true
+        }
 
         for (workspaceId, token) in lastTiledFocusedByWorkspace where token == oldToken {
             lastTiledFocusedByWorkspace[workspaceId] = newToken
@@ -243,6 +254,10 @@ extension FocusSessionSnapshot {
         case .floating:
             if lastTiledFocusedByWorkspace[workspaceId] == token {
                 lastTiledFocusedByWorkspace[workspaceId] = nil
+                changed = true
+            }
+            if lastTiledFocusedToken == token {
+                lastTiledFocusedToken = nil
                 changed = true
             }
         }

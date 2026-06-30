@@ -1006,6 +1006,7 @@ final class WMController {
 
         let placementTarget = createPlacementTarget(
             axRef: axRef,
+            pid: pid,
             createPlacementContext: createPlacementContext,
             windowFrame: windowFrame,
             fallbackWorkspaceId: fallbackWorkspaceId,
@@ -1088,6 +1089,34 @@ final class WMController {
         return workspaceManager.monitorId(for: workspaceId) == targetMonitorId
     }
 
+    private func floatingSpawnMonitorId(pid: pid_t) -> Monitor.ID? {
+        let tiled = workspaceManager.entries(forPid: pid).filter { $0.mode == .tiling }
+        guard !tiled.isEmpty else { return nil }
+
+        if let focused = workspaceManager.focusedToken,
+           let entry = tiled.first(where: { $0.token == focused }),
+           let monitorId = workspaceManager.monitorId(for: entry.workspaceId)
+        {
+            return monitorId
+        }
+
+        if let recent = workspaceManager.lastTiledFocusedToken,
+           let entry = tiled.first(where: { $0.token == recent }),
+           let monitorId = workspaceManager.monitorId(for: entry.workspaceId)
+        {
+            return monitorId
+        }
+
+        let monitors = Set(tiled.compactMap { workspaceManager.monitorId(for: $0.workspaceId) })
+        return monitors.count == 1 ? monitors.first : nil
+    }
+
+    #if DEBUG
+        func testFloatingSpawnMonitorId(pid: pid_t) -> Monitor.ID? {
+            floatingSpawnMonitorId(pid: pid)
+        }
+    #endif
+
     private func shouldApplyWorkspaceRule(
         _ workspaceId: WorkspaceDescriptor.ID,
         placementTarget: WorkspacePlacementTarget
@@ -1164,6 +1193,7 @@ final class WMController {
 
     private func createPlacementTarget(
         axRef: AXWindowRef,
+        pid: pid_t?,
         createPlacementContext: WindowCreatePlacementContext?,
         windowFrame: CGRect?,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?,
@@ -1186,6 +1216,18 @@ final class WMController {
         }
 
         if let monitorId = createPlacementContext?.nativeSpaceMonitorId,
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
+        {
+            return WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                monitorId: monitorId,
+                isAuthoritative: true
+            )
+        }
+
+        if !preferManagedFocusPlacement,
+           let pid,
+           let monitorId = floatingSpawnMonitorId(pid: pid),
            let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
         {
             return WorkspacePlacementTarget(
