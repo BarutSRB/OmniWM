@@ -3729,6 +3729,77 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testFloatDemotionHysteresisIgnoresTransientMisreadReasons() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+
+        func tiledEntry(pid: pid_t, windowId: Int) throws -> WindowState {
+            let token = controller.workspaceManager.addWindow(
+                AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+                pid: pid, windowId: windowId, to: ws
+            )
+            _ = controller.niriEngine?.addWindow(token: token, to: ws, afterSelection: nil)
+            let entry = try XCTUnwrap(controller.workspaceManager.entry(for: token))
+            XCTAssertEqual(entry.mode, .tiling)
+            return entry
+        }
+
+        func floatingDecision(_ reasons: [AXWindowHeuristicReason]) -> WindowDecision {
+            WindowDecision(
+                disposition: .floating,
+                source: .heuristic,
+                layoutDecisionKind: .fallbackLayout,
+                workspaceName: nil,
+                ruleEffects: .none,
+                heuristicReasons: reasons,
+                deferredReason: nil
+            )
+        }
+
+        func demotionMode(_ reasons: [AXWindowHeuristicReason], _ entry: WindowState) -> TrackedWindowMode? {
+            controller.trackedModePreservingAutomaticFallbackState(
+                decision: floatingDecision(reasons),
+                existingEntry: entry,
+                context: .automatic
+            )
+        }
+
+        let excludedReasons: [AXWindowHeuristicReason] = [
+            .missingFullscreenButton,
+            .nonStandardSubrole,
+            .noButtonsOnNonStandardSubrole
+        ]
+
+        let controlEntry = try tiledEntry(pid: 940_002, windowId: 940_102)
+        XCTAssertEqual(demotionMode([.accessoryWithoutClose], controlEntry), .tiling)
+
+        var guardedEntries: [(AXWindowHeuristicReason, WindowState)] = []
+        for (offset, reason) in excludedReasons.enumerated() {
+            let entry = try tiledEntry(pid: pid_t(940_010 + offset), windowId: 940_110 + offset)
+            XCTAssertEqual(demotionMode([reason], entry), .tiling)
+            guardedEntries.append((reason, entry))
+        }
+
+        Thread.sleep(forTimeInterval: 0.35)
+
+        XCTAssertEqual(
+            demotionMode([.accessoryWithoutClose], controlEntry),
+            .floating,
+            "non-excluded reason demotes after the stability interval (control proves the harness flips)"
+        )
+
+        for (reason, entry) in guardedEntries {
+            XCTAssertEqual(
+                demotionMode([reason], entry),
+                .tiling,
+                "\(reason) must still not demote a tiled window after the stability interval elapses"
+            )
+        }
+    }
+
+    @MainActor
     func testNiriFocusedRemovalPreferredRecoveryUsesLayoutRememberedToken() async throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(

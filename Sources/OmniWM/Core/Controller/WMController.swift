@@ -1903,7 +1903,10 @@ final class WMController {
         decision: WindowDecision
     ) -> TrackedWindowMode {
         guard !decision.heuristicReasons.contains(.attributeFetchFailed),
-              !decision.heuristicReasons.contains(.disabledFullscreenButton)
+              !decision.heuristicReasons.contains(.disabledFullscreenButton),
+              !decision.heuristicReasons.contains(.missingFullscreenButton),
+              !decision.heuristicReasons.contains(.nonStandardSubrole),
+              !decision.heuristicReasons.contains(.noButtonsOnNonStandardSubrole)
         else {
             return .tiling
         }
