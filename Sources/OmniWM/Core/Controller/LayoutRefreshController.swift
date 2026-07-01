@@ -253,14 +253,19 @@ import QuartzCore
 
         let traceActive = AnimationTickTrace.shared.isActive
         let t0 = traceActive ? CACurrentMediaTime() : 0
+        var t1: CFTimeInterval = 0
+        var t2: CFTimeInterval = 0
+        var t3: CFTimeInterval = 0
 
-        niriHandler.tickScrollAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
-        let t1 = traceActive ? CACurrentMediaTime() : 0
-        dwindleHandler.tickDwindleAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
-        let t2 = traceActive ? CACurrentMediaTime() : 0
-        tickClosingAnimations(targetTime: displayLink.targetTimestamp, displayId: displayId)
-        let t3 = traceActive ? CACurrentMediaTime() : 0
-        controller?.surfaceReconciler.reconcileAnimationTick()
+        SkyLight.shared.withTransactionScope {
+            niriHandler.tickScrollAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
+            t1 = traceActive ? CACurrentMediaTime() : 0
+            dwindleHandler.tickDwindleAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
+            t2 = traceActive ? CACurrentMediaTime() : 0
+            tickClosingAnimations(targetTime: displayLink.targetTimestamp, displayId: displayId)
+            t3 = traceActive ? CACurrentMediaTime() : 0
+            controller?.surfaceReconciler.reconcileAnimationTick()
+        }
 
         guard traceActive else { return }
         let t4 = CACurrentMediaTime()
@@ -2361,7 +2366,7 @@ import QuartzCore
 
         let verifyEpsilon: CGFloat = 1.0
         for plan in plans {
-            if let observedOrigin = observedWindowOrigin(plan.entry),
+            if let observedOrigin = AXWindowService.framePreferFast(plan.entry.axRef)?.origin,
                abs(observedOrigin.x - plan.origin.x) > verifyEpsilon
                || abs(observedOrigin.y - plan.origin.y) > verifyEpsilon
             {
@@ -2391,7 +2396,7 @@ import QuartzCore
         else {
             return .unavailable
         }
-        if let liveOrigin = controller.axManager.skyLightLivePosition(for: entry.windowId) {
+        if animationTick, let liveOrigin = controller.axManager.skyLightLivePosition(for: entry.windowId) {
             frame.origin = liveOrigin
         }
         let hiddenState = updatedHiddenState(
@@ -2515,7 +2520,8 @@ import QuartzCore
             controller.axManager.cancelPendingFrameJobs([frameEntry])
             controller.axManager.suppressFrameWrites([frameEntry])
         case .unavailable:
-            break
+            controller.axManager.cancelPendingFrameJobs([frameEntry])
+            controller.axManager.suppressFrameWrites([frameEntry])
         }
     }
 
@@ -3284,10 +3290,6 @@ import QuartzCore
         fastFrame(for: entry.token, axRef: entry.axRef)
     }
 
-    private func observedWindowOrigin(_ entry: WindowState) -> CGPoint? {
-        observedWindowFrame(entry)?.origin
-    }
-
     static func hiddenEdgeReveal(isZoomApp: Bool) -> CGFloat {
         isZoomApp ? 0 : hiddenWindowEdgeRevealEpsilon
     }
@@ -3450,7 +3452,7 @@ final class LayoutDiffExecutor {
                     controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
                     hiddenJobs.append((entry.pid, entry.windowId))
                 case .unavailable:
-                    continue
+                    hiddenJobs.append((entry.pid, entry.windowId))
                 }
             }
 

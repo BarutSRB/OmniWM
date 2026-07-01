@@ -589,6 +589,9 @@ enum StateReducer {
         if focusSession.systemModalFocusToken == token {
             focusSession.systemModalFocusToken = nil
         }
+        if focusSession.suppressedFocusToken == token {
+            focusSession.suppressedFocusToken = nil
+        }
         focusSession.clearRememberedFocus(token, workspaceId: workspaceId)
         return focusSession
     }

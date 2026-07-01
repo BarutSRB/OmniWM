@@ -463,8 +463,12 @@ final class AXManager {
     }
 
     func unsuppressFrameWrites(_ entries: [(pid: pid_t, windowId: Int)]) {
-        for (pid, windowIds) in groupedWindowIdsByPid(uniqueFrameEntries(entries)) {
+        let entries = uniqueFrameEntries(entries)
+        for (pid, windowIds) in groupedWindowIdsByPid(entries) {
             AppAXContext.contexts[pid]?.unsuppressFrameWrites(for: windowIds)
+        }
+        for (_, windowId) in entries {
+            clearSkyLightLivePosition(for: windowId)
         }
     }
 

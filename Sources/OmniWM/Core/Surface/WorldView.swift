@@ -147,14 +147,20 @@ struct WorldView {
         return nil
     }
 
-    func borderFrame(forWindowId windowId: Int) -> CGRect? {
+    func borderFrame(for entry: WindowState) -> CGRect? {
         if let borderFrameResolver {
-            return borderFrameResolver(windowId)
+            return borderFrameResolver(entry.windowId)
         }
-        if let pending = controller.axManager.pendingFrameWrite(for: windowId) {
+        if let pending = controller.axManager.pendingFrameWrite(for: entry.windowId) {
             return pending
         }
-        return observedWindowBounds(windowId: windowId)
+        if entry.mode == .tiling,
+           let applied = controller.axManager.lastAppliedFrame(for: entry.windowId)
+        {
+            return applied
+        }
+        BorderOpMetricsRecorder.shared.noteBoundsQueryFallback()
+        return observedWindowBounds(windowId: entry.windowId)
     }
 
     func observedWindowBounds(windowId: Int) -> CGRect? {

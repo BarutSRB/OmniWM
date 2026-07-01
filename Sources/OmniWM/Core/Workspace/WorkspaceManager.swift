@@ -18,99 +18,6 @@ struct WorkspaceDescriptor: Identifiable, Hashable {
     }
 }
 
-private struct PersistedWindowRestoreCatalogBuildSnapshot: Sendable {
-    let entries: [PersistedWindowRestoreCatalogBuildEntry]
-}
-
-private struct PersistedWindowRestoreCatalogBuildEntry: Sendable {
-    let token: WindowToken
-    let metadata: ManagedReplacementMetadata
-    let workspaceName: String
-    let topologyProfile: TopologyProfile
-    let preferredMonitor: DisplayFingerprint?
-    let floatingFrame: CGRect?
-    let normalizedFloatingOrigin: CGPoint?
-    let restoreToFloating: Bool
-    let rescueEligible: Bool
-    let niriPlacement: PersistedNiriPlacement?
-}
-
-private enum PersistedWindowRestoreCatalogBuilder {
-    private struct Candidate {
-        let key: PersistedWindowRestoreKey
-        let entry: PersistedWindowRestoreEntry
-    }
-
-    static func build(from snapshot: PersistedWindowRestoreCatalogBuildSnapshot) -> PersistedWindowRestoreCatalog {
-        var candidatesByBaseKey: [PersistedWindowRestoreBaseKey: [Candidate]] = [:]
-
-        for snapshotEntry in snapshot.entries {
-            guard let key = PersistedWindowRestoreKey(metadata: snapshotEntry.metadata) else { continue }
-            let persistedEntry = PersistedWindowRestoreEntry(
-                key: key,
-                identity: PersistedWindowRestoreIdentity(
-                    token: snapshotEntry.token,
-                    metadata: snapshotEntry.metadata
-                ),
-                restoreIntent: PersistedRestoreIntent(
-                    workspaceName: snapshotEntry.workspaceName,
-                    topologyProfile: snapshotEntry.topologyProfile,
-                    preferredMonitor: snapshotEntry.preferredMonitor,
-                    floatingFrame: snapshotEntry.floatingFrame,
-                    normalizedFloatingOrigin: snapshotEntry.normalizedFloatingOrigin,
-                    restoreToFloating: snapshotEntry.restoreToFloating,
-                    rescueEligible: snapshotEntry.rescueEligible,
-                    niriPlacement: snapshotEntry.niriPlacement
-                )
-            )
-            candidatesByBaseKey[key.baseKey, default: []].append(
-                Candidate(key: key, entry: persistedEntry)
-            )
-        }
-
-        var persistedEntries: [PersistedWindowRestoreEntry] = []
-        persistedEntries.reserveCapacity(candidatesByBaseKey.count)
-
-        for candidates in candidatesByBaseKey.values {
-            if candidates.count == 1, let candidate = candidates.first {
-                persistedEntries.append(candidate.entry)
-                continue
-            }
-
-            let identityCandidates = candidates.filter { $0.entry.identity != nil }
-            persistedEntries.append(contentsOf: identityCandidates.map(\.entry))
-
-            let semanticCandidates = candidates.filter { $0.entry.identity == nil }
-            let candidatesByTitle = Dictionary(grouping: semanticCandidates, by: { $0.key.title })
-            for (title, titledCandidates) in candidatesByTitle where title != nil && titledCandidates.count == 1 {
-                if let candidate = titledCandidates.first {
-                    persistedEntries.append(candidate.entry)
-                }
-            }
-        }
-
-        persistedEntries.sort { lhs, rhs in
-            let lhsWorkspace = lhs.restoreIntent.workspaceName
-            let rhsWorkspace = rhs.restoreIntent.workspaceName
-            if lhsWorkspace != rhsWorkspace {
-                return lhsWorkspace < rhsWorkspace
-            }
-            if lhs.key.baseKey.bundleId != rhs.key.baseKey.bundleId {
-                return lhs.key.baseKey.bundleId < rhs.key.baseKey.bundleId
-            }
-            if (lhs.key.title ?? "") != (rhs.key.title ?? "") {
-                return (lhs.key.title ?? "") < (rhs.key.title ?? "")
-            }
-            if lhs.identity?.pid != rhs.identity?.pid {
-                return (lhs.identity?.pid ?? Int32.min) < (rhs.identity?.pid ?? Int32.min)
-            }
-            return (lhs.identity?.windowId ?? Int.min) < (rhs.identity?.windowId ?? Int.min)
-        }
-
-        return PersistedWindowRestoreCatalog(entries: persistedEntries)
-    }
-}
-
 @MainActor
 final class WorkspaceManager {
     enum NativeFullscreenTransition: Equatable {
@@ -152,14 +59,13 @@ final class WorkspaceManager {
     private let world = WorldStore()
     private let restorePlanner = RestorePlanner()
     let animationDriver = AnimationDriver()
-    private let bootPersistedWindowRestoreCatalog: PersistedWindowRestoreCatalog
     private var nativeFullscreenRecordsByOriginalToken: [WindowToken: NativeFullscreenRecord] = [:]
     private var nativeFullscreenOriginalTokenByCurrentToken: [WindowToken: WindowToken] = [:]
-    private var consumedBootPersistedWindowRestoreEntries: Set<PersistedWindowRestoreConsumptionKey> = []
-    private var persistedWindowRestoreCatalogDirty = false
-    private var persistedWindowRestoreCatalogSaveScheduled = false
-    private var persistedWindowRestoreCatalogBuildInFlight = false
-    private var persistedWindowRestoreCatalogRevision: UInt64 = 0
+    private lazy var persistedRestoreCatalogStore = PersistedRestoreCatalogStore(
+        bootCatalog: settings.loadPersistedWindowRestoreCatalog(),
+        buildSnapshot: { [unowned self] in self.persistedWindowRestoreCatalogBuildSnapshot() },
+        save: { [unowned self] in self.settings.savePersistedWindowRestoreCatalog($0) }
+    )
     var persistedRestoreBundleIdProvider: ((pid_t) -> String?)?
 
     private var _cachedSortedMonitors: [Monitor]?
@@ -179,7 +85,6 @@ final class WorkspaceManager {
 
     init(settings: SettingsStore) {
         self.settings = settings
-        bootPersistedWindowRestoreCatalog = settings.loadPersistedWindowRestoreCatalog()
         if monitors.isEmpty {
             monitors = [Monitor.fallback()]
         }
@@ -705,8 +610,8 @@ final class WorkspaceManager {
                   .init(
                       token: token,
                       metadata: metadata,
-                      catalog: bootPersistedWindowRestoreCatalog,
-                      consumedEntries: consumedBootPersistedWindowRestoreEntries,
+                      catalog: persistedRestoreCatalogStore.bootCatalog,
+                      consumedEntries: persistedRestoreCatalogStore.consumedBootEntries,
                       monitors: monitors,
                       workspaceIdForName: { [weak self] workspaceName in
                           self?.workspaceId(for: workspaceName, createIfMissing: false)
@@ -812,7 +717,7 @@ final class WorkspaceManager {
             )
         }
 
-        consumedBootPersistedWindowRestoreEntries.insert(hydration.consumedEntry)
+        persistedRestoreCatalogStore.noteConsumed(hydration.consumedEntry)
         if focusChanged {
             notifySessionStateChanged()
         }
@@ -844,75 +749,11 @@ final class WorkspaceManager {
     }
 
     func flushPersistedWindowRestoreCatalogNow() {
-        markPersistedWindowRestoreCatalogDirty()
-        flushPersistedWindowRestoreCatalogSynchronously()
+        persistedRestoreCatalogStore.flushNow()
     }
 
     private func schedulePersistedWindowRestoreCatalogSave() {
-        markPersistedWindowRestoreCatalogDirty()
-        enqueuePersistedWindowRestoreCatalogSave()
-    }
-
-    private func markPersistedWindowRestoreCatalogDirty() {
-        persistedWindowRestoreCatalogDirty = true
-        persistedWindowRestoreCatalogRevision &+= 1
-    }
-
-    private func enqueuePersistedWindowRestoreCatalogSave() {
-        guard !persistedWindowRestoreCatalogSaveScheduled,
-              !persistedWindowRestoreCatalogBuildInFlight
-        else { return }
-        persistedWindowRestoreCatalogSaveScheduled = true
-
-        Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: 75_000_000)
-            } catch {
-                return
-            }
-            guard let self else { return }
-            self.persistedWindowRestoreCatalogSaveScheduled = false
-            self.startPersistedWindowRestoreCatalogBuildIfNeeded()
-        }
-    }
-
-    private func startPersistedWindowRestoreCatalogBuildIfNeeded() {
-        guard persistedWindowRestoreCatalogDirty else { return }
-        persistedWindowRestoreCatalogDirty = false
-        persistedWindowRestoreCatalogBuildInFlight = true
-        let revision = persistedWindowRestoreCatalogRevision
-        let snapshot = persistedWindowRestoreCatalogBuildSnapshot()
-
-        Task { [weak self] in
-            let catalog = await Task.detached(priority: .utility) {
-                PersistedWindowRestoreCatalogBuilder.build(from: snapshot)
-            }.value
-            self?.completePersistedWindowRestoreCatalogBuild(catalog, revision: revision)
-        }
-    }
-
-    private func completePersistedWindowRestoreCatalogBuild(
-        _ catalog: PersistedWindowRestoreCatalog,
-        revision: UInt64
-    ) {
-        persistedWindowRestoreCatalogBuildInFlight = false
-        if revision == persistedWindowRestoreCatalogRevision, !persistedWindowRestoreCatalogDirty {
-            settings.savePersistedWindowRestoreCatalog(catalog)
-            return
-        }
-        if persistedWindowRestoreCatalogDirty {
-            enqueuePersistedWindowRestoreCatalogSave()
-        }
-    }
-
-    private func flushPersistedWindowRestoreCatalogSynchronously() {
-        guard persistedWindowRestoreCatalogDirty else { return }
-        persistedWindowRestoreCatalogDirty = false
-        settings.savePersistedWindowRestoreCatalog(buildPersistedWindowRestoreCatalog())
-    }
-
-    private func buildPersistedWindowRestoreCatalog() -> PersistedWindowRestoreCatalog {
-        PersistedWindowRestoreCatalogBuilder.build(from: persistedWindowRestoreCatalogBuildSnapshot())
+        persistedRestoreCatalogStore.scheduleSave()
     }
 
     private func persistedRestoreMetadata(for entry: WindowState) -> ManagedReplacementMetadata? {
@@ -2922,12 +2763,13 @@ final class WorkspaceManager {
     @discardableResult
     func withEngineMutationScope<T>(
         in workspaceId: WorkspaceDescriptor.ID? = nil,
+        label: String = "engine_mutation",
         source: WMEventSource = .command,
         _ body: () -> T
     ) -> T {
         var result: T?
         world.commit(
-            .userCommand(workspaceId: workspaceId, source: source),
+            .userCommand(workspaceId: workspaceId, label: label, source: source),
             monitors: monitors,
             snapshot: { self.reconcileSnapshot() },
             preMutate: { result = body() },
@@ -2940,7 +2782,7 @@ final class WorkspaceManager {
     func withBatchedLayoutBuild(_ build: () -> [WorkspaceLayoutPlan]) -> [WorkspaceLayoutPlan] {
         var plans: [WorkspaceLayoutPlan] = []
         world.commit(
-            .userCommand(workspaceId: nil, source: .layoutRefresh),
+            .userCommand(workspaceId: nil, label: "layout_build", source: .layoutRefresh),
             monitors: monitors,
             snapshot: { self.reconcileSnapshot() },
             preMutate: {
@@ -2971,7 +2813,7 @@ final class WorkspaceManager {
         var targetState = niriViewportState(for: targetWorkspaceId)
         var captured: NiriLayoutEngine.WorkspaceMoveResult?
         world.commit(
-            .userCommand(workspaceId: nil, source: .command),
+            .userCommand(workspaceId: nil, label: "workspace_move", source: .command),
             monitors: monitors,
             snapshot: { self.reconcileSnapshot() },
             preMutate: {
@@ -2996,7 +2838,7 @@ final class WorkspaceManager {
     ) {
         var sourceState = niriViewportState(for: workspaceId)
         world.commit(
-            .userCommand(workspaceId: nil, source: .command),
+            .userCommand(workspaceId: nil, label: "niri_source_mutation", source: .command),
             monitors: monitors,
             snapshot: { self.reconcileSnapshot() },
             preMutate: {
@@ -3033,7 +2875,7 @@ final class WorkspaceManager {
         _ mutate: (inout ViewportState) -> Void
     ) {
         var state = niriViewportState(for: workspaceId)
-        withEngineMutationScope(in: workspaceId) {
+        withEngineMutationScope(in: workspaceId, label: "viewport_mutation") {
             mutate(&state)
         }
         updateNiriViewportState(state, for: workspaceId)

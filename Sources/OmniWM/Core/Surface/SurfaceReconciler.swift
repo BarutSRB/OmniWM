@@ -54,7 +54,7 @@ enum SurfaceDerivation {
             else {
                 return nil
             }
-            guard let frame = world.borderFrame(forWindowId: entry.windowId),
+            guard let frame = world.borderFrame(for: entry),
                   frame.width > 0, frame.height > 0
             else {
                 return nil
@@ -121,8 +121,14 @@ final class SurfaceReconciler {
         forceOrderingOnNextReconcile = false
         guard let controller else { return }
         let world = WorldView(controller: controller)
-        var desired = SurfaceDerivation.derive(world: world)
-        desired.bars = deriveBars ? world.barSurfaces() : appliedScene.bars
+        var desired: DesiredSurfaceScene
+        if deriveBars {
+            desired = SurfaceDerivation.derive(world: world)
+            desired.bars = world.barSurfaces()
+        } else {
+            desired = appliedScene
+            desired.border = world.hasStartedServices ? SurfaceDerivation.deriveBorder(world: world) : nil
+        }
         apply(desired, on: controller, forceOrdering: forceOrdering, applyBars: deriveBars)
     }
 
@@ -138,8 +144,7 @@ final class SurfaceReconciler {
                 controller.publishWorkspaceDataChanged()
             }
         }
-        guard desired != appliedScene || forceOrdering else { return }
-        let borderApplied = borderApplier.apply(desired.border, forceOrdering: forceOrdering)
+        borderApplier.apply(desired.border, forceOrdering: forceOrdering)
         if desired.tabRails != appliedScene.tabRails || forceOrdering {
             controller.tabbedOverlayManager.updateOverlays(desired.tabRails, forceOrdering: forceOrdering)
         }
@@ -147,8 +152,5 @@ final class SurfaceReconciler {
             controller.nativeFullscreenPlaceholderManager.apply(desired.placeholders)
         }
         appliedScene = desired
-        if !borderApplied {
-            appliedScene.border = nil
-        }
     }
 }

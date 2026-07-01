@@ -492,7 +492,7 @@ final class CommandHandler {
         let gap = CGFloat(controller.workspaceManager.gaps)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let motion = controller.motionPolicy.snapshot()
-        guard let newNode = controller.workspaceManager.withEngineMutationScope({
+        guard let newNode = controller.workspaceManager.withEngineMutationScope(label: "focus_navigation", {
             navigationAction(engine, currentNode, wsId, motion, &state, workingFrame, gap)
         }) else {
             onNoTarget?()

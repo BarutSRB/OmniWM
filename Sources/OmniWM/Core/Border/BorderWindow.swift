@@ -17,7 +17,7 @@ final class BorderWindow {
         var transactionMove: @MainActor (UInt32, CGPoint) -> Void
         var transactionMoveAndOrder: @MainActor (UInt32, CGPoint, Int32, UInt32, SkyLightWindowOrder) -> Void
         var transactionHide: @MainActor (UInt32) -> Void
-        var backingScaleForFrame: @MainActor (CGRect) -> CGFloat
+        var backingScaleForFrame: @MainActor (CGRect) -> (scale: CGFloat, screenFrame: CGRect)
 
         static let live = Self(
             createBorderWindow: { SkyLight.shared.createBorderWindow(frame: $0) },
@@ -36,7 +36,7 @@ final class BorderWindow {
                 let targetScreen = NSScreen.screens.first(where: {
                     $0.frame.contains(targetFrame.center)
                 }) ?? NSScreen.main ?? NSScreen.screens.first
-                return targetScreen?.backingScaleFactor ?? 2.0
+                return (targetScreen?.backingScaleFactor ?? 2.0, targetScreen?.frame ?? .null)
             }
         )
     }
@@ -47,16 +47,16 @@ final class BorderWindow {
     private let operations: Operations
 
     private var currentFrame: CGRect = .zero
-    private var currentTargetFrame: CGRect = .zero
-    private var currentTargetWid: UInt32 = 0
+    private var appliedFrame: CGRect = .zero
     private var origin: CGPoint = .zero
     private var needsRedraw = true
     private var isVisible = false
     private var lastOrderedTargetWid: UInt32 = 0
     private var lastConfiguredScale: CGFloat = 0
     private var currentCornerRadius: CGFloat = 9.0
+    private var cachedScale: CGFloat = 0
+    private var cachedScaleScreenFrame: CGRect = .null
 
-    private let padding: CGFloat = 8.0
     private let defaultCornerRadius: CGFloat = 9.0
     private let orderingLevel: Int32 = 3
 
@@ -73,7 +73,6 @@ final class BorderWindow {
         }
         isVisible = false
         lastOrderedTargetWid = 0
-        currentTargetWid = 0
         currentCornerRadius = defaultCornerRadius
     }
 
@@ -85,23 +84,13 @@ final class BorderWindow {
         forceOrdering: Bool = false
     ) -> Bool {
         BorderOpMetricsRecorder.shared.noteUpdate()
-        let borderWidth = config.width
-        let scale = operations.backingScaleForFrame(targetFrame)
+        let scale = backingScale(for: targetFrame)
         let resolvedCornerRadius = max(cornerRadius, 0)
 
-        let borderOffset = -borderWidth - padding
-        var frame = targetFrame.insetBy(dx: borderOffset, dy: borderOffset)
-            .roundedToPhysicalPixels(scale: scale)
-
+        var frame = targetFrame.roundedToPhysicalPixels(scale: scale)
+        appliedFrame = frame
         origin = ScreenCoordinateSpace.toWindowServer(rect: frame).origin
         frame.origin = .zero
-
-        let drawingBounds = CGRect(
-            x: -borderOffset,
-            y: -borderOffset,
-            width: targetFrame.width,
-            height: targetFrame.height
-        )
 
         let createdWindow: Bool
         if wid == 0 {
@@ -125,13 +114,11 @@ final class BorderWindow {
         if currentCornerRadius != resolvedCornerRadius {
             needsRedraw = true
         }
-        currentTargetFrame = targetFrame
-        currentTargetWid = targetWid
         currentFrame = frame
         currentCornerRadius = resolvedCornerRadius
 
         if needsRedraw {
-            draw(frame: frame, drawingBounds: drawingBounds)
+            draw(frame: frame)
         }
 
         let needsOrdering = forceOrdering || createdWindow || !isVisible || lastOrderedTargetWid != targetWid
@@ -139,6 +126,21 @@ final class BorderWindow {
         isVisible = true
         lastOrderedTargetWid = targetWid
         return true
+    }
+
+    func invalidateScaleCache() {
+        cachedScale = 0
+        cachedScaleScreenFrame = .null
+    }
+
+    private func backingScale(for targetFrame: CGRect) -> CGFloat {
+        if cachedScale > 0, cachedScaleScreenFrame.contains(targetFrame.center) {
+            return cachedScale
+        }
+        let (scale, screenFrame) = operations.backingScaleForFrame(targetFrame)
+        cachedScale = scale
+        cachedScaleScreenFrame = screenFrame
+        return scale
     }
 
     private func createWindow(frame: CGRect, scale: CGFloat) {
@@ -165,7 +167,7 @@ final class BorderWindow {
         operations.setWindowShape(wid, frame)
     }
 
-    private func draw(frame: CGRect, drawingBounds: CGRect) {
+    private func draw(frame: CGRect) {
         guard let context else { return }
         needsRedraw = false
         BorderOpMetricsRecorder.shared.noteRedraw()
@@ -177,7 +179,7 @@ final class BorderWindow {
         context.saveGState()
         context.clear(frame)
 
-        let innerRect = drawingBounds.insetBy(dx: borderWidth, dy: borderWidth)
+        let innerRect = frame.insetBy(dx: borderWidth, dy: borderWidth)
         let innerPath = CGPath(
             roundedRect: innerRect,
             cornerWidth: cornerRadius,
@@ -194,7 +196,7 @@ final class BorderWindow {
         context.setFillColor(config.color.cgColor)
 
         let outerPath = CGPath(
-            roundedRect: drawingBounds,
+            roundedRect: frame,
             cornerWidth: outerRadius,
             cornerHeight: outerRadius,
             transform: nil
@@ -222,16 +224,14 @@ final class BorderWindow {
         guard wid != 0 else { return }
         move(relativeTo: targetWid, needsOrdering: true)
         isVisible = true
-        currentTargetWid = targetWid
         lastOrderedTargetWid = targetWid
     }
 
     func hide() {
         guard wid != 0 else { return }
+        BorderOpMetricsRecorder.shared.noteHide()
         operations.transactionHide(wid)
         isVisible = false
-        currentTargetWid = 0
-        currentTargetFrame = .zero
         lastOrderedTargetWid = 0
     }
 
@@ -245,5 +245,9 @@ final class BorderWindow {
 
     var windowId: UInt32? {
         wid == 0 ? nil : wid
+    }
+
+    var frameOnScreen: CGRect? {
+        wid == 0 || !isVisible ? nil : appliedFrame
     }
 }

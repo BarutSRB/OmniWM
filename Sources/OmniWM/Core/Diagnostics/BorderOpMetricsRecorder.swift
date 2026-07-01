@@ -19,6 +19,8 @@ final class BorderOpMetricsRecorder: RuntimeTraceRecording, @unchecked Sendable 
         var reshapes = 0
         var moveOnly = 0
         var moveAndOrder = 0
+        var hides = 0
+        var boundsQueryFallbacks = 0
     }
 
     private let active = Atomic<Bool>(false)
@@ -69,6 +71,14 @@ final class BorderOpMetricsRecorder: RuntimeTraceRecording, @unchecked Sendable 
         bump { $0.moveAndOrder += 1 }
     }
 
+    func noteHide() {
+        bump { $0.hides += 1 }
+    }
+
+    func noteBoundsQueryFallback() {
+        bump { $0.boundsQueryFallbacks += 1 }
+    }
+
     func beginCapture() {
         counters.withLock { $0 = Counters() }
         active.store(true, ordering: .relaxed)
@@ -86,7 +96,8 @@ final class BorderOpMetricsRecorder: RuntimeTraceRecording, @unchecked Sendable 
                 + " updateCalls=\(snapshot.updateCalls)",
             "cornerRadius hits=\(snapshot.cornerRadiusHits) queries=\(snapshot.cornerRadiusQueries)",
             "redraws=\(snapshot.redraws) reshapes=\(snapshot.reshapes)"
-                + " moveOnly=\(snapshot.moveOnly) moveAndOrder=\(snapshot.moveAndOrder)"
+                + " moveOnly=\(snapshot.moveOnly) moveAndOrder=\(snapshot.moveAndOrder)",
+            "hides=\(snapshot.hides) boundsQueryFallbacks=\(snapshot.boundsQueryFallbacks)"
         ].joined(separator: "\n")
     }
 }

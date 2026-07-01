@@ -48,32 +48,17 @@ extension ViewportState {
     }
 
     mutating func jumpOffset(to offset: CGFloat) {
-        NiriLayoutTrace.record(
-            .viewport,
-            workspaceId: nil,
-            "jump \(Int(viewOffset))→\(Int(offset)) col=\(activeColumnIndex)"
-        )
         offsetTransition.rebaseDelta += offset - viewOffset
         viewOffset = offset
         offsetTransition.kind = .jump
     }
 
     mutating func springOffset(to offset: CGFloat, config: SpringConfig? = nil) {
-        NiriLayoutTrace.record(
-            .viewport,
-            workspaceId: nil,
-            "spring \(Int(viewOffset))→\(Int(offset)) col=\(activeColumnIndex)"
-        )
         viewOffset = offset
         offsetTransition.kind = .spring(config ?? .niriHorizontalViewMovement)
     }
 
     mutating func decelerateOffset(to offset: CGFloat) {
-        NiriLayoutTrace.record(
-            .viewport,
-            workspaceId: nil,
-            "decelerate \(Int(viewOffset))→\(Int(offset)) col=\(activeColumnIndex)"
-        )
         viewOffset = offset
         offsetTransition.kind = .deceleration
     }

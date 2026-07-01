@@ -65,9 +65,11 @@ no_extension_access_modifier:
 
 type_body_length:
   warning: 300
+  error: 3500
 
 file_length:
   warning: 500
+  error: 4000
 
 function_body_length:
   warning: 50

@@ -87,7 +87,8 @@ extension NiriLayoutEngine {
         animationTime: TimeInterval? = nil,
         hiddenPlacementMonitor: HiddenPlacementMonitorContext? = nil,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext] = [],
-        viewOffsetOverride: CGFloat? = nil
+        viewOffsetOverride: CGFloat? = nil,
+        settledVisibilityOffset: CGFloat? = nil
     ) -> LayoutResult {
         var frames: [WindowToken: CGRect] = [:]
         var hiddenHandles: [WindowToken: HideSide] = [:]
@@ -105,7 +106,8 @@ extension NiriLayoutEngine {
             animationTime: animationTime,
             hiddenPlacementMonitor: hiddenPlacementMonitor,
             hiddenPlacementMonitors: hiddenPlacementMonitors,
-            viewOffsetOverride: viewOffsetOverride
+            viewOffsetOverride: viewOffsetOverride,
+            settledVisibilityOffset: settledVisibilityOffset
         )
         return LayoutResult(frames: frames, hiddenHandles: hiddenHandles)
     }
@@ -124,7 +126,8 @@ extension NiriLayoutEngine {
         animationTime: TimeInterval? = nil,
         hiddenPlacementMonitor: HiddenPlacementMonitorContext? = nil,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext] = [],
-        viewOffsetOverride: CGFloat? = nil
+        viewOffsetOverride: CGFloat? = nil,
+        settledVisibilityOffset: CGFloat? = nil
     ) {
         let containers = columns(in: workspaceId)
         guard !containers.isEmpty else { return }
@@ -202,6 +205,9 @@ extension NiriLayoutEngine {
         let activeIdx = state.activeColumnIndex.clamped(to: 0 ... max(0, containers.count - 1))
         let activePos = containers.isEmpty ? 0 : containerPositions[activeIdx]
         let viewPos = activePos + viewOffset
+        let visibilityViewPositions: [CGFloat] = settledVisibilityOffset.map {
+            [activePos + $0, viewPos]
+        } ?? [viewPos]
 
         for idx in 0 ..< containers.count {
             let containerPos = containerPositions[idx]
@@ -223,10 +229,14 @@ extension NiriLayoutEngine {
                 orientation: orientation
             )
             let renderedContainerRect: CGRect
-            switch containerVisibilityState(
-                for: visibilityRect,
+            switch sampledContainerVisibilityState(
+                canonicalRect: canonicalContainerRect,
+                viewPositions: visibilityViewPositions,
+                workspaceOffset: workspaceOffset,
+                renderOffset: renderOffset,
                 viewportFrame: workingFrame,
                 fallback: idx == 0 ? .minimum : .maximum,
+                scale: effectiveScale,
                 orientation: orientation,
                 hiddenPlacementMonitor: hiddenPlacementMonitor,
                 hiddenPlacementMonitors: hiddenPlacementMonitors
@@ -323,6 +333,46 @@ extension NiriLayoutEngine {
         }
         return canonicalRect.offsetBy(dx: translation.x, dy: translation.y)
             .roundedToPhysicalPixels(scale: scale)
+    }
+
+    private func sampledContainerVisibilityState(
+        canonicalRect: CGRect,
+        viewPositions: [CGFloat],
+        workspaceOffset: CGFloat,
+        renderOffset: CGPoint,
+        viewportFrame: CGRect,
+        fallback: AxisHideEdge,
+        scale: CGFloat,
+        orientation: Monitor.Orientation,
+        hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
+        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
+    ) -> ContainerVisibilityState {
+        var settledHidden: ContainerVisibilityState?
+        for viewPosition in viewPositions {
+            let sampleRect = visibleRenderedContainerRect(
+                canonicalRect: canonicalRect,
+                viewPosition: viewPosition,
+                workspaceOffset: workspaceOffset,
+                renderOffset: renderOffset,
+                scale: scale,
+                orientation: orientation
+            )
+            let sampleState = containerVisibilityState(
+                for: sampleRect,
+                viewportFrame: viewportFrame,
+                fallback: fallback,
+                orientation: orientation,
+                hiddenPlacementMonitor: hiddenPlacementMonitor,
+                hiddenPlacementMonitors: hiddenPlacementMonitors
+            )
+            if case .visible = sampleState {
+                return .visible
+            }
+            if settledHidden == nil {
+                settledHidden = sampleState
+            }
+        }
+        return settledHidden ?? .hidden(fallback)
     }
 
     private func containerVisibilityState(

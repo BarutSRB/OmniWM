@@ -41,6 +41,7 @@ struct NiriCreateFocusTraceEvent: Equatable {
         case createPlacementResolved(
             token: WindowToken,
             workspaceId: WorkspaceDescriptor.ID,
+            rung: WorkspacePlacementRung,
             pendingWorkspaceId: WorkspaceDescriptor.ID?,
             pendingMonitorId: Monitor.ID?,
             focusedWorkspaceId: WorkspaceDescriptor.ID?,
@@ -97,6 +98,7 @@ extension NiriCreateFocusTraceEvent: CustomStringConvertible {
         case let .createPlacementResolved(
             token,
             workspaceId,
+            rung,
             pendingWorkspaceId,
             pendingMonitorId,
             focusedWorkspaceId,
@@ -105,7 +107,7 @@ extension NiriCreateFocusTraceEvent: CustomStringConvertible {
             frameMonitorId,
             interactionMonitorId
         ):
-            "create_placement_resolved token=\(token) workspace=\(workspaceId.uuidString) pending_workspace=\(pendingWorkspaceId?.uuidString ?? "nil") pending_monitor=\(String(describing: pendingMonitorId)) focused_workspace=\(focusedWorkspaceId?.uuidString ?? "nil") focused_monitor=\(String(describing: focusedMonitorId)) native_monitor=\(String(describing: nativeSpaceMonitorId)) frame_monitor=\(String(describing: frameMonitorId)) interaction_monitor=\(String(describing: interactionMonitorId))"
+            "create_placement_resolved token=\(token) workspace=\(workspaceId.uuidString) rung=\(rung.rawValue) pending_workspace=\(pendingWorkspaceId?.uuidString ?? "nil") pending_monitor=\(String(describing: pendingMonitorId)) focused_workspace=\(focusedWorkspaceId?.uuidString ?? "nil") focused_monitor=\(String(describing: focusedMonitorId)) native_monitor=\(String(describing: nativeSpaceMonitorId)) frame_monitor=\(String(describing: frameMonitorId)) interaction_monitor=\(String(describing: interactionMonitorId))"
         case let .candidateTracked(token, workspaceId):
             "candidate_tracked token=\(token) workspace=\(workspaceId.uuidString)"
         case let .relayoutActivatedWindow(token, workspaceId):
@@ -1959,6 +1961,7 @@ final class AXEventHandler {
             fallbackToken: token,
             fallbackAXRef: axRef,
             createPlacementContext: createPlacementContextsByWindowId[windowId]
+                ?? liveCreatePlacementContext(controller: controller)
         ) else {
             var admissionPending = pendingWindowStabilizationTasks[token] != nil
             if let windowInfo {
@@ -2587,7 +2590,7 @@ final class AXEventHandler {
             for: evaluation,
             inheritTrackedParentWorkspace: inheritTrackedParentWorkspace
         )
-        let workspaceId = controller.resolveWorkspaceForNewWindow(
+        let placement = controller.resolveWorkspaceForNewWindow(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
             pid: token.pid,
@@ -2600,9 +2603,10 @@ final class AXEventHandler {
             windowFrame: placementFrame,
             fallbackWorkspaceId: controller.activeWorkspace()?.id
         )
+        let workspaceId = placement.workspaceId
         recordCreatePlacementTrace(
             token: token,
-            workspaceId: workspaceId,
+            placement: placement,
             createPlacementContext: createPlacementContext,
             windowFrame: placementFrame,
             controller: controller
@@ -2639,7 +2643,7 @@ final class AXEventHandler {
 
     private func recordCreatePlacementTrace(
         token: WindowToken,
-        workspaceId: WorkspaceDescriptor.ID,
+        placement: WorkspacePlacementResolution,
         createPlacementContext: WindowCreatePlacementContext?,
         windowFrame: CGRect?,
         controller: WMController
@@ -2648,7 +2652,8 @@ final class AXEventHandler {
             .init(
                 kind: .createPlacementResolved(
                     token: token,
-                    workspaceId: workspaceId,
+                    workspaceId: placement.workspaceId,
+                    rung: placement.rung,
                     pendingWorkspaceId: createPlacementContext?.pendingFocusedWorkspaceId,
                     pendingMonitorId: createPlacementContext?.pendingFocusedMonitorId,
                     focusedWorkspaceId: createPlacementContext?.focusedWorkspaceId,
@@ -3573,9 +3578,19 @@ final class AXEventHandler {
             return
         }
 
+        createPlacementContextsByWindowId[windowId] = liveCreatePlacementContext(
+            controller: controller,
+            nativeSpaceMonitorId: resolveNativeSpacePlacementMonitorId(spaceId: spaceId, controller: controller)
+        )
+    }
+
+    func liveCreatePlacementContext(
+        controller: WMController,
+        nativeSpaceMonitorId: Monitor.ID? = nil
+    ) -> WindowCreatePlacementContext {
         let focusedWorkspaceId = resolveFocusedPlacementWorkspaceId(controller: controller)
-        createPlacementContextsByWindowId[windowId] = WindowCreatePlacementContext(
-            nativeSpaceMonitorId: resolveNativeSpacePlacementMonitorId(spaceId: spaceId, controller: controller),
+        return WindowCreatePlacementContext(
+            nativeSpaceMonitorId: nativeSpaceMonitorId,
             pendingFocusedWorkspaceId: controller.workspaceManager.pendingFocusedWorkspaceId,
             pendingFocusedMonitorId: resolvePendingFocusedPlacementMonitorId(controller: controller),
             focusedWorkspaceId: focusedWorkspaceId,

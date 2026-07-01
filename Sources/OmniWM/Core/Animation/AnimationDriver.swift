@@ -77,6 +77,20 @@ final class AnimationDriver {
         }
     }
 
+    func settledVisibilityOffset(
+        in workspaceId: WorkspaceDescriptor.ID,
+        semanticOffset: CGFloat
+    ) -> CGFloat? {
+        switch motions[workspaceId] {
+        case .spring,
+             .deceleration:
+            semanticOffset
+        case .gesture,
+             nil:
+            nil
+        }
+    }
+
     func plannedRenderOffset(
         in workspaceId: WorkspaceDescriptor.ID,
         localState: ViewportState,
@@ -142,6 +156,12 @@ final class AnimationDriver {
         next: ViewportState,
         transition: OffsetTransition
     ) {
+        recordViewportCommitTrace(
+            workspaceId: workspaceId,
+            previous: previous,
+            next: next,
+            transition: transition
+        )
         let rebaseDelta = Double(transition.rebaseDelta)
         if rebaseDelta != 0 {
             switch motions[workspaceId] {
@@ -191,6 +211,26 @@ final class AnimationDriver {
                 )
             )
         }
+    }
+
+    private func recordViewportCommitTrace(
+        workspaceId: WorkspaceDescriptor.ID,
+        previous: ViewportState?,
+        next: ViewportState,
+        transition: OffsetTransition
+    ) {
+        guard transition.kind != nil || transition.rebaseDelta != 0 else { return }
+        let kind = switch transition.kind {
+        case .jump: "jump"
+        case .spring: "spring"
+        case .deceleration: "decelerate"
+        case nil: "rebase"
+        }
+        NiriLayoutTrace.record(
+            .viewport,
+            workspaceId: workspaceId,
+            "\(kind) \(Int(previous?.viewOffset ?? next.viewOffset))→\(Int(next.viewOffset)) col=\(next.activeColumnIndex) rebase=\(Int(transition.rebaseDelta))"
+        )
     }
 
     private func gestureCommitOrigin(

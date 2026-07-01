@@ -17,13 +17,25 @@ final class BorderSurfaceApplier {
     private var registeredSurfaceWindowNumber: Int?
     private let defaultCornerRadius: CGFloat = 9.0
     private let surfaceID = "border-surface"
+    private var screenParametersObserver: NSObjectProtocol?
 
     init(
         borderWindowOperations: BorderWindow.Operations = .live,
-        cornerRadiusProvider: @escaping @MainActor (Int) -> CGFloat? = { SkyLight.shared.cornerRadius(forWindowId: $0) }
+        cornerRadiusProvider: @escaping @MainActor (Int) -> CGFloat? = {
+            SkyLight.shared.cornerRadius(forWindowId: $0)
+        }
     ) {
         self.borderWindowOperations = borderWindowOperations
         self.cornerRadiusProvider = cornerRadiusProvider
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.borderWindow?.invalidateScaleCache()
+            }
+        }
     }
 
     @discardableResult
@@ -39,6 +51,14 @@ final class BorderSurfaceApplier {
             borderWindow = BorderWindow(config: desired.config, operations: borderWindowOperations)
         } else {
             borderWindow?.updateConfig(desired.config)
+        }
+
+        if let applied,
+           applied.windowId == desired.windowId,
+           abs(applied.frame.width - desired.frame.width) > FrameTolerance.frameWrite
+           || abs(applied.frame.height - desired.frame.height) > FrameTolerance.frameWrite
+        {
+            clearCornerRadiusCache()
         }
 
         let cornerRadius = resolvedCornerRadius(for: desired.windowId)
@@ -76,6 +96,10 @@ final class BorderSurfaceApplier {
         hide()
         borderWindow?.destroy()
         borderWindow = nil
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+            self.screenParametersObserver = nil
+        }
     }
 
     private func hide() {
@@ -122,7 +146,7 @@ final class BorderSurfaceApplier {
             id: surfaceID,
             windowNumber: windowNumber,
             frameProvider: { [weak self] in
-                self?.applied?.frame
+                self?.borderWindow?.frameOnScreen ?? self?.applied?.frame
             },
             visibilityProvider: { [weak self] in
                 self?.applied != nil

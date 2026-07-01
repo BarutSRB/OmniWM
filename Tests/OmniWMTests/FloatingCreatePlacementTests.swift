@@ -234,12 +234,13 @@ final class FloatingCreatePlacementTests: XCTestCase {
             axRef: axRef(pid, 501),
             pid: pid,
             restrictWorkspaceRuleToPlacementMonitor: false,
-            createPlacementContext: placementContext(nativeSpaceMonitorId: nil),
+            createPlacementContext: placementContext(),
             windowFrame: CGRect(x: 200, y: 200, width: 600, height: 400),
             fallbackWorkspaceId: nil
         )
 
-        XCTAssertEqual(fixture.controller.workspaceManager.monitorId(for: resolved), fixture.secondary.id)
+        XCTAssertEqual(fixture.controller.workspaceManager.monitorId(for: resolved.workspaceId), fixture.secondary.id)
+        XCTAssertEqual(resolved.rung, .floatingSpawn)
     }
 
     func testResolveFloatingPrefersNativeMonitorOverWorkingMonitor() throws {
@@ -258,35 +259,124 @@ final class FloatingCreatePlacementTests: XCTestCase {
             fallbackWorkspaceId: nil
         )
 
-        XCTAssertEqual(fixture.controller.workspaceManager.monitorId(for: resolved), fixture.secondary.id)
+        XCTAssertEqual(fixture.controller.workspaceManager.monitorId(for: resolved.workspaceId), fixture.secondary.id)
+        XCTAssertEqual(resolved.rung, .nativeSpace)
     }
 
-    func testResolveTiledIgnoresWorkingMonitorAndUsesFrame() throws {
+    func testResolveTiledPrefersFocusedContextOverFrame() throws {
         let fixture = try makeTwoMonitorFixture()
         let pid: pid_t = 6103
-        _ = fixture.controller.workspaceManager.addWindow(
-            axRef(pid, 520), pid: pid, windowId: 520, to: fixture.secondaryWorkspace
-        )
 
         let resolved = fixture.controller.resolveWorkspaceForNewWindow(
             axRef: axRef(pid, 521),
             pid: pid,
             restrictWorkspaceRuleToPlacementMonitor: true,
-            createPlacementContext: placementContext(nativeSpaceMonitorId: nil),
+            createPlacementContext: placementContext(
+                focusedWorkspaceId: fixture.secondaryWorkspace,
+                focusedMonitorId: fixture.secondary.id
+            ),
             windowFrame: CGRect(x: 200, y: 200, width: 600, height: 400),
             fallbackWorkspaceId: nil
         )
 
-        XCTAssertEqual(fixture.controller.workspaceManager.monitorId(for: resolved), fixture.primary.id)
+        XCTAssertEqual(resolved.workspaceId, fixture.secondaryWorkspace)
+        XCTAssertEqual(resolved.rung, .focusedContext)
     }
 
-    private func placementContext(nativeSpaceMonitorId: Monitor.ID?) -> WindowCreatePlacementContext {
+    func testResolveTiledPrefersNativeSpaceOverFrame() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let pid: pid_t = 6104
+
+        let resolved = fixture.controller.resolveWorkspaceForNewWindow(
+            axRef: axRef(pid, 531),
+            pid: pid,
+            restrictWorkspaceRuleToPlacementMonitor: true,
+            createPlacementContext: placementContext(nativeSpaceMonitorId: fixture.secondary.id),
+            windowFrame: CGRect(x: 200, y: 200, width: 600, height: 400),
+            fallbackWorkspaceId: nil
+        )
+
+        XCTAssertEqual(fixture.controller.workspaceManager.monitorId(for: resolved.workspaceId), fixture.secondary.id)
+        XCTAssertEqual(resolved.rung, .nativeSpace)
+    }
+
+    func testResolveTiledPrefersLiveFocusRecencyOverFrame() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let manager = fixture.controller.workspaceManager
+        let pid: pid_t = 6105
+        let tiled = manager.addWindow(axRef(pid, 540), pid: pid, windowId: 540, to: fixture.secondaryWorkspace)
+        _ = manager.confirmManagedFocus(tiled, in: fixture.secondaryWorkspace, activateWorkspaceOnMonitor: false)
+
+        let resolved = fixture.controller.resolveWorkspaceForNewWindow(
+            axRef: axRef(pid, 541),
+            pid: pid,
+            restrictWorkspaceRuleToPlacementMonitor: true,
+            createPlacementContext: placementContext(),
+            windowFrame: CGRect(x: 200, y: 200, width: 600, height: 400),
+            fallbackWorkspaceId: nil
+        )
+
+        XCTAssertEqual(resolved.workspaceId, fixture.secondaryWorkspace)
+        XCTAssertEqual(resolved.rung, .liveManagedFocus)
+    }
+
+    func testResolveTiledFallsBackToFrameWhenNoSignal() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let pid: pid_t = 6106
+        _ = fixture.controller.workspaceManager.addWindow(
+            axRef(pid, 550), pid: pid, windowId: 550, to: fixture.secondaryWorkspace
+        )
+
+        let resolved = fixture.controller.resolveWorkspaceForNewWindow(
+            axRef: axRef(pid, 551),
+            pid: pid,
+            restrictWorkspaceRuleToPlacementMonitor: true,
+            createPlacementContext: placementContext(),
+            windowFrame: CGRect(x: 200, y: 200, width: 600, height: 400),
+            fallbackWorkspaceId: nil
+        )
+
+        XCTAssertEqual(fixture.controller.workspaceManager.monitorId(for: resolved.workspaceId), fixture.primary.id)
+        XCTAssertEqual(resolved.rung, .frame)
+    }
+
+    func testSynthesizedContextOnAXFirstAdmissionResolvesFocusedWorkspace() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let manager = fixture.controller.workspaceManager
+        let pid: pid_t = 6107
+        let tiled = manager.addWindow(axRef(pid, 560), pid: pid, windowId: 560, to: fixture.secondaryWorkspace)
+        _ = manager.confirmManagedFocus(tiled, in: fixture.secondaryWorkspace, activateWorkspaceOnMonitor: false)
+
+        let synthesized = fixture.controller.axEventHandler.liveCreatePlacementContext(
+            controller: fixture.controller
+        )
+        XCTAssertNil(synthesized.nativeSpaceMonitorId)
+        XCTAssertEqual(synthesized.focusedWorkspaceId, fixture.secondaryWorkspace)
+
+        let resolved = fixture.controller.resolveWorkspaceForNewWindow(
+            axRef: axRef(pid, 561),
+            pid: pid,
+            restrictWorkspaceRuleToPlacementMonitor: true,
+            createPlacementContext: synthesized,
+            windowFrame: CGRect(x: 200, y: 200, width: 600, height: 400),
+            fallbackWorkspaceId: nil
+        )
+
+        XCTAssertEqual(resolved.workspaceId, fixture.secondaryWorkspace)
+        XCTAssertEqual(resolved.rung, .focusedContext)
+    }
+
+    private func placementContext(
+        nativeSpaceMonitorId: Monitor.ID? = nil,
+        focusedWorkspaceId: WorkspaceDescriptor.ID? = nil,
+        focusedMonitorId: Monitor.ID? = nil
+    ) -> WindowCreatePlacementContext {
         WindowCreatePlacementContext(
             nativeSpaceMonitorId: nativeSpaceMonitorId,
             pendingFocusedWorkspaceId: nil,
             pendingFocusedMonitorId: nil,
-            focusedWorkspaceId: nil,
-            focusedMonitorId: nil,
+            focusedWorkspaceId: focusedWorkspaceId,
+            focusedMonitorId: focusedMonitorId,
             interactionMonitorId: nil,
             createdAt: Date()
         )

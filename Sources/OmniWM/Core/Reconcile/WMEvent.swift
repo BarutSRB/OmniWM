@@ -288,6 +288,7 @@ enum WMEvent: Equatable {
     case systemWake(source: WMEventSource)
     case userCommand(
         workspaceId: WorkspaceDescriptor.ID?,
+        label: String,
         source: WMEventSource
     )
 
@@ -377,7 +378,7 @@ enum WMEvent: Equatable {
              let .spaceTopologyChanged(_, source),
              let .systemSleep(source),
              let .systemWake(source),
-             let .userCommand(_, source):
+             let .userCommand(_, _, source):
             source
         }
     }
@@ -458,8 +459,8 @@ enum WMEvent: Equatable {
             "system_sleep"
         case .systemWake:
             "system_wake"
-        case let .userCommand(workspaceId, _):
-            "user_command workspace=\(workspaceId?.uuidString ?? "nil")"
+        case let .userCommand(workspaceId, label, _):
+            "user_command label=\(label) workspace=\(workspaceId?.uuidString ?? "nil")"
         }
     }
 }

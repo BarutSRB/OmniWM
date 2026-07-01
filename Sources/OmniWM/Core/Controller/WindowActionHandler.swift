@@ -534,7 +534,7 @@ final class WindowActionHandler {
         }
 
         if sourceWorkspaceId == targetWorkspaceId {
-            guard controller.workspaceManager.withEngineMutationScope({
+            guard controller.workspaceManager.withEngineMutationScope(label: "summon_window", {
                 engine.summonWindowRight(token, beside: focusedToken, in: targetWorkspaceId)
             }) else {
                 return false

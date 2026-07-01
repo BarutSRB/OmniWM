@@ -50,8 +50,6 @@ final class SkyLight {
     private typealias TransactionOrderWindowFunc = @convention(c) (CFTypeRef, UInt32, Int32, UInt32) -> Void
     private typealias WindowIsOrderedInFunc = @convention(c) (Int32, UInt32, UnsafeMutablePointer<UInt8>) -> CGError
     private typealias TransactionMoveWindowWithGroupFunc = @convention(c) (CFTypeRef, UInt32, CGPoint) -> CGError
-    private typealias DisableUpdateFunc = @convention(c) (Int32) -> Void
-    private typealias ReenableUpdateFunc = @convention(c) (Int32) -> Void
     private typealias MoveWindowFunc = @convention(c) (Int32, UInt32, UnsafePointer<CGPoint>) -> CGError
     private typealias GetWindowBoundsFunc = @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGRect>) -> CGError
     private typealias NewWindowFunc = @convention(c) (
@@ -137,8 +135,6 @@ final class SkyLight {
     private let transactionOrderWindow: TransactionOrderWindowFunc
     private let windowIsOrderedIn: WindowIsOrderedInFunc
     private let transactionMoveWindowWithGroup: TransactionMoveWindowWithGroupFunc
-    private let disableUpdate: DisableUpdateFunc
-    private let reenableUpdate: ReenableUpdateFunc
     private let moveWindow: MoveWindowFunc
     private let getWindowBounds: GetWindowBoundsFunc
     private let registerConnectionNotifyProc: RegisterConnectionNotifyProcFunc
@@ -222,8 +218,6 @@ final class SkyLight {
             "SLSTransactionMoveWindowWithGroup",
             as: TransactionMoveWindowWithGroupFunc.self
         )
-        disableUpdate = resolve("SLSDisableUpdate", as: DisableUpdateFunc.self)
-        reenableUpdate = resolve("SLSReenableUpdate", as: ReenableUpdateFunc.self)
         moveWindow = resolve("SLSMoveWindow", as: MoveWindowFunc.self)
         getWindowBounds = resolve("SLSGetWindowBounds", as: GetWindowBoundsFunc.self)
         registerConnectionNotifyProc = resolve(
@@ -267,6 +261,12 @@ final class SkyLight {
     }
 
     func cornerRadius(forWindowId wid: Int) -> CGFloat? {
+        queryWindowIterator(forWindowId: wid) { iterator in
+            cornerRadius(from: iterator)
+        }
+    }
+
+    private func queryWindowIterator<T>(forWindowId wid: Int, _ read: (CFTypeRef) -> T?) -> T? {
         let cid = getMainConnectionID()
         guard cid != 0 else { return nil }
 
@@ -281,8 +281,15 @@ final class SkyLight {
         defer { cfRelease(iterator) }
 
         guard windowIteratorGetCount(iterator) > 0,
-              windowIteratorAdvance(iterator),
-              let radii = windowIteratorGetCornerRadii(iterator),
+              windowIteratorAdvance(iterator)
+        else {
+            return nil
+        }
+        return read(iterator)
+    }
+
+    private func cornerRadius(from iterator: CFTypeRef) -> CGFloat? {
+        guard let radii = windowIteratorGetCornerRadii(iterator),
               CFArrayGetCount(radii) > 0
         else {
             return nil
@@ -487,19 +494,42 @@ final class SkyLight {
         }
     }
 
-    func batchMoveWindows(_ positions: [(windowId: UInt32, origin: CGPoint)]) {
-        let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else {
+    private var scopedTransaction: CFTypeRef?
+
+    func withTransactionScope(_ body: () -> Void) {
+        guard scopedTransaction == nil,
+              let transaction = transactionCreate(getMainConnectionID())
+        else {
+            body()
+            return
+        }
+        scopedTransaction = transaction
+        body()
+        scopedTransaction = nil
+        _ = commit(transaction)
+        cfRelease(transaction)
+    }
+
+    private func withTransaction(_ ops: (CFTypeRef) -> Void) {
+        if let transaction = scopedTransaction {
+            ops(transaction)
+            return
+        }
+        guard let transaction = transactionCreate(getMainConnectionID()) else {
             FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
             return
         }
         defer { cfRelease(transaction) }
-
-        for (windowId, origin) in positions {
-            _ = transactionMoveWindowWithGroup(transaction, windowId, origin)
-        }
-
+        ops(transaction)
         _ = commit(transaction)
+    }
+
+    func batchMoveWindows(_ positions: [(windowId: UInt32, origin: CGPoint)]) {
+        withTransaction { transaction in
+            for (windowId, origin) in positions {
+                _ = transactionMoveWindowWithGroup(transaction, windowId, origin)
+            }
+        }
     }
 
     func queryAllVisibleWindows() -> [WindowServerInfo] {
@@ -689,9 +719,7 @@ final class SkyLight {
         _ = newRegionWithRect(&rect, &region)
         guard let region else { return false }
 
-        disableUpdate(cid)
         let ok = setWindowShape(cid, wid, -9999, -9999, region) == .success
-        reenableUpdate(cid)
         if !ok { FallbackFiringRecorder.shared.note(.skylight, "setWindowShapeFailed") }
         return ok
     }
@@ -726,14 +754,9 @@ final class SkyLight {
     }
 
     func transactionMove(_ wid: UInt32, origin: CGPoint) {
-        let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else {
-            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
-            return
+        withTransaction { transaction in
+            _ = transactionMoveWindowWithGroup(transaction, wid, origin)
         }
-        defer { cfRelease(transaction) }
-        _ = transactionMoveWindowWithGroup(transaction, wid, origin)
-        _ = commit(transaction)
     }
 
     func transactionMoveAndOrder(
@@ -743,28 +766,17 @@ final class SkyLight {
         relativeTo targetWid: UInt32,
         order: SkyLightWindowOrder
     ) {
-        let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else {
-            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
-            return
+        withTransaction { transaction in
+            _ = transactionMoveWindowWithGroup(transaction, wid, origin)
+            _ = transactionSetWindowLevel(transaction, wid, level)
+            transactionOrderWindow(transaction, wid, order.rawValue, targetWid)
         }
-        defer { cfRelease(transaction) }
-
-        _ = transactionMoveWindowWithGroup(transaction, wid, origin)
-        _ = transactionSetWindowLevel(transaction, wid, level)
-        transactionOrderWindow(transaction, wid, order.rawValue, targetWid)
-        _ = commit(transaction)
     }
 
     func transactionHide(_ wid: UInt32) {
-        let cid = getMainConnectionID()
-        guard let transaction = transactionCreate(cid) else {
-            FallbackFiringRecorder.shared.note(.skylight, "transactionCreateNil")
-            return
+        withTransaction { transaction in
+            transactionOrderWindow(transaction, wid, 0, 0)
         }
-        defer { cfRelease(transaction) }
-        transactionOrderWindow(transaction, wid, 0, 0)
-        _ = commit(transaction)
     }
 }
 

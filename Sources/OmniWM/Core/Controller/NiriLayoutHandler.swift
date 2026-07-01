@@ -96,6 +96,10 @@ import QuartzCore
 
         guard controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id == wsId else {
             controller.layoutRefreshController.stopScrollAnimation(for: displayId)
+            controller.workspaceManager.animationDriver.removeMotions(for: [wsId])
+            controller.layoutRefreshController.hideInactiveWorkspaces(
+                activeWorkspaceIds: activeWorkspaceIds(controller: controller)
+            )
             return
         }
 
@@ -134,15 +138,21 @@ import QuartzCore
                 monitor: monitor
             )
             finalizeAnimation()
-            var activeIds = Set<WorkspaceDescriptor.ID>()
-            for mon in controller.workspaceManager.monitors {
-                if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: mon.id) {
-                    activeIds.insert(ws.id)
-                }
-            }
-            controller.layoutRefreshController.hideInactiveWorkspaces(activeWorkspaceIds: activeIds)
+            controller.layoutRefreshController.hideInactiveWorkspaces(
+                activeWorkspaceIds: activeWorkspaceIds(controller: controller)
+            )
             controller.layoutRefreshController.stopScrollAnimation(for: displayId)
         }
+    }
+
+    private func activeWorkspaceIds(controller: WMController) -> Set<WorkspaceDescriptor.ID> {
+        var activeIds = Set<WorkspaceDescriptor.ID>()
+        for monitor in controller.workspaceManager.monitors {
+            if let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
+                activeIds.insert(workspace.id)
+            }
+        }
+        return activeIds
     }
 
     @discardableResult
@@ -262,13 +272,29 @@ import QuartzCore
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
 
+        let hadScrollAnimation = scrollAnimationByDisplay.values.contains(workspaceId)
         for (displayId, wsId) in scrollAnimationByDisplay where wsId == workspaceId {
             controller.layoutRefreshController.stopScrollAnimation(for: displayId)
         }
 
+        let hadMotion = controller.workspaceManager.animationDriver.hasMotion(in: workspaceId)
         controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
             state.cancelAnimation()
         }
+
+        guard hadScrollAnimation || hadMotion,
+              let engine = controller.niriEngine,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId),
+              controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id == workspaceId
+        else {
+            return
+        }
+        applyFramesOnDemand(
+            wsId: workspaceId,
+            state: controller.workspaceManager.niriViewportState(for: workspaceId),
+            engine: engine,
+            monitor: monitor
+        )
     }
 
     private func requestLayoutCommandRelayout(
@@ -412,6 +438,10 @@ import QuartzCore
                 in: snapshot.workspaceId,
                 semanticOffset: snapshot.viewportState.viewOffset,
                 at: animationTime ?? CACurrentMediaTime()
+            ),
+            settledVisibilityOffset: controller?.workspaceManager.animationDriver.settledVisibilityOffset(
+                in: snapshot.workspaceId,
+                semanticOffset: snapshot.viewportState.viewOffset
             )
         )
 
@@ -420,7 +450,8 @@ import QuartzCore
             frames: frames,
             hiddenHandles: hiddenHandles,
             engine: engine,
-            canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
+            canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
+            reassertHidden: animationTime == nil
         )
 
         return WorkspaceLayoutPlan(
@@ -967,7 +998,8 @@ import QuartzCore
             frames: frames,
             hiddenHandles: hiddenHandles,
             engine: pass.engine,
-            canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
+            canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
+            reassertHidden: true
         )
         return WorkspaceLayoutPlan(
             workspaceId: pass.wsId,
@@ -982,12 +1014,13 @@ import QuartzCore
         )
     }
 
-    private func layoutDiff(
+    func layoutDiff(
         windows: [LayoutWindowSnapshot],
         frames: [WindowToken: CGRect],
         hiddenHandles: [WindowToken: HideSide],
         engine: NiriLayoutEngine,
-        canRestoreHiddenWorkspaceWindows: Bool
+        canRestoreHiddenWorkspaceWindows: Bool,
+        reassertHidden: Bool
     ) -> WorkspaceLayoutDiff {
         var diff = WorkspaceLayoutDiff()
         for window in windows {
@@ -997,7 +1030,7 @@ import QuartzCore
             }
             let previousOffscreenSide = window.hiddenState?.offscreenSide
             if let side = hiddenHandles[token] {
-                if previousOffscreenSide != side {
+                if previousOffscreenSide != side || reassertHidden {
                     diff.visibilityChanges.append(.hide(token, side: side))
                 }
                 continue
@@ -1887,7 +1920,7 @@ import QuartzCore
 
         var consumed = false
 
-        controller.workspaceManager.withEngineMutationScope(in: workspaceId) {
+        controller.workspaceManager.withEngineMutationScope(in: workspaceId, label: "drag_drop_move") {
             guard let movedNode = engine.findNode(for: token),
                   let column = engine.findColumn(containing: movedNode, in: workspaceId)
             else { return }

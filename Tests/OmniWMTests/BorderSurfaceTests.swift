@@ -39,7 +39,7 @@ final class BorderSurfaceTests: XCTestCase {
                 transactionMove: { [weak self] _, _ in self?.moveCount += 1 },
                 transactionMoveAndOrder: { [weak self] _, _, _, _, _ in self?.moveAndOrderCount += 1 },
                 transactionHide: { [weak self] _ in self?.hideCount += 1 },
-                backingScaleForFrame: { _ in 2.0 }
+                backingScaleForFrame: { _ in (2.0, CGRect(x: 0, y: 0, width: 5000, height: 5000)) }
             )
         }
 
