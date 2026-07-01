@@ -3800,6 +3800,41 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testManualFloatUsesCurrentTiledSizeNotStaleFloatingFrame() throws {
+        let controller = Self.controller()
+        let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+
+        let pid: pid_t = 943_001
+        let windowId = 943_101
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            pid: pid, windowId: windowId, to: ws
+        )
+        _ = controller.niriEngine?.addWindow(token: token, to: ws, afterSelection: nil)
+
+        let staleFrame = CGRect(x: 66, y: 32, width: 832, height: 640)
+        controller.axManager.confirmFrameWrite(for: windowId, frame: staleFrame)
+        XCTAssertTrue(controller.transitionWindowMode(for: token, to: .floating, applyFloatingFrame: false))
+        XCTAssertTrue(controller.transitionWindowMode(for: token, to: .tiling, applyFloatingFrame: false))
+        XCTAssertEqual(controller.workspaceManager.floatingState(for: token)?.restoreToFloating, true)
+
+        let currentTiledFrame = CGRect(x: 300, y: 100, width: 1256, height: 1378)
+        controller.axManager.confirmFrameWrite(for: windowId, frame: currentTiledFrame)
+
+        XCTAssertTrue(controller.transitionWindowMode(for: token, to: .floating, applyFloatingFrame: false))
+
+        let floatedSize = try XCTUnwrap(controller.workspaceManager.floatingState(for: token)?.lastFrame.size)
+        XCTAssertEqual(
+            floatedSize,
+            currentTiledFrame.size,
+            "manual float must keep the current tiled size, not replay the stale remembered floating size"
+        )
+        XCTAssertNotEqual(floatedSize, staleFrame.size)
+    }
+
+    @MainActor
     func testNiriFocusedRemovalPreferredRecoveryUsesLayoutRememberedToken() async throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(

@@ -1439,22 +1439,6 @@ final class WMController {
         return clampedFloatingFrame(offsetFrame, in: monitor.visibleFrame)
     }
 
-    private func targetFloatingFrame(
-        for entry: WindowState,
-        preferredMonitor: Monitor?
-    ) -> CGRect? {
-        if let floatingState = workspaceManager.floatingState(for: entry.token),
-           floatingState.restoreToFloating,
-           let restoredFrame = workspaceManager.resolvedFloatingFrame(
-               for: entry.token,
-               preferredMonitor: preferredMonitor
-           )
-        {
-            return restoredFrame
-        }
-        return initialFloatingFrame(for: entry, preferredMonitor: preferredMonitor)
-    }
-
     private func shouldApplyFloatingFrameImmediately(
         for workspaceId: WorkspaceDescriptor.ID
     ) -> Bool {
@@ -1805,7 +1789,7 @@ final class WMController {
 
         switch (currentMode, targetMode) {
         case (.tiling, .floating):
-            let targetFrame = targetFloatingFrame(
+            let targetFrame = initialFloatingFrame(
                 for: entry,
                 preferredMonitor: referenceMonitor
             )
