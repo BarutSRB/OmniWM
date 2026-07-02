@@ -65,6 +65,15 @@ final class SecureInputIndicatorController {
         let hostingView = NSHostingView(rootView: view)
         panel.contentView = hostingView
 
+        OwnedWindowRegistry.shared.register(
+            panel,
+            surfaceId: "secure-input-indicator",
+            kind: .secureInputIndicator,
+            hitTestPolicy: .interactive,
+            capturePolicy: .excluded,
+            suppressesManagedFocusRecovery: false
+        )
+
         self.panel = panel
         self.hostingView = hostingView
     }
