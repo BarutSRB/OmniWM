@@ -3,14 +3,16 @@
 
 import AppKit
 import QuartzCore
+import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject {
     nonisolated static let mainAutosaveName = StatusItemPersistence.OwnedItem.main.autosaveName
 
     private var statusItem: NSStatusItem?
-    private var menuBuilder: StatusBarMenuBuilder?
+    private var menuModel: StatusMenuModel?
     private var menu: NSMenu?
+    private var menus: [NSMenu] = []
     private var isRebuildingOwnedItems = false
 
     private let hiddenBarController: HiddenBarController
@@ -63,15 +65,15 @@ final class StatusBarController: NSObject {
         button.action = #selector(handleClick(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
-        let menuBuilder = StatusBarMenuBuilder(settings: settings, controller: controller)
-        menuBuilder.ipcMenuEnabled = cliManager != nil
-        menuBuilder.cliManager = cliManager
-        menuBuilder.updateCoordinator = updateCoordinator
-        menuBuilder.checkForUpdatesAction = { [weak self] in
+        let model = StatusMenuModel(settings: settings, controller: controller)
+        model.ipcMenuEnabled = cliManager != nil
+        model.cliManager = cliManager
+        model.updateCoordinator = updateCoordinator
+        model.checkForUpdatesAction = { [weak self] in
             self?.updateCoordinator?.checkForUpdatesManually()
         }
-        self.menuBuilder = menuBuilder
-        rebuildMenu()
+        menuModel = model
+        installHostedMenu(model: model, motionPolicy: controller.motionPolicy)
 
         hiddenBarController.bind(
             omniButton: button,
@@ -93,13 +95,51 @@ final class StatusBarController: NSObject {
         }
     }
 
+    private func installHostedMenu(model: StatusMenuModel, motionPolicy: MotionPolicy) {
+        let menu = StatusMenuHost.makeMenu()
+        let advanced = StatusMenuHost.makeMenu()
+        let diagnostics = StatusMenuHost.makeMenu()
+        let helpLinks = StatusMenuHost.makeMenu()
+
+        menu.addItem(StatusMenuHost.makeHostedItem(
+            dismissing: menu,
+            content: StatusMenuPrimaryView(model: model).environment(motionPolicy)
+        ))
+        advanced.addItem(StatusMenuHost.makeHostedItem(
+            dismissing: menu,
+            content: StatusMenuAdvancedView(model: model).environment(motionPolicy)
+        ))
+        diagnostics.addItem(StatusMenuHost.makeHostedItem(
+            dismissing: menu,
+            content: StatusMenuDiagnosticsView(model: model).environment(motionPolicy)
+        ))
+        helpLinks.addItem(StatusMenuHost.makeHostedItem(
+            dismissing: menu,
+            content: StatusMenuHelpLinksView(model: model).environment(motionPolicy)
+        ))
+        menu.addItem(submenuParent(title: "Advanced", icon: "slider.horizontal.3", submenu: advanced))
+        menu.addItem(submenuParent(title: "Diagnostics", icon: "stethoscope", submenu: diagnostics))
+        menu.addItem(submenuParent(title: "Help & Links", icon: "questionmark.circle", submenu: helpLinks))
+        menu.addItem(StatusMenuHost.makeHostedItem(
+            dismissing: menu,
+            content: StatusMenuFooterView(model: model).environment(motionPolicy)
+        ))
+
+        self.menu = menu
+        menus = [menu, advanced, diagnostics, helpLinks]
+    }
+
+    private func submenuParent(title: String, icon: String, submenu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
+        item.submenu = submenu
+        return item
+    }
+
     private func showMenu() {
-        if menu == nil {
-            rebuildMenu()
-        } else {
-            menuBuilder?.updateToggles()
-        }
-        guard let button = statusItem?.button, let menu else { return }
+        guard let button = statusItem?.button, let menu, let menuModel else { return }
+        menuModel.menuWillOpen()
+        StatusMenuHost.prepareForDisplay(menus, appearance: NSApplication.shared.appearance)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
     }
 
@@ -107,17 +147,10 @@ final class StatusBarController: NSObject {
         controller?.toggleHiddenBar()
     }
 
-    func refreshMenu() {
-        menuBuilder?.updateToggles()
-    }
-
-    func rebuildMenu() {
-        menu = menuBuilder?.buildMenu()
-    }
+    func rebuildMenu() {}
 
     func handleTraceCaptureStateChange() {
         updateButtonAppearance()
-        rebuildMenu()
     }
 
     func updateButtonAppearance() {
@@ -201,8 +234,9 @@ final class StatusBarController: NSObject {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
         }
-        menuBuilder = nil
+        menuModel = nil
         menu = nil
+        menus = []
     }
 
     private func rebuildOwnedStatusItemsAfterUnsafeOrdering() {

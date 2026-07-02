@@ -362,20 +362,15 @@ final class WMController {
             settings.animationsEnabled = enabled
         }
 
-        guard motionPolicy.animationsEnabled != enabled else {
-            statusBarController?.rebuildMenu()
-            return
-        }
+        guard motionPolicy.animationsEnabled != enabled else { return }
 
         motionPolicy.animationsEnabled = enabled
-        statusBarController?.rebuildMenu()
     }
 
     func applyCurrentAppearanceMode() {
         settings.appearanceMode.apply()
         workspaceBarManager.updateAppearance()
         surfaceReconciler.noteWorldChanged()
-        statusBarController?.rebuildMenu()
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -406,7 +401,6 @@ final class WMController {
     func updateDisplaySpacesMode(_ mode: DisplaySpacesMode) {
         guard displaySpacesMode != mode else { return }
         displaySpacesMode = mode
-        statusBarController?.rebuildMenu()
         if mode == .disabled, !displaySpacesAlertShown {
             displaySpacesAlertShown = true
             presentSeparateSpacesAlert()

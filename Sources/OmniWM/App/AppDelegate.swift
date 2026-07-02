@@ -130,12 +130,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     settings.ipcEnabled = false
                 }
             }
-            self.statusBarController?.refreshMenu()
         }
-        settings.onExternalSettingsReloaded = { [weak controller, weak self] in
+        settings.onExternalSettingsReloaded = { [weak controller] in
             guard let controller else { return }
             controller.applyPersistedSettings(settings)
-            self?.statusBarController?.refreshMenu()
         }
         statusBarController?.setup()
         do {
