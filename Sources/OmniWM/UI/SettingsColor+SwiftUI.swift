@@ -6,13 +6,7 @@ import SwiftUI
 
 extension SettingsColor {
     init?(color: Color, preservesAlpha: Bool = true) {
-        guard let converted = NSColor(color).usingColorSpace(.deviceRGB) else { return nil }
-        self.init(
-            red: Double(converted.redComponent),
-            green: Double(converted.greenComponent),
-            blue: Double(converted.blueComponent),
-            alpha: preservesAlpha ? Double(converted.alphaComponent) : 1
-        )
+        self.init(nsColor: NSColor(color), preservesAlpha: preservesAlpha)
     }
 
     init?(nsColor: NSColor, preservesAlpha: Bool = true) {

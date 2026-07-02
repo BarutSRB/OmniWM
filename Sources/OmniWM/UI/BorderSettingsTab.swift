@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
-import AppKit
 import SwiftUI
 
 struct BorderSettingsTab: View {
@@ -58,16 +57,11 @@ struct BorderSettingsTab: View {
                 )
             },
             set: { newColor in
-                if let cgColor = NSColor(newColor).usingColorSpace(.deviceRGB)?.cgColor,
-                   let components = cgColor.components, components.count >= 3
-                {
-                    settings.borderColorRed = Double(components[0])
-                    settings.borderColorGreen = Double(components[1])
-                    settings.borderColorBlue = Double(components[2])
-                    if components.count >= 4 {
-                        settings.borderColorAlpha = Double(components[3])
-                    }
-                }
+                guard let converted = SettingsColor(color: newColor) else { return }
+                settings.borderColorRed = converted.red
+                settings.borderColorGreen = converted.green
+                settings.borderColorBlue = converted.blue
+                settings.borderColorAlpha = converted.alpha
             }
         )
     }
