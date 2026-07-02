@@ -8,43 +8,26 @@ import SwiftUI
 final class AppRulesWindowController: NSObject, NSWindowDelegate {
     static let shared = AppRulesWindowController()
 
-    private var window: NSWindow?
-    private let ownedWindowRegistry = OwnedWindowRegistry.shared
+    private let presenter = HostedWindowPresenter()
     private let editorState = AppRulesEditorState()
 
     func show(settings: SettingsStore, controller: WMController) {
-        if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let appRulesView = AppRulesView(settings: settings, controller: controller, editorState: editorState)
-            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-
-        let hosting = NSHostingController(rootView: appRulesView)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "App Rules"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = true
-        window.setContentSize(NSSize(width: 1140, height: 870))
-        window.minSize = NSSize(width: 880, height: 680)
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        ownedWindowRegistry.register(window)
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        NotificationCenter.default
-            .addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.ownedWindowRegistry.unregister(window)
-                    self?.editorState.isDirty = false
-                    self?.window = nil
-                }
+        presenter.present(
+            title: "App Rules",
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            contentSize: NSSize(width: 1140, height: 870),
+            minSize: NSSize(width: 880, height: 680),
+            configure: { window in
+                window.titlebarAppearsTransparent = true
+                window.delegate = self
+            },
+            onWillClose: { [weak self] in
+                self?.editorState.isDirty = false
             }
-        self.window = window
+        ) {
+            AppRulesView(settings: settings, controller: controller, editorState: editorState)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -59,10 +42,5 @@ final class AppRulesWindowController: NSObject, NSWindowDelegate {
             return true
         }
         return false
-    }
-
-    func isPointInside(_ point: CGPoint) -> Bool {
-        guard let window, window.isVisible else { return false }
-        return window.frame.contains(point)
     }
 }

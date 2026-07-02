@@ -8,8 +8,7 @@ import SwiftUI
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
 
-    private var window: NSWindow?
-    private let ownedWindowRegistry = OwnedWindowRegistry.shared
+    private let presenter = HostedWindowPresenter()
     private let navigation = SettingsNavigationModel()
 
     func show(
@@ -22,44 +21,18 @@ final class SettingsWindowController {
             navigation.section = section
         }
 
-        if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
+        presenter.present(
+            title: "OmniWM Settings",
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentSize: NSSize(width: 900, height: 680),
+            minSize: NSSize(width: 760, height: 560)
+        ) {
+            SettingsView(
+                settings: settings,
+                controller: controller,
+                updateCoordinator: updateCoordinator,
+                navigation: navigation
+            )
         }
-
-        let settingsView = SettingsView(
-            settings: settings,
-            controller: controller,
-            updateCoordinator: updateCoordinator,
-            navigation: navigation
-        )
-
-        let hosting = NSHostingController(rootView: settingsView)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "OmniWM Settings"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.titlebarAppearsTransparent = false
-        window.setContentSize(NSSize(width: 900, height: 680))
-        window.minSize = NSSize(width: 760, height: 560)
-        window.center()
-        window.isReleasedWhenClosed = false
-        ownedWindowRegistry.register(window)
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        NotificationCenter.default
-            .addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.ownedWindowRegistry.unregister(window)
-                    self?.window = nil
-                }
-            }
-        self.window = window
-    }
-
-    func isPointInside(_ point: CGPoint) -> Bool {
-        guard let window, window.isVisible else { return false }
-        return window.frame.contains(point)
     }
 }

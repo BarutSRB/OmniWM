@@ -10,65 +10,52 @@ final class UpdateWindowController: UpdateWindowControlling {
 
     var onWindowClosedWithoutAction: (() -> Void)?
 
-    private var window: NSWindow?
-    private let ownedWindowRegistry = OwnedWindowRegistry.shared
+    private let presenter = HostedWindowPresenter()
     private var actionHandledOnClose = false
 
     func show(configuration: UpdatePopupConfiguration) {
-        if let window,
+        actionHandledOnClose = false
+        if let window = presenter.window,
            let hosting = window.contentViewController as? NSHostingController<UpdatePopupView>
         {
-            actionHandledOnClose = false
             hosting.rootView = UpdatePopupView(configuration: configuration)
-            center(window)
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
+            centerOnMouseScreen(window)
         }
 
-        let hosting = NSHostingController(rootView: UpdatePopupView(configuration: configuration))
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Update Available"
-        window.styleMask = [.titled, .closable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.setContentSize(NSSize(width: 720, height: 560))
-        window.minSize = NSSize(width: 620, height: 460)
-        window.isReleasedWhenClosed = false
-        window.collectionBehavior = [.moveToActiveSpace]
-        center(window)
-
-        ownedWindowRegistry.register(window)
-        actionHandledOnClose = false
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        NotificationCenter.default
-            .addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.ownedWindowRegistry.unregister(window)
-                    let shouldNotify = !self.actionHandledOnClose
-                    self.actionHandledOnClose = false
-                    self.window = nil
-                    if shouldNotify {
-                        self.onWindowClosedWithoutAction?()
-                    }
+        presenter.present(
+            title: "Update Available",
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentSize: NSSize(width: 720, height: 560),
+            minSize: NSSize(width: 620, height: 460),
+            center: centerOnMouseScreen,
+            configure: { window in
+                window.titlebarAppearsTransparent = true
+                window.titleVisibility = .hidden
+                window.isOpaque = false
+                window.backgroundColor = .clear
+                window.collectionBehavior = [.moveToActiveSpace]
+            },
+            onWillClose: { [weak self] in
+                guard let self else { return }
+                let shouldNotify = !actionHandledOnClose
+                actionHandledOnClose = false
+                if shouldNotify {
+                    onWindowClosedWithoutAction?()
                 }
             }
-        self.window = window
+        ) {
+            UpdatePopupView(configuration: configuration)
+        }
     }
 
     func close(markingActionHandled: Bool) {
         if markingActionHandled {
             actionHandledOnClose = true
         }
-        window?.close()
+        presenter.close()
     }
 
-    private func center(_ window: NSWindow) {
+    private func centerOnMouseScreen(_ window: NSWindow) {
         let mouseLocation = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) else {
             window.center()
