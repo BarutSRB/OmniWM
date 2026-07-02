@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import Synchronization
 
 extension CGPoint {
     func flipY(maxY: CGFloat) -> CGPoint {
@@ -72,29 +73,21 @@ enum ScreenCoordinateSpace {
         }
     }
 
-    private nonisolated(unsafe) static var cachedTransforms: [ScreenTransform]?
-    private nonisolated(unsafe) static var cachedGlobalFrame: CGRect?
-    private nonisolated(unsafe) static var screenConfigurationToken: Int = 0
+    private struct CacheState {
+        var transforms: [ScreenTransform]?
+        var globalFrame: CGRect?
+    }
 
-    private static func currentToken() -> Int {
-        var hasher = Hasher()
-        for screen in NSScreen.screens {
-            hasher.combine(screen.displayId ?? 0)
-            let frame = screen.frame
-            hasher.combine(frame.origin.x)
-            hasher.combine(frame.origin.y)
-            hasher.combine(frame.size.width)
-            hasher.combine(frame.size.height)
-        }
-        return hasher.finalize()
+    private static let cache = Mutex(CacheState())
+
+    static func invalidateCache() {
+        cache.withLock { $0 = CacheState() }
     }
 
     private static func transforms() -> [ScreenTransform] {
-        let token = currentToken()
-        if let cached = cachedTransforms, token == screenConfigurationToken {
+        if let cached = cache.withLock({ $0.transforms }) {
             return cached
         }
-
         let transforms = NSScreen.screens.compactMap { screen -> ScreenTransform? in
             guard let displayId = screen.displayId else { return nil }
             let quartzFrame = CGDisplayBounds(displayId)
@@ -108,23 +101,18 @@ enum ScreenCoordinateSpace {
                 scaleY: scaleY
             )
         }
-
-        cachedTransforms = transforms
-        cachedGlobalFrame = nil
-        screenConfigurationToken = token
+        cache.withLock { $0.transforms = transforms }
         return transforms
     }
 
     static var globalFrame: CGRect {
-        let token = currentToken()
-        if let cached = cachedGlobalFrame, token == screenConfigurationToken {
+        if let cached = cache.withLock({ $0.globalFrame }) {
             return cached
         }
         let frame = NSScreen.screens.reduce(into: CGRect.null) { result, screen in
             result = result.union(screen.frame)
         }
-        cachedGlobalFrame = frame
-        screenConfigurationToken = token
+        cache.withLock { $0.globalFrame = frame }
         return frame
     }
 

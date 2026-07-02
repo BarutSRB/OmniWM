@@ -91,6 +91,7 @@ final class ServiceLifecycleManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            ScreenCoordinateSpace.invalidateCache()
             Task { @MainActor in self?.maybeStartServices() }
         }
     }
