@@ -285,7 +285,7 @@ struct AXWindowRef: Hashable, @unchecked Sendable {
 **Why three layers?**
 
 - `WindowToken` is a lightweight `Sendable` value type that survives relayouts and works as a dictionary key without holding any AX resource. When an app destroys and recreates a window, `WindowModel.rekeyWindow` re-points everything from the old token to the new one so identity is preserved.
-- `WindowHandle` provides reference identity for layout-tree holders; it is re-pointed during rekey so a holder keeps a stable handle even as the token changes. (Its legacy `init(id:pid:axElement:)` still exists but the `pid`/`axElement` arguments are ignored — the handle no longer carries a live AX element.)
+- `WindowHandle` provides reference identity for layout-tree holders; it is re-pointed during rekey so a holder keeps a stable handle even as the token changes.
 - `AXWindowRef` is the bridge to the macOS Accessibility APIs and holds the heavyweight `AXUIElement`. It is stored on `WindowState.axRef`.
 
 ### 3.3 Window Lifecycle

@@ -126,9 +126,8 @@
 </table>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-15.0%2B-green?logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/macOS-26.0%2B-green?logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Apple%20Silicon-supported-green?logo=apple&logoColor=white" alt="Apple Silicon">
-  <img src="https://img.shields.io/badge/X86/X64-supported-green?logo=intel&logoColor=white" alt="Intel">
   <img src="https://img.shields.io/badge/Claude%20Code-Assisted-green?logo=claude&logoColor=white" alt="Claude Code">
 </p>
 <p align="center">
@@ -170,7 +169,7 @@ OmniWM is built for high responsiveness and smooth, crisp animations.
 
 ## Requirements
 
-- macOS 15+ (Sequoia)
+- macOS 26+ (Tahoe) on Apple Silicon
 - Accessibility permissions (prompted on launch)
 - Input Monitoring permission when using a System Hyper Trigger
 - Displays have separate spaces **ON** (the macOS default; OmniWM pauses window management until it is enabled)
@@ -438,7 +437,7 @@ Configure per-application behavior in Settings > App Rules:
 
 Requirements:
 - SwiftPM with Swift 6.4+
-- macOS 15.0+
+- macOS 26.0+
 - Ghostty's arm64 archive (build Ghostty and copy it to `Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty-internal-fat.a`)
 
 ## Related Forks

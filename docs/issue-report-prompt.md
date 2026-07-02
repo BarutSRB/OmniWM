@@ -2,8 +2,8 @@
 
 OmniWM's **Report Issue** flow (Settings → Report Issue) can rewrite a user's rough bug
 report into a clean, structured GitHub issue. The rewrite runs on-device through Apple
-Intelligence (macOS 26+ with Apple Intelligence enabled); on older systems a
-deterministic fallback formats the report without AI.
+Intelligence (with Apple Intelligence enabled); without it, a deterministic fallback
+formats the report without AI.
 
 The instructions that steer that model — the prompt — live in plain Markdown so you can
 improve them without touching Swift.
