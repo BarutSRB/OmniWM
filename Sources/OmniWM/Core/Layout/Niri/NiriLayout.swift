@@ -165,6 +165,7 @@ extension NiriLayoutEngine {
                 workspaceOffset: workspaceOffset,
                 scale: effectiveScale,
                 gaps: gaps.horizontal,
+                screenClampRect: viewFrame,
                 time: time,
                 result: &frames,
                 orientation: orientation
@@ -208,6 +209,10 @@ extension NiriLayoutEngine {
         let visibilityViewPositions: [CGFloat] = settledVisibilityOffset.map {
             [activePos + $0, viewPos]
         } ?? [viewPos]
+        let revealMargin: CGFloat = switch orientation {
+        case .horizontal: workingFrame.width * 0.25
+        case .vertical: workingFrame.height * 0.25
+        }
 
         for idx in 0 ..< containers.count {
             let containerPos = containerPositions[idx]
@@ -235,6 +240,7 @@ extension NiriLayoutEngine {
                 workspaceOffset: workspaceOffset,
                 renderOffset: renderOffset,
                 viewportFrame: workingFrame,
+                revealMargin: revealMargin,
                 fallback: idx == 0 ? .minimum : .maximum,
                 scale: effectiveScale,
                 orientation: orientation,
@@ -277,6 +283,7 @@ extension NiriLayoutEngine {
                 renderedFullscreenRect: renderedFullscreenRect,
                 secondaryGap: secondaryGap,
                 scale: effectiveScale,
+                screenClampRect: viewFrame,
                 animationTime: time,
                 result: &frames,
                 orientation: orientation
@@ -341,6 +348,7 @@ extension NiriLayoutEngine {
         workspaceOffset: CGFloat,
         renderOffset: CGPoint,
         viewportFrame: CGRect,
+        revealMargin: CGFloat,
         fallback: AxisHideEdge,
         scale: CGFloat,
         orientation: Monitor.Orientation,
@@ -360,6 +368,7 @@ extension NiriLayoutEngine {
             let sampleState = containerVisibilityState(
                 for: sampleRect,
                 viewportFrame: viewportFrame,
+                revealMargin: revealMargin,
                 fallback: fallback,
                 orientation: orientation,
                 hiddenPlacementMonitor: hiddenPlacementMonitor,
@@ -378,6 +387,7 @@ extension NiriLayoutEngine {
     private func containerVisibilityState(
         for renderedRect: CGRect,
         viewportFrame: CGRect,
+        revealMargin: CGFloat,
         fallback: AxisHideEdge,
         orientation: Monitor.Orientation,
         hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
@@ -389,9 +399,13 @@ extension NiriLayoutEngine {
             fallback: fallback,
             orientation: orientation
         )
+        let revealViewport = switch orientation {
+        case .horizontal: viewportFrame.insetBy(dx: -revealMargin, dy: 0)
+        case .vertical: viewportFrame.insetBy(dx: 0, dy: -revealMargin)
+        }
         guard containerIntersectsViewport(
             renderedRect,
-            viewportFrame: viewportFrame,
+            viewportFrame: revealViewport,
             orientation: orientation
         ) else {
             return .hidden(defaultHideEdge)
@@ -684,6 +698,7 @@ extension NiriLayoutEngine {
         workspaceOffset: CGFloat,
         scale: CGFloat,
         gaps: CGFloat,
+        screenClampRect: CGRect,
         time: TimeInterval,
         result: inout [WindowToken: CGRect],
         orientation: Monitor.Orientation
@@ -708,6 +723,7 @@ extension NiriLayoutEngine {
             renderedFullscreenRect: renderedFullscreenRect,
             secondaryGap: 0,
             scale: scale,
+            screenClampRect: screenClampRect,
             animationTime: time,
             result: &result,
             orientation: orientation
@@ -722,6 +738,7 @@ extension NiriLayoutEngine {
         renderedFullscreenRect: CGRect,
         secondaryGap: CGFloat,
         scale: CGFloat,
+        screenClampRect: CGRect,
         animationTime: TimeInterval? = nil,
         result: inout [WindowToken: CGRect],
         orientation: Monitor.Orientation
@@ -815,11 +832,11 @@ extension NiriLayoutEngine {
                 windows[i].resolvedWidth = resolvedSpan
             }
 
-            let animatedFrame: CGRect
+            var animatedFrame: CGRect
             switch sizingMode {
             case .fullscreen,
                  .maximized:
-                animatedFrame = renderedBaseFrame.roundedToPhysicalPixels(scale: scale)
+                animatedFrame = renderedBaseFrame
             case .normal:
                 let windowOffset = windowRenderOffsets[i]
                 var offsetFrame = renderedBaseFrame.offsetBy(dx: windowOffset.x, dy: windowOffset.y)
@@ -837,10 +854,25 @@ extension NiriLayoutEngine {
                         offsetFrame.origin.x = min(max(offsetFrame.origin.x, minX), maxX)
                     }
                 }
-                animatedFrame = offsetFrame.roundedToPhysicalPixels(scale: scale)
+                animatedFrame = offsetFrame
             }
-            windows[i].renderedFrame = animatedFrame
-            result[windowTokens[i]] = animatedFrame
+            switch orientation {
+            case .horizontal:
+                let minX = screenClampRect.minX - animatedFrame.width + 1
+                let maxX = screenClampRect.maxX - 1
+                if maxX >= minX {
+                    animatedFrame.origin.x = min(max(animatedFrame.origin.x, minX), maxX)
+                }
+            case .vertical:
+                let minY = screenClampRect.minY - animatedFrame.height + 1
+                let maxY = screenClampRect.maxY - 1
+                if maxY >= minY {
+                    animatedFrame.origin.y = min(max(animatedFrame.origin.y, minY), maxY)
+                }
+            }
+            let roundedAnimatedFrame = animatedFrame.roundedToPhysicalPixels(scale: scale)
+            windows[i].renderedFrame = roundedAnimatedFrame
+            result[windowTokens[i]] = roundedAnimatedFrame
 
             if !isTabbed {
                 pos += span

@@ -156,6 +156,7 @@ import QuartzCore
         var displayLinksByDisplay: [CGDirectDisplayID: CADisplayLink] = [:]
         var lastDisplayLinkTimestampByDisplay: [CGDirectDisplayID: CFTimeInterval] = [:]
         var lastParkAuditTime: CFTimeInterval = 0
+        var trailingAuditTask: Task<Void, Never>?
         var refreshRateByDisplay: [CGDirectDisplayID: Double] = [:]
         var closingAnimationsByDisplay: [CGDirectDisplayID: [Int: ClosingAnimation]] = [:]
         var screenChangeObserver: NSObjectProtocol?
@@ -309,12 +310,34 @@ import QuartzCore
 
         let monitorFrames = controller.workspaceManager.monitors.map(\.frame)
         var laggards: [String] = []
+        var strays: [String] = []
         var visible: [Int] = []
         var parkedCount = 0
         for entry in controller.workspaceManager.allEntries() {
             guard let windowId = UInt32(exactly: entry.windowId) else { continue }
             guard controller.workspaceManager.hiddenState(for: entry.token) != nil else {
                 visible.append(entry.windowId)
+                if entry.mode == .tiling,
+                   let bounds = SkyLight.shared.getWindowBounds(windowId)
+                {
+                    let frame = ScreenCoordinateSpace.toAppKit(rect: bounds)
+                    let expectations = [
+                        controller.axManager.lastAppliedFrame(for: entry.windowId)?.origin,
+                        controller.axManager.pendingFrameWrite(for: entry.windowId)?.origin,
+                        controller.axManager.skyLightLivePosition(for: entry.windowId)
+                    ].compactMap(\.self)
+                    let strayEpsilon: CGFloat = 32
+                    let matchesExpectation = expectations.contains {
+                        abs($0.x - frame.origin.x) <= strayEpsilon
+                            && abs($0.y - frame.origin.y) <= strayEpsilon
+                    }
+                    if !matchesExpectation {
+                        let expected = expectations.first.map { TraceFormat.point($0) } ?? "none"
+                        strays.append(
+                            "\(entry.windowId):\(TraceFormat.point(frame.origin))→\(expected)"
+                        )
+                    }
+                }
                 continue
             }
             guard let bounds = SkyLight.shared.getWindowBounds(windowId) else { continue }
@@ -337,6 +360,7 @@ import QuartzCore
                 mediaTime: now,
                 displayId: displayId,
                 laggards: laggards,
+                strays: strays,
                 visible: visible.sorted(),
                 parkedCount: parkedCount
             )
@@ -449,6 +473,19 @@ import QuartzCore
                 link.invalidate()
             }
             layoutState.lastDisplayLinkTimestampByDisplay.removeValue(forKey: displayId)
+            scheduleTrailingParkAudits(displayId: displayId)
+        }
+    }
+
+    private func scheduleTrailingParkAudits(displayId: CGDirectDisplayID) {
+        guard ParkVisibilityAudit.shared.isActive else { return }
+        layoutState.trailingAuditTask?.cancel()
+        layoutState.trailingAuditTask = Task { @MainActor [weak self] in
+            for _ in 0 ..< 30 {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled, let self else { return }
+                self.auditParkVisibility(displayId: displayId)
+            }
         }
     }
 

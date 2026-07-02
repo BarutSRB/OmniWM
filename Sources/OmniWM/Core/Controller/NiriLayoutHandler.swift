@@ -1040,7 +1040,7 @@ import QuartzCore
                 continue
             }
 
-            if previousOffscreenSide != nil {
+            if previousOffscreenSide != nil, frames[token] != nil {
                 diff.visibilityChanges.append(.show(token))
             }
 

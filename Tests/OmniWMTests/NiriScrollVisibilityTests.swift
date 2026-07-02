@@ -67,8 +67,23 @@ final class NiriScrollVisibilityTests: XCTestCase {
         XCTAssertNil(handles[fixture.tokens[2]])
         XCTAssertNil(handles[fixture.tokens[4]])
         XCTAssertEqual(handles[fixture.tokens[0]], .left)
-        XCTAssertEqual(handles[fixture.tokens[1]], .left)
-        XCTAssertEqual(handles[fixture.tokens[3]], .left)
+        XCTAssertNil(handles[fixture.tokens[1]])
+        XCTAssertNil(handles[fixture.tokens[3]])
+    }
+
+    func testRevealMarginUnparksJustOffscreenColumns() {
+        let fixture = makeFiveColumnFixture()
+
+        let handles = hiddenHandles(
+            fixture,
+            viewOffsetOverride: -1200,
+            settledVisibilityOffset: nil
+        )
+
+        XCTAssertNil(handles[fixture.tokens[0]])
+        XCTAssertEqual(handles[fixture.tokens[1]], .right)
+        XCTAssertEqual(handles[fixture.tokens[2]], .right)
+        XCTAssertEqual(handles[fixture.tokens[4]], .right)
     }
 
     func testNoSettledOffsetKeepsLiveVisibilityForGestures() {
@@ -169,5 +184,77 @@ final class NiriScrollVisibilityTests: XCTestCase {
             pendingParkWindowIds: [999]
         )
         XCTAssertTrue(confirmed.visibilityChanges.isEmpty)
+    }
+
+    func testAnimatedFramesNeverLeaveTheMonitorPlane() {
+        let fixture = makeFiveColumnFixture()
+
+        let layout = fixture.engine.calculateLayoutWithVisibility(
+            state: ViewportState(),
+            workspaceId: fixture.workspaceId,
+            monitorFrame: fixture.area.workingFrame,
+            screenFrame: fixture.area.viewFrame,
+            gaps: (horizontal: 0, vertical: 0),
+            scale: 1,
+            workingArea: fixture.area,
+            viewOffsetOverride: 2000,
+            settledVisibilityOffset: 4000
+        )
+
+        let viewFrame = fixture.area.viewFrame
+        for (token, frame) in layout.frames {
+            XCTAssertGreaterThanOrEqual(
+                frame.origin.x,
+                viewFrame.minX - frame.width + 1,
+                "window \(token.windowId) left the monitor plane at \(frame)"
+            )
+            XCTAssertLessThanOrEqual(
+                frame.origin.x,
+                viewFrame.maxX - 1,
+                "window \(token.windowId) left the monitor plane at \(frame)"
+            )
+        }
+    }
+
+    func testLayoutDiffWithholdsShowWithoutPlacementFrame() {
+        let handler = NiriLayoutHandler(controller: nil)
+        let engine = NiriLayoutEngine()
+        let token = WindowToken(pid: 1, windowId: 1)
+        let window = LayoutWindowSnapshot(
+            token: token,
+            constraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
+            layoutConstraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
+            hiddenState: HiddenState(
+                proportionalPosition: .zero,
+                referenceMonitorId: nil,
+                reason: .layoutTransient(.left)
+            ),
+            layoutReason: .standard
+        )
+
+        let withoutFrame = handler.layoutDiff(
+            windows: [window],
+            frames: [:],
+            hiddenHandles: [:],
+            engine: engine,
+            canRestoreHiddenWorkspaceWindows: true,
+            reassertHidden: false
+        )
+        XCTAssertTrue(withoutFrame.visibilityChanges.isEmpty)
+
+        let withFrame = handler.layoutDiff(
+            windows: [window],
+            frames: [token: CGRect(x: 100, y: 16, width: 500, height: 500)],
+            hiddenHandles: [:],
+            engine: engine,
+            canRestoreHiddenWorkspaceWindows: true,
+            reassertHidden: false
+        )
+        XCTAssertEqual(withFrame.visibilityChanges.count, 1)
+        guard case let .show(shownToken) = withFrame.visibilityChanges[0] else {
+            return XCTFail("expected show once a placement frame exists")
+        }
+        XCTAssertEqual(shownToken, token)
+        XCTAssertEqual(withFrame.frameChanges.count, 1)
     }
 }
