@@ -605,6 +605,7 @@ final class WorkspaceManager {
 
     private func plannedPersistedHydrationMutation(for token: WindowToken) -> PersistedHydrationMutation? {
         guard let entry = world.entry(for: token),
+              entry.hiddenState == nil,
               let metadata = persistedRestoreMetadata(for: entry),
               let hydrationPlan = restorePlanner.planPersistedHydration(
                   .init(

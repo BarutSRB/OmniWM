@@ -260,9 +260,17 @@ final class ServiceLifecycleManager {
 
     func handleActiveSpaceDidChange() {
         guard let controller else { return }
+        let previousCurrentSpaces = currentSpacesByDisplay(controller.workspaceManager.spaceTopology)
         controller.spaceTracker.refresh()
+        guard currentSpacesByDisplay(controller.workspaceManager.spaceTopology) != previousCurrentSpaces else {
+            return
+        }
         controller.workspaceManager.recordReconcileEvent(.activeSpaceChanged(source: .service))
         controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
+    }
+
+    private func currentSpacesByDisplay(_ topology: SpaceTopology) -> [String: UInt64] {
+        topology.displays.reduce(into: [:]) { $0[$1.displayIdentifier] = $1.currentSpaceId }
     }
 
     private func setupWorkspaceObservation() {

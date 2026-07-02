@@ -459,6 +459,11 @@ final class AXEventHandler {
                   self.pendingWindowRuleReevaluationGeneration == generation,
                   let controller = self.controller
             else { return }
+            guard controller.niriLayoutHandler.scrollAnimationByDisplay.isEmpty else {
+                self.pendingWindowRuleReevaluationTask = nil
+                self.scheduleWindowRuleReevaluationIfNeeded(targets: self.pendingWindowRuleReevaluationTargets)
+                return
+            }
             let targets = self.pendingWindowRuleReevaluationTargets
             self.pendingWindowRuleReevaluationTargets.removeAll()
             self.pendingWindowRuleReevaluationTask = nil

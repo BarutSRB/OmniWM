@@ -1468,15 +1468,31 @@ import QuartzCore
                     || evaluation.facts.degradedWindowServerChildEvidence
             )
 
-            _ = controller.workspaceManager.addWindow(
-                ax,
-                pid: pid,
-                windowId: winId,
-                to: wsForWindow,
-                mode: admittedMode,
-                ruleEffects: ruleEffects,
-                managedReplacementMetadata: managedReplacementMetadata
-            )
+            if let refreshedEntry,
+               !Self.shouldReadmitTrackedWindow(
+                   entry: refreshedEntry,
+                   workspaceId: wsForWindow,
+                   mode: admittedMode,
+                   ruleEffects: ruleEffects,
+                   shouldPreservePreFullscreenState: shouldPreservePreFullscreenState,
+                   appFullscreen: appFullscreen
+               )
+            {
+                _ = controller.workspaceManager.setManagedReplacementMetadata(
+                    managedReplacementMetadata,
+                    for: refreshedEntry.token
+                )
+            } else {
+                _ = controller.workspaceManager.addWindow(
+                    ax,
+                    pid: pid,
+                    windowId: winId,
+                    to: wsForWindow,
+                    mode: admittedMode,
+                    ruleEffects: ruleEffects,
+                    managedReplacementMetadata: managedReplacementMetadata
+                )
+            }
             if existingEntry == nil {
                 controller.axEventHandler.discardCreatePlacementContext(for: winId)
             }
@@ -3284,6 +3300,21 @@ import QuartzCore
         }
 
         return CGPoint(x: clampedX, y: clampedTopLeftY - windowSize.height)
+    }
+
+    static func shouldReadmitTrackedWindow(
+        entry: WindowState,
+        workspaceId: WorkspaceDescriptor.ID,
+        mode: TrackedWindowMode,
+        ruleEffects: ManagedWindowRuleEffects,
+        shouldPreservePreFullscreenState: Bool,
+        appFullscreen: Bool
+    ) -> Bool {
+        shouldPreservePreFullscreenState
+            || appFullscreen
+            || entry.workspaceId != workspaceId
+            || entry.mode != mode
+            || entry.ruleEffects != ruleEffects
     }
 
     private func observedWindowFrame(_ entry: WindowState) -> CGRect? {

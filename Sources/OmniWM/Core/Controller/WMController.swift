@@ -1959,15 +1959,27 @@ final class WMController {
                     || evaluation.facts.degradedWindowServerChildEvidence
             )
 
-            _ = workspaceManager.addWindow(
-                axRef,
-                pid: token.pid,
-                windowId: token.windowId,
-                to: workspaceId,
-                mode: oldMode ?? effectiveTrackedMode,
-                ruleEffects: evaluation.decision.ruleEffects,
-                managedReplacementMetadata: managedReplacementMetadata
-            )
+            let shouldAdmit = existingEntry.map {
+                LayoutRefreshController.shouldReadmitTrackedWindow(
+                    entry: $0,
+                    workspaceId: workspaceId,
+                    mode: oldMode ?? effectiveTrackedMode,
+                    ruleEffects: evaluation.decision.ruleEffects,
+                    shouldPreservePreFullscreenState: false,
+                    appFullscreen: false
+                )
+            } ?? true
+            if shouldAdmit {
+                _ = workspaceManager.addWindow(
+                    axRef,
+                    pid: token.pid,
+                    windowId: token.windowId,
+                    to: workspaceId,
+                    mode: oldMode ?? effectiveTrackedMode,
+                    ruleEffects: evaluation.decision.ruleEffects,
+                    managedReplacementMetadata: managedReplacementMetadata
+                )
+            }
             if existingEntry == nil {
                 axEventHandler.discardCreatePlacementContext(for: token.windowId)
             }
