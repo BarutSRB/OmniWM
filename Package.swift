@@ -8,7 +8,7 @@ let ghosttyMacOSLibraryDirectory = "\(packageDirectory)/Frameworks/GhosttyKit.xc
 let package = Package(
     name: "OmniWM",
     platforms: [
-        .macOS(.v15)
+        .macOS(.v26)
     ],
     products: [
         .executable(
@@ -55,14 +55,14 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("FoundationModels"),
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),
                 .linkedFramework("QuartzCore"),
                 .linkedLibrary("z"),
                 .linkedLibrary("c++"),
                 .unsafeFlags(["-L\(ghosttyMacOSLibraryDirectory)"]),
-                .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"]),
-                .unsafeFlags(["-Xlinker", "-weak_framework", "-Xlinker", "FoundationModels"])
+                .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
             ]
         ),
         .executableTarget(

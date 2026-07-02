@@ -25,10 +25,7 @@ struct Monitor: Identifiable, Hashable {
                 FallbackFiringRecorder.shared.note(.monitor, "nsScreenDisplayIdNil")
                 return nil
             }
-            var hasNotch = false
-            if #available(macOS 12.0, *) {
-                hasNotch = screen.safeAreaInsets.top > 0
-            }
+            let hasNotch = screen.safeAreaInsets.top > 0
             return Monitor(
                 id: ID(displayId: displayId),
                 displayId: displayId,
@@ -54,10 +51,7 @@ struct Monitor: Identifiable, Hashable {
         }
         let frame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let displayId = NSScreen.main?.displayId ?? CGMainDisplayID()
-        var hasNotch = false
-        if #available(macOS 12.0, *) {
-            hasNotch = NSScreen.main?.safeAreaInsets.top ?? 0 > 0
-        }
+        let hasNotch = NSScreen.main?.safeAreaInsets.top ?? 0 > 0
         return Monitor(
             id: .fallback,
             displayId: displayId,

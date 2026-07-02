@@ -192,12 +192,12 @@ private struct UpdatePopupView: View {
                 Button("Skip This Version") {
                     configuration.skipThisVersion()
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.omniGlass)
 
                 Button("Not Now") {
                     configuration.notNow()
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.omniGlass)
 
                 Spacer()
 
@@ -208,12 +208,12 @@ private struct UpdatePopupView: View {
                         copiedCommand = false
                     }
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.omniGlass)
 
                 Button("Open Release Page") {
                     configuration.openReleasePage()
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.omniGlassProminent)
             }
         }
     }

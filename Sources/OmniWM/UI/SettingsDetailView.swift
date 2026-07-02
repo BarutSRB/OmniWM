@@ -15,7 +15,7 @@ struct SettingsDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(section.displayName)
-            .omniBackgroundExtensionEffect()
+            .backgroundExtensionEffect()
     }
 
     @ViewBuilder

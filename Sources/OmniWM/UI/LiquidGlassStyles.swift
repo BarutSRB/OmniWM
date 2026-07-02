@@ -3,7 +3,18 @@
 
 import SwiftUI
 
-struct GlassButtonStyle: ButtonStyle {
+extension View {
+    @ViewBuilder
+    func omniGlassEffect<S: Shape>(in shape: S, prominent: Bool = false) -> some View {
+        if prominent {
+            self.glassEffect(.regular.tint(.accentColor), in: shape)
+        } else {
+            self.glassEffect(.regular, in: shape)
+        }
+    }
+}
+
+struct OmniGlassButtonStyle: ButtonStyle {
     var isProminent: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -15,12 +26,12 @@ struct GlassButtonStyle: ButtonStyle {
     }
 }
 
-extension ButtonStyle where Self == GlassButtonStyle {
-    static var glass: GlassButtonStyle {
-        GlassButtonStyle()
+extension ButtonStyle where Self == OmniGlassButtonStyle {
+    static var omniGlass: OmniGlassButtonStyle {
+        OmniGlassButtonStyle()
     }
 
-    static var glassProminent: GlassButtonStyle {
-        GlassButtonStyle(isProminent: true)
+    static var omniGlassProminent: OmniGlassButtonStyle {
+        OmniGlassButtonStyle(isProminent: true)
     }
 }

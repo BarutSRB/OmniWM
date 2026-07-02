@@ -10,7 +10,6 @@ struct RewrittenIssue: Equatable, Sendable {
 
 enum IssueAIAvailability: Equatable, Sendable {
     case available
-    case unsupportedOS
     case deviceNotEligible
     case appleIntelligenceNotEnabled
     case modelNotReady
@@ -19,8 +18,6 @@ enum IssueAIAvailability: Equatable, Sendable {
         switch self {
         case .available:
             nil
-        case .unsupportedOS:
-            "On-device AI requires macOS 26 or later. You can still write and submit your issue manually."
         case .deviceNotEligible:
             "On-device AI requires a Mac with Apple Silicon (M1 or later). You can still write and submit manually."
         case .appleIntelligenceNotEnabled:
@@ -53,11 +50,7 @@ protocol IssueRewriting {
 
 @MainActor
 enum IssueRewritingFactory {
-    static func make() -> (engine: (any IssueRewriting)?, availability: IssueAIAvailability) {
-        if #available(macOS 26.0, *) {
-            let engine = FoundationModelsIssueEngine()
-            return (engine, engine.availability)
-        }
-        return (nil, .unsupportedOS)
+    static func make() -> any IssueRewriting {
+        FoundationModelsIssueEngine()
     }
 }

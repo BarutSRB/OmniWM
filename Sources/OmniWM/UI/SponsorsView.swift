@@ -140,7 +140,7 @@ struct SponsorsView: View {
                 Label("Become a Sponsor", systemImage: "heart.fill")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .buttonStyle(GlassButtonStyle(isProminent: true))
+            .buttonStyle(OmniGlassButtonStyle(isProminent: true))
             .accessibilityLabel("Become a sponsor on GitHub")
         }
         .padding(.horizontal, 28)
@@ -153,14 +153,14 @@ struct SponsorsView: View {
                     Text("Sponsor on PayPal")
                         .font(.system(size: 13, weight: .medium))
                 }
-                .buttonStyle(GlassButtonStyle())
+                .buttonStyle(OmniGlassButtonStyle())
 
                 Button(action: onClose) {
                     Text("Close")
                         .font(.system(size: 13, weight: .medium))
                         .frame(width: 80)
                 }
-                .buttonStyle(GlassButtonStyle())
+                .buttonStyle(OmniGlassButtonStyle())
             }
 
             Text("Ranks reflect sponsorship order, not donation amounts")

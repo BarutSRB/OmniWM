@@ -139,7 +139,7 @@ final class IssueReporterTests: XCTestCase {
     }
 
     func testRequestRewriteIsNoOpWhenAIUnavailable() async {
-        let model = makeModel(engine: nil, availability: .unsupportedOS)
+        let model = makeModel(engine: FakeIssueEngine(availability: .appleIntelligenceNotEnabled))
         model.title = "Crash on launch"
         model.actual = "It crashes every time I open it."
         XCTAssertFalse(model.canRequestRewrite)
@@ -311,8 +311,7 @@ final class IssueReporterTests: XCTestCase {
     }
 
     private func makeModel(
-        engine: (any IssueRewriting)?,
-        availability: IssueAIAvailability? = nil,
+        engine: any IssueRewriting,
         urlBuilder: GitHubIssueURLBuilder = GitHubIssueURLBuilder(appVersion: "1.0", osVersion: "26.0"),
         makeDiagnosticsBundle: @MainActor @escaping () throws -> URL = { throw IssueReportError.unavailable },
         hotkeyContextProvider: @MainActor @escaping (String) -> String = { _ in "" },
@@ -322,7 +321,6 @@ final class IssueReporterTests: XCTestCase {
     ) -> ReportIssueViewModel {
         ReportIssueViewModel(
             engine: engine,
-            availability: availability,
             urlBuilder: urlBuilder,
             makeDiagnosticsBundle: makeDiagnosticsBundle,
             hotkeyContextProvider: hotkeyContextProvider,

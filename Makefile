@@ -29,7 +29,7 @@ lint-fix: check-tool-versions
 
 build:
 	./Scripts/ghostty-preflight.sh verify
-	$(SWIFT_WITH_GHOSTTY) swift build
+	$(SWIFT_WITH_GHOSTTY) swift build --arch arm64
 
 release-check: build
 

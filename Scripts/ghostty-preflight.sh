@@ -72,17 +72,12 @@ verify_ghostty() {
 
   if ! archs="$(lipo "$OMNIWM_GHOSTTY_ARCHIVE_PATH" -archs 2>/dev/null)"; then
     lipo -info "$OMNIWM_GHOSTTY_ARCHIVE_PATH" >&2 || true
-    fail "Ghostty archive must include arm64"
+    fail "Ghostty archive must be arm64-only"
   fi
 
-  missing_arch=false
-  case " $archs " in
-    *" arm64 "*) ;;
-    *) missing_arch=true ;;
-  esac
-  if [ "$missing_arch" = true ]; then
+  if [ "$archs" != "arm64" ]; then
     lipo -info "$OMNIWM_GHOSTTY_ARCHIVE_PATH" >&2 || true
-    fail "Ghostty archive must include arm64"
+    fail "Ghostty archive must be arm64-only"
   fi
 
   actual_sha="$(shasum -a 256 "$OMNIWM_GHOSTTY_ARCHIVE_PATH" | awk '{print $1}')"

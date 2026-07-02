@@ -161,7 +161,7 @@ final class WorkspaceBarManager {
                 }
             )
         )
-        configureHostingView(hostingView)
+        hostingView.sizingOptions = []
 
         let measurementView = NSHostingView(rootView: WorkspaceBarMeasurementView(snapshot: snapshot))
 
@@ -319,12 +319,6 @@ final class WorkspaceBarManager {
         measurementView.rootView = WorkspaceBarMeasurementView(snapshot: snapshot)
         measurementView.layoutSubtreeIfNeeded()
         return measurementView.fittingSize.width
-    }
-
-    private func configureHostingView<Content: View>(_ hostingView: NSHostingView<Content>) {
-        if #available(macOS 13.0, *) {
-            hostingView.sizingOptions = []
-        }
     }
 
     private func applyCurrentAppearance(

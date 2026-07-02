@@ -4,7 +4,6 @@
 import Foundation
 import FoundationModels
 
-@available(macOS 26.0, *)
 @MainActor
 final class FoundationModelsIssueEngine: IssueRewriting {
     var availability: IssueAIAvailability {
@@ -66,7 +65,6 @@ final class FoundationModelsIssueEngine: IssueRewriting {
     }
 }
 
-@available(macOS 26.0, *)
 @Generable
 private struct GeneratedIssue {
     @Guide(description: "A short, specific issue title")
