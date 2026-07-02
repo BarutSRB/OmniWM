@@ -82,9 +82,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func finishBootstrap() {
-        // Settings-migration epoch persistence deleted under clean-break (PURGE-02);
-        // settings.toml IS the source of truth.
-
         let storagePaths = OmniWMStoragePaths.live
         let runtimeState = RuntimeStateStore(directory: storagePaths.stateDirectory)
         self.runtimeStateStore = runtimeState

@@ -1041,7 +1041,7 @@ extension CanonicalTOMLConfig {
             borderColorGreen: borders.color.green,
             borderColorBlue: borders.color.blue,
             borderColorAlpha: borders.color.alpha,
-            hotkeyBindings: HotkeyBindingRegistry.migrateLegacyDefaultWorkspaceBindings(hotkeys),
+            hotkeyBindings: hotkeys,
             systemHyperTrigger: general.systemHyperTrigger,
             workspaceBarEnabled: workspaceBar.enabled,
             workspaceBarShowLabels: workspaceBar.showLabels,

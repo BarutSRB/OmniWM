@@ -22,12 +22,10 @@ enum SettingsTOMLCodec {
                 [String: TOMLNode].self,
                 from: encodeCanonical(decode(previous))
             )
-            let merged = TOMLNode.strippingRetiredKeys(
-                TOMLNode.mergeUnknownKeys(
-                    base: newCanonicalTree,
-                    oldRaw: oldRawTree,
-                    oldSchemaKnown: oldSchemaKnownTree
-                )
+            let merged = TOMLNode.mergeUnknownKeys(
+                base: newCanonicalTree,
+                oldRaw: oldRawTree,
+                oldSchemaKnown: oldSchemaKnownTree
             )
             guard merged != newCanonicalTree else { return canonicalData }
 
@@ -64,8 +62,7 @@ enum SettingsTOMLCodec {
             let decoder = TOMLDecoder()
             let raw = try decoder.decode([String: TOMLNode].self, from: data)
             let known = try decoder.decode([String: TOMLNode].self, from: encodeCanonical(decode(data)))
-            let stripped = TOMLNode.strippingRetiredKeys(raw)
-            return TOMLNode.unknownKeyPaths(raw: stripped, known: known, prefix: "").sorted()
+            return TOMLNode.unknownKeyPaths(raw: raw, known: known, prefix: "").sorted()
         } catch {
             return []
         }
@@ -178,15 +175,6 @@ private enum TOMLNode: Codable, Equatable {
         var merged = base
         preserveUnknownKeys(from: oldRaw, known: oldSchemaKnown, into: &merged)
         return merged
-    }
-
-    static func strippingRetiredKeys(_ tree: [String: TOMLNode]) -> [String: TOMLNode] {
-        guard case .table(var mouseWarp)? = tree["mouseWarp"] else { return tree }
-        mouseWarp.removeValue(forKey: "monitorOrder")
-        mouseWarp.removeValue(forKey: "axis")
-        var result = tree
-        result["mouseWarp"] = .table(mouseWarp)
-        return result
     }
 
     static func unknownKeyPaths(

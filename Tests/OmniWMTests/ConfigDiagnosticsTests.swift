@@ -34,18 +34,6 @@ final class ConfigDiagnosticsTests: XCTestCase {
     }
 
     @MainActor
-    func testRetiredMouseWarpKeysAreNotFlagged() {
-        let toml = """
-        [mouseWarp]
-        monitorOrder = "leftToRight"
-        axis = "horizontal"
-        """
-        let unknown = SettingsTOMLCodec.unknownKeyPaths(in: Data(toml.utf8))
-        XCTAssertFalse(unknown.contains("mouseWarp.monitorOrder"))
-        XCTAssertFalse(unknown.contains("mouseWarp.axis"))
-    }
-
-    @MainActor
     private func makeExport() -> SettingsExport {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMConfigDiagTests-\(UUID().uuidString)", isDirectory: true)

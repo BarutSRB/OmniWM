@@ -350,17 +350,13 @@ struct HotkeyBinding: Codable, Equatable, Identifiable {
 
 extension HotkeyBinding {
     private enum CodingKeys: String, CodingKey {
-        case id, bindings, binding
+        case id, binding
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let id = try container.decode(String.self, forKey: .id)
-        let trigger = try container.decodeIfPresent(HotkeyTrigger.self, forKey: .binding)
-            ?? HotkeyBindingRegistry.firstTrigger(
-                from: try container.decodeIfPresent([KeyBinding].self, forKey: .bindings) ?? []
-            )
-            ?? .unassigned
+        let trigger = try container.decodeIfPresent(HotkeyTrigger.self, forKey: .binding) ?? .unassigned
         guard let command = HotkeyBindingRegistry.command(for: id) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
@@ -383,7 +379,7 @@ struct PersistedHotkeyBinding: Codable, Equatable {
     let binding: HotkeyTrigger
 
     private enum CodingKeys: String, CodingKey {
-        case id, bindings, binding
+        case id, binding
     }
 
     init(id: String, binding: KeyBinding) {
@@ -398,11 +394,7 @@ struct PersistedHotkeyBinding: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
-        binding = try container.decodeIfPresent(HotkeyTrigger.self, forKey: .binding)
-            ?? HotkeyBindingRegistry.firstTrigger(
-                from: try container.decodeIfPresent([KeyBinding].self, forKey: .bindings) ?? []
-            )
-            ?? .unassigned
+        binding = try container.decodeIfPresent(HotkeyTrigger.self, forKey: .binding) ?? .unassigned
     }
 
     func encode(to encoder: Encoder) throws {
@@ -413,11 +405,6 @@ struct PersistedHotkeyBinding: Codable, Equatable {
 }
 
 enum HotkeyBindingRegistry {
-    private static let commandPaletteID = "openCommandPalette"
-    private static let legacyCommandPaletteIDs = (
-        windowFinder: "openWindowFinder",
-        menuPalette: "openMenuPalette"
-    )
     private static let defaultBindings = DefaultHotkeyBindings.all()
     private static let bindingsByID = Dictionary(
         defaultBindings.map { ($0.id, $0) },
@@ -444,51 +431,12 @@ enum HotkeyBindingRegistry {
 
     static func canonicalize(_ persisted: [PersistedHotkeyBinding]) -> [HotkeyBinding] {
         var overrides: [String: HotkeyTrigger] = [:]
-        var explicitOverrideIDs: Set<String> = []
-        var commandPaletteOverridePresent = false
-        var legacyWindowFinderBinding: HotkeyTrigger?
-        var legacyMenuPaletteBinding: HotkeyTrigger?
-
-        for entry in persisted {
-            let normalizedBinding = canonicalizeTrigger(entry.binding)
-            if isLegacyWorkspaceDefault(id: entry.id, trigger: normalizedBinding) {
-                continue
-            }
-
-            switch entry.id {
-            case commandPaletteID:
-                commandPaletteOverridePresent = true
-                explicitOverrideIDs.insert(commandPaletteID)
-                overrides[commandPaletteID] = normalizedBinding
-            case legacyCommandPaletteIDs.windowFinder:
-                legacyWindowFinderBinding = normalizedBinding.isUnassigned ? nil : normalizedBinding
-            case legacyCommandPaletteIDs.menuPalette:
-                legacyMenuPaletteBinding = normalizedBinding.isUnassigned ? nil : normalizedBinding
-            default:
-                guard bindingsByID[entry.id] != nil else { continue }
-                explicitOverrideIDs.insert(entry.id)
-                overrides[entry.id] = normalizedBinding
-            }
+        for entry in persisted where bindingsByID[entry.id] != nil {
+            overrides[entry.id] = canonicalizeTrigger(entry.binding)
         }
-
-        if !commandPaletteOverridePresent, let legacyBinding = legacyWindowFinderBinding ?? legacyMenuPaletteBinding {
-            explicitOverrideIDs.insert(commandPaletteID)
-            overrides[commandPaletteID] = legacyBinding
-        }
-
         return defaultBindings.map { binding in
-            guard explicitOverrideIDs.contains(binding.id) else { return binding }
-            let override = overrides[binding.id] ?? .unassigned
+            guard let override = overrides[binding.id] else { return binding }
             return HotkeyBinding(id: binding.id, command: binding.command, trigger: override)
-        }
-    }
-
-    static func migrateLegacyDefaultWorkspaceBindings(_ bindings: [HotkeyBinding]) -> [HotkeyBinding] {
-        bindings.map { binding in
-            guard isLegacyWorkspaceDefault(id: binding.id, trigger: binding.binding),
-                  let defaultBinding = bindingsByID[binding.id]
-            else { return binding }
-            return defaultBinding
         }
     }
 
@@ -503,77 +451,6 @@ enum HotkeyBindingRegistry {
         case let .chord(binding):
             return binding.isUnassigned ? .unassigned : .chord(binding)
         }
-    }
-
-    static func firstTrigger(from bindings: [KeyBinding]) -> HotkeyTrigger? {
-        bindings.first { !$0.isUnassigned }.map(HotkeyTrigger.chord)
-    }
-
-    private static func isLegacyWorkspaceDefault(id: String, trigger: HotkeyTrigger) -> Bool {
-        guard case let .chord(binding) = trigger else { return false }
-        let digitCodes = [
-            UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3),
-            UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5), UInt32(kVK_ANSI_6),
-            UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9)
-        ]
-        for (workspace, keyCode) in digitCodes.enumerated() {
-            if id == "switchWorkspace.\(workspace)" {
-                return binding == KeyBinding(keyCode: keyCode, modifiers: UInt32(optionKey))
-            }
-            if id == "moveToWorkspace.\(workspace)" {
-                return binding == KeyBinding(keyCode: keyCode, modifiers: UInt32(optionKey | shiftKey))
-            }
-        }
-        return false
-    }
-
-    static func decodePersistedBindings(from data: Data) -> [HotkeyBinding]? {
-        guard let rawArray = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
-            return nil
-        }
-
-        let decoder = JSONDecoder()
-        var persisted: [PersistedHotkeyBinding] = []
-        for rawEntry in rawArray {
-            guard JSONSerialization.isValidJSONObject(rawEntry),
-                  let entryData = try? JSONSerialization.data(withJSONObject: rawEntry),
-                  let entry = try? decoder.decode(PersistedHotkeyBinding.self, from: entryData)
-            else {
-                continue
-            }
-            persisted.append(entry)
-        }
-
-        return canonicalize(persisted)
-    }
-
-    static func canonicalizedJSONArray(from rawArray: Any) -> Any {
-        guard let entries = rawArray as? [Any] else {
-            return encodedJSONArray(for: defaultBindings)
-        }
-
-        let decoder = JSONDecoder()
-        var persisted: [PersistedHotkeyBinding] = []
-        for rawEntry in entries {
-            guard JSONSerialization.isValidJSONObject(rawEntry),
-                  let entryData = try? JSONSerialization.data(withJSONObject: rawEntry),
-                  let entry = try? decoder.decode(PersistedHotkeyBinding.self, from: entryData)
-            else {
-                continue
-            }
-            persisted.append(entry)
-        }
-
-        return encodedJSONArray(for: canonicalize(persisted))
-    }
-
-    private static func encodedJSONArray(for bindings: [HotkeyBinding]) -> Any {
-        guard let data = try? JSONEncoder().encode(bindings),
-              let json = try? JSONSerialization.jsonObject(with: data)
-        else {
-            return []
-        }
-        return json
     }
 }
 

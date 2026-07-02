@@ -32,15 +32,6 @@ final class SingleWindowFitTests: XCTestCase {
         )
     }
 
-    func testMigratesLegacyDwindleAndNiriValues() {
-        XCTAssertEqual(SingleWindowFit(serialized: "none").mode, .fill)
-        XCTAssertEqual(SingleWindowFit(serialized: "16:9"), SingleWindowFit(mode: .custom, width: 1920, height: 1080))
-        XCTAssertEqual(SingleWindowFit(serialized: "4:3"), SingleWindowFit(mode: .custom, width: 1440, height: 1080))
-        XCTAssertEqual(SingleWindowFit(serialized: "21:9"), SingleWindowFit(mode: .custom, width: 2520, height: 1080))
-        XCTAssertEqual(SingleWindowFit(serialized: "3:2"), SingleWindowFit(mode: .custom, width: 1620, height: 1080))
-        XCTAssertEqual(SingleWindowFit(serialized: "1:1"), SingleWindowFit(mode: .custom, width: 1080, height: 1080))
-    }
-
     func testDecodeGarbageFallsBackToFullScreen() {
         XCTAssertEqual(SingleWindowFit(serialized: "").mode, .fill)
         XCTAssertEqual(SingleWindowFit(serialized: "wat").mode, .fill)

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
-import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -26,10 +25,6 @@ final class WindowHandle: Hashable {
     }
 
     init(id: WindowToken) {
-        self.id = id
-    }
-
-    init(id: WindowToken, pid _: pid_t, axElement _: AXUIElement) {
         self.id = id
     }
 

@@ -80,7 +80,6 @@ extension SingleWindowFit {
         let token = raw.trimmingCharacters(in: .whitespaces).lowercased()
         switch token {
         case "fill",
-             "none",
              "":
             self = .fullScreen
         case "column_width",
@@ -89,8 +88,6 @@ extension SingleWindowFit {
             self = SingleWindowFit(mode: .columnWidth)
         default:
             if token.contains("x"), let fit = Self.parseCustom(token) {
-                self = fit
-            } else if token.contains(":"), let fit = Self.parseLegacyRatio(token) {
                 self = fit
             } else {
                 self = .fullScreen
@@ -105,16 +102,6 @@ extension SingleWindowFit {
               w > 0, h > 0
         else { return nil }
         return SingleWindowFit(mode: .custom, width: w, height: h)
-    }
-
-    private static func parseLegacyRatio(_ token: String) -> SingleWindowFit? {
-        let parts = token.split(separator: ":", maxSplits: 1)
-        guard parts.count == 2,
-              let w = Double(parts[0]), let h = Double(parts[1]),
-              w > 0, h > 0
-        else { return nil }
-        let width = ((w / h) * defaultHeight).rounded()
-        return SingleWindowFit(mode: .custom, width: width, height: defaultHeight)
     }
 
     private static func format(_ value: Double) -> String {
