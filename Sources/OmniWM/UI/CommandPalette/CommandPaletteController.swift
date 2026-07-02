@@ -4,6 +4,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import Observation
 import SwiftUI
 
 struct CommandPaletteWindowItem: Identifiable {
@@ -190,7 +191,8 @@ struct CommandPaletteEnvironment {
 }
 
 @MainActor
-final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelegate {
+@Observable
+final class CommandPaletteController: NSObject, NSWindowDelegate {
     static let unavailableMenuStatusText = "Open the palette while another app is frontmost to search its menus."
 
     struct InlineHint: Equatable {
@@ -198,30 +200,30 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         let shortcut: String
     }
 
-    @Published private(set) var isVisible = false
-    @Published var searchText = "" {
+    private(set) var isVisible = false
+    var searchText = "" {
         didSet { updateSelectionAfterFilterChange() }
     }
 
-    @Published var selectedMode: CommandPaletteMode = .windows {
+    var selectedMode: CommandPaletteMode = .windows {
         didSet { handleModeChange(from: oldValue) }
     }
 
-    @Published var selectedItemID: CommandPaletteSelectionID?
-    @Published private(set) var windows: [CommandPaletteWindowItem] = [] {
+    var selectedItemID: CommandPaletteSelectionID?
+    private(set) var windows: [CommandPaletteWindowItem] = [] {
         didSet { updateSelectionAfterFilterChange() }
     }
 
-    @Published private(set) var menuItems: [MenuItemModel] = [] {
+    private(set) var menuItems: [MenuItemModel] = [] {
         didSet { updateSelectionAfterFilterChange() }
     }
 
-    @Published private(set) var isMenuLoading = false
-    @Published private(set) var clipboardItems: [ClipboardPaletteItem] = [] {
+    private(set) var isMenuLoading = false
+    private(set) var clipboardItems: [ClipboardPaletteItem] = [] {
         didSet { updateSelectionAfterFilterChange() }
     }
 
-    @Published private(set) var isClipboardHistoryEnabled = false
+    private(set) var isClipboardHistoryEnabled = false
 
     private let environment: CommandPaletteEnvironment
     private let motionPolicy: MotionPolicy
@@ -1133,7 +1135,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
 }
 
 private struct CommandPaletteView: View {
-    @ObservedObject var controller: CommandPaletteController
+    @Bindable var controller: CommandPaletteController
     @Bindable var motionPolicy: MotionPolicy
 
     var body: some View {
