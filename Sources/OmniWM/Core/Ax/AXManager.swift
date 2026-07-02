@@ -29,6 +29,7 @@ final class AXManager {
     private var appLaunchObserver: NSObjectProtocol?
     var onAppLaunched: ((NSRunningApplication) -> Void)?
     var onAppTerminated: ((pid_t) -> Void)?
+    var isWindowParked: ((Int) -> Bool)?
     var onTerminalFrameRefusal: ((AXFrameTerminalRefusal) -> Void)?
 
     private let frameLedger = AXFrameApplicationLedger()
@@ -42,6 +43,11 @@ final class AXManager {
     private(set) var inactiveWorkspaceWindowIds: Set<Int> = []
 
     private var skyLightLivePositionByWindowId: [Int: CGPoint] = [:]
+
+    private(set) var pendingParkWindowIds: Set<Int> = []
+    private var frameOrderSeq: UInt64 = 0
+    private var lastParkCommandSeqByWindowId: [Int: UInt64] = [:]
+    private var lastFrameResultSeqByWindowId: [Int: UInt64] = [:]
 
     init() {
         setupTerminationObserver()
@@ -122,6 +128,25 @@ final class AXManager {
         skyLightLivePositionByWindowId.removeAll(keepingCapacity: true)
     }
 
+    func markParkPending(for windowId: Int, pid: pid_t) {
+        guard pendingParkWindowIds.insert(windowId).inserted else { return }
+        FrameApplyTrace.recordEvent(pid: pid, windowId: windowId, outcome: "outcome=park-pending")
+    }
+
+    func recordParkCommand(for windowId: Int) {
+        frameOrderSeq &+= 1
+        lastParkCommandSeqByWindowId[windowId] = frameOrderSeq
+    }
+
+    func parkQuietSinceCommand(for windowId: Int) -> Bool {
+        (lastFrameResultSeqByWindowId[windowId] ?? 0) <= (lastParkCommandSeqByWindowId[windowId] ?? 0)
+    }
+
+    func clearParkPending(for windowId: Int, pid: pid_t, reason: String) {
+        guard pendingParkWindowIds.remove(windowId) != nil else { return }
+        FrameApplyTrace.recordEvent(pid: pid, windowId: windowId, outcome: "outcome=park-cleared/\(reason)")
+    }
+
     private func clearSkyLightLivePosition(for windowId: Int) {
         skyLightLivePositionByWindowId.removeValue(forKey: windowId)
     }
@@ -178,6 +203,15 @@ final class AXManager {
         if inactiveWorkspaceWindowIds.remove(oldWindowId) != nil {
             inactiveWorkspaceWindowIds.insert(newWindowId)
         }
+        if pendingParkWindowIds.remove(oldWindowId) != nil {
+            pendingParkWindowIds.insert(newWindowId)
+        }
+        if let seq = lastParkCommandSeqByWindowId.removeValue(forKey: oldWindowId) {
+            lastParkCommandSeqByWindowId[newWindowId] = seq
+        }
+        if let seq = lastFrameResultSeqByWindowId.removeValue(forKey: oldWindowId) {
+            lastFrameResultSeqByWindowId[newWindowId] = seq
+        }
 
         if let retryTask = pendingFrameRetryTasksByWindowId.removeValue(forKey: oldWindowId) {
             pendingFrameRetryTasksByWindowId[newWindowId] = retryTask
@@ -199,6 +233,9 @@ final class AXManager {
         cancelPendingFrameRetry(for: windowId)
         inactiveWorkspaceWindowIds.remove(windowId)
         clearSkyLightLivePosition(for: windowId)
+        clearParkPending(for: windowId, pid: pid, reason: "removed")
+        lastParkCommandSeqByWindowId.removeValue(forKey: windowId)
+        lastFrameResultSeqByWindowId.removeValue(forKey: windowId)
 
         for delivery in deliveries {
             delivery.deliver()
@@ -467,8 +504,9 @@ final class AXManager {
         for (pid, windowIds) in groupedWindowIdsByPid(entries) {
             AppAXContext.contexts[pid]?.unsuppressFrameWrites(for: windowIds)
         }
-        for (_, windowId) in entries {
+        for (pid, windowId) in entries {
             clearSkyLightLivePosition(for: windowId)
+            clearParkPending(for: windowId, pid: pid, reason: "shown")
         }
     }
 
@@ -540,10 +578,17 @@ final class AXManager {
         return grouped
     }
 
-    private func handleFrameApplyResults(_ results: [AXFrameApplyResult]) {
+    func handleFrameApplyResults(_ results: [AXFrameApplyResult]) {
         let outcome = frameLedger.handleFrameApplyResults(results)
         for result in results {
             FrameApplyTrace.recordResult(result)
+            if result.writeResult.failureReason == nil || result.confirmedFrame != nil {
+                frameOrderSeq &+= 1
+                lastFrameResultSeqByWindowId[result.windowId] = frameOrderSeq
+                if isWindowParked?(result.windowId) == true {
+                    markParkPending(for: result.windowId, pid: result.pid)
+                }
+            }
         }
         for retry in outcome.retries {
             FrameApplyTrace.recordEvent(

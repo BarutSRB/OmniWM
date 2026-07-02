@@ -451,7 +451,8 @@ import QuartzCore
             hiddenHandles: hiddenHandles,
             engine: engine,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
-            reassertHidden: animationTime == nil
+            reassertHidden: animationTime == nil,
+            pendingParkWindowIds: controller?.axManager.pendingParkWindowIds ?? []
         )
 
         return WorkspaceLayoutPlan(
@@ -1020,7 +1021,8 @@ import QuartzCore
         hiddenHandles: [WindowToken: HideSide],
         engine: NiriLayoutEngine,
         canRestoreHiddenWorkspaceWindows: Bool,
-        reassertHidden: Bool
+        reassertHidden: Bool,
+        pendingParkWindowIds: Set<Int> = []
     ) -> WorkspaceLayoutDiff {
         var diff = WorkspaceLayoutDiff()
         for window in windows {
@@ -1030,7 +1032,9 @@ import QuartzCore
             }
             let previousOffscreenSide = window.hiddenState?.offscreenSide
             if let side = hiddenHandles[token] {
-                if previousOffscreenSide != side || reassertHidden {
+                if previousOffscreenSide != side || reassertHidden
+                    || pendingParkWindowIds.contains(token.windowId)
+                {
                     diff.visibilityChanges.append(.hide(token, side: side))
                 }
                 continue

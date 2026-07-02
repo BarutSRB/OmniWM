@@ -22,6 +22,7 @@ enum RuntimeDiagnosticsReport {
             section("Reconcile Trace", controller.workspaceManager.reconcileTraceDump(limit: traceLimit)),
             section("Invariant Violations", controller.workspaceManager.invariantViolationCountsDump()),
             section("AX Frame State", controller.axManager.frameStateDump()),
+            section("Hidden Window Physical State", hiddenWindowPhysicalSection(controller)),
             section("Recent AX Notifications", RawAXNotificationTrace.shared.recentDump()),
             section("Layout Build Metrics", controller.layoutRefreshController.layoutBuildMetricsDump()),
             section("Create-Focus Trace", controller.axEventHandler.createFocusTraceDump()),
@@ -29,6 +30,39 @@ enum RuntimeDiagnosticsReport {
             settingsSection(controller)
         ]
         .joined(separator: "\n\n")
+    }
+
+    private static func hiddenWindowPhysicalSection(_ controller: WMController) -> String {
+        let monitorFrames = controller.workspaceManager.monitors.map(\.frame)
+        var lines: [String] = []
+        for entry in controller.workspaceManager.allEntries() {
+            guard let hiddenState = controller.workspaceManager.hiddenState(for: entry.token) else { continue }
+            let placement = switch hiddenState.reason {
+            case let .layoutTransient(side): "side=\(side)"
+            case .workspaceInactive: "inactive"
+            case .scratchpad: "scratchpad"
+            }
+            guard let windowId = UInt32(exactly: entry.windowId),
+                  let bounds = SkyLight.shared.getWindowBounds(windowId)
+            else {
+                lines.append("win=\(entry.windowId) \(placement) physical=unknown")
+                continue
+            }
+            let frame = ScreenCoordinateSpace.toAppKit(rect: bounds)
+            let overlap = monitorFrames
+                .map { $0.intersection(frame) }
+                .filter { !$0.isNull && !$0.isEmpty }
+                .max { $0.width * $0.height < $1.width * $1.height }
+            let overlapText = overlap.map { "\(Int($0.width))x\(Int($0.height))" } ?? "0x0"
+            let bleeding = (overlap?.width ?? 0) > 16 && (overlap?.height ?? 0) > 16
+            lines.append(
+                "win=\(entry.windowId) \(placement) physical=\(TraceFormat.rect(frame))"
+                    + " onscreen=\(overlapText)\(bleeding ? " BLEED" : "")"
+            )
+        }
+        let pending = controller.axManager.pendingParkWindowIds.sorted()
+        lines.append("pendingParks=\(pending.isEmpty ? "none" : pending.map(String.init).joined(separator: ","))")
+        return lines.joined(separator: "\n")
     }
 
     private static func section(_ title: String, _ body: String) -> String {

@@ -126,4 +126,48 @@ final class NiriScrollVisibilityTests: XCTestCase {
         XCTAssertEqual(hiddenToken, token)
         XCTAssertEqual(side, .left)
     }
+
+    func testLayoutDiffReemitsHideForPendingPark() {
+        let handler = NiriLayoutHandler(controller: nil)
+        let engine = NiriLayoutEngine()
+        let token = WindowToken(pid: 1, windowId: 1)
+        let window = LayoutWindowSnapshot(
+            token: token,
+            constraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
+            layoutConstraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
+            hiddenState: HiddenState(
+                proportionalPosition: .zero,
+                referenceMonitorId: nil,
+                reason: .layoutTransient(.left)
+            ),
+            layoutReason: .standard
+        )
+
+        let pending = handler.layoutDiff(
+            windows: [window],
+            frames: [:],
+            hiddenHandles: [token: .left],
+            engine: engine,
+            canRestoreHiddenWorkspaceWindows: true,
+            reassertHidden: false,
+            pendingParkWindowIds: [token.windowId]
+        )
+        XCTAssertEqual(pending.visibilityChanges.count, 1)
+        guard case let .hide(pendingToken, pendingSide) = pending.visibilityChanges[0] else {
+            return XCTFail("expected hide re-emission for pending park")
+        }
+        XCTAssertEqual(pendingToken, token)
+        XCTAssertEqual(pendingSide, .left)
+
+        let confirmed = handler.layoutDiff(
+            windows: [window],
+            frames: [:],
+            hiddenHandles: [token: .left],
+            engine: engine,
+            canRestoreHiddenWorkspaceWindows: true,
+            reassertHidden: false,
+            pendingParkWindowIds: [999]
+        )
+        XCTAssertTrue(confirmed.visibilityChanges.isEmpty)
+    }
 }

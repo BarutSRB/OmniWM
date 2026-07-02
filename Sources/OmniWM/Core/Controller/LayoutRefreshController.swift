@@ -155,6 +155,7 @@ import QuartzCore
         var isFullEnumerationInProgress: Bool = false
         var displayLinksByDisplay: [CGDirectDisplayID: CADisplayLink] = [:]
         var lastDisplayLinkTimestampByDisplay: [CGDirectDisplayID: CFTimeInterval] = [:]
+        var lastParkAuditTime: CFTimeInterval = 0
         var refreshRateByDisplay: [CGDirectDisplayID: Double] = [:]
         var closingAnimationsByDisplay: [CGDirectDisplayID: [Int: ClosingAnimation]] = [:]
         var screenChangeObserver: NSObjectProtocol?
@@ -172,9 +173,13 @@ import QuartzCore
     private var pendingRevealVerificationTasksByWindowId: [Int: Task<Void, Never>] = [:]
     private var nativeFullscreenRestoredFrameApplyTokens: Set<WindowToken> = []
 
+    var fastFrameProvider: (WindowToken, AXWindowRef) -> CGRect? = { _, axRef in
+        AXWindowService.framePreferFast(axRef)
+    }
+
     func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
         activeFrameContext?.fastFrame(for: token, axRef: axRef)
-            ?? AXWindowService.framePreferFast(axRef)
+            ?? fastFrameProvider(token, axRef)
     }
 
     private(set) lazy var niriHandler = NiriLayoutHandler(controller: controller)
@@ -267,6 +272,8 @@ import QuartzCore
             controller?.surfaceReconciler.reconcileAnimationTick()
         }
 
+        auditParkVisibility(displayId: displayId)
+
         guard traceActive else { return }
         let t4 = CACurrentMediaTime()
         let previousTimestamp = layoutState.lastDisplayLinkTimestampByDisplay[displayId]
@@ -290,6 +297,48 @@ import QuartzCore
                 reconcileMs: (t4 - t3) * 1000,
                 totalMs: totalMs,
                 dropped: dropped
+            )
+        )
+    }
+
+    private func auditParkVisibility(displayId: CGDirectDisplayID) {
+        guard ParkVisibilityAudit.shared.isActive, let controller else { return }
+        let now = CACurrentMediaTime()
+        guard now - layoutState.lastParkAuditTime >= 0.1 else { return }
+        layoutState.lastParkAuditTime = now
+
+        let monitorFrames = controller.workspaceManager.monitors.map(\.frame)
+        var laggards: [String] = []
+        var visible: [Int] = []
+        var parkedCount = 0
+        for entry in controller.workspaceManager.allEntries() {
+            guard let windowId = UInt32(exactly: entry.windowId) else { continue }
+            guard controller.workspaceManager.hiddenState(for: entry.token) != nil else {
+                visible.append(entry.windowId)
+                continue
+            }
+            guard let bounds = SkyLight.shared.getWindowBounds(windowId) else { continue }
+            let frame = ScreenCoordinateSpace.toAppKit(rect: bounds)
+            let overlap = monitorFrames
+                .map { $0.intersection(frame) }
+                .filter { !$0.isNull && !$0.isEmpty }
+                .max { $0.width * $0.height < $1.width * $1.height }
+            if let overlap, overlap.width > 16, overlap.height > 16 {
+                laggards.append(
+                    "\(entry.windowId):\(Int(overlap.width))x\(Int(overlap.height))"
+                        + "@\(TraceFormat.point(frame.origin))"
+                )
+            } else {
+                parkedCount += 1
+            }
+        }
+        ParkVisibilityAudit.shared.record(
+            ParkVisibilityAudit.Record(
+                mediaTime: now,
+                displayId: displayId,
+                laggards: laggards,
+                visible: visible.sorted(),
+                parkedCount: parkedCount
             )
         )
     }
@@ -399,6 +448,7 @@ import QuartzCore
             if let link = layoutState.displayLinksByDisplay.removeValue(forKey: displayId) {
                 link.invalidate()
             }
+            layoutState.lastDisplayLinkTimestampByDisplay.removeValue(forKey: displayId)
         }
     }
 
@@ -2376,22 +2426,56 @@ import QuartzCore
         if animationTick {
             for plan in plans {
                 controller.axManager.recordSkyLightMove(windowId: plan.entry.windowId, origin: plan.origin)
+                controller.axManager.recordParkCommand(for: plan.entry.windowId)
+                FrameApplyTrace.recordEvent(
+                    pid: plan.entry.pid,
+                    windowId: plan.entry.windowId,
+                    outcome: "outcome=slsmove/anim",
+                    target: CGRect(origin: plan.origin, size: plan.frameSize)
+                )
             }
             return
         }
 
         let verifyEpsilon: CGFloat = 1.0
         for plan in plans {
-            if let observedOrigin = AXWindowService.framePreferFast(plan.entry.axRef)?.origin,
+            controller.axManager.recordParkCommand(for: plan.entry.windowId)
+            let observedOrigin = AXWindowService.framePreferFast(plan.entry.axRef)?.origin
+            if let observedOrigin,
                abs(observedOrigin.x - plan.origin.x) > verifyEpsilon
                || abs(observedOrigin.y - plan.origin.y) > verifyEpsilon
             {
                 FallbackFiringRecorder.shared.note(.skylight, "moveAXFallback")
                 let fallbackFrame = CGRect(origin: plan.origin, size: plan.frameSize)
+                FrameApplyTrace.shared.record(
+                    .init(
+                        timestamp: Date(),
+                        pid: plan.entry.pid,
+                        windowId: plan.entry.windowId,
+                        outcome: "outcome=slsmove/fallback",
+                        target: fallbackFrame,
+                        hint: nil,
+                        observed: CGRect(origin: observedOrigin, size: plan.frameSize),
+                        confirmed: nil
+                    )
+                )
                 let axRef = plan.entry.axRef
                 AppAXContext.contexts[plan.entry.pid]?.axThread?.runInLoopAsync { _ in
                     _ = AXWindowService.setFrame(axRef, frame: fallbackFrame)
                 }
+            } else {
+                FrameApplyTrace.shared.record(
+                    .init(
+                        timestamp: Date(),
+                        pid: plan.entry.pid,
+                        windowId: plan.entry.windowId,
+                        outcome: "outcome=slsmove/settle",
+                        target: CGRect(origin: plan.origin, size: plan.frameSize),
+                        hint: nil,
+                        observed: observedOrigin.map { CGRect(origin: $0, size: plan.frameSize) },
+                        confirmed: nil
+                    )
+                )
             }
         }
     }
@@ -3467,23 +3551,43 @@ final class LayoutDiffExecutor {
             hiddenJobs.reserveCapacity(hiddenEntries.count)
             var hidePlans: [LayoutRefreshController.WindowPositionPlan] = []
 
+            let isAnimationTick = plan.isAnimationTick
             for (entry, side) in hiddenEntries {
                 switch refreshController.resolveHideOperation(
                     for: entry,
                     monitor: monitor,
                     side: side,
                     reason: .layoutTransient,
-                    animationTick: plan.isAnimationTick
+                    animationTick: isAnimationTick
                 ) {
-                case let .movable(plan, hiddenState):
+                case let .movable(movePlan, hiddenState):
                     controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
                     hiddenJobs.append((entry.pid, entry.windowId))
-                    hidePlans.append(plan)
+                    hidePlans.append(movePlan)
+                    if isAnimationTick {
+                        controller.axManager.markParkPending(for: entry.windowId, pid: entry.pid)
+                    }
                 case let .alreadyHidden(hiddenState):
                     controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
                     hiddenJobs.append((entry.pid, entry.windowId))
+                    if !isAnimationTick
+                        || (controller.axManager.skyLightLivePosition(for: entry.windowId) == nil
+                            && !controller.axManager.hasPendingFrameWrite(for: entry.windowId)
+                            && controller.axManager.parkQuietSinceCommand(for: entry.windowId))
+                    {
+                        controller.axManager.clearParkPending(
+                            for: entry.windowId,
+                            pid: entry.pid,
+                            reason: "confirmed"
+                        )
+                    }
                 case .unavailable:
                     hiddenJobs.append((entry.pid, entry.windowId))
+                    controller.axManager.clearParkPending(
+                        for: entry.windowId,
+                        pid: entry.pid,
+                        reason: "unavailable"
+                    )
                 }
             }
 

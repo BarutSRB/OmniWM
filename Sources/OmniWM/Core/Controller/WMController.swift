@@ -232,6 +232,9 @@ final class WMController {
         self.ownedWindowRegistry = ownedWindowRegistry
         workspaceManager = WorkspaceManager(settings: settings)
         focusPolicyEngine = FocusPolicyEngine()
+        axManager.isWindowParked = { [workspaceManager] windowId in
+            workspaceManager.entry(forWindowId: windowId)?.hiddenState != nil
+        }
         intentLedger.seqProvider = { [eventIntake] in eventIntake.lastSeq }
         intentLedger.deadlineWheel = deadlineWheel
         focusPolicyEngine.intentLedger = intentLedger

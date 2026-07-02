@@ -54,6 +54,7 @@ final class RuntimeTraceCaptureCoordinator {
             FrameApplyTrace.shared,
             NiriLayoutTrace.shared,
             AnimationTickTrace.shared,
+            ParkVisibilityAudit.shared,
             ScrollTickTrace.shared,
             AXWriteLatencyTrace.shared,
             BorderOpMetricsRecorder.shared,
