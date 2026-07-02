@@ -8,7 +8,7 @@ let ghosttyMacOSLibraryDirectory = "\(packageDirectory)/Frameworks/GhosttyKit.xc
 let package = Package(
     name: "OmniWM",
     platforms: [
-        .macOS(.v26)
+        .macOS(.v27)
     ],
     products: [
         .executable(

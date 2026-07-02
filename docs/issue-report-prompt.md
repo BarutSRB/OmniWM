@@ -60,6 +60,6 @@ the rewrite fails, and the app falls back to the deterministic (no-AI) formatter
 
 - Run the focused tests: `swift test --filter IssueReporterTests`. These confirm the
   prompt still loads and still carries its required sections and safety constraints.
-- Optionally try it live (macOS 26+ with Apple Intelligence): launch the app, open
+- Optionally try it live (macOS 27+ with Apple Intelligence): launch the app, open
   Settings → Report Issue, type a rough report — mention a shortcut to exercise the
   preamble — and press **Rewrite with AI**.
