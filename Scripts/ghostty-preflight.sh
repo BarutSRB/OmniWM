@@ -32,7 +32,7 @@ load_metadata() {
     case "$key" in
       OMNIWM_GHOSTTY_ARCHIVE_RELATIVE_PATH)
         case "$value" in
-          Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a)
+          Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty-internal-fat.a)
             OMNIWM_GHOSTTY_ARCHIVE_RELATIVE_PATH="$value"
             ;;
           *)
@@ -72,7 +72,7 @@ verify_ghostty() {
 
   if ! archs="$(lipo "$OMNIWM_GHOSTTY_ARCHIVE_PATH" -archs 2>/dev/null)"; then
     lipo -info "$OMNIWM_GHOSTTY_ARCHIVE_PATH" >&2 || true
-    fail "Ghostty archive must include both arm64 and x86_64"
+    fail "Ghostty archive must include arm64"
   fi
 
   missing_arch=false
@@ -80,13 +80,9 @@ verify_ghostty() {
     *" arm64 "*) ;;
     *) missing_arch=true ;;
   esac
-  case " $archs " in
-    *" x86_64 "*) ;;
-    *) missing_arch=true ;;
-  esac
   if [ "$missing_arch" = true ]; then
     lipo -info "$OMNIWM_GHOSTTY_ARCHIVE_PATH" >&2 || true
-    fail "Ghostty archive must include both arm64 and x86_64"
+    fail "Ghostty archive must include arm64"
   fi
 
   actual_sha="$(shasum -a 256 "$OMNIWM_GHOSTTY_ARCHIVE_PATH" | awk '{print $1}')"

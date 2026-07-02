@@ -6,7 +6,7 @@ SIGN_AND_NOTARIZE="${2:-true}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$ROOT_DIR/dist/OmniWM.app"
 GHOSTTY_LIBRARY_DIR="$("$ROOT_DIR/Scripts/ghostty-preflight.sh" print-library-dir)"
-SWIFT_BUILD_ARGS=(-c "$CONFIG" --arch arm64 --arch x86_64)
+SWIFT_BUILD_ARGS=(-c "$CONFIG" --arch arm64)
 
 # Signing identity and notarization profile
 SIGNING_IDENTITY="Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
@@ -18,13 +18,13 @@ make -C "$ROOT_DIR" release-check
 
 "$ROOT_DIR/Scripts/ghostty-preflight.sh" verify
 
-echo "Building OmniWM universal binary ($CONFIG)..."
+echo "Building OmniWM arm64 binary ($CONFIG)..."
 LIBRARY_PATH="$GHOSTTY_LIBRARY_DIR${LIBRARY_PATH:+:$LIBRARY_PATH}" swift build "${SWIFT_BUILD_ARGS[@]}"
 BUILD_DIR="$(LIBRARY_PATH="$GHOSTTY_LIBRARY_DIR${LIBRARY_PATH:+:$LIBRARY_PATH}" swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)"
 EXECUTABLE="$BUILD_DIR/OmniWM"
 CLI_EXECUTABLE="$BUILD_DIR/omniwmctl"
 
-echo "Verifying universal binary..."
+echo "Verifying arm64 binaries..."
 lipo -info "$EXECUTABLE"
 lipo -info "$CLI_EXECUTABLE"
 

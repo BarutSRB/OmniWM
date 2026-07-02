@@ -439,7 +439,7 @@ Configure per-application behavior in Settings > App Rules:
 Requirements:
 - SwiftPM with Swift 6.4+
 - macOS 15.0+
-- Ghostty's universal `libghostty.a` (build Ghostty and copy it to `Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a` so it includes both `arm64` and `x86_64`)
+- Ghostty's arm64 archive (build Ghostty and copy it to `Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty-internal-fat.a`)
 
 ## Related Forks
 

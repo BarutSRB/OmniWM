@@ -37,7 +37,7 @@ final class FoundationModelsIssueEngine: IssueRewriting {
             let generated = try await session.respond(
                 to: freeform,
                 generating: GeneratedIssue.self,
-                options: GenerationOptions(sampling: .greedy)
+                options: GenerationOptions(samplingMode: .greedy)
             ).content
             let body = IssueTemplate.assemble(
                 summary: generated.summary,
