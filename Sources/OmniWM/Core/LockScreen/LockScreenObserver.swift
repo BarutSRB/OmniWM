@@ -25,11 +25,13 @@ final class LockScreenObserver {
     private var activationObserver: NSObjectProtocol?
     private var screenLockObserver: NSObjectProtocol?
     private var screenUnlockObserver: NSObjectProtocol?
+    private var frontmostIsLockScreen = false
 
     init() {}
 
     func start() {
         setupObservers()
+        frontmostIsLockScreen = frontmostApplicationProvider()?.bundleIdentifier == Self.lockScreenAppBundleId
     }
 
     func stop() {
@@ -77,7 +79,8 @@ final class LockScreenObserver {
     }
 
     private func handleAppActivation(bundleId: String?) {
-        if bundleId == Self.lockScreenAppBundleId {
+        frontmostIsLockScreen = bundleId == Self.lockScreenAppBundleId
+        if frontmostIsLockScreen {
             handleLockEvent()
         } else if state == .locked || state == .transitioning {
             handleUnlockEvent()
@@ -104,7 +107,7 @@ final class LockScreenObserver {
     }
 
     func isFrontmostAppLockScreen() -> Bool {
-        frontmostApplicationProvider()?.bundleIdentifier == Self.lockScreenAppBundleId
+        frontmostIsLockScreen
     }
 
     func cleanup() {

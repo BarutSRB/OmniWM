@@ -360,15 +360,20 @@ final class AXEventHandler {
         RingBuffer<ManagedReplacementTraceEvent>(capacity: AXEventHandler.managedReplacementTraceLimit)
     private var nextManagedReplacementEventSequence: UInt64 = 0
     var visibleWindowInfoProvider: () -> [WindowServerInfo]
+    var windowInfoProvider: (UInt32) -> WindowServerInfo?
 
     init(
         controller: WMController,
         visibleWindowInfoProvider: @escaping () -> [WindowServerInfo] = {
             SkyLight.shared.queryAllVisibleWindows()
+        },
+        windowInfoProvider: @escaping (UInt32) -> WindowServerInfo? = {
+            SkyLight.shared.queryWindowInfo($0)
         }
     ) {
         self.controller = controller
         self.visibleWindowInfoProvider = visibleWindowInfoProvider
+        self.windowInfoProvider = windowInfoProvider
     }
 
     func setup() {
@@ -483,6 +488,12 @@ final class AXEventHandler {
     }
 
     private func handleCGSWindowCreated(windowId: UInt32, spaceId: UInt64) {
+        if let controller, controller.workspaceManager.entry(forWindowId: Int(windowId)) != nil {
+            cancelCreatedWindowRetry(windowId: windowId)
+            discardCreatePlacementContext(windowId: windowId)
+            removeDeferredCreatedWindow(windowId)
+            return
+        }
         captureCreatePlacementContext(windowId: windowId, spaceId: spaceId)
         recordNiriCreateFocusTrace(.init(kind: .createSeen(windowId: windowId)))
         if shouldDeferCreateForInactiveNativeSpace(spaceId) {
@@ -518,6 +529,12 @@ final class AXEventHandler {
         }
 
         let windowInfo = resolveWindowInfo(windowId)
+        if let windowInfo, isOwnProcessPid(pid_t(windowInfo.pid)) {
+            cancelCreatedWindowRetry(windowId: windowId)
+            discardCreatePlacementContext(windowId: windowId)
+            removeDeferredCreatedWindow(windowId)
+            return
+        }
         guard let candidate = prepareCreateCandidate(
             windowId: windowId,
             windowInfo: windowInfo,
@@ -973,6 +990,12 @@ final class AXEventHandler {
         if resolveWindowInfo(windowId) != nil {
             return
         }
+        if let controller,
+           let entry = controller.workspaceManager.entry(forWindowId: Int(windowId)),
+           controller.workspaceManager.hiddenState(for: entry.token) != nil
+        {
+            return
+        }
         AXWindowService.invalidateCachedTitle(windowId: windowId)
         cancelCreatedWindowRetry(windowId: windowId)
         discardCreatePlacementContext(windowId: windowId)
@@ -1004,6 +1027,11 @@ final class AXEventHandler {
             }
             guard let windowInfo = resolveWindowInfo(windowId) else {
                 _ = scheduleCreatedWindowInfoRetryIfNeeded(windowId: windowId)
+                continue
+            }
+            if isOwnProcessPid(pid_t(windowInfo.pid)) {
+                cancelCreatedWindowRetry(windowId: windowId)
+                discardCreatePlacementContext(windowId: windowId)
                 continue
             }
             let token = WindowToken(pid: pid_t(windowInfo.pid), windowId: Int(windowId))
@@ -3493,7 +3521,7 @@ final class AXEventHandler {
             discardCreatePlacementContext(windowId: windowId)
             return false
         }
-        guard !controller.isOwnedWindow(windowNumber: Int(windowId)) else {
+        guard !controller.isOwnedWindow(windowNumber: Int(windowId)), !isOwnProcessPid(pid) else {
             cancelCreatedWindowRetry(windowId: windowId)
             discardCreatePlacementContext(windowId: windowId)
             return false
@@ -3881,7 +3909,11 @@ final class AXEventHandler {
     }
 
     private func resolveWindowInfo(_ windowId: UInt32) -> WindowServerInfo? {
-        SkyLight.shared.queryWindowInfo(windowId)
+        windowInfoProvider(windowId)
+    }
+
+    private func isOwnProcessPid(_ pid: pid_t) -> Bool {
+        pid == getpid()
     }
 
     private func resolveWindowToken(_ windowId: UInt32) -> WindowToken? {
