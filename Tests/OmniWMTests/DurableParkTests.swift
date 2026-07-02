@@ -237,6 +237,36 @@ final class DurableParkTests: XCTestCase {
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
     }
 
+    func testFrameChangedSkipsWindowServerQueryWhileScrollAnimating() throws {
+        let controller = Self.controller()
+        let monitor = Self.monitor()
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(956_001), windowId: 956_101),
+            pid: 956_001, windowId: 956_101, to: workspaceId
+        )
+        _ = controller.niriEngine?.addWindow(token: token, to: workspaceId, afterSelection: nil)
+
+        var providerCalls = 0
+        controller.axEventHandler.windowInfoProvider = { _ in
+            providerCalls += 1
+            return nil
+        }
+
+        controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] = workspaceId
+        controller.axEventHandler.handleCGSEvent(.frameChanged(windowId: UInt32(token.windowId)))
+        XCTAssertEqual(providerCalls, 0)
+
+        controller.niriLayoutHandler.scrollAnimationByDisplay.removeAll()
+        controller.axEventHandler.handleCGSEvent(.frameChanged(windowId: UInt32(token.windowId)))
+        XCTAssertGreaterThan(providerCalls, 0)
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+    }
+
     func testParkPendingBookkeepingFollowsWindowLifecycle() {
         let controller = Self.controller()
         let axManager = controller.axManager

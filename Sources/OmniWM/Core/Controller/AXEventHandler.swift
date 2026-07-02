@@ -872,6 +872,12 @@ final class AXEventHandler {
     private func handleFrameChanged(windowId: UInt32) {
         guard let controller else { return }
         guard !controller.isOwnedWindow(windowNumber: Int(windowId)) else { return }
+        if let trackedEntry = controller.workspaceManager.entry(forWindowId: Int(windowId)),
+           trackedEntry.mode == .tiling,
+           controller.niriLayoutHandler.hasScrollAnimation(for: trackedEntry.workspaceId)
+        {
+            return
+        }
         let windowServerToken = resolveWindowToken(windowId)
         let resolvedToken = resolveTrackedToken(
             windowId,
