@@ -219,34 +219,18 @@ enum AXWindowService {
         return resolvedWindowId
     }
 
-    private struct CachedTitle {
-        let title: String?
-        let fetchedAt: TimeInterval
-    }
-
-    private static let titleTTL: TimeInterval = 0.5
     private static let titleCacheCap = 512
-    @MainActor private static var titleCache: [UInt32: CachedTitle] = [:]
+    @MainActor private static var titleCache: [UInt32: String?] = [:]
     @MainActor private static var titleInsertionOrder: [UInt32] = []
 
     @MainActor
     static func titlePreferFast(windowId: UInt32) -> String? {
-        let now = ProcessInfo.processInfo.systemUptime
-        if let cached = titleCache[windowId],
-           now - cached.fetchedAt < titleTTL
-        {
-            return cached.title
+        if let cached = titleCache[windowId] {
+            return cached
         }
         let title = SkyLight.shared.getWindowTitle(windowId)
-        storeTitleCacheEntry(windowId: windowId, title: title, at: now)
+        storeTitleCacheEntry(windowId: windowId, title: title)
         return title
-    }
-
-    @MainActor
-    static func refreshCachedTitle(windowId: UInt32) {
-        let now = ProcessInfo.processInfo.systemUptime
-        let title = SkyLight.shared.getWindowTitle(windowId)
-        storeTitleCacheEntry(windowId: windowId, title: title, at: now)
     }
 
     @MainActor
@@ -265,11 +249,11 @@ enum AXWindowService {
     }
 
     @MainActor
-    private static func storeTitleCacheEntry(windowId: UInt32, title: String?, at time: TimeInterval) {
-        if titleCache[windowId] == nil {
+    private static func storeTitleCacheEntry(windowId: UInt32, title: String?) {
+        if titleCache.index(forKey: windowId) == nil {
             titleInsertionOrder.append(windowId)
         }
-        titleCache[windowId] = CachedTitle(title: title, fetchedAt: time)
+        titleCache[windowId] = title
         while titleCache.count > titleCacheCap, let oldest = titleInsertionOrder.first {
             titleInsertionOrder.removeFirst()
             titleCache.removeValue(forKey: oldest)
