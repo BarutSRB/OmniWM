@@ -16,8 +16,27 @@ struct Monitor: Identifiable, Hashable {
     let frame: CGRect
     let visibleFrame: CGRect
     let hasNotch: Bool
+    var notchRange: ClosedRange<CGFloat>?
 
     let name: String
+
+    init(
+        id: ID,
+        displayId: CGDirectDisplayID,
+        frame: CGRect,
+        visibleFrame: CGRect,
+        hasNotch: Bool,
+        notchRange: ClosedRange<CGFloat>? = nil,
+        name: String
+    ) {
+        self.id = id
+        self.displayId = displayId
+        self.frame = frame
+        self.visibleFrame = visibleFrame
+        self.hasNotch = hasNotch
+        self.notchRange = notchRange
+        self.name = name
+    }
 
     static func current() -> [Monitor] {
         NSScreen.screens.compactMap { screen -> Monitor? in
@@ -32,9 +51,20 @@ struct Monitor: Identifiable, Hashable {
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame,
                 hasNotch: hasNotch,
+                notchRange: notchRange(of: screen),
                 name: screen.localizedName
             )
         }
+    }
+
+    private static func notchRange(of screen: NSScreen) -> ClosedRange<CGFloat>? {
+        guard let left = screen.auxiliaryTopLeftArea,
+              let right = screen.auxiliaryTopRightArea,
+              left.maxX < right.minX
+        else {
+            return nil
+        }
+        return left.maxX ... right.minX
     }
 
     static func refreshRate(for displayId: CGDirectDisplayID) -> Double {
@@ -58,6 +88,7 @@ struct Monitor: Identifiable, Hashable {
             frame: frame,
             visibleFrame: frame,
             hasNotch: hasNotch,
+            notchRange: NSScreen.main.flatMap { notchRange(of: $0) },
             name: "Fallback"
         )
     }

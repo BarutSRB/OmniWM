@@ -860,7 +860,8 @@ public enum IPCAutomationManifest {
             name: .toggleNativeFullscreen,
             summary: "Toggle native macOS fullscreen."
         ),
-        command(["toggle-overview"], name: .toggleOverview, summary: "Toggle the overview surface.")
+        command(["toggle-overview"], name: .toggleOverview, summary: "Toggle the overview surface."),
+        command(["toggle-system-stats"], name: .toggleSystemStats, summary: "Toggle the system stats popup.")
     ]
 
     public static let workspaceActionDescriptors: [IPCWorkspaceActionDescriptor] = [

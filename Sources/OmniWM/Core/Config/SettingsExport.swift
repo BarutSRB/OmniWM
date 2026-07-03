@@ -57,7 +57,9 @@ struct SettingsExport: Equatable {
     var workspaceBarShowFloatingWindows: Bool
     var workspaceBarWindowLevel: String
     var workspaceBarPosition: String
-    var workspaceBarNotchAware: Bool
+    var workspaceBarNotchMode: String
+    var workspaceBarNotchActiveZoneWidth: Double
+    var workspaceBarSystemStatsButton: Bool
     var workspaceBarDeduplicateAppIcons: Bool
     var workspaceBarHideEmptyWorkspaces: Bool
     var workspaceBarReserveLayoutSpace: Bool
@@ -162,7 +164,9 @@ extension SettingsExport {
             workspaceBarShowFloatingWindows: false,
             workspaceBarWindowLevel: WorkspaceBarWindowLevel.popup.rawValue,
             workspaceBarPosition: WorkspaceBarPosition.overlappingMenuBar.rawValue,
-            workspaceBarNotchAware: true,
+            workspaceBarNotchMode: WorkspaceBarNotchMode.moveBelowMenuBar.rawValue,
+            workspaceBarNotchActiveZoneWidth: 180,
+            workspaceBarSystemStatsButton: false,
             workspaceBarDeduplicateAppIcons: false,
             workspaceBarHideEmptyWorkspaces: false,
             workspaceBarReserveLayoutSpace: false,

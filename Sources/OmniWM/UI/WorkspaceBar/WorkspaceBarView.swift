@@ -65,6 +65,7 @@ struct WorkspaceBarScratchpadItem: Identifiable, Equatable {
 struct WorkspaceBarSnapshot: Equatable {
     let projection: WorkspaceBarProjection
     let showLabels: Bool
+    let showSystemStatsButton: Bool
     let backgroundOpacity: Double
     let barHeight: CGFloat
     let accentColor: SettingsColor?
@@ -76,6 +77,24 @@ struct WorkspaceBarSnapshot: Equatable {
 
     var scratchpad: WorkspaceBarScratchpadItem? {
         projection.scratchpad
+    }
+}
+
+enum WorkspaceBarIslandSlice: Hashable {
+    case all
+    case active
+    case secondary
+
+    func items(in snapshot: WorkspaceBarSnapshot) -> [WorkspaceBarItem] {
+        switch self {
+        case .all: snapshot.items
+        case .active: snapshot.items.filter(\.isFocused)
+        case .secondary: snapshot.items.filter { !$0.isFocused }
+        }
+    }
+
+    func scratchpad(in snapshot: WorkspaceBarSnapshot) -> WorkspaceBarScratchpadItem? {
+        self == .active ? nil : snapshot.scratchpad
     }
 }
 
@@ -91,18 +110,26 @@ final class WorkspaceBarModel {
 @MainActor
 struct WorkspaceBarView: View {
     let model: WorkspaceBarModel
+    var slice: WorkspaceBarIslandSlice = .all
+    var showsSystemStatsButton = false
     @Bindable var motionPolicy: MotionPolicy
     let onFocusWorkspace: (WorkspaceBarItem) -> Void
     let onFocusWindow: (WindowToken) -> Void
     let onActivateScratchpad: () -> Void
+    var onToggleSystemStats: () -> Void = {}
+    var onSystemStatsAnchorChange: (CGPoint?) -> Void = { _ in }
 
     var body: some View {
         WorkspaceBarContentView(
             snapshot: model.snapshot,
+            slice: slice,
+            showsSystemStatsButton: showsSystemStatsButton,
             animationsEnabled: motionPolicy.animationsEnabled,
             onFocusWorkspace: onFocusWorkspace,
             onFocusWindow: onFocusWindow,
-            onActivateScratchpad: onActivateScratchpad
+            onActivateScratchpad: onActivateScratchpad,
+            onToggleSystemStats: onToggleSystemStats,
+            onSystemStatsAnchorChange: onSystemStatsAnchorChange
         )
     }
 }
@@ -110,14 +137,20 @@ struct WorkspaceBarView: View {
 @MainActor
 struct WorkspaceBarMeasurementView: View {
     let snapshot: WorkspaceBarSnapshot
+    var slice: WorkspaceBarIslandSlice = .all
+    var showsSystemStatsButton = false
 
     var body: some View {
         WorkspaceBarContentView(
             snapshot: snapshot,
+            slice: slice,
+            showsSystemStatsButton: showsSystemStatsButton,
             animationsEnabled: false,
             onFocusWorkspace: { _ in },
             onFocusWindow: { _ in },
-            onActivateScratchpad: {}
+            onActivateScratchpad: {},
+            onToggleSystemStats: {},
+            onSystemStatsAnchorChange: { _ in }
         )
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -126,10 +159,14 @@ struct WorkspaceBarMeasurementView: View {
 @MainActor
 private struct WorkspaceBarContentView: View {
     let snapshot: WorkspaceBarSnapshot
+    var slice: WorkspaceBarIslandSlice = .all
+    var showsSystemStatsButton = false
     let animationsEnabled: Bool
     let onFocusWorkspace: (WorkspaceBarItem) -> Void
     let onFocusWindow: (WindowToken) -> Void
     let onActivateScratchpad: () -> Void
+    let onToggleSystemStats: () -> Void
+    let onSystemStatsAnchorChange: (CGPoint?) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var accessibilityReduceTransparency
@@ -172,7 +209,7 @@ private struct WorkspaceBarContentView: View {
 
     var body: some View {
         HStack(spacing: workspaceSpacing) {
-            ForEach(snapshot.items, id: \.id) { item in
+            ForEach(slice.items(in: snapshot), id: \.id) { item in
                 WorkspaceItemView(
                     item: item,
                     iconSize: iconSize,
@@ -188,7 +225,7 @@ private struct WorkspaceBarContentView: View {
                 )
             }
 
-            if let scratchpad = snapshot.scratchpad {
+            if let scratchpad = slice.scratchpad(in: snapshot) {
                 ScratchpadPillView(
                     item: scratchpad,
                     iconSize: iconSize,
@@ -197,6 +234,16 @@ private struct WorkspaceBarContentView: View {
                     accentColor: accentColor,
                     textColor: textColor,
                     onActivateScratchpad: onActivateScratchpad
+                )
+            }
+
+            if showsSystemStatsButton {
+                SystemStatsButtonView(
+                    itemHeight: itemHeight,
+                    accentColor: accentColor,
+                    textColor: textColor,
+                    onToggle: onToggleSystemStats,
+                    onAnchorChange: onSystemStatsAnchorChange
                 )
             }
         }
@@ -315,6 +362,97 @@ private struct WorkspaceItemView: View {
             isHovered = hovering
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+@MainActor
+private struct SystemStatsButtonView: View {
+    let itemHeight: CGFloat
+    let accentColor: Color?
+    let textColor: Color?
+    let onToggle: () -> Void
+    let onAnchorChange: (CGPoint?) -> Void
+
+    @State private var isHovered = false
+
+    private var buttonSize: CGFloat {
+        max(18, itemHeight)
+    }
+
+    private var iconColor: Color {
+        if isHovered {
+            return accentColor ?? .accentColor
+        }
+        return textColor ?? .secondary
+    }
+
+    private var buttonShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+    }
+
+    var body: some View {
+        Button(action: onToggle) {
+            Image(systemName: "gauge.with.needle")
+                .font(.system(size: max(11, itemHeight * 0.58), weight: .semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: buttonSize, height: buttonSize)
+                .background {
+                    buttonShape
+                        .fill(isHovered ? .regularMaterial : .thinMaterial)
+                        .overlay {
+                            buttonShape.strokeBorder(Color.secondary.opacity(isHovered ? 0.3 : 0.18), lineWidth: 0.75)
+                        }
+                }
+                .contentShape(buttonShape)
+                .background(WorkspaceBarAnchorReporter(onChange: onAnchorChange))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel("System stats")
+        .help("Show system stats")
+    }
+}
+
+private struct WorkspaceBarAnchorReporter: NSViewRepresentable {
+    let onChange: (CGPoint?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            context.coordinator.report(nsView)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    @MainActor
+    final class Coordinator {
+        private let onChange: (CGPoint?) -> Void
+        private var lastAnchor: CGPoint?
+
+        init(onChange: @escaping (CGPoint?) -> Void) {
+            self.onChange = onChange
+        }
+
+        func report(_ view: NSView) {
+            let anchor: CGPoint?
+            if let window = view.window {
+                let localFrame = view.convert(view.bounds, to: nil)
+                let screenFrame = window.convertToScreen(localFrame)
+                anchor = WorkspaceBarGeometry.statsButtonAnchor(buttonFrame: screenFrame)
+            } else {
+                anchor = nil
+            }
+            if anchor != lastAnchor {
+                lastAnchor = anchor
+                onChange(anchor)
+            }
+        }
     }
 }
 

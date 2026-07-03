@@ -852,6 +852,13 @@ enum ActionCatalog {
                 category: .focus,
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(optionKey | shiftKey)),
                 keywords: ["overview"]
+            ),
+            action(
+                id: "toggleSystemStats",
+                command: .toggleSystemStats,
+                category: .focus,
+                binding: .unassigned,
+                keywords: ["stats", "system", "cpu", "memory", "gpu", "disk", "fetch"]
             )
         ])
 
@@ -967,7 +974,8 @@ enum ActionCatalog {
              .toggleHiddenBar,
              .toggleQuakeTerminal,
              .toggleWorkspaceLayout,
-             .toggleOverview:
+             .toggleOverview,
+             .toggleSystemStats:
             .shared
         }
     }
@@ -1054,6 +1062,7 @@ enum ActionCatalog {
         case .toggleQuakeTerminal: "Toggle Quake Terminal"
         case .toggleWorkspaceLayout: "Toggle Workspace Layout"
         case .toggleOverview: "Toggle Overview"
+        case .toggleSystemStats: "Toggle System Stats"
         }
     }
 
@@ -1205,6 +1214,8 @@ enum ActionCatalog {
             .toggleNativeFullscreen
         case .toggleOverview:
             .toggleOverview
+        case .toggleSystemStats:
+            .toggleSystemStats
         case .toggleQuakeTerminal:
             .toggleQuakeTerminal
         case .toggleWorkspaceBarVisibility:

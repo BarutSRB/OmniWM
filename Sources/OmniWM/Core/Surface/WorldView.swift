@@ -97,6 +97,7 @@ struct WorldView {
                     snapshot: WorkspaceBarSnapshot(
                         projection: projection,
                         showLabels: resolved.showLabels,
+                        showSystemStatsButton: resolved.systemStatsButton,
                         backgroundOpacity: resolved.backgroundOpacity,
                         barHeight: geometry.barHeight,
                         accentColor: resolved.accentColor,

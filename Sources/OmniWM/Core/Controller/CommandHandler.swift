@@ -223,6 +223,8 @@ final class CommandHandler {
             toggleWorkspaceLayout()
         case .toggleOverview:
             controller.toggleOverview()
+        case .toggleSystemStats:
+            controller.toggleSystemStats()
         }
 
         return .executed

@@ -15,6 +15,7 @@ enum SurfaceKind: String, Equatable {
     case quake
     case launchOverlay
     case secureInputIndicator
+    case systemStats
 }
 
 enum HitTestPolicy: Equatable {

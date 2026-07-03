@@ -87,11 +87,35 @@ private struct GlobalBarSettingsSection: View {
                         "Reserve tiled layout space using the configured workspace bar height."
                     )
 
-                Toggle("Notch-Aware Positioning", isOn: $settings.workspaceBarNotchAware)
-                    .onChange(of: settings.workspaceBarNotchAware) { _, _ in
+                Toggle("System Stats Button", isOn: $settings.workspaceBarSystemStatsButton)
+                    .onChange(of: settings.workspaceBarSystemStatsButton) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
-                    .help("Shift bar to the right of the notch on MacBook Pro")
+                    .help("Show a small workspace bar button that opens a system stats popup")
+
+                Picker("Notch Mode", selection: $settings.workspaceBarNotchMode) {
+                    ForEach(WorkspaceBarNotchMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .onChange(of: settings.workspaceBarNotchMode) { _, _ in
+                    controller.updateWorkspaceBarSettings()
+                }
+                .help("Move the bar below the notch, or split it into islands on both sides of the notch")
+
+                if settings.workspaceBarNotchMode.isSplit {
+                    SettingsSliderRow(
+                        label: "Active Zone Width",
+                        value: $settings.workspaceBarNotchActiveZoneWidth,
+                        range: 100 ... 400,
+                        step: 10,
+                        valueText: "\(Int(settings.workspaceBarNotchActiveZoneWidth)) px"
+                    )
+                    .onChange(of: settings.workspaceBarNotchActiveZoneWidth) { _, _ in
+                        controller.updateWorkspaceBarSettings()
+                    }
+                    .help("Width of the zone next to the notch that the focused workspace stays centered in")
+                }
             }
         }
 
@@ -320,14 +344,28 @@ private struct MonitorBarSettingsSection: View {
                 "Reserve tiled layout space using the configured workspace bar height."
             )
 
-            OverridableToggle(
-                label: "Notch-Aware Positioning",
-                value: ms.notchAware,
-                globalValue: settings.workspaceBarNotchAware,
-                onChange: { newValue in updateSetting { $0.notchAware = newValue } },
-                onReset: { updateSetting { $0.notchAware = nil } }
+            OverridablePicker(
+                label: "Notch Mode",
+                value: ms.notchMode,
+                globalValue: settings.workspaceBarNotchMode,
+                options: WorkspaceBarNotchMode.allCases,
+                displayName: { $0.displayName },
+                onChange: { newValue in updateSetting { $0.notchMode = newValue } },
+                onReset: { updateSetting { $0.notchMode = nil } }
             )
-            .help("Shift bar to the right of the notch on MacBook Pro")
+            .help("Move the bar below the notch, or split it into islands on both sides of the notch")
+
+            OverridableSlider(
+                label: "Active Zone Width",
+                value: ms.notchActiveZoneWidth,
+                globalValue: settings.workspaceBarNotchActiveZoneWidth,
+                range: 100 ... 400,
+                step: 10,
+                formatter: { "\(Int($0)) px" },
+                onChange: { newValue in updateSetting { $0.notchActiveZoneWidth = newValue } },
+                onReset: { updateSetting { $0.notchActiveZoneWidth = nil } }
+            )
+            .help("Width of the zone next to the notch that the focused workspace stays centered in")
         }
 
         Section("Position & Level") {

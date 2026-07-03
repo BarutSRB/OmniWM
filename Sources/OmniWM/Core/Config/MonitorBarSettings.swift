@@ -15,7 +15,8 @@ struct MonitorBarSettings: MonitorSettingsType {
     var deduplicateAppIcons: Bool?
     var hideEmptyWorkspaces: Bool?
     var reserveLayoutSpace: Bool?
-    var notchAware: Bool?
+    var notchMode: WorkspaceBarNotchMode?
+    var notchActiveZoneWidth: Double?
     var position: WorkspaceBarPosition?
     var windowLevel: WorkspaceBarWindowLevel?
     var height: Double?
@@ -33,7 +34,8 @@ struct MonitorBarSettings: MonitorSettingsType {
         deduplicateAppIcons: Bool? = nil,
         hideEmptyWorkspaces: Bool? = nil,
         reserveLayoutSpace: Bool? = nil,
-        notchAware: Bool? = nil,
+        notchMode: WorkspaceBarNotchMode? = nil,
+        notchActiveZoneWidth: Double? = nil,
         position: WorkspaceBarPosition? = nil,
         windowLevel: WorkspaceBarWindowLevel? = nil,
         height: Double? = nil,
@@ -50,7 +52,8 @@ struct MonitorBarSettings: MonitorSettingsType {
         self.deduplicateAppIcons = deduplicateAppIcons
         self.hideEmptyWorkspaces = hideEmptyWorkspaces
         self.reserveLayoutSpace = reserveLayoutSpace
-        self.notchAware = notchAware
+        self.notchMode = notchMode
+        self.notchActiveZoneWidth = notchActiveZoneWidth
         self.position = position
         self.windowLevel = windowLevel
         self.height = height
@@ -61,7 +64,7 @@ struct MonitorBarSettings: MonitorSettingsType {
 
     private enum CodingKeys: String, CodingKey {
         case id, monitorName, monitorDisplayId, enabled, showLabels, showFloatingWindows, deduplicateAppIcons
-        case hideEmptyWorkspaces, reserveLayoutSpace, notchAware, position, windowLevel
+        case hideEmptyWorkspaces, reserveLayoutSpace, notchMode, notchActiveZoneWidth, position, windowLevel
         case height, backgroundOpacity, xOffset, yOffset
     }
 
@@ -76,7 +79,9 @@ struct MonitorBarSettings: MonitorSettingsType {
         deduplicateAppIcons = try container.decodeIfPresent(Bool.self, forKey: .deduplicateAppIcons)
         hideEmptyWorkspaces = try container.decodeIfPresent(Bool.self, forKey: .hideEmptyWorkspaces)
         reserveLayoutSpace = try container.decodeIfPresent(Bool.self, forKey: .reserveLayoutSpace)
-        notchAware = try container.decodeIfPresent(Bool.self, forKey: .notchAware)
+        notchMode = try container.decodeIfPresent(String.self, forKey: .notchMode)
+            .flatMap { WorkspaceBarNotchMode(rawValue: $0) }
+        notchActiveZoneWidth = try container.decodeIfPresent(Double.self, forKey: .notchActiveZoneWidth)
         position = try container.decodeIfPresent(String.self, forKey: .position)
             .flatMap { WorkspaceBarPosition(rawValue: $0) }
         windowLevel = try container.decodeIfPresent(String.self, forKey: .windowLevel)
@@ -98,7 +103,8 @@ struct MonitorBarSettings: MonitorSettingsType {
         try container.encodeIfPresent(deduplicateAppIcons, forKey: .deduplicateAppIcons)
         try container.encodeIfPresent(hideEmptyWorkspaces, forKey: .hideEmptyWorkspaces)
         try container.encodeIfPresent(reserveLayoutSpace, forKey: .reserveLayoutSpace)
-        try container.encodeIfPresent(notchAware, forKey: .notchAware)
+        try container.encodeIfPresent(notchMode?.rawValue, forKey: .notchMode)
+        try container.encodeIfPresent(notchActiveZoneWidth, forKey: .notchActiveZoneWidth)
         try container.encodeIfPresent(position?.rawValue, forKey: .position)
         try container.encodeIfPresent(windowLevel?.rawValue, forKey: .windowLevel)
         try container.encodeIfPresent(height, forKey: .height)
@@ -115,7 +121,9 @@ struct ResolvedBarSettings {
     let deduplicateAppIcons: Bool
     let hideEmptyWorkspaces: Bool
     let reserveLayoutSpace: Bool
-    let notchAware: Bool
+    let notchMode: WorkspaceBarNotchMode
+    let notchActiveZoneWidth: Double
+    let systemStatsButton: Bool
     let position: WorkspaceBarPosition
     let windowLevel: WorkspaceBarWindowLevel
     let height: Double

@@ -194,7 +194,17 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
-    var workspaceBarNotchAware = SettingsStore.defaultExport.workspaceBarNotchAware {
+    var workspaceBarNotchMode = WorkspaceBarNotchMode(
+        rawValue: SettingsStore.defaultExport.workspaceBarNotchMode
+    ) ?? .moveBelowMenuBar {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarNotchActiveZoneWidth = SettingsStore.defaultExport.workspaceBarNotchActiveZoneWidth {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarSystemStatsButton = SettingsStore.defaultExport.workspaceBarSystemStatsButton {
         didSet { scheduleSave() }
     }
 
@@ -569,7 +579,9 @@ final class SettingsStore {
             workspaceBarShowFloatingWindows: workspaceBarShowFloatingWindows,
             workspaceBarWindowLevel: workspaceBarWindowLevel.rawValue,
             workspaceBarPosition: workspaceBarPosition.rawValue,
-            workspaceBarNotchAware: workspaceBarNotchAware,
+            workspaceBarNotchMode: workspaceBarNotchMode.rawValue,
+            workspaceBarNotchActiveZoneWidth: workspaceBarNotchActiveZoneWidth,
+            workspaceBarSystemStatsButton: workspaceBarSystemStatsButton,
             workspaceBarDeduplicateAppIcons: workspaceBarDeduplicateAppIcons,
             workspaceBarHideEmptyWorkspaces: workspaceBarHideEmptyWorkspaces,
             workspaceBarReserveLayoutSpace: workspaceBarReserveLayoutSpace,
@@ -677,7 +689,9 @@ final class SettingsStore {
         workspaceBarShowFloatingWindows = export.workspaceBarShowFloatingWindows
         workspaceBarWindowLevel = WorkspaceBarWindowLevel(rawValue: export.workspaceBarWindowLevel) ?? .popup
         workspaceBarPosition = WorkspaceBarPosition(rawValue: export.workspaceBarPosition) ?? .overlappingMenuBar
-        workspaceBarNotchAware = export.workspaceBarNotchAware
+        workspaceBarNotchMode = WorkspaceBarNotchMode(rawValue: export.workspaceBarNotchMode) ?? .moveBelowMenuBar
+        workspaceBarNotchActiveZoneWidth = min(max(export.workspaceBarNotchActiveZoneWidth, 100), 400)
+        workspaceBarSystemStatsButton = export.workspaceBarSystemStatsButton
         workspaceBarDeduplicateAppIcons = export.workspaceBarDeduplicateAppIcons
         workspaceBarHideEmptyWorkspaces = export.workspaceBarHideEmptyWorkspaces
         workspaceBarReserveLayoutSpace = export.workspaceBarReserveLayoutSpace
@@ -944,7 +958,9 @@ final class SettingsStore {
             deduplicateAppIcons: override?.deduplicateAppIcons ?? workspaceBarDeduplicateAppIcons,
             hideEmptyWorkspaces: override?.hideEmptyWorkspaces ?? workspaceBarHideEmptyWorkspaces,
             reserveLayoutSpace: override?.reserveLayoutSpace ?? workspaceBarReserveLayoutSpace,
-            notchAware: override?.notchAware ?? workspaceBarNotchAware,
+            notchMode: override?.notchMode ?? workspaceBarNotchMode,
+            notchActiveZoneWidth: override?.notchActiveZoneWidth ?? workspaceBarNotchActiveZoneWidth,
+            systemStatsButton: workspaceBarSystemStatsButton,
             position: override?.position ?? workspaceBarPosition,
             windowLevel: override?.windowLevel ?? workspaceBarWindowLevel,
             height: override?.height ?? workspaceBarHeight,

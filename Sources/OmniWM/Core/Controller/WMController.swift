@@ -152,6 +152,16 @@ final class WMController {
     )
     @ObservationIgnored
     private lazy var commandPaletteController: CommandPaletteController = .init(motionPolicy: motionPolicy)
+
+    @ObservationIgnored
+    private lazy var systemStatsPopupController: SystemStatsPopupController = {
+        let controller = SystemStatsPopupController()
+        controller.isToggleSourceWindow = { [weak self] window in
+            self?.workspaceBarManager.isWorkspaceBarWindow(window) ?? false
+        }
+        return controller
+    }()
+
     @ObservationIgnored
     private lazy var sponsorsWindowController: SponsorsWindowController = .init(
         motionPolicy: motionPolicy,
@@ -629,6 +639,34 @@ final class WMController {
 
     func focusWindowFromBar(token: WindowToken) {
         windowActionHandler.focusWindowFromBar(token: token)
+    }
+
+    func toggleSystemStats() {
+        let monitors = workspaceManager.monitors
+        let target = SystemStatsPopupController.targetMonitor(
+            pointer: NSEvent.mouseLocation.monitorApproximation(in: monitors),
+            main: monitors.first(where: \.isMain),
+            monitors: monitors
+        ) { workspaceBarManager.statsAnchor(on: $0) != nil }
+        guard let target else { return }
+        toggleSystemStatsFromBar(on: target.id)
+    }
+
+    func toggleSystemStatsFromBar(on monitorId: Monitor.ID) {
+        guard let monitor = workspaceManager.monitors.first(where: { $0.id == monitorId }),
+              let anchor = workspaceBarManager.statsAnchor(on: monitorId)
+        else {
+            return
+        }
+        systemStatsPopupController.toggle(
+            anchor: anchor,
+            monitorId: monitorId,
+            screenVisibleFrame: monitor.visibleFrame
+        )
+    }
+
+    func dismissSystemStatsPopup(anchoredTo monitorId: Monitor.ID) {
+        systemStatsPopupController.dismissIfAnchored(to: monitorId)
     }
 
     @discardableResult

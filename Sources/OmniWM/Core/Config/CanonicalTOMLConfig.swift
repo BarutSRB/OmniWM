@@ -111,7 +111,9 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var showFloatingWindows: Bool
         var windowLevel: String
         var position: String
-        var notchAware: Bool
+        var notchMode: String
+        var notchActiveZoneWidth: Double
+        var systemStatsButton: Bool
         var deduplicateAppIcons: Bool
         var hideEmptyWorkspaces: Bool
         var reserveLayoutSpace: Bool
@@ -669,10 +671,22 @@ extension CanonicalTOMLConfig.WorkspaceBar {
             default: defaults.position,
             recovering: recovering
         )
-        notchAware = try container.decode(
+        notchMode = try container.decode(
+            String.self,
+            forKey: .notchMode,
+            default: defaults.notchMode,
+            recovering: recovering
+        )
+        notchActiveZoneWidth = try container.decode(
+            Double.self,
+            forKey: .notchActiveZoneWidth,
+            default: defaults.notchActiveZoneWidth,
+            recovering: recovering
+        )
+        systemStatsButton = try container.decode(
             Bool.self,
-            forKey: .notchAware,
-            default: defaults.notchAware,
+            forKey: .systemStatsButton,
+            default: defaults.systemStatsButton,
             recovering: recovering
         )
         deduplicateAppIcons = try container.decode(
@@ -954,7 +968,9 @@ extension CanonicalTOMLConfig {
             showFloatingWindows: export.workspaceBarShowFloatingWindows,
             windowLevel: export.workspaceBarWindowLevel,
             position: export.workspaceBarPosition,
-            notchAware: export.workspaceBarNotchAware,
+            notchMode: export.workspaceBarNotchMode,
+            notchActiveZoneWidth: export.workspaceBarNotchActiveZoneWidth,
+            systemStatsButton: export.workspaceBarSystemStatsButton,
             deduplicateAppIcons: export.workspaceBarDeduplicateAppIcons,
             hideEmptyWorkspaces: export.workspaceBarHideEmptyWorkspaces,
             reserveLayoutSpace: export.workspaceBarReserveLayoutSpace,
@@ -1048,7 +1064,9 @@ extension CanonicalTOMLConfig {
             workspaceBarShowFloatingWindows: workspaceBar.showFloatingWindows,
             workspaceBarWindowLevel: workspaceBar.windowLevel,
             workspaceBarPosition: workspaceBar.position,
-            workspaceBarNotchAware: workspaceBar.notchAware,
+            workspaceBarNotchMode: workspaceBar.notchMode,
+            workspaceBarNotchActiveZoneWidth: workspaceBar.notchActiveZoneWidth,
+            workspaceBarSystemStatsButton: workspaceBar.systemStatsButton,
             workspaceBarDeduplicateAppIcons: workspaceBar.deduplicateAppIcons,
             workspaceBarHideEmptyWorkspaces: workspaceBar.hideEmptyWorkspaces,
             workspaceBarReserveLayoutSpace: workspaceBar.reserveLayoutSpace,
