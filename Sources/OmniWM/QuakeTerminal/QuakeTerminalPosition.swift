@@ -62,64 +62,70 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
 
     @MainActor
     func initialOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
-        let visibleFrame = screen.visibleFrame
+        initialOrigin(visibleFrame: screen.visibleFrame, windowSize: window.frame.size)
+    }
+
+    func initialOrigin(visibleFrame: CGRect, windowSize: CGSize) -> CGPoint {
         switch self {
         case .top:
             return CGPoint(
-                x: round(visibleFrame.origin.x + (visibleFrame.width - window.frame.width) / 2),
+                x: round(visibleFrame.origin.x + (visibleFrame.width - windowSize.width) / 2),
                 y: visibleFrame.maxY
             )
         case .bottom:
             return CGPoint(
-                x: round(visibleFrame.origin.x + (visibleFrame.width - window.frame.width) / 2),
-                y: -window.frame.height
+                x: round(visibleFrame.origin.x + (visibleFrame.width - windowSize.width) / 2),
+                y: visibleFrame.minY - windowSize.height
             )
         case .left:
             return CGPoint(
-                x: visibleFrame.minX - window.frame.width,
-                y: round(visibleFrame.origin.y + (visibleFrame.height - window.frame.height) / 2)
+                x: visibleFrame.minX - windowSize.width,
+                y: round(visibleFrame.origin.y + (visibleFrame.height - windowSize.height) / 2)
             )
         case .right:
             return CGPoint(
                 x: visibleFrame.maxX,
-                y: round(visibleFrame.origin.y + (visibleFrame.height - window.frame.height) / 2)
+                y: round(visibleFrame.origin.y + (visibleFrame.height - windowSize.height) / 2)
             )
         case .center:
             return CGPoint(
-                x: round(visibleFrame.origin.x + (visibleFrame.width - window.frame.width) / 2),
-                y: visibleFrame.height - window.frame.height
+                x: round(visibleFrame.origin.x + (visibleFrame.width - windowSize.width) / 2),
+                y: round(visibleFrame.origin.y + (visibleFrame.height - windowSize.height) / 2)
             )
         }
     }
 
     @MainActor
     func finalOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
-        let visibleFrame = screen.visibleFrame
+        finalOrigin(visibleFrame: screen.visibleFrame, windowSize: window.frame.size)
+    }
+
+    func finalOrigin(visibleFrame: CGRect, windowSize: CGSize) -> CGPoint {
         switch self {
         case .top:
             return CGPoint(
-                x: round(visibleFrame.origin.x + (visibleFrame.width - window.frame.width) / 2),
-                y: visibleFrame.maxY - window.frame.height
+                x: round(visibleFrame.origin.x + (visibleFrame.width - windowSize.width) / 2),
+                y: visibleFrame.maxY - windowSize.height
             )
         case .bottom:
             return CGPoint(
-                x: round(visibleFrame.origin.x + (visibleFrame.width - window.frame.width) / 2),
+                x: round(visibleFrame.origin.x + (visibleFrame.width - windowSize.width) / 2),
                 y: visibleFrame.minY
             )
         case .left:
             return CGPoint(
                 x: visibleFrame.minX,
-                y: round(visibleFrame.origin.y + (visibleFrame.height - window.frame.height) / 2)
+                y: round(visibleFrame.origin.y + (visibleFrame.height - windowSize.height) / 2)
             )
         case .right:
             return CGPoint(
-                x: visibleFrame.maxX - window.frame.width,
-                y: round(visibleFrame.origin.y + (visibleFrame.height - window.frame.height) / 2)
+                x: visibleFrame.maxX - windowSize.width,
+                y: round(visibleFrame.origin.y + (visibleFrame.height - windowSize.height) / 2)
             )
         case .center:
             return CGPoint(
-                x: round(visibleFrame.origin.x + (visibleFrame.width - window.frame.width) / 2),
-                y: round(visibleFrame.origin.y + (visibleFrame.height - window.frame.height) / 2)
+                x: round(visibleFrame.origin.x + (visibleFrame.width - windowSize.width) / 2),
+                y: round(visibleFrame.origin.y + (visibleFrame.height - windowSize.height) / 2)
             )
         }
     }
