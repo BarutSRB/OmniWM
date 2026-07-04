@@ -100,7 +100,8 @@ struct SystemStatsView: View {
     }
 
     private func footer(_ host: SystemStatsHostInfo) -> some View {
-        let displayText = host.resolutions.isEmpty ? "Display data unavailable" : host.resolutions.joined(separator: "  ")
+        let displayText = host.resolutions.isEmpty ? "Display data unavailable" : host.resolutions
+            .joined(separator: "  ")
         return VStack(alignment: .leading, spacing: 2) {
             Text(host.modelIdentifier)
                 .font(.caption.weight(.medium))
