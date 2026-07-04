@@ -13,6 +13,7 @@ enum IssueAIAvailability: Equatable, Sendable {
     case deviceNotEligible
     case appleIntelligenceNotEnabled
     case modelNotReady
+    case unsupported
 
     var message: String? {
         switch self {
@@ -24,6 +25,8 @@ enum IssueAIAvailability: Equatable, Sendable {
             "Turn on Apple Intelligence in System Settings to use AI rewriting. You can still write and submit manually."
         case .modelNotReady:
             "The on-device model is still downloading — try again shortly. You can still write and submit manually."
+        case .unsupported:
+            "AI rewriting needs a newer version of macOS. You can still write and submit manually."
         }
     }
 }
@@ -50,7 +53,10 @@ protocol IssueRewriting {
 
 @MainActor
 enum IssueRewritingFactory {
-    static func make() -> any IssueRewriting {
-        FoundationModelsIssueEngine()
+    static func make() -> (any IssueRewriting)? {
+        if #available(macOS 27.0, *) {
+            return FoundationModelsIssueEngine()
+        }
+        return nil
     }
 }

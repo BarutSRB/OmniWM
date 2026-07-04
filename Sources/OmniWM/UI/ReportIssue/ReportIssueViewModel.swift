@@ -64,7 +64,7 @@ final class ReportIssueViewModel {
 
     let availability: IssueAIAvailability
 
-    private let engine: any IssueRewriting
+    private let engine: (any IssueRewriting)?
     private let urlBuilder: GitHubIssueURLBuilder
     private let makeDiagnosticsBundle: @MainActor () throws -> URL
     private let hotkeyContextProvider: @MainActor (String) -> String
@@ -91,7 +91,7 @@ final class ReportIssueViewModel {
     ) {
         let engine = engine ?? IssueRewritingFactory.make()
         self.engine = engine
-        availability = engine.availability
+        availability = engine?.availability ?? .unsupported
         self.urlBuilder = urlBuilder
         self.makeDiagnosticsBundle = makeDiagnosticsBundle
         self.hotkeyContextProvider = hotkeyContextProvider
@@ -142,7 +142,7 @@ final class ReportIssueViewModel {
     }
 
     func requestRewrite() async {
-        guard canRequestRewrite else { return }
+        guard canRequestRewrite, let engine else { return }
         phase = .rewriting
         errorMessage = nil
         do {

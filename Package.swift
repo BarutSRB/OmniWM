@@ -49,20 +49,21 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-                .interoperabilityMode(.C)
+                .interoperabilityMode(.C),
+                .unsafeFlags(["-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "FoundationModels"])
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("FoundationModels"),
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),
                 .linkedFramework("QuartzCore"),
                 .linkedLibrary("z"),
                 .linkedLibrary("c++"),
                 .unsafeFlags(["-L\(ghosttyMacOSLibraryDirectory)"]),
-                .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
+                .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"]),
+                .unsafeFlags(["-weak_framework", "FoundationModels"])
             ]
         ),
         .executableTarget(

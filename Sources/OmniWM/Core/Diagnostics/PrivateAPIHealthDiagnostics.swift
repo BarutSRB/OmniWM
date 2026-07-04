@@ -309,7 +309,7 @@ enum PrivateAPIHealthDiagnostics {
         } else {
             tests.append(test("IOPMAssertionCreateWithDescription", .failed, "create=\(createResult)"))
         }
-        let availability = IssueRewritingFactory.make().availability
+        let availability = IssueRewritingFactory.make()?.availability ?? .unsupported
         tests.append(test(
             "FoundationModels availability",
             availability == .available ? .works : .inconclusive,
