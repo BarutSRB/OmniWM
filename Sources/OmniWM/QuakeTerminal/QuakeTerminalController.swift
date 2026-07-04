@@ -244,6 +244,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
         if let customFrame = customFrameForShow(on: screen) {
             window.setFrame(customFrame, display: true)
+            refreshSurfacesForCurrentScreen()
             return
         }
 
@@ -253,6 +254,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             widthPercent: settings.quakeTerminalWidthPercent,
             heightPercent: settings.quakeTerminalHeightPercent
         )
+        refreshSurfacesForCurrentScreen()
     }
 
     private func tick() {
@@ -684,6 +686,13 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         return animationGeneration
     }
 
+    private func refreshSurfacesForCurrentScreen() {
+        guard let container = activeTab?.splitContainer else { return }
+        for view in container.allSurfaceViews() {
+            view.refreshDisplayStateForCurrentScreen()
+        }
+    }
+
     private func finishWindowIn(_ window: NSWindow) {
         let quakeWindow = window as? QuakeTerminalWindow
         quakeWindow?.isAnimating = false
@@ -691,6 +700,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         window.alphaValue = 1
         window.level = .floating
         makeWindowKey(window)
+        refreshSurfacesForCurrentScreen()
 
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)

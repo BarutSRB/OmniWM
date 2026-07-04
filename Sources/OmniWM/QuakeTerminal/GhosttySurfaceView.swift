@@ -170,14 +170,23 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         if let displayId, displayId != lastAppliedDisplayId {
             ghostty_surface_set_display_id(surface, displayId)
             lastAppliedDisplayId = displayId
+            lastAppliedSurfacePixelSize = nil
         }
 
         if lastAppliedContentScale != scale {
             ghostty_surface_set_content_scale(surface, scale, scale)
             lastAppliedContentScale = scale
+            lastAppliedSurfacePixelSize = nil
         }
 
         syncGhosttySurfaceSize(backingScale: scale)
+    }
+
+    func refreshDisplayStateForCurrentScreen() {
+        lastAppliedDisplayId = nil
+        lastAppliedContentScale = nil
+        lastAppliedSurfacePixelSize = nil
+        updateDisplayState()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
