@@ -219,6 +219,7 @@ final class ServiceLifecycleManager {
         controller.workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWsId)
 
         controller.layoutRefreshController.requestFullRescan(reason: .monitorConfigurationChanged)
+        controller.reapplyQuakeTerminalGeometryForMonitorChange()
     }
 
     func handleAppTerminated(pid: pid_t) {

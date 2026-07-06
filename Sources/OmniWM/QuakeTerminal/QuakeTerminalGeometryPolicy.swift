@@ -11,6 +11,7 @@ enum QuakeTerminalGeometryPolicy {
     static let minimumFrameWidthPoints: CGFloat = 200
     static let minimumFrameHeightPoints: CGFloat = 100
     static let maximumCustomFrameDimensionPoints: CGFloat = 100_000
+    static let screenContainmentTolerance: CGFloat = 1
 
     static func normalizedDimensionPercent(_ value: Double) -> Double {
         guard value.isFinite else { return defaultDimensionPercent }
@@ -42,5 +43,16 @@ enum QuakeTerminalGeometryPolicy {
             return nil
         }
         return frame
+    }
+
+    static func customFrameFits(_ frame: CGRect, in screenFrame: CGRect) -> Bool {
+        guard screenFrame.width > 0, screenFrame.height > 0 else { return false }
+        return screenFrame
+            .insetBy(dx: -screenContainmentTolerance, dy: -screenContainmentTolerance)
+            .contains(frame)
+    }
+
+    static func changedFrame(from start: CGRect, to end: CGRect) -> CGRect? {
+        end == start ? nil : end
     }
 }

@@ -398,10 +398,21 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         switch interactionMode {
         case .terminal:
             handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_RELEASE)
-        case .windowMove,
-             .windowResize:
-            if let frame = window?.frame {
-                onFrameChanged?(frame)
+        case let .windowMove(startOrigin, _):
+            if let frame = window?.frame,
+               let changedFrame = QuakeTerminalGeometryPolicy.changedFrame(
+                   from: CGRect(origin: startOrigin, size: frame.size),
+                   to: frame
+               )
+            {
+                onFrameChanged?(changedFrame)
+            }
+            NSCursor.arrow.set()
+        case let .windowResize(_, startFrame, _):
+            if let frame = window?.frame,
+               let changedFrame = QuakeTerminalGeometryPolicy.changedFrame(from: startFrame, to: frame)
+            {
+                onFrameChanged?(changedFrame)
             }
             NSCursor.arrow.set()
         }

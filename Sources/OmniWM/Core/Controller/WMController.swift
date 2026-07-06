@@ -512,6 +512,11 @@ final class WMController {
         quakeTerminalController.toggle()
     }
 
+    func reapplyQuakeTerminalGeometryForMonitorChange() {
+        guard settings.quakeTerminalEnabled else { return }
+        quakeTerminalController.applyGeometryToVisibleWindow()
+    }
+
     func reloadQuakeTerminalOpacity() {
         quakeTerminalController.reloadOpacityConfig()
     }

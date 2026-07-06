@@ -19,17 +19,13 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
         in window: NSWindow,
         on screen: NSScreen,
         widthPercent: Double,
-        heightPercent: Double,
-        closedFrame: NSRect? = nil
+        heightPercent: Double
     ) {
         window.alphaValue = 0
+        let size = configuredFrameSize(on: screen, widthPercent: widthPercent, heightPercent: heightPercent)
         window.setFrame(.init(
-            origin: initialOrigin(for: window, on: screen),
-            size: closedFrame?.size ?? configuredFrameSize(
-                on: screen,
-                widthPercent: widthPercent,
-                heightPercent: heightPercent
-            )
+            origin: initialOrigin(visibleFrame: screen.visibleFrame, windowSize: size),
+            size: size
         ), display: false)
     }
 
@@ -38,17 +34,13 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
         in window: NSWindow,
         on screen: NSScreen,
         widthPercent: Double,
-        heightPercent: Double,
-        closedFrame: NSRect? = nil
+        heightPercent: Double
     ) {
         window.alphaValue = 1
+        let size = configuredFrameSize(on: screen, widthPercent: widthPercent, heightPercent: heightPercent)
         window.setFrame(.init(
-            origin: finalOrigin(for: window, on: screen),
-            size: closedFrame?.size ?? configuredFrameSize(
-                on: screen,
-                widthPercent: widthPercent,
-                heightPercent: heightPercent
-            )
+            origin: finalOrigin(visibleFrame: screen.visibleFrame, windowSize: size),
+            size: size
         ), display: true)
     }
 
@@ -58,11 +50,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
             widthPercent: widthPercent,
             heightPercent: heightPercent
         )
-    }
-
-    @MainActor
-    func initialOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
-        initialOrigin(visibleFrame: screen.visibleFrame, windowSize: window.frame.size)
     }
 
     func initialOrigin(visibleFrame: CGRect, windowSize: CGSize) -> CGPoint {
@@ -93,11 +80,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
                 y: round(visibleFrame.origin.y + (visibleFrame.height - windowSize.height) / 2)
             )
         }
-    }
-
-    @MainActor
-    func finalOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
-        finalOrigin(visibleFrame: screen.visibleFrame, windowSize: window.frame.size)
     }
 
     func finalOrigin(visibleFrame: CGRect, windowSize: CGSize) -> CGPoint {

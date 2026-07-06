@@ -519,10 +519,6 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         guard let window else { return }
         guard visible else { return }
 
-        if settings.quakeTerminalUseCustomFrame {
-            settings.quakeTerminalCustomFrame = window.frame
-        }
-
         pendingRestoreTarget = switch hideBehavior {
         case .restoreLatestTarget:
             if isWindowFocused(window) {
@@ -761,7 +757,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
             settings.resetQuakeTerminalCustomFrame()
             return nil
         }
-        guard screen.visibleFrame.intersects(customFrame) else { return nil }
+        guard QuakeTerminalGeometryPolicy.customFrameFits(customFrame, in: screen.frame) else { return nil }
         return customFrame
     }
 
