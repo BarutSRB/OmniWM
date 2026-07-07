@@ -141,6 +141,95 @@ final class AnimationDriverTests: XCTestCase {
         XCTAssertEqual(live, 50, accuracy: 1.0)
     }
 
+    func testGestureEndAfterStillTailProjectsCurrentOffset() {
+        let driver = AnimationDriver()
+        driver.beginGesture(in: workspaceId, isTrackpad: true)
+        driver.updateGesture(
+            in: workspaceId,
+            delta: 120,
+            timestamp: 1.00,
+            isTrackpad: true,
+            viewportWidth: AnimationDriver.gestureWorkingAreaMovement
+        )
+        driver.updateGesture(
+            in: workspaceId,
+            delta: 0,
+            timestamp: 1.04,
+            isTrackpad: true,
+            viewportWidth: AnimationDriver.gestureWorkingAreaMovement
+        )
+
+        let sample = driver.sampleGestureEnd(
+            in: workspaceId,
+            isTrackpad: true,
+            viewportWidth: AnimationDriver.gestureWorkingAreaMovement,
+            timestamp: 1.09
+        )!
+
+        XCTAssertEqual(sample.relativeOffset, 120, accuracy: 0.001)
+        XCTAssertEqual(sample.relativeProjectedOffset, sample.relativeOffset, accuracy: 0.001)
+    }
+
+    func testBelowFloorGestureEndCommitsCompletedDeceleration() {
+        let driver = AnimationDriver()
+        driver.beginGesture(in: workspaceId, isTrackpad: true)
+        driver.updateGesture(
+            in: workspaceId,
+            delta: 4,
+            timestamp: 1.00,
+            isTrackpad: true,
+            viewportWidth: AnimationDriver.gestureWorkingAreaMovement
+        )
+
+        let sample = driver.sampleGestureEnd(
+            in: workspaceId,
+            isTrackpad: true,
+            viewportWidth: AnimationDriver.gestureWorkingAreaMovement,
+            timestamp: 1.05
+        )!
+
+        XCTAssertEqual(sample.relativeProjectedOffset, sample.relativeOffset, accuracy: 0.001)
+
+        _ = commit(driver, previous: 0) { state in
+            state.decelerateOffset(to: CGFloat(sample.relativeProjectedOffset))
+        }
+
+        XCTAssertFalse(driver.tick(in: workspaceId, at: CACurrentMediaTime()))
+        XCTAssertFalse(driver.hasMotion(in: workspaceId))
+    }
+
+    func testFlingGestureEndProjectsAndCommitsDeceleration() {
+        let driver = AnimationDriver()
+        driver.beginGesture(in: workspaceId, isTrackpad: true)
+        driver.updateGesture(
+            in: workspaceId,
+            delta: 120,
+            timestamp: 1.00,
+            isTrackpad: true,
+            viewportWidth: AnimationDriver.gestureWorkingAreaMovement
+        )
+
+        let sample = driver.sampleGestureEnd(
+            in: workspaceId,
+            isTrackpad: true,
+            viewportWidth: AnimationDriver.gestureWorkingAreaMovement,
+            timestamp: 1.04
+        )!
+        let expectedVelocity = 120.0 / 0.04
+
+        XCTAssertEqual(
+            sample.relativeProjectedOffset - sample.relativeOffset,
+            -expectedVelocity / DecelerationAnimation.decayRate,
+            accuracy: 0.001
+        )
+
+        _ = commit(driver, previous: 0) { state in
+            state.decelerateOffset(to: CGFloat(sample.relativeProjectedOffset))
+        }
+
+        XCTAssertTrue(driver.tick(in: workspaceId, at: CACurrentMediaTime()))
+    }
+
     func testJumpThenSpringCommitStartsAtJumpedOffset() {
         let driver = AnimationDriver()
         _ = commit(driver, previous: 0) { state in

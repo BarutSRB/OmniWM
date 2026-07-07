@@ -9,8 +9,7 @@ struct SwipeEvent {
 }
 
 final class SwipeTracker {
-    private static let historyLimit: TimeInterval = 0.150
-    private static let decelerationRate: Double = 0.997
+    private static let historyLimit: TimeInterval = 0.080
 
     private var history: [SwipeEvent] = []
     private(set) var position: Double = 0
@@ -36,14 +35,8 @@ final class SwipeTracker {
         return totalDelta / totalTime
     }
 
-    func projectedEndPosition() -> Double {
-        let v = velocity()
-        let coeff = 1000.0 * log(Self.decelerationRate)
-        return position - v / coeff
-    }
-
     private func trimHistory(currentTime: TimeInterval) {
         let cutoff = currentTime - Self.historyLimit
-        history.removeAll { $0.timestamp < cutoff }
+        history.removeAll { $0.timestamp <= cutoff }
     }
 }

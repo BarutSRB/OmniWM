@@ -5,7 +5,7 @@ import Foundation
 
 final class DecelerationAnimation {
     static let decelerationRate = 0.997
-    private static let decayRate = 1000.0 * log(decelerationRate)
+    static let decayRate = 1000.0 * log(decelerationRate)
 
     private(set) var from: Double
     private let initialVelocity: Double

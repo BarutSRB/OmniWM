@@ -9,6 +9,8 @@ final class AnimationDriver {
     nonisolated static let gestureWorkingAreaMovement: Double = 1200.0
 
     final class ViewportGesture {
+        private static let minimumFlingVelocity: Double = 100.0
+
         let tracker = SwipeTracker()
         let isTrackpad: Bool
         private(set) var normFactor: Double = 1.0
@@ -22,7 +24,12 @@ final class AnimationDriver {
         }
 
         var velocity: Double {
-            tracker.velocity() * normFactor
+            let scaledVelocity = tracker.velocity() * normFactor
+            return abs(scaledVelocity) < Self.minimumFlingVelocity ? 0 : scaledVelocity
+        }
+
+        var relativeProjectedOffset: Double {
+            relativeOffset - velocity / DecelerationAnimation.decayRate
         }
 
         func update(delta: Double, timestamp: TimeInterval, viewportWidth: Double) {
@@ -146,7 +153,7 @@ final class AnimationDriver {
         gesture.update(delta: 0, timestamp: timestamp ?? CACurrentMediaTime(), viewportWidth: viewportWidth)
         return GestureEndSample(
             relativeOffset: gesture.relativeOffset,
-            relativeProjectedOffset: gesture.tracker.projectedEndPosition() * gesture.normFactor
+            relativeProjectedOffset: gesture.relativeProjectedOffset
         )
     }
 
