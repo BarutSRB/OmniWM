@@ -215,6 +215,8 @@ final class WMController {
     @ObservationIgnored
     var warpMouseCursorPosition: (CGPoint) -> Void = { CGWarpMouseCursorPosition($0) }
     @ObservationIgnored
+    var currentMouseLocation: () -> CGPoint = { NSEvent.mouseLocation }
+    @ObservationIgnored
     weak var ipcApplicationBridge: IPCApplicationBridge?
 
     let animationClock = AnimationClock()
@@ -2546,6 +2548,14 @@ final class WMController {
 
         guard NSScreen.screens.contains(where: { $0.frame.contains(center) }) else {
             MouseTrace.record("focus-warp suppressed (off-screen) token=\(token) center=\(TraceFormat.point(center))")
+            return
+        }
+
+        let mouse = currentMouseLocation()
+        guard !frame.contains(mouse) else {
+            MouseTrace.record(
+                "focus-warp suppressed (cursor-inside) token=\(token) mouse=\(TraceFormat.point(mouse))"
+            )
             return
         }
 

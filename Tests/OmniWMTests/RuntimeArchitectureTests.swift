@@ -371,6 +371,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         var warpedPoints: [CGPoint] = []
         fixture.controller.warpMouseCursorPosition = { warpedPoints.append($0) }
+        fixture.controller.currentMouseLocation = { CGPoint(x: -10_000, y: -10_000) }
 
         fixture.controller.axEventHandler.handleManagedAppActivation(
             entry: fixture.entry,
@@ -414,6 +415,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         var warpedPoints: [CGPoint] = []
         fixture.controller.warpMouseCursorPosition = { warpedPoints.append($0) }
+        fixture.controller.currentMouseLocation = { CGPoint(x: -10_000, y: -10_000) }
 
         Self.confirmManagedNiriFocus(
             controller: fixture.controller,
@@ -426,6 +428,83 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
 
         XCTAssertEqual(warpedPoints.count, 1)
+    }
+
+    @MainActor
+    func testKeyboardManagedFocusDoesNotWarpWhenCursorInsideWindowOnActivationConfirm() throws {
+        let fixture = try Self.managedNiriActivationFixture(
+            origin: .keyboardOrProgrammatic,
+            pid: 765_704,
+            windowId: 765_804
+        )
+        var warpedPoints: [CGPoint] = []
+        fixture.controller.warpMouseCursorPosition = { warpedPoints.append($0) }
+        let frame = try XCTUnwrap(fixture.controller.preferredKeyboardFocusFrame(for: fixture.entry.token))
+        fixture.controller.currentMouseLocation = { frame.center }
+
+        fixture.controller.axEventHandler.handleManagedAppActivation(
+            entry: fixture.entry,
+            isWorkspaceActive: true,
+            appFullscreen: false,
+            activeRequestId: fixture.requestId
+        )
+
+        XCTAssertTrue(warpedPoints.isEmpty)
+    }
+
+    @MainActor
+    func testNiriKeyboardConfirmedFocusDoesNotWarpWhenCursorInsideWindowAfterAnimationSettles() throws {
+        let fixture = try Self.managedNiriActivationFixture(
+            origin: .keyboardOrProgrammatic,
+            pid: 765_705,
+            windowId: 765_805
+        )
+        var warpedPoints: [CGPoint] = []
+        fixture.controller.warpMouseCursorPosition = { warpedPoints.append($0) }
+        let frame = try XCTUnwrap(fixture.controller.preferredKeyboardFocusFrame(for: fixture.entry.token))
+        fixture.controller.currentMouseLocation = { frame.center }
+
+        Self.confirmManagedNiriFocus(
+            controller: fixture.controller,
+            entry: fixture.entry,
+            requestId: fixture.requestId
+        )
+        try Self.settleNiriAnimation(
+            controller: fixture.controller,
+            workspaceId: fixture.entry.workspaceId
+        )
+
+        XCTAssertTrue(warpedPoints.isEmpty)
+    }
+
+    @MainActor
+    func testClickObservedManagedFocusDoesNotWarpWhenCursorInsideWindowWithoutManagedRequest() throws {
+        let fixture = try Self.managedNiriActivationFixture(
+            origin: .keyboardOrProgrammatic,
+            pid: 765_706,
+            windowId: 765_806
+        )
+        _ = fixture.controller.intentLedger.cancelManagedRequest(requestId: fixture.requestId)
+        _ = fixture.controller.workspaceManager.cancelManagedFocusRequest(
+            matching: fixture.entry.token,
+            workspaceId: fixture.entry.workspaceId,
+            requestId: fixture.requestId
+        )
+        XCTAssertNil(fixture.controller.intentLedger.activeManagedRequest)
+
+        var warpedPoints: [CGPoint] = []
+        fixture.controller.warpMouseCursorPosition = { warpedPoints.append($0) }
+        let frame = try XCTUnwrap(fixture.controller.preferredKeyboardFocusFrame(for: fixture.entry.token))
+        fixture.controller.currentMouseLocation = { frame.center }
+        fixture.controller.axEventHandler.noteMouseFocusIntent(token: fixture.entry.token)
+
+        fixture.controller.axEventHandler.handleManagedAppActivation(
+            entry: fixture.entry,
+            isWorkspaceActive: true,
+            appFullscreen: false
+        )
+
+        XCTAssertTrue(warpedPoints.isEmpty)
     }
 
     @MainActor
