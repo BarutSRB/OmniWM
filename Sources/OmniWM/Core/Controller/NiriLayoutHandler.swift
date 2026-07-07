@@ -263,6 +263,7 @@ import QuartzCore
         if controller.moveMouseToFocusedWindowEnabled,
            controller.workspaceManager.pendingFocusedToken == nil,
            let token = controller.workspaceManager.focusedToken,
+           !controller.axEventHandler.hasRecentMouseFocusIntent(for: token),
            controller.intentLedger.allowsMouseToFocusedWarp(for: token)
         {
             controller.moveMouseToWindow(token, preferredFrame: controller.preferredKeyboardFocusFrame(for: token))

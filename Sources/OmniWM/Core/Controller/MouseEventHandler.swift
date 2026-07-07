@@ -524,6 +524,22 @@ final class MouseEventHandler {
             return false
         }
 
+        if button == .left, modifiers.intersection(mouseRelevantModifierFlags).isEmpty {
+            let layoutType = controller.workspaceManager.descriptor(for: wsId)
+                .map { controller.settings.layoutType(for: $0.name) }
+            if layoutType == .dwindle {
+                if let token = controller.dwindleEngine?.hitTestFocusableWindow(
+                    point: location,
+                    in: wsId,
+                    at: controller.animationClock.now()
+                ) {
+                    controller.axEventHandler.noteMouseFocusIntent(token: token)
+                }
+            } else if let window = controller.niriEngine?.hitTestFocusableWindow(point: location, in: wsId) {
+                controller.axEventHandler.noteMouseFocusIntent(token: window.token)
+            }
+        }
+
         let layoutType = controller.workspaceManager.descriptor(for: wsId)
             .map { controller.settings.layoutType(for: $0.name) }
         if layoutType == .dwindle {
@@ -531,13 +547,6 @@ final class MouseEventHandler {
         }
 
         guard let engine = controller.niriEngine else { return false }
-
-        if button == .left,
-           modifiers.intersection(mouseRelevantModifierFlags).isEmpty,
-           let window = engine.hitTestFocusableWindow(point: location, in: wsId)
-        {
-            controller.axEventHandler.noteMouseFocusIntent(token: window.token)
-        }
 
         if button == .left, modifiers.contains(.maskAlternate) {
             if let tiledWindow = engine.hitTestTiled(point: location, in: wsId),

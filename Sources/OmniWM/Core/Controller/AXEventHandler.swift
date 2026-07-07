@@ -1688,7 +1688,7 @@ final class AXEventHandler {
         }
     }
 
-    private func hasRecentMouseFocusIntent(for token: WindowToken) -> Bool {
+    func hasRecentMouseFocusIntent(for token: WindowToken) -> Bool {
         guard let intent = recentMouseFocusIntent else { return false }
         guard intent.expiresAt > Date() else {
             recentMouseFocusIntent = nil
@@ -2346,6 +2346,7 @@ final class AXEventHandler {
         }
         if shouldConfirmRequest,
            controller.moveMouseToFocusedWindowEnabled,
+           !hasRecentMouseFocusIntent(for: entry.token),
            controller.intentLedger.allowsMouseToFocusedWarp(for: entry.token),
            controller.workspaceManager.focusedToken == entry.token,
            !controller.workspaceManager.isNonManagedFocusActive
