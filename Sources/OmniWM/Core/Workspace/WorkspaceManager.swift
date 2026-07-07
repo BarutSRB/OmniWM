@@ -2931,10 +2931,10 @@ final class WorkspaceManager {
         let directional = others.filter { candidate in
             let delta = monitorDelta(from: current, to: candidate)
             switch direction {
-            case .left: return delta.dx < 0
-            case .right: return delta.dx > 0
-            case .up: return delta.dy > 0
-            case .down: return delta.dy < 0
+            case .left: return delta.dx < 0 && abs(delta.dx) >= abs(delta.dy)
+            case .right: return delta.dx > 0 && abs(delta.dx) >= abs(delta.dy)
+            case .up: return delta.dy > 0 && abs(delta.dy) >= abs(delta.dx)
+            case .down: return delta.dy < 0 && abs(delta.dy) >= abs(delta.dx)
             }
         }
 
