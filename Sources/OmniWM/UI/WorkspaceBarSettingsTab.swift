@@ -87,6 +87,29 @@ private struct GlobalBarSettingsSection: View {
                         "Reserve tiled layout space using the configured workspace bar height."
                     )
 
+                Picker("Reveal on Modifier Hold", selection: $settings.workspaceBarRevealModifier) {
+                    ForEach(WorkspaceBarRevealModifier.allCases, id: \.self) { modifier in
+                        Text(modifier.displayName).tag(modifier)
+                    }
+                }
+                .onChange(of: settings.workspaceBarRevealModifier) { _, _ in
+                    controller.updateWorkspaceBarSettings()
+                }
+                .help("Show the workspace bar as an overlay only while the selected modifiers are held")
+
+                if settings.workspaceBarRevealModifier != .off {
+                    SettingsSliderRow(
+                        label: "Reveal Hold Delay",
+                        value: $settings.workspaceBarRevealHoldMilliseconds,
+                        range: 0 ... 1000,
+                        step: 50,
+                        valueText: "\(Int(settings.workspaceBarRevealHoldMilliseconds)) ms"
+                    )
+                    .onChange(of: settings.workspaceBarRevealHoldMilliseconds) { _, _ in
+                        controller.updateWorkspaceBarSettings()
+                    }
+                }
+
                 Toggle("System Stats Button", isOn: $settings.workspaceBarSystemStatsButton)
                     .onChange(of: settings.workspaceBarSystemStatsButton) { _, _ in
                         controller.updateWorkspaceBarSettings()

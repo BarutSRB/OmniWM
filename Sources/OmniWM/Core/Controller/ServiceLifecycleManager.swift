@@ -115,6 +115,7 @@ final class ServiceLifecycleManager {
         setupWorkspaceObservation()
         controller.mouseEventHandler.setup()
         controller.syncMouseWarpPolicy()
+        controller.syncWorkspaceBarRevealMonitor()
         setupDisplayObserver()
         setupAppActivationObserver()
         setupAppDeactivationObserver()
@@ -156,6 +157,7 @@ final class ServiceLifecycleManager {
         isSecureInputActive = isSecure
         controller.reconcileEnabledAndHotkeysState()
         if isSecure {
+            controller.resetWorkspaceBarReveal()
             if didSuppressActiveHotkeys {
                 SecureInputIndicatorController.shared.show()
             }

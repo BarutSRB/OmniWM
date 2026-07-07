@@ -63,6 +63,8 @@ struct SettingsExport: Equatable {
     var workspaceBarDeduplicateAppIcons: Bool
     var workspaceBarHideEmptyWorkspaces: Bool
     var workspaceBarReserveLayoutSpace: Bool
+    var workspaceBarRevealModifier: String
+    var workspaceBarRevealHoldMilliseconds: Double
     var workspaceBarHeight: Double
     var workspaceBarBackgroundOpacity: Double
     var workspaceBarXOffset: Double
@@ -170,6 +172,8 @@ extension SettingsExport {
             workspaceBarDeduplicateAppIcons: false,
             workspaceBarHideEmptyWorkspaces: false,
             workspaceBarReserveLayoutSpace: false,
+            workspaceBarRevealModifier: WorkspaceBarRevealModifier.off.rawValue,
+            workspaceBarRevealHoldMilliseconds: 200,
             workspaceBarHeight: 24.0,
             workspaceBarBackgroundOpacity: 0.1,
             workspaceBarXOffset: 0.0,

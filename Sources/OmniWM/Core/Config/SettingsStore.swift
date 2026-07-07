@@ -220,6 +220,16 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var workspaceBarRevealModifier = WorkspaceBarRevealModifier(
+        rawValue: SettingsStore.defaultExport.workspaceBarRevealModifier
+    ) ?? .off {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarRevealHoldMilliseconds = SettingsStore.defaultExport.workspaceBarRevealHoldMilliseconds {
+        didSet { scheduleSave() }
+    }
+
     var workspaceBarHeight = SettingsStore.defaultExport.workspaceBarHeight {
         didSet { scheduleSave() }
     }
@@ -585,6 +595,8 @@ final class SettingsStore {
             workspaceBarDeduplicateAppIcons: workspaceBarDeduplicateAppIcons,
             workspaceBarHideEmptyWorkspaces: workspaceBarHideEmptyWorkspaces,
             workspaceBarReserveLayoutSpace: workspaceBarReserveLayoutSpace,
+            workspaceBarRevealModifier: workspaceBarRevealModifier.rawValue,
+            workspaceBarRevealHoldMilliseconds: workspaceBarRevealHoldMilliseconds,
             workspaceBarHeight: workspaceBarHeight,
             workspaceBarBackgroundOpacity: workspaceBarBackgroundOpacity,
             workspaceBarXOffset: workspaceBarXOffset,
@@ -695,6 +707,10 @@ final class SettingsStore {
         workspaceBarDeduplicateAppIcons = export.workspaceBarDeduplicateAppIcons
         workspaceBarHideEmptyWorkspaces = export.workspaceBarHideEmptyWorkspaces
         workspaceBarReserveLayoutSpace = export.workspaceBarReserveLayoutSpace
+        workspaceBarRevealModifier = WorkspaceBarRevealModifier(rawValue: export.workspaceBarRevealModifier) ?? .off
+        workspaceBarRevealHoldMilliseconds = SettingsStore.validatedWorkspaceBarRevealHoldMilliseconds(
+            export.workspaceBarRevealHoldMilliseconds
+        )
         workspaceBarHeight = export.workspaceBarHeight
         workspaceBarBackgroundOpacity = export.workspaceBarBackgroundOpacity
         workspaceBarXOffset = export.workspaceBarXOffset
@@ -1146,5 +1162,10 @@ final class SettingsStore {
 
     static func validatedColorComponent(_ value: Double) -> Double {
         min(1.0, max(0.0, value))
+    }
+
+    static func validatedWorkspaceBarRevealHoldMilliseconds(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultExport.workspaceBarRevealHoldMilliseconds }
+        return min(max(value, 0), 1000)
     }
 }

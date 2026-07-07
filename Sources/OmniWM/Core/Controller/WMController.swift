@@ -85,6 +85,7 @@ final class WMController {
     var isLockScreenActive: Bool = false {
         didSet {
             guard isLockScreenActive, oldValue != isLockScreenActive else { return }
+            resetWorkspaceBarReveal()
             mouseEventHandler.handleInputSuppressionBegan()
         }
     }
@@ -133,6 +134,17 @@ final class WMController {
     private static let floatDemotionStabilityInterval: Duration = .milliseconds(300)
     @ObservationIgnored
     private var hiddenWorkspaceBarMonitorIds: Set<Monitor.ID> = []
+    @ObservationIgnored
+    private var isWorkspaceBarRevealHeld = false
+    @ObservationIgnored
+    private lazy var workspaceBarRevealMonitor: WorkspaceBarRevealMonitor = {
+        let monitor = WorkspaceBarRevealMonitor()
+        monitor.onRevealChanged = { [weak self] revealed in
+            self?.setWorkspaceBarRevealHeld(revealed)
+        }
+        return monitor
+    }()
+
     @ObservationIgnored
     private let hiddenBarController: HiddenBarController
     @ObservationIgnored
@@ -464,9 +476,11 @@ final class WMController {
         workspaceBarManager.setup(controller: self, settings: settings)
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
+        syncWorkspaceBarRevealMonitor()
     }
 
     func cleanupUIOnStop() {
+        workspaceBarRevealMonitor.stop()
         workspaceBarManager.cleanup()
     }
 
@@ -574,6 +588,7 @@ final class WMController {
         pruneHiddenWorkspaceBarMonitorIds()
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
+        syncWorkspaceBarRevealMonitor()
     }
 
     func updateWorkspaceBarAppearance() {
@@ -745,6 +760,31 @@ final class WMController {
         return shouldEnable
     }
 
+    func syncWorkspaceBarRevealMonitor() {
+        guard hasStartedServices,
+              settings.workspaceBarRevealModifier != .off,
+              workspaceBarRefreshIsEnabled
+        else {
+            workspaceBarRevealMonitor.stop()
+            return
+        }
+
+        workspaceBarRevealMonitor.start(
+            modifier: settings.workspaceBarRevealModifier,
+            holdMilliseconds: settings.workspaceBarRevealHoldMilliseconds
+        )
+    }
+
+    func setWorkspaceBarRevealHeld(_ revealed: Bool) {
+        guard isWorkspaceBarRevealHeld != revealed else { return }
+        isWorkspaceBarRevealHeld = revealed
+        surfaceReconciler.noteWorldChanged()
+    }
+
+    func resetWorkspaceBarReveal() {
+        workspaceBarRevealMonitor.resetReveal()
+    }
+
     func resetMouseWarpPolicy() {
         mouseWarpHandler.cleanup()
         isMouseWarpPolicyEnabled = false
@@ -779,6 +819,7 @@ final class WMController {
     }
 
     private func workspaceBarReservedTopInset(for monitor: Monitor) -> CGFloat {
+        guard settings.workspaceBarRevealModifier == .off else { return 0 }
         let resolved = settings.resolvedBarSettings(for: monitor)
         return WorkspaceBarGeometry.resolve(
             monitor: monitor,
@@ -847,7 +888,8 @@ final class WMController {
 
     func isWorkspaceBarVisible(on monitor: Monitor, resolved: ResolvedBarSettings? = nil) -> Bool {
         let effective = resolved ?? settings.resolvedBarSettings(for: monitor)
-        return effective.enabled && !hiddenWorkspaceBarMonitorIds.contains(monitor.id)
+        guard effective.enabled, !hiddenWorkspaceBarMonitorIds.contains(monitor.id) else { return false }
+        return settings.workspaceBarRevealModifier == .off || isWorkspaceBarRevealHeld
     }
 
     private func pruneHiddenWorkspaceBarMonitorIds() {

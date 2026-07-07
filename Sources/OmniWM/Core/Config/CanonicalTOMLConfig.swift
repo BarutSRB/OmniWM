@@ -117,6 +117,8 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var deduplicateAppIcons: Bool
         var hideEmptyWorkspaces: Bool
         var reserveLayoutSpace: Bool
+        var revealModifier: String
+        var revealHoldMilliseconds: Double
         var height: Double
         var backgroundOpacity: Double
         var xOffset: Double
@@ -707,6 +709,18 @@ extension CanonicalTOMLConfig.WorkspaceBar {
             default: defaults.reserveLayoutSpace,
             recovering: recovering
         )
+        revealModifier = try container.decode(
+            String.self,
+            forKey: .revealModifier,
+            default: defaults.revealModifier,
+            recovering: recovering
+        )
+        revealHoldMilliseconds = try container.decode(
+            Double.self,
+            forKey: .revealHoldMilliseconds,
+            default: defaults.revealHoldMilliseconds,
+            recovering: recovering
+        )
         height = try container.decode(Double.self, forKey: .height, default: defaults.height, recovering: recovering)
         backgroundOpacity = try container.decode(
             Double.self,
@@ -974,6 +988,8 @@ extension CanonicalTOMLConfig {
             deduplicateAppIcons: export.workspaceBarDeduplicateAppIcons,
             hideEmptyWorkspaces: export.workspaceBarHideEmptyWorkspaces,
             reserveLayoutSpace: export.workspaceBarReserveLayoutSpace,
+            revealModifier: export.workspaceBarRevealModifier,
+            revealHoldMilliseconds: export.workspaceBarRevealHoldMilliseconds,
             height: export.workspaceBarHeight,
             backgroundOpacity: export.workspaceBarBackgroundOpacity,
             xOffset: export.workspaceBarXOffset,
@@ -1070,6 +1086,8 @@ extension CanonicalTOMLConfig {
             workspaceBarDeduplicateAppIcons: workspaceBar.deduplicateAppIcons,
             workspaceBarHideEmptyWorkspaces: workspaceBar.hideEmptyWorkspaces,
             workspaceBarReserveLayoutSpace: workspaceBar.reserveLayoutSpace,
+            workspaceBarRevealModifier: workspaceBar.revealModifier,
+            workspaceBarRevealHoldMilliseconds: workspaceBar.revealHoldMilliseconds,
             workspaceBarHeight: workspaceBar.height,
             workspaceBarBackgroundOpacity: workspaceBar.backgroundOpacity,
             workspaceBarXOffset: workspaceBar.xOffset,
