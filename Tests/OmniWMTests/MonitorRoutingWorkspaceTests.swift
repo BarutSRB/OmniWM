@@ -56,6 +56,18 @@ final class MonitorRoutingWorkspaceTests: XCTestCase {
         XCTAssertNil(manager.adjacentMonitor(from: left.id, direction: .up))
     }
 
+    func testMacOSModeIgnoresOffsetStackedMonitorsHorizontally() {
+        let manager = WorkspaceManager(settings: makeSettings())
+        let top = makeMonitor(1, "Top", CGRect(x: 100, y: 1080, width: 1920, height: 1080))
+        let bottom = makeMonitor(2, "Bottom", CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        manager.applyMonitorConfigurationChange([top, bottom])
+
+        XCTAssertNil(manager.adjacentMonitor(from: top.id, direction: .left))
+        XCTAssertNil(manager.adjacentMonitor(from: bottom.id, direction: .right))
+        XCTAssertEqual(manager.adjacentMonitor(from: top.id, direction: .down)?.id, bottom.id)
+        XCTAssertEqual(manager.adjacentMonitor(from: bottom.id, direction: .up)?.id, top.id)
+    }
+
     func testCustomRoutingDivergesFromMacOSGeometry() {
         let settings = makeSettings()
         let manager = WorkspaceManager(settings: settings)
