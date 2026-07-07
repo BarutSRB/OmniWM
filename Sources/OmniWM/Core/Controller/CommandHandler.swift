@@ -251,8 +251,28 @@ final class CommandHandler {
         guard let controller else { return }
         guard let engine = controller.niriEngine else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
-        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-        var state = controller.workspaceManager.niriViewportState(for: wsId)
+        if focusGloballyPreviousNiriWindowIfNeeded(
+            controller: controller,
+            engine: engine,
+            workspaceId: wsId
+        ) {
+            return
+        }
+
+        focusPreviousInCurrentNiriWorkspace(
+            controller: controller,
+            engine: engine,
+            workspaceId: wsId
+        )
+    }
+
+    private func focusPreviousInCurrentNiriWorkspace(
+        controller: WMController,
+        engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID
+    ) {
+        guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         let motion = controller.motionPolicy.snapshot()
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let gaps = CGFloat(controller.workspaceManager.gaps)
@@ -265,7 +285,7 @@ final class CommandHandler {
 
             return engine.focusPrevious(
                 currentNodeId: state.selectedNodeId,
-                in: wsId,
+                in: workspaceId,
                 motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
@@ -276,7 +296,7 @@ final class CommandHandler {
         guard let previousWindow else { return }
 
         controller.niriLayoutHandler.activateNode(
-            previousWindow, in: wsId, state: &state,
+            previousWindow, in: workspaceId, state: &state,
             options: .init(
                 ensureVisible: false,
                 updateTimestamp: false,
@@ -287,17 +307,43 @@ final class CommandHandler {
         )
         _ = controller.workspaceManager.applySessionPatch(
             .init(
-                workspaceId: wsId,
+                workspaceId: workspaceId,
                 viewportState: state,
                 rememberedFocusToken: nil,
                 plannedSeq: controller.workspaceManager.worldSeq
             )
         )
-        controller.niriLayoutHandler.focusSelectedWindowAndRequestRelayout(in: wsId)
+        controller.niriLayoutHandler.focusSelectedWindowAndRequestRelayout(in: workspaceId)
 
-        if controller.workspaceManager.animationDriver.hasMotion(in: wsId) {
-            controller.layoutRefreshController.startScrollAnimation(for: wsId)
+        if controller.workspaceManager.animationDriver.hasMotion(in: workspaceId) {
+            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
         }
+    }
+
+    private func focusGloballyPreviousNiriWindowIfNeeded(
+        controller: WMController,
+        engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        let selectedNodeId = controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId
+        guard let target = engine.findMostRecentlyFocusedWindow(excluding: selectedNodeId, in: nil),
+              let targetWorkspaceId = controller.workspaceManager.entry(for: target.token)?.workspaceId,
+              targetWorkspaceId != workspaceId
+        else {
+            return false
+        }
+
+        controller.workspaceManager.withEngineMutationScope {
+            if let selectedNodeId {
+                engine.updateFocusTimestamp(for: selectedNodeId)
+                engine.activateWindow(selectedNodeId)
+            }
+        }
+        controller.windowActionHandler.navigateToWindowInternal(
+            token: target.token,
+            workspaceId: targetWorkspaceId
+        )
+        return true
     }
 
     private func focusDownOrLeftInNiri() {
