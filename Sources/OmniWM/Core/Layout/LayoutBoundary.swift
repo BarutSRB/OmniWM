@@ -7,7 +7,6 @@ import Foundation
 struct LayoutWindowSnapshot {
     let token: WindowToken
     let constraints: WindowSizeConstraints
-    let layoutConstraints: WindowSizeConstraints
     let hiddenState: HiddenState?
     let layoutReason: LayoutReason
 

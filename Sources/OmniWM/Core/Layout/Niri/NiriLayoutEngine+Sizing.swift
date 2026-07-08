@@ -59,12 +59,7 @@ extension NiriLayoutEngine {
             fixed
         }
 
-        let bounds = column.widthBounds()
-        var result = max(bounds.min, rawWidth)
-        if let maxWidth = bounds.max {
-            result = min(result, max(maxWidth, bounds.min))
-        }
-        return result
+        return column.clampedToWidthBounds(rawWidth)
     }
 
     private func resolvedPresetWidth(
@@ -491,7 +486,6 @@ extension NiriLayoutEngine {
         gaps: CGFloat
     ) {
         assertSanctionedMutation()
-        let workingAreaWidth = workingFrame.width
         let previousWidth = cachedWidthForResizeStart(
             column,
             in: workspaceId,
@@ -508,12 +502,7 @@ extension NiriLayoutEngine {
                 column.savedWidth = nil
             }
             column.hasManualSingleWindowWidthOverride = true
-            switch column.width {
-            case .proportion(let p):
-                targetPixels = (workingAreaWidth - gaps) * p - gaps
-            case .fixed(let f):
-                targetPixels = f
-            }
+            targetPixels = resolvedColumnPixels(column.width, for: column, workingFrame: workingFrame, gaps: gaps)
         } else {
             column.savedWidth = column.width
             column.isFullWidth = true

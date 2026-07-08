@@ -302,3 +302,83 @@ final class NiriSingleWindowFitEngineTests: XCTestCase {
         XCTAssertEqual(frame.height, size.height)
     }
 }
+
+final class NiriSingleWindowMinimumSizeTests: XCTestCase {
+    private let workingFrame = CGRect(x: 24, y: 16, width: 1200, height: 760)
+    private let fullscreenFrame = CGRect(x: 0, y: 0, width: 1280, height: 800)
+
+    private struct Fixture {
+        let engine: NiriLayoutEngine
+        let workspaceId: WorkspaceDescriptor.ID
+        let token: WindowToken
+        let column: NiriContainer
+    }
+
+    private func makeFixture(minWidth: CGFloat, minHeight: CGFloat) -> Fixture {
+        let engine = NiriLayoutEngine()
+        let workspaceId = WorkspaceDescriptor.ID()
+        let token = WindowToken(pid: 1, windowId: 1)
+        _ = engine.addWindow(token: token, to: workspaceId, afterSelection: nil)
+        engine.updateWindowConstraints(
+            for: token,
+            constraints: WindowSizeConstraints(
+                minSize: CGSize(width: minWidth, height: minHeight),
+                maxSize: .zero,
+                isFixed: false
+            )
+        )
+        return Fixture(
+            engine: engine,
+            workspaceId: workspaceId,
+            token: token,
+            column: engine.columns(in: workspaceId)[0]
+        )
+    }
+
+    private func layoutFrame(_ fixture: Fixture) -> CGRect? {
+        let area = WorkingAreaContext(
+            workingFrame: workingFrame,
+            fullscreenLayoutFrame: fullscreenFrame,
+            viewFrame: fullscreenFrame,
+            scale: 1
+        )
+        return fixture.engine.calculateLayout(
+            state: ViewportState(),
+            workspaceId: fixture.workspaceId,
+            monitorFrame: workingFrame,
+            gaps: (horizontal: 12, vertical: 12),
+            workingArea: area
+        )[fixture.token]
+    }
+
+    func testFillFitExpandsToOversizedMin() throws {
+        let fixture = makeFixture(minWidth: 1300, minHeight: 900)
+        fixture.engine.singleWindowFit = SingleWindowFit(mode: .fill)
+
+        let frame = try XCTUnwrap(layoutFrame(fixture))
+
+        XCTAssertEqual(frame.width, 1300, accuracy: 0.5)
+        XCTAssertEqual(frame.height, 900, accuracy: 0.5)
+    }
+
+    func testCustomFitIsFlooredToMin() throws {
+        let fixture = makeFixture(minWidth: 600, minHeight: 500)
+        fixture.engine.singleWindowFit = SingleWindowFit(mode: .custom, width: 400, height: 300)
+
+        let frame = try XCTUnwrap(layoutFrame(fixture))
+
+        XCTAssertEqual(frame.width, 600, accuracy: 0.5)
+        XCTAssertEqual(frame.height, 500, accuracy: 0.5)
+    }
+
+    func testManualWidthOverrideIsFlooredToMin() throws {
+        let fixture = makeFixture(minWidth: 1000, minHeight: 1)
+        fixture.engine.singleWindowFit = SingleWindowFit(mode: .fill)
+        fixture.column.hasManualSingleWindowWidthOverride = true
+        fixture.column.cachedWidth = 300
+
+        let frame = try XCTUnwrap(layoutFrame(fixture))
+
+        XCTAssertEqual(frame.width, 1000, accuracy: 0.5)
+    }
+}

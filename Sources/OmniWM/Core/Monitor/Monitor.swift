@@ -94,10 +94,31 @@ struct Monitor: Identifiable, Hashable {
     }
 }
 
+struct MonitorNeighborAxes: Equatable {
+    let horizontal: Bool
+    let vertical: Bool
+
+    static let none = MonitorNeighborAxes(horizontal: false, vertical: false)
+}
+
 extension Monitor {
     enum Orientation: String, Codable, Equatable {
         case horizontal
         case vertical
+    }
+
+    func neighborAxes(among monitors: [Monitor]) -> MonitorNeighborAxes {
+        var horizontal = false
+        var vertical = false
+        for other in monitors where other.id != id {
+            if (other.frame.minY ..< other.frame.maxY).overlaps(frame.minY ..< frame.maxY) {
+                horizontal = true
+            }
+            if (other.frame.minX ..< other.frame.maxX).overlaps(frame.minX ..< frame.maxX) {
+                vertical = true
+            }
+        }
+        return MonitorNeighborAxes(horizontal: horizontal, vertical: vertical)
     }
 
     var autoOrientation: Orientation {

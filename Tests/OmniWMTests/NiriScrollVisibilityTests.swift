@@ -107,7 +107,6 @@ final class NiriScrollVisibilityTests: XCTestCase {
         let window = LayoutWindowSnapshot(
             token: token,
             constraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
-            layoutConstraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
             hiddenState: HiddenState(
                 proportionalPosition: .zero,
                 referenceMonitorId: nil,
@@ -149,7 +148,6 @@ final class NiriScrollVisibilityTests: XCTestCase {
         let window = LayoutWindowSnapshot(
             token: token,
             constraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
-            layoutConstraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
             hiddenState: HiddenState(
                 proportionalPosition: .zero,
                 referenceMonitorId: nil,
@@ -223,7 +221,6 @@ final class NiriScrollVisibilityTests: XCTestCase {
         let window = LayoutWindowSnapshot(
             token: token,
             constraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
-            layoutConstraints: WindowSizeConstraints(minSize: .zero, maxSize: .zero, isFixed: false),
             hiddenState: HiddenState(
                 proportionalPosition: .zero,
                 referenceMonitorId: nil,

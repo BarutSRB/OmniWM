@@ -126,15 +126,6 @@ struct WindowSizeConstraints: Equatable {
         WindowSizeConstraints(minSize: minSize, maxSize: maxSize, isFixed: isFixed)
     }
 
-    func relaxedForOversizedMinimum() -> WindowSizeConstraints {
-        guard !isFixed else { return normalized() }
-        return WindowSizeConstraints(
-            minSize: .init(width: 1, height: 1),
-            maxSize: maxSize,
-            isFixed: false
-        )
-    }
-
     var hasMinWidth: Bool {
         minSize.width > 1
     }
@@ -493,7 +484,8 @@ class NiriContainer: NiriNode {
     func tickWidthAnimation(at time: TimeInterval) -> Bool {
         guard let anim = widthAnimation else { return false }
 
-        cachedWidth = CGFloat(anim.value(at: time))
+        let lowerEndpoint = min(CGFloat(anim.from), targetWidth ?? CGFloat(anim.from))
+        cachedWidth = max(CGFloat(anim.value(at: time)), lowerEndpoint)
 
         if anim.isComplete(at: time) {
             if let target = targetWidth {
@@ -562,6 +554,20 @@ class NiriContainer: NiriNode {
         }
 
         return (minHeight, maxHeight.map { max($0, minHeight) })
+    }
+
+    func clampedToWidthBounds(_ width: CGFloat) -> CGFloat {
+        let bounds = widthBounds()
+        let clamped = max(width, bounds.min)
+        guard let maxWidth = bounds.max else { return clamped }
+        return min(clamped, maxWidth)
+    }
+
+    func clampedToHeightBounds(_ height: CGFloat) -> CGFloat {
+        let bounds = heightBounds()
+        let clamped = max(height, bounds.min)
+        guard let maxHeight = bounds.max else { return clamped }
+        return min(clamped, maxHeight)
     }
 
     func resolveAndCacheWidth(workingAreaWidth: CGFloat, gaps: CGFloat) {

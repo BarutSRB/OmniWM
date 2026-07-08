@@ -692,8 +692,9 @@ import QuartzCore
 
     func buildWindowSnapshots(
         for entries: [WindowState],
-        resolveConstraints: Bool = true,
-        workingFrame: CGRect? = nil
+        resolveConstraints: Bool,
+        workArea: CGSize,
+        neighborAxes: MonitorNeighborAxes
     ) -> [LayoutWindowSnapshot] {
         guard let controller else { return [] }
 
@@ -731,18 +732,16 @@ import QuartzCore
             }
 
             let hiddenState = controller.workspaceManager.hiddenState(for: entry.token)
-            let layoutConstraints = Self.resolvedLayoutConstraints(
-                for: mergedConstraints,
-                layoutReason: layoutReason,
-                hiddenState: hiddenState,
-                workingFrame: workingFrame
-            )
 
             snapshots.append(
                 LayoutWindowSnapshot(
                     token: entry.token,
-                    constraints: mergedConstraints,
-                    layoutConstraints: layoutConstraints,
+                    constraints: Self.overflowCappedConstraints(
+                        mergedConstraints,
+                        layoutReason: layoutReason,
+                        workArea: workArea,
+                        cappedAxes: neighborAxes
+                    ),
                     hiddenState: hiddenState,
                     layoutReason: layoutReason
                 )
@@ -752,33 +751,23 @@ import QuartzCore
         return snapshots
     }
 
-    nonisolated static func resolvedLayoutConstraints(
-        for constraints: WindowSizeConstraints,
+    nonisolated static func overflowCappedConstraints(
+        _ constraints: WindowSizeConstraints,
         layoutReason: LayoutReason,
-        hiddenState: HiddenState?,
-        workingFrame: CGRect?
+        workArea: CGSize,
+        cappedAxes: MonitorNeighborAxes
     ) -> WindowSizeConstraints {
-        let effectiveConstraints = constraints.normalized()
-
-        if effectiveConstraints.isFixed || layoutReason == .nativeFullscreen {
-            return effectiveConstraints
+        var effective = constraints.normalized()
+        if effective.isFixed || layoutReason == .nativeFullscreen {
+            return effective
         }
-
-        guard layoutReason == .standard,
-              hiddenState == nil || hiddenState?.offscreenSide != nil,
-              let workingFrame
-        else {
-            return effectiveConstraints.relaxedForOversizedMinimum()
+        if cappedAxes.horizontal {
+            effective.minSize.width = min(effective.minSize.width, workArea.width)
         }
-
-        let tolerance: CGFloat = 0.5
-        if effectiveConstraints.minSize.width <= workingFrame.width + tolerance,
-           effectiveConstraints.minSize.height <= workingFrame.height + tolerance
-        {
-            return effectiveConstraints
+        if cappedAxes.vertical {
+            effective.minSize.height = min(effective.minSize.height, workArea.height)
         }
-
-        return effectiveConstraints.relaxedForOversizedMinimum()
+        return effective
     }
 
     func buildMonitorSnapshot(
@@ -811,7 +800,8 @@ import QuartzCore
         let windows = buildWindowSnapshots(
             for: entries,
             resolveConstraints: resolveConstraints,
-            workingFrame: monitorSnapshot.workingFrame
+            workArea: monitorSnapshot.workingFrame.size,
+            neighborAxes: monitor.neighborAxes(among: controller.workspaceManager.monitors)
         )
 
         return WorkspaceRefreshInput(
@@ -3456,17 +3446,6 @@ import QuartzCore
 
     func consumeNativeFullscreenRestoredFrameApply(for token: WindowToken) -> Bool {
         nativeFullscreenRestoredFrameApplyTokens.remove(token) != nil
-    }
-
-    func updateWindowConstraints(
-        in wsId: WorkspaceDescriptor.ID,
-        updateEngine: (WindowToken, WindowSizeConstraints) -> Void
-    ) {
-        guard let controller else { return }
-        let snapshots = buildWindowSnapshots(for: controller.workspaceManager.tiledEntries(in: wsId))
-        for snapshot in snapshots {
-            updateEngine(snapshot.token, snapshot.constraints)
-        }
     }
 }
 

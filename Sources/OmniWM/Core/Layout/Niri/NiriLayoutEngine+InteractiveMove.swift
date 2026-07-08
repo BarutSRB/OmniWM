@@ -205,6 +205,24 @@ extension NiriLayoutEngine {
                 return false
             }
 
+            guard columnCanAcceptTransfer(
+                targetColumn,
+                adding: sourceWindow,
+                removing: targetWindow,
+                in: workspaceId,
+                workingFrame: workingFrame,
+                gaps: gaps
+            ), columnCanAcceptTransfer(
+                sourceColumn,
+                adding: targetWindow,
+                removing: sourceWindow,
+                in: workspaceId,
+                workingFrame: workingFrame,
+                gaps: gaps
+            ) else {
+                return false
+            }
+
             let sourceSize = sourceWindow.size
             let sourceHeight = sourceWindow.height
             let targetSize = targetWindow.size
@@ -270,6 +288,18 @@ extension NiriLayoutEngine {
 
         let sameColumn = sourceColumn.id == targetColumn.id
         let sourceColumnWillBeEmpty = sourceColumn.children.count == 1 && !sameColumn
+
+        if !sameColumn {
+            guard columnCanAcceptTransfer(
+                targetColumn,
+                adding: sourceWindow,
+                in: workspaceId,
+                workingFrame: workingFrame,
+                gaps: gaps
+            ) else {
+                return false
+            }
+        }
 
         sourceWindow.detach()
 

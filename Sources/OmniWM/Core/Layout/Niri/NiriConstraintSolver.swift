@@ -49,6 +49,16 @@ extension NiriAxisSolver {
         let usableSpace = max(0, availableSpace - totalGaps)
         let epsilon: CGFloat = 0.001
         let minConstraints = windows.map { sanitizedMinimum($0.minConstraint) }
+
+        let floors = minConstraints.map { max(Self.minimumRenderableSpan, $0) }
+        let floorSum = floors.reduce(0, +)
+        if floorSum > usableSpace + epsilon {
+            let scale = usableSpace / floorSum
+            return floors.map { floor in
+                Output(value: max(Self.minimumRenderableSpan, floor * scale), wasConstrained: true)
+            }
+        }
+
         let maxConstraints = windows.map { window in
             sanitizedMaximum(window.hasMaxConstraint ? window.maxConstraint : nil)
         }
@@ -82,11 +92,15 @@ extension NiriAxisSolver {
             }
         )
         if fixedSum > fixedBudget, fixedSum > epsilon {
-            // Preserve room for every auto tile's render floor, even when that scales fixed tiles below their min.
-            let scale = fixedBudget / fixedSum
+            let fixedFloorSum = fixedValues.indices.reduce(CGFloat.zero) { partialResult, index in
+                fixedValues[index] == nil ? partialResult : partialResult + floors[index]
+            }
+            let allowedSurplus = max(0, fixedBudget - fixedFloorSum)
+            let surplus = fixedSum - fixedFloorSum
+            let surplusScale = surplus > epsilon ? allowedSurplus / surplus : 0
             for index in fixedValues.indices {
                 guard let fixedValue = fixedValues[index] else { continue }
-                let scaledValue = max(0, fixedValue * scale)
+                let scaledValue = floors[index] + max(0, fixedValue - floors[index]) * surplusScale
                 fixedWasScaled[index] = abs(scaledValue - fixedValue) > epsilon
                 fixedValues[index] = scaledValue
             }

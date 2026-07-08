@@ -33,12 +33,24 @@ extension NiriLayoutEngine {
         let normalized = constraints.normalized()
         guard node.constraints != normalized else { return }
         node.constraints = normalized
-        if let column = node.parent as? NiriContainer, column.cachedWidth > 0 {
-            let bounds = column.widthBounds()
-            column.cachedWidth = max(column.cachedWidth, bounds.min)
-            if let maxWidth = bounds.max {
-                column.cachedWidth = min(column.cachedWidth, maxWidth)
+        guard let column = node.parent as? NiriContainer else { return }
+        if column.cachedHeight > 0 {
+            column.cachedHeight = column.clampedToHeightBounds(column.cachedHeight)
+        }
+        if let target = column.targetWidth {
+            let clampedTarget = column.clampedToWidthBounds(target)
+            if clampedTarget != target {
+                column.animateWidthTo(
+                    newWidth: clampedTarget,
+                    clock: animationClock,
+                    config: windowMovementAnimationConfig,
+                    displayRefreshRate: workspaceIds(containing: token).first
+                        .map { displayRefreshRate(in: $0) } ?? 60.0,
+                    animated: true
+                )
             }
+        } else if column.cachedWidth > 0 {
+            column.cachedWidth = column.clampedToWidthBounds(column.cachedWidth)
         }
     }
 

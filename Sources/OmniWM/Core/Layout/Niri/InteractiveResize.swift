@@ -11,6 +11,7 @@ struct ResizeEdge: OptionSet, Hashable {
     static let bottom = ResizeEdge(rawValue: 0b0010)
     static let left = ResizeEdge(rawValue: 0b0100)
     static let right = ResizeEdge(rawValue: 0b1000)
+    static let all: ResizeEdge = [.top, .bottom, .left, .right]
 
     var hasHorizontal: Bool {
         !intersection([.left, .right]).isEmpty

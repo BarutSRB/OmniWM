@@ -660,6 +660,19 @@ extension NiriLayoutEngine {
         ).roundedToPhysicalPixels(scale: scale)
     }
 
+    private func rectExpandedToMinimum(_ rect: CGRect, minSize: CGSize) -> CGRect {
+        var expanded = rect
+        if expanded.width < minSize.width {
+            expanded.origin.x -= (minSize.width - expanded.width) / 2
+            expanded.size.width = minSize.width
+        }
+        if expanded.height < minSize.height {
+            expanded.origin.y -= (minSize.height - expanded.height) / 2
+            expanded.size.height = minSize.height
+        }
+        return expanded
+    }
+
     func resolvedSingleWindowRect(
         for context: SingleWindowLayoutContext,
         in workingFrame: CGRect,
@@ -667,9 +680,11 @@ extension NiriLayoutEngine {
         scale: CGFloat,
         gaps: CGFloat
     ) -> CGRect {
+        let minSize = context.window.constraints.normalized().minSize
         guard context.container.hasManualSingleWindowWidthOverride else {
             let baseFrame = context.fit.mode == .fill ? fullscreenLayoutFrame ?? workingFrame : workingFrame
-            return context.fit.frame(in: baseFrame).roundedToPhysicalPixels(scale: scale)
+            return rectExpandedToMinimum(context.fit.frame(in: baseFrame), minSize: minSize)
+                .roundedToPhysicalPixels(scale: scale)
         }
 
         if context.container.cachedWidth <= 0 {
@@ -677,16 +692,10 @@ extension NiriLayoutEngine {
         }
 
         let resolvedWidth = min(workingFrame.width, max(0, context.container.cachedWidth))
-        guard resolvedWidth > 0 else {
-            return workingFrame.roundedToPhysicalPixels(scale: scale)
-        }
-
-        // Manual lone-window width commands bypass the configured fit but remain centered.
-        return centeredSingleWindowRect(
-            in: workingFrame,
-            width: resolvedWidth,
-            scale: scale
-        )
+        return rectExpandedToMinimum(
+            centeredSingleWindowRect(in: workingFrame, width: resolvedWidth, scale: scale),
+            minSize: minSize
+        ).roundedToPhysicalPixels(scale: scale)
     }
 
     private func layoutSingleWindowWorkspace(

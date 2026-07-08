@@ -274,7 +274,7 @@ extension NiriLayoutEngine {
             column.hasManualSingleWindowWidthOverride = false
 
             column.animateWidthTo(
-                newWidth: targetPixels,
+                newWidth: column.clampedToWidthBounds(targetPixels),
                 clock: animationClock,
                 config: windowMovementAnimationConfig,
                 displayRefreshRate: displayRefreshRate(in: workspaceId),
@@ -545,6 +545,27 @@ extension NiriLayoutEngine {
         )
     }
 
+    func columnCanAcceptTransfer(
+        _ column: NiriContainer,
+        adding window: NiriWindow,
+        removing removedWindow: NiriWindow? = nil,
+        in workspaceId: WorkspaceDescriptor.ID,
+        workingFrame: CGRect,
+        gaps: CGFloat
+    ) -> Bool {
+        guard !column.isTabbed else { return true }
+        let orientation = monitorForWorkspace(workspaceId)?.orientation ?? .horizontal
+        let axisSpace = orientation == .horizontal ? workingFrame.height : workingFrame.width
+        func axisMinimum(_ tile: NiriWindow) -> CGFloat {
+            let minSize = tile.constraints.normalized().minSize
+            return orientation == .horizontal ? minSize.height : minSize.width
+        }
+        let remaining = column.windowNodes.filter { $0 !== removedWindow }
+        let minSum = remaining.reduce(axisMinimum(window)) { $0 + axisMinimum($1) }
+        let gapSum = gaps * CGFloat(remaining.count + 2)
+        return minSum + gapSum <= axisSpace + 0.5
+    }
+
     @discardableResult
     func consumeWindow(
         _ window: NiriWindow,
@@ -561,6 +582,16 @@ extension NiriLayoutEngine {
               let currentIdx = columnIndex(of: currentColumn, in: workspaceId),
               currentColumn.id != targetColumn.id
         else {
+            return false
+        }
+
+        guard columnCanAcceptTransfer(
+            targetColumn,
+            adding: window,
+            in: workspaceId,
+            workingFrame: workingFrame,
+            gaps: gaps
+        ) else {
             return false
         }
 
@@ -644,6 +675,7 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot,
         state: inout ViewportState,
+        workingFrame: CGRect,
         gaps: CGFloat
     ) -> Bool {
         assertSanctionedMutation()
@@ -659,6 +691,16 @@ extension NiriLayoutEngine {
         guard let window = sourceColumn.windowNodes.last,
               let sourceTileIdx = sourceColumn.windowNodes.firstIndex(where: { $0 === window })
         else {
+            return false
+        }
+
+        guard columnCanAcceptTransfer(
+            targetColumn,
+            adding: window,
+            in: workspaceId,
+            workingFrame: workingFrame,
+            gaps: gaps
+        ) else {
             return false
         }
 

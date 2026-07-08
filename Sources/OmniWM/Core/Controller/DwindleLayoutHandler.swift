@@ -52,6 +52,27 @@ import QuartzCore
         return controller.layoutRefreshController.executeLayoutPlan(plan)
     }
 
+    func refreshEngineConstraints(workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
+        guard let controller,
+              let engine = controller.dwindleEngine,
+              let activeWorkspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id,
+              let refreshInput = controller.layoutRefreshController.buildRefreshInput(
+                  workspaceId: workspaceId,
+                  monitor: monitor,
+                  resolveConstraints: true,
+                  isActiveWorkspace: activeWorkspaceId == workspaceId
+              )
+        else {
+            return
+        }
+
+        controller.workspaceManager.withEngineMutationScope {
+            for window in refreshInput.windows {
+                engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
+            }
+        }
+    }
+
     func tickDwindleAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
         guard let (wsId, _) = dwindleAnimationByDisplay[displayId] else { return }
         guard let controller, let engine = controller.dwindleEngine else {
@@ -354,7 +375,7 @@ import QuartzCore
         )
 
         for window in snapshot.windows {
-            engine.updateWindowConstraints(for: window.token, constraints: window.layoutConstraints)
+            engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
         }
 
         let newFrames = engine.calculateLayout(

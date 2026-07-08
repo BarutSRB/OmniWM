@@ -3518,6 +3518,7 @@ final class RuntimeArchitectureTests: XCTestCase {
                     in: ws,
                     motion: .disabled,
                     state: &state,
+                    workingFrame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
                     gaps: CGFloat(controller.workspaceManager.gaps)
                 )
             }

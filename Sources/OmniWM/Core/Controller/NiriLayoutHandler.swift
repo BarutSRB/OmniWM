@@ -509,7 +509,7 @@ import QuartzCore
         )
 
         for window in snapshot.windows {
-            engine.updateWindowConstraints(for: window.token, constraints: window.layoutConstraints)
+            engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
         }
 
         let selection = resolveSelection(
@@ -1996,6 +1996,7 @@ import QuartzCore
                 in: ctx.wsId,
                 motion: ctx.motion,
                 state: &state,
+                workingFrame: ctx.workingFrame,
                 gaps: ctx.gaps
             ) else {
                 return false

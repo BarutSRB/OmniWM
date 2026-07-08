@@ -641,11 +641,15 @@ final class MouseEventHandler {
         else { return false }
 
         let edges = resizeEdges(for: location, in: frame)
+        let monitor = controller.workspaceManager.monitor(for: wsId)
+        if let monitor {
+            controller.dwindleLayoutHandler.refreshEngineConstraints(workspaceId: wsId, monitor: monitor)
+        }
         guard engine.interactiveResizeBegin(token: token, edges: edges, startLocation: location, in: wsId) else {
             return false
         }
 
-        if let monitor = controller.workspaceManager.monitor(for: wsId) {
+        if let monitor {
             controller.layoutRefreshController.stopDwindleAnimation(for: monitor.displayId)
         }
         engine.cancelAnimations(in: wsId)

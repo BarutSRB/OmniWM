@@ -137,7 +137,7 @@ extension DwindleLayoutEngine {
             return false
         }
 
-        let newRatio = settings.clampedRatio(originRatio + 2 * delta / axisLength)
+        let newRatio = clampedRatioRespectingMinimums(originRatio + 2 * delta / axisLength, for: match.split)
         guard newRatio != match.split.splitRatio else { return false }
         match.split.kind = .split(orientation: axis, ratio: newRatio)
         return true
