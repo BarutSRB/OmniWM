@@ -248,6 +248,24 @@ final class SettingsTOMLCodecTests: XCTestCase {
         XCTAssertFalse(try SettingsTOMLCodec.decode(withoutKey).moveCrossesMonitorAtEdge)
     }
 
+    func testCursorContainmentRoundTrips() throws {
+        XCTAssertFalse(SettingsExport.defaults().cursorContainmentEnabled)
+
+        var export = SettingsExport.defaults()
+        export.cursorContainmentEnabled = true
+        let data = try SettingsTOMLCodec.encode(export)
+
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("constrainToArrangement = true"))
+        XCTAssertTrue(try SettingsTOMLCodec.decode(data).cursorContainmentEnabled)
+    }
+
+    func testCursorContainmentRecoversToFalseWhenMissing() throws {
+        let withoutKey = try defaultsWithReplacements(
+            ("constrainToArrangement = false\n", "")
+        )
+        XCTAssertFalse(try SettingsTOMLCodec.decode(withoutKey).cursorContainmentEnabled)
+    }
+
     private func defaultsWithReplacements(_ replacements: (String, String)...) throws -> Data {
         var toml = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
         for (target, replacement) in replacements {

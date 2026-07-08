@@ -76,6 +76,10 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var cursorContainmentEnabled = SettingsStore.defaultExport.cursorContainmentEnabled {
+        didSet { scheduleSave() }
+    }
+
     var monitorRoutingMode = MonitorRoutingMode(rawValue: SettingsStore.defaultExport.monitorRoutingMode) ?? .macOS {
         didSet { scheduleSave() }
     }
@@ -560,6 +564,7 @@ final class SettingsStore {
             moveCrossesMonitorAtEdge: moveCrossesMonitorAtEdge,
             mouseWarpMargin: mouseWarpMargin,
             mouseWarpEnabled: mouseWarpEnabled,
+            cursorContainmentEnabled: cursorContainmentEnabled,
             monitorRoutingMode: monitorRoutingMode.rawValue,
             monitorRoutingSettings: monitorRoutingSettings,
             gapSize: gapSize,
@@ -662,6 +667,7 @@ final class SettingsStore {
         moveCrossesMonitorAtEdge = export.moveCrossesMonitorAtEdge
         mouseWarpMargin = export.mouseWarpMargin
         mouseWarpEnabled = export.mouseWarpEnabled
+        cursorContainmentEnabled = export.cursorContainmentEnabled
         monitorRoutingMode = MonitorRoutingMode(rawValue: export.monitorRoutingMode) ?? .macOS
         monitorRoutingSettings = SettingsStore.reboundMonitorSettings(export.monitorRoutingSettings, monitors: monitors)
         gapSize = export.gapSize

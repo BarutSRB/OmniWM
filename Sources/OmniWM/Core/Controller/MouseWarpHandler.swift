@@ -33,6 +33,7 @@ final class MouseWarpHandler: NSObject {
         var cooldownTimer: Timer?
         var isWarping = false
         var lastMonitorId: Monitor.ID?
+        var lastSampleAt: Date?
         var pendingWarpEvents = PendingWarpEvents()
         var debugCounters = DebugCounters()
     }
@@ -75,6 +76,7 @@ final class MouseWarpHandler: NSObject {
 
         let callback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                InputTapHealth.recordTapDisabled(mouse: true, byTimeout: type == .tapDisabledByTimeout)
                 if let tap = MouseWarpHandler._instance?.state.eventTap {
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
@@ -122,6 +124,7 @@ final class MouseWarpHandler: NSObject {
         MouseWarpHandler._instance = nil
         state.isWarping = false
         state.lastMonitorId = nil
+        state.lastSampleAt = nil
         state.pendingWarpEvents.clear()
         state.debugCounters = .init()
     }
@@ -131,6 +134,7 @@ final class MouseWarpHandler: NSObject {
         state.cooldownTimer = nil
         state.isWarping = false
         state.lastMonitorId = nil
+        state.lastSampleAt = nil
         state.pendingWarpEvents.clear()
     }
 
@@ -155,7 +159,7 @@ final class MouseWarpHandler: NSObject {
         return true
     }
 
-    private func handleMouseWarpMoved(at location: CGPoint) {
+    func handleMouseWarpMoved(at location: CGPoint) {
         guard let controller else { return }
         guard !state.isWarping else { return }
         guard controller.isEnabled else { return }
@@ -166,8 +170,11 @@ final class MouseWarpHandler: NSObject {
 
         let margin = CGFloat(controller.settings.mouseWarpMargin)
 
+        if attemptContainment(location: location, monitors: monitors, margin: margin) { return }
+
         if let currentMonitor = monitors.first(where: { $0.frame.contains(location) }) {
             state.lastMonitorId = currentMonitor.id
+            state.lastSampleAt = Date()
             _ = attemptWarp(from: currentMonitor, location: location, margin: margin)
             return
         }
@@ -214,6 +221,67 @@ final class MouseWarpHandler: NSObject {
         return true
     }
 
+    private func attemptContainment(location: CGPoint, monitors: [Monitor], margin: CGFloat) -> Bool {
+        guard let controller else { return false }
+        guard controller.settings.cursorContainmentEnabled else { return false }
+        guard controller.settings.monitorRoutingMode == .custom else { return false }
+        guard let sourceMonitorId = state.lastMonitorId,
+              let source = controller.workspaceManager.monitor(byId: sourceMonitorId)
+        else { return false }
+        guard !source.frame.contains(location) else { return false }
+        guard let destination = monitors.first(where: { $0.id != source.id && $0.frame.contains(location) }) else {
+            return false
+        }
+
+        let now = Date()
+        guard let lastSampleAt = state.lastSampleAt,
+              now.timeIntervalSince(lastSampleAt) <= 1
+        else {
+            adoptContainmentDestination(destination, sampledAt: now)
+            return true
+        }
+
+        switch MouseContainment.evaluate(
+            location: location,
+            source: source,
+            destination: destination,
+            layout: controller.settings.monitorRoutingSettings,
+            monitors: monitors,
+            margin: margin
+        ) {
+        case .allow:
+            adoptContainmentDestination(destination, sampledAt: now)
+        case let .wall(clamped):
+            state.lastSampleAt = now
+            state.isWarping = true
+            MouseTrace.record(
+                "containment-wall from=\(source.id) blocked=\(destination.id) dest=\(TraceFormat.point(clamped))"
+            )
+            let warpPoint = ScreenCoordinateSpace.toWindowServer(point: clamped)
+            warpCursor(warpPoint)
+            postMouseMovedEvent(warpPoint)
+            scheduleWarpCooldownReset()
+        }
+        return true
+    }
+
+    private func adoptContainmentDestination(_ destination: Monitor, sampledAt: Date) {
+        state.lastMonitorId = destination.id
+        state.lastSampleAt = sampledAt
+    }
+
+    func noteProgrammaticCursorMove(to location: CGPoint) {
+        guard let controller else { return }
+        guard let monitor = controller.workspaceManager.monitors.first(where: { $0.frame.contains(location) }) else {
+            return
+        }
+        state.lastMonitorId = monitor.id
+        state.lastSampleAt = Date()
+        state.pendingWarpEvents.clear()
+        state.isWarping = true
+        scheduleWarpCooldownReset()
+    }
+
     private func scheduleWarpCooldownReset() {
         state.cooldownTimer?.invalidate()
         state.cooldownTimer = Timer(
@@ -232,10 +300,25 @@ final class MouseWarpHandler: NSObject {
 
     @objc private func handleWarpCooldownTimer(_ timer: Timer) {
         timer.invalidate()
-        if state.cooldownTimer === timer {
-            state.cooldownTimer = nil
-        }
+        guard state.cooldownTimer === timer else { return }
+        handleCooldownExpiry()
+    }
+
+    func handleCooldownExpiry() {
+        state.cooldownTimer?.invalidate()
+        state.cooldownTimer = nil
         state.isWarping = false
+        guard let controller else { return }
+        guard controller.isEnabled else { return }
+        guard controller.settings.mouseWarpEnabled else { return }
+        let monitors = controller.workspaceManager.monitors
+        guard monitors.count > 1 else { return }
+        let margin = CGFloat(controller.settings.mouseWarpMargin)
+        _ = attemptContainment(
+            location: controller.currentMouseLocation(),
+            monitors: monitors,
+            margin: margin
+        )
     }
 
     private func schedulePendingWarpDrainIfNeeded() {

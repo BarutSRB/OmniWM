@@ -55,6 +55,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     struct MouseWarp: Codable, Equatable {
         var margin: Int
         var enabled: Bool
+        var constrainToArrangement: Bool
     }
 
     struct Routing: Codable, Equatable {
@@ -492,6 +493,12 @@ extension CanonicalTOMLConfig.MouseWarp {
             Bool.self,
             forKey: .enabled,
             default: defaults.enabled,
+            recovering: recovering
+        )
+        constrainToArrangement = try container.decode(
+            Bool.self,
+            forKey: .constrainToArrangement,
+            default: defaults.constrainToArrangement,
             recovering: recovering
         )
     }
@@ -937,7 +944,8 @@ extension CanonicalTOMLConfig {
         )
         mouseWarp = MouseWarp(
             margin: export.mouseWarpMargin,
-            enabled: export.mouseWarpEnabled
+            enabled: export.mouseWarpEnabled,
+            constrainToArrangement: export.cursorContainmentEnabled
         )
         routing = Routing(mode: export.monitorRoutingMode)
         gaps = Gaps(
@@ -1051,6 +1059,7 @@ extension CanonicalTOMLConfig {
             moveCrossesMonitorAtEdge: focus.moveCrossesMonitorAtEdge,
             mouseWarpMargin: mouseWarp.margin,
             mouseWarpEnabled: mouseWarp.enabled,
+            cursorContainmentEnabled: mouseWarp.constrainToArrangement,
             monitorRoutingMode: routing.mode,
             monitorRoutingSettings: monitorRoutingOverrides,
             gapSize: gaps.size,

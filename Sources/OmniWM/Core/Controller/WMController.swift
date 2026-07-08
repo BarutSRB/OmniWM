@@ -2607,6 +2607,7 @@ final class WMController {
 
         MouseTrace.record("focus-warp token=\(token) center=\(TraceFormat.point(center))")
         warpMouseCursorPosition(ScreenCoordinateSpace.toWindowServer(point: center))
+        mouseWarpHandler.noteProgrammaticCursorMove(to: center)
     }
 
     func runningAppsWithWindows() -> [RunningAppInfo] {

@@ -130,6 +130,8 @@ struct MonitorSettingsTab: View {
                 Toggle("Move Window Across Monitor at Edge", isOn: $settings.moveCrossesMonitorAtEdge)
                 Toggle("Follow Window to Monitor", isOn: $settings.focusFollowsWindowToMonitor)
                 Toggle("Mouse Warp", isOn: $settings.mouseWarpEnabled)
+                Toggle("Constrain Cursor to Arrangement", isOn: $settings.cursorContainmentEnabled)
+                    .disabled(!settings.mouseWarpEnabled || settings.monitorRoutingMode != .custom)
 
                 LabeledContent("Mouse Warp Margin") {
                     Stepper(value: $settings.mouseWarpMargin, in: 1 ... 10) {

@@ -23,6 +23,7 @@ struct SettingsExport: Equatable {
     var moveCrossesMonitorAtEdge: Bool
     var mouseWarpMargin: Int
     var mouseWarpEnabled: Bool
+    var cursorContainmentEnabled: Bool
     var monitorRoutingMode: String
     var monitorRoutingSettings: [MonitorRoutingSettings]
     var gapSize: Double
@@ -137,6 +138,7 @@ extension SettingsExport {
             moveCrossesMonitorAtEdge: false,
             mouseWarpMargin: 1,
             mouseWarpEnabled: true,
+            cursorContainmentEnabled: false,
             monitorRoutingMode: MonitorRoutingMode.macOS.rawValue,
             monitorRoutingSettings: [],
             gapSize: 16,
