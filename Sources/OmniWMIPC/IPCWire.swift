@@ -40,6 +40,10 @@ public enum IPCWire {
         try makeDecoder().decode(IPCRequest.self, from: data)
     }
 
+    public static func decodeRequestEnvelope(from data: Data) -> IPCRequestEnvelope? {
+        try? makeDecoder().decode(IPCRequestEnvelope.self, from: data)
+    }
+
     public static func decodeResponse(from data: Data) throws -> IPCResponse {
         try makeDecoder().decode(IPCResponse.self, from: data)
     }

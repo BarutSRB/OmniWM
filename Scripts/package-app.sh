@@ -74,6 +74,18 @@ if [ "$SIGN_AND_NOTARIZE" = "true" ]; then
 
   rm -f "$ZIP_PATH"
   echo "Done! $APP_DIR is signed and notarized."
+elif [ "$SIGN_AND_NOTARIZE" = "dev" ]; then
+  if security find-identity -v -p codesigning | grep -qF "$SIGNING_IDENTITY"; then
+    IDENTITY="$SIGNING_IDENTITY"
+  else
+    IDENTITY="-"
+  fi
+  echo "Signing $APP_DIR for development (identity: $IDENTITY)..."
+  codesign --force --sign "$IDENTITY" "$APP_DIR/Contents/MacOS/omniwmctl"
+  codesign --force --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP_DIR/Contents/MacOS/OmniWM"
+  codesign --force --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP_DIR"
+  codesign --verify --verbose "$APP_DIR"
+  echo "Done. Launch with 'open $APP_DIR' so LaunchServices assigns the app identity."
 else
   echo "Done. Open $APP_DIR to grant Accessibility permissions."
   echo "Note: App is not signed. Run with 'release true' to sign and notarize."

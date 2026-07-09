@@ -1,4 +1,4 @@
-.PHONY: format format-check lint lint-fix build release-check verify check check-tool-versions check-swiftformat-version check-swiftlint-version
+.PHONY: format format-check lint lint-fix build run release-check verify check check-tool-versions check-swiftformat-version check-swiftlint-version
 
 SWIFTFORMAT_VERSION = 0.61.1
 SWIFTLINT_VERSION = 0.65.0
@@ -30,6 +30,11 @@ lint-fix: check-tool-versions
 build:
 	./Scripts/ghostty-preflight.sh verify
 	$(SWIFT_WITH_GHOSTTY) swift build --arch arm64
+
+run:
+	./Scripts/package-app.sh debug dev
+	-pkill -x OmniWM
+	open ./dist/OmniWM.app
 
 release-check: build
 

@@ -198,6 +198,11 @@ enum CLIParser {
                 index += 2
                 continue
             }
+            if index < execIndex, argument == "--json" {
+                outputFormat = .json
+                index += 1
+                continue
+            }
 
             filteredArguments.append(argument)
             index += 1
@@ -736,6 +741,7 @@ enum CLIParser {
             "",
             "Formats:",
             "  --format json|table|tsv|text",
+            "  --json (alias for --format json)",
             "",
             "Rule Options:"
         ]

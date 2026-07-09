@@ -36,10 +36,15 @@ let package = Package(
             ]
         ),
         .target(
+            name: "OmniWMMenuBarAssertion",
+            path: "Sources/OmniWMMenuBarAssertion"
+        ),
+        .target(
             name: "OmniWM",
             dependencies: [
                 "GhosttyKit",
                 "OmniWMIPC",
+                "OmniWMMenuBarAssertion",
                 .product(name: "TOML", package: "swift-toml")
             ],
             path: "Sources/OmniWM",

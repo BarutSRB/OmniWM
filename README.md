@@ -401,8 +401,11 @@ A visual indicator showing your workspaces:
 
 #### Hidden Bar
 
-Hide or reveal status bar icons using a separator item:
-- Right-click the OmniWM menu bar icon to toggle
+Conceal selected menu-bar icons and reach them from a panel:
+- Concealment requires macOS 27 or later; the rest of OmniWM continues to support macOS 26
+- Pick the apps to hide in `Settings > Hidden Bar`
+- Right-click (or Option-click) the OmniWM menu bar icon to open the Hidden Icons Bar; click an icon to reveal and use it
+- Revealed icons re-hide automatically after a configurable interval
 - An optional global hotkey is available and starts unassigned
 
 ### Tips
@@ -439,6 +442,14 @@ Requirements:
 - SwiftPM with Swift 6.4+
 - macOS 26.0+
 - Ghostty's arm64 archive (build Ghostty and copy it to `Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty-internal-fat.a`)
+
+Use the bundled Debug launch for day-to-day development:
+
+```bash
+make run
+```
+
+`make run` builds, packages, development-signs, and opens `dist/OmniWM.app` through LaunchServices. This is the canonical development launch because it gives OmniWM its normal app identity and native status bar item. A raw `swift run OmniWM` launch is unbundled, so while Hidden Bar concealment is active it uses a separate fallback icon instead; that behavior is not specific to Debug builds.
 
 ## Related Forks
 

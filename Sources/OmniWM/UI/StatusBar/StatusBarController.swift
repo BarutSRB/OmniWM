@@ -13,7 +13,6 @@ final class StatusBarController: NSObject {
     private var menuModel: StatusMenuModel?
     private var menu: NSMenu?
     private var menus: [NSMenu] = []
-    private var isRebuildingOwnedItems = false
 
     private let hiddenBarController: HiddenBarController
     private let settings: SettingsStore
@@ -64,6 +63,7 @@ final class StatusBarController: NSObject {
         button.target = self
         button.action = #selector(handleClick(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.setAccessibilityElement(true)
 
         let model = StatusMenuModel(settings: settings, controller: controller)
         model.ipcMenuEnabled = cliManager != nil
@@ -75,23 +75,42 @@ final class StatusBarController: NSObject {
         menuModel = model
         installHostedMenu(model: model, motionPolicy: controller.motionPolicy)
 
-        hiddenBarController.bind(
-            omniButton: button,
-            onUnsafeOrderingDetected: { [weak self] in
-                self?.rebuildOwnedStatusItemsAfterUnsafeOrdering()
-            }
-        )
+        hiddenBarController.bind(omniButton: button, statusItem: ownedStatusItem)
+        hiddenBarController.onFallbackIconClick = { [weak self] event, anchor in
+            self?.routeClick(event: event, anchor: anchor)
+        }
         hiddenBarController.setup()
         refreshWorkspaces()
     }
 
-    @objc private func handleClick(_: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
+    enum StatusItemClickRoute {
+        case hiddenIconsBar
+        case menu
+    }
 
-        if event.type == .rightMouseUp {
-            handleRightClick()
+    nonisolated static func clickRoute(isRightClick: Bool, optionHeld: Bool) -> StatusItemClickRoute {
+        isRightClick || optionHeld ? .hiddenIconsBar : .menu
+    }
+
+    @objc private func handleClick(_ button: NSStatusBarButton) {
+        if let event = NSApp.currentEvent {
+            routeClick(event: event, anchor: button)
         } else {
-            showMenu()
+            hiddenBarController.dismissPanel()
+            showMenu(from: button)
+        }
+    }
+
+    private func routeClick(event: NSEvent, anchor: NSView) {
+        switch Self.clickRoute(
+            isRightClick: event.type == .rightMouseUp,
+            optionHeld: event.modifierFlags.contains(.option)
+        ) {
+        case .hiddenIconsBar:
+            controller?.toggleHiddenBarPanel()
+        case .menu:
+            hiddenBarController.dismissPanel()
+            showMenu(from: anchor)
         }
     }
 
@@ -136,18 +155,12 @@ final class StatusBarController: NSObject {
         return item
     }
 
-    private func showMenu() {
-        guard let button = statusItem?.button, let menu, let menuModel else { return }
+    private func showMenu(from anchor: NSView) {
+        guard let menu, let menuModel else { return }
         menuModel.menuWillOpen()
         StatusMenuHost.prepareForDisplay(menus, appearance: NSApplication.shared.appearance)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 5), in: anchor)
     }
-
-    private func handleRightClick() {
-        controller?.toggleHiddenBar()
-    }
-
-    func rebuildMenu() {}
 
     func handleTraceCaptureStateChange() {
         updateButtonAppearance()
@@ -173,6 +186,7 @@ final class StatusBarController: NSObject {
             button.contentTintColor = nil
             button.toolTip = nil
         }
+        updateButtonAccessibility(button)
     }
 
     private func applyRecordingPulse(to button: NSStatusBarButton) {
@@ -203,6 +217,43 @@ final class StatusBarController: NSObject {
             title += " \u{2013} \(truncatedStatusBarAppName(focusedAppName))"
         }
         return title
+    }
+
+    nonisolated static func statusButtonAccessibilityValue(
+        workspaceLabel: String?,
+        focusedAppName: String?,
+        isRecording: Bool
+    ) -> String {
+        var components: [String] = []
+        if isRecording {
+            components.append("Recording diagnostics")
+        }
+        if let workspaceLabel, !workspaceLabel.isEmpty {
+            components.append("Workspace \(workspaceLabel)")
+        }
+        if let focusedAppName, !focusedAppName.isEmpty {
+            components.append("Focused app \(focusedAppName)")
+        }
+        return components.isEmpty ? "Window manager controls" : components.joined(separator: ", ")
+    }
+
+    private func updateButtonAccessibility(_ button: NSStatusBarButton) {
+        let summary = settings.statusBarShowWorkspaceName
+            ? controller?.activeStatusBarWorkspaceSummary()
+            : nil
+        let workspaceLabel = summary.map {
+            settings.statusBarUseWorkspaceId ? $0.workspaceRawName : $0.workspaceLabel
+        }
+        let focusedAppName = settings.statusBarShowAppNames ? summary?.focusedAppName : nil
+        button.setAccessibilityLabel("OmniWM")
+        button.setAccessibilityValue(
+            Self.statusButtonAccessibilityValue(
+                workspaceLabel: workspaceLabel,
+                focusedAppName: focusedAppName,
+                isRecording: controller?.isTraceCaptureActive == true
+            )
+        )
+        button.setAccessibilityHelp("Press to open the OmniWM menu.")
     }
 
     func refreshWorkspaces() {
@@ -237,16 +288,5 @@ final class StatusBarController: NSObject {
         menuModel = nil
         menu = nil
         menus = []
-    }
-
-    private func rebuildOwnedStatusItemsAfterUnsafeOrdering() {
-        guard !isRebuildingOwnedItems else { return }
-        isRebuildingOwnedItems = true
-        defer { isRebuildingOwnedItems = false }
-
-        settings.hiddenBarIsCollapsed = false
-        cleanupOwnedStatusItems()
-        StatusItemPersistence.clearOwnedRestoreState(defaults: statusItemDefaults)
-        installOwnedStatusItems()
     }
 }

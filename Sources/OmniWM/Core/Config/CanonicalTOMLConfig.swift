@@ -19,6 +19,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var workspaceBar: WorkspaceBar
     var gestures: Gestures
     var statusBar: StatusBar
+    var hiddenBar: HiddenBar
     var clipboard: Clipboard
     var quakeTerminal: QuakeTerminal
     var appearance: Appearance
@@ -170,6 +171,12 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var useWorkspaceId: Bool
     }
 
+    struct HiddenBar: Codable, Equatable {
+        var enabled: Bool
+        var hiddenBundleIDs: [String]
+        var rehideIntervalSeconds: Double
+    }
+
     struct Clipboard: Codable, Equatable {
         var historyEnabled: Bool
         var maxItems: Int
@@ -303,6 +310,12 @@ extension CanonicalTOMLConfig {
             StatusBar.self,
             forKey: .statusBar,
             default: defaults.statusBar,
+            recovering: recovering
+        )
+        hiddenBar = try container.decode(
+            HiddenBar.self,
+            forKey: .hiddenBar,
+            default: defaults.hiddenBar,
             recovering: recovering
         )
         clipboard = try container.decode(
@@ -842,6 +855,33 @@ extension CanonicalTOMLConfig.StatusBar {
     }
 }
 
+extension CanonicalTOMLConfig.HiddenBar {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let recovering = decoder.recoversMissingSettingsTOMLKeys
+        let defaults = CanonicalTOMLConfig.recoveryDefaults().hiddenBar
+
+        enabled = try container.decode(
+            Bool.self,
+            forKey: .enabled,
+            default: defaults.enabled,
+            recovering: recovering
+        )
+        hiddenBundleIDs = try container.decode(
+            [String].self,
+            forKey: .hiddenBundleIDs,
+            default: defaults.hiddenBundleIDs,
+            recovering: recovering
+        )
+        rehideIntervalSeconds = try container.decode(
+            Double.self,
+            forKey: .rehideIntervalSeconds,
+            default: defaults.rehideIntervalSeconds,
+            recovering: recovering
+        )
+    }
+}
+
 extension CanonicalTOMLConfig.Clipboard {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -1020,6 +1060,11 @@ extension CanonicalTOMLConfig {
             showAppNames: export.statusBarShowAppNames,
             useWorkspaceId: export.statusBarUseWorkspaceId
         )
+        hiddenBar = HiddenBar(
+            enabled: export.hiddenBarEnabled,
+            hiddenBundleIDs: export.hiddenBarHiddenBundleIDs,
+            rehideIntervalSeconds: export.hiddenBarRehideIntervalSeconds
+        )
         clipboard = Clipboard(
             historyEnabled: export.clipboardHistoryEnabled,
             maxItems: export.clipboardMaxItems,
@@ -1130,6 +1175,9 @@ extension CanonicalTOMLConfig {
             statusBarShowWorkspaceName: statusBar.showWorkspaceName,
             statusBarShowAppNames: statusBar.showAppNames,
             statusBarUseWorkspaceId: statusBar.useWorkspaceId,
+            hiddenBarEnabled: hiddenBar.enabled,
+            hiddenBarHiddenBundleIDs: hiddenBar.hiddenBundleIDs,
+            hiddenBarRehideIntervalSeconds: hiddenBar.rehideIntervalSeconds,
             animationsEnabled: general.animationsEnabled,
             clipboardHistoryEnabled: clipboard.historyEnabled,
             clipboardMaxItems: clipboard.maxItems,

@@ -58,10 +58,24 @@ actor IPCConnection {
         await owner.finishReadLoop()
     }
 
-    private func process(_ line: String) async {
+    func process(_ line: String) async {
+        let data = Data(line.utf8)
+
+        if let envelope = IPCWire.decodeRequestEnvelope(from: data),
+           envelope.version != OmniWMIPCProtocol.version
+        {
+            let response = await bridge.mismatchResponse(for: envelope)
+            do {
+                try send(response)
+            } catch {
+                closeIfNeeded()
+            }
+            return
+        }
+
         var pendingRegistrations: [IPCEventStreamRegistration] = []
         do {
-            let request = try IPCWire.decodeRequest(from: Data(line.utf8))
+            let request = try IPCWire.decodeRequest(from: data)
             let response = await bridge.response(for: request)
 
             guard response.ok,

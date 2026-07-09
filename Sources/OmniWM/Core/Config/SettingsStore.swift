@@ -376,6 +376,18 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var hiddenBarEnabled = SettingsStore.defaultExport.hiddenBarEnabled {
+        didSet { scheduleSave() }
+    }
+
+    var hiddenBarHiddenBundleIDs = SettingsStore.defaultExport.hiddenBarHiddenBundleIDs {
+        didSet { scheduleSave() }
+    }
+
+    var hiddenBarRehideIntervalSeconds = SettingsStore.defaultExport.hiddenBarRehideIntervalSeconds {
+        didSet { scheduleSave() }
+    }
+
     var commandPaletteLastMode = RuntimeStateStore.defaultCommandPaletteLastMode {
         didSet { runtimeState.commandPaletteLastMode = commandPaletteLastMode }
     }
@@ -398,10 +410,6 @@ final class SettingsStore {
 
     var clipboardMaxTotalBytes = SettingsStore.defaultExport.clipboardMaxTotalBytes {
         didSet { scheduleSave() }
-    }
-
-    var hiddenBarIsCollapsed = RuntimeStateStore.defaultHiddenBarIsCollapsed {
-        didSet { runtimeState.hiddenBarIsCollapsed = hiddenBarIsCollapsed }
     }
 
     var quakeTerminalEnabled = SettingsStore.defaultExport.quakeTerminalEnabled {
@@ -517,7 +525,6 @@ final class SettingsStore {
         self.runtimeState = runtimeState
         self.autosaveEnabled = autosaveEnabled
         commandPaletteLastMode = runtimeState.commandPaletteLastMode
-        hiddenBarIsCollapsed = runtimeState.hiddenBarIsCollapsed
         isApplyingRuntimeState = true
         quakeTerminalCustomFrameStorage = QuakeTerminalGeometryPolicy.normalizedCustomFrame(
             runtimeState.quakeTerminalCustomFrame
@@ -635,6 +642,9 @@ final class SettingsStore {
             statusBarShowWorkspaceName: statusBarShowWorkspaceName,
             statusBarShowAppNames: statusBarShowAppNames,
             statusBarUseWorkspaceId: statusBarUseWorkspaceId,
+            hiddenBarEnabled: hiddenBarEnabled,
+            hiddenBarHiddenBundleIDs: hiddenBarHiddenBundleIDs,
+            hiddenBarRehideIntervalSeconds: hiddenBarRehideIntervalSeconds,
             animationsEnabled: animationsEnabled,
             clipboardHistoryEnabled: clipboardHistoryEnabled,
             clipboardMaxItems: clipboardMaxItems,
@@ -761,6 +771,11 @@ final class SettingsStore {
         statusBarShowWorkspaceName = export.statusBarShowWorkspaceName
         statusBarShowAppNames = export.statusBarShowAppNames
         statusBarUseWorkspaceId = export.statusBarUseWorkspaceId
+        hiddenBarEnabled = export.hiddenBarEnabled
+        hiddenBarHiddenBundleIDs = HiddenBarSettingsPolicy.normalizedBundleIDs(export.hiddenBarHiddenBundleIDs)
+        hiddenBarRehideIntervalSeconds = SettingsStore.validatedHiddenBarRehideIntervalSeconds(
+            export.hiddenBarRehideIntervalSeconds
+        )
         animationsEnabled = export.animationsEnabled
         clipboardHistoryEnabled = export.clipboardHistoryEnabled
         clipboardMaxItems = export.clipboardMaxItems
@@ -1173,5 +1188,10 @@ final class SettingsStore {
     static func validatedWorkspaceBarRevealHoldMilliseconds(_ value: Double) -> Double {
         guard value.isFinite else { return defaultExport.workspaceBarRevealHoldMilliseconds }
         return min(max(value, 0), 1000)
+    }
+
+    static func validatedHiddenBarRehideIntervalSeconds(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultExport.hiddenBarRehideIntervalSeconds }
+        return min(max(value, 2), 30)
     }
 }

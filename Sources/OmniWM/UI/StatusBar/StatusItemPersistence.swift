@@ -6,14 +6,11 @@ import AppKit
 enum StatusItemPersistence {
     enum OwnedItem: CaseIterable {
         case main
-        case hiddenBarSeparator
 
         var autosaveName: String {
             switch self {
             case .main:
                 "omniwm_main"
-            case .hiddenBarSeparator:
-                "omniwm_hiddenbar_separator"
             }
         }
     }
@@ -48,11 +45,6 @@ enum StatusItemPersistence {
         return didClearPositions || didClearVisibility
     }
 
-    static func clearOwnedRestoreState(defaults: UserDefaults = .standard) {
-        clearOwnedPreferredPositions(defaults: defaults)
-        clearOwnedVisibilityPreferences(defaults: defaults)
-    }
-
     @discardableResult
     static func clearInvalidOwnedPreferredPositions(
         defaults: UserDefaults = .standard,
@@ -82,12 +74,6 @@ enum StatusItemPersistence {
             didClear = true
         }
         return didClear
-    }
-
-    static func clearOwnedVisibilityPreferences(defaults: UserDefaults = .standard) {
-        for item in OwnedItem.allCases {
-            clearVisibilityPreferences(for: item, defaults: defaults)
-        }
     }
 
     static func preferredPositionKey(for autosaveName: String) -> String {

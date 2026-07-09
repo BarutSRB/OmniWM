@@ -837,7 +837,7 @@ public enum IPCAutomationManifest {
             name: .toggleWorkspaceBar,
             summary: "Toggle runtime workspace bar visibility."
         ),
-        command(["toggle-hidden-bar"], name: .toggleHiddenBar, summary: "Toggle the hidden bar surface."),
+        command(["hidden-bar", "panel"], name: .hiddenBarPanel, summary: "Toggle the hidden-bar items panel."),
         command(
             ["toggle-quake-terminal"],
             name: .toggleQuakeTerminal,

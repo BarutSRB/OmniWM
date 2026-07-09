@@ -69,6 +69,10 @@ final class StatusMenuModel {
         controller?.isTraceCaptureActive ?? false
     }
 
+    var canShowHiddenIcons: Bool {
+        settings.hiddenBarEnabled && controller?.isHiddenBarHidingAvailable == true
+    }
+
     func menuWillOpen() {
         controller?.refreshDiagnosticsIssues()
         cliStatus = cliManager?.exposureStatus()
@@ -76,8 +80,8 @@ final class StatusMenuModel {
 
     var toggleTiles: [ToggleTileSpec] {
         let settings = settings
-        weak var controller = controller
-        return [
+        weak let controller = controller
+        var tiles: [ToggleTileSpec] = [
             ToggleTileSpec(
                 id: "bordersEnabled",
                 icon: "square.dashed",
@@ -184,6 +188,21 @@ final class StatusMenuModel {
                 )
             )
         ]
+        if controller?.isHiddenBarHidingAvailable == true {
+            tiles.append(
+                ToggleTileSpec(
+                    id: "hiddenBarEnabled",
+                    icon: "eye.slash",
+                    label: "Hide Menu Icons",
+                    accessibilityName: "Hide Menu Bar Icons",
+                    isOn: Binding(
+                        get: { settings.hiddenBarEnabled },
+                        set: { controller?.setHiddenBarEnabled($0) }
+                    )
+                )
+            )
+        }
+        return tiles
     }
 
     func openSettings(section: SettingsSection? = nil) {
@@ -194,6 +213,11 @@ final class StatusMenuModel {
             updateCoordinator: updateCoordinator,
             section: section
         )
+    }
+
+    func showHiddenIcons() {
+        guard canShowHiddenIcons else { return }
+        controller?.toggleHiddenBarPanel()
     }
 
     func openAppRules() {

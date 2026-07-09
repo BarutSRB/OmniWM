@@ -306,6 +306,12 @@ final class WMController {
                 self.focusPolicyEngine.endLease(owner: .nativeMenu)
             }
         }
+        self.hiddenBarController.onCursorWarp = { [weak self] point in
+            self?.mouseWarpHandler.noteProgrammaticCursorMove(to: point)
+        }
+        self.hiddenBarController.fallbackPlacementsProvider = { [weak self] in
+            self?.hiddenBarFallbackIconPlacements() ?? []
+        }
     }
 
     func applyPersistedSettings(_ settings: SettingsStore, startServices: Bool = true) {
@@ -373,6 +379,7 @@ final class WMController {
         quakeTerminalController.applyGeometryToVisibleWindow()
         quakeTerminalController.reloadOpacityConfig()
         updateWorkspaceBarSettings()
+        updateHiddenBarSettings()
         _ = syncMouseWarpPolicy()
 
         if startServices {
@@ -477,6 +484,7 @@ final class WMController {
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
         syncWorkspaceBarRevealMonitor()
+        hiddenBarController.dismissPanel()
     }
 
     func cleanupUIOnStop() {
@@ -492,8 +500,58 @@ final class WMController {
         }
     }
 
-    func toggleHiddenBar() {
-        hiddenBarController.toggle()
+    func toggleHiddenBarPanel() {
+        hiddenBarController.togglePanel(placement: hiddenBarPanelPlacement())
+    }
+
+    private func hiddenBarPanelPlacement() -> HiddenBarPanelPlacement? {
+        let monitors = workspaceManager.monitors
+        guard let monitor = currentMouseLocation().monitorApproximation(in: monitors)
+            ?? monitors.first(where: \.isMain) ?? monitors.first
+        else { return nil }
+        let resolved = settings.resolvedBarSettings(for: monitor)
+        return HiddenBarPanelPlacement(
+            anchor: HiddenBarPanelController.panelAnchor(
+                monitor: monitor,
+                resolved: resolved,
+                barVisible: isWorkspaceBarVisible(on: monitor, resolved: resolved)
+            ),
+            visibleFrame: monitor.visibleFrame
+        )
+    }
+
+    private func hiddenBarFallbackIconPlacements() -> [HiddenBarFallbackIconPlacement] {
+        workspaceManager.monitors.map { monitor in
+            let resolved = settings.resolvedBarSettings(for: monitor)
+            return HiddenBarFallbackIconPlacement(
+                monitorId: monitor.id,
+                frame: HiddenBarFallbackIconController.iconFrame(
+                    monitor: monitor,
+                    barVisible: isWorkspaceBarVisible(on: monitor, resolved: resolved),
+                    barFrame: workspaceBarManager.primaryBarFrame(on: monitor.id)
+                )
+            )
+        }
+    }
+
+    func setHiddenBarEnabled(_ enabled: Bool) {
+        hiddenBarController.setEnabled(enabled)
+    }
+
+    func updateHiddenBarSettings() {
+        hiddenBarController.applySettings()
+    }
+
+    var isHiddenBarHidingAvailable: Bool {
+        hiddenBarController.isHidingAvailable
+    }
+
+    func detectMenuBarApps() async -> [DetectedMenuBarApp] {
+        await hiddenBarController.detectMenuBarApps()
+    }
+
+    func hiddenBarDisplayName(for bundleID: String) -> String {
+        hiddenBarController.displayName(for: bundleID)
     }
 
     @discardableResult
@@ -512,6 +570,7 @@ final class WMController {
 
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
+        hiddenBarController.dismissPanel()
         return true
     }
 
@@ -589,6 +648,7 @@ final class WMController {
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
         syncWorkspaceBarRevealMonitor()
+        hiddenBarController.dismissPanel()
     }
 
     func updateWorkspaceBarAppearance() {

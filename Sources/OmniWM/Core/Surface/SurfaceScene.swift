@@ -16,6 +16,7 @@ enum SurfaceKind: String, Equatable {
     case launchOverlay
     case secureInputIndicator
     case systemStats
+    case hiddenBarPanel
 }
 
 enum HitTestPolicy: Equatable {

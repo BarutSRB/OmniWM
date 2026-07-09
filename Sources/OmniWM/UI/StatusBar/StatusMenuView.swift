@@ -43,6 +43,11 @@ struct StatusMenuPrimaryView: View {
             }
             .padding(10)
             MenuDivider()
+            if model.canShowHiddenIcons {
+                MenuActionRow(icon: "eye", label: "Show Hidden Icons") {
+                    model.showHiddenIcons()
+                }
+            }
             MenuActionRow(icon: "gearshape", label: "Settings", showChevron: true) {
                 model.openSettings()
             }

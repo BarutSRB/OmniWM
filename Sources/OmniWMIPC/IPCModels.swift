@@ -4,7 +4,14 @@
 import Foundation
 
 public enum OmniWMIPCProtocol {
-    public static let version = 6
+    public static let version = 7
+}
+
+public struct IPCRequestEnvelope: Decodable, Sendable {
+    public let version: Int
+    public let id: String?
+    public let kind: String?
+    public let authorizationToken: String?
 }
 
 public struct IPCNoPayload: Codable, Equatable, Sendable {
@@ -269,7 +276,7 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case toggleSystemStats = "toggle-system-stats"
     case toggleQuakeTerminal = "toggle-quake-terminal"
     case toggleWorkspaceBar = "toggle-workspace-bar"
-    case toggleHiddenBar = "toggle-hidden-bar"
+    case hiddenBarPanel = "hidden-bar-panel"
     case toggleFocusedWindowFloating = "toggle-focused-window-floating"
     case scratchpadAssign = "scratchpad-assign"
     case scratchpadToggle = "scratchpad-toggle"
@@ -400,7 +407,7 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case toggleSystemStats
     case toggleQuakeTerminal
     case toggleWorkspaceBar
-    case toggleHiddenBar
+    case hiddenBarPanel
     case toggleFocusedWindowFloating
     case scratchpadAssign
     case scratchpadToggle
@@ -562,8 +569,8 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .toggleQuakeTerminal
         case .toggleWorkspaceBar:
             .toggleWorkspaceBar
-        case .toggleHiddenBar:
-            .toggleHiddenBar
+        case .hiddenBarPanel:
+            .hiddenBarPanel
         case .toggleFocusedWindowFloating:
             .toggleFocusedWindowFloating
         case .scratchpadAssign:
@@ -855,9 +862,9 @@ public enum IPCCommandRequest: Equatable, Sendable {
         case .toggleWorkspaceBar:
             try requireNoArguments()
             self = .toggleWorkspaceBar
-        case .toggleHiddenBar:
+        case .hiddenBarPanel:
             try requireNoArguments()
-            self = .toggleHiddenBar
+            self = .hiddenBarPanel
         case .toggleFocusedWindowFloating:
             try requireNoArguments()
             self = .toggleFocusedWindowFloating
@@ -1096,8 +1103,8 @@ extension IPCCommandRequest: Codable {
             self = .toggleQuakeTerminal
         case .toggleWorkspaceBar:
             self = .toggleWorkspaceBar
-        case .toggleHiddenBar:
-            self = .toggleHiddenBar
+        case .hiddenBarPanel:
+            self = .hiddenBarPanel
         case .toggleFocusedWindowFloating:
             self = .toggleFocusedWindowFloating
         case .scratchpadAssign:
@@ -1274,7 +1281,7 @@ extension IPCCommandRequest: Codable {
             break
         case .toggleWorkspaceBar:
             break
-        case .toggleHiddenBar:
+        case .hiddenBarPanel:
             break
         case .toggleFocusedWindowFloating:
             break

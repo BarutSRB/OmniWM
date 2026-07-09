@@ -26,6 +26,23 @@ actor IPCApplicationBridge {
         self.authorizationToken = authorizationToken
     }
 
+    func mismatchResponse(for envelope: IPCRequestEnvelope) async -> IPCResponse {
+        let id = envelope.id ?? ""
+        let kind = envelope.kind.flatMap(IPCRequestKind.init(rawValue:))
+        let responseKind = kind.map(IPCResponseKind.init(requestKind:)) ?? .error
+
+        guard envelope.authorizationToken == authorizationToken else {
+            return .failure(id: id, kind: responseKind, code: .unauthorized)
+        }
+
+        let versionResult = await versionResult()
+        if kind == .version {
+            return .success(id: id, kind: .version, result: versionResult)
+        }
+
+        return .failure(id: id, kind: responseKind, code: .protocolMismatch, result: versionResult)
+    }
+
     func response(for request: IPCRequest) async -> IPCResponse {
         guard request.authorizationToken == authorizationToken else {
             return .failure(
@@ -35,14 +52,7 @@ actor IPCApplicationBridge {
             )
         }
 
-        let versionResult = await MainActor.run {
-            let queryRouter = IPCQueryRouter(
-                controller: controller,
-                appVersion: appVersion,
-                sessionToken: sessionToken
-            )
-            return IPCResult(version: queryRouter.versionResult())
-        }
+        let versionResult = await versionResult()
 
         if request.version != OmniWMIPCProtocol.version {
             if request.kind == .version {
@@ -117,6 +127,17 @@ actor IPCApplicationBridge {
                     result: IPCResult(subscribed: IPCSubscribeResult(channels: channels))
                 )
             }
+        }
+    }
+
+    private func versionResult() async -> IPCResult {
+        await MainActor.run {
+            let queryRouter = IPCQueryRouter(
+                controller: controller,
+                appVersion: appVersion,
+                sessionToken: sessionToken
+            )
+            return IPCResult(version: queryRouter.versionResult())
         }
     }
 

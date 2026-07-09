@@ -103,6 +103,9 @@ struct SettingsExport: Equatable {
     var statusBarShowWorkspaceName: Bool
     var statusBarShowAppNames: Bool
     var statusBarUseWorkspaceId: Bool
+    var hiddenBarEnabled: Bool
+    var hiddenBarHiddenBundleIDs: [String]
+    var hiddenBarRehideIntervalSeconds: Double
     var animationsEnabled: Bool
 
     var clipboardHistoryEnabled: Bool
@@ -209,6 +212,9 @@ extension SettingsExport {
             statusBarShowWorkspaceName: false,
             statusBarShowAppNames: false,
             statusBarUseWorkspaceId: false,
+            hiddenBarEnabled: true,
+            hiddenBarHiddenBundleIDs: [],
+            hiddenBarRehideIntervalSeconds: 5,
             animationsEnabled: true,
             clipboardHistoryEnabled: false,
             clipboardMaxItems: 200,

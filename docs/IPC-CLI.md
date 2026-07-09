@@ -162,7 +162,7 @@ Turning **Enable IPC** on starts the server immediately and creates the Unix soc
 
 ## IPC Protocol
 
-**Protocol version:** 6
+**Protocol version:** 7
 
 ### Socket & Authorization
 
@@ -356,9 +356,11 @@ Workspace IDs are positive numeric strings. Direct hotkeys stay limited to `1-9`
 | `command open-command-palette` | — | shared | Toggle the command palette |
 | `command open-menu-anywhere` | — | shared | Open the menu surface |
 | `command toggle-workspace-bar` | — | shared | Toggle workspace bar visibility |
-| `command toggle-hidden-bar` | — | shared | Toggle the hidden bar surface |
+| `command hidden-bar panel` | — | shared | Toggle the panel containing configured hidden menu-bar items |
 | `command toggle-quake-terminal` | — | shared | Toggle the configured Quake terminal |
 | `command toggle-overview` | — | shared | Toggle the overview surface |
+
+For example, run `omniwmctl command hidden-bar panel` to show or dismiss the Hidden Bar panel.
 
 **Layout compatibility:**
 - `shared` — works with any active layout

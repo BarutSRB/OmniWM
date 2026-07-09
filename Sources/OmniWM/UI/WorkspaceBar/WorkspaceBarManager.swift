@@ -445,6 +445,10 @@ final class WorkspaceBarManager {
         barsByMonitor[monitorId]?.statsAnchor
     }
 
+    func primaryBarFrame(on monitorId: Monitor.ID) -> CGRect? {
+        barsByMonitor[monitorId]?.primary.lastAppliedFrame
+    }
+
     func isWorkspaceBarWindow(_ window: NSWindow) -> Bool {
         barsByMonitor.values.contains {
             $0.primary.panel === window || $0.secondary?.panel === window
@@ -600,7 +604,7 @@ final class WorkspaceBarManager {
         suppressesManagedFocusRecovery: false
     )
 
-    private static func defaultPanel() -> WorkspaceBarPanel {
+    static func defaultPanel() -> WorkspaceBarPanel {
         let panel = WorkspaceBarPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],

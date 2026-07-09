@@ -826,11 +826,11 @@ enum ActionCatalog {
                 keywords: ["workspace bar", "bar"]
             ),
             action(
-                id: "toggleHiddenBar",
-                command: .toggleHiddenBar,
+                id: "toggleHiddenBarPanel",
+                command: .toggleHiddenBarPanel,
                 category: .focus,
                 binding: .unassigned,
-                keywords: ["hidden bar", "bar"]
+                keywords: ["hidden bar", "icons", "menu bar"]
             ),
             action(
                 id: "toggleQuakeTerminal",
@@ -971,7 +971,7 @@ enum ActionCatalog {
              .toggleScratchpadWindow,
              .openMenuAnywhere,
              .toggleWorkspaceBarVisibility,
-             .toggleHiddenBar,
+             .toggleHiddenBarPanel,
              .toggleQuakeTerminal,
              .toggleWorkspaceLayout,
              .toggleOverview,
@@ -1058,7 +1058,7 @@ enum ActionCatalog {
         case .toggleScratchpadWindow: "Toggle Scratchpad Window"
         case .openMenuAnywhere: "Open Menu Anywhere"
         case .toggleWorkspaceBarVisibility: "Toggle Workspace Bar"
-        case .toggleHiddenBar: "Toggle Hidden Bar"
+        case .toggleHiddenBarPanel: "Toggle Hidden Icons Bar"
         case .toggleQuakeTerminal: "Toggle Quake Terminal"
         case .toggleWorkspaceLayout: "Toggle Workspace Layout"
         case .toggleOverview: "Toggle Overview"
@@ -1220,8 +1220,8 @@ enum ActionCatalog {
             .toggleQuakeTerminal
         case .toggleWorkspaceBarVisibility:
             .toggleWorkspaceBar
-        case .toggleHiddenBar:
-            .toggleHiddenBar
+        case .toggleHiddenBarPanel:
+            .hiddenBarPanel
         case .toggleFocusedWindowFloating:
             .toggleFocusedWindowFloating
         case .assignFocusedWindowToScratchpad:
