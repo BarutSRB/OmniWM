@@ -45,6 +45,7 @@ final class MouseEventHandler {
     private enum FocusFollowsMouseTarget {
         case niri(workspaceId: WorkspaceDescriptor.ID, window: NiriWindow)
         case dwindle(workspaceId: WorkspaceDescriptor.ID, token: WindowToken)
+        case floating(token: WindowToken)
     }
 
     struct GestureTouchSample: Equatable, Sendable {
@@ -85,6 +86,8 @@ final class MouseEventHandler {
 
         var eventTap: CFMachPort?
         var runLoopSource: CFRunLoopSource?
+        var moveTap: CFMachPort?
+        var moveTapRunLoopSource: CFRunLoopSource?
         var currentHoveredEdges: ResizeEdge = []
         var isResizing: Bool = false
         var isMoving: Bool = false
@@ -118,11 +121,8 @@ final class MouseEventHandler {
         self.controller = controller
     }
 
-    func setup() {
-        MouseEventHandler._instance = self
-
-        let eventMask: CGEventMask =
-            (1 << CGEventType.mouseMoved.rawValue) |
+    nonisolated static func sessionEventMask(annotatedMoveTapInstalled: Bool) -> CGEventMask {
+        var mask: CGEventMask =
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.leftMouseDragged.rawValue) |
             (1 << CGEventType.leftMouseUp.rawValue) |
@@ -130,6 +130,57 @@ final class MouseEventHandler {
             (1 << CGEventType.rightMouseDragged.rawValue) |
             (1 << CGEventType.rightMouseUp.rawValue) |
             (1 << CGEventType.scrollWheel.rawValue)
+        if !annotatedMoveTapInstalled {
+            mask |= 1 << CGEventType.mouseMoved.rawValue
+        }
+        return mask
+    }
+
+    func setup() {
+        MouseEventHandler._instance = self
+
+        let moveCallback: CGEventTapCallBack = { _, type, event, _ in
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                InputTapHealth.recordTapDisabled(mouse: true, byTimeout: type == .tapDisabledByTimeout)
+                if let tap = MouseEventHandler._instance?.state.moveTap {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
+                return Unmanaged.passUnretained(event)
+            }
+
+            _ = MouseEventHandler.processTapCallback(type: type, event: event)
+            return Unmanaged.passUnretained(event)
+        }
+
+        state.moveTap = CGEvent.tapCreate(
+            tap: .cgAnnotatedSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: 1 << CGEventType.mouseMoved.rawValue,
+            callback: moveCallback,
+            userInfo: nil
+        )
+
+        var annotatedMoveTapInstalled = false
+        if let tap = state.moveTap {
+            if let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) {
+                state.moveTapRunLoopSource = source
+                CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+                CGEvent.tapEnable(tap: tap, enable: true)
+                annotatedMoveTapInstalled = true
+            } else {
+                CGEvent.tapEnable(tap: tap, enable: false)
+                state.moveTap = nil
+                FallbackFiringRecorder.shared.note(.input, "mouseMoveTapRunLoopSourceFailed")
+            }
+        } else {
+            FallbackFiringRecorder.shared.note(.input, "mouseMoveTapCreateFailed")
+        }
+        DiagnosticsEventRecorder.shared.recordLifecycle(
+            name: annotatedMoveTapInstalled ? "mouse.moveTap.installed" : "mouse.moveTap.failed"
+        )
+
+        let eventMask = Self.sessionEventMask(annotatedMoveTapInstalled: annotatedMoveTapInstalled)
 
         let callback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -182,6 +233,14 @@ final class MouseEventHandler {
 
     func cleanup() {
         cancelActiveMouseInteraction()
+        if let source = state.moveTapRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            state.moveTapRunLoopSource = nil
+        }
+        if let tap = state.moveTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            state.moveTap = nil
+        }
         if let source = state.runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             state.runLoopSource = nil
@@ -193,6 +252,7 @@ final class MouseEventHandler {
         multitouchSource?.stop()
         multitouchSource = nil
         MouseEventHandler._instance = nil
+        DiagnosticsEventRecorder.shared.recordLifecycle(name: "mouse.moveTap.removed")
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "mouse.tap.removed")
         controller?.eventIntake.removePendingMouseEvents()
         resetGestureState()
@@ -207,13 +267,21 @@ final class MouseEventHandler {
         multitouchSource?.stop()
     }
 
-    func dispatchMouseMoved(at location: CGPoint, modifiersRawValue: UInt64 = 0) {
+    func dispatchMouseMoved(
+        at location: CGPoint,
+        modifiersRawValue: UInt64 = 0,
+        windowIdUnderPointer: Int? = nil
+    ) {
         guard !isInputSuppressed else {
             handleInputSuppressionBegan()
             resetHoveredEdgesIfNeeded()
             return
         }
-        handleMouseMovedFromTap(at: location, modifiersRawValue: modifiersRawValue)
+        handleMouseMovedFromTap(
+            at: location,
+            modifiersRawValue: modifiersRawValue,
+            windowIdUnderPointer: windowIdUnderPointer
+        )
     }
 
     @discardableResult
@@ -303,8 +371,18 @@ final class MouseEventHandler {
         abortActiveGestureIfNeeded()
     }
 
-    func receiveTapMouseMoved(at location: CGPoint, modifiersRawValue: UInt64) {
-        EventIntake.post(.mouseMoved(location: location, modifiersRawValue: modifiersRawValue))
+    func receiveTapMouseMoved(
+        at location: CGPoint,
+        modifiersRawValue: UInt64,
+        windowIdUnderPointer: Int? = nil
+    ) {
+        EventIntake.post(
+            .mouseMoved(
+                location: location,
+                modifiersRawValue: modifiersRawValue,
+                windowIdUnderPointer: windowIdUnderPointer
+            )
+        )
     }
 
     @discardableResult
@@ -541,7 +619,11 @@ final class MouseEventHandler {
         handleMouseDraggedFromTap(at: location, button: button, requirePressedButtonCheck: false)
     }
 
-    private func handleMouseMovedFromTap(at location: CGPoint, modifiersRawValue: UInt64) {
+    private func handleMouseMovedFromTap(
+        at location: CGPoint,
+        modifiersRawValue: UInt64,
+        windowIdUnderPointer: Int?
+    ) {
         guard let controller else { return }
         guard controller.isEnabled else {
             cancelActiveMouseInteraction()
@@ -561,7 +643,7 @@ final class MouseEventHandler {
            !controller.settings.focusLockModifier.isHeld(inRawFlags: modifiersRawValue),
            shouldHandleFocusFollowsMouse(at: location)
         {
-            handleFocusFollowsMouse(at: location)
+            handleFocusFollowsMouse(at: location, windowIdUnderPointer: windowIdUnderPointer)
         }
 
         guard !state.isResizing else { return }
@@ -569,7 +651,7 @@ final class MouseEventHandler {
     }
 
     private func shouldHandleFocusFollowsMouse(at location: CGPoint) -> Bool {
-        guard !state.isResizing, !isViewportGestureActive else { return false }
+        guard !state.isMoving, !state.isResizing, !isViewportGestureActive else { return false }
         guard let controller else { return false }
         guard let workspaceId = workspaceIdForPointer(at: location) else {
             return true
@@ -981,7 +1063,7 @@ final class MouseEventHandler {
         )
     }
 
-    private func handleFocusFollowsMouse(at location: CGPoint) {
+    private func handleFocusFollowsMouse(at location: CGPoint, windowIdUnderPointer: Int?) {
         guard let controller else { return }
         guard controller.focusPolicyEngine.evaluate(.focusFollowsMouse).allowsFocusChange else {
             return
@@ -998,7 +1080,10 @@ final class MouseEventHandler {
             return
         }
 
-        guard let target = resolveFocusFollowsMouseTarget(at: location) else { return }
+        guard let target = resolveFocusFollowsMouseTarget(
+            at: location,
+            windowIdUnderPointer: windowIdUnderPointer
+        ) else { return }
         let token = focusFollowsMouseToken(for: target)
 
         guard token != controller.workspaceManager.focusedToken else { return }
@@ -1007,9 +1092,53 @@ final class MouseEventHandler {
         activateFocusFollowsMouseTarget(target)
     }
 
-    private func resolveFocusFollowsMouseTarget(at location: CGPoint) -> FocusFollowsMouseTarget? {
-        guard let controller,
-              let workspaceId = workspaceIdForPointer(at: location),
+    private func resolveFocusFollowsMouseTarget(
+        at location: CGPoint,
+        windowIdUnderPointer: Int?
+    ) -> FocusFollowsMouseTarget? {
+        guard let controller else { return nil }
+
+        if let windowIdUnderPointer, windowIdUnderPointer != 0 {
+            guard windowIdUnderPointer > 0,
+                  let entry = controller.workspaceManager.entry(
+                      forWindowId: windowIdUnderPointer,
+                      inVisibleWorkspaces: true
+                  ),
+                  controller.isManagedWindowDisplayable(entry.token),
+                  let workspace = controller.workspaceManager.descriptor(for: entry.workspaceId)
+            else {
+                return nil
+            }
+
+            switch entry.mode {
+            case .floating:
+                return .floating(token: entry.token)
+
+            case .tiling:
+                switch controller.settings.layoutType(for: workspace.name) {
+                case .niri,
+                     .defaultLayout:
+                    guard let window = controller.niriEngine?.findNode(
+                        for: entry.token,
+                        in: entry.workspaceId
+                    ), !window.isHiddenInTabbedMode else {
+                        return nil
+                    }
+                    return .niri(workspaceId: entry.workspaceId, window: window)
+
+                case .dwindle:
+                    guard controller.dwindleEngine?.findNode(
+                        for: entry.token,
+                        in: entry.workspaceId
+                    ) != nil else {
+                        return nil
+                    }
+                    return .dwindle(workspaceId: entry.workspaceId, token: entry.token)
+                }
+            }
+        }
+
+        guard let workspaceId = workspaceIdForPointer(at: location),
               let workspace = controller.workspaceManager.descriptor(for: workspaceId)
         else {
             return nil
@@ -1045,6 +1174,8 @@ final class MouseEventHandler {
             window.token
         case let .dwindle(_, token):
             token
+        case let .floating(token):
+            token
         }
     }
 
@@ -1073,6 +1204,8 @@ final class MouseEventHandler {
                 origin: .pointerHover,
                 layoutRefresh: false
             )
+        case let .floating(token):
+            controller.focusWindow(token, origin: .pointerHover)
         }
     }
 
@@ -1532,6 +1665,7 @@ final class MouseEventHandler {
         let location = event.location
         let screenLocation = ScreenCoordinateSpace.toAppKit(point: location)
         let modifiers = event.flags
+        let windowIdUnderPointer = type == .mouseMoved ? eventWindowIdUnderPointer(event) : nil
         let scrollPayload: (deltaX: CGFloat, deltaY: CGFloat, momentumPhase: UInt32, phase: UInt32)?
         if type == .scrollWheel {
             scrollPayload = (
@@ -1555,7 +1689,11 @@ final class MouseEventHandler {
             guard let handler = MouseEventHandler._instance else { return }
             switch type {
             case .mouseMoved:
-                handler.receiveTapMouseMoved(at: screenLocation, modifiersRawValue: modifiers.rawValue)
+                handler.receiveTapMouseMoved(
+                    at: screenLocation,
+                    modifiersRawValue: modifiers.rawValue,
+                    windowIdUnderPointer: windowIdUnderPointer
+                )
             case .leftMouseDown:
                 _ = handler.receiveTapMouseDown(at: screenLocation, modifiers: modifiers)
             case .leftMouseDragged:
@@ -1590,6 +1728,23 @@ final class MouseEventHandler {
         }
 
         return suppressEvent
+    }
+
+    nonisolated static func eventWindowIdUnderPointer(_ event: CGEvent) -> Int? {
+        let routedWindowId = event.getIntegerValueField(
+            .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+        )
+        if routedWindowId != 0 {
+            return normalizedEventWindowId(routedWindowId)
+        }
+        return normalizedEventWindowId(
+            event.getIntegerValueField(.mouseEventWindowUnderMousePointer)
+        )
+    }
+
+    nonisolated static func normalizedEventWindowId(_ value: Int64) -> Int? {
+        guard let windowId = UInt32(exactly: value), windowId != 0 else { return nil }
+        return Int(windowId)
     }
 
     nonisolated static func resolvedWheelAxisDelta(pointDelta: CGFloat, fixedPointDelta: CGFloat) -> CGFloat {

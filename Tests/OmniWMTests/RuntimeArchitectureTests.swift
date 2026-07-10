@@ -604,6 +604,65 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
     }
 
+    func testMouseMoveWindowIdPrefersRoutedFieldAndFallsBackToTopmostField() throws {
+        let event = try XCTUnwrap(
+            CGEvent(
+                mouseEventSource: nil,
+                mouseType: .mouseMoved,
+                mouseCursorPosition: .zero,
+                mouseButton: .left
+            )
+        )
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 765_801)
+        event.setIntegerValueField(
+            .mouseEventWindowUnderMousePointerThatCanHandleThisEvent,
+            value: 765_802
+        )
+
+        XCTAssertEqual(MouseEventHandler.eventWindowIdUnderPointer(event), 765_802)
+
+        event.setIntegerValueField(
+            .mouseEventWindowUnderMousePointerThatCanHandleThisEvent,
+            value: 0
+        )
+
+        XCTAssertEqual(MouseEventHandler.eventWindowIdUnderPointer(event), 765_801)
+
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 0)
+
+        XCTAssertNil(MouseEventHandler.eventWindowIdUnderPointer(event))
+    }
+
+    func testMouseMoveWindowIdRejectsValuesOutsideCGWindowIdRange() {
+        XCTAssertNil(MouseEventHandler.normalizedEventWindowId(-1))
+        XCTAssertNil(MouseEventHandler.normalizedEventWindowId(Int64(UInt32.max) + 1))
+        XCTAssertNil(MouseEventHandler.normalizedEventWindowId(0))
+        XCTAssertEqual(MouseEventHandler.normalizedEventWindowId(Int64(UInt32.max)), Int(UInt32.max))
+    }
+
+    func testAnnotatedMoveTapMakesSessionEventMasksMutuallyExclusive() {
+        let moveBit: CGEventMask = 1 << CGEventType.mouseMoved.rawValue
+        let annotatedMask = MouseEventHandler.sessionEventMask(annotatedMoveTapInstalled: true)
+        let fallbackMask = MouseEventHandler.sessionEventMask(annotatedMoveTapInstalled: false)
+
+        XCTAssertEqual(annotatedMask & moveBit, 0)
+        XCTAssertNotEqual(fallbackMask & moveBit, 0)
+
+        for type in [
+            CGEventType.leftMouseDown,
+            .leftMouseDragged,
+            .leftMouseUp,
+            .rightMouseDown,
+            .rightMouseDragged,
+            .rightMouseUp,
+            .scrollWheel
+        ] {
+            let bit: CGEventMask = 1 << type.rawValue
+            XCTAssertNotEqual(annotatedMask & bit, 0)
+            XCTAssertNotEqual(fallbackMask & bit, 0)
+        }
+    }
+
     @MainActor
     func testNiriFocusFollowsMouseDispatchFocusesHoveredWindowImmediately() throws {
         var focusedTokens: [WindowToken] = []
@@ -663,6 +722,245 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertEqual(focusedTokens.last, token)
         XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
         XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
+    }
+
+    @MainActor
+    func testFocusFollowsMouseUsesTopmostFloatingWindowIdOverTiledGeometry() throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.setFocusFollowsMouse(true)
+        controller.niriLayoutHandler.enableNiriLayout()
+        let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
+        let overlapFrame = CGRect(
+            x: monitor.visibleFrame.minX + 40,
+            y: monitor.visibleFrame.minY + 40,
+            width: 260,
+            height: 180
+        )
+        let tiledToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_001), windowId: 766_101),
+            pid: 766_001,
+            windowId: 766_101,
+            to: workspaceId
+        )
+        let tiledNode = try XCTUnwrap(controller.niriEngine?.addWindow(
+            token: tiledToken,
+            to: workspaceId,
+            afterSelection: nil
+        ))
+        tiledNode.frame = overlapFrame
+        tiledNode.renderedFrame = overlapFrame
+
+        let firstFloatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_002), windowId: 766_102),
+            pid: 766_002,
+            windowId: 766_102,
+            to: workspaceId,
+            mode: .floating
+        )
+        controller.workspaceManager.updateFloatingGeometry(frame: overlapFrame, for: firstFloatingToken)
+        let topmostFloatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_003), windowId: 766_103),
+            pid: 766_003,
+            windowId: 766_103,
+            to: workspaceId,
+            mode: .floating
+        )
+        controller.workspaceManager.updateFloatingGeometry(frame: overlapFrame, for: topmostFloatingToken)
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: overlapFrame.center,
+            windowIdUnderPointer: topmostFloatingToken.windowId
+        )
+
+        XCTAssertEqual(focusedTokens, [topmostFloatingToken])
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.token, topmostFloatingToken)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
+
+        let ignoredFloatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_008), windowId: 766_108),
+            pid: 766_008,
+            windowId: 766_108,
+            to: workspaceId,
+            mode: .floating
+        )
+        controller.mouseEventHandler.state.isMoving = true
+        controller.mouseEventHandler.state.lastFocusFollowsMouseTime = .distantPast
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: overlapFrame.center,
+            windowIdUnderPointer: ignoredFloatingToken.windowId
+        )
+
+        XCTAssertEqual(focusedTokens, [topmostFloatingToken])
+    }
+
+    @MainActor
+    func testFocusFollowsMouseUsesExactTiledWindowIdInsteadOfGeometryFallback() throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.setFocusFollowsMouse(true)
+        controller.niriLayoutHandler.enableNiriLayout()
+        let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
+        let pointerFrame = CGRect(
+            x: monitor.visibleFrame.minX + 40,
+            y: monitor.visibleFrame.minY + 40,
+            width: 260,
+            height: 180
+        )
+        let geometricToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_004), windowId: 766_104),
+            pid: 766_004,
+            windowId: 766_104,
+            to: workspaceId
+        )
+        let geometricNode = try XCTUnwrap(controller.niriEngine?.addWindow(
+            token: geometricToken,
+            to: workspaceId,
+            afterSelection: nil
+        ))
+        geometricNode.frame = pointerFrame
+        geometricNode.renderedFrame = pointerFrame
+
+        let authoritativeToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_005), windowId: 766_105),
+            pid: 766_005,
+            windowId: 766_105,
+            to: workspaceId
+        )
+        let authoritativeNode = try XCTUnwrap(controller.niriEngine?.addWindow(
+            token: authoritativeToken,
+            to: workspaceId,
+            afterSelection: geometricNode.id
+        ))
+        authoritativeNode.frame = pointerFrame.offsetBy(dx: pointerFrame.width + 40, dy: 0)
+        authoritativeNode.renderedFrame = authoritativeNode.frame
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: pointerFrame.center,
+            windowIdUnderPointer: authoritativeToken.windowId
+        )
+
+        XCTAssertEqual(focusedTokens, [authoritativeToken])
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.token, authoritativeToken)
+
+        authoritativeNode.isHiddenInTabbedMode = true
+        controller.mouseEventHandler.state.lastFocusFollowsMouseTime = .distantPast
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: pointerFrame.center,
+            windowIdUnderPointer: authoritativeToken.windowId
+        )
+
+        XCTAssertEqual(focusedTokens, [authoritativeToken])
+    }
+
+    @MainActor
+    func testFocusFollowsMouseDoesNotFallThroughForUntrackedWindowId() throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.setFocusFollowsMouse(true)
+        controller.niriLayoutHandler.enableNiriLayout()
+        let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
+        let targetFrame = CGRect(
+            x: monitor.visibleFrame.minX + 40,
+            y: monitor.visibleFrame.minY + 40,
+            width: 260,
+            height: 180
+        )
+        let tiledToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_006), windowId: 766_106),
+            pid: 766_006,
+            windowId: 766_106,
+            to: workspaceId
+        )
+        let tiledNode = try XCTUnwrap(controller.niriEngine?.addWindow(
+            token: tiledToken,
+            to: workspaceId,
+            afterSelection: nil
+        ))
+        tiledNode.frame = targetFrame
+        tiledNode.renderedFrame = targetFrame
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: targetFrame.center,
+            windowIdUnderPointer: 999_999
+        )
+
+        XCTAssertTrue(focusedTokens.isEmpty)
+        XCTAssertNil(controller.intentLedger.activeManagedRequest)
+    }
+
+    @MainActor
+    func testFocusFollowsMouseDoesNotFocusHiddenFloatingWindowId() throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.setFocusFollowsMouse(true)
+        let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
+        let floatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(766_007), windowId: 766_107),
+            pid: 766_007,
+            windowId: 766_107,
+            to: workspaceId,
+            mode: .floating
+        )
+        controller.workspaceManager.setHiddenState(
+            HiddenState(
+                proportionalPosition: .zero,
+                referenceMonitorId: monitor.id,
+                reason: .scratchpad
+            ),
+            for: floatingToken
+        )
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: monitor.visibleFrame.center,
+            windowIdUnderPointer: floatingToken.windowId
+        )
+
+        XCTAssertTrue(focusedTokens.isEmpty)
+        XCTAssertNil(controller.intentLedger.activeManagedRequest)
     }
 
     @MainActor
@@ -786,6 +1084,42 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertEqual(focusedTokens.last, token)
         XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
         XCTAssertEqual(controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
+
+        let exactTiledToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_710), windowId: 765_810),
+            pid: 765_710,
+            windowId: 765_810,
+            to: workspaceId
+        )
+        _ = engine.addWindow(token: exactTiledToken, to: workspaceId, activeWindowFrame: nil)
+        controller.mouseEventHandler.state.lastFocusFollowsMouseTime = .distantPast
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: targetFrame.center,
+            windowIdUnderPointer: exactTiledToken.windowId
+        )
+
+        XCTAssertEqual(focusedTokens.last, exactTiledToken)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.token, exactTiledToken)
+
+        let floatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_709), windowId: 765_809),
+            pid: 765_709,
+            windowId: 765_809,
+            to: workspaceId,
+            mode: .floating
+        )
+        controller.workspaceManager.updateFloatingGeometry(frame: targetFrame, for: floatingToken)
+        controller.mouseEventHandler.state.lastFocusFollowsMouseTime = .distantPast
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: targetFrame.center,
+            windowIdUnderPointer: floatingToken.windowId
+        )
+
+        XCTAssertEqual(focusedTokens.last, floatingToken)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.token, floatingToken)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
     }
 
     @MainActor
@@ -909,7 +1243,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testFocusFollowsMouseHitTestsPointerMonitorWorkspace() throws {
+    func testFocusFollowsMouseUsesPointerWorkspaceForFallbackAndEntryWorkspaceForExactId() throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(
             windowFocusOperations: WindowFocusOperations(
@@ -962,6 +1296,25 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(focusedTokens.last, token)
         XCTAssertEqual(controller.intentLedger.activeManagedRequest?.workspaceId, rightWorkspaceId)
+
+        let overhangingFrame = CGRect(x: 1100, y: 40, width: 240, height: 160)
+        let floatingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_708), windowId: 765_808),
+            pid: 765_708,
+            windowId: 765_808,
+            to: leftWorkspaceId,
+            mode: .floating
+        )
+        controller.workspaceManager.updateFloatingGeometry(frame: overhangingFrame, for: floatingToken)
+        controller.mouseEventHandler.state.lastFocusFollowsMouseTime = .distantPast
+
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: CGPoint(x: 1240, y: 80),
+            windowIdUnderPointer: floatingToken.windowId
+        )
+
+        XCTAssertEqual(focusedTokens.last, floatingToken)
+        XCTAssertEqual(controller.intentLedger.activeManagedRequest?.workspaceId, leftWorkspaceId)
     }
 
     func testManagedFocusCancelRejectsMismatchedRequestId() {

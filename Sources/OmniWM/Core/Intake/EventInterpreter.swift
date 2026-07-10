@@ -72,8 +72,12 @@ final class EventInterpreter: EventIntakeSink {
         case let .mouseDragged(button, location):
             controller.mouseEventHandler.dispatchQueuedMouseDragged(at: location, button: button)
 
-        case let .mouseMoved(location, modifiersRawValue):
-            controller.mouseEventHandler.dispatchMouseMoved(at: location, modifiersRawValue: modifiersRawValue)
+        case let .mouseMoved(location, modifiersRawValue, windowIdUnderPointer):
+            controller.mouseEventHandler.dispatchMouseMoved(
+                at: location,
+                modifiersRawValue: modifiersRawValue,
+                windowIdUnderPointer: windowIdUnderPointer
+            )
 
         case let .mouseScroll(payload):
             controller.mouseEventHandler.dispatchScrollWheel(
