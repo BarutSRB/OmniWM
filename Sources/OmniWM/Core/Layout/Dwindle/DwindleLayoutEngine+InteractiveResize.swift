@@ -31,7 +31,7 @@ extension DwindleLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) -> Bool {
         guard interactiveResize == nil else { return false }
-        guard let leaf = findNode(for: token), leaf.isLeaf, !leaf.isFullscreen else { return false }
+        guard let leaf = findNode(for: token, in: workspaceId), leaf.isLeaf, !leaf.isFullscreen else { return false }
 
         let horizontal = resolveControllingSplit(from: leaf, edges: edges, axis: .horizontal)
         let vertical = resolveControllingSplit(from: leaf, edges: edges, axis: .vertical)
@@ -56,7 +56,7 @@ extension DwindleLayoutEngine {
 
     func interactiveResizeUpdate(currentLocation: CGPoint) -> Bool {
         guard let resize = interactiveResize else { return false }
-        guard let leaf = findNode(for: resize.token), leaf.isLeaf else {
+        guard let leaf = findNode(for: resize.token, in: resize.workspaceId), leaf.isLeaf else {
             clearInteractiveResize()
             return false
         }

@@ -279,8 +279,8 @@ final class CommandHandler {
 
         let previousWindow = controller.workspaceManager.withEngineMutationScope { () -> NiriWindow? in
             if let currentId = state.selectedNodeId {
-                engine.updateFocusTimestamp(for: currentId)
-                engine.activateWindow(currentId)
+                engine.updateFocusTimestamp(for: currentId, in: workspaceId)
+                engine.activateWindow(currentId, in: workspaceId)
             }
 
             return engine.focusPrevious(
@@ -335,8 +335,8 @@ final class CommandHandler {
 
         controller.workspaceManager.withEngineMutationScope {
             if let selectedNodeId {
-                engine.updateFocusTimestamp(for: selectedNodeId)
-                engine.activateWindow(selectedNodeId)
+                engine.updateFocusTimestamp(for: selectedNodeId, in: workspaceId)
+                engine.activateWindow(selectedNodeId, in: workspaceId)
             }
         }
         controller.windowActionHandler.navigateToWindowInternal(
@@ -519,16 +519,16 @@ final class CommandHandler {
         var state = controller.workspaceManager.niriViewportState(for: wsId)
         let currentNode: NiriNode
         if let currentId = state.selectedNodeId,
-           let node = engine.findNode(by: currentId)
+           let node = engine.findNode(by: currentId, in: wsId)
         {
             currentNode = node
         } else if let lastFocused = controller.workspaceManager.lastFocusedToken(in: wsId),
-                  let node = engine.findNode(for: lastFocused)
+                  let node = engine.findNode(for: lastFocused, in: wsId)
         {
             state.selectedNodeId = node.id
             currentNode = node
         } else if let selectedId = engine.validateSelection(state.selectedNodeId, in: wsId),
-                  let node = engine.findNode(by: selectedId)
+                  let node = engine.findNode(by: selectedId, in: wsId)
         {
             state.selectedNodeId = selectedId
             currentNode = node

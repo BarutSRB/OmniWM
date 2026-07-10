@@ -66,12 +66,12 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         let leaf3 = WindowToken(pid: 3, windowId: 3)
         _ = engine.addWindow(token: leaf1, to: ws, activeWindowFrame: nil)
         _ = engine.addWindow(token: other, to: ws, activeWindowFrame: nil)
-        engine.setSelectedNode(engine.findNode(for: leaf1), in: ws)
+        engine.setSelectedNode(engine.findNode(for: leaf1, in: ws), in: ws)
         engine.setPreselection(.down, in: ws)
         _ = engine.addWindow(token: leaf3, to: ws, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: ws, screen: screen)
 
-        let verticalSplit = engine.findNode(for: leaf1)?.parent
+        let verticalSplit = engine.findNode(for: leaf1, in: ws)?.parent
         let horizontalSplit = engine.root(for: ws)
         XCTAssertEqual(verticalSplit?.splitOrientation, .vertical)
         XCTAssertEqual(horizontalSplit?.splitOrientation, .horizontal)
@@ -135,7 +135,7 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         _ = engine.addWindow(token: leaf2, to: ws, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: ws, screen: screen)
 
-        let innerSplit = engine.findNode(for: leaf1)?.parent
+        let innerSplit = engine.findNode(for: leaf1, in: ws)?.parent
         XCTAssertEqual(innerSplit?.splitOrientation, .horizontal)
         XCTAssertNotEqual(innerSplit?.id, engine.root(for: ws)?.id)
 
@@ -144,10 +144,10 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         engine.removeWindow(token: outer, from: ws)
         let collapsedRoot = engine.root(for: ws)
         XCTAssertEqual(collapsedRoot?.splitOrientation, .horizontal)
-        XCTAssertEqual(engine.findNode(for: leaf1)?.isFirstChild(of: collapsedRoot!), true)
+        XCTAssertEqual(engine.findNode(for: leaf1, in: ws)?.isFirstChild(of: collapsedRoot!), true)
 
         XCTAssertFalse(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y)))
         XCTAssertEqual(collapsedRoot?.splitRatio ?? 0, 1.0, accuracy: 1e-6)
-        XCTAssertNotNil(engine.findNode(for: leaf1))
+        XCTAssertNotNil(engine.findNode(for: leaf1, in: ws))
     }
 }

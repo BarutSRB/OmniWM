@@ -27,9 +27,13 @@ extension NiriLayoutEngine {
         var visibilityWasCorrected = false
     }
 
-    func updateWindowConstraints(for token: WindowToken, constraints: WindowSizeConstraints) {
+    func updateWindowConstraints(
+        for token: WindowToken,
+        constraints: WindowSizeConstraints,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) {
         assertSanctionedMutation()
-        guard let node = tokenToNode[token] else { return }
+        guard let node = states[workspaceId]?.nodesByToken[token] else { return }
         let normalized = constraints.normalized()
         guard node.constraints != normalized else { return }
         node.constraints = normalized
@@ -44,8 +48,7 @@ extension NiriLayoutEngine {
                     newWidth: clampedTarget,
                     clock: animationClock,
                     config: windowMovementAnimationConfig,
-                    displayRefreshRate: workspaceIds(containing: token).first
-                        .map { displayRefreshRate(in: $0) } ?? 60.0,
+                    displayRefreshRate: displayRefreshRate(in: workspaceId),
                     animated: true
                 )
             }
@@ -60,18 +63,22 @@ extension NiriLayoutEngine {
         afterSelection selectedNodeId: NodeId?,
         focusedToken: WindowToken? = nil
     ) -> NiriWindow {
-        let root = ensureRoot(for: workspaceId)
+        let state = ensureState(for: workspaceId)
+        if let existing = state.nodesByToken[token] {
+            return existing
+        }
+        let root = state.root
 
         if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: root) {
             initializeNewColumnWidth(existingColumn, in: workspaceId)
             let windowNode = NiriWindow(token: token)
             existingColumn.appendChild(windowNode)
-            tokenToNode[token] = windowNode
+            state.index(windowNode)
             return windowNode
         }
 
         let referenceColumn: NiriContainer? = if let focusedToken,
-                                                 let focusedNode = tokenToNode[focusedToken],
+                                                 let focusedNode = state.nodesByToken[focusedToken],
                                                  let col = column(of: focusedNode)
         {
             col
@@ -95,65 +102,29 @@ extension NiriLayoutEngine {
         let windowNode = NiriWindow(token: token)
         newColumn.appendChild(windowNode)
 
-        tokenToNode[token] = windowNode
+        state.index(windowNode)
 
         return windowNode
     }
 
-    func removeWindow(token: WindowToken) {
-        assertSanctionedMutation()
-        guard let node = tokenToNode[token] else { return }
-        closingTokens.remove(token)
-
-        guard let column = node.parent as? NiriContainer else { return }
-
-        column.adjustActiveTileIdxForRemoval(of: node)
-
-        node.remove()
-        tokenToNode.removeValue(forKey: token)
-
-        if column.displayMode == .tabbed, !column.children.isEmpty {
-            column.clampActiveTileIdx()
-            updateTabbedColumnVisibility(column: column)
-        }
-
-        if column.children.isEmpty {
-            let root = column.parent as? NiriRoot
-            column.remove()
-
-            if let root {
-                for col in root.columns {
-                    col.cachedWidth = 0
-                }
-            }
-        }
-    }
-
     func workspaceIds(containing token: WindowToken) -> [WorkspaceDescriptor.ID] {
-        roots.compactMap { $0.value.windowIdSet.contains(token) ? $0.key : nil }
+        states.compactMap { $0.value.nodesByToken[token] != nil ? $0.key : nil }
     }
 
     func findNode(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> NiriWindow? {
-        root(for: workspaceId)?.allWindows.first { $0.token == token }
+        states[workspaceId]?.nodesByToken[token]
     }
 
     func removeWindow(token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) {
         assertSanctionedMutation()
-        guard let node = findNode(for: token, in: workspaceId),
+        guard let state = states[workspaceId],
+              let node = state.nodesByToken[token],
               let column = node.parent as? NiriContainer else { return }
 
+        cancelInteractions(for: Set([node.id]), in: workspaceId)
         column.adjustActiveTileIdxForRemoval(of: node)
         node.remove()
-
-        let remaining = roots.values.lazy.compactMap { root in
-            root.allWindows.first { $0.token == token }
-        }.first
-        if let remaining {
-            if tokenToNode[token] === node { tokenToNode[token] = remaining }
-        } else {
-            closingTokens.remove(token)
-            tokenToNode.removeValue(forKey: token)
-        }
+        state.unindex(node)
 
         if column.displayMode == .tabbed, !column.children.isEmpty {
             column.clampActiveTileIdx()
@@ -185,7 +156,7 @@ extension NiriLayoutEngine {
     ) -> NiriRemovalResult {
         assertSanctionedMutation()
         guard !tokens.isEmpty,
-              let root = root(for: workspaceId)
+              let workspaceState = states[workspaceId]
         else {
             return NiriRemovalResult(
                 removedTokens: [],
@@ -200,6 +171,7 @@ extension NiriLayoutEngine {
             )
         }
 
+        let root = workspaceState.root
         let activeIndexBefore = root.columns.isEmpty ? nil : state.activeColumnIndex
         let removalTokens = tokens.intersection(root.windowIdSet)
         guard !removalTokens.isEmpty else {
@@ -217,7 +189,7 @@ extension NiriLayoutEngine {
         }
 
         let batchRemovedNodeIds = Set(externallyRemovedNodeIds).union(
-            removalTokens.compactMap { tokenToNode[$0]?.id }
+            removalTokens.compactMap { workspaceState.nodesByToken[$0]?.id }
         )
         var remainingTokens = removalTokens
         var removedTokens: Set<WindowToken> = []
@@ -269,7 +241,7 @@ extension NiriLayoutEngine {
         let finalSelection: NodeId?
         if let currentSelection,
            !batchRemovedNodeIds.contains(currentSelection),
-           findNode(by: currentSelection) != nil
+           root.findNode(by: currentSelection) != nil
         {
             finalSelection = currentSelection
         } else {
@@ -287,7 +259,7 @@ extension NiriLayoutEngine {
         if let finalSelection,
            !visibilityWasCorrected,
            let fromIndexForVisibility,
-           let selectedNode = findNode(by: finalSelection),
+           let selectedNode = root.findNode(by: finalSelection),
            viewportNeedsRecalc
         {
             ensureSelectionVisible(
@@ -350,12 +322,10 @@ extension NiriLayoutEngine {
         let removedToken = node.token
         let removedNodeId = node.id
 
-        if interactiveResize?.windowId == removedNodeId {
-            clearInteractiveResize()
-        }
+        cancelInteractions(for: Set([removedNodeId]), in: workspaceId)
 
         column.adjustActiveTileIdxForRemoval(of: node)
-        removeWindowPools(for: node)
+        states[workspaceId]?.unindex(node)
         node.remove()
 
         if column.displayMode == .tabbed {
@@ -417,11 +387,7 @@ extension NiriLayoutEngine {
             motion: motion
         )
 
-        if let resize = interactiveResize,
-           removedWindows.contains(where: { $0.id == resize.windowId })
-        {
-            clearInteractiveResize()
-        }
+        cancelInteractions(for: Set(removedWindows.map(\.id)), in: workspaceId)
 
         let pendingPreviousOffset = state.activatePrevColumnOnRemoval
         if removedIdx + 1 == activeIdx {
@@ -432,7 +398,7 @@ extension NiriLayoutEngine {
         }
 
         for window in removedWindows {
-            removeWindowPools(for: window)
+            states[workspaceId]?.unindex(window)
             window.detach()
         }
         column.remove()
@@ -470,7 +436,7 @@ extension NiriLayoutEngine {
                 excluding: allRemovalNodeIds
             )
             if let fallbackSelectionId,
-               let selectedNode = findNode(by: fallbackSelectionId)
+               let selectedNode = findNode(by: fallbackSelectionId, in: workspaceId)
             {
                 state.selectedNodeId = fallbackSelectionId
                 ensureSelectionVisible(
@@ -533,34 +499,29 @@ extension NiriLayoutEngine {
         return fallbackSelectionInColumn(cols[idx], excluding: removedNodeIds)
     }
 
-    private func removeWindowPools(for window: NiriWindow) {
-        closingTokens.remove(window.token)
-        tokenToNode.removeValue(forKey: window.token)
-        framePool.removeValue(forKey: window.token)
-        hiddenPool.removeValue(forKey: window.token)
-    }
-
     @discardableResult
-    func rekeyWindow(from oldToken: WindowToken, to newToken: WindowToken) -> Bool {
+    func rekeyWindow(
+        from oldToken: WindowToken,
+        to newToken: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
         assertSanctionedMutation()
         guard oldToken != newToken,
-              tokenToNode[newToken] == nil,
-              let node = tokenToNode.removeValue(forKey: oldToken)
+              let state = states[workspaceId],
+              state.nodesByToken[newToken] == nil,
+              let node = state.nodesByToken.removeValue(forKey: oldToken)
         else {
             return false
         }
 
         node.token = newToken
-        tokenToNode[newToken] = node
+        state.index(node)
 
-        if let frame = framePool.removeValue(forKey: oldToken) {
-            framePool[newToken] = frame
-        }
-        if let hiddenSide = hiddenPool.removeValue(forKey: oldToken) {
-            hiddenPool[newToken] = hiddenSide
-        }
-        if closingTokens.remove(oldToken) != nil {
-            closingTokens.insert(newToken)
+        if let move = interactiveMove,
+           move.workspaceId == workspaceId,
+           move.windowId == node.id
+        {
+            move.windowHandle.id = newToken
         }
 
         node.invalidateChildrenCache()
@@ -575,22 +536,21 @@ extension NiriLayoutEngine {
         focusedToken: WindowToken? = nil
     ) -> Set<WindowToken> {
         assertSanctionedMutation()
-        let root = ensureRoot(for: workspaceId)
-        let existingIdSet = root.windowIdSet
+        let state = ensureState(for: workspaceId)
 
         let currentIdSet = Set(tokens)
 
         var removedHandles = Set<WindowToken>()
 
-        for window in root.allWindows {
+        for window in state.root.allWindows {
             if !currentIdSet.contains(window.token) {
                 removedHandles.insert(window.token)
-                removeWindow(token: window.token)
+                removeWindow(token: window.token, in: workspaceId)
             }
         }
 
         for token in tokens {
-            if !existingIdSet.contains(token) {
+            if state.nodesByToken[token] == nil {
                 _ = addWindow(
                     token: token,
                     to: workspaceId,
@@ -611,7 +571,7 @@ extension NiriLayoutEngine {
             return columns(in: workspaceId).first?.firstChild()?.id
         }
 
-        guard let root = roots[workspaceId],
+        guard let root = root(for: workspaceId),
               let existingNode = root.findNode(by: selectedId)
         else {
             return columns(in: workspaceId).first?.firstChild()?.id
@@ -624,7 +584,7 @@ extension NiriLayoutEngine {
         removing removingNodeId: NodeId,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> NodeId? {
-        guard let root = roots[workspaceId],
+        guard let root = root(for: workspaceId),
               let removingNode = root.findNode(by: removingNodeId)
         else {
             return nil
@@ -661,14 +621,14 @@ extension NiriLayoutEngine {
         return nil
     }
 
-    func updateFocusTimestamp(for nodeId: NodeId) {
+    func updateFocusTimestamp(for nodeId: NodeId, in workspaceId: WorkspaceDescriptor.ID) {
         assertSanctionedMutation()
-        guard let node = findNode(by: nodeId) as? NiriWindow else { return }
+        guard let node = findNode(by: nodeId, in: workspaceId) as? NiriWindow else { return }
         node.lastFocusedTime = Date()
     }
 
-    func updateFocusTimestamp(for token: WindowToken) {
-        guard let node = findNode(for: token) else { return }
+    func updateFocusTimestamp(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) {
+        guard let node = states[workspaceId]?.nodesByToken[token] else { return }
         node.lastFocusedTime = Date()
     }
 
@@ -679,7 +639,7 @@ extension NiriLayoutEngine {
         let allWindows: [NiriWindow] = if let wsId = workspaceId, let root = root(for: wsId) {
             root.allWindows
         } else {
-            Array(roots.values.flatMap(\.allWindows))
+            Array(states.values.flatMap(\.root.allWindows))
         }
 
         let candidates = allWindows.filter { window in

@@ -13,7 +13,7 @@ extension NiriLayoutEngine {
     ) -> Bool {
         assertSanctionedMutation()
         guard let selectedId = state.selectedNodeId,
-              let selectedNode = findNode(by: selectedId),
+              let selectedNode = findNode(by: selectedId, in: workspaceId),
               let column = column(of: selectedNode)
         else {
             return false
@@ -34,7 +34,7 @@ extension NiriLayoutEngine {
         guard column.displayMode != mode else { return false }
 
         if let resize = interactiveResize,
-           let resizeWindow = findNode(by: resize.windowId) as? NiriWindow,
+           let resizeWindow = findNode(by: resize.windowId, in: resize.workspaceId) as? NiriWindow,
            let resizeColumn = findColumn(containing: resizeWindow, in: resize.workspaceId),
            resizeColumn.id == column.id
         {
@@ -115,9 +115,9 @@ extension NiriLayoutEngine {
         return false
     }
 
-    func activeColumn(in _: WorkspaceDescriptor.ID, state: ViewportState) -> NiriContainer? {
+    func activeColumn(in workspaceId: WorkspaceDescriptor.ID, state: ViewportState) -> NiriContainer? {
         guard let selectedId = state.selectedNodeId,
-              let selectedNode = findNode(by: selectedId)
+              let selectedNode = findNode(by: selectedId, in: workspaceId)
         else {
             return nil
         }

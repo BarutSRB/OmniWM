@@ -137,6 +137,9 @@ final class MouseEventHandler {
                 if let tap = MouseEventHandler._instance?.state.eventTap {
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
+                Task { @MainActor in
+                    MouseEventHandler._instance?.cancelActiveMouseInteraction()
+                }
                 return Unmanaged.passUnretained(event)
             }
 
@@ -178,6 +181,7 @@ final class MouseEventHandler {
     }
 
     func cleanup() {
+        cancelActiveMouseInteraction()
         if let source = state.runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             state.runLoopSource = nil
@@ -190,9 +194,6 @@ final class MouseEventHandler {
         multitouchSource = nil
         MouseEventHandler._instance = nil
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "mouse.tap.removed")
-        state.currentHoveredEdges = []
-        state.isResizing = false
-        state.activeInteractionButton = nil
         controller?.eventIntake.removePendingMouseEvents()
         resetGestureState()
     }
@@ -208,6 +209,7 @@ final class MouseEventHandler {
 
     func dispatchMouseMoved(at location: CGPoint, modifiersRawValue: UInt64 = 0) {
         guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
             resetHoveredEdgesIfNeeded()
             return
         }
@@ -220,7 +222,10 @@ final class MouseEventHandler {
         modifiers: CGEventFlags,
         button: MouseButton = .left
     ) -> Bool {
-        guard !isInputSuppressed else { return false }
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return false
+        }
         guard controller != nil else { return false }
         let blocked = shouldBlockOwnWindowInput(at: location)
         if MouseTrace.shared.isActive {
@@ -238,7 +243,10 @@ final class MouseEventHandler {
     }
 
     func dispatchMouseDragged(at location: CGPoint, button: MouseButton = .left) {
-        guard !isInputSuppressed else { return }
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return
+        }
         if shouldBlockOwnWindowInput(at: location) {
             cancelActiveMouseInteraction()
             return
@@ -247,7 +255,10 @@ final class MouseEventHandler {
     }
 
     func dispatchMouseUp(at location: CGPoint, button: MouseButton = .left) {
-        guard !isInputSuppressed else { return }
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return
+        }
         if shouldBlockOwnWindowInput(at: location) {
             cancelActiveMouseInteraction()
             return
@@ -263,7 +274,10 @@ final class MouseEventHandler {
         phase: UInt32,
         modifiers: CGEventFlags
     ) {
-        guard !isInputSuppressed else { return }
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return
+        }
         handleScrollWheelFromTap(
             at: location,
             deltaX: deltaX,
@@ -283,6 +297,7 @@ final class MouseEventHandler {
     }
 
     func handleInputSuppressionBegan() {
+        cancelActiveMouseInteraction()
         dropPendingTapEvents()
         resetMouseWheelTrackers()
         abortActiveGestureIfNeeded()
@@ -425,6 +440,7 @@ final class MouseEventHandler {
 
     private func cancelActiveMouseInteraction() {
         guard let controller else { return }
+        let wasActive = state.isMoving || state.isResizing
 
         if state.isMoving {
             controller.niriEngine?.interactiveMoveCancel()
@@ -435,14 +451,62 @@ final class MouseEventHandler {
         }
 
         if state.isResizing {
-            controller.niriEngine?.clearInteractiveResize()
-            controller.dwindleEngine?.clearInteractiveResize()
+            finishActiveResize()
             state.isResizing = false
             state.activeInteractionButton = nil
             state.resizeLayout = nil
         }
 
         resetHoveredEdgesIfNeeded()
+        if wasActive {
+            NSCursor.arrow.set()
+        }
+    }
+
+    private func finishActiveResize() {
+        if state.resizeLayout == .dwindle {
+            finishDwindleResize()
+        } else {
+            finishNiriResize()
+        }
+    }
+
+    private func finishDwindleResize() {
+        guard let controller, let engine = controller.dwindleEngine else { return }
+        let workspaceId = engine.interactiveResize?.workspaceId
+        guard engine.interactiveResizeEnd(), let workspaceId else { return }
+        controller.workspaceManager.recordLayoutOperation(.splitRatioChanged, in: workspaceId, source: .mouse)
+        if controller.hasStartedServices {
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
+        }
+    }
+
+    private func finishNiriResize() {
+        guard let controller, let engine = controller.niriEngine, let resize = engine.interactiveResize else { return }
+        let workspaceId = resize.workspaceId
+        let resizedToken = (engine.findNode(by: resize.windowId, in: workspaceId) as? NiriWindow)?.token
+        guard let monitor = controller.workspaceManager.monitor(for: workspaceId), let resizedToken else {
+            engine.clearInteractiveResize()
+            return
+        }
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let gaps = CGFloat(controller.workspaceManager.gaps)
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { viewportState in
+            engine.interactiveResizeEnd(
+                motion: controller.motionPolicy.snapshot(),
+                state: &viewportState,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        }
+        controller.workspaceManager.recordLayoutOperation(
+            .interactiveResizeEnded(token: resizedToken),
+            in: workspaceId,
+            source: .mouse
+        )
+        if controller.hasStartedServices {
+            controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
+        }
     }
 
     private func workspaceIdForPointer(at location: CGPoint) -> WorkspaceDescriptor.ID? {
@@ -466,7 +530,10 @@ final class MouseEventHandler {
     }
 
     func dispatchQueuedMouseDragged(at location: CGPoint, button: MouseButton) {
-        guard !isInputSuppressed else { return }
+        guard !isInputSuppressed else {
+            handleInputSuppressionBegan()
+            return
+        }
         if shouldBlockOwnWindowInput(at: location) {
             cancelActiveMouseInteraction()
             return
@@ -477,10 +544,13 @@ final class MouseEventHandler {
     private func handleMouseMovedFromTap(at location: CGPoint, modifiersRawValue: UInt64) {
         guard let controller else { return }
         guard controller.isEnabled else {
-            resetHoveredEdgesIfNeeded()
+            cancelActiveMouseInteraction()
             return
         }
-        if controller.isOverviewOpen() { return }
+        if controller.isOverviewOpen() {
+            cancelActiveMouseInteraction()
+            return
+        }
 
         if shouldBlockOwnWindowInput(at: location) {
             resetHoveredEdgesIfNeeded()
@@ -513,12 +583,19 @@ final class MouseEventHandler {
         button: MouseButton
     ) -> Bool {
         guard let controller else { return false }
-        guard controller.isEnabled else { return false }
-        if controller.isOverviewOpen() { return false }
+        guard controller.isEnabled else {
+            cancelActiveMouseInteraction()
+            return false
+        }
+        if controller.isOverviewOpen() {
+            cancelActiveMouseInteraction()
+            return false
+        }
 
         if shouldBlockOwnWindowInput(at: location) {
             return false
         }
+        guard !state.isMoving, !state.isResizing else { return false }
 
         guard let wsId = workspaceIdForPointer(at: location) ?? controller.activeWorkspace()?.id else {
             return false
@@ -636,7 +713,7 @@ final class MouseEventHandler {
 
         let now = controller.animationClock.now()
         guard let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: now),
-              let node = engine.findNode(for: token),
+              let node = engine.findNode(for: token, in: wsId),
               let frame = node.presentedFrame(at: now)
         else { return false }
 
@@ -689,21 +766,32 @@ final class MouseEventHandler {
         requirePressedButtonCheck: Bool = true
     ) {
         guard let controller else { return }
-        guard controller.isEnabled else { return }
-        if controller.isOverviewOpen() { return }
+        guard controller.isEnabled else {
+            cancelActiveMouseInteraction()
+            return
+        }
+        if controller.isOverviewOpen() {
+            cancelActiveMouseInteraction()
+            return
+        }
         if requirePressedButtonCheck {
-            guard pressedMouseButtonsProvider() & button.pressedMask != 0 else { return }
+            guard pressedMouseButtonsProvider() & button.pressedMask != 0 else {
+                cancelActiveMouseInteraction()
+                return
+            }
         }
 
         if state.isMoving {
             guard shouldAcceptInteractionButton(button) else { return }
             guard let engine = controller.niriEngine,
-                  let wsId = controller.activeWorkspace()?.id
+                  let move = engine.interactiveMove
             else {
+                cancelActiveMouseInteraction()
                 return
             }
+            let wsId = move.workspaceId
 
-            let hoverTarget = engine.interactiveMoveUpdate(currentLocation: location, in: wsId)
+            let hoverTarget = engine.interactiveMoveUpdate(currentLocation: location)
             state.dragGhostController?.updatePosition(cursorLocation: location)
 
             if let hoverTarget {
@@ -715,14 +803,12 @@ final class MouseEventHandler {
                         {
                             state.dragGhostController?.showSwapTarget(frame: frame)
                         }
-                    } else if let wsId = controller.activeWorkspace()?.id,
-                              let dropFrame = engine.insertionDropzoneFrame(
-                                  targetWindowId: nodeId,
-                                  position: insertPosition,
-                                  in: wsId,
-                                  gaps: CGFloat(controller.workspaceManager.gaps)
-                              )
-                    {
+                    } else if let dropFrame = engine.insertionDropzoneFrame(
+                        targetWindowId: nodeId,
+                        position: insertPosition,
+                        in: wsId,
+                        gaps: CGFloat(controller.workspaceManager.gaps)
+                    ) {
                         state.dragGhostController?.showSwapTarget(frame: dropFrame)
                     }
                 default:
@@ -740,7 +826,10 @@ final class MouseEventHandler {
         if state.resizeLayout == .dwindle {
             guard let engine = controller.dwindleEngine,
                   let wsId = engine.interactiveResize?.workspaceId
-            else { return }
+            else {
+                cancelActiveMouseInteraction()
+                return
+            }
             if engine.interactiveResizeUpdate(currentLocation: location) {
                 controller.layoutRefreshController.renderDwindleInteractiveResize(for: wsId)
             }
@@ -748,8 +837,10 @@ final class MouseEventHandler {
         }
 
         guard let engine = controller.niriEngine,
-              let monitor = controller.monitorForInteraction()
+              let resize = engine.interactiveResize,
+              let monitor = controller.workspaceManager.monitor(for: resize.workspaceId)
         else {
+            cancelActiveMouseInteraction()
             return
         }
 
@@ -759,7 +850,7 @@ final class MouseEventHandler {
             outer: controller.workspaceManager.outerGaps
         )
         let insetFrame = controller.insetWorkingFrame(for: monitor)
-        guard let wsId = controller.activeWorkspace()?.id else { return }
+        let wsId = resize.workspaceId
 
         if engine.interactiveResizeUpdate(
             currentLocation: location,
@@ -775,38 +866,44 @@ final class MouseEventHandler {
 
     private func handleMouseUpFromTap(at location: CGPoint, button: MouseButton) {
         guard let controller else { return }
-        if controller.isOverviewOpen() { return }
+        if controller.isOverviewOpen() {
+            cancelActiveMouseInteraction()
+            return
+        }
 
         if state.isMoving {
             guard shouldAcceptInteractionButton(button) else { return }
             if let engine = controller.niriEngine,
-               let wsId = controller.activeWorkspace()?.id,
-               let monitor = controller.workspaceManager.monitor(for: wsId)
+               let move = engine.interactiveMove
             {
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                let gaps = CGFloat(controller.workspaceManager.gaps)
-                let movedToken = engine.interactiveMove?.windowHandle.id
-                var didEnd = false
-                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                    didEnd = engine.interactiveMoveEnd(
-                        at: location,
-                        in: wsId,
-                        motion: controller.motionPolicy.snapshot(),
-                        state: &vstate,
-                        workingFrame: workingFrame,
-                        gaps: gaps
-                    )
-                }
-                if didEnd {
-                    if let movedToken {
+                let wsId = move.workspaceId
+                if let monitor = controller.workspaceManager.monitor(for: wsId) {
+                    let workingFrame = controller.insetWorkingFrame(for: monitor)
+                    let gaps = CGFloat(controller.workspaceManager.gaps)
+                    let movedToken = move.windowHandle.id
+                    var didEnd = false
+                    controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+                        didEnd = engine.interactiveMoveEnd(
+                            at: location,
+                            motion: controller.motionPolicy.snapshot(),
+                            state: &vstate,
+                            workingFrame: workingFrame,
+                            gaps: gaps
+                        )
+                    }
+                    if didEnd {
                         controller.workspaceManager.recordLayoutOperation(
                             .interactiveMoveEnded(token: movedToken),
                             in: wsId,
                             source: .mouse
                         )
+                        controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
                     }
-                    controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
+                } else {
+                    engine.interactiveMoveCancel()
                 }
+            } else {
+                controller.niriEngine?.interactiveMoveCancel()
             }
 
             state.dragGhostController?.endDrag()
@@ -820,53 +917,10 @@ final class MouseEventHandler {
         guard state.isResizing else { return }
         guard shouldAcceptInteractionButton(button) else { return }
 
-        if state.resizeLayout == .dwindle {
-            let engine = controller.dwindleEngine
-            let wsId = engine?.interactiveResize?.workspaceId
-            if let engine, engine.interactiveResizeEnd(), let wsId {
-                controller.workspaceManager.recordLayoutOperation(.splitRatioChanged, in: wsId, source: .mouse)
-                controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
-            }
-            state.isResizing = false
-            state.activeInteractionButton = nil
-            state.resizeLayout = nil
-            NSCursor.arrow.set()
-            state.currentHoveredEdges = []
-            return
-        }
-
-        if let engine = controller.niriEngine,
-           let wsId = controller.activeWorkspace()?.id,
-           let monitor = controller.workspaceManager.monitor(for: wsId)
-        {
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(controller.workspaceManager.gaps)
-            let hadInteractiveResize = engine.interactiveResize != nil
-            let resizedToken = engine.interactiveResize
-                .flatMap { (engine.findNode(by: $0.windowId) as? NiriWindow)?.token }
-
-            controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-                engine.interactiveResizeEnd(
-                    motion: controller.motionPolicy.snapshot(),
-                    state: &vstate,
-                    workingFrame: workingFrame,
-                    gaps: gaps
-                )
-            }
-            if hadInteractiveResize {
-                if let resizedToken {
-                    controller.workspaceManager.recordLayoutOperation(
-                        .interactiveResizeEnded(token: resizedToken),
-                        in: wsId,
-                        source: .mouse
-                    )
-                }
-                controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
-            }
-        }
-
+        finishActiveResize()
         state.isResizing = false
         state.activeInteractionButton = nil
+        state.resizeLayout = nil
         NSCursor.arrow.set()
         state.currentHoveredEdges = []
     }
@@ -880,8 +934,15 @@ final class MouseEventHandler {
         modifiers: CGEventFlags
     ) {
         guard let controller else { return }
-        guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
-        if controller.isOverviewOpen() { return }
+        guard controller.isEnabled else {
+            cancelActiveMouseInteraction()
+            return
+        }
+        guard controller.settings.scrollGestureEnabled else { return }
+        if controller.isOverviewOpen() {
+            cancelActiveMouseInteraction()
+            return
+        }
         if shouldBlockOwnWindowInput(at: location) { return }
         guard !state.isResizing, !state.isMoving else { return }
 
@@ -1030,6 +1091,7 @@ final class MouseEventHandler {
             return
         }
         if controller.isOverviewOpen() {
+            cancelActiveMouseInteraction()
             abortActiveGestureIfNeeded()
             return
         }
@@ -1413,7 +1475,7 @@ final class MouseEventHandler {
         state: ViewportState
     ) -> NiriNode? {
         if let selectedNodeId = state.selectedNodeId,
-           let selectedNode = engine.findNode(by: selectedNodeId)
+           let selectedNode = engine.findNode(by: selectedNodeId, in: wsId)
         {
             return selectedNode
         }
@@ -1456,7 +1518,7 @@ final class MouseEventHandler {
             )
         )
         controller.workspaceManager.withEngineMutationScope {
-            engine.updateFocusTimestamp(for: window.id)
+            engine.updateFocusTimestamp(for: window.id, in: wsId)
         }
     }
 

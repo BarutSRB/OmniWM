@@ -89,8 +89,16 @@ final class WorkspaceManager {
             monitors = [Monitor.fallback()]
         }
         rebuildMonitorIndexes()
+        world.installActiveLayoutResolver { [unowned self] workspaceId in
+            self.activeLayoutKind(for: workspaceId)
+        }
         applySettings()
         reconcileInteractionMonitorState(notify: false)
+    }
+
+    func activeLayoutKind(for workspaceId: WorkspaceDescriptor.ID) -> ActiveLayoutKind {
+        guard let descriptor = workspacesById[workspaceId] else { return .niri }
+        return settings.layoutType(for: descriptor.name) == .dwindle ? .dwindle : .niri
     }
 
     func reconcileSnapshot() -> ReconcileSnapshot {
@@ -172,9 +180,8 @@ final class WorkspaceManager {
             event,
             monitors: monitors,
             snapshot: { self.reconcileSnapshot() },
-            resolvePlan: { plan, token in
+            resolvePlan: { plan, token, snapshot in
                 var plan = plan
-                let snapshot = self.reconcileSnapshot()
                 let restoreEventPlan = self.restorePlanner.planEvent(
                     .init(
                         event: event,
@@ -359,7 +366,7 @@ final class WorkspaceManager {
             event,
             monitors: normalizedMonitors,
             snapshot: { self.reconcileSnapshot() },
-            resolvePlan: { plan, _ in
+            resolvePlan: { plan, _, _ in
                 var plan = plan
                 plan.topologyTransition = TopologyTransitionPlan(
                     previousMonitors: topologyPlan.previousMonitors,
@@ -2774,7 +2781,7 @@ final class WorkspaceManager {
             monitors: monitors,
             snapshot: { self.reconcileSnapshot() },
             preMutate: { result = body() },
-            resolvePlan: { plan, _ in plan }
+            resolvePlan: { plan, _, _ in plan }
         )
         return result!
     }
@@ -2798,7 +2805,7 @@ final class WorkspaceManager {
                     plans[index].sessionPatch.plannedSeq = committedSeq
                 }
             },
-            resolvePlan: { plan, _ in plan }
+            resolvePlan: { plan, _, _ in plan }
         )
         return plans
     }
@@ -2828,7 +2835,7 @@ final class WorkspaceManager {
                     self.setWorkspace(for: token, to: targetWorkspaceId)
                 }
             },
-            resolvePlan: { plan, _ in plan }
+            resolvePlan: { plan, _, _ in plan }
         )
         return captured
     }
@@ -2847,7 +2854,7 @@ final class WorkspaceManager {
                 self.normalizeNiriRefreshRate(&sourceState, for: workspaceId)
                 self.applyViewportInBatch(sourceState, for: workspaceId)
             },
-            resolvePlan: { plan, _ in plan }
+            resolvePlan: { plan, _, _ in plan }
         )
     }
 
@@ -3109,6 +3116,12 @@ final class WorkspaceManager {
         }
         for id in ids {
             workspacesById.removeValue(forKey: id)
+        }
+        withEngineMutationScope(label: "workspace_removed_engine_cleanup", source: .workspaceManager) {
+            for id in toRemove {
+                niriEngine?.removeWorkspaceState(id)
+                dwindleEngine?.removeLayout(for: id)
+            }
         }
         world.removeInvalidationMarks(for: ids)
         animationDriver.removeMotions(for: ids)

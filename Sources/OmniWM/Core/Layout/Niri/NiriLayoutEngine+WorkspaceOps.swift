@@ -23,17 +23,26 @@ extension NiriLayoutEngine {
         assertSanctionedMutation()
         guard sourceWorkspaceId != targetWorkspaceId else { return nil }
 
-        guard roots[sourceWorkspaceId] != nil,
+        guard let sourceWorkspaceState = states[sourceWorkspaceId],
               let sourceColumn = findColumn(containing: window, in: sourceWorkspaceId)
         else {
             return nil
         }
 
-        let targetRoot = ensureRoot(for: targetWorkspaceId)
+        let targetWorkspaceState = ensureState(for: targetWorkspaceId)
+        let targetRoot = targetWorkspaceState.root
 
         let fallbackSelection = fallbackSelectionOnRemoval(removing: window.id, in: sourceWorkspaceId)
 
+        if targetWorkspaceState.nodesByToken[window.token] != nil {
+            removeWindow(token: window.token, in: targetWorkspaceId)
+        }
+        precondition(targetWorkspaceState.nodesByToken[window.token] == nil)
+
+        cancelInteractions(for: Set([window.id]), in: sourceWorkspaceId)
+
         window.detach()
+        sourceWorkspaceState.unindex(window)
 
         let targetColumn: NiriContainer
         if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: targetRoot) {
@@ -46,6 +55,7 @@ extension NiriLayoutEngine {
             targetColumn = newColumn
         }
         targetColumn.appendChild(window)
+        targetWorkspaceState.index(window)
 
         cleanupEmptyColumn(sourceColumn, in: sourceWorkspaceId, state: &sourceState)
 
@@ -70,13 +80,20 @@ extension NiriLayoutEngine {
         assertSanctionedMutation()
         guard sourceWorkspaceId != targetWorkspaceId else { return nil }
 
-        guard roots[sourceWorkspaceId] != nil,
+        guard let sourceWorkspaceState = states[sourceWorkspaceId],
               columnIndex(of: column, in: sourceWorkspaceId) != nil
         else {
             return nil
         }
 
-        let targetRoot = ensureRoot(for: targetWorkspaceId)
+        let targetWorkspaceState = ensureState(for: targetWorkspaceId)
+        let targetRoot = targetWorkspaceState.root
+        let movedWindows = column.windowNodes
+
+        for window in movedWindows where targetWorkspaceState.nodesByToken[window.token] != nil {
+            removeWindow(token: window.token, in: targetWorkspaceId)
+        }
+        precondition(movedWindows.allSatisfy { targetWorkspaceState.nodesByToken[$0.token] == nil })
 
         removeEmptyColumnsIfWorkspaceEmpty(in: targetRoot)
 
@@ -90,21 +107,36 @@ extension NiriLayoutEngine {
             }
         }
 
-        column.detach()
+        cancelInteractions(for: Set(movedWindows.map(\.id)), in: sourceWorkspaceId)
 
+        column.detach()
         targetRoot.appendChild(column)
+
+        for window in movedWindows {
+            sourceWorkspaceState.unindex(window)
+            targetWorkspaceState.index(window)
+        }
 
         sourceState.selectedNodeId = fallbackSelection
 
         targetState.selectedNodeId = column.firstChild()?.id
 
-        let firstWindowHandle = column.windowNodes.first?.handle
+        let firstWindowHandle = movedWindows.first?.handle
 
         return WorkspaceMoveResult(
             newFocusNodeId: fallbackSelection,
             movedHandle: firstWindowHandle,
             targetWorkspaceId: targetWorkspaceId
         )
+    }
+
+    func removeWorkspaceState(_ workspaceId: WorkspaceDescriptor.ID) {
+        assertSanctionedMutation()
+        cancelInteractions(in: workspaceId)
+        for niriMonitor in monitors.values {
+            niriMonitor.workspaceRoots.removeValue(forKey: workspaceId)
+        }
+        states.removeValue(forKey: workspaceId)
     }
 
     func adjacentWorkspace(

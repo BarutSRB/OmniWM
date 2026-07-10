@@ -165,7 +165,7 @@ extension NiriLayoutEngine {
     }
 
     func tickAllColumnAnimations(in workspaceId: WorkspaceDescriptor.ID, at time: TimeInterval) -> Bool {
-        guard let root = roots[workspaceId] else { return false }
+        guard let root = root(for: workspaceId) else { return false }
         var anyRunning = false
         for column in root.columns {
             if column.tickMoveAnimation(at: time) { anyRunning = true }
@@ -175,7 +175,7 @@ extension NiriLayoutEngine {
     }
 
     func hasAnyColumnAnimationsRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let root = roots[workspaceId] else { return false }
+        guard let root = root(for: workspaceId) else { return false }
         return root.columns.contains { $0.hasMoveAnimationRunning || $0.hasWidthAnimationRunning }
     }
 

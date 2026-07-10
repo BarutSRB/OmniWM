@@ -412,7 +412,7 @@ final class WindowActionHandler {
         }
 
         var targetState = controller.workspaceManager.niriViewportState(for: workspaceId)
-        if let niriWindow = engine.findNode(for: token) {
+        if let niriWindow = engine.findNode(for: token, in: workspaceId) {
             targetState.selectedNodeId = niriWindow.id
 
             if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
@@ -420,7 +420,7 @@ final class WindowActionHandler {
                let monitor = controller.workspaceManager.monitor(for: workspaceId)
             {
                 controller.workspaceManager.withEngineMutationScope {
-                    engine.activateWindow(niriWindow.id)
+                    engine.activateWindow(niriWindow.id, in: workspaceId)
                 }
 
                 let cols = engine.columns(in: workspaceId)
@@ -468,7 +468,7 @@ final class WindowActionHandler {
     ) -> Bool {
         guard let controller,
               let engine = controller.niriEngine,
-              let focusedNode = engine.findNode(for: focusedToken),
+              let focusedNode = engine.findNode(for: focusedToken, in: targetWorkspaceId),
               let focusedColumn = engine.findColumn(containing: focusedNode, in: targetWorkspaceId),
               let focusedColumnIndex = engine.columnIndex(of: focusedColumn, in: targetWorkspaceId)
         else {
@@ -527,7 +527,7 @@ final class WindowActionHandler {
     ) -> Bool {
         guard let controller,
               let engine = controller.dwindleEngine,
-              let focusedNode = engine.findNode(for: focusedToken),
+              let focusedNode = engine.findNode(for: focusedToken, in: targetWorkspaceId),
               focusedNode.isLeaf
         else {
             return false

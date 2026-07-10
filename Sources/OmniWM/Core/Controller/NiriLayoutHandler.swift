@@ -321,7 +321,7 @@ import QuartzCore
         guard let controller else { return }
         let viewportState = controller.workspaceManager.niriViewportState(for: workspaceId)
         if let selectedNodeId = viewportState.selectedNodeId,
-           let selectedWindow = controller.niriEngine?.findNode(by: selectedNodeId) as? NiriWindow,
+           let selectedWindow = controller.niriEngine?.findNode(by: selectedNodeId, in: workspaceId) as? NiriWindow,
            controller.workspaceManager.entry(for: selectedWindow.token)?.workspaceId == workspaceId
         {
             controller.focusWindow(selectedWindow.token)
@@ -451,6 +451,7 @@ import QuartzCore
             frames: frames,
             hiddenHandles: hiddenHandles,
             engine: engine,
+            workspaceId: snapshot.workspaceId,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
             reassertHidden: animationTime == nil,
             pendingParkWindowIds: controller?.axManager.pendingParkWindowIds ?? []
@@ -509,7 +510,7 @@ import QuartzCore
         )
 
         for window in snapshot.windows {
-            engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
+            engine.updateWindowConstraints(for: window.token, constraints: window.constraints, in: pass.wsId)
         }
 
         let selection = resolveSelection(
@@ -686,14 +687,14 @@ import QuartzCore
         if let finalSelectionId = removal.removalResult.finalSelectionId {
             state.selectedNodeId = finalSelectionId
         } else if let selectedId = state.selectedNodeId,
-                  pass.engine.findNode(by: selectedId) == nil
+                  pass.engine.findNode(by: selectedId, in: pass.wsId) == nil
         {
             state.selectedNodeId = pass.engine.validateSelection(selectedId, in: pass.wsId)
         }
 
         if state.selectedNodeId == nil {
             if let firstToken = windowTokens.first,
-               let firstNode = pass.engine.findNode(for: firstToken)
+               let firstNode = pass.engine.findNode(for: firstToken, in: pass.wsId)
             {
                 state.selectedNodeId = firstNode.id
             }
@@ -716,7 +717,7 @@ import QuartzCore
            !isGestureOrAnimation,
            snapshot.isActiveWorkspace,
            let selectedId = state.selectedNodeId,
-           let selectedNode = pass.engine.findNode(by: selectedId),
+           let selectedNode = pass.engine.findNode(by: selectedId, in: pass.wsId),
            !removal.removalResult.visibilityWasCorrected,
            removal.removalResult.removedTokens.isEmpty || removal.removalResult.fromIndexForVisibility != nil
         {
@@ -739,7 +740,7 @@ import QuartzCore
 
         let rememberedFocusToken: WindowToken?
         if let selectedId = state.selectedNodeId,
-           let selectedNode = pass.engine.findNode(by: selectedId) as? NiriWindow
+           let selectedNode = pass.engine.findNode(by: selectedId, in: pass.wsId) as? NiriWindow
         {
             rememberedFocusToken = selectedNode.token
         } else {
@@ -766,7 +767,7 @@ import QuartzCore
         var shouldStartScrollForNewWindow = false
         if snapshot.hasCompletedInitialRefresh,
            let newToken = newTokens.last,
-           let newNode = pass.engine.findNode(for: newToken),
+           let newNode = pass.engine.findNode(for: newToken, in: pass.wsId),
            snapshot.isActiveWorkspace
         {
             let isTabLocalArrival = insertion.tabLocalTokens.contains(newToken)
@@ -824,7 +825,7 @@ import QuartzCore
                 }
             }
             rememberedFocusToken = newToken
-            pass.engine.updateFocusTimestamp(for: newNode.id)
+            pass.engine.updateFocusTimestamp(for: newNode.id, in: pass.wsId)
             activateWindowToken = newToken
             hasNewWindowArrival = true
             shouldStartScrollForNewWindow = !isTabLocalArrival
@@ -839,7 +840,7 @@ import QuartzCore
             let appearOffset = 16.0 * reduceMotionScale
 
             for token in animatedNewTokens {
-                guard let window = pass.engine.findNode(for: token),
+                guard let window = pass.engine.findNode(for: token, in: pass.wsId),
                       !window.isHiddenInTabbedMode else { continue }
 
                 if abs(appearOffset) > 0.1 {
@@ -1000,6 +1001,7 @@ import QuartzCore
             frames: frames,
             hiddenHandles: hiddenHandles,
             engine: pass.engine,
+            workspaceId: pass.wsId,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
             reassertHidden: true
         )
@@ -1021,6 +1023,7 @@ import QuartzCore
         frames: [WindowToken: CGRect],
         hiddenHandles: [WindowToken: HideSide],
         engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID,
         canRestoreHiddenWorkspaceWindows: Bool,
         reassertHidden: Bool,
         pendingParkWindowIds: Set<Int> = []
@@ -1055,7 +1058,7 @@ import QuartzCore
             }
 
             guard let frame = frames[token] else { continue }
-            let forceApply = if let node = engine.findNode(for: token) {
+            let forceApply = if let node = engine.findNode(for: token, in: workspaceId) {
                 node.sizingMode == .fullscreen
             } else {
                 false
@@ -1077,7 +1080,8 @@ import QuartzCore
 
         var infos: [TabbedColumnOverlayInfo] = []
         for monitor in controller.workspaceManager.monitors {
-            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+            guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id),
+                  controller.workspaceManager.activeLayoutKind(for: workspace.id) == .niri
             else { continue }
 
             infos.append(contentsOf: tabbedColumnOverlayInfos(
@@ -1180,6 +1184,7 @@ import QuartzCore
     ) {
         guard let controller, let engine = controller.niriEngine else { return }
         let workspaceId = info.workspaceId
+        guard controller.workspaceManager.activeLayoutKind(for: workspaceId) == .niri else { return }
         guard controller.workspaceManager.isSeqCurrent(
             info.plannedSeq,
             for: workspaceId,
@@ -1253,11 +1258,11 @@ import QuartzCore
 
         var state = controller.workspaceManager.niriViewportState(for: wsId)
         guard let currentId = state.selectedNodeId,
-              let currentNode = engine.findNode(by: currentId)
+              let currentNode = engine.findNode(by: currentId, in: wsId)
         else {
             var recovered = false
             if let lastFocused = controller.workspaceManager.lastFocusedToken(in: wsId),
-               let lastNode = engine.findNode(for: lastFocused)
+               let lastNode = engine.findNode(for: lastFocused, in: wsId)
             {
                 activateNode(
                     lastNode, in: wsId, state: &state,
@@ -1270,7 +1275,7 @@ import QuartzCore
                 )
                 recovered = true
             } else if let firstToken = controller.workspaceManager.tiledEntries(in: wsId).first?.token,
-                      let firstNode = engine.findNode(for: firstToken)
+                      let firstNode = engine.findNode(for: firstToken, in: wsId)
             {
                 activateNode(
                     firstNode, in: wsId, state: &state,
@@ -1338,7 +1343,7 @@ import QuartzCore
     func toggleFullscreen() {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, _, _ in
             guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId),
+                  let currentNode = engine.findNode(by: currentId, in: wsId),
                   let windowNode = currentNode as? NiriWindow
             else { return }
 
@@ -1353,7 +1358,7 @@ import QuartzCore
     func cycleSize(forward: Bool) {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow,
                   let column = engine.findColumn(containing: windowNode, in: wsId)
             else { return }
 
@@ -1375,7 +1380,7 @@ import QuartzCore
     func cycleWindowWidth(forward: Bool) {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow
             else { return }
 
             engine.toggleWindowWidth(
@@ -1396,7 +1401,7 @@ import QuartzCore
     func cycleWindowHeight(forward: Bool) {
         withNiriWorkspaceContext { engine, wsId, _, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow
             else { return }
 
             engine.toggleWindowHeight(
@@ -1415,7 +1420,7 @@ import QuartzCore
     func toggleColumnFullWidth() {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow,
                   let column = engine.findColumn(containing: windowNode, in: wsId)
             else { return }
 
@@ -1436,7 +1441,7 @@ import QuartzCore
     func expandColumnToAvailableWidth() {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow,
                   let column = engine.findColumn(containing: windowNode, in: wsId)
             else { return }
 
@@ -1457,7 +1462,7 @@ import QuartzCore
     func resetWindowHeight() {
         withNiriWorkspaceContext { engine, wsId, _, state, _, _, _ in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow
             else { return }
 
             engine.resetWindowHeight(windowNode, in: wsId)
@@ -1500,7 +1505,7 @@ import QuartzCore
     func setColumnWidth(_ change: NiriSizeChange) {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow,
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow,
                   let column = engine.findColumn(containing: windowNode, in: wsId)
             else { return }
 
@@ -1522,7 +1527,7 @@ import QuartzCore
     func setWindowWidth(_ change: NiriSizeChange) {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow
             else { return }
 
             engine.setWindowWidth(
@@ -1543,7 +1548,7 @@ import QuartzCore
     func setWindowHeight(_ change: NiriSizeChange) {
         withNiriWorkspaceContext { engine, wsId, _, state, _, workingFrame, gaps in
             guard let currentId = state.selectedNodeId,
-                  let windowNode = engine.findNode(by: currentId) as? NiriWindow
+                  let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow
             else { return }
 
             engine.setWindowHeight(
@@ -1694,7 +1699,7 @@ import QuartzCore
             }
 
             if options.activateWindow {
-                engine.activateWindow(node.id)
+                engine.activateWindow(node.id, in: workspaceId)
             }
 
             if options.ensureVisible, let monitor = controller.workspaceManager.monitor(for: workspaceId) {
@@ -1721,7 +1726,7 @@ import QuartzCore
 
         if options.updateTimestamp, let windowNode = node as? NiriWindow {
             controller.workspaceManager.withEngineMutationScope {
-                engine.updateFocusTimestamp(for: windowNode.id)
+                engine.updateFocusTimestamp(for: windowNode.id, in: workspaceId)
             }
         }
 
@@ -1835,7 +1840,7 @@ import QuartzCore
 
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
             guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId),
+                  let currentNode = engine.findNode(by: currentId, in: wsId),
                   let windowNode = currentNode as? NiriWindow
             else { return }
 
@@ -1926,14 +1931,14 @@ import QuartzCore
         var consumed = false
 
         controller.workspaceManager.withEngineMutationScope(in: workspaceId, label: "drag_drop_move") {
-            guard let movedNode = engine.findNode(for: token),
+            guard let movedNode = engine.findNode(for: token, in: workspaceId),
                   let column = engine.findColumn(containing: movedNode, in: workspaceId)
             else { return }
 
             movedNode.stopMoveAnimations()
 
             let anchorColumn = anchorToken
-                .flatMap { engine.findNode(for: $0) }
+                .flatMap { engine.findNode(for: $0, in: workspaceId) }
                 .flatMap { engine.findColumn(containing: $0, in: workspaceId) }
 
             if let anchorColumn, anchorColumn.id != column.id {
@@ -1945,7 +1950,7 @@ import QuartzCore
             }
 
             if !consumed {
-                engine.activateWindow(movedNode.id)
+                engine.activateWindow(movedNode.id, in: workspaceId)
                 targetState.selectedNodeId = movedNode.id
                 engine.ensureSelectionVisible(
                     node: movedNode, in: workspaceId, motion: .disabled, state: &targetState,
@@ -2128,8 +2133,8 @@ import QuartzCore
     ) -> Bool {
         var didMove = false
         withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, monitor, workingFrame, gaps in
-            guard let sourceNode = engine.findNode(for: handle) else { return }
-            guard let target = engine.findNode(for: targetHandle) else { return }
+            guard let sourceNode = engine.findNode(for: handle, in: wsId) else { return }
+            guard let target = engine.findNode(for: targetHandle, in: wsId) else { return }
             didMove = engine.insertWindowByMove(
                 sourceWindowId: sourceNode.id,
                 targetWindowId: target.id,
@@ -2156,7 +2161,7 @@ import QuartzCore
     ) -> Bool {
         var didMove = false
         withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, monitor, workingFrame, gaps in
-            guard let window = engine.findNode(for: handle) else { return }
+            guard let window = engine.findNode(for: handle, in: wsId) else { return }
             didMove = engine.insertWindowInNewColumn(
                 window,
                 insertIndex: insertIndex,

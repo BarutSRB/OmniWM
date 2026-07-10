@@ -73,16 +73,6 @@ extension NiriMonitor {
         workspaceRoots[workspaceId]
     }
 
-    func ensureRoot(for workspaceId: WorkspaceDescriptor.ID) -> NiriRoot {
-        if let existing = workspaceRoots[workspaceId] {
-            return existing
-        }
-
-        let root = NiriRoot(workspaceId: workspaceId)
-        workspaceRoots[workspaceId] = root
-        return root
-    }
-
     func containsWorkspace(_ workspaceId: WorkspaceDescriptor.ID) -> Bool {
         workspaceRoots[workspaceId] != nil
     }

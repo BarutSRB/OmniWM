@@ -120,6 +120,7 @@ final class NiriScrollVisibilityTests: XCTestCase {
             frames: [:],
             hiddenHandles: [token: .left],
             engine: engine,
+            workspaceId: WorkspaceDescriptor.ID(),
             canRestoreHiddenWorkspaceWindows: true,
             reassertHidden: false
         )
@@ -130,6 +131,7 @@ final class NiriScrollVisibilityTests: XCTestCase {
             frames: [:],
             hiddenHandles: [token: .left],
             engine: engine,
+            workspaceId: WorkspaceDescriptor.ID(),
             canRestoreHiddenWorkspaceWindows: true,
             reassertHidden: true
         )
@@ -161,6 +163,7 @@ final class NiriScrollVisibilityTests: XCTestCase {
             frames: [:],
             hiddenHandles: [token: .left],
             engine: engine,
+            workspaceId: WorkspaceDescriptor.ID(),
             canRestoreHiddenWorkspaceWindows: true,
             reassertHidden: false,
             pendingParkWindowIds: [token.windowId]
@@ -177,6 +180,7 @@ final class NiriScrollVisibilityTests: XCTestCase {
             frames: [:],
             hiddenHandles: [token: .left],
             engine: engine,
+            workspaceId: WorkspaceDescriptor.ID(),
             canRestoreHiddenWorkspaceWindows: true,
             reassertHidden: false,
             pendingParkWindowIds: [999]
@@ -234,6 +238,7 @@ final class NiriScrollVisibilityTests: XCTestCase {
             frames: [:],
             hiddenHandles: [:],
             engine: engine,
+            workspaceId: WorkspaceDescriptor.ID(),
             canRestoreHiddenWorkspaceWindows: true,
             reassertHidden: false
         )
@@ -244,6 +249,7 @@ final class NiriScrollVisibilityTests: XCTestCase {
             frames: [token: CGRect(x: 100, y: 16, width: 500, height: 500)],
             hiddenHandles: [:],
             engine: engine,
+            workspaceId: WorkspaceDescriptor.ID(),
             canRestoreHiddenWorkspaceWindows: true,
             reassertHidden: false
         )

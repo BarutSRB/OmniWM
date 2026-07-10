@@ -206,7 +206,7 @@ import QuartzCore
         guard let controller,
               let engine = controller.dwindleEngine,
               controller.workspaceManager.entry(for: token)?.workspaceId == workspaceId,
-              let node = engine.findNode(for: token),
+              let node = engine.findNode(for: token, in: workspaceId),
               node.isLeaf
         else {
             return
@@ -397,6 +397,7 @@ import QuartzCore
             oldFrames: oldFrames,
             previousTargetFrames: previousTargetFrames,
             newFrames: newFrames,
+            in: snapshot.workspaceId,
             startTime: now,
             motion: controller?.motionPolicy.snapshot() ?? .enabled
         )

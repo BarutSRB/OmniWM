@@ -325,7 +325,8 @@ final class NiriSingleWindowMinimumSizeTests: XCTestCase {
                 minSize: CGSize(width: minWidth, height: minHeight),
                 maxSize: .zero,
                 isFixed: false
-            )
+            ),
+            in: workspaceId
         )
         return Fixture(
             engine: engine,

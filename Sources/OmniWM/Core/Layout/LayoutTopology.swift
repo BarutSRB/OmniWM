@@ -3,6 +3,11 @@
 
 import Foundation
 
+enum ActiveLayoutKind: Equatable {
+    case niri
+    case dwindle
+}
+
 struct LayoutTopology: Equatable {
     struct Tile: Equatable {
         let nodeId: NodeId
@@ -57,11 +62,5 @@ extension NiriLayoutEngine {
                 }
             )
         }
-    }
-}
-
-extension DwindleLayoutEngine {
-    func fullscreenTokens(in workspaceId: WorkspaceDescriptor.ID) -> Set<WindowToken> {
-        Set(currentFrames(in: workspaceId).keys.filter { findNode(for: $0)?.isFullscreen == true })
     }
 }

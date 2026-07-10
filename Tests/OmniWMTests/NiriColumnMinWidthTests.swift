@@ -29,7 +29,7 @@ final class NiriColumnMinWidthTests: XCTestCase {
 
     func testBalanceSizesRespectsMinWidth() {
         let (engine, workspaceId, token, column) = makeSingleWindowEngine()
-        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800))
+        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800), in: workspaceId)
 
         XCTAssertTrue(
             engine.balanceSizes(
@@ -44,7 +44,7 @@ final class NiriColumnMinWidthTests: XCTestCase {
 
     func testSetColumnWidthBelowMinSettlesAtMin() {
         let (engine, workspaceId, token, column) = makeSingleWindowEngine()
-        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800))
+        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800), in: workspaceId)
         var state = ViewportState()
 
         engine.setColumnWidth(
@@ -61,8 +61,8 @@ final class NiriColumnMinWidthTests: XCTestCase {
     }
 
     func testOversizedMinWidthIsKeptBeyondWorkArea() {
-        let (engine, _, token, column) = makeSingleWindowEngine()
-        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 2000))
+        let (engine, workspaceId, token, column) = makeSingleWindowEngine()
+        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 2000), in: workspaceId)
 
         column.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
 
@@ -71,7 +71,7 @@ final class NiriColumnMinWidthTests: XCTestCase {
 
     func testToggleFullWidthRestoreRespectsMin() {
         let (engine, workspaceId, token, column) = makeSingleWindowEngine()
-        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800))
+        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800), in: workspaceId)
         var state = ViewportState()
 
         engine.toggleFullWidth(
@@ -96,7 +96,7 @@ final class NiriColumnMinWidthTests: XCTestCase {
     }
 
     func testConstraintArrivalRetargetsActiveAnimationWithoutSnapping() {
-        let (engine, _, token, column) = makeSingleWindowEngine()
+        let (engine, workspaceId, token, column) = makeSingleWindowEngine()
         column.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
         let widthBeforeConstraint = column.cachedWidth
 
@@ -109,7 +109,7 @@ final class NiriColumnMinWidthTests: XCTestCase {
         )
         XCTAssertEqual(column.targetWidth, 400)
 
-        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800))
+        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800), in: workspaceId)
 
         XCTAssertEqual(column.targetWidth, 800)
         XCTAssertEqual(column.cachedWidth, widthBeforeConstraint, accuracy: 0.001)
@@ -119,11 +119,11 @@ final class NiriColumnMinWidthTests: XCTestCase {
     }
 
     func testConstraintArrivalWithoutAnimationReclampsImmediately() {
-        let (engine, _, token, column) = makeSingleWindowEngine()
+        let (engine, workspaceId, token, column) = makeSingleWindowEngine()
         column.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
         XCTAssertLessThan(column.cachedWidth, 800)
 
-        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800))
+        engine.updateWindowConstraints(for: token, constraints: minConstraints(width: 800), in: workspaceId)
 
         XCTAssertNil(column.targetWidth)
         XCTAssertEqual(column.cachedWidth, 800, accuracy: 0.001)
@@ -160,10 +160,10 @@ final class NiriColumnMinWidthTests: XCTestCase {
     }
 
     func testCachedHeightReclampedOnConstraintArrival() {
-        let (engine, _, token, column) = makeSingleWindowEngine()
+        let (engine, workspaceId, token, column) = makeSingleWindowEngine()
         column.cachedHeight = 300
 
-        engine.updateWindowConstraints(for: token, constraints: minConstraints(height: 700))
+        engine.updateWindowConstraints(for: token, constraints: minConstraints(height: 700), in: workspaceId)
 
         XCTAssertEqual(column.cachedHeight, 700, accuracy: 0.001)
     }

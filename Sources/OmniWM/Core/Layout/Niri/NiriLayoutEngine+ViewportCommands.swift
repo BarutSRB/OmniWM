@@ -136,7 +136,7 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) {
         guard let resize = interactiveResize, resize.workspaceId == workspaceId else { return }
-        guard let resizeWindow = findNode(by: resize.windowId) as? NiriWindow,
+        guard let resizeWindow = findNode(by: resize.windowId, in: workspaceId) as? NiriWindow,
               let resizeColumn = findColumn(containing: resizeWindow, in: workspaceId),
               resizeColumn === column
         else {

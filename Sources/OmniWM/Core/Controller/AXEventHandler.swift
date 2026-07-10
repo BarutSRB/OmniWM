@@ -1369,7 +1369,7 @@ final class AXEventHandler {
            layoutType != .dwindle
         {
             let shouldAnimate = if let engine = controller.niriEngine,
-                                   let windowNode = engine.findNode(for: token)
+                                   let windowNode = engine.findNode(for: token, in: wsId)
             {
                 !windowNode.isHiddenInTabbedMode
             } else {
@@ -1387,7 +1387,7 @@ final class AXEventHandler {
         var removedNodeId: NodeId?
         if let wsId = affectedWorkspaceId, layoutType != .dwindle, let engine = controller.niriEngine {
             oldFrames = engine.captureWindowFrames(in: wsId)
-            removedNodeId = engine.findNode(for: token)?.id
+            removedNodeId = engine.findNode(for: token, in: wsId)?.id
         }
 
         controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
@@ -1482,7 +1482,8 @@ final class AXEventHandler {
         guard let controller else { return false }
         guard !hasRecentMouseFocusIntent(for: observedEntry.token) else { return false }
         guard observedEntry.mode == .tiling,
-              controller.niriEngine?.findNode(for: observedEntry.token) != nil
+              controller.workspaceManager.activeLayoutKind(for: observedEntry.workspaceId) == .niri,
+              controller.niriEngine?.findNode(for: observedEntry.token, in: observedEntry.workspaceId) != nil
         else {
             return false
         }
@@ -1492,7 +1493,7 @@ final class AXEventHandler {
               focusedToken.pid == observedEntry.pid,
               let focusedEntry = controller.workspaceManager.entry(for: focusedToken),
               focusedEntry.mode == .tiling,
-              controller.niriEngine?.findNode(for: focusedToken) != nil,
+              controller.niriEngine?.findNode(for: focusedToken, in: focusedEntry.workspaceId) != nil,
               let focusedWorkspace = controller.workspaceManager.descriptor(for: focusedEntry.workspaceId)
         else {
             return false
@@ -2280,60 +2281,63 @@ final class AXEventHandler {
             )
         }
 
-        if let dwindleEngine = controller.dwindleEngine,
-           let node = dwindleEngine.findNode(for: entry.token)
-        {
-            controller.workspaceManager.withEngineMutationScope {
-                dwindleEngine.setSelectedNode(node, in: wsId)
-            }
-        }
-
         var preferredMouseFrame: CGRect?
-        if let engine = controller.niriEngine,
-           let node = engine.findNode(for: entry.token),
-           let _ = controller.workspaceManager.monitor(for: wsId)
-        {
-            let preferredFrame = node.renderedFrame ?? node.frame
-            preferredMouseFrame = preferredFrame
-            var state = controller.workspaceManager.niriViewportState(for: wsId)
-            let preserveActiveViewport = controller.workspaceManager.animationDriver.hasMotion(in: wsId)
-            let preserveReplacementViewport = isProtectedManagedReplacementFocus(
-                token: entry.token,
-                workspaceId: wsId
-            )
-            controller.niriLayoutHandler.activateNode(
-                node, in: wsId, state: &state,
-                options: preserveReplacementViewport
-                    ? .init(
-                        ensureVisible: false,
-                        preserveViewportAnchor: true,
-                        layoutRefresh: isWorkspaceActive,
-                        axFocus: false,
-                        startAnimation: false
-                    )
-                    : preserveActiveViewport
-                    ? .init(
-                        ensureVisible: false,
-                        preserveViewportAnchor: true,
-                        layoutRefresh: false,
-                        axFocus: false,
-                        startAnimation: false
-                    )
-                    : .init(layoutRefresh: isWorkspaceActive, axFocus: false)
-            )
-            _ = controller.workspaceManager.applySessionPatch(
-                .init(
-                    workspaceId: wsId,
-                    viewportState: state,
-                    rememberedFocusToken: nil,
-                    plannedSeq: controller.workspaceManager.worldSeq
-                )
-            )
-            if preserveReplacementViewport {
-                completeManagedReplacementFocusTransactionIfNeeded(
+        switch controller.workspaceManager.activeLayoutKind(for: wsId) {
+        case .dwindle:
+            if let dwindleEngine = controller.dwindleEngine,
+               let node = dwindleEngine.findNode(for: entry.token, in: wsId)
+            {
+                controller.workspaceManager.withEngineMutationScope {
+                    dwindleEngine.setSelectedNode(node, in: wsId)
+                }
+            }
+        case .niri:
+            if let engine = controller.niriEngine,
+               let node = engine.findNode(for: entry.token, in: wsId),
+               let _ = controller.workspaceManager.monitor(for: wsId)
+            {
+                let preferredFrame = node.renderedFrame ?? node.frame
+                preferredMouseFrame = preferredFrame
+                var state = controller.workspaceManager.niriViewportState(for: wsId)
+                let preserveActiveViewport = controller.workspaceManager.animationDriver.hasMotion(in: wsId)
+                let preserveReplacementViewport = isProtectedManagedReplacementFocus(
                     token: entry.token,
                     workspaceId: wsId
                 )
+                controller.niriLayoutHandler.activateNode(
+                    node, in: wsId, state: &state,
+                    options: preserveReplacementViewport
+                        ? .init(
+                            ensureVisible: false,
+                            preserveViewportAnchor: true,
+                            layoutRefresh: isWorkspaceActive,
+                            axFocus: false,
+                            startAnimation: false
+                        )
+                        : preserveActiveViewport
+                        ? .init(
+                            ensureVisible: false,
+                            preserveViewportAnchor: true,
+                            layoutRefresh: false,
+                            axFocus: false,
+                            startAnimation: false
+                        )
+                        : .init(layoutRefresh: isWorkspaceActive, axFocus: false)
+                )
+                _ = controller.workspaceManager.applySessionPatch(
+                    .init(
+                        workspaceId: wsId,
+                        viewportState: state,
+                        rememberedFocusToken: nil,
+                        plannedSeq: controller.workspaceManager.worldSeq
+                    )
+                )
+                if preserveReplacementViewport {
+                    completeManagedReplacementFocusTransactionIfNeeded(
+                        token: entry.token,
+                        workspaceId: wsId
+                    )
+                }
             }
         }
 

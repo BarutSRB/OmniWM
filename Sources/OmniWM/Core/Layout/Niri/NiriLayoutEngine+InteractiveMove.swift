@@ -20,7 +20,7 @@ extension NiriLayoutEngine {
         guard interactiveMove == nil else { return false }
         guard interactiveResize == nil else { return false }
 
-        guard let windowNode = findNode(by: windowId) as? NiriWindow else { return false }
+        guard let windowNode = findNode(by: windowId, in: workspaceId) as? NiriWindow else { return false }
         guard let column = findColumn(containing: windowNode, in: workspaceId) else { return false }
         guard let colIdx = columnIndex(of: column, in: workspaceId) else { return false }
 
@@ -58,11 +58,12 @@ extension NiriLayoutEngine {
         return true
     }
 
-    func interactiveMoveUpdate(
-        currentLocation: CGPoint,
-        in workspaceId: WorkspaceDescriptor.ID
-    ) -> MoveHoverTarget? {
+    func interactiveMoveUpdate(currentLocation: CGPoint) -> MoveHoverTarget? {
         guard var move = interactiveMove else { return nil }
+        guard findNode(by: move.windowId, in: move.workspaceId) != nil else {
+            interactiveMoveCancel()
+            return nil
+        }
 
         let dragDistance = hypot(
             currentLocation.x - move.startMouseLocation.x,
@@ -76,7 +77,7 @@ extension NiriLayoutEngine {
             point: currentLocation,
             excludingWindowId: move.windowId,
             isInsertMode: move.isInsertMode,
-            in: workspaceId
+            in: move.workspaceId
         )
 
         move.currentHoverTarget = hoverTarget
@@ -87,7 +88,6 @@ extension NiriLayoutEngine {
 
     func interactiveMoveEnd(
         at _: CGPoint,
-        in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
@@ -108,7 +108,7 @@ extension NiriLayoutEngine {
                 return swapWindowsByMove(
                     sourceWindowId: move.windowId,
                     targetWindowId: targetNodeId,
-                    in: workspaceId,
+                    in: move.workspaceId,
                     motion: motion,
                     state: &state,
                     workingFrame: workingFrame,
@@ -120,7 +120,7 @@ extension NiriLayoutEngine {
                     sourceWindowId: move.windowId,
                     targetWindowId: targetNodeId,
                     position: position,
-                    in: workspaceId,
+                    in: move.workspaceId,
                     motion: motion,
                     state: &state,
                     workingFrame: workingFrame,
@@ -144,7 +144,7 @@ extension NiriLayoutEngine {
         isInsertMode: Bool = false,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> MoveHoverTarget? {
-        guard let root = roots[workspaceId] else { return nil }
+        guard let root = root(for: workspaceId) else { return nil }
 
         for column in root.columns {
             for child in column.children {
@@ -180,8 +180,8 @@ extension NiriLayoutEngine {
         gaps: CGFloat,
         fromColumnIndex: Int? = nil
     ) -> Bool {
-        guard let sourceWindow = findNode(by: sourceWindowId) as? NiriWindow,
-              let targetWindow = findNode(by: targetWindowId) as? NiriWindow
+        guard let sourceWindow = findNode(by: sourceWindowId, in: workspaceId) as? NiriWindow,
+              let targetWindow = findNode(by: targetWindowId, in: workspaceId) as? NiriWindow
         else {
             return false
         }
@@ -270,8 +270,8 @@ extension NiriLayoutEngine {
         gaps: CGFloat
     ) -> Bool {
         assertSanctionedMutation()
-        guard let sourceWindow = findNode(by: sourceWindowId) as? NiriWindow,
-              let targetWindow = findNode(by: targetWindowId) as? NiriWindow
+        guard let sourceWindow = findNode(by: sourceWindowId, in: workspaceId) as? NiriWindow,
+              let targetWindow = findNode(by: targetWindowId, in: workspaceId) as? NiriWindow
         else {
             return false
         }
@@ -345,7 +345,7 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         gaps: CGFloat
     ) -> CGRect? {
-        guard let targetWindow = findNode(by: targetWindowId) as? NiriWindow,
+        guard let targetWindow = findNode(by: targetWindowId, in: workspaceId) as? NiriWindow,
               let targetFrame = targetWindow.renderedFrame ?? targetWindow.frame,
               let column = findColumn(containing: targetWindow, in: workspaceId)
         else {

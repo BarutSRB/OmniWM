@@ -89,6 +89,29 @@ struct NiriRenderStyle {
     )
 }
 
+final class NiriWorkspaceState {
+    let root: NiriRoot
+    var nodesByToken: [WindowToken: NiriWindow] = [:]
+
+    init(workspaceId: WorkspaceDescriptor.ID) {
+        root = NiriRoot(workspaceId: workspaceId)
+    }
+
+    func index(_ window: NiriWindow) {
+        if let existing = nodesByToken[window.token] {
+            precondition(existing === window)
+            return
+        }
+        nodesByToken[window.token] = window
+    }
+
+    func unindex(_ window: NiriWindow) {
+        if nodesByToken[window.token] === window {
+            nodesByToken.removeValue(forKey: window.token)
+        }
+    }
+}
+
 final class NiriLayoutEngine {
     static let defaultPresetColumnWidthValues: [CGFloat] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
     static let defaultPresetColumnWidths: [PresetSize] = defaultPresetColumnWidthValues.map { .proportion($0) }
@@ -98,11 +121,7 @@ final class NiriLayoutEngine {
 
     var monitors: [Monitor.ID: NiriMonitor] = [:]
 
-    var roots: [WorkspaceDescriptor.ID: NiriRoot] = [:]
-
-    var tokenToNode: [WindowToken: NiriWindow] = [:]
-
-    var closingTokens: Set<WindowToken> = []
+    var states: [WorkspaceDescriptor.ID: NiriWorkspaceState] = [:]
 
     var framePool: [WindowToken: CGRect] = [:]
     var hiddenPool: [WindowToken: HideSide] = [:]
@@ -137,6 +156,30 @@ final class NiriLayoutEngine {
         )
     }
 
+    func cancelInteractions(in workspaceId: WorkspaceDescriptor.ID) {
+        if interactiveMove?.workspaceId == workspaceId {
+            interactiveMoveCancel()
+        }
+        if interactiveResize?.workspaceId == workspaceId {
+            clearInteractiveResize()
+        }
+    }
+
+    func cancelInteractions(for windowIds: Set<NodeId>, in workspaceId: WorkspaceDescriptor.ID) {
+        if let move = interactiveMove,
+           move.workspaceId == workspaceId,
+           windowIds.contains(move.windowId)
+        {
+            interactiveMoveCancel()
+        }
+        if let resize = interactiveResize,
+           resize.workspaceId == workspaceId,
+           windowIds.contains(resize.windowId)
+        {
+            clearInteractiveResize()
+        }
+    }
+
     var presetColumnWidths: [PresetSize] = NiriLayoutEngine.defaultPresetColumnWidths
     var presetWindowHeights: [PresetSize] = NiriLayoutEngine.defaultPresetWindowHeights
     var defaultColumnWidth: CGFloat? = 0.5
@@ -146,13 +189,17 @@ final class NiriLayoutEngine {
         self.infiniteLoop = infiniteLoop
     }
 
-    func ensureRoot(for workspaceId: WorkspaceDescriptor.ID) -> NiriRoot {
-        if let existing = roots[workspaceId] {
+    func ensureState(for workspaceId: WorkspaceDescriptor.ID) -> NiriWorkspaceState {
+        if let existing = states[workspaceId] {
             return existing
         }
-        let root = NiriRoot(workspaceId: workspaceId)
-        roots[workspaceId] = root
-        return root
+        let state = NiriWorkspaceState(workspaceId: workspaceId)
+        states[workspaceId] = state
+        return state
+    }
+
+    func ensureRoot(for workspaceId: WorkspaceDescriptor.ID) -> NiriRoot {
+        ensureState(for: workspaceId).root
     }
 
     func claimEmptyColumnIfWorkspaceEmpty(in root: NiriRoot) -> NiriContainer? {
@@ -208,12 +255,11 @@ final class NiriLayoutEngine {
     }
 
     func root(for workspaceId: WorkspaceDescriptor.ID) -> NiriRoot? {
-        roots[workspaceId]
+        states[workspaceId]?.root
     }
 
     func columns(in workspaceId: WorkspaceDescriptor.ID) -> [NiriContainer] {
-        guard let root = roots[workspaceId] else { return [] }
-        return root.columns
+        root(for: workspaceId)?.columns ?? []
     }
 
     struct SingleWindowLayoutContext {
@@ -261,21 +307,16 @@ final class NiriLayoutEngine {
         }
     }
 
-    func findNode(by id: NodeId) -> NiriNode? {
-        for root in roots.values {
-            if let found = root.findNode(by: id) {
-                return found
-            }
-        }
-        return nil
+    func findNode(by id: NodeId, in workspaceId: WorkspaceDescriptor.ID) -> NiriNode? {
+        root(for: workspaceId)?.findNode(by: id)
     }
 
-    func findNode(for token: WindowToken) -> NiriWindow? {
-        tokenToNode[token]
+    func findNode(for handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) -> NiriWindow? {
+        findNode(for: handle.id, in: workspaceId)
     }
 
-    func findNode(for handle: WindowHandle) -> NiriWindow? {
-        findNode(for: handle.id)
+    func isWindowFullscreen(_ token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        states[workspaceId]?.nodesByToken[token]?.isFullscreen ?? false
     }
 
     func column(of node: NiriNode) -> NiriContainer? {
@@ -293,9 +334,9 @@ final class NiriLayoutEngine {
         columns(in: workspaceId).firstIndex { $0 === column }
     }
 
-    func activateWindow(_ nodeId: NodeId) {
+    func activateWindow(_ nodeId: NodeId, in workspaceId: WorkspaceDescriptor.ID) {
         assertSanctionedMutation()
-        guard let node = findNode(by: nodeId),
+        guard let node = findNode(by: nodeId, in: workspaceId),
               let col = column(of: node) else { return }
         let windowNodes = col.windowNodes
         let idx = windowNodes.firstIndex(where: { $0.id == nodeId }) ?? 0
@@ -313,7 +354,7 @@ final class NiriLayoutEngine {
     func findColumn(containing window: NiriWindow, in workspaceId: WorkspaceDescriptor.ID) -> NiriContainer? {
         guard let col = column(of: window),
               let root = col.parent as? NiriRoot,
-              roots[workspaceId]?.id == root.id else { return nil }
+              self.root(for: workspaceId)?.id == root.id else { return nil }
         return col
     }
 
@@ -354,8 +395,8 @@ final class NiriLayoutEngine {
     }
 
     private func resetAllPresetWidthIndices() {
-        for root in roots.values {
-            for child in root.children {
+        for state in states.values {
+            for child in state.root.children {
                 if let column = child as? NiriContainer {
                     column.presetWidthIdx = nil
                 }

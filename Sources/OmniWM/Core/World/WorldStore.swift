@@ -61,6 +61,7 @@ final class WorldStore {
     private(set) var spaceTopology = SpaceTopology()
     private(set) var niriEngine: NiriLayoutEngine?
     private(set) var dwindleEngine: DwindleLayoutEngine?
+    private var activeLayoutResolver: ((WorkspaceDescriptor.ID) -> ActiveLayoutKind)?
     private(set) var epochMarks = InvalidationMarks()
     private var broadcastMarks = InvalidationMarks()
     private var workspaceMarks: [WorkspaceDescriptor.ID: InvalidationMarks] = [:]
@@ -87,7 +88,7 @@ final class WorldStore {
         monitors: [Monitor],
         snapshot: () -> ReconcileSnapshot,
         preMutate: () -> Void = {},
-        resolvePlan: (ActionPlan, WindowToken?) -> ActionPlan
+        resolvePlan: (ActionPlan, WindowToken?, ReconcileSnapshot) -> ActionPlan
     ) -> ReconcileTxn {
         commitDepth += 1
         pushEngineSanction()
@@ -109,13 +110,14 @@ final class WorldStore {
             existingEntry: existingEntry,
             monitors: monitors
         )
+        let reducerSnapshot = snapshot()
         let plan = StateReducer.reduce(
             event: normalizedEvent,
             existingEntry: existingEntry,
-            currentSnapshot: snapshot(),
+            currentSnapshot: reducerSnapshot,
             monitors: monitors
         )
-        let resolvedPlan = resolvePlan(plan, normalizedEvent.token)
+        let resolvedPlan = resolvePlan(plan, normalizedEvent.token, reducerSnapshot)
         applyWindowMutation(event, phase: .afterPlan, monitors: monitors)
 
         let committedSnapshot = snapshot()
@@ -217,7 +219,7 @@ final class WorldStore {
                 newAXRef: newAXRef,
                 managedReplacementMetadata: metadata
             )
-            _ = niriEngine?.rekeyWindow(from: from, to: to)
+            _ = niriEngine?.rekeyWindow(from: from, to: to, in: workspaceId)
             _ = dwindleEngine?.rekeyWindow(from: from, to: to, in: workspaceId)
 
         case let .windowRemoved(token, _, _):
@@ -555,10 +557,17 @@ extension WorldStore {
     }
 
     func layoutTopology(for workspaceId: WorkspaceDescriptor.ID) -> LayoutTopology {
-        LayoutTopology(
-            columns: niriEngine?.topologyColumns(in: workspaceId) ?? [],
-            dwindleFullscreenTokens: dwindleEngine?.fullscreenTokens(in: workspaceId) ?? []
-        )
+        switch activeLayoutResolver?(workspaceId) {
+        case .dwindle:
+            return LayoutTopology(dwindleFullscreenTokens: dwindleEngine?.fullscreenTokens(in: workspaceId) ?? [])
+        case .niri,
+             nil:
+            return LayoutTopology(columns: niriEngine?.topologyColumns(in: workspaceId) ?? [])
+        }
+    }
+
+    func installActiveLayoutResolver(_ resolver: ((WorkspaceDescriptor.ID) -> ActiveLayoutKind)?) {
+        activeLayoutResolver = resolver
     }
 
     func installNiriEngine(_ engine: NiriLayoutEngine?) {

@@ -2525,7 +2525,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         _ = engine.addWindow(token: secondToken, to: workspaceId, activeWindowFrame: nil)
         _ = engine.addWindow(token: thirdToken, to: workspaceId, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: workspaceId, screen: CGRect(x: 0, y: 0, width: 1600, height: 1000))
-        let firstLeaf = try XCTUnwrap(engine.findNode(for: firstToken))
+        let firstLeaf = try XCTUnwrap(engine.findNode(for: firstToken, in: workspaceId))
         controller.workspaceManager.withEngineMutationScope {
             engine.setSelectedNode(firstLeaf, in: workspaceId)
         }
@@ -2759,8 +2759,8 @@ final class RuntimeArchitectureTests: XCTestCase {
         }
         let plan = try XCTUnwrap(plans.first)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState)
-        let newTabNode = try XCTUnwrap(engine.findNode(for: newTabToken))
-        let newColumnNode = try XCTUnwrap(engine.findNode(for: newColumnToken))
+        let newTabNode = try XCTUnwrap(engine.findNode(for: newTabToken, in: workspaceId))
+        let newColumnNode = try XCTUnwrap(engine.findNode(for: newColumnToken, in: workspaceId))
         let newTabColumn = try XCTUnwrap(engine.column(of: newTabNode))
 
         XCTAssertFalse(newTabNode.hasMoveAnimationsRunning)
@@ -2823,7 +2823,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         let plan = try XCTUnwrap(plans.first)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState)
         let finalColumns = engine.columns(in: workspaceId)
-        let newNode = try XCTUnwrap(engine.findNode(for: newToken))
+        let newNode = try XCTUnwrap(engine.findNode(for: newToken, in: workspaceId))
         let newColumn = try XCTUnwrap(engine.column(of: newNode))
 
         XCTAssertEqual(finalColumns.count, initialColumns.count + 1)
@@ -2912,7 +2912,7 @@ final class RuntimeArchitectureTests: XCTestCase {
             controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [workspaceId])
         }
         let plan = try XCTUnwrap(plans.first)
-        let newNode = try XCTUnwrap(engine.findNode(for: newToken))
+        let newNode = try XCTUnwrap(engine.findNode(for: newToken, in: workspaceId))
         let leaderColumn = try XCTUnwrap(engine.column(of: existingNode))
         let newColumn = try XCTUnwrap(engine.column(of: newNode))
 
@@ -2969,7 +2969,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
         var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         let initialColumns = engine.columns(in: workspaceId)
-        let oldNode = try XCTUnwrap(engine.findNode(for: oldToken))
+        let oldNode = try XCTUnwrap(engine.findNode(for: oldToken, in: workspaceId))
         let gap = CGFloat(controller.workspaceManager.gaps)
         let selectedColumnX = state.columnX(at: 1, columns: initialColumns, gap: gap)
         let viewOrigin = selectedColumnX - (monitor.visibleFrame.width - columnWidth) / 2
@@ -3017,10 +3017,10 @@ final class RuntimeArchitectureTests: XCTestCase {
         let plan = try XCTUnwrap(plans.first)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState)
         let finalColumns = engine.columns(in: workspaceId)
-        let newNode = try XCTUnwrap(engine.findNode(for: newToken))
+        let newNode = try XCTUnwrap(engine.findNode(for: newToken, in: workspaceId))
         let patchedViewOrigin = patchedState.viewPosPixels(columns: finalColumns, gap: gap)
 
-        XCTAssertNil(engine.findNode(for: oldToken))
+        XCTAssertNil(engine.findNode(for: oldToken, in: workspaceId))
         XCTAssertEqual(newNode.id, oldNode.id)
         XCTAssertEqual(finalColumns.count, initialColumns.count)
         XCTAssertEqual(finalColumns[1].displayMode, .normal)
@@ -3283,8 +3283,8 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
         XCTAssertEqual(controller.workspaceManager.workspace(for: movingToken), ws2)
-        XCTAssertNil(engine.findNode(for: movingToken))
-        XCTAssertNotNil(engine.findNode(for: siblingToken))
+        XCTAssertNil(engine.findNode(for: movingToken, in: ws1))
+        XCTAssertNotNil(engine.findNode(for: siblingToken, in: ws1))
     }
 
     @MainActor
@@ -3311,8 +3311,8 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
         XCTAssertEqual(controller.workspaceManager.workspace(for: movingToken), ws2)
-        XCTAssertNil(engine.findNode(for: movingToken))
-        XCTAssertNotNil(engine.findNode(for: siblingToken))
+        XCTAssertNil(engine.findNode(for: movingToken, in: ws1))
+        XCTAssertNotNil(engine.findNode(for: siblingToken, in: ws1))
     }
 
     @MainActor
@@ -3344,8 +3344,8 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
         XCTAssertEqual(controller.workspaceManager.entry(for: floatingToken)?.mode, .floating)
-        XCTAssertNil(engine.findNode(for: floatingToken))
-        XCTAssertNotNil(engine.findNode(for: siblingToken))
+        XCTAssertNil(engine.findNode(for: floatingToken, in: ws))
+        XCTAssertNotNil(engine.findNode(for: siblingToken, in: ws))
     }
 
     @MainActor
@@ -3426,7 +3426,6 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
         XCTAssertNil(engine.findNode(for: dupToken, in: ws1))
         XCTAssertEqual(engine.findNode(for: dupToken, in: ws2)?.id, dupNodeInTarget.id)
-        XCTAssertEqual(engine.findNode(for: dupToken)?.id, dupNodeInTarget.id)
     }
 
     @MainActor
@@ -4321,7 +4320,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         let plan = try XCTUnwrap(plans.first, file: file, line: line)
         let patchedState = try XCTUnwrap(plan.sessionPatch.viewportState, file: file, line: line)
         let finalColumns = engine.columns(in: workspaceId)
-        let newTabNode = try XCTUnwrap(engine.findNode(for: newTabToken), file: file, line: line)
+        let newTabNode = try XCTUnwrap(engine.findNode(for: newTabToken, in: workspaceId), file: file, line: line)
         let patchedViewOrigin = patchedState.viewPosPixels(columns: finalColumns, gap: gap)
 
         XCTAssertEqual(patchedViewOrigin, viewOrigin, accuracy: 0.001, file: file, line: line)
@@ -4510,7 +4509,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.commandHandler.handleHotkeyCommand(.move(.right))
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: token), rightWs)
-        let movedNode = try XCTUnwrap(engine.findNode(for: token) as? NiriWindow)
+        let movedNode = try XCTUnwrap(engine.findNode(for: token, in: rightWs))
         let movedColumn = try XCTUnwrap(engine.findColumn(containing: movedNode, in: rightWs))
         let existingColumn = try XCTUnwrap(engine.findColumn(containing: existingNode, in: rightWs))
         XCTAssertEqual(movedColumn.id, existingColumn.id)
@@ -4561,7 +4560,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.commandHandler.handleHotkeyCommand(.move(.right))
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: token), rightWs)
-        let movedNode = try XCTUnwrap(engine.findNode(for: token) as? NiriWindow)
+        let movedNode = try XCTUnwrap(engine.findNode(for: token, in: rightWs))
         XCTAssertEqual(controller.workspaceManager.niriViewportState(for: rightWs).selectedNodeId, movedNode.id)
     }
 
@@ -4640,9 +4639,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         Self.seedNiriEngineColumns(
             tokens: destTokens, workspaceId: destWs, engine: engine, columnWidth: 360, tabbedColumnIndex: -1
         )
-        let nodeA = try XCTUnwrap(engine.findNode(for: destTokens[0]))
-        let nodeB = try XCTUnwrap(engine.findNode(for: destTokens[1]))
-        let nodeC = try XCTUnwrap(engine.findNode(for: destTokens[2]))
+        let nodeA = try XCTUnwrap(engine.findNode(for: destTokens[0], in: destWs))
+        let nodeB = try XCTUnwrap(engine.findNode(for: destTokens[1], in: destWs))
+        let nodeC = try XCTUnwrap(engine.findNode(for: destTokens[2], in: destWs))
 
         _ = controller.workspaceManager.focusWorkspace(named: sourceName)
         let token = controller.workspaceManager.addWindow(
@@ -4667,7 +4666,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.commandHandler.handleHotkeyCommand(.move(.up))
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: token), destWs)
-        let movedNode = try XCTUnwrap(engine.findNode(for: token))
+        let movedNode = try XCTUnwrap(engine.findNode(for: token, in: destWs))
         let movedColumn = try XCTUnwrap(engine.findColumn(containing: movedNode, in: destWs))
         let anchorColumn = try XCTUnwrap(engine.findColumn(containing: nodeB, in: destWs))
         let nonAnchorA = try XCTUnwrap(engine.findColumn(containing: nodeA, in: destWs))
@@ -4718,9 +4717,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         Self.seedNiriEngineColumns(
             tokens: destTokens, workspaceId: destWs, engine: engine, columnWidth: 360, tabbedColumnIndex: -1
         )
-        let nodeA = try XCTUnwrap(engine.findNode(for: destTokens[0]))
-        let nodeB = try XCTUnwrap(engine.findNode(for: destTokens[1]))
-        let nodeC = try XCTUnwrap(engine.findNode(for: destTokens[2]))
+        let nodeA = try XCTUnwrap(engine.findNode(for: destTokens[0], in: destWs))
+        let nodeB = try XCTUnwrap(engine.findNode(for: destTokens[1], in: destWs))
+        let nodeC = try XCTUnwrap(engine.findNode(for: destTokens[2], in: destWs))
 
         _ = controller.workspaceManager.focusWorkspace(named: sourceName)
         let token = controller.workspaceManager.addWindow(
@@ -4745,7 +4744,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.commandHandler.handleHotkeyCommand(.move(.down))
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: token), destWs)
-        let movedNode = try XCTUnwrap(engine.findNode(for: token))
+        let movedNode = try XCTUnwrap(engine.findNode(for: token, in: destWs))
         let movedColumn = try XCTUnwrap(engine.findColumn(containing: movedNode, in: destWs))
         let anchorColumn = try XCTUnwrap(engine.findColumn(containing: nodeB, in: destWs))
         let nonAnchorC = try XCTUnwrap(engine.findColumn(containing: nodeC, in: destWs))
@@ -4797,9 +4796,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         Self.seedNiriEngineColumns(
             tokens: destTokens, workspaceId: leftWs, engine: engine, columnWidth: 360, tabbedColumnIndex: -1
         )
-        let nodeA = try XCTUnwrap(engine.findNode(for: destTokens[0]))
-        let nodeB = try XCTUnwrap(engine.findNode(for: destTokens[1]))
-        let nodeC = try XCTUnwrap(engine.findNode(for: destTokens[2]))
+        let nodeA = try XCTUnwrap(engine.findNode(for: destTokens[0], in: leftWs))
+        let nodeB = try XCTUnwrap(engine.findNode(for: destTokens[1], in: leftWs))
+        let nodeC = try XCTUnwrap(engine.findNode(for: destTokens[2], in: leftWs))
 
         _ = controller.workspaceManager.focusWorkspace(named: "6")
         let token = controller.workspaceManager.addWindow(
@@ -4824,7 +4823,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.commandHandler.handleHotkeyCommand(.move(.left))
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: token), leftWs)
-        let movedNode = try XCTUnwrap(engine.findNode(for: token))
+        let movedNode = try XCTUnwrap(engine.findNode(for: token, in: leftWs))
         let movedColumn = try XCTUnwrap(engine.findColumn(containing: movedNode, in: leftWs))
         let anchorColumn = try XCTUnwrap(engine.findColumn(containing: nodeB, in: leftWs))
         let stripEndColumn = try XCTUnwrap(engine.findColumn(containing: nodeC, in: leftWs))

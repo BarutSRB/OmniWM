@@ -63,8 +63,13 @@ struct WorldView {
     }
 
     func isWindowFullscreenInLayout(_ token: WindowToken) -> Bool {
-        guard let workspaceId = controller.workspaceManager.entry(for: token)?.workspaceId else { return false }
-        return controller.workspaceManager.layoutTopology(for: workspaceId).isFullscreen(token)
+        guard let entry = controller.workspaceManager.entry(for: token) else { return false }
+        switch controller.workspaceManager.activeLayoutKind(for: entry.workspaceId) {
+        case .dwindle:
+            return controller.dwindleEngine?.isWindowFullscreen(token, in: entry.workspaceId) == true
+        case .niri:
+            return controller.niriEngine?.isWindowFullscreen(token, in: entry.workspaceId) == true
+        }
     }
 
     func isManagedWindowDisplayable(_ token: WindowToken) -> Bool {
@@ -139,13 +144,14 @@ struct WorldView {
     }
 
     private func placeholderFrame(for token: WindowToken) -> CGRect? {
-        if let node = controller.niriEngine?.findNode(for: token) {
+        guard let workspaceId = controller.workspaceManager.entry(for: token)?.workspaceId else { return nil }
+        switch controller.workspaceManager.activeLayoutKind(for: workspaceId) {
+        case .niri:
+            guard let node = controller.niriEngine?.findNode(for: token, in: workspaceId) else { return nil }
             return node.renderedFrame ?? node.frame
+        case .dwindle:
+            return controller.dwindleEngine?.findNode(for: token, in: workspaceId)?.cachedFrame
         }
-        if let node = controller.dwindleEngine?.findNode(for: token) {
-            return node.cachedFrame
-        }
-        return nil
     }
 
     func borderFrame(for entry: WindowState) -> CGRect? {

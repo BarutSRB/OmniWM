@@ -43,7 +43,7 @@ final class DwindleMinimumSizeTests: XCTestCase {
 
     func testResizeCommandStopsAtMinFeasibleBoundary() {
         let (engine, ws, first, second) = makeTwoWindowEngine(secondMinWidth: 300)
-        engine.setSelectedNode(engine.findNode(for: first), in: ws)
+        engine.setSelectedNode(engine.findNode(for: first, in: ws), in: ws)
 
         var changed = true
         for _ in 0 ..< 100 where changed {
@@ -75,7 +75,7 @@ final class DwindleMinimumSizeTests: XCTestCase {
 
     func testInfeasibleMinsDegradeProportionallyAndResizeStops() {
         let (engine, ws, first, second) = makeTwoWindowEngine(firstMinWidth: 700, secondMinWidth: 600)
-        engine.setSelectedNode(engine.findNode(for: first), in: ws)
+        engine.setSelectedNode(engine.findNode(for: first, in: ws), in: ws)
 
         XCTAssertFalse(engine.resizeFocusedWindow(by: 0.1, in: ws))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.0, accuracy: 1e-6)
@@ -107,7 +107,7 @@ final class DwindleMinimumSizeTests: XCTestCase {
 
     func testBalanceSizesClampsToMinFeasibleRatio() {
         let (engine, ws, first, _) = makeTwoWindowEngine(firstMinWidth: 700)
-        engine.setSelectedNode(engine.findNode(for: first), in: ws)
+        engine.setSelectedNode(engine.findNode(for: first, in: ws), in: ws)
         XCTAssertTrue(engine.resizeFocusedWindow(by: 0.1, in: ws))
         XCTAssertTrue(engine.resizeFocusedWindow(by: 0.1, in: ws))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.508, accuracy: 1e-6)
@@ -123,7 +123,7 @@ final class DwindleMinimumSizeTests: XCTestCase {
 
     func testCycleSplitRatioClampsAndStops() {
         let (engine, ws, first, _) = makeTwoWindowEngine(firstMinWidth: 600)
-        engine.setSelectedNode(engine.findNode(for: first), in: ws)
+        engine.setSelectedNode(engine.findNode(for: first, in: ws), in: ws)
 
         XCTAssertTrue(engine.cycleSplitRatio(forward: true, in: ws))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.208, accuracy: 1e-6)

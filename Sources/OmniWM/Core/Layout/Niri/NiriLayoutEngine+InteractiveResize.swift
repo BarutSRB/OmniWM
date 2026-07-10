@@ -10,7 +10,7 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         threshold: CGFloat? = nil
     ) -> ResizeHitTestResult? {
-        guard let root = roots[workspaceId] else { return nil }
+        guard let root = root(for: workspaceId) else { return nil }
 
         let threshold = threshold ?? resizeConfiguration.edgeThreshold
 
@@ -43,7 +43,7 @@ extension NiriLayoutEngine {
         point: CGPoint,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> NiriWindow? {
-        guard let root = roots[workspaceId] else { return nil }
+        guard let root = root(for: workspaceId) else { return nil }
 
         for column in root.columns {
             for child in column.children {
@@ -63,7 +63,7 @@ extension NiriLayoutEngine {
         point: CGPoint,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> NiriWindow? {
-        guard let root = roots[workspaceId] else { return nil }
+        guard let root = root(for: workspaceId) else { return nil }
 
         var firstVisibleMatch: NiriWindow?
 
@@ -127,8 +127,9 @@ extension NiriLayoutEngine {
         viewOffset: CGFloat? = nil
     ) -> Bool {
         guard interactiveResize == nil else { return false }
+        guard interactiveMove == nil else { return false }
 
-        guard let windowNode = findNode(by: windowId) as? NiriWindow else { return false }
+        guard let windowNode = findNode(by: windowId, in: workspaceId) as? NiriWindow else { return false }
         guard let column = findColumn(containing: windowNode, in: workspaceId) else { return false }
         guard let colIdx = columnIndex(of: column, in: workspaceId) else { return false }
         if windowNode.isFullscreen {
@@ -169,7 +170,7 @@ extension NiriLayoutEngine {
     ) -> Bool {
         guard let resize = interactiveResize else { return false }
 
-        guard let windowNode = findNode(by: resize.windowId) as? NiriWindow else {
+        guard let windowNode = findNode(by: resize.windowId, in: resize.workspaceId) as? NiriWindow else {
             clearInteractiveResize()
             return false
         }
@@ -258,7 +259,7 @@ extension NiriLayoutEngine {
             return
         }
 
-        if let windowNode = findNode(by: resize.windowId) as? NiriWindow {
+        if let windowNode = findNode(by: resize.windowId, in: resize.workspaceId) as? NiriWindow {
             ensureSelectionVisible(
                 node: windowNode,
                 in: resize.workspaceId,

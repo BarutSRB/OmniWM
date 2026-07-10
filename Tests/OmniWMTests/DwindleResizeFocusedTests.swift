@@ -22,28 +22,28 @@ final class DwindleResizeFocusedTests: XCTestCase {
 
     func testGrowFirstChildIncreasesRatio() {
         let (engine, ws, first, _) = makeTwoWindowEngine()
-        engine.setSelectedNode(engine.findNode(for: first), in: ws)
+        engine.setSelectedNode(engine.findNode(for: first, in: ws), in: ws)
         XCTAssertTrue(engine.resizeFocusedWindow(by: 0.1, in: ws))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.1, accuracy: 1e-6)
     }
 
     func testShrinkFirstChildDecreasesRatio() {
         let (engine, ws, first, _) = makeTwoWindowEngine()
-        engine.setSelectedNode(engine.findNode(for: first), in: ws)
+        engine.setSelectedNode(engine.findNode(for: first, in: ws), in: ws)
         XCTAssertTrue(engine.resizeFocusedWindow(by: -0.1, in: ws))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 0.9, accuracy: 1e-6)
     }
 
     func testGrowSecondChildDecreasesRatio() {
         let (engine, ws, _, second) = makeTwoWindowEngine()
-        engine.setSelectedNode(engine.findNode(for: second), in: ws)
+        engine.setSelectedNode(engine.findNode(for: second, in: ws), in: ws)
         XCTAssertTrue(engine.resizeFocusedWindow(by: 0.1, in: ws))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 0.9, accuracy: 1e-6)
     }
 
     func testRatioClampsAtMaxAndStops() {
         let (engine, ws, first, _) = makeTwoWindowEngine()
-        engine.setSelectedNode(engine.findNode(for: first), in: ws)
+        engine.setSelectedNode(engine.findNode(for: first, in: ws), in: ws)
         var changed = true
         for _ in 0 ..< 100 where changed {
             changed = engine.resizeFocusedWindow(by: 0.1, in: ws)
@@ -58,7 +58,7 @@ final class DwindleResizeFocusedTests: XCTestCase {
         let only = WindowToken(pid: 1, windowId: 1)
         _ = engine.addWindow(token: only, to: ws, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: ws, screen: screen)
-        engine.setSelectedNode(engine.findNode(for: only), in: ws)
+        engine.setSelectedNode(engine.findNode(for: only, in: ws), in: ws)
         XCTAssertFalse(engine.resizeFocusedWindow(by: 0.1, in: ws))
     }
 }

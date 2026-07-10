@@ -117,7 +117,12 @@ enum MouseContainment {
         )
     }
 
-    private static func clamped(_ value: CGFloat, min minValue: CGFloat, max maxValue: CGFloat, inset: CGFloat) -> CGFloat {
+    private static func clamped(
+        _ value: CGFloat,
+        min minValue: CGFloat,
+        max maxValue: CGFloat,
+        inset: CGFloat
+    ) -> CGFloat {
         let lower = minValue + inset
         let upper = maxValue - inset
         guard minValue < maxValue, lower <= upper else {

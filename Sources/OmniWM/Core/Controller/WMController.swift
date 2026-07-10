@@ -2543,21 +2543,42 @@ final class WMController {
 
     func recoverSourceFocusAfterMove(
         in workspaceId: WorkspaceDescriptor.ID,
-        preferredNodeId: NodeId?
+        preferredNodeId: NodeId? = nil,
+        preferredToken: WindowToken? = nil
     ) {
         let monitorId = workspaceManager.monitorId(for: workspaceId)
 
-        if let engine = niriEngine,
-           let preferredNodeId,
-           let node = engine.findNode(by: preferredNodeId) as? NiriWindow
-        {
-            _ = workspaceManager.commitWorkspaceSelection(
-                nodeId: node.id,
-                focusedToken: node.token,
-                in: workspaceId,
-                onMonitor: monitorId
-            )
-            return
+        switch workspaceManager.activeLayoutKind(for: workspaceId) {
+        case .niri:
+            if let engine = niriEngine {
+                let node = preferredToken.flatMap { engine.findNode(for: $0, in: workspaceId) }
+                    ?? preferredNodeId.flatMap { engine.findNode(by: $0, in: workspaceId) as? NiriWindow }
+                if let node {
+                    _ = workspaceManager.commitWorkspaceSelection(
+                        nodeId: node.id,
+                        focusedToken: node.token,
+                        in: workspaceId,
+                        onMonitor: monitorId
+                    )
+                    return
+                }
+            }
+        case .dwindle:
+            if let token = dwindleEngine?.selectedNode(in: workspaceId)?.windowToken {
+                _ = workspaceManager.commitWorkspaceSelection(
+                    nodeId: nil,
+                    focusedToken: token,
+                    in: workspaceId,
+                    onMonitor: monitorId
+                )
+                return
+            }
+            if let preferredToken,
+               dwindleEngine?.findNode(for: preferredToken, in: workspaceId) != nil
+            {
+                commitWorkspaceFocusCandidate(preferredToken, in: workspaceId)
+                return
+            }
         }
 
         _ = workspaceManager.resolveAndSetWorkspaceFocusToken(in: workspaceId, onMonitor: monitorId)
@@ -2567,25 +2588,48 @@ final class WMController {
         _ token: WindowToken,
         in workspaceId: WorkspaceDescriptor.ID
     ) {
-        if let engine = niriEngine,
-           let node = engine.findNode(for: token)
-        {
-            _ = workspaceManager.commitWorkspaceSelection(
-                nodeId: node.id,
-                focusedToken: token,
-                in: workspaceId,
-                onMonitor: workspaceManager.monitorId(for: workspaceId)
-            )
-        } else {
-            _ = workspaceManager.applySessionPatch(
-                .init(
-                    workspaceId: workspaceId,
-                    viewportState: nil,
-                    rememberedFocusToken: token,
-                    plannedSeq: workspaceManager.worldSeq
+        let monitorId = workspaceManager.monitorId(for: workspaceId)
+
+        switch workspaceManager.activeLayoutKind(for: workspaceId) {
+        case .niri:
+            if let engine = niriEngine,
+               let node = engine.findNode(for: token, in: workspaceId)
+            {
+                _ = workspaceManager.commitWorkspaceSelection(
+                    nodeId: node.id,
+                    focusedToken: token,
+                    in: workspaceId,
+                    onMonitor: monitorId
                 )
-            )
+                return
+            }
+        case .dwindle:
+            if let engine = dwindleEngine,
+               let node = engine.findNode(for: token, in: workspaceId)
+            {
+                if engine.selectedNode(in: workspaceId) !== node {
+                    workspaceManager.withEngineMutationScope(in: workspaceId, label: "dwindle_focus_selection") {
+                        engine.setSelectedNode(node, in: workspaceId)
+                    }
+                }
+                _ = workspaceManager.commitWorkspaceSelection(
+                    nodeId: nil,
+                    focusedToken: token,
+                    in: workspaceId,
+                    onMonitor: monitorId
+                )
+                return
+            }
         }
+
+        _ = workspaceManager.applySessionPatch(
+            .init(
+                workspaceId: workspaceId,
+                viewportState: nil,
+                rememberedFocusToken: token,
+                plannedSeq: workspaceManager.worldSeq
+            )
+        )
     }
 
     func ensureFocusedTokenValid(
@@ -2626,15 +2670,7 @@ final class WMController {
             return
         }
 
-        if let engine = niriEngine,
-           let node = engine.findNode(for: nextFocusToken)
-        {
-            _ = workspaceManager.commitWorkspaceSelection(
-                nodeId: node.id,
-                focusedToken: nextFocusToken,
-                in: workspaceId
-            )
-        }
+        commitWorkspaceFocusCandidate(nextFocusToken, in: workspaceId)
         focusWindow(nextFocusToken)
     }
 
@@ -2859,11 +2895,17 @@ extension WMController {
     }
 
     func preferredKeyboardFocusFrame(for token: WindowToken) -> CGRect? {
-        if let node = niriEngine?.findNode(for: token) {
-            return node.renderedFrame ?? node.frame
-        }
-        if let node = dwindleEngine?.findNode(for: token) {
-            return node.cachedFrame
+        if let workspaceId = workspaceManager.entry(for: token)?.workspaceId {
+            switch workspaceManager.activeLayoutKind(for: workspaceId) {
+            case .niri:
+                if let node = niriEngine?.findNode(for: token, in: workspaceId) {
+                    return node.renderedFrame ?? node.frame
+                }
+            case .dwindle:
+                if let node = dwindleEngine?.findNode(for: token, in: workspaceId) {
+                    return node.cachedFrame
+                }
+            }
         }
         if let floatingState = workspaceManager.floatingState(for: token) {
             return floatingState.lastFrame

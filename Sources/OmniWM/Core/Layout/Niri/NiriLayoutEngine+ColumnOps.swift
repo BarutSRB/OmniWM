@@ -113,7 +113,7 @@ extension NiriLayoutEngine {
         gaps: CGFloat,
         workingAreaWidth: CGFloat
     ) {
-        guard let root = roots[workspaceId] else { return }
+        guard let root = root(for: workspaceId) else { return }
 
         let sourceWasTabbed = sourceColumn.displayMode == .tabbed
         sourceColumn.adjustActiveTileIdxForRemoval(of: node)
@@ -164,7 +164,7 @@ extension NiriLayoutEngine {
         gaps: CGFloat
     ) -> Bool {
         assertSanctionedMutation()
-        guard let root = roots[workspaceId] else { return false }
+        guard let root = root(for: workspaceId) else { return false }
         guard let sourceColumn = findColumn(containing: window, in: workspaceId) else { return false }
 
         let sourceWasTabbed = sourceColumn.displayMode == .tabbed
@@ -406,7 +406,7 @@ extension NiriLayoutEngine {
                     : workingFrame.width / CGFloat(effectiveMaxVisibleColumns(in: workspaceId))
             ) + gaps
 
-        guard let root = roots[workspaceId] else { return false }
+        guard let root = root(for: workspaceId) else { return false }
         cancelInteractiveResizeForMovedColumn(column, in: workspaceId)
         root.insertChild(column, at: targetIdx)
 
@@ -471,7 +471,7 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) {
         guard let resize = interactiveResize, resize.workspaceId == workspaceId else { return }
-        guard let resizeWindow = findNode(by: resize.windowId) as? NiriWindow,
+        guard let resizeWindow = findNode(by: resize.windowId, in: workspaceId) as? NiriWindow,
               let resizeColumn = findColumn(containing: resizeWindow, in: workspaceId),
               resizeColumn === column
         else {
@@ -765,7 +765,7 @@ extension NiriLayoutEngine {
     ) -> Bool {
         assertSanctionedMutation()
         guard sourceColumn.windowNodes.count > 1,
-              let root = roots[workspaceId],
+              let root = root(for: workspaceId),
               let sourceColumnIdx = columnIndex(of: sourceColumn, in: workspaceId),
               let window = sourceColumn.windowNodes.first
         else {
@@ -842,7 +842,7 @@ extension NiriLayoutEngine {
         guard direction == .left || direction == .right else { return false }
 
         guard let currentColumn = findColumn(containing: window, in: workspaceId),
-              let root = roots[workspaceId],
+              let root = root(for: workspaceId),
               let currentColIdx = columnIndex(of: currentColumn, in: workspaceId)
         else {
             return false

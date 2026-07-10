@@ -30,7 +30,8 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
                     minSize: CGSize(width: 1, height: minHeight),
                     maxSize: .zero,
                     isFixed: false
-                )
+                ),
+                in: workspaceId
             )
             windows.append(window)
         }
@@ -172,8 +173,10 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
             hasNotch: false,
             name: "Vertical"
         )
-        let niriMonitor = engine.ensureMonitor(for: monitor.id, monitor: monitor, orientation: .vertical)
-        niriMonitor.workspaceRoots[workspaceId] = engine.ensureRoot(for: workspaceId)
+        engine.syncWorkspaceAssignments(
+            [(workspaceId: workspaceId, monitor: monitor)],
+            orientations: [monitor.id: .vertical]
+        )
 
         var windows: [NiriWindow] = []
         for (index, minWidth) in [CGFloat(500), CGFloat(400)].enumerated() {
@@ -185,7 +188,8 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
                     minSize: CGSize(width: minWidth, height: 1),
                     maxSize: .zero,
                     isFixed: false
-                )
+                ),
+                in: workspaceId
             )
             windows.append(window)
         }

@@ -49,9 +49,12 @@ extension NiriLayoutEngine {
         assertSanctionedMutation()
         guard !placements.isEmpty, !tokens.isEmpty else { return false }
 
-        let root = ensureRoot(for: workspaceId)
+        let state = ensureState(for: workspaceId)
+        let root = state.root
         let currentTokens = root.windowIdSet
-        let placedTokens = Set(tokens.compactMap { token -> WindowToken? in
+        var seenTokens = Set<WindowToken>()
+        let orderedTokens = tokens.filter { seenTokens.insert($0).inserted }
+        let placedTokens = Set(orderedTokens.compactMap { token -> WindowToken? in
             guard let placement = placements[token],
                   placement.columnIndex >= 0,
                   placement.tileIndex >= 0
@@ -67,21 +70,22 @@ extension NiriLayoutEngine {
         removeEmptyColumnsIfWorkspaceEmpty(in: root)
 
         var tokenOrder: [WindowToken: Int] = [:]
-        tokenOrder.reserveCapacity(tokens.count)
-        for (index, token) in tokens.enumerated() where tokenOrder[token] == nil {
+        tokenOrder.reserveCapacity(orderedTokens.count)
+        for (index, token) in orderedTokens.enumerated() {
             tokenOrder[token] = index
         }
 
         var placementsByColumn: [Int: [(token: WindowToken, placement: PersistedNiriPlacement)]] = [:]
         placementsByColumn.reserveCapacity(placedTokens.count)
 
-        for token in tokens {
+        for token in orderedTokens {
             guard placedTokens.contains(token), let placement = placements[token] else { continue }
 
             placementsByColumn[placement.columnIndex, default: []].append((token, placement))
         }
 
         guard !placementsByColumn.isEmpty else { return false }
+        cancelInteractions(in: workspaceId)
 
         var reusableNodes: [WindowToken: NiriWindow] = [:]
         reusableNodes.reserveCapacity(currentTokens.count)
@@ -111,7 +115,7 @@ extension NiriLayoutEngine {
                 let window = reusableNodes[groupedPlacement.token] ?? NiriWindow(token: groupedPlacement.token)
                 applyPersistedWindowState(groupedPlacement.placement.window, to: window)
                 column.appendChild(window)
-                tokenToNode[groupedPlacement.token] = window
+                state.index(window)
             }
 
             column.setActiveTileIdx(seed.placement.column.activeTileIndex)
