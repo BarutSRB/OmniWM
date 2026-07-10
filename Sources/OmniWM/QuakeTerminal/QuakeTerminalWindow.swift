@@ -16,6 +16,14 @@ final class QuakeTerminalWindow: NSPanel {
     var isAnimating: Bool = false
     weak var tabController: QuakeTerminalController?
 
+    private static let tabIndexByDigitKeyCode: [UInt16: Int] = [
+        18: 0, 19: 1, 20: 2, 21: 3, 23: 4, 22: 5, 26: 6, 28: 7, 25: 8
+    ]
+
+    static func tabIndex(forDigitKeyCode keyCode: UInt16) -> Int? {
+        tabIndexByDigitKeyCode[keyCode]
+    }
+
     convenience init() {
         self.init(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 400),
@@ -53,21 +61,19 @@ final class QuakeTerminalWindow: NSPanel {
         let keyCode = event.keyCode
 
         if flags == .command {
+            if let tabIndex = Self.tabIndex(forDigitKeyCode: keyCode) {
+                tabController?.selectTab(at: tabIndex)
+                return true
+            }
             switch keyCode {
-            case 17: // Cmd+T
-                tabController?.requestNewTab()
-                return true
-            case 13: // Cmd+W
-                tabController?.requestCloseActiveTab()
-                return true
-            case 2: // Cmd+D
+            case 2:
                 tabController?.splitActivePane(direction: .horizontal)
                 return true
-            case 18 ... 25: // Cmd+1 through Cmd+8 (keycodes 18-25)
-                tabController?.selectTab(at: Int(keyCode) - 18)
+            case 13:
+                tabController?.requestCloseActiveTab()
                 return true
-            case 26: // Cmd+9
-                tabController?.selectTab(at: Int(keyCode) - 18)
+            case 17:
+                tabController?.requestNewTab()
                 return true
             default:
                 break

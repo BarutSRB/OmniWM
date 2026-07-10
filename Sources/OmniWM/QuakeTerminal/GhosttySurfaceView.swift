@@ -42,8 +42,109 @@ struct GhosttySurfaceResizeEdgeClassifier {
 }
 
 @MainActor
+final class GhosttySurfaceCallbackContext {
+    weak var controller: QuakeTerminalController?
+    weak var view: GhosttySurfaceView?
+
+    init(controller: QuakeTerminalController) {
+        self.controller = controller
+    }
+}
+
+@MainActor
+final class GhosttyProtectedClipboardRequest {
+    let contents: String
+    private var state: UnsafeMutableRawPointer?
+
+    init(contents: String, state: UnsafeMutableRawPointer?) {
+        self.contents = contents
+        self.state = state
+    }
+
+    func complete(on surface: ghostty_surface_t, allowing allowed: Bool) {
+        guard let state else { return }
+        self.state = nil
+        let reply = allowed ? contents : ""
+        reply.withCString { ptr in
+            ghostty_surface_complete_clipboard_request(surface, ptr, state, true)
+        }
+    }
+}
+
+@MainActor
+final class QuakeClipboardPromptCoordinator {
+    private final class ActivePrompt {
+        private(set) weak var origin: AnyObject?
+        let isOriginAttached: @MainActor () -> Bool
+        let dismiss: @MainActor () -> Void
+        let resolve: @MainActor (Bool) -> Void
+
+        init(
+            origin: AnyObject,
+            isOriginAttached: @escaping @MainActor () -> Bool,
+            dismiss: @escaping @MainActor () -> Void,
+            resolve: @escaping @MainActor (Bool) -> Void
+        ) {
+            self.origin = origin
+            self.isOriginAttached = isOriginAttached
+            self.dismiss = dismiss
+            self.resolve = resolve
+        }
+    }
+
+    private var activePrompt: ActivePrompt?
+
+    var hasActivePrompt: Bool {
+        activePrompt != nil
+    }
+
+    func request(
+        origin: AnyObject,
+        isOriginAttached: @escaping @MainActor () -> Bool,
+        present: (@escaping @MainActor (Bool) -> Void) -> Void,
+        dismiss: @escaping @MainActor () -> Void,
+        resolve: @escaping @MainActor (Bool) -> Void
+    ) {
+        guard activePrompt == nil, isOriginAttached() else {
+            resolve(false)
+            return
+        }
+
+        let prompt = ActivePrompt(
+            origin: origin,
+            isOriginAttached: isOriginAttached,
+            dismiss: dismiss,
+            resolve: resolve
+        )
+        activePrompt = prompt
+        present { [weak self] allowed in
+            self?.finish(prompt, allowed: allowed)
+        }
+    }
+
+    func cancelPrompt(for origin: AnyObject) {
+        guard let activePrompt, activePrompt.origin === origin else { return }
+        cancelActivePrompt()
+    }
+
+    func cancelActivePrompt() {
+        guard let prompt = activePrompt else { return }
+        activePrompt = nil
+        prompt.dismiss()
+        prompt.resolve(false)
+    }
+
+    private func finish(_ prompt: ActivePrompt, allowed: Bool) {
+        guard activePrompt === prompt else { return }
+        activePrompt = nil
+        prompt.resolve(allowed && prompt.isOriginAttached())
+    }
+}
+
+@MainActor
 final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private(set) var ghosttySurface: ghostty_surface_t?
+    private var retainedCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     private var markedText: NSMutableAttributedString = NSMutableAttributedString()
     private var keyTextAccumulator: [String]? = nil
     private var lastPerformKeyEvent: TimeInterval?
@@ -61,6 +162,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private var interactionMode: InteractionMode = .terminal
     private(set) var isInteracting: Bool = false
+    private var pendingProtectedClipboardRequests: [GhosttyProtectedClipboardRequest] = []
     var onFrameChanged: ((NSRect) -> Void)?
 
     override var acceptsFirstResponder: Bool {
@@ -71,10 +173,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         false
     }
 
-    init(ghosttyApp: ghostty_app_t, userdata: UnsafeMutableRawPointer) {
+    init(ghosttyApp: ghostty_app_t, callbackContext: GhosttySurfaceCallbackContext) {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
         wantsLayer = true
         layerContentsRedrawPolicy = .duringViewResize
+
+        callbackContext.view = self
+        let retainedContext = Unmanaged.passRetained(callbackContext)
 
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -82,13 +187,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             nsview: Unmanaged.passUnretained(self).toOpaque()
         ))
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 1.0)
-        config.userdata = userdata
+        config.userdata = retainedContext.toOpaque()
 
         guard let surface = ghostty_surface_new(ghosttyApp, &config) else {
             Log.terminal.error("Failed to create surface")
+            retainedContext.release()
             return
         }
         self.ghosttySurface = surface
+        self.retainedCallbackContext = retainedContext
 
         if let layer {
             let scale = layer.contentsScale
@@ -187,6 +294,38 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         lastAppliedContentScale = nil
         lastAppliedSurfacePixelSize = nil
         updateDisplayState()
+    }
+
+    func registerProtectedClipboardRequest(_ request: GhosttyProtectedClipboardRequest) {
+        pendingProtectedClipboardRequests.append(request)
+    }
+
+    func resolveProtectedClipboardRequest(_ request: GhosttyProtectedClipboardRequest, allowing allowed: Bool) {
+        pendingProtectedClipboardRequests.removeAll { $0 === request }
+        guard let surface = ghosttySurface else { return }
+        request.complete(on: surface, allowing: allowed)
+    }
+
+    private func denyPendingProtectedClipboardRequests(on surface: ghostty_surface_t) {
+        let requests = pendingProtectedClipboardRequests
+        pendingProtectedClipboardRequests.removeAll()
+        for request in requests {
+            request.complete(on: surface, allowing: false)
+        }
+    }
+
+    func releaseSurface() {
+        guard let surface = ghosttySurface else { return }
+        retainedCallbackContext?.takeUnretainedValue().controller?.cancelClipboardPrompt(for: self)
+        denyPendingProtectedClipboardRequests(on: surface)
+        ghosttySurface = nil
+        ghostty_surface_free(surface)
+
+        guard let retainedContext = retainedCallbackContext else { return }
+        retainedCallbackContext = nil
+        DispatchQueue.main.async {
+            retainedContext.release()
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {

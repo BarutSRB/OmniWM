@@ -31,10 +31,6 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         return tabs[activeTabIndex]
     }
 
-    private var surface: ghostty_surface_t? {
-        activeTab?.focusedSurface
-    }
-
     private var surfaceView: GhosttySurfaceView? {
         activeTab?.focusedSurfaceView
     }
@@ -50,6 +46,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
     private let settings: SettingsStore
     private let motionPolicy: MotionPolicy
+    private let clipboardPrompts = QuakeClipboardPromptCoordinator()
     private let ghosttyConfigBuilder: QuakeGhosttyConfigBuilder
     private let surfaceCoordinator = SurfaceCoordinator.shared
     private let captureRestoreTarget: @MainActor () -> QuakeTerminalRestoreTarget?
@@ -115,14 +112,22 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         }
         runtimeConfig.action_cb = { _, _, _ in false }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
-            guard let userdata else { return false }
-            DispatchQueue.main.async {
-                let controller = Unmanaged<QuakeTerminalController>.fromOpaque(userdata).takeUnretainedValue()
-                controller.readClipboard(location: location, state: state)
+            guard let userdata, let state else { return false }
+            return MainActor.assumeIsolated { () -> Bool in
+                let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+                guard let controller = context.controller, let view = context.view else { return false }
+                return controller.readClipboard(for: view, location: location, state: state)
             }
-            return true
         }
-        runtimeConfig.confirm_read_clipboard_cb = { _, _, _, _ in }
+        runtimeConfig.confirm_read_clipboard_cb = { userdata, contents, state, kind in
+            guard let userdata else { return }
+            let text = contents.map { String(cString: $0) } ?? ""
+            MainActor.assumeIsolated {
+                let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+                guard let controller = context.controller, let view = context.view else { return }
+                controller.promptForProtectedClipboardRead(on: view, contents: text, state: state, kind: kind)
+            }
+        }
         runtimeConfig.write_clipboard_cb = { userdata, location, content, len, confirm in
             guard let userdata, let content, len > 0 else { return }
             var plainText: String?
@@ -136,16 +141,22 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
                 }
             }
             guard let text = plainText else { return }
-            DispatchQueue.main.async {
-                let controller = Unmanaged<QuakeTerminalController>.fromOpaque(userdata).takeUnretainedValue()
-                controller.writeClipboard(location: location, text: text)
+            MainActor.assumeIsolated {
+                let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+                guard let controller = context.controller, let view = context.view else { return }
+                if confirm {
+                    controller.promptForProtectedClipboardWrite(on: view, location: location, text: text)
+                } else {
+                    controller.writeClipboard(location: location, text: text)
+                }
             }
         }
         runtimeConfig.close_surface_cb = { userdata, processAlive in
             guard let userdata else { return }
             DispatchQueue.main.async {
-                let controller = Unmanaged<QuakeTerminalController>.fromOpaque(userdata).takeUnretainedValue()
-                controller.surfaceClosed(processAlive: processAlive)
+                let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+                guard let controller = context.controller, let view = context.view else { return }
+                controller.surfaceClosed(view: view, processAlive: processAlive)
             }
         }
 
@@ -164,9 +175,10 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
     func cleanup() {
         stopGhosttyAppearanceSync()
+        clipboardPrompts.cancelActivePrompt()
         for tab in tabs {
-            for (surface, _) in tab.allSurfaces() {
-                ghostty_surface_free(surface)
+            for view in tab.splitContainer.allSurfaceViews() {
+                view.releaseSurface()
             }
         }
         tabs.removeAll()
@@ -187,6 +199,9 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         tabBar = nil
         restoreTarget = nil
         pendingRestoreTarget = nil
+        visible = false
+        isTransitioning = false
+        animationGeneration &+= 1
     }
 
     private func makeGhosttyConfig() -> ghostty_config_t? {
@@ -303,8 +318,8 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
     private func createSurfaceView() -> GhosttySurfaceView? {
         guard let ghosttyApp else { return nil }
-        let userdata = Unmanaged.passUnretained(self).toOpaque()
-        let view = GhosttySurfaceView(ghosttyApp: ghosttyApp, userdata: userdata)
+        let context = GhosttySurfaceCallbackContext(controller: self)
+        let view = GhosttySurfaceView(ghosttyApp: ghosttyApp, callbackContext: context)
         guard view.ghosttySurface != nil else { return nil }
         view.onFrameChanged = { [weak self] frame in
             self?.persistCustomFrame(frame)
@@ -333,19 +348,15 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
 
     func closeActivePane() {
         guard let tab = activeTab,
-              let focused = tab.focusedSurfaceView,
-              let focusedSurface = focused.ghosttySurface else { return }
+              let focused = tab.focusedSurfaceView else { return }
 
-        let leafCount = tab.splitContainer.root.leafCount()
-
-        if leafCount <= 1 {
+        if tab.splitContainer.root.leafCount() <= 1 {
             closeTab(at: activeTabIndex)
             return
         }
 
-        let removed = tab.splitContainer.remove(view: focused)
-        if removed {
-            ghostty_surface_free(focusedSurface)
+        if tab.splitContainer.remove(view: focused) {
+            focused.releaseSurface()
             if let newFocus = tab.splitContainer.focusedView {
                 window?.makeFirstResponder(newFocus)
             }
@@ -364,8 +375,8 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         guard index >= 0, index < tabs.count else { return }
 
         let tab = tabs[index]
-        for (surface, _) in tab.allSurfaces() {
-            ghostty_surface_free(surface)
+        for view in tab.splitContainer.allSurfaceViews() {
+            view.releaseSurface()
         }
         tab.splitContainer.removeFromSuperview()
         tabs.remove(at: index)
@@ -519,6 +530,7 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         guard let window else { return }
         guard visible else { return }
 
+        clipboardPrompts.cancelActivePrompt()
         pendingRestoreTarget = switch hideBehavior {
         case .restoreLatestTarget:
             if isWindowFocused(window) {
@@ -735,12 +747,30 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         }
     }
 
-    private func readClipboard(location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
-        guard let surface else { return }
+    private func readClipboard(
+        for view: GhosttySurfaceView,
+        location: ghostty_clipboard_e,
+        state: UnsafeMutableRawPointer
+    ) -> Bool {
+        guard let surface = view.ghosttySurface else { return false }
         let pasteboard = location == GHOSTTY_CLIPBOARD_SELECTION ? NSPasteboard(name: .find) : NSPasteboard.general
-        let str = pasteboard.string(forType: .string) ?? ""
-        str.withCString { ptr in
+        guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return false }
+        text.withCString { ptr in
             ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+        }
+        return true
+    }
+
+    private func promptForProtectedClipboardRead(
+        on view: GhosttySurfaceView,
+        contents: String,
+        state: UnsafeMutableRawPointer?,
+        kind: ghostty_clipboard_request_e
+    ) {
+        let request = GhosttyProtectedClipboardRequest(contents: contents, state: state)
+        view.registerProtectedClipboardRequest(request)
+        presentClipboardPrompt(for: view, kind: kind, contents: contents) { [weak view] allowed in
+            view?.resolveProtectedClipboardRequest(request, allowing: allowed)
         }
     }
 
@@ -748,6 +778,113 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         let pasteboard = location == GHOSTTY_CLIPBOARD_SELECTION ? NSPasteboard(name: .find) : NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+
+    private func promptForProtectedClipboardWrite(
+        on view: GhosttySurfaceView,
+        location: ghostty_clipboard_e,
+        text: String
+    ) {
+        presentClipboardPrompt(
+            for: view,
+            kind: GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE,
+            contents: text
+        ) { [weak self] allowed in
+            guard allowed else { return }
+            self?.writeClipboard(location: location, text: text)
+        }
+    }
+
+    enum ClipboardPromptKind {
+        case read
+        case write
+        case unsafePaste
+
+        init(_ request: ghostty_clipboard_request_e) {
+            switch request {
+            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ:
+                self = .read
+            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE:
+                self = .write
+            default:
+                self = .unsafePaste
+            }
+        }
+    }
+
+    private func presentClipboardPrompt(
+        for view: GhosttySurfaceView,
+        kind: ghostty_clipboard_request_e,
+        contents: String,
+        resolve: @escaping @MainActor (Bool) -> Void
+    ) {
+        let alert = Self.protectedClipboardAlert(kind: ClipboardPromptKind(kind), contents: contents)
+        clipboardPrompts.request(
+            origin: view,
+            isOriginAttached: { [weak self, weak view] in
+                guard let self, let view else { return false }
+                return self.canPromptForClipboard(from: view)
+            },
+            present: { [weak self] completion in
+                guard let self, let window = self.window else {
+                    completion(false)
+                    return
+                }
+                alert.beginSheetModal(for: window) { response in
+                    MainActor.assumeIsolated {
+                        completion(Self.clipboardPromptResponseAllows(response))
+                    }
+                }
+            },
+            dismiss: {
+                guard let sheetParent = alert.window.sheetParent else { return }
+                sheetParent.endSheet(alert.window, returnCode: .cancel)
+            },
+            resolve: resolve
+        )
+    }
+
+    private func canPromptForClipboard(from view: GhosttySurfaceView) -> Bool {
+        guard let window, visible, window.isVisible else { return false }
+        return view.ghosttySurface != nil && view.window === window && surfaceView === view
+    }
+
+    func cancelClipboardPrompt(for view: GhosttySurfaceView) {
+        clipboardPrompts.cancelPrompt(for: view)
+    }
+
+    static func protectedClipboardAlert(kind: ClipboardPromptKind, contents: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        switch kind {
+        case .read:
+            alert.messageText = "Allow Clipboard Read?"
+            alert.informativeText = "A terminal application wants to read the contents of the clipboard."
+        case .write:
+            alert.messageText = "Allow Clipboard Write?"
+            alert.informativeText = "A terminal application wants to replace the contents of the clipboard."
+        case .unsafePaste:
+            alert.messageText = "Allow Potentially Unsafe Paste?"
+            alert.informativeText = "The text being pasted contains characters that may run commands in the terminal."
+        }
+
+        let preview = protectedClipboardPreview(contents)
+        if !preview.isEmpty {
+            alert.informativeText += "\n\n" + preview
+        }
+        alert.addButton(withTitle: "Deny")
+        alert.addButton(withTitle: "Allow")
+        return alert
+    }
+
+    static func clipboardPromptResponseAllows(_ response: NSApplication.ModalResponse) -> Bool {
+        response == .alertSecondButtonReturn
+    }
+
+    private static func protectedClipboardPreview(_ contents: String) -> String {
+        let limit = 200
+        guard contents.count > limit else { return contents }
+        return String(contents.prefix(limit)) + "…"
     }
 
     private func customFrameForShow(on screen: NSScreen) -> NSRect? {
@@ -925,48 +1062,29 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         }
     }
 
-    private func surfaceClosed(processAlive: Bool) {
+    private func surfaceClosed(view closedView: GhosttySurfaceView, processAlive: Bool) {
         guard !processAlive else {
             if visible { animateOut() }
             return
         }
 
-        guard let closedView = surfaceView else {
-            if visible { animateOut() }
+        guard let tabIndex = tabs.firstIndex(where: { $0.splitContainer.contains(view: closedView) }) else {
+            closedView.releaseSurface()
             return
         }
 
-        for (tabIndex, tab) in tabs.enumerated() {
-            guard tab.splitContainer.contains(view: closedView) else { continue }
+        let tab = tabs[tabIndex]
+        if tab.splitContainer.root.leafCount() <= 1 {
+            closeTab(at: tabIndex)
+            return
+        }
 
-            let leafCount = tab.splitContainer.root.leafCount()
-
-            if leafCount <= 1 {
-                tab.splitContainer.removeFromSuperview()
-                tabs.remove(at: tabIndex)
-
-                if tabs.isEmpty {
-                    activeTabIndex = 0
-                    updateTabBarVisibility()
-                    if visible { animateOut() }
-                    return
-                }
-
-                if activeTabIndex >= tabs.count {
-                    activeTabIndex = tabs.count - 1
-                }
-                switchToTab(at: activeTabIndex)
-                return
-            }
-
-            let _ = tab.splitContainer.remove(view: closedView)
-            if let newFocus = tab.splitContainer.focusedView {
+        if tab.splitContainer.remove(view: closedView) {
+            closedView.releaseSurface()
+            if tabIndex == activeTabIndex, let newFocus = tab.splitContainer.focusedView {
                 window?.makeFirstResponder(newFocus)
             }
-            return
         }
-
-        if visible { animateOut() }
     }
 
     nonisolated func windowDidResignKey(_ notification: Notification) {
