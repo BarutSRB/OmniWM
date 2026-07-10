@@ -40,7 +40,6 @@ struct ActionPlan: Equatable {
     var observedState: ObservedWindowState? = nil
     var desiredState: DesiredWindowState? = nil
     var restoreIntent: RestoreIntent? = nil
-    var replacementCorrelation: ReplacementCorrelation? = nil
     var focusSession: FocusSessionSnapshot? = nil
     var viewport: ViewportPlan? = nil
     var restoreRefresh: RestoreRefreshPlan? = nil
@@ -57,7 +56,6 @@ struct ActionPlan: Equatable {
             || observedState != nil
             || desiredState != nil
             || restoreIntent != nil
-            || replacementCorrelation != nil
             || focusSession != nil
             || viewport != nil
             || restoreRefresh != nil
@@ -72,9 +70,6 @@ struct ActionPlan: Equatable {
         }
         if let desiredState {
             parts.append("desired=\(desiredState.summary)")
-        }
-        if let replacementCorrelation {
-            parts.append("replacement=\(replacementCorrelation.reason.rawValue)")
         }
         if let focusSession {
             parts.append("focus=\(describe(focusSession))")

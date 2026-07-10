@@ -120,8 +120,7 @@ final class WorkspaceManager {
                     lifecyclePhase: entry.lifecyclePhase,
                     observedState: entry.observedState,
                     desiredState: entry.desiredState,
-                    restoreIntent: entry.restoreIntent,
-                    replacementCorrelation: entry.replacementCorrelation
+                    restoreIntent: entry.restoreIntent
                 )
             }
 
@@ -478,9 +477,6 @@ final class WorkspaceManager {
         }
         if let desiredState = plan.desiredState {
             world.setDesiredState(desiredState, for: token)
-        }
-        if let replacementCorrelation = plan.replacementCorrelation {
-            world.setReplacementCorrelation(replacementCorrelation, for: token)
         }
         if let entry = world.entry(for: token) {
             let restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
@@ -2217,10 +2213,6 @@ final class WorkspaceManager {
                 source: .workspaceManager
             )
         )
-    }
-
-    func replacementCorrelation(for token: WindowToken) -> ReplacementCorrelation? {
-        world.replacementCorrelation(for: token)
     }
 
     func managedReplacementMetadata(for token: WindowToken) -> ManagedReplacementMetadata? {

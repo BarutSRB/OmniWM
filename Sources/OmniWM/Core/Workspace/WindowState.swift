@@ -108,7 +108,6 @@ struct WindowState: Equatable {
     var observedState: ObservedWindowState
     var desiredState: DesiredWindowState
     var restoreIntent: RestoreIntent?
-    var replacementCorrelation: ReplacementCorrelation?
     var managedReplacementMetadata: ManagedReplacementMetadata?
     var floatingState: FloatingState?
     var manualLayoutOverride: ManualWindowOverride?

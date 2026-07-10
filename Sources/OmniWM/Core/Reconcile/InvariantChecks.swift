@@ -163,7 +163,6 @@ enum InvariantChecks {
 
             if let desiredDisposition = window.desiredState.disposition,
                desiredDisposition != window.mode,
-               window.lifecyclePhase != .restoring,
                window.lifecyclePhase != .replacing,
                window.lifecyclePhase != .destroyed
             {

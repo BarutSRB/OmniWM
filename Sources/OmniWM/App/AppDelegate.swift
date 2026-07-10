@@ -75,10 +75,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func bootstrapApplication() {
-        switch AppBootstrapPlanner.decision() {
-        case .boot:
-            finishBootstrap()
-        }
+        finishBootstrap()
     }
 
     func finishBootstrap() {

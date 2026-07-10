@@ -72,7 +72,6 @@ struct SettingsExport: Equatable {
     var workspaceBarYOffset: Double
     var workspaceBarAccentColor: SettingsColor?
     var workspaceBarTextColor: SettingsColor?
-    var workspaceBarLabelFontSize: Double
     var monitorBarSettings: [MonitorBarSettings]
 
     var appRules: [AppRule]
@@ -92,7 +91,6 @@ struct SettingsExport: Equatable {
     var preventSleepEnabled: Bool
     var updateChecksEnabled: Bool
     var ipcEnabled: Bool
-    var spacesTrackingEnabled: Bool
     var scrollGestureEnabled: Bool
     var scrollSensitivity: Double
     var scrollModifierKey: String
@@ -123,8 +121,6 @@ struct SettingsExport: Equatable {
     var quakeTerminalMonitorMode: String?
 
     var appearanceMode: String
-
-    var capabilityOverrides: [WindowCapabilityProfileTOMLOverride] = []
 }
 
 // MARK: - Defaults & Diffing
@@ -185,7 +181,6 @@ extension SettingsExport {
             workspaceBarYOffset: 0.0,
             workspaceBarAccentColor: nil,
             workspaceBarTextColor: nil,
-            workspaceBarLabelFontSize: 12,
             monitorBarSettings: [],
             appRules: BuiltInSettingsDefaults.appRules,
             monitorOrientationSettings: [],
@@ -201,7 +196,6 @@ extension SettingsExport {
             preventSleepEnabled: false,
             updateChecksEnabled: true,
             ipcEnabled: false,
-            spacesTrackingEnabled: true,
             scrollGestureEnabled: true,
             scrollSensitivity: 5.0,
             scrollModifierKey: ScrollModifierKey.optionShift.rawValue,
@@ -228,8 +222,7 @@ extension SettingsExport {
             quakeTerminalAutoHide: false,
             quakeTerminalOpacity: 1.0,
             quakeTerminalMonitorMode: QuakeTerminalMonitorMode.focusedWindow.rawValue,
-            appearanceMode: AppearanceMode.dark.rawValue,
-            capabilityOverrides: []
+            appearanceMode: AppearanceMode.dark.rawValue
         )
     }
 }

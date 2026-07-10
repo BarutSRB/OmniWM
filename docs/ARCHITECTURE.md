@@ -126,6 +126,7 @@ OmniWM has a single third-party Swift package and otherwise builds on system fra
 - **`swift-toml`** — the only third-party package; used exclusively by `Core/Config/SettingsTOMLCodec.swift` to read/write `settings.toml`. The import is deliberately confined to that one file so the dependency stays swappable.
 - **System frameworks**: AppKit, ApplicationServices, Carbon, Metal/MetalKit (Ghostty surface only), QuartzCore, ScreenCaptureKit, IOKit.pwr_mgt, os.
 - **SkyLight**: a private Apple framework for low-latency window-server access, linked via `-framework SkyLight` and additionally `dlopen`/`dlsym`-loaded for SLS* symbols.
+- **MenuBarClientCore**: a private Apple framework dynamically loaded for macOS 27 Hidden Bar concealment; all Objective-C declarations and exception handling stay in the `OmniWMMenuBarAssertion` target.
 - **GhosttyKit**: a local binary xcframework at `Frameworks/GhosttyKit.xcframework` (prepared outside git) providing the Quake Terminal.
 - **System libraries**: libz, libc++ (required by GhosttyKit).
 
@@ -133,12 +134,15 @@ OmniWM has a single third-party Swift package and otherwise builds on system fra
 
 ```bash
 swift build                  # Debug build
+make run                     # Package, sign, and launch the bundled Debug app
 make format                  # Rewrite formatting with SwiftFormat
 make lint                    # Run SwiftLint
 make check                   # format-check + lint + audit + build
 make verify                  # Full gate run before any commit lands
 ./Scripts/package-app.sh release true   # Checks, build, sign, notarize
 ```
+
+Use `make run` for normal development launches. It opens the packaged Debug app through LaunchServices, preserving the bundle identity and native status item. `swift run OmniWM` starts an unbundled executable; Hidden Bar therefore presents a separate fallback icon while concealment is active.
 
 ---
 
@@ -155,10 +159,6 @@ The application starts in `Sources/OmniWMApp/OmniWMApp.swift`:
             └─ bootstrapApplication() → finishBootstrap()
 ```
 
-### Bootstrap Decision
-
-`AppBootstrapPlanner.decision()` (`Core` → `App/AppBootstrapPlanner.swift`) is now degenerate: `AppBootstrapDecision` has a single case `.boot`, and `decision()` always returns `.boot`. The earlier first-run / settings-migration branching was removed under the clean-break purge — OmniWM has no external users and carries no migration paths.
-
 ### Boot Object Graph
 
 `AppDelegate.finishBootstrap()` (`App/AppDelegate.swift`) builds the object graph in dependency order:
@@ -166,7 +166,7 @@ The application starts in `Sources/OmniWMApp/OmniWMApp.swift`:
 1. **`OmniWMStoragePaths.live`** — resolves on-disk locations.
 2. **`RuntimeStateStore`** — JSON store for non-settings runtime state (`runtime-state.json`).
 3. **`SettingsStore`** — `@MainActor @Observable`, loaded from `~/.config/omniwm/settings.toml`. `UserDefaults` is not used for settings; TOML is the single source of truth.
-4. **`HiddenBarController`** — menu-bar collapse/expand management.
+4. **`HiddenBarController`** — per-app menu-bar concealment (assessment-mode assertion, hidden-icons panel).
 5. **`WMController`** — central coordinator (see [4.1](#41-wmcontroller--the-coordinator)); passed the clipboard-history directory.
 6. **`AppCLIManager`** and **`UpdateCoordinator`** — CLI exposure plus GitHub release polling/popup.
 7. **`StatusBarController`** — menu-bar UI and manual update checks.
@@ -339,7 +339,7 @@ Some apps (Ghostty, browsers) destroy and recreate windows during internal opera
 
 **Reads vs. writes.** `WorldStore` exposes a large read-accessor surface (`entry(for:)`, `windows(in:)`, `focus`, …) that delegates to the private `WindowModel`. Every *mutator* is guarded by `assertInCommit` (`commitDepth > 0`), so nothing can mutate the world outside a commit.
 
-**Engine mutation sanction.** The two layout engines are private to the world. They may only be mutated when `isEngineMutationSanctioned` is true — i.e. inside `commit` *or* inside `withEngineBuildScope { … }`. The build scope exists because plan-building (Stage 3) must call into the engines (`syncWindows`/`removeWindows`/`restoreInitialPlacements`) without that being a state commit. The build scope sets each engine's `isMutationSanctioned` flag and the engines assert on any out-of-scope mutation.
+**Engine mutation sanction.** The two layout engines are private to the world. They may only be mutated when `isEngineMutationSanctioned` is true — i.e. inside `commit`. Callers not already inside a commit enter one through the `WorkspaceManager` scope wrappers: `withEngineMutationScope { … }` for ad-hoc engine mutations, and `withBatchedLayoutBuild { … }` for plan-building (Stage 3), which calls into the engines (`syncWindows`/`removeWindows`/`restoreInitialPlacements`) inside a single `layout_build` commit. `commit` sets each engine's `isMutationSanctioned` flag and the engines assert on any out-of-scope mutation.
 
 **Staleness machinery (`InvalidationMarks`).** Because plan-building is asynchronous (Stage 3 `await`s between workspaces), a plan can be built against a world that a newer commit has already moved past. `WorldStore` tracks per-domain seq watermarks (`workspace` / `layout` / `focus` / `fullscreen`) via `noteInvalidation(...)`. The effector stamps each plan with a `plannedSeq` and calls `isSeqCurrent(plannedSeq, for:domains:)` before applying; a plan built before a relevant mutation is dropped rather than applied stale.
 
@@ -361,7 +361,7 @@ Some apps (Ghostty, browsers) destroy and recreate windows during internal opera
 | `visibilityRefresh` | App hidden/unhidden | Show/hide only |
 | `windowRemoval` | Window destroyed | Remove + relayout + focus recovery |
 
-**Plan-building is async.** `buildRelayoutEffectPlan` `await`s `NiriLayoutHandler.layoutWithNiriEngine` (and the Dwindle equivalent), which run `syncWindows`/`removeWindows`/`restoreInitialPlacements` on the engines inside `workspaceManager.withEngineBuildScope`. It is async because it `Task.yield`s and `checkCancellation`s between workspaces so a newer event can pre-empt a long layout pass. The layout engines return raw `[WindowToken: CGRect]` frame maps; the handlers wrap those into a `WorkspaceLayoutPlan` → `WorkspaceLayoutDiff` → `EffectPlan` (`Core/Layout/LayoutBoundary.swift`).
+**Plan-building runs inside a commit.** `buildRelayoutEffectPlan` calls `NiriLayoutHandler.layoutWithNiriEngine` (and the Dwindle equivalent), which run `syncWindows`/`removeWindows`/`restoreInitialPlacements` on the engines inside `workspaceManager.withBatchedLayoutBuild` — a single synchronous `layout_build` commit that also stamps each plan's `plannedSeq`. The layout engines return raw `[WindowToken: CGRect]` frame maps; the handlers wrap those into a `WorkspaceLayoutPlan` → `WorkspaceLayoutDiff` → `EffectPlan` (`Core/Layout/LayoutBoundary.swift`).
 
 **Frame application.** `executeEffectPlan` hands each plan's diff to `LayoutDiffExecutor`, which calls `AXManager.applyFramesParallel`. After an accepted layout plan it calls `surfaceReconciler.noteWorldChanged()` to hand off to Stage 4.
 
@@ -479,7 +479,6 @@ struct WindowState: Equatable {
     var observedState: ObservedWindowState
     var desiredState: DesiredWindowState
     var restoreIntent: RestoreIntent?
-    var replacementCorrelation: ReplacementCorrelation?
     var managedReplacementMetadata: ManagedReplacementMetadata?
     var floatingState: FloatingState?
     var manualLayoutOverride: ManualWindowOverride?
@@ -512,7 +511,7 @@ NiriRoot (per workspace)
 
 | Type | Purpose |
 |------|---------|
-| `NiriLayoutEngine` | Owns per-workspace `roots`, per-monitor `NiriMonitor` state, `tokenToNode` index, axis-solve cache, config. |
+| `NiriLayoutEngine` | Owns per-workspace `NiriWorkspaceState` values with local roots and `nodesByToken` indexes, per-monitor `NiriMonitor` state, axis-solve cache, config. |
 | `NiriRoot` | Per-workspace container; cached columns / all-windows / id set. |
 | `NiriContainer` | A column: `displayMode` (`.normal`/`.tabbed`), `width: ProportionalSize`, `activeTileIdx`, width/move springs. |
 | `NiriWindow` | Leaf: `token`, `SizingMode` (`.normal`/`.maximized`/`.fullscreen`), `height: WeightedSize`, constraints, move animations. |
@@ -637,7 +636,7 @@ struct WindowDecision {
 
 ### 4.8 IPC System
 
-For the protocol spec, wire format, and CLI reference, see [IPC-CLI.md](IPC-CLI.md). This section covers the internal code architecture. The current wire protocol version is **6** (`Sources/OmniWMIPC/IPCModels.swift`).
+For the protocol spec, current wire version, and CLI reference, see [IPC-CLI.md](IPC-CLI.md). This section covers the internal code architecture; `OmniWMIPCProtocol.version` in `Sources/OmniWMIPC/IPCModels.swift` is authoritative.
 
 ```
 omniwmctl                         OmniWM process
@@ -738,7 +737,7 @@ The per-frame **display link** is owned by `LayoutRefreshController` (not by `An
 | **Command Palette** | `UI/CommandPalette/CommandPaletteController.swift` | Fuzzy search over windows, commands, and clipboard history. |
 | **Menu Anywhere** | `UI/MenuAnywhere/MenuAnywhereController.swift` | Pops the frontmost app's menu bar as a native `NSMenu` at the cursor, via `MenuExtractor` (ObjC runtime AX-tree walk). |
 | **Workspace Bar** | `UI/WorkspaceBar/WorkspaceBarManager.swift` | Per-monitor workspace bars — now **driven by `SurfaceReconciler`** via `apply([DesiredBarSurface])`, not self-polling. |
-| **Hidden Bar** | `UI/HiddenBar/HiddenBarController.swift` | Menu-bar collapse/expand separator. |
+| **Hidden Bar** | `UI/HiddenBar/HiddenBarController.swift` | Per-app menu-bar concealment coordinated through an isolated assessment-mode assertion, AX item discovery and icon capture, and a hidden-items panel. Unbundled launches use a separate fallback app icon. |
 | **Status Bar** | `UI/StatusBar/StatusBarController.swift` | Menu-bar icon, settings access, manual update checks. |
 | **Scratchpad** | `Core/Workspace/WorkspaceManager.swift` | Single transient window (`scratchpadToken` on `WorldStore`); show/hide coordinated by `WMController`. |
 | **Monitors** | `Core/Monitor/` | Display detection (`Monitor.current()`), stable identity (`OutputId`), and `MonitorRestoreAssignments` (re-maps saved per-monitor workspaces after a topology change by displayId then geometry/name best-match). Orientation reported over IPC is the **effective** orientation (`settings.effectiveOrientation` — override or auto). |
@@ -816,7 +815,7 @@ WorkspaceManager.addWindow → recordReconcileEvent(.windowAdmitted)      [STAGE
     │  StateReducer.reduce → ActionPlan, InvariantChecks, ReconcileTxn
     v
 AXEventHandler → LayoutRefreshController.requestRelayout(.axWindowCreated)  [STAGE 3]
-    │  buildRelayoutEffectPlan (async, under withEngineBuildScope) → EffectPlan
+    │  buildRelayoutEffectPlan (inside a withBatchedLayoutBuild commit) → EffectPlan
     v
 LayoutRefreshController.executeEffectPlan → AXManager.applyFramesParallel
     │  per-pid batch → AppAXContext.setFramesBatch on the app's AX thread
@@ -834,9 +833,11 @@ CLIParser.parse → IPCRequest { kind: .command, payload: focus(left) }
     v
 IPCClient connects to the Unix socket, sends NDJSON
     v
-IPCServer accepts → IPCConnection (actor) reads the line → IPCRequest
+IPCServer accepts → IPCConnection (actor) reads the NDJSON line
     v
-IPCApplicationBridge (actor): verify token + protocol version 6
+IPCConnection: decode version envelope → version gate → full IPCRequest
+    v
+IPCApplicationBridge (actor): verify token + protocol version
     │  for mutating commands: EventIntake.post(.ipcCommand(intake))
     v
 EventInterpreter (.ipcCommand) → intake.perform(controller)             [STAGE 1]
@@ -875,7 +876,7 @@ CLIRenderer displays the result
 
 1. Pick the engine: `Core/Layout/Niri/` or `Core/Layout/Dwindle/`.
 2. For Niri, find the right `NiriLayoutEngine+*.swift` extension (`+ColumnOps`, `+Sizing`, `+TabbedMode`, `+WindowOps`, `+WorkspaceOps`, `+Animation`, …); navigation is in `NiriNavigation.swift`, constraint solving in `NiriConstraintSolver.swift`.
-3. Keep engines pure: no AX calls, no frame writes. Any engine mutation must run inside a commit or a `withEngineBuildScope` — the engines assert otherwise. Emit a frame map; let `NiriLayoutHandler`/`DwindleLayoutHandler` build the `EffectPlan`.
+3. Keep engines pure: no AX calls, no frame writes. Any engine mutation must run inside a commit — enter one via `withEngineMutationScope` (or `withBatchedLayoutBuild` for plan-building); the engines assert otherwise. Emit a frame map; let `NiriLayoutHandler`/`DwindleLayoutHandler` build the `EffectPlan`.
 
 ### 6.5 Working with Private APIs
 
@@ -896,7 +897,7 @@ CLIRenderer displays the result
 | `WMEvent` | The typed, exhaustive event consumed by `WorldStore.commit`. |
 | `WorldStore` | The single synchronous writer. Owns `WindowModel`, focus, viewports, monitor sessions, space topology, and both engines (all private). |
 | `commit` | `WorldStore.commit(_:…)` — normalize → reduce → resolve → invariants; bumps `seq`. The only mutation path. |
-| `withEngineBuildScope` | Sanctions engine mutation outside a commit (for async plan-building) without bumping `seq`. |
+| `withEngineMutationScope` | `WorkspaceManager` wrapper that runs an engine mutation inside its own `commit`; `withBatchedLayoutBuild` is the plan-building variant. |
 | `ActionPlan` | Pure output of `StateReducer.reduce` — per-domain state deltas + a `ViewportPlan` + notes. |
 | `EffectPlan` | Effector-side plan (`Core/Layout/LayoutBoundary.swift`): per-workspace layout diffs + seq-gated post-layout actions. Built by the layout handlers. |
 | `InvalidationMarks` | Per-domain `seq` watermarks used to drop layout plans that were built against a now-stale world. |
@@ -935,7 +936,7 @@ The redesign's north star is one authoritative world with one writer. Several ot
 
 - **Ledger fold (not pursued).** Folding `IntentLedger` (focus/activation intents) and `AXFrameApplicationLedger` (frame-write verification) into one type was considered and rejected. They are two clean, non-overlapping truths on different stages of the pipeline; merging them would add coupling with no single-source-of-truth benefit.
 - **God-file dissolution (not pursued).** `WMController`, `WorkspaceManager`, `LayoutRefreshController`, and `AXEventHandler` are large, but their size comes from *logic*, not from duplicated state — the world is already centralized in `WorldStore`. Mechanically extracting sub-objects would scatter state and mutation across more coordinating objects, i.e. move *away* from the single-writer model. Size alone is not a reason to split here.
-- **"Everything through commit" (deferred, tracked separately).** Today the async layout plan-build mutates the engines under `withEngineBuildScope` rather than inside `commit`, and the 60–120Hz animation tier mutates engine/viewport offsets outside `commit` entirely (see [3.9](#39-the-ungated-animation-tier)). Routing plan-build through `commit` would let the three `.trace` invariant checks (`layout_token_missing`, `layout_token_wrong_workspace`, `selection_unresolved`) become hard asserts and close a one-cycle staleness window. But `commit` is synchronous while plan-build is async, and the animation tier must stay ungated for responsiveness — so this is a multi-week redesign with real risk to animation/responsiveness for a modest gain. It is deferred and scoped on its own, not bundled here.
+- **"Everything through commit" (plan-build landed; animation tier deferred).** Layout plan-build now mutates the engines inside `commit`: `buildRelayoutEffectPlan` runs under `withBatchedLayoutBuild`, a single synchronous `layout_build` commit. The 60–120Hz animation tier still mutates engine/viewport offsets outside `commit` entirely (see [3.9](#39-the-ungated-animation-tier)); it must stay ungated for responsiveness, so gating it is deferred and scoped on its own, not bundled here.
 
 ### Terminology changes since the previous architecture
 

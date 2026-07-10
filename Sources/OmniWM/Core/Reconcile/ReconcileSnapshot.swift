@@ -5,13 +5,10 @@ import CoreGraphics
 import Foundation
 
 enum WindowLifecyclePhase: String, Codable, Equatable {
-    case discovered
-    case admitted
     case tiled
     case floating
     case hidden
     case offscreen
-    case restoring
     case replacing
     case nativeFullscreen
     case destroyed
@@ -22,8 +19,6 @@ struct ObservedWindowState: Equatable {
     var workspaceId: WorkspaceDescriptor.ID?
     var monitorId: Monitor.ID?
     var isVisible: Bool
-    var isFocused: Bool
-    var hasAXReference: Bool
     var isNativeFullscreen: Bool
 
     static func initial(
@@ -35,8 +30,6 @@ struct ObservedWindowState: Equatable {
             workspaceId: workspaceId,
             monitorId: monitorId,
             isVisible: true,
-            isFocused: false,
-            hasAXReference: true,
             isNativeFullscreen: false
         )
     }
@@ -115,17 +108,12 @@ struct RestoreIntent: Equatable {
     var niriPlacement: PersistedNiriPlacement? = nil
 }
 
-struct ReplacementCorrelation: Equatable {
+enum ReplacementCorrelation {
     enum Reason: String, Equatable {
         case managedReplacement
         case nativeFullscreen
         case manualRekey
     }
-
-    var previousToken: WindowToken?
-    var nextToken: WindowToken?
-    var reason: Reason
-    var recordedAt: Date
 }
 
 struct PendingManagedFocusSnapshot: Equatable {
@@ -299,7 +287,6 @@ struct ReconcileWindowSnapshot: Equatable {
     let observedState: ObservedWindowState
     let desiredState: DesiredWindowState
     let restoreIntent: RestoreIntent?
-    let replacementCorrelation: ReplacementCorrelation?
 }
 
 struct ReconcileSnapshot: Equatable {

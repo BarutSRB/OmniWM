@@ -28,7 +28,7 @@ enum StateReducer {
                 mode: mode
             )
 
-        case let .windowRekeyed(from, to, workspaceId, monitorId, reason, _, _, _):
+        case let .windowRekeyed(from, to, workspaceId, monitorId, _, _, _, _):
             plan.lifecyclePhase = .replacing
             plan.observedState = baseObservedState(
                 from: existingEntry,
@@ -40,12 +40,6 @@ enum StateReducer {
                 workspaceId: workspaceId,
                 monitorId: monitorId,
                 mode: existingEntry?.mode ?? .tiling
-            )
-            plan.replacementCorrelation = ReplacementCorrelation(
-                previousToken: from,
-                nextToken: to,
-                reason: reason,
-                recordedAt: Date()
             )
             plan.focusSession = rekeyedFocusSession(
                 from: currentSnapshot.focusSession,
@@ -405,7 +399,6 @@ enum StateReducer {
         )
         state.workspaceId = workspaceId
         state.monitorId = monitorId ?? state.monitorId
-        state.hasAXReference = true
         return state
     }
 

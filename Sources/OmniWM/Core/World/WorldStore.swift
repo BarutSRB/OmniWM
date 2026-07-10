@@ -100,7 +100,6 @@ final class WorldStore {
             currentCommitEvent = previousCommitEvent
         }
         seq &+= 1
-        let committedSeq = seq
 
         preMutate()
         applyWindowMutation(event, phase: .beforePlan, monitors: monitors)
@@ -136,7 +135,6 @@ final class WorldStore {
             )
         }
         let txn = ReconcileTxn(
-            seq: committedSeq,
             timestamp: nowProvider(),
             event: event,
             normalizedEvent: normalizedEvent,
@@ -395,10 +393,6 @@ extension WorldStore {
         model.restoreIntent(for: token)
     }
 
-    func replacementCorrelation(for token: WindowToken) -> ReplacementCorrelation? {
-        model.replacementCorrelation(for: token)
-    }
-
     func managedReplacementMetadata(for token: WindowToken) -> ManagedReplacementMetadata? {
         model.managedReplacementMetadata(for: token)
     }
@@ -450,11 +444,6 @@ extension WorldStore {
     func setDesiredState(_ state: DesiredWindowState, for token: WindowToken) {
         assertInCommit("setDesiredState")
         model.setDesiredState(state, for: token)
-    }
-
-    func setReplacementCorrelation(_ correlation: ReplacementCorrelation?, for token: WindowToken) {
-        assertInCommit("setReplacementCorrelation")
-        model.setReplacementCorrelation(correlation, for: token)
     }
 
     func setRestoreIntent(_ intent: RestoreIntent?, for token: WindowToken) {

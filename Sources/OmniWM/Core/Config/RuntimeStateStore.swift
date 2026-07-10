@@ -155,7 +155,6 @@ final class RuntimeStateStore {
         }
     }
 
-
     var quakeTerminalUseCustomFrame: Bool {
         get { state.quakeTerminalUseCustomFrame ?? Self.defaultQuakeTerminalUseCustomFrame }
         set {

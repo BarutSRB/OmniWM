@@ -443,14 +443,6 @@ final class WindowModel {
         entries[token]?.restoreIntent = intent
     }
 
-    func replacementCorrelation(for token: WindowToken) -> ReplacementCorrelation? {
-        entries[token]?.replacementCorrelation
-    }
-
-    func setReplacementCorrelation(_ correlation: ReplacementCorrelation?, for token: WindowToken) {
-        entries[token]?.replacementCorrelation = correlation
-    }
-
     func managedReplacementMetadata(for token: WindowToken) -> ManagedReplacementMetadata? {
         entries[token]?.managedReplacementMetadata
     }

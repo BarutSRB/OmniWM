@@ -57,7 +57,6 @@ enum ReconcileDebugDump {
             "workspace=\(state.workspaceId?.uuidString ?? "nil")",
             "monitor=\(state.monitorId.map(String.init(describing:)) ?? "nil")",
             "visible=\(state.isVisible)",
-            "focused=\(state.isFocused)",
             "fullscreen=\(state.isNativeFullscreen)"
         ]
         .joined(separator: ",")

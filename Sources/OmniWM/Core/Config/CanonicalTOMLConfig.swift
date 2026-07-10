@@ -40,7 +40,6 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var preventSleepEnabled: Bool
         var updateChecksEnabled: Bool
         var ipcEnabled: Bool
-        var spacesTrackingEnabled: Bool
         var animationsEnabled: Bool
     }
 
@@ -125,7 +124,6 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var backgroundOpacity: Double
         var xOffset: Double
         var yOffset: Double
-        var labelFontSize: Double
         var accentColor: Color?
         var textColor: Color?
 
@@ -433,12 +431,6 @@ extension CanonicalTOMLConfig.General {
             Bool.self,
             forKey: .ipcEnabled,
             default: defaults.ipcEnabled,
-            recovering: recovering
-        )
-        spacesTrackingEnabled = try container.decode(
-            Bool.self,
-            forKey: .spacesTrackingEnabled,
-            default: defaults.spacesTrackingEnabled,
             recovering: recovering
         )
         animationsEnabled = try container.decode(
@@ -750,12 +742,6 @@ extension CanonicalTOMLConfig.WorkspaceBar {
         )
         xOffset = try container.decode(Double.self, forKey: .xOffset, default: defaults.xOffset, recovering: recovering)
         yOffset = try container.decode(Double.self, forKey: .yOffset, default: defaults.yOffset, recovering: recovering)
-        labelFontSize = try container.decode(
-            Double.self,
-            forKey: .labelFontSize,
-            default: defaults.labelFontSize,
-            recovering: recovering
-        )
         do {
             accentColor = try container.decodeIfPresent(Color.self, forKey: .accentColor)
         } catch {
@@ -971,7 +957,6 @@ extension CanonicalTOMLConfig {
             preventSleepEnabled: export.preventSleepEnabled,
             updateChecksEnabled: export.updateChecksEnabled,
             ipcEnabled: export.ipcEnabled,
-            spacesTrackingEnabled: export.spacesTrackingEnabled,
             animationsEnabled: export.animationsEnabled
         )
         focus = Focus(
@@ -1042,7 +1027,6 @@ extension CanonicalTOMLConfig {
             backgroundOpacity: export.workspaceBarBackgroundOpacity,
             xOffset: export.workspaceBarXOffset,
             yOffset: export.workspaceBarYOffset,
-            labelFontSize: export.workspaceBarLabelFontSize,
             accentColor: export.workspaceBarAccentColor.map(WorkspaceBar.Color.init),
             textColor: export.workspaceBarTextColor.map(WorkspaceBar.Color.init)
         )
@@ -1148,7 +1132,6 @@ extension CanonicalTOMLConfig {
             workspaceBarYOffset: workspaceBar.yOffset,
             workspaceBarAccentColor: workspaceBar.accentColor?.settingsColor,
             workspaceBarTextColor: workspaceBar.textColor?.settingsColor,
-            workspaceBarLabelFontSize: workspaceBar.labelFontSize,
             monitorBarSettings: monitorBarOverrides,
             appRules: appRules,
             monitorOrientationSettings: monitorOrientationOverrides,
@@ -1164,7 +1147,6 @@ extension CanonicalTOMLConfig {
             preventSleepEnabled: general.preventSleepEnabled,
             updateChecksEnabled: general.updateChecksEnabled,
             ipcEnabled: general.ipcEnabled,
-            spacesTrackingEnabled: general.spacesTrackingEnabled,
             scrollGestureEnabled: gestures.scrollEnabled,
             scrollSensitivity: gestures.scrollSensitivity,
             scrollModifierKey: gestures.scrollModifierKey,

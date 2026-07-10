@@ -230,7 +230,7 @@ For setup, installation options, commands, queries, rules, subscriptions, and se
 7. Use the default shortcuts in `Keyboard Shortcuts` to navigate between windows
 8. Click the menu bar icon to access Settings, including `Settings > General > Updates`
 9. Use `Check for Updates...` from the status bar menu whenever you want to run a manual update check
-10. In case you freak out and don't see all your status bar icons, relax, right click on OmniWM's status bar icon and drag the icons to the left of it's "/" by holding CMD + drag as OmniWM hides status bar icons like **Ice Bar**.
+10. In case you freak out and don't see all your status bar icons, relax, OmniWM hides the menu-bar icons you selected in `Settings > Hidden Bar`. Right-click OmniWM's status bar icon to open the Hidden Icons Bar and click any icon to use it.
 
 
 ## User Guide
@@ -283,7 +283,7 @@ Layout legend:
 | Toggle Command Palette | `Control + Option + Space` | `Shared` |
 | Open Menu Anywhere | `Control + Option + M` | `Shared` |
 | Toggle Workspace Bar | `Unassigned` | `Shared` |
-| Toggle Hidden Bar | `Unassigned` | `Shared` |
+| Toggle Hidden Icons Bar | `Unassigned` | `Shared` |
 | Toggle Quake Terminal | `` Option + ` `` | `Shared` |
 | Toggle Overview | `Option + Shift + O` | `Shared` |
 
@@ -426,7 +426,7 @@ OmniWM stores its editable config at `${XDG_CONFIG_HOME:-$HOME/.config}/omniwm/s
 
 - **Reveal Settings File** and **Edit Settings File** open the canonical TOML file and recreate it from the running settings if it was deleted.
 - `updateChecksEnabled` is part of the persisted settings model, so it round-trips through `settings.toml`.
-- Clipboard history, last-check timestamps, skipped-release state, hidden bar state, and the persisted window restore catalog live in `${XDG_STATE_HOME:-$HOME/.local/state}/omniwm` and stay out of dotfile-oriented config storage.
+- Clipboard history, last-check timestamps, skipped-release state, and the persisted window restore catalog live in `${XDG_STATE_HOME:-$HOME/.local/state}/omniwm` and stay out of dotfile-oriented config storage.
 
 ## App Rules
 
