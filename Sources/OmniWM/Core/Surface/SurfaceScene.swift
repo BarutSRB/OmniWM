@@ -145,7 +145,7 @@ final class SurfaceScene {
     }
 
     func containsInteractive(point: CGPoint) -> Bool {
-        visibleNodes.contains { node in
+        containsVisibleNode { node in
             switch node.policy.hitTestPolicy {
             case .interactive:
                 break
@@ -172,7 +172,7 @@ final class SurfaceScene {
     }
 
     var hasVisibleSuppressingWindow: Bool {
-        visibleNodes.contains { $0.policy.suppressesManagedFocusRecovery }
+        containsVisibleNode { $0.policy.suppressesManagedFocusRecovery }
     }
 
     func isCaptureEligible(windowNumber: Int) -> Bool {
@@ -224,6 +224,10 @@ final class SurfaceScene {
 
     private func isFrontmostInteractiveWindow(_ window: NSWindow) -> Bool {
         frontmostInteractiveResolver.isFrontmost(window)
+    }
+
+    private func containsVisibleNode(where predicate: (SurfaceNode) -> Bool) -> Bool {
+        nodesByID.values.contains { isVisible($0) && predicate($0) }
     }
 
     private var visibleNodes: [SurfaceNode] {
@@ -288,7 +292,7 @@ final class SurfaceScene {
     }
 
     func containsGeometric(point: CGPoint) -> Bool {
-        visibleNodes.contains { node in
+        containsVisibleNode { node in
             node.policy.hitTestPolicy != .passthrough && resolvedFrame(for: node)?.contains(point) == true
         }
     }

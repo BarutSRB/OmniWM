@@ -103,6 +103,7 @@ final class ServiceLifecycleManager {
         controller.eventIntake.open(sink: controller.eventInterpreter)
         controller.layoutRefreshController.setup()
         controller.axEventHandler.setup()
+        controller.axManager.installWorkspaceObservers()
         controller.axManager.onAppLaunched = { _ in
             EventIntake.post(.appLaunched)
         }
@@ -375,6 +376,7 @@ final class ServiceLifecycleManager {
         controller.factResolver.stop()
         controller.deadlineWheel.stop()
         controller.intentLedger.reset()
+        clearPendingManagedFocus(controller)
         controller.axManager.onAppLaunched = nil
         controller.axManager.onAppTerminated = nil
         controller.axManager.onTerminalFrameRefusal = nil
@@ -434,6 +436,19 @@ final class ServiceLifecycleManager {
         permissionCheckerTask?.cancel()
         permissionCheckerTask = nil
         controller.reconcileEnabledAndHotkeysState()
+    }
+
+    private func clearPendingManagedFocus(_ controller: WMController) {
+        let pendingManagedFocus = controller.workspaceManager.reconcileSnapshot().focusSession.pendingManagedFocus
+        guard pendingManagedFocus != .empty else { return }
+        controller.workspaceManager.recordReconcileEvent(
+            .managedFocusCancelled(
+                token: nil,
+                workspaceId: nil,
+                requestId: pendingManagedFocus.requestId,
+                source: .service
+            )
+        )
     }
 
     private func accessibilityPermissionStream(initial: Bool) -> AsyncStream<Bool> {

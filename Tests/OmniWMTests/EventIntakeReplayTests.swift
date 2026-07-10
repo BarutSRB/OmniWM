@@ -100,8 +100,8 @@ final class EventIntakeReplayTests: XCTestCase {
         defer { intake.close() }
 
         intake.enqueue(.mouseMoved(location: CGPoint(x: 10, y: 10), modifiersRawValue: 1))
-        intake.enqueue(.appActivated(pid: 1))
         intake.enqueue(.mouseMoved(location: CGPoint(x: 20, y: 20), modifiersRawValue: 2))
+        intake.enqueue(.appActivated(pid: 1))
         intake.drainNow()
 
         XCTAssertEqual(sink.received.count, 2)
@@ -113,6 +113,121 @@ final class EventIntakeReplayTests: XCTestCase {
         guard case .appActivated = sink.received[1].event else {
             return XCTFail("Expected appActivated second: \(sink.received)")
         }
+    }
+
+    @MainActor
+    func testNonCoalescibleEventBarsDraggedCoalescingAcrossIt() {
+        let intake = EventIntake()
+        let sink = RecordingSink()
+        intake.open(sink: sink)
+        defer { intake.close() }
+
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 10, y: 10)))
+        intake.enqueue(.hotkeyCommand(.focusPrevious))
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 20, y: 20)))
+        intake.drainNow()
+
+        XCTAssertEqual(sink.received.count, 3)
+        guard case let .mouseDragged(_, firstLocation) = sink.received[0].event,
+              case .hotkeyCommand(.focusPrevious) = sink.received[1].event,
+              case let .mouseDragged(_, secondLocation) = sink.received[2].event
+        else {
+            return XCTFail("Expected dragged, command, dragged in order: \(sink.received)")
+        }
+        XCTAssertEqual(firstLocation, CGPoint(x: 10, y: 10))
+        XCTAssertEqual(secondLocation, CGPoint(x: 20, y: 20))
+    }
+
+    @MainActor
+    func testDraggedCoalescesToLatestLocationWithoutBarrier() {
+        let intake = EventIntake()
+        let sink = RecordingSink()
+        intake.open(sink: sink)
+        defer { intake.close() }
+
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 10, y: 10)))
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 20, y: 20)))
+        intake.drainNow()
+
+        XCTAssertEqual(sink.received.count, 1)
+        guard case let .mouseDragged(_, location) = sink.received[0].event else {
+            return XCTFail("Expected a single coalesced mouseDragged: \(sink.received)")
+        }
+        XCTAssertEqual(location, CGPoint(x: 20, y: 20))
+    }
+
+    @MainActor
+    func testMovedDraggedMovedDrainsInArrivalOrder() {
+        let intake = EventIntake()
+        let sink = RecordingSink()
+        intake.open(sink: sink)
+        defer { intake.close() }
+
+        intake.enqueue(.mouseMoved(location: CGPoint(x: 10, y: 10), modifiersRawValue: 0))
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 20, y: 20)))
+        intake.enqueue(.mouseMoved(location: CGPoint(x: 30, y: 30), modifiersRawValue: 0))
+        intake.drainNow()
+
+        XCTAssertEqual(sink.received.count, 3)
+        guard case let .mouseMoved(firstLocation, _) = sink.received[0].event,
+              case let .mouseDragged(_, draggedLocation) = sink.received[1].event,
+              case let .mouseMoved(lastLocation, _) = sink.received[2].event
+        else {
+            return XCTFail("Expected moved, dragged, moved in order: \(sink.received)")
+        }
+        XCTAssertEqual(firstLocation, CGPoint(x: 10, y: 10))
+        XCTAssertEqual(draggedLocation, CGPoint(x: 20, y: 20))
+        XCTAssertEqual(lastLocation, CGPoint(x: 30, y: 30))
+    }
+
+    @MainActor
+    func testAlternatingDragButtonsDrainInArrivalOrder() {
+        let intake = EventIntake()
+        let sink = RecordingSink()
+        intake.open(sink: sink)
+        defer { intake.close() }
+
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 10, y: 10)))
+        intake.enqueue(.mouseDragged(button: .right, location: CGPoint(x: 20, y: 20)))
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 30, y: 30)))
+        intake.drainNow()
+
+        XCTAssertEqual(sink.received.count, 3)
+        guard case let .mouseDragged(firstButton, firstLocation) = sink.received[0].event,
+              case let .mouseDragged(secondButton, secondLocation) = sink.received[1].event,
+              case let .mouseDragged(thirdButton, thirdLocation) = sink.received[2].event
+        else {
+            return XCTFail("Expected left, right, left drags in order: \(sink.received)")
+        }
+        XCTAssertEqual(firstButton, .left)
+        XCTAssertEqual(firstLocation, CGPoint(x: 10, y: 10))
+        XCTAssertEqual(secondButton, .right)
+        XCTAssertEqual(secondLocation, CGPoint(x: 20, y: 20))
+        XCTAssertEqual(thirdButton, .left)
+        XCTAssertEqual(thirdLocation, CGPoint(x: 30, y: 30))
+    }
+
+    @MainActor
+    func testCGSFrameChangedBarsDraggedCoalescingAcrossIt() {
+        let intake = EventIntake()
+        let sink = RecordingSink()
+        intake.open(sink: sink)
+        defer { intake.close() }
+
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 10, y: 10)))
+        intake.enqueue(.cgs(.frameChanged(windowId: 7)))
+        intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 20, y: 20)))
+        intake.drainNow()
+
+        XCTAssertEqual(sink.received.count, 3)
+        guard case let .mouseDragged(_, firstLocation) = sink.received[0].event,
+              case .cgs(.frameChanged) = sink.received[1].event,
+              case let .mouseDragged(_, secondLocation) = sink.received[2].event
+        else {
+            return XCTFail("Expected dragged, frameChanged, dragged in order: \(sink.received)")
+        }
+        XCTAssertEqual(firstLocation, CGPoint(x: 10, y: 10))
+        XCTAssertEqual(secondLocation, CGPoint(x: 20, y: 20))
     }
 
     @MainActor

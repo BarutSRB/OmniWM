@@ -27,6 +27,11 @@ final class BorderSurfaceApplier {
     ) {
         self.borderWindowOperations = borderWindowOperations
         self.cornerRadiusProvider = cornerRadiusProvider
+        installScreenParametersObserverIfNeeded()
+    }
+
+    private func installScreenParametersObserverIfNeeded() {
+        guard screenParametersObserver == nil else { return }
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -45,6 +50,7 @@ final class BorderSurfaceApplier {
             return true
         }
 
+        installScreenParametersObserverIfNeeded()
         BorderOpMetricsRecorder.shared.noteApply()
 
         if borderWindow == nil {

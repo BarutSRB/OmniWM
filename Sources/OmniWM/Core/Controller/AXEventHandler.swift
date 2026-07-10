@@ -1177,6 +1177,7 @@ final class AXEventHandler {
 
     private func warmAXContextIfNeeded(for pid: pid_t) async {
         guard let controller,
+              controller.hasStartedServices,
               let app = NSRunningApplication(processIdentifier: pid)
         else {
             return
@@ -1262,8 +1263,9 @@ final class AXEventHandler {
             )
             if controller.axManager.recentFrameWriteFailure(for: windowId) == .contextUnavailable {
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self, self.controller?.hasStartedServices == true else { return }
                     await self.warmAXContextIfNeeded(for: pid)
+                    guard self.controller?.hasStartedServices == true else { return }
                     self.applyFloatingCreateFrame(
                         targetFrame,
                         token: token,
@@ -1278,8 +1280,9 @@ final class AXEventHandler {
         }
 
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, self.controller?.hasStartedServices == true else { return }
             await self.warmAXContextIfNeeded(for: pid)
+            guard self.controller?.hasStartedServices == true else { return }
             self.applyFloatingCreateFrame(
                 targetFrame,
                 token: token,
@@ -1290,6 +1293,7 @@ final class AXEventHandler {
             )
             if self.controller?.axManager.recentFrameWriteFailure(for: windowId) == .contextUnavailable {
                 await self.warmAXContextIfNeeded(for: pid)
+                guard self.controller?.hasStartedServices == true else { return }
                 self.applyFloatingCreateFrame(
                     targetFrame,
                     token: token,
@@ -2480,7 +2484,7 @@ final class AXEventHandler {
         controller.surfaceReconciler.noteRestackOccurred()
 
         Task { @MainActor [weak self] in
-            guard let self, let controller = self.controller else { return }
+            guard let self, let controller = self.controller, controller.hasStartedServices else { return }
             if let app = NSRunningApplication(processIdentifier: newToken.pid) {
                 _ = await controller.axManager.windowsForApp(app)
             }

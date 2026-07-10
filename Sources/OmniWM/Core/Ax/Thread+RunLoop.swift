@@ -62,8 +62,8 @@ extension Thread {
         autoCheckCancelled: Bool = true,
         _ body: @Sendable @escaping (RunLoopJob) -> Void
     ) -> RunLoopJob {
-        let action = RunLoopAction(job: job, autoCheckCancelled: autoCheckCancelled, body)
-        job.action = action
+        job.schedule(body)
+        let action = RunLoopAction(job: job, autoCheckCancelled: autoCheckCancelled)
         action.perform(#selector(action.action), on: self, with: nil, waitUntilDone: false)
         return job
     }
@@ -128,25 +128,17 @@ extension Thread {
 }
 
 final class RunLoopAction: NSObject, Sendable {
-    private nonisolated(unsafe) var _action: (@Sendable (RunLoopJob) -> Void)?
-    let job: RunLoopJob
+    private let job: RunLoopJob
     private let autoCheckCancelled: Bool
 
-    init(job: RunLoopJob, autoCheckCancelled: Bool, _ action: @escaping @Sendable (RunLoopJob) -> Void) {
+    init(job: RunLoopJob, autoCheckCancelled: Bool) {
         self.job = job
         self.autoCheckCancelled = autoCheckCancelled
-        _action = action
     }
 
     @objc func action() {
-        guard let actionToRun = _action else { return }
-        _action = nil
-        job.action = nil
+        guard let body = job.takeScheduledBody() else { return }
         if autoCheckCancelled, job.isCancelled { return }
-        actionToRun(job)
-    }
-
-    func clearAction() {
-        _action = nil
+        body(job)
     }
 }

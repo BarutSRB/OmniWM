@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
+import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -291,6 +292,39 @@ enum WMEvent: Equatable {
         label: String,
         source: WMEventSource
     )
+
+    @MainActor
+    private static let placeholderAXElement = AXUIElementCreateSystemWide()
+
+    @MainActor
+    func strippingAXReferences() -> WMEvent {
+        switch self {
+        case let .windowAdmitted(token, workspaceId, monitorId, mode, axRef, ruleEffects, metadata, source):
+            .windowAdmitted(
+                token: token,
+                workspaceId: workspaceId,
+                monitorId: monitorId,
+                mode: mode,
+                axRef: AXWindowRef(element: Self.placeholderAXElement, windowId: axRef.windowId),
+                ruleEffects: ruleEffects,
+                managedReplacementMetadata: metadata,
+                source: source
+            )
+        case let .windowRekeyed(from, to, workspaceId, monitorId, reason, newAXRef, metadata, source):
+            .windowRekeyed(
+                from: from,
+                to: to,
+                workspaceId: workspaceId,
+                monitorId: monitorId,
+                reason: reason,
+                newAXRef: AXWindowRef(element: Self.placeholderAXElement, windowId: newAXRef.windowId),
+                managedReplacementMetadata: metadata,
+                source: source
+            )
+        default:
+            self
+        }
+    }
 
     var token: WindowToken? {
         switch self {

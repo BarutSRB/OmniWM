@@ -62,6 +62,10 @@ final class LockedWindowGenerationMap: @unchecked Sendable {
     }
 }
 
+private func axCallbackObserverKey(_ observer: AXObserver) -> UInt {
+    UInt(bitPattern: Unmanaged.passUnretained(observer).toOpaque())
+}
+
 private struct AppAXFrameWriteRequest: Sendable {
     let requestId: AXFrameRequestId
     let pid: pid_t
@@ -80,15 +84,12 @@ private final class AppAXContextCreationState: @unchecked Sendable {
         self.continuation = continuation
     }
 
-    func resume(with result: Result<AppAXContext?, Error>) -> Bool {
+    func takeContinuation() -> CheckedContinuation<AppAXContext?, Error>? {
         lock.lock()
         let continuation = self.continuation
         self.continuation = nil
         lock.unlock()
-
-        guard let continuation else { return false }
-        continuation.resume(with: result)
-        return true
+        return continuation
     }
 }
 
@@ -110,9 +111,14 @@ final class AppAXContext {
     private let axObserver: ThreadGuardedValue<AXObserver?>
     private let focusedWindowObserver: ThreadGuardedValue<AXObserver?>
     private let subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>
+    private let axObserverCallbackKey: UInt?
+    private let focusedWindowObserverCallbackKey: UInt?
 
     @MainActor static var contexts: [pid_t: AppAXContext] = [:]
-    @MainActor private static var inFlightCreations: [pid_t: Task<AppAXContext?, Error>] = [:]
+    @MainActor private static var inFlightCreations: [pid_t: (
+        generation: UInt64,
+        task: Task<AppAXContext?, Error>
+    )] = [:]
 
     private nonisolated init(
         _ nsApp: NSRunningApplication,
@@ -121,6 +127,8 @@ final class AppAXContext {
         _ observer: ThreadGuardedValue<AXObserver?>,
         _ focusedWindowObserver: ThreadGuardedValue<AXObserver?>,
         _ subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>,
+        _ axObserverCallbackKey: UInt?,
+        _ focusedWindowObserverCallbackKey: UInt?,
         _ thread: Thread
     ) {
         self.nsApp = nsApp
@@ -130,6 +138,8 @@ final class AppAXContext {
         axObserver = observer
         self.focusedWindowObserver = focusedWindowObserver
         self.subscribedWindows = subscribedWindows
+        self.axObserverCallbackKey = axObserverCallbackKey
+        self.focusedWindowObserverCallbackKey = focusedWindowObserverCallbackKey
         self.thread = thread
     }
 
@@ -143,32 +153,60 @@ final class AppAXContext {
         try Task.checkCancellation()
 
         if let inFlight = inFlightCreations[pid] {
-            return try await inFlight.value
+            return try await inFlight.task.value
         }
 
+        let generation = appAXCallbackGenerationRegistry.currentGeneration
         let task = Task<AppAXContext?, Error> { @MainActor in
-            defer { inFlightCreations.removeValue(forKey: pid) }
+            defer {
+                if inFlightCreations[pid]?.generation == generation {
+                    inFlightCreations.removeValue(forKey: pid)
+                }
+            }
 
-            let context = try await createContext(nsApp)
+            let context = try await createContext(nsApp, generation: generation)
+            guard appAXCallbackGenerationRegistry.isCurrent(generation) else {
+                context?.destroy()
+                return nil
+            }
             if let context {
                 contexts[pid] = context
             }
             return context
         }
-        inFlightCreations[pid] = task
+        inFlightCreations[pid] = (generation: generation, task: task)
 
         return try await task.value
     }
 
     @MainActor
-    private static func createContext(_ nsApp: NSRunningApplication) async throws -> AppAXContext? {
+    static func shutdownAll() {
+        appAXCallbackGenerationRegistry.advance()
+        for (_, inFlight) in inFlightCreations {
+            inFlight.task.cancel()
+        }
+        inFlightCreations.removeAll()
+        for (_, context) in contexts {
+            context.destroy()
+        }
+    }
+
+    @MainActor
+    private static func createContext(
+        _ nsApp: NSRunningApplication,
+        generation: UInt64
+    ) async throws -> AppAXContext? {
         let pid = nsApp.processIdentifier
 
         return try await withCheckedThrowingContinuation { continuation in
             let state = AppAXContextCreationState(continuation)
             let timeoutTask = Task {
-                try? await Task.sleep(for: .seconds(2))
-                _ = state.resume(with: .success(nil))
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                state.takeContinuation()?.resume(returning: nil)
             }
 
             let thread = Thread {
@@ -210,6 +248,8 @@ final class AppAXContext {
                     let guardedObserver = ThreadGuardedValue(observer)
                     let guardedFocusedWindowObserver = ThreadGuardedValue(focusObserver)
                     let guardedSubscribedWindows = ThreadGuardedValue([Int: AXUIElement]())
+                    let observerCallbackKey = observer.map(axCallbackObserverKey)
+                    let focusedWindowObserverCallbackKey = focusObserver.map(axCallbackObserverKey)
                     let currentThread = Thread.current
 
                     scheduleOnMainRunLoop {
@@ -222,13 +262,28 @@ final class AppAXContext {
                             guardedObserver,
                             guardedFocusedWindowObserver,
                             guardedSubscribedWindows,
+                            observerCallbackKey,
+                            focusedWindowObserverCallbackKey,
                             currentThread
                         )
-                        if state.resume(with: .success(context)) {
+                        guard let continuation = state.takeContinuation() else {
+                            context.destroy()
                             return
                         }
 
-                        context.destroy()
+                        if let observerCallbackKey {
+                            appAXCallbackGenerationRegistry.register(
+                                observerKey: observerCallbackKey,
+                                generation: generation
+                            )
+                        }
+                        if let focusedWindowObserverCallbackKey {
+                            appAXCallbackGenerationRegistry.register(
+                                observerKey: focusedWindowObserverCallbackKey,
+                                generation: generation
+                            )
+                        }
+                        continuation.resume(returning: context)
                     }
 
                     let port = NSMachPort()
@@ -258,24 +313,30 @@ final class AppAXContext {
 
     nonisolated static func handleWindowDestroyedCallback(
         pid: pid_t,
+        observerKey: UInt,
         refcon: UnsafeMutableRawPointer?
     ) {
         guard let windowId = destroyNotificationWindowId(from: refcon) else {
             assertionFailure("Received AX destroy callback without a valid windowId refcon")
             return
         }
-        EventIntake.post(.axWindowDestroyed(pid: pid, windowId: windowId))
+        appAXCallbackGenerationRegistry.performIfCurrent(observerKey: observerKey) {
+            EventIntake.post(.axWindowDestroyed(pid: pid, windowId: windowId))
+        }
     }
 
     nonisolated static func handleWindowMiniaturizedCallback(
         pid: pid_t,
+        observerKey: UInt,
         refcon: UnsafeMutableRawPointer?
     ) {
         guard let windowId = destroyNotificationWindowId(from: refcon) else {
             assertionFailure("Received AX miniaturize callback without a valid windowId refcon")
             return
         }
-        EventIntake.post(.axWindowMiniaturized(pid: pid, windowId: windowId))
+        appAXCallbackGenerationRegistry.performIfCurrent(observerKey: observerKey) {
+            EventIntake.post(.axWindowMiniaturized(pid: pid, windowId: windowId))
+        }
     }
 
     private nonisolated static func addWindowNotifications(
@@ -675,7 +736,16 @@ final class AppAXContext {
     }
 
     func destroy() {
-        AppAXContext.contexts.removeValue(forKey: pid)
+        if let axObserverCallbackKey {
+            appAXCallbackGenerationRegistry.unregister(observerKey: axObserverCallbackKey)
+        }
+        if let focusedWindowObserverCallbackKey {
+            appAXCallbackGenerationRegistry.unregister(observerKey: focusedWindowObserverCallbackKey)
+        }
+
+        if AppAXContext.contexts[pid] === self {
+            AppAXContext.contexts.removeValue(forKey: pid)
+        }
 
         for (_, job) in activeFrameBatchJobs {
             job.cancel()
@@ -833,7 +903,7 @@ private func cancelledFrameApplyResult(for request: AppAXFrameWriteRequest) -> A
 }
 
 private func axWindowNotificationCallback(
-    _: AXObserver,
+    _ observer: AXObserver,
     _ element: AXUIElement,
     _ notification: CFString,
     _ refcon: UnsafeMutableRawPointer?
@@ -854,16 +924,17 @@ private func axWindowNotificationCallback(
     guard pidStatus == .success else { return }
 
     DiagnosticsEventRecorder.shared.recordLifecycle(name: notificationName, pid: pid)
+    let observerKey = axCallbackObserverKey(observer)
 
     if isDestroyed {
-        AppAXContext.handleWindowDestroyedCallback(pid: pid, refcon: refcon)
+        AppAXContext.handleWindowDestroyedCallback(pid: pid, observerKey: observerKey, refcon: refcon)
     } else {
-        AppAXContext.handleWindowMiniaturizedCallback(pid: pid, refcon: refcon)
+        AppAXContext.handleWindowMiniaturizedCallback(pid: pid, observerKey: observerKey, refcon: refcon)
     }
 }
 
 private func axFocusedWindowChangedCallback(
-    _: AXObserver,
+    _ observer: AXObserver,
     _ element: AXUIElement,
     _ notification: CFString,
     _: UnsafeMutableRawPointer?
@@ -876,7 +947,9 @@ private func axFocusedWindowChangedCallback(
     RawAXNotificationTrace.record(name: kAXFocusedWindowChangedNotification as String, pid: pid, windowId: nil)
     DiagnosticsEventRecorder.shared.recordLifecycle(name: kAXFocusedWindowChangedNotification as String, pid: pid)
 
-    EventIntake.post(.axFocusedWindowChanged(pid: pid))
+    appAXCallbackGenerationRegistry.performIfCurrent(observerKey: axCallbackObserverKey(observer)) {
+        EventIntake.post(.axFocusedWindowChanged(pid: pid))
+    }
 }
 
 private func scheduleOnMainRunLoop(_ work: @escaping @MainActor () -> Void) {

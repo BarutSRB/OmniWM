@@ -272,7 +272,6 @@ final class SkyLight {
 
         var widValue = Int32(wid)
         let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue)!
-        defer { cfRelease(widNumber) }
         let windowArray = [widNumber] as CFArray
 
         guard let query = windowQueryWindows(cid, windowArray, 0) else { return nil }
@@ -396,7 +395,6 @@ final class SkyLight {
         guard cid != 0 else { return [] }
         var widValue = Int32(bitPattern: windowId)
         guard let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue) else { return [] }
-        defer { cfRelease(widNumber) }
         let windowArray = [widNumber] as CFArray
         guard let result = copySpacesForWindows(cid, Self.allSpacesMask, windowArray) else { return [] }
         defer { cfRelease(result) }
@@ -587,7 +585,6 @@ final class SkyLight {
 
         var widValue = Int32(windowId)
         let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue)!
-        defer { cfRelease(widNumber) }
         let windowArray = [widNumber] as CFArray
 
         guard let query = windowQueryWindows(cid, windowArray, 1) else { return nil }

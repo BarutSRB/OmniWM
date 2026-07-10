@@ -152,7 +152,7 @@ import QuartzCore
         var pendingRefresh: ScheduledRefresh?
         var isImmediateLayoutInProgress: Bool = false
         var isIncrementalRefreshInProgress: Bool = false
-        var isFullEnumerationInProgress: Bool = false
+        var activeFullEnumerationCount: Int = 0
         var displayLinksByDisplay: [CGDirectDisplayID: CADisplayLink] = [:]
         var lastDisplayLinkTimestampByDisplay: [CGDirectDisplayID: CFTimeInterval] = [:]
         var lastParkAuditTime: CFTimeInterval = 0
@@ -188,7 +188,7 @@ import QuartzCore
     private lazy var diffExecutor = LayoutDiffExecutor(refreshController: self)
 
     var isDiscoveryInProgress: Bool {
-        layoutState.isFullEnumerationInProgress
+        layoutState.activeFullEnumerationCount > 0
     }
 
     init(controller: WMController) {
@@ -1167,6 +1167,8 @@ import QuartzCore
         layoutState.activeRefreshTask = nil
         layoutState.pendingDebounceTask?.cancel()
         layoutState.pendingDebounceTask = nil
+        layoutState.trailingAuditTask?.cancel()
+        layoutState.trailingAuditTask = nil
         layoutState.activeRefresh = nil
         layoutState.pendingRefresh = nil
         layoutState.didExecuteEffectPlan = false
@@ -1196,8 +1198,8 @@ import QuartzCore
     }
 
     private func executeFullRefresh(refresh: ScheduledRefresh, generation: UInt64) async throws -> Bool {
-        layoutState.isFullEnumerationInProgress = true
-        defer { layoutState.isFullEnumerationInProgress = false }
+        layoutState.activeFullEnumerationCount += 1
+        defer { layoutState.activeFullEnumerationCount -= 1 }
 
         guard let controller else { return false }
         guard isCurrentRefreshGeneration(generation) else { return false }

@@ -50,8 +50,16 @@ final class AXManager {
     private var lastFrameResultSeqByWindowId: [Int: UInt64] = [:]
 
     init() {
-        setupTerminationObserver()
-        setupLaunchObserver()
+        installWorkspaceObservers()
+    }
+
+    func installWorkspaceObservers() {
+        if appTerminationObserver == nil {
+            setupTerminationObserver()
+        }
+        if appLaunchObserver == nil {
+            setupLaunchObserver()
+        }
     }
 
     private func setupTerminationObserver() {
@@ -254,11 +262,7 @@ final class AXManager {
 
         cancelAllPendingFrameState()
 
-        Task { @MainActor in
-            for (_, context) in AppAXContext.contexts {
-                context.destroy()
-            }
-        }
+        AppAXContext.shutdownAll()
     }
 
     func windowsForApp(_ app: NSRunningApplication) async -> [(AXWindowRef, pid_t, Int)] {

@@ -1,32 +1,42 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
-import Foundation
 import Synchronization
 
 final class RunLoopJob: Sendable {
-    private let _cancelled = Atomic<Bool>(false)
-    nonisolated(unsafe) weak var action: RunLoopAction?
+    private struct State {
+        var cancelled = false
+        var scheduledBody: (@Sendable (RunLoopJob) -> Void)?
+    }
+
+    private let state = Mutex(State())
 
     var isCancelled: Bool {
-        _cancelled.load(ordering: .acquiring)
+        state.withLock { $0.cancelled }
     }
 
     func cancel() {
-        let (exchanged, _) = _cancelled.compareExchange(
-            expected: false,
-            desired: true,
-            ordering: .acquiringAndReleasing
-        )
-        if exchanged {
-            action?.clearAction()
-            action = nil
+        state.withLock {
+            $0.cancelled = true
+            $0.scheduledBody = nil
         }
     }
 
     func checkCancellation() throws {
         if isCancelled {
             throw CancellationError()
+        }
+    }
+
+    func schedule(_ body: @escaping @Sendable (RunLoopJob) -> Void) {
+        state.withLock { $0.scheduledBody = body }
+    }
+
+    func takeScheduledBody() -> (@Sendable (RunLoopJob) -> Void)? {
+        state.withLock {
+            let body = $0.scheduledBody
+            $0.scheduledBody = nil
+            return body
         }
     }
 }

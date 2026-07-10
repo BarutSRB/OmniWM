@@ -32,11 +32,12 @@ final class ReconcileTraceRecorder {
         invariantViolations: [ReconcileInvariantViolation] = [],
         timestamp: Date = Date()
     ) {
+        let strippedEvent = event.strippingAXReferences()
         let record = ReconcileTraceRecord(
             sequence: nextSequence,
             timestamp: timestamp,
-            event: event,
-            normalizedEvent: normalizedEvent ?? event,
+            event: strippedEvent,
+            normalizedEvent: normalizedEvent.map { $0.strippingAXReferences() } ?? strippedEvent,
             plan: plan,
             snapshot: snapshot,
             invariantViolations: invariantViolations
