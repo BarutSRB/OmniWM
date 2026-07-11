@@ -450,7 +450,7 @@ Use the bundled Debug launch for day-to-day development:
 make run
 ```
 
-`make run` builds, packages, development-signs, and opens `dist/OmniWM.app` through LaunchServices. This is the canonical development launch because it gives OmniWM its normal app identity and native status bar item. A raw `swift run OmniWM` launch is unbundled, so while Hidden Bar concealment is active it uses a separate fallback icon instead; that behavior is not specific to Debug builds.
+`make run` builds, packages, development-signs, and opens `dist/OmniWM.app` through LaunchServices. This is the canonical development launch because it gives OmniWM its normal app identity. OmniWM uses its native status bar item while Hidden Bar concealment is inactive. While concealment is active, it uses a separate fallback icon next to the workspace bar because macOS can conceal the app-owned status item with the other restricted items. This behavior applies to both bundled and raw `swift run OmniWM` launches and is not specific to Debug builds.
 
 ## Related Forks
 

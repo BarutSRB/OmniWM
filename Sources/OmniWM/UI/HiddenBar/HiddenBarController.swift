@@ -97,19 +97,12 @@ final class HiddenBarController {
     func bind(omniButton: NSStatusBarButton, statusItem: NSStatusItem) {
         self.omniButton = omniButton
         omniStatusItem = statusItem
-    }
-
-    private func reassertOmniStatusItem() {
-        omniStatusItem?.isVisible = true
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            self?.omniStatusItem?.isVisible = true
-        }
+        statusItem.isVisible = !hider.isConcealing
     }
 
     private func handleConcealingChanged(_ concealing: Bool) {
+        omniStatusItem?.isVisible = !concealing
         if concealing {
-            reassertOmniStatusItem()
             syncFallbackIcon()
         } else {
             fallbackIcon.dismiss()
@@ -117,7 +110,7 @@ final class HiddenBarController {
     }
 
     private func syncFallbackIcon() {
-        guard HiddenBarFallbackIconController.isNeeded, hider.isConcealing,
+        guard hider.isConcealing,
               let placements = fallbackPlacementsProvider?(), !placements.isEmpty
         else {
             fallbackIcon.dismiss()

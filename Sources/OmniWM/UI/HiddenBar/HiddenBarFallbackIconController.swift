@@ -56,10 +56,6 @@ final class HiddenBarFallbackIconController {
     nonisolated static let gap: CGFloat = 8
     nonisolated static let fallbackSide: CGFloat = 24
 
-    static var isNeeded: Bool {
-        Bundle.main.bundleURL.pathExtension != "app"
-    }
-
     var onClick: ((NSEvent, NSView) -> Void)?
 
     private var panelsByMonitor: [Monitor.ID: WorkspaceBarPanel] = [:]
