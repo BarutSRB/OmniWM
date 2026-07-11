@@ -175,6 +175,148 @@ final class SettingsTOMLCodecTests: XCTestCase {
         XCTAssertEqual(try SettingsTOMLCodec.decode(withoutKey).trackpadScrollStyle, TrackpadScrollStyle.snap.rawValue)
     }
 
+    func testWorkspaceSwipeSettingsRoundTrip() throws {
+        let defaults = SettingsExport.defaults()
+        XCTAssertFalse(defaults.workspaceSwipeEnabled)
+        XCTAssertEqual(defaults.workspaceSwipeFingerCount, GestureFingerCount.three.rawValue)
+        XCTAssertEqual(defaults.workspaceSwipeAxis, WorkspaceSwipeAxis.vertical.rawValue)
+
+        var export = defaults
+        export.workspaceSwipeEnabled = true
+        export.workspaceSwipeFingerCount = GestureFingerCount.four.rawValue
+        export.workspaceSwipeAxis = WorkspaceSwipeAxis.horizontal.rawValue
+        let data = try SettingsTOMLCodec.encode(export)
+        let encoded = String(decoding: data, as: UTF8.self)
+
+        XCTAssertTrue(encoded.contains("workspaceSwipeEnabled = true"))
+        XCTAssertTrue(encoded.contains("workspaceSwipeFingerCount = 4"))
+        XCTAssertTrue(encoded.contains("workspaceSwipeAxis = \"horizontal\""))
+
+        let decoded = try SettingsTOMLCodec.decode(data)
+        XCTAssertTrue(decoded.workspaceSwipeEnabled)
+        XCTAssertEqual(decoded.workspaceSwipeFingerCount, GestureFingerCount.four.rawValue)
+        XCTAssertEqual(decoded.workspaceSwipeAxis, WorkspaceSwipeAxis.horizontal.rawValue)
+    }
+
+    func testWorkspaceSwipeSettingsRecoverToDefaultsWhenMissing() throws {
+        let withoutKeys = try defaultsWithReplacements(
+            ("workspaceSwipeEnabled = false\n", ""),
+            ("workspaceSwipeFingerCount = 3\n", ""),
+            ("workspaceSwipeAxis = \"vertical\"\n", "")
+        )
+        let decoded = try SettingsTOMLCodec.decode(withoutKeys)
+        XCTAssertFalse(decoded.workspaceSwipeEnabled)
+        XCTAssertEqual(decoded.workspaceSwipeFingerCount, GestureFingerCount.three.rawValue)
+        XCTAssertEqual(decoded.workspaceSwipeAxis, WorkspaceSwipeAxis.vertical.rawValue)
+    }
+
+    @MainActor
+    func testUnsupportedWorkspaceSwipeValuesFallBackWhenApplied() throws {
+        let data = try defaultsWithReplacements(
+            ("workspaceSwipeFingerCount = 3\n", "workspaceSwipeFingerCount = 5\n"),
+            ("workspaceSwipeAxis = \"vertical\"\n", "workspaceSwipeAxis = \"diagonal\"\n")
+        )
+        let export = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertEqual(export.workspaceSwipeFingerCount, 5)
+        XCTAssertEqual(export.workspaceSwipeAxis, "diagonal")
+
+        let settings = makeSettingsStore()
+        settings.applyExport(export, monitors: [])
+
+        XCTAssertEqual(settings.workspaceSwipeFingerCount, .three)
+        XCTAssertEqual(settings.workspaceSwipeAxis, .vertical)
+    }
+
+    @MainActor
+    func testHorizontalWorkspaceSwipeSelectionSurvivesFingerCountCollision() {
+        var export = SettingsExport.defaults()
+        export.scrollGestureEnabled = true
+        export.gestureFingerCount = GestureFingerCount.three.rawValue
+        export.workspaceSwipeEnabled = true
+        export.workspaceSwipeFingerCount = GestureFingerCount.three.rawValue
+        export.workspaceSwipeAxis = WorkspaceSwipeAxis.horizontal.rawValue
+
+        let settings = makeSettingsStore()
+        settings.applyExport(export, monitors: [])
+
+        XCTAssertEqual(settings.workspaceSwipeAxis, .horizontal)
+        XCTAssertTrue(settings.workspaceSwipeAxisLockedToVertical)
+        XCTAssertEqual(settings.effectiveWorkspaceSwipeAxis, .vertical)
+
+        settings.workspaceSwipeFingerCount = .four
+
+        XCTAssertEqual(settings.workspaceSwipeAxis, .horizontal)
+        XCTAssertFalse(settings.workspaceSwipeAxisLockedToVertical)
+        XCTAssertEqual(settings.effectiveWorkspaceSwipeAxis, .horizontal)
+    }
+
+    func testMalformedWorkspaceSwipeTypesRejectDecode() throws {
+        let replacements = [
+            ("workspaceSwipeEnabled = false\n", "workspaceSwipeEnabled = \"false\"\n"),
+            ("workspaceSwipeFingerCount = 3\n", "workspaceSwipeFingerCount = \"three\"\n"),
+            ("workspaceSwipeAxis = \"vertical\"\n", "workspaceSwipeAxis = 3\n")
+        ]
+
+        for (target, replacement) in replacements {
+            let malformed = try defaultsWithReplacements((target, replacement))
+            XCTAssertThrowsError(try SettingsTOMLCodec.decode(malformed))
+        }
+    }
+
+    @MainActor
+    func testMalformedExternalWorkspaceSwipeReloadDoesNotPartiallyApplyOrNotify() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMSettingsCodecTests-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let persistence = SettingsFilePersistence(
+            directory: root.appendingPathComponent("config", isDirectory: true),
+            startWatching: true,
+            deferSaves: false
+        )
+        let settings = SettingsStore(
+            persistence: persistence,
+            runtimeState: RuntimeStateStore(
+                directory: root.appendingPathComponent("state", isDirectory: true),
+                deferSaves: false
+            ),
+            autosaveEnabled: false
+        )
+        settings.workspaceSwipeEnabled = true
+        settings.workspaceSwipeFingerCount = .four
+        settings.workspaceSwipeAxis = .horizontal
+        var externalReloadCount = 0
+        settings.onExternalSettingsReloaded = {
+            externalReloadCount += 1
+        }
+
+        let malformed = try defaultsWithReplacements(
+            ("workspaceSwipeAxis = \"vertical\"\n", "workspaceSwipeAxis = 3\n")
+        )
+        try malformed.write(to: persistence.fileURL, options: .atomic)
+        XCTAssertNil(persistence.reloadIfChanged())
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(externalReloadCount, 0)
+        XCTAssertTrue(settings.workspaceSwipeEnabled)
+        XCTAssertEqual(settings.workspaceSwipeFingerCount, .four)
+        XCTAssertEqual(settings.workspaceSwipeAxis, .horizontal)
+
+        let valid = try SettingsTOMLCodec.encode(.defaults())
+        try valid.write(to: persistence.fileURL, options: .atomic)
+        for _ in 0 ..< 200 {
+            if externalReloadCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(externalReloadCount, 1)
+        XCTAssertFalse(settings.workspaceSwipeEnabled)
+        XCTAssertEqual(settings.workspaceSwipeFingerCount, .three)
+        XCTAssertEqual(settings.workspaceSwipeAxis, .vertical)
+    }
+
     func testUnsupportedSystemHyperTriggerRecoversToNone() throws {
         let unsupportedKey = try defaultsWithReplacements(
             ("systemHyperTrigger = \"None\"\n", "systemHyperTrigger = \"A\"\n")
@@ -279,6 +421,24 @@ final class SettingsTOMLCodecTests: XCTestCase {
         toml += suffix
         toml += "\n"
         return Data(toml.utf8)
+    }
+
+    @MainActor
+    private func makeSettingsStore() -> SettingsStore {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMSettingsCodecTests-\(UUID().uuidString)", isDirectory: true)
+        return SettingsStore(
+            persistence: SettingsFilePersistence(
+                directory: root.appendingPathComponent("config", isDirectory: true),
+                startWatching: false,
+                deferSaves: false
+            ),
+            runtimeState: RuntimeStateStore(
+                directory: root.appendingPathComponent("state", isDirectory: true),
+                deferSaves: false
+            ),
+            autosaveEnabled: false
+        )
     }
 
     private func tomlValue(for key: String, in toml: String) -> String? {

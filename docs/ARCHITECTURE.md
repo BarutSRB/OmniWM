@@ -593,7 +593,7 @@ Focus management is split across several objects (there is no single coordinator
 
 **Command routing** (`Core/Controller/CommandHandler.swift`). `performCommand` enforces `isEnabled`, overview suppression, and a **layout-compatibility guard**: a `.niri`-only command is ignored under Dwindle and vice versa (`.shared` commands work everywhere).
 
-**Mouse events** (`Core/Controller/MouseEventHandler.swift`). A `CGEventTap` drives focus-follows-mouse (debounced), trackpad swipe gestures (a phase state machine for workspace switching), and interactive move/resize. Transient mouse events are coalesced *in the intake* before draining.
+**Mouse events** (`Core/Controller/MouseEventHandler.swift`). A `CGEventTap` drives focus-follows-mouse (debounced) and interactive move/resize, while raw multitouch frames (`MultitouchGestureSource`) drive trackpad swipes through one idle→armed→committed state machine with two routed modes: Niri viewport column scrolling (horizontal) and one-shot workspace switching (`TrackpadGestureIntent` resolves the mode from finger count and dominant axis; the switch fires through the same `switchWorkspaceRelative` seam as hotkeys, targeting the monitor under the cursor). Transient mouse events are coalesced *in the intake* before draining.
 
 **SkyLight events** (`Core/SkyLight/CGSEventObserver.swift`). Registers for window-server notifications and posts them into the intake:
 

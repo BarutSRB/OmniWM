@@ -14,6 +14,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case bar
     case hiddenBar
     case hotkeys
+    case mouseTrackpad
     case quakeTerminal
     case reportIssue
 
@@ -33,6 +34,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .bar: "Workspace Bar"
         case .hiddenBar: "Hidden Bar"
         case .hotkeys: "Hotkeys"
+        case .mouseTrackpad: "Mouse & Trackpad"
         case .quakeTerminal: "Quake Terminal"
         case .reportIssue: "Report an Issue"
         }
@@ -50,6 +52,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .bar: "menubar.rectangle"
         case .hiddenBar: "eye.slash"
         case .hotkeys: "keyboard"
+        case .mouseTrackpad: "computermouse"
         case .quakeTerminal: "terminal"
         case .reportIssue: "ladybug"
         }
@@ -76,7 +79,7 @@ enum SettingsSectionGroup: String, CaseIterable, Identifiable {
         case .workspace:
             [.workspaces, .borders, .bar, .hiddenBar]
         case .input:
-            [.hotkeys, .quakeTerminal]
+            [.hotkeys, .mouseTrackpad, .quakeTerminal]
         case .help:
             [.reportIssue, .diagnostics]
         }

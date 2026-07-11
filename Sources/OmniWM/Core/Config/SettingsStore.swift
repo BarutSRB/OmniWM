@@ -360,6 +360,30 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var workspaceSwipeEnabled = SettingsStore.defaultExport.workspaceSwipeEnabled {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceSwipeFingerCount = GestureFingerCount(
+        rawValue: SettingsStore.defaultExport.workspaceSwipeFingerCount
+    ) ?? .three {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceSwipeAxis = WorkspaceSwipeAxis(
+        rawValue: SettingsStore.defaultExport.workspaceSwipeAxis
+    ) ?? .vertical {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceSwipeAxisLockedToVertical: Bool {
+        scrollGestureEnabled && workspaceSwipeFingerCount == gestureFingerCount
+    }
+
+    var effectiveWorkspaceSwipeAxis: WorkspaceSwipeAxis {
+        workspaceSwipeAxisLockedToVertical ? .vertical : workspaceSwipeAxis
+    }
+
     var statusBarShowWorkspaceName = SettingsStore.defaultExport.statusBarShowWorkspaceName {
         didSet { scheduleSave() }
     }
@@ -633,6 +657,9 @@ final class SettingsStore {
             gestureFingerCount: gestureFingerCount.rawValue,
             gestureInvertDirection: gestureInvertDirection,
             trackpadScrollStyle: trackpadScrollStyle.rawValue,
+            workspaceSwipeEnabled: workspaceSwipeEnabled,
+            workspaceSwipeFingerCount: workspaceSwipeFingerCount.rawValue,
+            workspaceSwipeAxis: workspaceSwipeAxis.rawValue,
             statusBarShowWorkspaceName: statusBarShowWorkspaceName,
             statusBarShowAppNames: statusBarShowAppNames,
             statusBarUseWorkspaceId: statusBarUseWorkspaceId,
@@ -760,6 +787,9 @@ final class SettingsStore {
         gestureFingerCount = GestureFingerCount(rawValue: export.gestureFingerCount) ?? .three
         gestureInvertDirection = export.gestureInvertDirection
         trackpadScrollStyle = TrackpadScrollStyle(rawValue: export.trackpadScrollStyle) ?? .snap
+        workspaceSwipeEnabled = export.workspaceSwipeEnabled
+        workspaceSwipeFingerCount = GestureFingerCount(rawValue: export.workspaceSwipeFingerCount) ?? .three
+        workspaceSwipeAxis = WorkspaceSwipeAxis(rawValue: export.workspaceSwipeAxis) ?? .vertical
         statusBarShowWorkspaceName = export.statusBarShowWorkspaceName
         statusBarShowAppNames = export.statusBarShowAppNames
         statusBarUseWorkspaceId = export.statusBarUseWorkspaceId

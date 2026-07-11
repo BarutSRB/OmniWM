@@ -98,6 +98,9 @@ struct SettingsExport: Equatable {
     var gestureFingerCount: Int
     var gestureInvertDirection: Bool
     var trackpadScrollStyle: String
+    var workspaceSwipeEnabled: Bool
+    var workspaceSwipeFingerCount: Int
+    var workspaceSwipeAxis: String
     var statusBarShowWorkspaceName: Bool
     var statusBarShowAppNames: Bool
     var statusBarUseWorkspaceId: Bool
@@ -203,6 +206,9 @@ extension SettingsExport {
             gestureFingerCount: GestureFingerCount.three.rawValue,
             gestureInvertDirection: true,
             trackpadScrollStyle: TrackpadScrollStyle.snap.rawValue,
+            workspaceSwipeEnabled: false,
+            workspaceSwipeFingerCount: GestureFingerCount.three.rawValue,
+            workspaceSwipeAxis: WorkspaceSwipeAxis.vertical.rawValue,
             statusBarShowWorkspaceName: false,
             statusBarShowAppNames: false,
             statusBarUseWorkspaceId: false,

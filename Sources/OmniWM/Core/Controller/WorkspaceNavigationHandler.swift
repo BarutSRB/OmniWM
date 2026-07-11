@@ -449,11 +449,18 @@ final class WorkspaceNavigationHandler {
         )
     }
 
-    func switchWorkspaceRelative(isNext: Bool, wrapAround: Bool = true) {
+    func switchWorkspaceRelative(
+        isNext: Bool,
+        wrapAround: Bool = true,
+        monitorId explicitMonitorId: Monitor.ID? = nil
+    ) {
         guard let controller else { return }
-        guard let currentMonitorId = interactionMonitorId(for: controller)
+        guard let currentMonitorId = explicitMonitorId ?? interactionMonitorId(for: controller)
         else { return }
-        guard let currentWorkspace = controller.activeWorkspace() else { return }
+        let resolvedWorkspace = explicitMonitorId == nil
+            ? controller.activeWorkspace()
+            : controller.workspaceManager.activeWorkspaceOrFirst(on: currentMonitorId)
+        guard let currentWorkspace = resolvedWorkspace else { return }
 
         let targetWorkspace: WorkspaceDescriptor? = if isNext {
             controller.workspaceManager.nextWorkspaceInOrder(

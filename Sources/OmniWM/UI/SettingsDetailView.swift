@@ -45,6 +45,8 @@ struct SettingsDetailView: View {
             HiddenBarSettingsTab(settings: settings, controller: controller)
         case .hotkeys:
             HotkeySettingsView(settings: settings, controller: controller)
+        case .mouseTrackpad:
+            MouseTrackpadSettingsTab(settings: settings, controller: controller)
         case .quakeTerminal:
             QuakeTerminalSettingsTab(settings: settings, controller: controller)
         case .reportIssue:

@@ -161,6 +161,9 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var fingerCount: Int
         var invertDirection: Bool
         var trackpadScrollStyle: String
+        var workspaceSwipeEnabled: Bool
+        var workspaceSwipeFingerCount: Int
+        var workspaceSwipeAxis: String
     }
 
     struct StatusBar: Codable, Equatable {
@@ -811,6 +814,24 @@ extension CanonicalTOMLConfig.Gestures {
             default: defaults.trackpadScrollStyle,
             recovering: recovering
         )
+        workspaceSwipeEnabled = try container.decode(
+            Bool.self,
+            forKey: .workspaceSwipeEnabled,
+            default: defaults.workspaceSwipeEnabled,
+            recovering: recovering
+        )
+        workspaceSwipeFingerCount = try container.decode(
+            Int.self,
+            forKey: .workspaceSwipeFingerCount,
+            default: defaults.workspaceSwipeFingerCount,
+            recovering: recovering
+        )
+        workspaceSwipeAxis = try container.decode(
+            String.self,
+            forKey: .workspaceSwipeAxis,
+            default: defaults.workspaceSwipeAxis,
+            recovering: recovering
+        )
     }
 }
 
@@ -1037,7 +1058,10 @@ extension CanonicalTOMLConfig {
             mouseResizeModifierKey: export.mouseResizeModifierKey,
             fingerCount: export.gestureFingerCount,
             invertDirection: export.gestureInvertDirection,
-            trackpadScrollStyle: export.trackpadScrollStyle
+            trackpadScrollStyle: export.trackpadScrollStyle,
+            workspaceSwipeEnabled: export.workspaceSwipeEnabled,
+            workspaceSwipeFingerCount: export.workspaceSwipeFingerCount,
+            workspaceSwipeAxis: export.workspaceSwipeAxis
         )
         statusBar = StatusBar(
             showWorkspaceName: export.statusBarShowWorkspaceName,
@@ -1154,6 +1178,9 @@ extension CanonicalTOMLConfig {
             gestureFingerCount: gestures.fingerCount,
             gestureInvertDirection: gestures.invertDirection,
             trackpadScrollStyle: gestures.trackpadScrollStyle,
+            workspaceSwipeEnabled: gestures.workspaceSwipeEnabled,
+            workspaceSwipeFingerCount: gestures.workspaceSwipeFingerCount,
+            workspaceSwipeAxis: gestures.workspaceSwipeAxis,
             statusBarShowWorkspaceName: statusBar.showWorkspaceName,
             statusBarShowAppNames: statusBar.showAppNames,
             statusBarUseWorkspaceId: statusBar.useWorkspaceId,

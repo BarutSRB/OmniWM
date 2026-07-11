@@ -76,6 +76,9 @@ final class MouseEventHandler {
         struct LockedGestureContext {
             let workspaceId: WorkspaceDescriptor.ID
             let monitorId: Monitor.ID
+            let fingerCount: Int
+            let columnScrollCandidate: Bool
+            let workspaceAxis: WorkspaceSwipeAxis?
         }
 
         enum GesturePhase {
@@ -105,6 +108,11 @@ final class MouseEventHandler {
         var gestureLastAverageX: CGFloat = 0.0
         var gestureLastAverageY: CGFloat = 0.0
         var lockedGestureContext: LockedGestureContext?
+        var activeGestureMode: TrackpadGestureMode?
+        var workspaceSwipeFired = false
+        let workspaceSwipeTracker = SwipeTracker()
+        var suppressGestureStartUntilAllTouchesLift = false
+        var consumeTrackpadScrollUntilAllTouchesLift = false
         var suppressTrackpadMomentumScroll = false
         var horizontalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
         var verticalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
@@ -256,11 +264,18 @@ final class MouseEventHandler {
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "mouse.tap.removed")
         controller?.eventIntake.removePendingMouseEvents()
         resetGestureState()
+        clearGestureLatches()
     }
 
     func restartMultitouch() {
         abortActiveGestureIfNeeded()
+        clearGestureLatches()
         multitouchSource?.restart()
+    }
+
+    private func clearGestureLatches() {
+        state.suppressGestureStartUntilAllTouchesLift = false
+        state.consumeTrackpadScrollUntilAllTouchesLift = false
     }
 
     func stopMultitouch() {
@@ -361,6 +376,17 @@ final class MouseEventHandler {
     }
 
     var isViewportGestureActive: Bool {
+        switch state.gesturePhase {
+        case .idle:
+            false
+        case .armed:
+            state.lockedGestureContext?.columnScrollCandidate == true
+        case .committed:
+            state.activeGestureMode == .columnScroll
+        }
+    }
+
+    var isTrackpadSwipeSessionActive: Bool {
         state.gesturePhase != .idle
     }
 
@@ -369,6 +395,7 @@ final class MouseEventHandler {
         dropPendingTapEvents()
         resetMouseWheelTrackers()
         abortActiveGestureIfNeeded()
+        clearGestureLatches()
     }
 
     func receiveTapMouseMoved(
@@ -454,23 +481,29 @@ final class MouseEventHandler {
         phase: UInt32,
         modifiers: CGEventFlags
     ) -> Bool {
-        guard let controller, controller.isEnabled, controller.settings.scrollGestureEnabled else {
-            return false
-        }
-        if controller.isOverviewOpen() { return false }
-        if shouldBlockOwnWindowInput(at: location) { return false }
-        guard !state.isResizing, !state.isMoving else { return false }
-
         let isTrackpad = momentumPhase != 0 || phase != 0
         if isTrackpad {
-            if isViewportGestureActive { return true }
+            if isTrackpadSwipeSessionActive { return true }
+            if state.consumeTrackpadScrollUntilAllTouchesLift { return true }
             if state.suppressTrackpadMomentumScroll {
                 if momentumPhase != 0 { return true }
+                if phase == CGScrollPhase.ended.rawValue || phase == CGScrollPhase.cancelled.rawValue {
+                    return true
+                }
                 state.suppressTrackpadMomentumScroll = false
             }
             return false
         }
 
+        guard let controller, controller.isEnabled,
+              controller.settings.scrollGestureEnabled || controller.settings.workspaceSwipeEnabled
+        else {
+            return false
+        }
+        if controller.isOverviewOpen() { return false }
+        if shouldBlockOwnWindowInput(at: location) { return false }
+        guard !state.isResizing, !state.isMoving else { return false }
+        guard controller.settings.scrollGestureEnabled else { return false }
         let requiredModifiers = controller.settings.scrollModifierKey.cgEventFlag
         guard Self.mouseWheelModifiersMatch(modifiers, required: requiredModifiers) else { return false }
         return resolveScrollContext(at: location) != nil
@@ -492,10 +525,30 @@ final class MouseEventHandler {
 
     private func shouldProcessGestureFrame(_ snapshot: GestureEventSnapshot) -> Bool {
         guard state.gesturePhase == .idle else { return true }
-        let activeTouchCount = snapshot.touches.filter { $0.phase != .ended && $0.phase != .cancelled }.count
-        guard activeTouchCount > 0 else { return true }
-        guard let requiredFingers = controller?.settings.gestureFingerCount.rawValue else { return false }
-        return activeTouchCount == requiredFingers
+        let activeTouchCount = Self.activeTouchCount(in: snapshot.touches)
+        guard activeTouchCount > 0 else {
+            state.suppressGestureStartUntilAllTouchesLift = false
+            state.consumeTrackpadScrollUntilAllTouchesLift = false
+            return true
+        }
+        if state.suppressGestureStartUntilAllTouchesLift { return false }
+        guard let config = trackpadGestureConfig else { return false }
+        return TrackpadGestureIntent.allowsGestureStart(config, fingerCount: activeTouchCount)
+    }
+
+    private nonisolated static func activeTouchCount(in touches: [GestureTouchSample]) -> Int {
+        touches.count(where: { $0.phase != .ended && $0.phase != .cancelled })
+    }
+
+    private var trackpadGestureConfig: TrackpadGestureIntent.Config? {
+        guard let settings = controller?.settings else { return nil }
+        return TrackpadGestureIntent.Config(
+            columnScrollEnabled: settings.scrollGestureEnabled,
+            columnScrollFingerCount: settings.gestureFingerCount.rawValue,
+            workspaceSwipeEnabled: settings.workspaceSwipeEnabled,
+            workspaceSwipeFingerCount: settings.workspaceSwipeFingerCount.rawValue,
+            workspaceSwipeAxis: settings.effectiveWorkspaceSwipeAxis
+        )
     }
 
     private var isInputSuppressed: Bool {
@@ -651,7 +704,7 @@ final class MouseEventHandler {
     }
 
     private func shouldHandleFocusFollowsMouse(at location: CGPoint) -> Bool {
-        guard !state.isMoving, !state.isResizing, !isViewportGestureActive else { return false }
+        guard !state.isMoving, !state.isResizing, !isTrackpadSwipeSessionActive else { return false }
         guard let controller else { return false }
         guard let workspaceId = workspaceIdForPointer(at: location) else {
             return true
@@ -1210,157 +1263,314 @@ final class MouseEventHandler {
     }
 
     private func handleGestureEvent(_ snapshot: GestureEventSnapshot) {
-        guard let controller else { return }
         let location = snapshot.location
         let phase = NSEvent.Phase(rawValue: snapshot.phaseRawValue)
-        let activeTouchCount = snapshot.touches.filter { $0.phase != .ended && $0.phase != .cancelled }.count
-
-        guard controller.isEnabled else {
-            abortActiveGestureIfNeeded()
-            return
-        }
-        guard controller.settings.scrollGestureEnabled else {
-            abortActiveGestureIfNeeded()
-            return
-        }
-        if controller.isOverviewOpen() {
-            cancelActiveMouseInteraction()
-            abortActiveGestureIfNeeded()
-            return
-        }
-        if shouldBlockOwnWindowInput(at: location) {
-            abortActiveGestureIfNeeded()
-            return
-        }
-        guard !state.isResizing, !state.isMoving else {
-            abortActiveGestureIfNeeded()
-            return
-        }
-        guard let engine = controller.niriEngine else {
-            abortActiveGestureIfNeeded()
-            return
-        }
-
-        let requiredFingers = controller.settings.gestureFingerCount.rawValue
-        let invertDirection = controller.settings.gestureInvertDirection
+        let activeTouchCount = Self.activeTouchCount(in: snapshot.touches)
 
         if phase == .ended || phase == .cancelled {
-            if state.gesturePhase == .committed {
-                guard let lockedContext = state.lockedGestureContext else {
-                    assertionFailure("Committed gesture missing locked context")
-                    resetGestureState()
-                    return
-                }
-                finalizeOrCancelCommittedGesture(
-                    using: lockedContext,
-                    engine: engine,
-                    timestamp: snapshot.timestamp
-                )
+            defer {
+                clearGestureLatches()
+                resetGestureState()
             }
-            resetGestureState()
+            guard gestureFramePreconditionsSatisfied(at: location) else { return }
+            if state.gesturePhase == .committed {
+                finishCommittedGestureOnRelease(timestamp: snapshot.timestamp, allowFlick: phase == .ended)
+            }
             return
         }
+
+        guard gestureFramePreconditionsSatisfied(at: location) else { return }
 
         if phase == .began, state.gesturePhase != .idle {
             abortActiveGestureIfNeeded()
         }
 
-        guard resolveScrollContext(at: location) != nil else {
-            abortActiveGestureIfNeeded()
-            return
-        }
         guard !snapshot.touches.isEmpty else {
             abortActiveGestureIfNeeded()
             return
         }
+
+        let requiredFingers = state.lockedGestureContext?.fingerCount ?? activeTouchCount
         guard let averageTouchPosition = Self.averageGestureTouchPosition(
             requiredFingers: requiredFingers,
             touches: snapshot.touches
         ) else {
             if state.gesturePhase == .committed, activeTouchCount < requiredFingers {
-                finalizeCommittedGestureAfterTouchRelease(
-                    engine: engine,
-                    timestamp: snapshot.timestamp
-                )
+                finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
                 return
             }
             abortActiveGestureIfNeeded()
             return
         }
 
-        let avgX = averageTouchPosition.x
-        let avgY = averageTouchPosition.y
-
-        switch state.gesturePhase {
-        case .idle:
-            guard let currentContext = resolveScrollContext(at: location) else {
-                abortActiveGestureIfNeeded()
-                return
-            }
-            state.lockedGestureContext = .init(
-                workspaceId: currentContext.wsId,
-                monitorId: currentContext.monitor.id
+        if state.gesturePhase == .idle {
+            armGestureIfPossible(
+                at: location,
+                activeTouchCount: activeTouchCount,
+                average: averageTouchPosition,
+                timestamp: snapshot.timestamp
             )
-            state.gestureStartX = avgX
-            state.gestureStartY = avgY
-            state.gestureLastAverageX = avgX
-            state.gestureLastAverageY = avgY
-            state.gesturePhase = .armed
+            return
+        }
+        processActiveGestureFrame(average: averageTouchPosition, timestamp: snapshot.timestamp)
+    }
 
-        case .armed,
-             .committed:
-            guard let lockedContext = state.lockedGestureContext else {
-                assertionFailure("Active gesture missing locked context")
+    private func gestureFramePreconditionsSatisfied(at location: CGPoint) -> Bool {
+        guard let controller else { return false }
+        guard controller.isEnabled,
+              controller.settings.scrollGestureEnabled || controller.settings.workspaceSwipeEnabled
+        else {
+            abortActiveGestureIfNeeded()
+            return false
+        }
+        if controller.isOverviewOpen() {
+            cancelActiveMouseInteraction()
+            abortActiveGestureIfNeeded()
+            return false
+        }
+        if shouldBlockOwnWindowInput(at: location) {
+            abortActiveGestureIfNeeded()
+            return false
+        }
+        guard !state.isResizing, !state.isMoving else {
+            abortActiveGestureIfNeeded()
+            return false
+        }
+        return true
+    }
+
+    private func armGestureIfPossible(
+        at location: CGPoint,
+        activeTouchCount: Int,
+        average: CGPoint,
+        timestamp: TimeInterval
+    ) {
+        guard let context = resolveGestureArmContext(at: location, fingerCount: activeTouchCount) else { return }
+        state.lockedGestureContext = context
+        if context.workspaceAxis != nil {
+            state.workspaceSwipeTracker.reset()
+            state.workspaceSwipeTracker.push(delta: 0, timestamp: timestamp)
+        }
+        state.gestureStartX = average.x
+        state.gestureStartY = average.y
+        state.gestureLastAverageX = average.x
+        state.gestureLastAverageY = average.y
+        state.gesturePhase = .armed
+    }
+
+    private func resolveGestureArmContext(
+        at location: CGPoint,
+        fingerCount: Int
+    ) -> State.LockedGestureContext? {
+        guard let controller, let config = trackpadGestureConfig else { return nil }
+        guard let monitor = location.monitorApproximation(in: controller.workspaceManager.monitors),
+              let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        else { return nil }
+        let supportsColumnScroll = switch controller.settings.layoutType(for: workspace.name) {
+        case .niri,
+             .defaultLayout:
+            controller.niriEngine != nil
+        case .dwindle:
+            false
+        }
+        guard TrackpadGestureIntent.hasCandidateMode(
+            config,
+            fingerCount: fingerCount,
+            columnContextAvailable: supportsColumnScroll
+        ) else { return nil }
+        let columnScrollCandidate = config.columnScrollEnabled
+            && fingerCount == config.columnScrollFingerCount
+            && supportsColumnScroll
+        let isWorkspaceCandidate = config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount
+        return .init(
+            workspaceId: workspace.id,
+            monitorId: monitor.id,
+            fingerCount: fingerCount,
+            columnScrollCandidate: columnScrollCandidate,
+            workspaceAxis: isWorkspaceCandidate ? config.workspaceSwipeAxis : nil
+        )
+    }
+
+    private struct GestureFrameMetrics {
+        var cumulativeX: CGFloat
+        var cumulativeY: CGFloat
+        var rawDeltaX: CGFloat
+        var rawDeltaY: CGFloat
+    }
+
+    private func processActiveGestureFrame(average: CGPoint, timestamp: TimeInterval) {
+        guard let controller else { return }
+        guard let lockedContext = state.lockedGestureContext else {
+            assertionFailure("Active gesture missing locked context")
+            abortActiveGestureIfNeeded()
+            return
+        }
+        guard let monitor = controller.workspaceManager.monitor(byId: lockedContext.monitorId) else {
+            abortActiveGestureIfNeeded()
+            return
+        }
+
+        let metrics = GestureFrameMetrics(
+            cumulativeX: (average.x - state.gestureStartX) * macNormalizedTouchPositionToNiriGestureUnits,
+            cumulativeY: (average.y - state.gestureStartY) * macNormalizedTouchPositionToNiriGestureUnits,
+            rawDeltaX: (average.x - state.gestureLastAverageX) * macNormalizedTouchPositionToNiriGestureUnits,
+            rawDeltaY: (average.y - state.gestureLastAverageY) * macNormalizedTouchPositionToNiriGestureUnits
+        )
+
+        if let axis = lockedContext.workspaceAxis,
+           state.gesturePhase == .armed || state.activeGestureMode == .workspaceSwitch(axis: axis)
+        {
+            state.workspaceSwipeTracker.push(
+                delta: Double(axis == .horizontal ? metrics.rawDeltaX : metrics.rawDeltaY),
+                timestamp: timestamp
+            )
+        }
+
+        if state.gesturePhase == .armed {
+            let distanceSquared = metrics.cumulativeX * metrics.cumulativeX
+                + metrics.cumulativeY * metrics.cumulativeY
+            let thresholdSquared = niriTouchpadGestureRecognitionThreshold * niriTouchpadGestureRecognitionThreshold
+            guard distanceSquared >= thresholdSquared else {
+                state.gestureLastAverageX = average.x
+                state.gestureLastAverageY = average.y
+                return
+            }
+            guard commitGestureMode(metrics: metrics, lockedContext: lockedContext) else { return }
+        }
+
+        state.gestureLastAverageX = average.x
+        state.gestureLastAverageY = average.y
+        dispatchCommittedGestureFrame(
+            metrics: metrics,
+            lockedContext: lockedContext,
+            monitor: monitor,
+            timestamp: timestamp
+        )
+    }
+
+    private func commitGestureMode(metrics: GestureFrameMetrics, lockedContext: State.LockedGestureContext) -> Bool {
+        guard let controller, var config = trackpadGestureConfig else {
+            abortActiveGestureIfNeeded()
+            return false
+        }
+        if let axis = lockedContext.workspaceAxis {
+            config.workspaceSwipeAxis = axis
+        }
+        guard let mode = TrackpadGestureIntent.resolveMode(
+            config,
+            fingerCount: lockedContext.fingerCount,
+            cumulativeX: metrics.cumulativeX,
+            cumulativeY: metrics.cumulativeY,
+            columnContextAvailable: lockedContext.columnScrollCandidate && controller.niriEngine != nil
+        ) else {
+            state.suppressGestureStartUntilAllTouchesLift = true
+            resetGestureState()
+            return false
+        }
+        state.activeGestureMode = mode
+        state.gesturePhase = .committed
+        return true
+    }
+
+    private func dispatchCommittedGestureFrame(
+        metrics: GestureFrameMetrics,
+        lockedContext: State.LockedGestureContext,
+        monitor: Monitor,
+        timestamp: TimeInterval
+    ) {
+        guard let controller else { return }
+        switch state.activeGestureMode {
+        case .columnScroll:
+            guard let engine = controller.niriEngine else {
                 abortActiveGestureIfNeeded()
                 return
             }
-            let wsId = lockedContext.workspaceId
-            guard let monitor = controller.workspaceManager.monitor(byId: lockedContext.monitorId) else {
-                abortActiveGestureIfNeeded()
-                return
-            }
-
-            let cumulativeX = (avgX - state.gestureStartX) * macNormalizedTouchPositionToNiriGestureUnits
-            let cumulativeY = (avgY - state.gestureStartY) * macNormalizedTouchPositionToNiriGestureUnits
-            let previousPhase = state.gesturePhase
-            let rawDeltaX: CGFloat
-
-            if previousPhase == .armed {
-                let distanceSquared = cumulativeX * cumulativeX + cumulativeY * cumulativeY
-                let thresholdSquared = niriTouchpadGestureRecognitionThreshold * niriTouchpadGestureRecognitionThreshold
-                guard distanceSquared >= thresholdSquared else {
-                    state.gestureLastAverageX = avgX
-                    state.gestureLastAverageY = avgY
-                    return
-                }
-
-                guard abs(cumulativeX) > abs(cumulativeY) else {
-                    resetGestureState()
-                    return
-                }
-
-                rawDeltaX = (avgX - state.gestureLastAverageX) * macNormalizedTouchPositionToNiriGestureUnits
-                state.gesturePhase = .committed
-            } else {
-                rawDeltaX = (avgX - state.gestureLastAverageX) * macNormalizedTouchPositionToNiriGestureUnits
-            }
-
-            state.gestureLastAverageX = avgX
-            state.gestureLastAverageY = avgY
-
-            var deltaUnits = rawDeltaX * CGFloat(controller.settings.scrollSensitivity)
-            if invertDirection {
+            var deltaUnits = metrics.rawDeltaX * CGFloat(controller.settings.scrollSensitivity)
+            if controller.settings.gestureInvertDirection {
                 deltaUnits = -deltaUnits
             }
-
             applyTrackpadViewportScrollDelta(
                 deltaUnits,
                 engine: engine,
-                wsId: wsId,
+                wsId: lockedContext.workspaceId,
                 monitor: monitor,
-                timestamp: snapshot.timestamp
+                timestamp: timestamp
             )
+        case let .workspaceSwitch(axis):
+            handleWorkspaceSwipeFrame(
+                axis: axis,
+                cumulative: axis == .horizontal ? metrics.cumulativeX : metrics.cumulativeY,
+                monitorId: lockedContext.monitorId
+            )
+        case nil:
+            abortActiveGestureIfNeeded()
         }
+    }
+
+    private func handleWorkspaceSwipeFrame(
+        axis: WorkspaceSwipeAxis,
+        cumulative: CGFloat,
+        monitorId: Monitor.ID
+    ) {
+        guard !state.workspaceSwipeFired,
+              abs(cumulative) >= TrackpadGestureIntent.workspaceSwipeTriggerUnits,
+              let isNext = TrackpadGestureIntent.isNextWorkspace(
+                  axis: axis,
+                  displacement: cumulative,
+                  naturalDirection: controller?.settings.gestureInvertDirection ?? true
+              )
+        else { return }
+        state.workspaceSwipeFired = true
+        controller?.workspaceNavigationHandler.switchWorkspaceRelative(isNext: isNext, monitorId: monitorId)
+    }
+
+    private func finishCommittedGestureOnRelease(timestamp: TimeInterval, allowFlick: Bool) {
+        guard let lockedContext = state.lockedGestureContext else {
+            assertionFailure("Committed gesture missing locked context")
+            return
+        }
+        switch state.activeGestureMode {
+        case let .workspaceSwitch(axis):
+            finalizeWorkspaceSwipe(
+                monitorId: lockedContext.monitorId,
+                axis: axis,
+                allowFlick: allowFlick,
+                timestamp: timestamp
+            )
+        default:
+            if let engine = controller?.niriEngine {
+                finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine, timestamp: timestamp)
+            } else {
+                cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
+            }
+        }
+    }
+
+    private func finalizeWorkspaceSwipe(
+        monitorId: Monitor.ID,
+        axis: WorkspaceSwipeAxis,
+        allowFlick: Bool,
+        timestamp: TimeInterval
+    ) {
+        defer { state.suppressTrackpadMomentumScroll = true }
+        guard allowFlick, !state.workspaceSwipeFired else { return }
+        state.workspaceSwipeTracker.push(delta: 0, timestamp: timestamp)
+        let cumulative = (axis == .horizontal
+            ? state.gestureLastAverageX - state.gestureStartX
+            : state.gestureLastAverageY - state.gestureStartY)
+            * macNormalizedTouchPositionToNiriGestureUnits
+        guard let displacement = TrackpadGestureIntent.releaseFlickDisplacement(
+            cumulativeAxisUnits: cumulative,
+            velocity: state.workspaceSwipeTracker.velocity()
+        ),
+            let isNext = TrackpadGestureIntent.isNextWorkspace(
+                axis: axis,
+                displacement: displacement,
+                naturalDirection: controller?.settings.gestureInvertDirection ?? true
+            )
+        else { return }
+        state.workspaceSwipeFired = true
+        controller?.workspaceNavigationHandler.switchWorkspaceRelative(isNext: isNext, monitorId: monitorId)
     }
 
     func applyTrackpadViewportScrollDelta(
@@ -1513,20 +1723,10 @@ final class MouseEventHandler {
         }
     }
 
-    private func finalizeCommittedGestureAfterTouchRelease(
-        engine: NiriLayoutEngine,
-        timestamp: TimeInterval
-    ) {
-        guard let lockedContext = state.lockedGestureContext else {
-            assertionFailure("Committed gesture missing locked context")
-            resetGestureState()
-            return
-        }
-        finalizeOrCancelCommittedGesture(
-            using: lockedContext,
-            engine: engine,
-            timestamp: timestamp
-        )
+    private func finalizeCommittedGestureAfterTouchRelease(timestamp: TimeInterval) {
+        finishCommittedGestureOnRelease(timestamp: timestamp, allowFlick: true)
+        state.suppressGestureStartUntilAllTouchesLift = true
+        state.consumeTrackpadScrollUntilAllTouchesLift = true
         resetGestureState()
         state.suppressTrackpadMomentumScroll = true
     }
@@ -1547,16 +1747,19 @@ final class MouseEventHandler {
 
     private func abortActiveGestureIfNeeded() {
         if state.gesturePhase == .committed {
-            guard let lockedContext = state.lockedGestureContext else {
-                assertionFailure("Committed gesture missing locked context")
-                resetGestureState()
-                return
-            }
-            if let engine = controller?.niriEngine {
-                finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine)
+            if case .workspaceSwitch = state.activeGestureMode {
+                state.suppressTrackpadMomentumScroll = true
+            } else if let lockedContext = state.lockedGestureContext {
+                if let engine = controller?.niriEngine {
+                    finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine)
+                } else {
+                    cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
+                }
             } else {
-                cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
+                assertionFailure("Committed gesture missing locked context")
             }
+            state.suppressGestureStartUntilAllTouchesLift = true
+            state.consumeTrackpadScrollUntilAllTouchesLift = true
         }
         resetGestureState()
     }
@@ -1600,6 +1803,8 @@ final class MouseEventHandler {
         state.gestureLastAverageX = 0.0
         state.gestureLastAverageY = 0.0
         state.lockedGestureContext = nil
+        state.activeGestureMode = nil
+        state.workspaceSwipeFired = false
     }
 
     private func currentSelectionNode(

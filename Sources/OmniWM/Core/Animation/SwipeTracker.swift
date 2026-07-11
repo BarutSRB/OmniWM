@@ -14,6 +14,11 @@ final class SwipeTracker {
     private var history: [SwipeEvent] = []
     private(set) var position: Double = 0
 
+    func reset() {
+        history.removeAll(keepingCapacity: true)
+        position = 0
+    }
+
     func push(delta: Double, timestamp: TimeInterval) {
         if let last = history.last, timestamp < last.timestamp {
             return

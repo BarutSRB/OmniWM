@@ -416,11 +416,12 @@ Conceal selected menu-bar icons and reach them from a panel:
 - **Mouse Resize** - Hold `Option` and right-drag a tiled window to resize (Niri)
 - **Scroll Gestures (Mouse)** - Hold `Option + Shift + Mouse Scroll Wheel` (default, configurable) and scroll through columns horizontally
 - **Trackpad Gestures** - Use horizontal gestures with 2/3/4 fingers (configurable); direction can be inverted (local hardware validation is limited)
+- **Workspace Swipe (Trackpad)** - Opt-in in Settings → Mouse & Trackpad: swipe with a configurable finger count (2/3/4) and axis (horizontal/vertical) to switch to the next/previous workspace on the monitor under the cursor, one switch per swipe; sharing the column-scroll finger count locks the axis to vertical. For vertical swipes with three or four fingers, first turn off Mission Control in  → System Settings → Trackpad → More Gestures so macOS does not intercept the gesture.
 
 ## Configuration
 
 Access settings by clicking OmniWM's status bar icon and selecting **Settings** or **App Rules**.
-Mouse and gesture settings are available in Settings.
+Mouse and gesture settings live in Settings under **Mouse & Trackpad**.
 
 OmniWM stores its editable config at `${XDG_CONFIG_HOME:-$HOME/.config}/omniwm/settings.toml`; that file is the canonical settings source and is live-reloaded when saved from an editor.
 
