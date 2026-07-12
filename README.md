@@ -146,7 +146,7 @@ Small demo, not fully showing everything, gif recorded at 30fps due to size, som
 - Niri Overview
 - Unified command palette for windows and app menus
 - App menu anywhere
-- Niri tabs
+- Niri tabbed columns and Dwindle tile groups
 - Niri and Dwindle layout
 - Hide/unhide status bar icons (Similar to Ice Bar)
 - Keep awake (Similar to Caffeine)
@@ -156,6 +156,7 @@ Small demo, not fully showing everything, gif recorded at 30fps due to size, som
 ## Known Limitations
 
 - **Gestures/Trackpad** - Magic Mouse and trackpad gestures have not been locally validated without matching hardware, but no issues have been reported.
+- **Dwindle group restore** - Group membership and tab order are runtime layout state and are not restored after OmniWM restarts.
 
 ## Performance & Trust
 
@@ -241,7 +242,7 @@ OmniWM offers two layout engines that you can switch between per workspace:
 
 **Niri (Scrolling Columns)** - Windows arranged in vertical columns that scroll horizontally. Each column can have multiple stacked windows or be "tabbed" (multiple windows, one visible at a time). Best for wide monitors with many windows.
 
-**Hyprland Dwindle (BSP)** - Binary space partition layout that recursively divides screen space. Each new window splits the space in half. Best for traditional tiling with predictable layouts.
+**Hyprland Dwindle (BSP)** - Binary space partition layout that recursively divides screen space. Each new window splits the space in half, and a tile can group multiple windows as tabs. Best for traditional tiling with predictable layouts.
 
 Use the `Toggle Workspace Layout` shortcut below to switch layouts per workspace or configure them in GUI settings.
 
@@ -274,6 +275,7 @@ Layout legend:
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
 | Focus Left / Right / Up / Down | `Option + Arrow Keys` | `Shared` |
+| Focus Down or Top / Up or Bottom | `Unassigned` | `Shared` |
 | Focus Previous Window | `Option + Tab` | `Niri` |
 | Traverse Backward | `Unassigned` | `Niri` |
 | Traverse Forward | `Unassigned` | `Niri` |
@@ -292,6 +294,7 @@ Layout legend:
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
 | Move Left / Right / Up / Down | `Option + Shift + Arrow Keys` | `Shared` |
+| Reorder Window Up / Down | `Unassigned` | `Shared` |
 
 #### Monitor
 
@@ -322,17 +325,35 @@ Layout legend:
 | Toggle Scratchpad Window | `Unassigned` | `Shared` |
 | Toggle Workspace Layout | `Option + Shift + L` | `Shared` |
 
-#### Column
+#### Container and Column
 
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
-| Move Column Left / Right | `Control + Option + Shift + Left / Right Arrow` | `Niri` |
+| Move Container Left / Right | `Control + Option + Shift + Left / Right Arrow` | `Shared` |
+| Move Container Up / Down | `Unassigned` | `Dwindle` |
 | Toggle Column Tabbed | `Option + T` | `Niri` |
 | Cycle Column Width Forward | `Option + .` | `Shared` |
 | Cycle Column Width Backward | `Option + ,` | `Shared` |
 | Toggle Column Full Width | `Option + Shift + F` | `Niri` |
 
-In Niri, `Move Left / Right` expels the focused window out of multi-window columns or consumes a single-window column into the adjacent column. `Move Up / Down` keeps the current in-column reorder behavior.
+The daily `Focus` and `Move` shortcuts adapt to the active layout. In Niri, `Move Left / Right` expels the focused window from a multi-window column or consumes a single-window column into its neighbor, while `Move Up / Down` reorders within the column.
+
+#### Dwindle Groups
+
+Dwindle groups use the existing Focus and Move bindings, so there are no separate group shortcuts to memorize. Only the active member occupies the tile; the other members stay hidden and the clickable tab rail shows their order.
+
+| Goal | Default Shortcut | Behavior |
+|------|------------------|----------|
+| Focus another tile | `Option + Arrow Keys` | Left / Right are always spatial. Up / Down are spatial for a singleton tile. |
+| Select the next / previous tab | `Option + Down / Up Arrow` | Within a group, Down advances and Up goes back. At the group edge OmniWM tries a spatial tile, then the configured monitor transition, and wraps locally only when neither exit succeeds. |
+| Join a singleton into a tile or group | `Option + Shift + Arrow Keys` | Joins the focused singleton with the touching tile in that direction. |
+| Extract the active tab | `Option + Shift + Arrow Keys` | When the focused tile is grouped, extracts only its active tab onto the requested side. |
+| Move the complete tile or group | `Control + Option + Shift + Left / Right Arrow` | `Move Container` swaps the whole structure. Up / Down are advanced, unassigned Dwindle actions. |
+| Select an exact tab | Click its tab rail item | Reveals and focuses that member without changing the group order. |
+
+Moving a tab directly from one existing group into another is intentionally a two-step operation: extract it first, then move the resulting singleton toward the destination group. A singleton at a genuine workspace edge can still use the normal cross-monitor Move behavior; a rejected group mutation does not fall through to tile swapping or monitor movement.
+
+The unassigned advanced actions are available in Settings > Hotkeys. `Focus Down or Top / Up or Bottom` always wraps within the active Niri column or Dwindle group. `Reorder Window Up / Down` changes the active member's position by one without wrapping. `Move Container` is the whole-structure escape hatch and never transfers to another monitor at a workspace edge. Dwindle join/extract and Move Container operations are intentionally unavailable while Overview is open; leave Overview before changing a Dwindle tree.
 
 #### Quake Terminal (Inside Terminal)
 

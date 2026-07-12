@@ -6,6 +6,118 @@ import Foundation
 import QuartzCore
 
 typealias DwindleNodeId = UUID
+typealias DwindleTileId = UUID
+
+struct DwindleTileMember: Equatable {
+    var token: WindowToken
+    var isFullscreen: Bool
+}
+
+final class DwindleTile {
+    let id: DwindleTileId
+    private(set) var members: [DwindleTileMember]
+    private(set) var activeIndex: Int
+
+    init(token: WindowToken, fullscreen: Bool = false) {
+        id = UUID()
+        members = [DwindleTileMember(token: token, isFullscreen: fullscreen)]
+        activeIndex = 0
+    }
+
+    var activeMember: DwindleTileMember {
+        members[activeIndex]
+    }
+
+    var activeToken: WindowToken {
+        activeMember.token
+    }
+
+    var isGrouped: Bool {
+        members.count > 1
+    }
+
+    func memberIndex(for token: WindowToken) -> Int? {
+        members.firstIndex { $0.token == token }
+    }
+
+    func member(for token: WindowToken) -> DwindleTileMember? {
+        memberIndex(for: token).map { members[$0] }
+    }
+
+    @discardableResult
+    func activate(_ token: WindowToken) -> Bool {
+        guard let index = memberIndex(for: token), index != activeIndex else { return false }
+        activeIndex = index
+        return true
+    }
+
+    func insertAfterActive(_ member: DwindleTileMember) {
+        let insertionIndex = activeIndex + 1
+        members.insert(member, at: insertionIndex)
+        activeIndex = insertionIndex
+    }
+
+    func remove(at index: Int) -> DwindleTileMember {
+        precondition(members.count > 1 && members.indices.contains(index))
+        let member = members.remove(at: index)
+        if index < activeIndex {
+            activeIndex -= 1
+        } else if index == activeIndex {
+            activeIndex = min(index, members.count - 1)
+        }
+        return member
+    }
+
+    @discardableResult
+    func rekey(from oldToken: WindowToken, to newToken: WindowToken) -> Bool {
+        guard let index = memberIndex(for: oldToken) else { return false }
+        members[index].token = newToken
+        return true
+    }
+
+    @discardableResult
+    func toggleFullscreen(for token: WindowToken) -> Bool {
+        guard let index = memberIndex(for: token) else { return false }
+        members[index].isFullscreen.toggle()
+        return members[index].isFullscreen
+    }
+
+    func setFullscreen(_ fullscreen: Bool, for token: WindowToken) {
+        guard let index = memberIndex(for: token) else { return }
+        members[index].isFullscreen = fullscreen
+    }
+
+    @discardableResult
+    func moveActive(offset: Int) -> Bool {
+        let destination = activeIndex + offset
+        guard members.indices.contains(destination) else { return false }
+        members.swapAt(activeIndex, destination)
+        activeIndex = destination
+        return true
+    }
+}
+
+struct DwindleTileSnapshot: Equatable {
+    let id: DwindleTileId
+    let members: [DwindleTileMember]
+    let activeIndex: Int
+    let tileFrame: CGRect?
+    let contentFrame: CGRect?
+
+    var activeToken: WindowToken {
+        members[activeIndex].token
+    }
+
+    var isGrouped: Bool {
+        members.count > 1
+    }
+}
+
+enum DwindleWindowActivationOutcome: Equatable {
+    case missing
+    case selected
+    case activated
+}
 
 enum DwindleOrientation: Equatable, Codable {
     case horizontal
@@ -41,7 +153,7 @@ extension Direction {
 
 enum DwindleNodeKind {
     case split(orientation: DwindleOrientation, ratio: CGFloat)
-    case leaf(handle: WindowToken?, fullscreen: Bool)
+    case leaf(tile: DwindleTile?)
 }
 
 struct CubicRectAnimation {
@@ -70,6 +182,7 @@ final class DwindleNode {
     var children: [DwindleNode] = []
     var kind: DwindleNodeKind
     var cachedFrame: CGRect?
+    var cachedContentFrame: CGRect?
 
     var cachedMinSize: CGSize?
 
@@ -91,13 +204,18 @@ final class DwindleNode {
     }
 
     var windowToken: WindowToken? {
-        if case let .leaf(handle, _) = kind { return handle }
+        if case let .leaf(tile) = kind { return tile?.activeToken }
         return nil
     }
 
     var isFullscreen: Bool {
-        if case let .leaf(_, fullscreen) = kind { return fullscreen }
+        if case let .leaf(tile) = kind { return tile?.activeMember.isFullscreen == true }
         return false
+    }
+
+    var tile: DwindleTile? {
+        if case let .leaf(tile) = kind { return tile }
+        return nil
     }
 
     var splitOrientation: DwindleOrientation? {
@@ -199,7 +317,7 @@ final class DwindleNode {
     }
 
     func collectAllWindows() -> [WindowToken] {
-        collectAllLeaves().compactMap { $0.windowToken }
+        collectAllLeaves().flatMap { $0.tile?.members.map(\.token) ?? [] }
     }
 
     func animateFrom(
@@ -239,7 +357,7 @@ final class DwindleNode {
     }
 
     func presentedFrame(at time: TimeInterval) -> CGRect? {
-        frameAnimation?.currentFrame(at: time) ?? cachedFrame
+        frameAnimation?.currentFrame(at: time) ?? cachedContentFrame ?? cachedFrame
     }
 
     func tickAnimations(at time: TimeInterval) {

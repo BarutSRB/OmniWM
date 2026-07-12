@@ -178,13 +178,15 @@ enum ActionCatalog {
                 id: "focus.down",
                 command: .focus(.down),
                 category: .focus,
-                binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(optionKey))
+                binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(optionKey)),
+                keywords: ["group", "tab", "cycle"]
             ),
             action(
                 id: "focus.up",
                 command: .focus(.up),
                 category: .focus,
-                binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(optionKey))
+                binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(optionKey)),
+                keywords: ["group", "tab", "cycle"]
             ),
             action(
                 id: "focus.right",
@@ -238,14 +240,16 @@ enum ActionCatalog {
                 command: .focusWindowDownOrTop,
                 category: .focus,
                 binding: .unassigned,
-                visibility: .advanced
+                visibility: .advanced,
+                keywords: ["wrap", "group", "tab", "cycle"]
             ),
             action(
                 id: "focusWindowUpOrBottom",
                 command: .focusWindowUpOrBottom,
                 category: .focus,
                 binding: .unassigned,
-                visibility: .advanced
+                visibility: .advanced,
+                keywords: ["wrap", "group", "tab", "cycle"]
             ),
             action(
                 id: "focusWindowOrWorkspaceDown",
@@ -327,25 +331,29 @@ enum ActionCatalog {
                 id: "move.left",
                 command: .move(.left),
                 category: .move,
-                binding: KeyBinding(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(optionKey | shiftKey))
+                binding: KeyBinding(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(optionKey | shiftKey)),
+                keywords: ["group", "tab", "join", "extract"]
             ),
             action(
                 id: "move.down",
                 command: .move(.down),
                 category: .move,
-                binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(optionKey | shiftKey))
+                binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(optionKey | shiftKey)),
+                keywords: ["group", "tab", "join", "extract"]
             ),
             action(
                 id: "move.up",
                 command: .move(.up),
                 category: .move,
-                binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(optionKey | shiftKey))
+                binding: KeyBinding(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(optionKey | shiftKey)),
+                keywords: ["group", "tab", "join", "extract"]
             ),
             action(
                 id: "move.right",
                 command: .move(.right),
                 category: .move,
-                binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(optionKey | shiftKey))
+                binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(optionKey | shiftKey)),
+                keywords: ["group", "tab", "join", "extract"]
             )
         ])
 
@@ -355,14 +363,16 @@ enum ActionCatalog {
                 command: .moveWindowDown,
                 category: .move,
                 binding: .unassigned,
-                visibility: .hidden
+                visibility: .advanced,
+                keywords: ["move", "reorder", "group", "tab", "column", "container"]
             ),
             action(
                 id: "moveWindowUp",
                 command: .moveWindowUp,
                 category: .move,
                 binding: .unassigned,
-                visibility: .hidden
+                visibility: .advanced,
+                keywords: ["move", "reorder", "group", "tab", "column", "container"]
             ),
             action(
                 id: "moveWindowDownOrToWorkspaceDown",
@@ -449,7 +459,9 @@ enum ActionCatalog {
                 binding: KeyBinding(
                     keyCode: UInt32(kVK_LeftArrow),
                     modifiers: UInt32(optionKey | controlKey | shiftKey)
-                )
+                ),
+                visibility: .advanced,
+                keywords: ["container", "tile", "group"]
             ),
             action(
                 id: "moveColumn.right",
@@ -458,7 +470,25 @@ enum ActionCatalog {
                 binding: KeyBinding(
                     keyCode: UInt32(kVK_RightArrow),
                     modifiers: UInt32(optionKey | controlKey | shiftKey)
-                )
+                ),
+                visibility: .advanced,
+                keywords: ["container", "tile", "group"]
+            ),
+            action(
+                id: "moveColumn.up",
+                command: .moveColumn(.up),
+                category: .column,
+                binding: .unassigned,
+                visibility: .advanced,
+                keywords: ["container", "tile", "group"]
+            ),
+            action(
+                id: "moveColumn.down",
+                command: .moveColumn(.down),
+                category: .column,
+                binding: .unassigned,
+                visibility: .advanced,
+                keywords: ["container", "tile", "group"]
             ),
             action(
                 id: "moveColumnToFirst",
@@ -895,18 +925,17 @@ enum ActionCatalog {
              .preselect,
              .preselectClear,
              .resizeInDirection,
-             .resizeFocusedWindow:
+             .resizeFocusedWindow,
+             .moveColumn(.up),
+             .moveColumn(.down):
             .dwindle
 
-        case .moveWindowDown,
-             .moveWindowUp,
-             .moveWindowDownOrToWorkspaceDown,
+        case .moveWindowDownOrToWorkspaceDown,
              .moveWindowUpOrToWorkspaceUp,
              .consumeOrExpelWindowLeft,
              .consumeOrExpelWindowRight,
              .consumeWindowIntoColumn,
              .expelWindowFromColumn,
-             .moveColumn,
              .moveColumnToFirst,
              .moveColumnToLast,
              .moveColumnToIndex,
@@ -930,8 +959,6 @@ enum ActionCatalog {
              .focusWindowInColumn,
              .focusWindowTop,
              .focusWindowBottom,
-             .focusWindowDownOrTop,
-             .focusWindowUpOrBottom,
              .focusWindowOrWorkspaceDown,
              .focusWindowOrWorkspaceUp,
              .focusColumnFirst,
@@ -944,6 +971,12 @@ enum ActionCatalog {
             .niri
 
         case .focus,
+             .moveWindowDown,
+             .moveWindowUp,
+             .focusWindowDownOrTop,
+             .focusWindowUpOrBottom,
+             .moveColumn(.left),
+             .moveColumn(.right),
              .toggleFullscreen,
              .cycleColumnWidthForward,
              .cycleColumnWidthBackward,
@@ -999,12 +1032,12 @@ enum ActionCatalog {
         case .focusMonitorLast: "Focus Last Monitor"
         case .toggleFullscreen: "Toggle Fullscreen"
         case .toggleNativeFullscreen: "Toggle Native Fullscreen"
-        case let .moveColumn(dir): "Move Column \(dir.displayName)"
+        case let .moveColumn(dir): "Move Container \(dir.displayName)"
         case .moveColumnToFirst: "Move Column to First"
         case .moveColumnToLast: "Move Column to Last"
         case let .moveColumnToIndex(idx): "Move Column to Index \(idx)"
-        case .moveWindowDown: "Move Window Down"
-        case .moveWindowUp: "Move Window Up"
+        case .moveWindowDown: "Reorder Window Down"
+        case .moveWindowUp: "Reorder Window Up"
         case .moveWindowDownOrToWorkspaceDown: "Move Window Down or to Workspace Down"
         case .moveWindowUpOrToWorkspaceUp: "Move Window Up or to Workspace Up"
         case .consumeOrExpelWindowLeft: "Consume or Expel Window Left"

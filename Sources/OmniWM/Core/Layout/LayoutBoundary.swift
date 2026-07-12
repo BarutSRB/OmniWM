@@ -58,6 +58,7 @@ struct DwindleWorkspaceSnapshot {
     let monitor: LayoutMonitorSnapshot
     let windows: [LayoutWindowSnapshot]
     let preferredFocusToken: WindowToken?
+    let preferredHideSide: HideSide
     let settings: ResolvedDwindleSettings
     let isActiveWorkspace: Bool
 }
@@ -78,12 +79,19 @@ enum LayoutVisibilityChange {
     case hide(WindowToken, side: HideSide)
 }
 
+struct LayoutDeferredHide {
+    let token: WindowToken
+    let side: HideSide
+    let revealToken: WindowToken
+}
+
 // `frameChanges` imply active, restore-eligible windows for this pass.
 // `visibilityChanges` are reserved for explicit hide/show transitions.
 struct WorkspaceLayoutDiff {
     var frameChanges: [LayoutFrameChange] = []
     var visibilityChanges: [LayoutVisibilityChange] = []
     var restoreChanges: [LayoutRestoreChange] = []
+    var deferredHides: [LayoutDeferredHide] = []
 }
 
 struct WorkspaceSessionPatch {
@@ -120,6 +128,7 @@ struct WorkspaceLayoutPlan {
     var niriRestorePlacements: [WindowToken: PersistedNiriPlacement] = [:]
     var animationDirectives: [AnimationDirective] = []
     var isAnimationTick = false
+    var isActiveWorkspace = true
 }
 
 struct RefreshPostLayoutAction {

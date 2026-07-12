@@ -6,10 +6,12 @@ import Foundation
 import QuartzCore
 
 private final class DwindleWorkspaceState {
-    let root = DwindleNode(kind: .leaf(handle: nil, fullscreen: false))
+    let root = DwindleNode(kind: .leaf(tile: nil))
     var leafByToken: [WindowToken: DwindleNode] = [:]
+    var tileCount = 0
     var selectedNodeId: DwindleNodeId?
     var preselection: Direction?
+    var pendingMovementFrameSeeds: [WindowToken: CGRect] = [:]
 }
 
 final class DwindleLayoutEngine {
@@ -17,6 +19,7 @@ final class DwindleLayoutEngine {
     private var windowConstraints: [WindowToken: WindowSizeConstraints] = [:]
 
     var settings: DwindleSettings = DwindleSettings()
+    var tabRailWidth: CGFloat = 12
     private var monitorSettings: [Monitor.ID: ResolvedDwindleSettings] = [:]
     var animationClock: AnimationClock?
     var isMutationSanctioned = true
@@ -103,16 +106,99 @@ final class DwindleLayoutEngine {
     }
 
     func isWindowFullscreen(_ token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        findNode(for: token, in: workspaceId)?.isFullscreen == true
+        findNode(for: token, in: workspaceId)?.tile?.member(for: token)?.isFullscreen == true
     }
 
     func fullscreenTokens(in workspaceId: WorkspaceDescriptor.ID) -> Set<WindowToken> {
         guard let state = states[workspaceId] else { return [] }
-        return Set(state.leafByToken.filter { $0.value.isFullscreen }.keys)
+        return Set(state.leafByToken.keys.filter { token in
+            state.leafByToken[token]?.tile?.member(for: token)?.isFullscreen == true
+        })
     }
 
     func windowCount(in workspaceId: WorkspaceDescriptor.ID) -> Int {
         states[workspaceId]?.leafByToken.count ?? 0
+    }
+
+    func tileCount(in workspaceId: WorkspaceDescriptor.ID) -> Int {
+        states[workspaceId]?.tileCount ?? 0
+    }
+
+    func activeWindowTokens(in workspaceId: WorkspaceDescriptor.ID) -> Set<WindowToken> {
+        guard let state = states[workspaceId] else { return [] }
+        var tokens: Set<WindowToken> = []
+        tokens.reserveCapacity(state.tileCount)
+        for (token, leaf) in state.leafByToken where leaf.windowToken == token {
+            tokens.insert(token)
+        }
+        return tokens
+    }
+
+    func inactiveGroupTokens(in workspaceId: WorkspaceDescriptor.ID) -> Set<WindowToken> {
+        guard let state = states[workspaceId] else { return [] }
+        var tokens: Set<WindowToken> = []
+        tokens.reserveCapacity(max(0, state.leafByToken.count - state.tileCount))
+        for (token, leaf) in state.leafByToken where leaf.windowToken != token {
+            if leaf.tile?.isGrouped == true {
+                tokens.insert(token)
+            }
+        }
+        return tokens
+    }
+
+    func isInactiveGroupMember(
+        _ token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        guard let tile = states[workspaceId]?.leafByToken[token]?.tile,
+              tile.isGrouped
+        else {
+            return false
+        }
+        return tile.activeToken != token
+    }
+
+    func tileSnapshot(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> DwindleTileSnapshot? {
+        guard let leaf = findNode(for: token, in: workspaceId), let tile = leaf.tile else { return nil }
+        return tileSnapshot(tile: tile, leaf: leaf)
+    }
+
+    func groupedTileSnapshots(in workspaceId: WorkspaceDescriptor.ID) -> [DwindleTileSnapshot] {
+        guard let root = states[workspaceId]?.root else { return [] }
+        var snapshots: [DwindleTileSnapshot] = []
+        collectGroupedTileSnapshots(node: root, into: &snapshots)
+        return snapshots
+    }
+
+    func tileFrame(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> CGRect? {
+        findNode(for: token, in: workspaceId)?.cachedFrame
+    }
+
+    func contentFrame(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> CGRect? {
+        findNode(for: token, in: workspaceId)?.cachedContentFrame
+    }
+
+    private func tileSnapshot(tile: DwindleTile, leaf: DwindleNode) -> DwindleTileSnapshot {
+        DwindleTileSnapshot(
+            id: tile.id,
+            members: tile.members,
+            activeIndex: tile.activeIndex,
+            tileFrame: leaf.cachedFrame,
+            contentFrame: leaf.cachedContentFrame
+        )
+    }
+
+    private func collectGroupedTileSnapshots(
+        node: DwindleNode,
+        into snapshots: inout [DwindleTileSnapshot]
+    ) {
+        if let tile = node.tile, tile.isGrouped {
+            snapshots.append(tileSnapshot(tile: tile, leaf: node))
+            return
+        }
+        for child in node.children {
+            collectGroupedTileSnapshots(node: child, into: &snapshots)
+        }
     }
 
     func selectedNode(in workspaceId: WorkspaceDescriptor.ID) -> DwindleNode? {
@@ -162,13 +248,15 @@ final class DwindleLayoutEngine {
         let state = ensureState(for: workspaceId)
 
         if let existing = state.leafByToken[token] {
+            _ = existing.tile?.activate(token)
             state.selectedNodeId = existing.id
             return existing
         }
 
-        if case let .leaf(existingHandle, _) = state.root.kind, existingHandle == nil {
-            state.root.kind = .leaf(handle: token, fullscreen: false)
+        if case let .leaf(tile) = state.root.kind, tile == nil {
+            state.root.kind = .leaf(tile: DwindleTile(token: token))
             state.leafByToken[token] = state.root
+            state.tileCount = 1
             state.selectedNodeId = state.root.id
             return state.root
         }
@@ -201,12 +289,31 @@ final class DwindleLayoutEngine {
         activeWindowFrame: CGRect?,
         preselectedDirection: Direction? = nil
     ) -> DwindleNode {
-        guard case let .leaf(existingHandle, fullscreen) = leaf.kind else {
-            let newLeaf = DwindleNode(kind: .leaf(handle: newWindow, fullscreen: false))
+        guard case let .leaf(existingTile) = leaf.kind else {
+            let newLeaf = DwindleNode(kind: .leaf(tile: DwindleTile(token: newWindow)))
             leaf.appendChild(newLeaf)
+            state.tileCount += 1
             return newLeaf
         }
 
+        return splitLeaf(
+            leaf,
+            newTile: DwindleTile(token: newWindow),
+            existingTile: existingTile,
+            state: state,
+            activeWindowFrame: activeWindowFrame,
+            preselectedDirection: preselectedDirection
+        )
+    }
+
+    private func splitLeaf(
+        _ leaf: DwindleNode,
+        newTile: DwindleTile,
+        existingTile: DwindleTile?,
+        state: DwindleWorkspaceState,
+        activeWindowFrame: CGRect?,
+        preselectedDirection: Direction?
+    ) -> DwindleNode {
         let targetRect = leaf.cachedFrame
         let (orientation, newFirst): (DwindleOrientation, Bool)
         if let dir = preselectedDirection {
@@ -219,10 +326,13 @@ final class DwindleLayoutEngine {
             )
         }
 
-        let existingLeaf = DwindleNode(kind: .leaf(handle: existingHandle, fullscreen: fullscreen))
-        let newLeaf = DwindleNode(kind: .leaf(handle: newWindow, fullscreen: false))
+        let existingLeaf = DwindleNode(kind: .leaf(tile: existingTile))
+        let newLeaf = DwindleNode(kind: .leaf(tile: newTile))
 
         leaf.kind = .split(orientation: orientation, ratio: settings.defaultSplitRatio)
+        leaf.cachedContentFrame = nil
+        leaf.clearAnimations()
+        state.tileCount += 1
 
         if newFirst {
             leaf.replaceChildren(first: newLeaf, second: existingLeaf)
@@ -230,8 +340,10 @@ final class DwindleLayoutEngine {
             leaf.replaceChildren(first: existingLeaf, second: newLeaf)
         }
 
-        if let existingHandle {
-            state.leafByToken[existingHandle] = existingLeaf
+        if let existingTile {
+            for member in existingTile.members {
+                state.leafByToken[member.token] = existingLeaf
+            }
         }
 
         return newLeaf
@@ -286,12 +398,22 @@ final class DwindleLayoutEngine {
     func removeWindow(token: WindowToken, from workspaceId: WorkspaceDescriptor.ID) {
         assertSanctionedMutation()
         guard let state = states[workspaceId],
-              let leaf = state.leafByToken[token]
+              let leaf = state.leafByToken[token],
+              let tile = leaf.tile,
+              let memberIndex = tile.memberIndex(for: token)
         else { return }
 
-        leaf.kind = .leaf(handle: nil, fullscreen: false)
-        state.leafByToken.removeValue(forKey: token)
-        cleanupAfterRemoval(leaf, state: state)
+        if tile.members.count > 1 {
+            _ = tile.remove(at: memberIndex)
+            state.leafByToken.removeValue(forKey: token)
+        } else {
+            state.leafByToken.removeValue(forKey: token)
+            leaf.kind = .leaf(tile: nil)
+            leaf.cachedContentFrame = nil
+            state.tileCount -= 1
+            cleanupAfterRemoval(leaf, state: state)
+        }
+        state.pendingMovementFrameSeeds.removeValue(forKey: token)
         if state.leafByToken.isEmpty {
             state.selectedNodeId = nil
         }
@@ -309,14 +431,17 @@ final class DwindleLayoutEngine {
               let state = states[workspaceId],
               state.leafByToken[newToken] == nil,
               let leaf = state.leafByToken[oldToken],
-              case let .leaf(_, fullscreen) = leaf.kind
+              let tile = leaf.tile
         else {
             return false
         }
 
-        leaf.kind = .leaf(handle: newToken, fullscreen: fullscreen)
+        guard tile.rekey(from: oldToken, to: newToken) else { return false }
         state.leafByToken.removeValue(forKey: oldToken)
         state.leafByToken[newToken] = leaf
+        if let seed = state.pendingMovementFrameSeeds.removeValue(forKey: oldToken) {
+            state.pendingMovementFrameSeeds[newToken] = seed
+        }
         if let constraints = windowConstraints[oldToken] {
             windowConstraints[newToken] = constraints
         }
@@ -324,10 +449,205 @@ final class DwindleLayoutEngine {
         return true
     }
 
+    func activeToken(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
+        selectedNode(in: workspaceId)?.windowToken
+    }
+
+    func activeTileMember(
+        containing token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> WindowToken? {
+        states[workspaceId]?.leafByToken[token]?.tile?.activeToken
+    }
+
+    @discardableResult
+    func activateWindow(_ token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        activateWindowOutcome(token, in: workspaceId) == .activated
+    }
+
+    @discardableResult
+    func activateWindowOutcome(
+        _ token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> DwindleWindowActivationOutcome {
+        assertSanctionedMutation()
+        guard let state = states[workspaceId],
+              let leaf = state.leafByToken[token],
+              let tile = leaf.tile
+        else {
+            return .missing
+        }
+
+        state.selectedNodeId = leaf.id
+        return tile.activate(token) ? .activated : .selected
+    }
+
+    @discardableResult
+    func groupWindow(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let token = activeToken(in: workspaceId) else { return false }
+        return groupWindow(token, direction: direction, in: workspaceId)
+    }
+
+    @discardableResult
+    func groupWindow(
+        _ token: WindowToken,
+        direction: Direction,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        guard let neighborToken = findGeometricNeighbor(
+            from: token,
+            direction: direction,
+            in: workspaceId
+        ) else {
+            return false
+        }
+        return groupWindow(token, into: neighborToken, in: workspaceId)
+    }
+
+    @discardableResult
+    func groupWindow(
+        _ token: WindowToken,
+        into neighborToken: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        assertSanctionedMutation()
+        guard let state = states[workspaceId],
+              let sourceLeaf = state.leafByToken[token],
+              let sourceTile = sourceLeaf.tile,
+              let sourceMemberIndex = sourceTile.memberIndex(for: token),
+              neighborToken != token,
+              let destinationLeaf = state.leafByToken[neighborToken],
+              destinationLeaf.id != sourceLeaf.id,
+              let destinationTile = destinationLeaf.tile
+        else {
+            return false
+        }
+        let movementFrameSeed = sourceLeaf.presentedFrame(
+            at: animationClock?.now() ?? CACurrentMediaTime()
+        )
+
+        let sourceParent = sourceLeaf.parent
+        let destinationWillPromote = sourceTile.members.count == 1
+            && sourceLeaf.sibling()?.id == destinationLeaf.id
+        let member = detachMember(
+            at: sourceMemberIndex,
+            from: sourceLeaf,
+            tile: sourceTile,
+            state: state
+        )
+        let updatedDestinationLeaf = destinationWillPromote ? sourceParent ?? destinationLeaf : destinationLeaf
+
+        destinationTile.insertAfterActive(member)
+        state.leafByToken[token] = updatedDestinationLeaf
+        state.selectedNodeId = updatedDestinationLeaf.id
+        if state.pendingMovementFrameSeeds[token] == nil {
+            state.pendingMovementFrameSeeds[token] = movementFrameSeed
+        }
+        invalidateMinSizeCache(for: workspaceId)
+        return true
+    }
+
+    @discardableResult
+    func ungroupWindow(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let token = activeToken(in: workspaceId) else { return false }
+        return ungroupWindow(token, direction: direction, in: workspaceId)
+    }
+
+    @discardableResult
+    func ungroupWindow(
+        _ token: WindowToken,
+        direction: Direction,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        assertSanctionedMutation()
+        guard let state = states[workspaceId],
+              let leaf = state.leafByToken[token],
+              let tile = leaf.tile,
+              tile.members.count > 1,
+              let memberIndex = tile.memberIndex(for: token)
+        else {
+            return false
+        }
+        let movementFrameSeed = leaf.presentedFrame(
+            at: animationClock?.now() ?? CACurrentMediaTime()
+        )
+
+        _ = tile.activate(token)
+        let member = tile.remove(at: memberIndex)
+        state.leafByToken.removeValue(forKey: token)
+        let newTile = DwindleTile(token: member.token, fullscreen: member.isFullscreen)
+        let newLeaf = splitLeaf(
+            leaf,
+            newTile: newTile,
+            existingTile: tile,
+            state: state,
+            activeWindowFrame: leaf.cachedContentFrame ?? leaf.cachedFrame,
+            preselectedDirection: direction
+        )
+        state.leafByToken[token] = newLeaf
+        state.selectedNodeId = newLeaf.id
+        if state.pendingMovementFrameSeeds[token] == nil {
+            state.pendingMovementFrameSeeds[token] = movementFrameSeed
+        }
+        invalidateMinSizeCache(for: workspaceId)
+        return true
+    }
+
+    func consumePendingMovementFrameSeeds(
+        in workspaceId: WorkspaceDescriptor.ID,
+        oldFrames: inout [WindowToken: CGRect],
+        previousTargetFrames: inout [WindowToken: CGRect]
+    ) {
+        guard let state = states[workspaceId], !state.pendingMovementFrameSeeds.isEmpty else { return }
+        for (token, frame) in state.pendingMovementFrameSeeds {
+            oldFrames[token] = frame
+            previousTargetFrames[token] = frame
+        }
+        state.pendingMovementFrameSeeds.removeAll(keepingCapacity: true)
+    }
+
+    @discardableResult
+    func moveGroupMember(
+        direction: Direction,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        assertSanctionedMutation()
+        let offset: Int
+        switch direction {
+        case .up:
+            offset = -1
+        case .down:
+            offset = 1
+        case .left,
+             .right:
+            return false
+        }
+        guard let tile = selectedNode(in: workspaceId)?.tile else { return false }
+        return tile.moveActive(offset: offset)
+    }
+
+    private func detachMember(
+        at memberIndex: Int,
+        from leaf: DwindleNode,
+        tile: DwindleTile,
+        state: DwindleWorkspaceState
+    ) -> DwindleTileMember {
+        let member: DwindleTileMember
+        if tile.members.count > 1 {
+            member = tile.remove(at: memberIndex)
+        } else {
+            member = tile.members[memberIndex]
+            leaf.kind = .leaf(tile: nil)
+            leaf.cachedContentFrame = nil
+            state.tileCount -= 1
+            cleanupAfterRemoval(leaf, state: state)
+        }
+        state.leafByToken.removeValue(forKey: member.token)
+        return member
+    }
+
     private func cleanupAfterRemoval(_ node: DwindleNode, state: DwindleWorkspaceState) {
         guard let parent = node.parent, let sibling = node.sibling() else { return }
-
-        let promotedWindows = sibling.collectAllWindows()
 
         node.detach()
 
@@ -337,9 +657,9 @@ final class DwindleLayoutEngine {
             child.parent = parent
         }
 
-        for window in promotedWindows {
-            if let leafNode = findLeafContaining(window, in: parent) {
-                state.leafByToken[window] = leafNode
+        if let tile = parent.tile {
+            for member in tile.members {
+                state.leafByToken[member.token] = parent
             }
         }
 
@@ -351,18 +671,6 @@ final class DwindleLayoutEngine {
         if !selectionResolves {
             state.selectedNodeId = parent.descendToFirstLeaf().id
         }
-    }
-
-    private func findLeafContaining(_ handle: WindowToken, in root: DwindleNode) -> DwindleNode? {
-        if case let .leaf(h, _) = root.kind, h == handle {
-            return root
-        }
-        for child in root.children {
-            if let found = findLeafContaining(handle, in: child) {
-                return found
-            }
-        }
-        return nil
     }
 
     func syncWindows(
@@ -436,8 +744,8 @@ final class DwindleLayoutEngine {
     ) -> [WindowToken: CGRect] {
         guard let state = states[workspaceId] else { return [:] }
 
-        let windowCount = state.leafByToken.count
-        if windowCount == 0 {
+        let tileCount = state.tileCount
+        if tileCount == 0 {
             return [:]
         }
 
@@ -447,23 +755,24 @@ final class DwindleLayoutEngine {
         let tilingArea = screen
         let fullscreenArea = fullscreenScreen ?? screen
 
-        if windowCount == 1 {
+        if tileCount == 1 {
             let leaf = state.root.descendToFirstLeaf()
-            if case let .leaf(handle, fullscreen) = leaf.kind,
-               let handle
-            {
+            if let tile = leaf.tile {
+                let active = tile.activeMember
                 let rect: CGRect
-                if fullscreen {
+                if active.isFullscreen {
                     rect = fullscreenArea
                 } else {
                     rect = singleWindowRect(
                         screen: tilingArea,
                         fullscreenScreen: fullscreenArea,
-                        minSize: constraints(for: handle).minSize
+                        minSize: minimumSize(for: tile)
                     )
                 }
-                output[handle] = rect
                 leaf.cachedFrame = rect
+                let content = contentFrame(for: tile, tileFrame: rect)
+                leaf.cachedContentFrame = content
+                output[active.token] = content
             }
         } else {
             calculateLayoutRecursive(
@@ -487,7 +796,7 @@ final class DwindleLayoutEngine {
     }
 
     private func collectCurrentFrames(node: DwindleNode, into frames: inout [WindowToken: CGRect]) {
-        if case let .leaf(handle, _) = node.kind, let handle, let frame = node.cachedFrame {
+        if let handle = node.windowToken, let frame = node.cachedContentFrame ?? node.cachedFrame {
             frames[handle] = frame
         }
         for child in node.children {
@@ -507,7 +816,7 @@ final class DwindleLayoutEngine {
         at time: TimeInterval,
         into frames: inout [WindowToken: CGRect]
     ) {
-        if case let .leaf(handle, _) = node.kind, let handle, let frame = node.presentedFrame(at: time) {
+        if let handle = node.windowToken, let frame = node.presentedFrame(at: time) {
             frames[handle] = frame
         }
         for child in node.children {
@@ -537,12 +846,11 @@ final class DwindleLayoutEngine {
         in node: DwindleNode,
         firstVisibleMatch: inout WindowToken?
     ) -> WindowToken? {
-        if case let .leaf(handle, fullscreen) = node.kind,
-           let handle,
+        if let handle = node.windowToken,
            let frame = presentedFrame(for: node, at: time),
            frame.contains(point)
         {
-            if fullscreen {
+            if node.isFullscreen {
                 return handle
             }
 
@@ -579,11 +887,12 @@ final class DwindleLayoutEngine {
         output: inout [WindowToken: CGRect]
     ) {
         switch node.kind {
-        case let .leaf(handle, fullscreen):
-            guard let handle else { return }
+        case let .leaf(tile):
+            guard let tile else { return }
+            let active = tile.activeMember
 
             let target: CGRect
-            if fullscreen {
+            if active.isFullscreen {
                 target = fullscreenArea
             } else {
                 target = DwindleGapCalculator.applyGaps(
@@ -592,8 +901,10 @@ final class DwindleLayoutEngine {
                     settings: settings
                 )
             }
-            output[handle] = target
             node.cachedFrame = target
+            let content = contentFrame(for: tile, tileFrame: target)
+            node.cachedContentFrame = content
+            output[active.token] = content
 
         case let .split(orientation, ratio):
             node.cachedFrame = rect
@@ -645,6 +956,17 @@ final class DwindleLayoutEngine {
         }
     }
 
+    private func contentFrame(for tile: DwindleTile, tileFrame: CGRect) -> CGRect {
+        guard tile.isGrouped, !tile.activeMember.isFullscreen else { return tileFrame }
+        let railWidth = min(tabRailWidth, tileFrame.width)
+        return CGRect(
+            x: tileFrame.minX + railWidth,
+            y: tileFrame.minY,
+            width: max(0, tileFrame.width - railWidth),
+            height: tileFrame.height
+        )
+    }
+
     private func splitChildBoundaryEdges(
         _ boundaryEdges: ResizeEdge,
         orientation: DwindleOrientation
@@ -668,9 +990,9 @@ final class DwindleLayoutEngine {
 
         let result: CGSize
         switch node.kind {
-        case let .leaf(handle, _):
-            if let handle {
-                var minSize = constraints(for: handle).minSize
+        case let .leaf(tile):
+            if let tile {
+                var minSize = minimumSize(for: tile)
                 let inset = settings.innerGap / 2
                 if !boundaryEdges.contains(.left) { minSize.width += inset }
                 if !boundaryEdges.contains(.right) { minSize.width += inset }
@@ -707,6 +1029,19 @@ final class DwindleLayoutEngine {
 
         if cached {
             node.cachedMinSize = result
+        }
+        return result
+    }
+
+    private func minimumSize(for tile: DwindleTile) -> CGSize {
+        var result = CGSize(width: 1, height: 1)
+        for member in tile.members {
+            let minimum = constraints(for: member.token).minSize
+            result.width = max(result.width, minimum.width)
+            result.height = max(result.height, minimum.height)
+        }
+        if tile.isGrouped {
+            result.width += tabRailWidth
         }
         return result
     }
@@ -847,69 +1182,156 @@ final class DwindleLayoutEngine {
     ) -> WindowToken? {
         guard let state = states[workspaceId],
               let currentNode = state.leafByToken[handle],
-              let currentFrame = currentNode.cachedFrame else { return nil }
+              let rootFrame = state.root.cachedFrame,
+              let currentFrame = structuralFrame(
+                  for: currentNode,
+                  from: state.root,
+                  rect: rootFrame,
+                  tilingArea: rootFrame,
+                  boundaryEdges: .all
+              )
+        else {
+            return nil
+        }
 
-        var candidates: [(handle: WindowToken, overlap: CGFloat)] = []
+        var bestCandidate: (handle: WindowToken, overlap: CGFloat)?
 
         collectNavigationCandidates(
             from: state.root,
+            rect: rootFrame,
+            tilingArea: rootFrame,
+            boundaryEdges: .all,
             current: currentNode,
             currentFrame: currentFrame,
             direction: direction,
             innerGap: settings.innerGap,
-            candidates: &candidates
+            bestCandidate: &bestCandidate
         )
 
-        guard !candidates.isEmpty else { return nil }
+        return bestCandidate?.handle
+    }
 
-        let sorted = candidates.sorted { $0.overlap > $1.overlap }
-        return sorted.first?.handle
+    private func structuralFrame(
+        for target: DwindleNode,
+        from node: DwindleNode,
+        rect: CGRect,
+        tilingArea: CGRect,
+        boundaryEdges: ResizeEdge
+    ) -> CGRect? {
+        if node.id == target.id {
+            guard node.isLeaf else { return nil }
+            return DwindleGapCalculator.applyGaps(
+                nodeRect: rect,
+                tilingArea: tilingArea,
+                settings: settings
+            )
+        }
+
+        guard case let .split(orientation, ratio) = node.kind,
+              let first = node.firstChild(),
+              let second = node.secondChild()
+        else {
+            return nil
+        }
+
+        let childEdges = splitChildBoundaryEdges(boundaryEdges, orientation: orientation)
+        let firstMin = computeMinSizeForSubtree(first, boundaryEdges: childEdges.first, cached: true)
+        let secondMin = computeMinSizeForSubtree(second, boundaryEdges: childEdges.second, cached: true)
+        let (firstRect, secondRect) = splitRect(
+            rect,
+            orientation: orientation,
+            ratio: ratio,
+            firstMinSize: firstMin,
+            secondMinSize: secondMin
+        )
+
+        return structuralFrame(
+            for: target,
+            from: first,
+            rect: firstRect,
+            tilingArea: tilingArea,
+            boundaryEdges: childEdges.first
+        ) ?? structuralFrame(
+            for: target,
+            from: second,
+            rect: secondRect,
+            tilingArea: tilingArea,
+            boundaryEdges: childEdges.second
+        )
     }
 
     private func collectNavigationCandidates(
         from node: DwindleNode,
+        rect: CGRect,
+        tilingArea: CGRect,
+        boundaryEdges: ResizeEdge,
         current: DwindleNode,
         currentFrame: CGRect,
         direction: Direction,
         innerGap: CGFloat,
-        candidates: inout [(handle: WindowToken, overlap: CGFloat)]
+        bestCandidate: inout (handle: WindowToken, overlap: CGFloat)?
     ) {
-        if node.id == current.id {
-            for child in node.children {
-                collectNavigationCandidates(
-                    from: child,
-                    current: current,
-                    currentFrame: currentFrame,
-                    direction: direction,
-                    innerGap: innerGap,
-                    candidates: &candidates
-                )
-            }
-            return
-        }
+        guard node.id != current.id else { return }
 
-        if node.isLeaf, let handle = node.windowToken, let candidateFrame = node.cachedFrame {
+        if node.isLeaf, let handle = node.windowToken {
+            let candidateFrame = DwindleGapCalculator.applyGaps(
+                nodeRect: rect,
+                tilingArea: tilingArea,
+                settings: settings
+            )
             if let overlap = calculateDirectionalOverlap(
                 from: currentFrame,
                 to: candidateFrame,
                 direction: direction,
                 innerGap: innerGap
-            ) {
-                candidates.append((handle, overlap))
+            ),
+                bestCandidate.map({ overlap > $0.overlap }) ?? true
+            {
+                bestCandidate = (handle, overlap)
             }
             return
         }
 
-        for child in node.children {
-            collectNavigationCandidates(
-                from: child,
-                current: current,
-                currentFrame: currentFrame,
-                direction: direction,
-                innerGap: innerGap,
-                candidates: &candidates
-            )
+        guard case let .split(orientation, ratio) = node.kind,
+              let first = node.firstChild(),
+              let second = node.secondChild()
+        else {
+            return
         }
+
+        let childEdges = splitChildBoundaryEdges(boundaryEdges, orientation: orientation)
+        let firstMin = computeMinSizeForSubtree(first, boundaryEdges: childEdges.first, cached: true)
+        let secondMin = computeMinSizeForSubtree(second, boundaryEdges: childEdges.second, cached: true)
+        let (firstRect, secondRect) = splitRect(
+            rect,
+            orientation: orientation,
+            ratio: ratio,
+            firstMinSize: firstMin,
+            secondMinSize: secondMin
+        )
+
+        collectNavigationCandidates(
+            from: first,
+            rect: firstRect,
+            tilingArea: tilingArea,
+            boundaryEdges: childEdges.first,
+            current: current,
+            currentFrame: currentFrame,
+            direction: direction,
+            innerGap: innerGap,
+            bestCandidate: &bestCandidate
+        )
+        collectNavigationCandidates(
+            from: second,
+            rect: secondRect,
+            tilingArea: tilingArea,
+            boundaryEdges: childEdges.second,
+            current: current,
+            currentFrame: currentFrame,
+            direction: direction,
+            innerGap: innerGap,
+            bestCandidate: &bestCandidate
+        )
     }
 
     private func calculateDirectionalOverlap(
@@ -999,32 +1421,60 @@ final class DwindleLayoutEngine {
         assertSanctionedMutation()
         guard let state = states[workspaceId],
               let current = selectedNode(in: workspaceId),
-              case let .leaf(currentHandle, currentFullscreen) = current.kind,
-              let ch = currentHandle
+              let currentTile = current.tile
         else {
             return .blocked
         }
 
-        guard let neighborHandle = findGeometricNeighbor(from: ch, direction: direction, in: workspaceId),
-              let neighbor = state.leafByToken[neighborHandle],
-              case let .leaf(nh, neighborFullscreen) = neighbor.kind
+        let currentHandle = currentTile.activeToken
+
+        guard let neighborHandle = findGeometricNeighbor(
+            from: currentHandle,
+            direction: direction,
+            in: workspaceId
+        ),
+            let neighbor = state.leafByToken[neighborHandle],
+            let neighborTile = neighbor.tile
         else {
             return .atWorkspaceEdge
         }
 
-        current.kind = .leaf(handle: nh, fullscreen: neighborFullscreen)
-        neighbor.kind = .leaf(handle: currentHandle, fullscreen: currentFullscreen)
+        let now = animationClock?.now() ?? CACurrentMediaTime()
+        let currentMovementFrameSeed = current.hasActiveAnimations(at: now)
+            ? current.presentedFrame(at: now)
+            : nil
+        let neighborMovementFrameSeed = neighbor.hasActiveAnimations(at: now)
+            ? neighbor.presentedFrame(at: now)
+            : nil
+
+        current.kind = .leaf(tile: neighborTile)
+        neighbor.kind = .leaf(tile: currentTile)
 
         let currentCachedFrame = current.cachedFrame
         current.cachedFrame = neighbor.cachedFrame
         neighbor.cachedFrame = currentCachedFrame
+        let currentContentFrame = current.cachedContentFrame
+        current.cachedContentFrame = neighbor.cachedContentFrame
+        neighbor.cachedContentFrame = currentContentFrame
 
         current.clearAnimations()
         neighbor.clearAnimations()
 
-        state.leafByToken[ch] = neighbor
-        if let nh {
-            state.leafByToken[nh] = current
+        for member in currentTile.members {
+            state.leafByToken[member.token] = neighbor
+        }
+        for member in neighborTile.members {
+            state.leafByToken[member.token] = current
+        }
+        if state.pendingMovementFrameSeeds[currentTile.activeToken] == nil,
+           let currentMovementFrameSeed
+        {
+            state.pendingMovementFrameSeeds[currentTile.activeToken] = currentMovementFrameSeed
+        }
+        if state.pendingMovementFrameSeeds[neighborTile.activeToken] == nil,
+           let neighborMovementFrameSeed
+        {
+            state.pendingMovementFrameSeeds[neighborTile.activeToken] = neighborMovementFrameSeed
         }
 
         state.selectedNodeId = neighbor.id
@@ -1049,12 +1499,13 @@ final class DwindleLayoutEngine {
     func toggleFullscreen(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
         assertSanctionedMutation()
         guard let selected = selectedNode(in: workspaceId),
-              case let .leaf(handle, fullscreen) = selected.kind
+              let tile = selected.tile
         else {
             return nil
         }
 
-        selected.kind = .leaf(handle: handle, fullscreen: !fullscreen)
+        let handle = tile.activeToken
+        _ = tile.toggleFullscreen(for: handle)
         return handle
     }
 
@@ -1075,7 +1526,7 @@ final class DwindleLayoutEngine {
         }
 
         let preservedConstraints = windowConstraints[token]
-        let preservedFullscreen = sourceNode.isFullscreen
+        let preservedFullscreen = isWindowFullscreen(token, in: workspaceId)
 
         removeWindow(token: token, from: workspaceId)
 
@@ -1096,7 +1547,7 @@ final class DwindleLayoutEngine {
             updateWindowConstraints(for: token, constraints: preservedConstraints)
         }
         if preservedFullscreen {
-            reinsertedLeaf.kind = .leaf(handle: token, fullscreen: true)
+            reinsertedLeaf.tile?.setFullscreen(true, for: token)
         }
 
         return true

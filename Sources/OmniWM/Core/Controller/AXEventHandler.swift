@@ -2294,12 +2294,15 @@ final class AXEventHandler {
         var preferredMouseFrame: CGRect?
         switch controller.workspaceManager.activeLayoutKind(for: wsId) {
         case .dwindle:
-            if let dwindleEngine = controller.dwindleEngine,
-               let node = dwindleEngine.findNode(for: entry.token, in: wsId)
-            {
-                controller.workspaceManager.withEngineMutationScope {
-                    dwindleEngine.setSelectedNode(node, in: wsId)
-                }
+            if let engine = controller.dwindleEngine {
+                _ = controller.dwindleLayoutHandler.activateWindow(
+                    entry.token,
+                    in: wsId,
+                    layoutRefresh: isWorkspaceActive,
+                    focusAfterLayout: false
+                )
+                preferredMouseFrame = engine.contentFrame(for: entry.token, in: wsId)
+                    ?? engine.findNode(for: entry.token, in: wsId)?.cachedFrame
             }
         case .niri:
             if let engine = controller.niriEngine,
@@ -2450,53 +2453,6 @@ final class AXEventHandler {
             controller.layoutRefreshController.markNativeFullscreenRestoredForFrameApply(entry.token)
         }
         return restored
-    }
-
-    @discardableResult
-    func rekeyManagedWindowIdentity(
-        from oldToken: WindowToken,
-        to newToken: WindowToken,
-        windowId: UInt32,
-        axRef: AXWindowRef,
-        managedReplacementMetadata: ManagedReplacementMetadata? = nil
-    ) -> WindowState? {
-        guard let controller else { return nil }
-
-        guard let entry = controller.workspaceManager.rekeyWindow(
-            from: oldToken,
-            to: newToken,
-            newAXRef: axRef,
-            managedReplacementMetadata: managedReplacementMetadata
-        )
-        else {
-            return nil
-        }
-
-        controller.intentLedger.rekeyManagedRequest(from: oldToken, to: newToken)
-        controller.axManager.rekeyWindowState(
-            pid: newToken.pid,
-            oldWindowId: oldToken.windowId,
-            newWindow: axRef
-        )
-        controller.rekeyScratchpadWindowResources(from: oldToken, to: newToken, axRef: axRef)
-        controller.layoutRefreshController.rekeyPendingRevealTransaction(
-            from: oldToken,
-            to: newToken,
-            entry: entry
-        )
-        AXWindowService.invalidateCachedTitles(windowIds: [UInt32(oldToken.windowId), windowId])
-        subscribeToWindows([windowId])
-        controller.requestWorkspaceBarRefresh()
-        controller.surfaceReconciler.noteRestackOccurred()
-
-        Task { @MainActor [weak self] in
-            guard let self, let controller = self.controller, controller.hasStartedServices else { return }
-            if let app = NSRunningApplication(processIdentifier: newToken.pid) {
-                _ = await controller.axManager.windowsForApp(app)
-            }
-        }
-
-        return entry
     }
 
     func handleAppHidden(pid: pid_t) {
@@ -3961,7 +3917,7 @@ final class AXEventHandler {
         AXWindowService.axWindowRef(for: windowId, pid: pid)
     }
 
-    private func subscribeToWindows(_ windowIds: [UInt32]) {
+    func subscribeToWindows(_ windowIds: [UInt32]) {
         CGSEventObserver.shared.subscribeToWindows(windowIds)
     }
 

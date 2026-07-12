@@ -51,6 +51,27 @@ struct OverviewEnvironment {
     var onCachedProjectionRefreshed: (Set<WorkspaceDescriptor.ID>) -> Void = { _ in }
 }
 
+struct DwindleOverviewWorkspaceProjection {
+    let inactiveTokens: Set<WindowToken>
+    let frames: [WindowToken: CGRect]
+    let groupCountByToken: [WindowToken: Int]
+
+    init(engine: DwindleLayoutEngine, workspaceId: WorkspaceDescriptor.ID) {
+        inactiveTokens = engine.inactiveGroupTokens(in: workspaceId)
+        frames = engine.currentFrames(in: workspaceId)
+
+        var groupCounts: [WindowToken: Int] = [:]
+        for snapshot in engine.groupedTileSnapshots(in: workspaceId) {
+            groupCounts[snapshot.activeToken] = snapshot.members.count
+        }
+        groupCountByToken = groupCounts
+    }
+
+    func includes(_ token: WindowToken) -> Bool {
+        !inactiveTokens.contains(token)
+    }
+}
+
 @MainActor
 final class OverviewController {
     private enum ScrollTuning {
@@ -80,6 +101,7 @@ final class OverviewController {
         var workspaces: [OverviewWorkspaceLayoutItem] = []
         var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
         var niriSnapshotsByWorkspace: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot] = [:]
+        var groupCountByHandle: [WindowHandle: Int] = [:]
 
         var windowIds: [Int] {
             windows.values.map(\.token.windowId).sorted()
@@ -683,10 +705,10 @@ final class OverviewController {
     private func buildOverviewSnapshot() {
         guard let wmController else { return }
         let workspaceManager = wmController.workspaceManager
-        let appInfoCache = wmController.appInfoCache
 
         var workspaces: [OverviewWorkspaceLayoutItem] = []
         var windowData: [WindowHandle: OverviewWindowLayoutData] = [:]
+        var groupCountByHandle: [WindowHandle: Int] = [:]
 
         for monitor in workspaceManager.monitors {
             let activeWs = workspaceManager.activeWorkspace(on: monitor.id)
@@ -698,29 +720,32 @@ final class OverviewController {
                     isActive: ws.id == activeWs?.id
                 ))
 
+                let dwindleProjection = dwindleOverviewProjection(for: ws.id)
+
                 for entry in workspaceManager.entries(in: ws.id) {
                     guard entry.layoutReason == .standard,
-                          let handle = workspaceManager.handle(for: entry.token) else { continue }
+                          dwindleProjection?.includes(entry.token) != false,
+                          let handle = workspaceManager.handle(for: entry.token)
+                    else {
+                        continue
+                    }
 
-                    let title = environment.windowTitle(entry) ?? ""
-                    let appInfo = appInfoCache.info(for: entry.pid)
-                    let frame = environment.windowFrame(entry) ?? .zero
-
-                    windowData[handle] = (
-                        token: entry.token,
-                        workspaceId: entry.workspaceId,
-                        title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
-                        appName: appInfo?.name ?? "Unknown",
-                        appIcon: appInfo?.icon,
-                        frame: frame
+                    windowData[handle] = makeOverviewWindowData(
+                        for: entry,
+                        preferredFrame: dwindleProjection?.frames[entry.token],
+                        appInfoCache: wmController.appInfoCache
                     )
+                    if let count = dwindleProjection?.groupCountByToken[entry.token], count > 1 {
+                        groupCountByHandle[handle] = count
+                    }
                 }
             }
         }
 
         overviewSnapshot = OverviewSnapshot(
             workspaces: workspaces,
-            windows: windowData
+            windows: windowData,
+            groupCountByHandle: groupCountByHandle
         )
         overviewSnapshot.niriSnapshotsByWorkspace = buildNiriOverviewSnapshots()
     }
@@ -733,6 +758,7 @@ final class OverviewController {
         environment.onCachedProjectionRefreshed(affectedWorkspaceIds)
         let anchors = captureSelectedViewportAnchors()
         let workspaceManager = wmController.workspaceManager
+        let previousWindowIds = Set(overviewSnapshot.windowIds)
 
         var workspaces: [OverviewWorkspaceLayoutItem] = []
         for monitor in workspaceManager.monitors {
@@ -747,7 +773,15 @@ final class OverviewController {
         }
         overviewSnapshot.workspaces = workspaces
 
+        let staleGroupHandles = overviewSnapshot.groupCountByHandle.keys.filter { handle in
+            overviewSnapshot.windows[handle].map { affectedWorkspaceIds.contains($0.workspaceId) } == true
+        }
+        for handle in staleGroupHandles {
+            overviewSnapshot.groupCountByHandle.removeValue(forKey: handle)
+        }
+
         var engineFrames: [WindowToken: CGRect] = [:]
+        var dwindleProjections: [WorkspaceDescriptor.ID: DwindleOverviewWorkspaceProjection] = [:]
         for workspaceId in affectedWorkspaceIds {
             switch workspaceManager.activeLayoutKind(for: workspaceId) {
             case .niri:
@@ -762,8 +796,13 @@ final class OverviewController {
                     overviewSnapshot.niriSnapshotsByWorkspace.removeValue(forKey: workspaceId)
                 }
             case .dwindle:
-                if let frames = wmController.dwindleEngine?.currentFrames(in: workspaceId) {
-                    engineFrames.merge(frames) { _, new in new }
+                if let engine = wmController.dwindleEngine {
+                    let projection = DwindleOverviewWorkspaceProjection(
+                        engine: engine,
+                        workspaceId: workspaceId
+                    )
+                    dwindleProjections[workspaceId] = projection
+                    engineFrames.merge(projection.frames) { _, new in new }
                 }
                 overviewSnapshot.niriSnapshotsByWorkspace.removeValue(forKey: workspaceId)
             }
@@ -771,10 +810,10 @@ final class OverviewController {
 
         for (handle, data) in overviewSnapshot.windows {
             guard let entry = workspaceManager.entry(for: handle) else { continue }
-            let frame = engineFrames[data.token] ?? data.frame
-            if entry.workspaceId != data.workspaceId || frame != data.frame {
+            let frame = engineFrames[entry.token] ?? data.frame
+            if entry.token != data.token || entry.workspaceId != data.workspaceId || frame != data.frame {
                 overviewSnapshot.windows[handle] = (
-                    token: data.token,
+                    token: entry.token,
                     workspaceId: entry.workspaceId,
                     title: data.title,
                     appName: data.appName,
@@ -782,6 +821,17 @@ final class OverviewController {
                     frame: frame
                 )
             }
+        }
+
+        for (workspaceId, projection) in dwindleProjections {
+            reconcileDwindleOverviewProjection(
+                projection,
+                workspaceId: workspaceId
+            )
+        }
+
+        overviewSnapshot.groupCountByHandle = overviewSnapshot.groupCountByHandle.filter {
+            overviewSnapshot.windows[$0.key] != nil
         }
 
         if let selectedHandle,
@@ -792,6 +842,96 @@ final class OverviewController {
         }
         rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
         updateWindowDisplays()
+
+        let addedWindowIds = Set(overviewSnapshot.windowIds).subtracting(previousWindowIds)
+        let uncachedAddedWindowIds = addedWindowIds.filter { thumbnailCache[$0] == nil }
+        if !uncachedAddedWindowIds.isEmpty {
+            let uncachedWindowIds = Set(overviewSnapshot.windowIds.filter { thumbnailCache[$0] == nil })
+            startThumbnailCapture(windowIds: uncachedWindowIds)
+        }
+    }
+
+    private func dwindleOverviewProjection(
+        for workspaceId: WorkspaceDescriptor.ID
+    ) -> DwindleOverviewWorkspaceProjection? {
+        guard let wmController,
+              wmController.workspaceManager.activeLayoutKind(for: workspaceId) == .dwindle,
+              let engine = wmController.dwindleEngine
+        else {
+            return nil
+        }
+        return DwindleOverviewWorkspaceProjection(engine: engine, workspaceId: workspaceId)
+    }
+
+    private func reconcileDwindleOverviewProjection(
+        _ projection: DwindleOverviewWorkspaceProjection,
+        workspaceId: WorkspaceDescriptor.ID
+    ) {
+        guard let wmController else { return }
+        let workspaceManager = wmController.workspaceManager
+        var desiredHandles: Set<WindowHandle> = []
+
+        for entry in workspaceManager.entries(in: workspaceId) {
+            guard entry.layoutReason == .standard,
+                  projection.includes(entry.token),
+                  let handle = workspaceManager.handle(for: entry.token)
+            else {
+                continue
+            }
+
+            desiredHandles.insert(handle)
+            let frame = projection.frames[entry.token]
+                ?? overviewSnapshot.windows[handle]?.frame
+                ?? environment.windowFrame(entry)
+                ?? .zero
+            if let data = overviewSnapshot.windows[handle] {
+                if data.token != entry.token || data.workspaceId != workspaceId || data.frame != frame {
+                    overviewSnapshot.windows[handle] = (
+                        token: entry.token,
+                        workspaceId: workspaceId,
+                        title: data.title,
+                        appName: data.appName,
+                        appIcon: data.appIcon,
+                        frame: frame
+                    )
+                }
+            } else {
+                overviewSnapshot.windows[handle] = makeOverviewWindowData(
+                    for: entry,
+                    preferredFrame: frame,
+                    appInfoCache: wmController.appInfoCache
+                )
+            }
+
+            if let count = projection.groupCountByToken[entry.token], count > 1 {
+                overviewSnapshot.groupCountByHandle[handle] = count
+            }
+        }
+
+        let staleHandles = overviewSnapshot.windows.compactMap { handle, data in
+            data.workspaceId == workspaceId && !desiredHandles.contains(handle) ? handle : nil
+        }
+        for handle in staleHandles {
+            overviewSnapshot.windows.removeValue(forKey: handle)
+            overviewSnapshot.groupCountByHandle.removeValue(forKey: handle)
+        }
+    }
+
+    private func makeOverviewWindowData(
+        for entry: WindowState,
+        preferredFrame: CGRect?,
+        appInfoCache: AppInfoCache
+    ) -> OverviewWindowLayoutData {
+        let title = environment.windowTitle(entry) ?? ""
+        let appInfo = appInfoCache.info(for: entry.pid)
+        return (
+            token: entry.token,
+            workspaceId: entry.workspaceId,
+            title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
+            appName: appInfo?.name ?? "Unknown",
+            appIcon: appInfo?.icon,
+            frame: preferredFrame ?? environment.windowFrame(entry) ?? .zero
+        )
     }
 
     private func cachedNiriSnapshot(
@@ -889,7 +1029,7 @@ final class OverviewController {
         }
 
         let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
-        return OverviewLayoutCalculator.calculateLayout(
+        var layout = OverviewLayoutCalculator.calculateLayout(
             workspaces: overviewSnapshot.workspaces,
             windows: localizedWindowData,
             niriSnapshotsByWorkspace: niriSnapshotsByWorkspace,
@@ -897,6 +1037,16 @@ final class OverviewController {
             searchQuery: searchQuery,
             scale: scale
         )
+        var sections = layout.workspaceSections
+        for sectionIndex in sections.indices {
+            for windowIndex in sections[sectionIndex].windows.indices {
+                let handle = sections[sectionIndex].windows[windowIndex].handle
+                sections[sectionIndex].windows[windowIndex].groupCount =
+                    overviewSnapshot.groupCountByHandle[handle] ?? 1
+            }
+        }
+        layout.workspaceSections = sections
+        return layout
     }
 
     private func buildNiriOverviewSnapshots() -> [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot] {
@@ -1043,16 +1193,16 @@ final class OverviewController {
         }
     }
 
-    private func startThumbnailCapture() {
+    private func startThumbnailCapture(windowIds: Set<Int>? = nil) {
         thumbnailCaptureTask?.cancel()
         environment.onThumbnailCaptureStarted()
         thumbnailCaptureTask = Task { [weak self] in
-            await self?.captureThumbnails()
+            await self?.captureThumbnails(windowIds: windowIds)
         }
     }
 
-    private func captureThumbnails() async {
-        let requests = thumbnailCaptureRequests()
+    private func captureThumbnails(windowIds: Set<Int>?) async {
+        let requests = thumbnailCaptureRequests(windowIds: windowIds)
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -1101,7 +1251,7 @@ final class OverviewController {
         }
     }
 
-    private func thumbnailCaptureRequests() -> [OverviewThumbnailCaptureRequest] {
+    private func thumbnailCaptureRequests(windowIds: Set<Int>? = nil) -> [OverviewThumbnailCaptureRequest] {
         guard let wmController else { return [] }
 
         let scaleByMonitorId = wmController.workspaceManager.monitors
@@ -1128,7 +1278,7 @@ final class OverviewController {
         }
 
         return OverviewThumbnailSizing.captureRequests(
-            windowIds: overviewSnapshot.windowIds,
+            windowIds: windowIds.map { Array($0).sorted() } ?? overviewSnapshot.windowIds,
             projections: projections
         )
     }
@@ -1226,15 +1376,15 @@ final class OverviewController {
 
     func handleManagedWindowRemoved(_ entry: WindowState) {
         guard state.isOpen else { return }
+        thumbnailCache.removeValue(forKey: entry.windowId)
         guard let removedHandle = overviewSnapshot.windows.first(where: { $0.value.token == entry.token })?.key else {
             return
         }
         let visibleOrder = canonicalLayout()?.allWindows
             .filter(\.matchesSearch)
             .map(\.handle) ?? []
-        guard let removedData = overviewSnapshot.windows.removeValue(forKey: removedHandle) else { return }
+        guard overviewSnapshot.windows.removeValue(forKey: removedHandle) != nil else { return }
 
-        thumbnailCache.removeValue(forKey: removedData.token.windowId)
         var nextSelection = selectedWindowHandle
         if selectedWindowHandle == removedHandle {
             nextSelection = Self.selectionAfterRemoving(

@@ -46,7 +46,9 @@ final class RuntimeArchitectureTests: XCTestCase {
 
     func testDwindleRectAnimationRetargetsFromPresentedFrame() throws {
         let config = CubicConfig.hyprlandDwindle
-        let node = DwindleNode(kind: .leaf(handle: WindowToken(pid: 10, windowId: 20), fullscreen: false))
+        let node = DwindleNode(
+            kind: .leaf(tile: DwindleTile(token: WindowToken(pid: 10, windowId: 20)))
+        )
         let firstStart = CGRect(x: 10, y: 20, width: 320, height: 180)
         let firstTarget = CGRect(x: 200, y: 80, width: 480, height: 240)
         let secondTarget = CGRect(x: 60, y: 140, width: 360, height: 420)
@@ -79,7 +81,9 @@ final class RuntimeArchitectureTests: XCTestCase {
 
     func testDwindleRectAnimationUsesSingleProgressForFrameComponents() throws {
         let config = CubicConfig.hyprlandDwindle
-        let node = DwindleNode(kind: .leaf(handle: WindowToken(pid: 11, windowId: 21), fullscreen: false))
+        let node = DwindleNode(
+            kind: .leaf(tile: DwindleTile(token: WindowToken(pid: 11, windowId: 21)))
+        )
         let startFrame = CGRect(x: 20, y: 40, width: 300, height: 200)
         let targetFrame = CGRect(x: 220, y: 160, width: 500, height: 440)
         let sampleTime = config.duration * 0.5

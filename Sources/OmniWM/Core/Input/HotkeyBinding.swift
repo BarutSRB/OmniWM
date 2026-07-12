@@ -460,7 +460,7 @@ enum HotkeyCategory: String, CaseIterable {
     case move = "Move Window"
     case monitor = "Monitor"
     case layout = "Layout"
-    case column = "Column"
+    case column = "Container and Column"
 }
 
 private extension Array where Element: Equatable {

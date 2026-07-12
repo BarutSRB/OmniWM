@@ -9,7 +9,7 @@ enum SurfaceKind: String, Equatable {
     case workspaceBar
     case overview
     case nativeFullscreenPlaceholder
-    case tabbedColumnOverlay
+    case tabRail
     case dragGhost
     case utility
     case quake

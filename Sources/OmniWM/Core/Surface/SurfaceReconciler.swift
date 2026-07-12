@@ -18,7 +18,7 @@ struct DesiredBarSurface: Equatable {
 
 struct DesiredSurfaceScene: Equatable {
     var border: DesiredBorderSurface?
-    var tabRails: [TabbedColumnOverlayInfo] = []
+    var tabRails: [TabRailInfo] = []
     var placeholders: [NativeFullscreenPlaceholderUpdate] = []
     var bars: [DesiredBarSurface] = []
 
@@ -146,7 +146,7 @@ final class SurfaceReconciler {
         }
         borderApplier.apply(desired.border, forceOrdering: forceOrdering)
         if desired.tabRails != appliedScene.tabRails || forceOrdering {
-            controller.tabbedOverlayManager.updateOverlays(desired.tabRails, forceOrdering: forceOrdering)
+            controller.tabRailManager.updateRails(desired.tabRails, forceOrdering: forceOrdering)
         }
         if desired.placeholders != appliedScene.placeholders {
             controller.nativeFullscreenPlaceholderManager.apply(desired.placeholders)

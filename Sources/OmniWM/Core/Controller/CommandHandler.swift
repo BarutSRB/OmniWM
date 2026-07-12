@@ -64,11 +64,7 @@ final class CommandHandler {
 
         switch command {
         case let .focus(direction):
-            if layoutHandler(as: LayoutFocusable.self)?.focusNeighbor(direction: direction) != true,
-               controller.settings.focusCrossesMonitorAtEdge
-            {
-                controller.workspaceNavigationHandler.focusMonitor(direction: direction)
-            }
+            focusWindow(direction: direction)
         case .focusPrevious:
             focusPreviousInNiri()
         case let .move(direction):
@@ -77,9 +73,9 @@ final class CommandHandler {
                 controller.workspaceNavigationHandler.moveWindowToMonitor(direction: direction)
             }
         case .moveWindowDown:
-            controller.niriLayoutHandler.moveWindow(direction: .down)
+            moveWindowWithinContainer(direction: .down)
         case .moveWindowUp:
-            controller.niriLayoutHandler.moveWindow(direction: .up)
+            moveWindowWithinContainer(direction: .up)
         case .moveWindowDownOrToWorkspaceDown:
             controller.niriLayoutHandler.moveWindowOrToAdjacentWorkspace(direction: .down)
         case .moveWindowUpOrToWorkspaceUp:
@@ -121,7 +117,7 @@ final class CommandHandler {
         case .toggleNativeFullscreen:
             toggleNativeFullscreenForFocused()
         case let .moveColumn(direction):
-            controller.niriLayoutHandler.moveColumn(direction: direction)
+            moveContainer(direction: direction)
         case .moveColumnToFirst:
             controller.niriLayoutHandler.moveColumnToFirst()
         case .moveColumnToLast:
@@ -141,9 +137,9 @@ final class CommandHandler {
         case .focusWindowBottom:
             focusWindowBottomInNiri()
         case .focusWindowDownOrTop:
-            focusWindowDownOrTopInNiri()
+            focusWindowWrapping(direction: .down)
         case .focusWindowUpOrBottom:
-            focusWindowUpOrBottomInNiri()
+            focusWindowWrapping(direction: .up)
         case .focusWindowOrWorkspaceDown:
             focusWindowOrWorkspaceInNiri(direction: .down)
         case .focusWindowOrWorkspaceUp:
@@ -579,10 +575,67 @@ final class CommandHandler {
     private func moveWindow(direction: Direction) -> WindowMoveOutcome {
         switch currentLayoutType() {
         case .dwindle:
-            controller?.dwindleLayoutHandler.swapWindow(direction: direction) ?? .blocked
+            controller?.dwindleLayoutHandler.moveWindow(direction: direction) ?? .blocked
         case .niri,
              .defaultLayout:
             moveWindowInNiri(direction: direction)
+        }
+    }
+
+    private func focusWindow(direction: Direction) {
+        guard let controller else { return }
+        switch currentLayoutType() {
+        case .dwindle:
+            if controller.dwindleLayoutHandler.focusNeighbor(direction: direction) {
+                return
+            }
+            if controller.settings.focusCrossesMonitorAtEdge,
+               controller.workspaceNavigationHandler.focusMonitor(direction: direction)
+            {
+                return
+            }
+            _ = controller.dwindleLayoutHandler.wrapGroupFocus(direction: direction)
+        case .niri,
+             .defaultLayout:
+            if controller.niriLayoutHandler.focusNeighbor(direction: direction) != true,
+               controller.settings.focusCrossesMonitorAtEdge
+            {
+                _ = controller.workspaceNavigationHandler.focusMonitor(direction: direction)
+            }
+        }
+    }
+
+    private func moveWindowWithinContainer(direction: Direction) {
+        switch currentLayoutType() {
+        case .dwindle:
+            controller?.dwindleLayoutHandler.moveGroupMember(direction: direction)
+        case .niri,
+             .defaultLayout:
+            controller?.niriLayoutHandler.moveWindow(direction: direction)
+        }
+    }
+
+    private func moveContainer(direction: Direction) {
+        switch currentLayoutType() {
+        case .dwindle:
+            _ = controller?.dwindleLayoutHandler.swapWindow(direction: direction)
+        case .niri,
+             .defaultLayout:
+            controller?.niriLayoutHandler.moveColumn(direction: direction)
+        }
+    }
+
+    private func focusWindowWrapping(direction: Direction) {
+        switch currentLayoutType() {
+        case .dwindle:
+            _ = controller?.dwindleLayoutHandler.wrapGroupFocus(direction: direction)
+        case .niri,
+             .defaultLayout:
+            if direction == .down {
+                focusWindowDownOrTopInNiri()
+            } else if direction == .up {
+                focusWindowUpOrBottomInNiri()
+            }
         }
     }
 

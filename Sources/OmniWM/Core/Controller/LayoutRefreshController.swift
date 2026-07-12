@@ -1202,6 +1202,7 @@ import QuartzCore
         pendingRevealVerificationTasksByWindowId.removeAll()
         pendingRevealTransactionsByWindowId.removeAll()
         nextPendingRevealTransactionId = 1
+        dwindleHandler.resetPendingGroupReveals()
         nativeFullscreenRestoredFrameApplyTokens.removeAll()
 
         for (_, link) in layoutState.displayLinksByDisplay {
@@ -1240,7 +1241,7 @@ import QuartzCore
     }
 
     func selectTabInNiri(
-        info: TabbedColumnOverlayInfo,
+        info: TabRailInfo,
         visualIndex: Int,
         expectedToken: WindowToken?
     ) {
@@ -2576,14 +2577,16 @@ import QuartzCore
         side: HideSide,
         reason: HideReason,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil,
-        animationTick: Bool = false
+        animationTick: Bool = false,
+        preserveWorkspaceInactive: Bool = true
     ) -> HideOperationResolution {
         guard let controller else { return .unavailable }
-        let axFrameFallback = animationTick ? nil : (try? AXWindowService.frame(entry.axRef))
-        guard var frame = fastFrame(for: entry.token, axRef: entry.axRef)
+        var resolvedFrame = fastFrame(for: entry.token, axRef: entry.axRef)
             ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
-            ?? axFrameFallback
-        else {
+        if resolvedFrame == nil, !animationTick {
+            resolvedFrame = try? AXWindowService.frame(entry.axRef)
+        }
+        guard var frame = resolvedFrame else {
             return .unavailable
         }
         if animationTick, let liveOrigin = controller.axManager.skyLightLivePosition(for: entry.windowId) {
@@ -2594,7 +2597,8 @@ import QuartzCore
             frame: frame,
             monitor: monitor,
             side: side,
-            reason: reason
+            reason: reason,
+            preserveWorkspaceInactive: preserveWorkspaceInactive
         )
 
         guard let origin = liveFrameHideOrigin(
@@ -2630,13 +2634,19 @@ import QuartzCore
         frame: CGRect,
         monitor: Monitor,
         side: HideSide,
-        reason: HideReason
+        reason: HideReason,
+        preserveWorkspaceInactive: Bool
     ) -> HiddenState {
         guard let controller else {
             return HiddenState(
                 proportionalPosition: .zero,
                 referenceMonitorId: nil,
-                reason: hiddenWindowReason(for: reason, side: side, existingState: nil)
+                reason: hiddenWindowReason(
+                    for: reason,
+                    side: side,
+                    existingState: nil,
+                    preserveWorkspaceInactive: preserveWorkspaceInactive
+                )
             )
         }
 
@@ -2657,20 +2667,29 @@ import QuartzCore
         return HiddenState(
             proportionalPosition: proportionalPosition,
             referenceMonitorId: referenceMonitorId,
-            reason: hiddenWindowReason(for: reason, side: side, existingState: existingState)
+            reason: hiddenWindowReason(
+                for: reason,
+                side: side,
+                existingState: existingState,
+                preserveWorkspaceInactive: preserveWorkspaceInactive
+            )
         )
     }
 
     private func hiddenWindowReason(
         for reason: HideReason,
         side: HideSide,
-        existingState: HiddenState?
+        existingState: HiddenState?,
+        preserveWorkspaceInactive: Bool
     ) -> HiddenReason {
         if existingState?.isScratchpad == true, reason != .scratchpad {
             return .scratchpad
         }
 
-        if existingState?.workspaceInactive == true, reason == .layoutTransient {
+        if preserveWorkspaceInactive,
+           existingState?.workspaceInactive == true,
+           reason == .layoutTransient
+        {
             return .workspaceInactive
         }
 
@@ -2712,6 +2731,71 @@ import QuartzCore
         case .unavailable:
             controller.axManager.cancelPendingFrameJobs([frameEntry])
             controller.axManager.suppressFrameWrites([frameEntry])
+        }
+    }
+
+    func applyLayoutTransientHides(
+        _ hiddenEntries: [(entry: WindowState, side: HideSide)],
+        monitor: Monitor,
+        isAnimationTick: Bool,
+        preserveWorkspaceInactive: Bool
+    ) {
+        guard !hiddenEntries.isEmpty, let controller else { return }
+        var hiddenJobs: [(pid: pid_t, windowId: Int)] = []
+        hiddenJobs.reserveCapacity(hiddenEntries.count)
+        var hidePlans: [WindowPositionPlan] = []
+        hidePlans.reserveCapacity(hiddenEntries.count)
+        let hiddenPlacementMonitors = controller.workspaceManager.monitors.map(
+            HiddenPlacementMonitorContext.init
+        )
+
+        for (entry, side) in hiddenEntries {
+            switch resolveHideOperation(
+                for: entry,
+                monitor: monitor,
+                side: side,
+                reason: .layoutTransient,
+                hiddenPlacementMonitors: hiddenPlacementMonitors,
+                animationTick: isAnimationTick,
+                preserveWorkspaceInactive: preserveWorkspaceInactive
+            ) {
+            case let .movable(movePlan, hiddenState):
+                controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+                hiddenJobs.append((entry.pid, entry.windowId))
+                hidePlans.append(movePlan)
+                if isAnimationTick {
+                    controller.axManager.markParkPending(for: entry.windowId, pid: entry.pid)
+                }
+            case let .alreadyHidden(hiddenState):
+                controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+                hiddenJobs.append((entry.pid, entry.windowId))
+                if !isAnimationTick
+                    || (controller.axManager.skyLightLivePosition(for: entry.windowId) == nil
+                        && !controller.axManager.hasPendingFrameWrite(for: entry.windowId)
+                        && controller.axManager.parkQuietSinceCommand(for: entry.windowId))
+                {
+                    controller.axManager.clearParkPending(
+                        for: entry.windowId,
+                        pid: entry.pid,
+                        reason: "confirmed"
+                    )
+                }
+            case .unavailable:
+                hiddenJobs.append((entry.pid, entry.windowId))
+                controller.axManager.clearParkPending(
+                    for: entry.windowId,
+                    pid: entry.pid,
+                    reason: "unavailable"
+                )
+            }
+        }
+
+        if !hiddenJobs.isEmpty {
+            controller.axManager.cancelPendingFrameJobs(hiddenJobs)
+            controller.axManager.suppressFrameWrites(hiddenJobs)
+        }
+        if !hidePlans.isEmpty {
+            applyPositionPlans(hidePlans, animationTick: isAnimationTick)
         }
     }
 
@@ -3514,6 +3598,13 @@ import QuartzCore
 
 @MainActor
 final class LayoutDiffExecutor {
+    private struct DeferredRevealFrameUpdate {
+        let pid: pid_t
+        let windowId: Int
+        let frame: CGRect
+        let token: WindowToken
+    }
+
     private unowned let refreshController: LayoutRefreshController
 
     init(refreshController: LayoutRefreshController) {
@@ -3566,6 +3657,14 @@ final class LayoutDiffExecutor {
                 guard entry.layoutReason != .nativeFullscreen else { continue }
                 hiddenEntries.append((entry, side))
             }
+        }
+
+        for change in diff.deferredHides {
+            hiddenTokens.insert(change.token)
+        }
+
+        func isDeferredReveal(_ token: WindowToken) -> Bool {
+            diff.deferredHides.contains { $0.revealToken == token }
         }
 
         for restoreChange in diff.restoreChanges where !hiddenTokens.contains(restoreChange.token) {
@@ -3625,59 +3724,12 @@ final class LayoutDiffExecutor {
             }
         }
 
-        if !hiddenEntries.isEmpty {
-            var hiddenJobs: [(pid: pid_t, windowId: Int)] = []
-            hiddenJobs.reserveCapacity(hiddenEntries.count)
-            var hidePlans: [LayoutRefreshController.WindowPositionPlan] = []
-
-            let isAnimationTick = plan.isAnimationTick
-            for (entry, side) in hiddenEntries {
-                switch refreshController.resolveHideOperation(
-                    for: entry,
-                    monitor: monitor,
-                    side: side,
-                    reason: .layoutTransient,
-                    animationTick: isAnimationTick
-                ) {
-                case let .movable(movePlan, hiddenState):
-                    controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
-                    hiddenJobs.append((entry.pid, entry.windowId))
-                    hidePlans.append(movePlan)
-                    if isAnimationTick {
-                        controller.axManager.markParkPending(for: entry.windowId, pid: entry.pid)
-                    }
-                case let .alreadyHidden(hiddenState):
-                    controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
-                    hiddenJobs.append((entry.pid, entry.windowId))
-                    if !isAnimationTick
-                        || (controller.axManager.skyLightLivePosition(for: entry.windowId) == nil
-                            && !controller.axManager.hasPendingFrameWrite(for: entry.windowId)
-                            && controller.axManager.parkQuietSinceCommand(for: entry.windowId))
-                    {
-                        controller.axManager.clearParkPending(
-                            for: entry.windowId,
-                            pid: entry.pid,
-                            reason: "confirmed"
-                        )
-                    }
-                case .unavailable:
-                    hiddenJobs.append((entry.pid, entry.windowId))
-                    controller.axManager.clearParkPending(
-                        for: entry.windowId,
-                        pid: entry.pid,
-                        reason: "unavailable"
-                    )
-                }
-            }
-
-            if !hiddenJobs.isEmpty {
-                controller.axManager.cancelPendingFrameJobs(hiddenJobs)
-                controller.axManager.suppressFrameWrites(hiddenJobs)
-            }
-            if !hidePlans.isEmpty {
-                refreshController.applyPositionPlans(hidePlans, animationTick: plan.isAnimationTick)
-            }
-        }
+        refreshController.applyLayoutTransientHides(
+            hiddenEntries,
+            monitor: monitor,
+            isAnimationTick: plan.isAnimationTick,
+            preserveWorkspaceInactive: !plan.isActiveWorkspace
+        )
 
         if !restoreEntries.isEmpty {
             let restorePlans: [LayoutRefreshController.WindowPositionPlan] = restoreEntries
@@ -3706,6 +3758,7 @@ final class LayoutDiffExecutor {
                 where !restoreTokens.contains(entry.token)
                 && pendingRevealTransactionIdsByToken[entry.token] == nil
                 && !blockedRevealTokens.contains(entry.token)
+                && !isDeferredReveal(entry.token)
             {
                 controller.workspaceManager.setHiddenState(nil, for: entry.token)
             }
@@ -3739,6 +3792,8 @@ final class LayoutDiffExecutor {
         frameUpdates.reserveCapacity(diff.frameChanges.count)
         var revealFrameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect, transactionId: UInt64)] = []
         revealFrameUpdates.reserveCapacity(pendingRevealTransactionIdsByToken.count)
+        var deferredRevealFrameUpdates: [DeferredRevealFrameUpdate] = []
+        deferredRevealFrameUpdates.reserveCapacity(diff.deferredHides.count)
 
         for change in diff.frameChanges {
             guard !hiddenTokens.contains(change.token),
@@ -3754,6 +3809,18 @@ final class LayoutDiffExecutor {
             if let transactionId = pendingRevealTransactionIdsByToken[change.token] {
                 revealFrameUpdates.append((entry.pid, entry.windowId, change.frame, transactionId))
             } else {
+                if isDeferredReveal(change.token) {
+                    controller.axManager.forceApplyNextFrame(for: entry.windowId)
+                    deferredRevealFrameUpdates.append(
+                        DeferredRevealFrameUpdate(
+                            pid: entry.pid,
+                            windowId: entry.windowId,
+                            frame: change.frame,
+                            token: change.token
+                        )
+                    )
+                    continue
+                }
                 let forceNativeFullscreenRestoreApply = refreshController
                     .consumeNativeFullscreenRestoredFrameApply(for: change.token)
                 if change.forceApply {
@@ -3767,6 +3834,14 @@ final class LayoutDiffExecutor {
         }
 
         applyFrameUpdates(frameUpdates, isAnimationTick: plan.isAnimationTick, controller: controller)
+
+        applyDeferredRevealFrames(
+            deferredRevealFrameUpdates,
+            deferredHides: diff.deferredHides,
+            plan: plan,
+            monitor: monitor,
+            controller: controller
+        )
 
         if !revealFrameUpdates.isEmpty {
             var revealTransactionIdsByWindowId: [Int: UInt64] = [:]
@@ -3788,6 +3863,38 @@ final class LayoutDiffExecutor {
                         return
                     }
                     refreshController.completePendingRevealTransaction(
+                        with: result,
+                        transactionId: transactionId
+                    )
+                }
+            )
+        }
+    }
+
+    private func applyDeferredRevealFrames(
+        _ updates: [DeferredRevealFrameUpdate],
+        deferredHides: [LayoutDeferredHide],
+        plan: WorkspaceLayoutPlan,
+        monitor: Monitor,
+        controller: WMController
+    ) {
+        guard !updates.isEmpty else { return }
+        for update in updates {
+            guard let entry = controller.workspaceManager.entry(for: update.token),
+                  let transactionId = refreshController.dwindleHandler.beginPendingGroupRevealTransaction(
+                      for: entry,
+                      targetFrame: update.frame,
+                      monitor: monitor,
+                      hides: deferredHides.filter { $0.revealToken == update.token },
+                      preserveWorkspaceInactive: !plan.isActiveWorkspace
+                  )
+            else {
+                continue
+            }
+            controller.axManager.applyFramesParallel(
+                [(update.pid, update.windowId, update.frame)],
+                terminalObserver: { [weak refreshController] result in
+                    refreshController?.dwindleHandler.completePendingGroupRevealTransaction(
                         with: result,
                         transactionId: transactionId
                     )

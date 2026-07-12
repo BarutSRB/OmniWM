@@ -117,6 +117,9 @@ enum OverviewRenderer {
         static let iconSize: CGFloat = 24
         static let titleFontSize: CGFloat = 12
         static let appNameFontSize: CGFloat = 10
+        static let groupBadgeFontSize: CGFloat = 11
+        static let groupBadgeHeight: CGFloat = 22
+        static let groupBadgePadding: CGFloat = 8
         static let workspaceLabelFontSize: CGFloat = 16
         static let searchFontSize: CGFloat = 16
         static let dropLineHeight: CGFloat = 4
@@ -506,6 +509,60 @@ enum OverviewRenderer {
             )
         }
 
+        if window.groupCount > 1 {
+            renderGroupBadge(
+                context: context,
+                count: window.groupCount,
+                frame: frame
+            )
+        }
+
+        context.restoreGState()
+    }
+
+    private static func renderGroupBadge(
+        context: CGContext,
+        count: Int,
+        frame: CGRect
+    ) {
+        let text = "\(count)"
+        let font = CTFontCreateWithName("SF Pro Text" as CFString, Metrics.groupBadgeFontSize, nil)
+        let attributedString = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: Colors.textWhiteNS
+            ]
+        )
+        let line = CTLineCreateWithAttributedString(attributedString)
+        let textBounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        let badgeWidth = max(
+            Metrics.groupBadgeHeight,
+            ceil(textBounds.width) + Metrics.groupBadgePadding * 2
+        )
+        let badgeFrame = CGRect(
+            x: frame.minX + 8,
+            y: frame.maxY - Metrics.groupBadgeHeight - 8,
+            width: badgeWidth,
+            height: Metrics.groupBadgeHeight
+        )
+        let badgePath = CGPath(
+            roundedRect: badgeFrame,
+            cornerWidth: Metrics.groupBadgeHeight / 2,
+            cornerHeight: Metrics.groupBadgeHeight / 2,
+            transform: nil
+        )
+
+        context.saveGState()
+        context.addPath(badgePath)
+        context.setFillColor(CGColor(gray: 0.05, alpha: 0.82))
+        context.fillPath()
+        context.textMatrix = .identity
+        context.translateBy(
+            x: badgeFrame.midX - textBounds.midX,
+            y: badgeFrame.midY - textBounds.midY
+        )
+        CTLineDraw(line, context)
         context.restoreGState()
     }
 

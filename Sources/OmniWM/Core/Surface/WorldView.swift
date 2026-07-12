@@ -80,8 +80,10 @@ struct WorldView {
         controller.workspaceManager.visibleWorkspaceIds().contains(workspaceId)
     }
 
-    func tabRailInfos() -> [TabbedColumnOverlayInfo] {
-        controller.niriLayoutHandler.desiredTabRailInfos()
+    func tabRailInfos() -> [TabRailInfo] {
+        var infos = controller.niriLayoutHandler.desiredTabRailInfos()
+        infos.append(contentsOf: controller.dwindleLayoutHandler.desiredTabRailInfos())
+        return infos
     }
 
     func barSurfaces() -> [DesiredBarSurface] {

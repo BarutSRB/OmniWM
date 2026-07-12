@@ -113,7 +113,7 @@ final class WMController {
         set { workspaceManager.dwindleEngine = newValue }
     }
 
-    let tabbedOverlayManager = TabbedColumnOverlayManager()
+    let tabRailManager = TabRailManager()
     @ObservationIgnored
     lazy var nativeFullscreenPlaceholderManager: NativeFullscreenPlaceholderManager = {
         let manager = NativeFullscreenPlaceholderManager()
@@ -281,12 +281,22 @@ final class WMController {
         traceCaptureCoordinator.onStateChange = { [weak self] in
             self?.statusBarController?.handleTraceCaptureStateChange()
         }
-        tabbedOverlayManager.onSelect = { [weak self] info, visualIndex, token in
-            self?.layoutRefreshController.selectTabInNiri(
-                info: info,
-                visualIndex: visualIndex,
-                expectedToken: token
-            )
+        tabRailManager.onSelect = { [weak self] info, visualIndex, token in
+            guard let self else { return }
+            switch info.owner {
+            case .niriColumn:
+                layoutRefreshController.selectTabInNiri(
+                    info: info,
+                    visualIndex: visualIndex,
+                    expectedToken: token
+                )
+            case .dwindleTile:
+                dwindleLayoutHandler.selectGroupMember(
+                    info: info,
+                    visualIndex: visualIndex,
+                    expectedToken: token
+                )
+            }
         }
         workspaceManager.onSessionStateChanged = { [weak self] in
             self?.handleSessionStateChanged()
@@ -2611,10 +2621,12 @@ final class WMController {
         _ = workspaceManager.resolveAndSetWorkspaceFocusToken(in: workspaceId, onMonitor: monitorId)
     }
 
+    @discardableResult
     private func commitWorkspaceFocusCandidate(
         _ token: WindowToken,
-        in workspaceId: WorkspaceDescriptor.ID
-    ) {
+        in workspaceId: WorkspaceDescriptor.ID,
+        focusDwindleCandidate: Bool = false
+    ) -> Bool {
         let monitorId = workspaceManager.monitorId(for: workspaceId)
 
         switch workspaceManager.activeLayoutKind(for: workspaceId) {
@@ -2628,24 +2640,24 @@ final class WMController {
                     in: workspaceId,
                     onMonitor: monitorId
                 )
-                return
+                return false
             }
         case .dwindle:
             if let engine = dwindleEngine,
-               let node = engine.findNode(for: token, in: workspaceId)
+               engine.findNode(for: token, in: workspaceId) != nil
             {
-                if engine.selectedNode(in: workspaceId) !== node {
-                    workspaceManager.withEngineMutationScope(in: workspaceId, label: "dwindle_focus_selection") {
-                        engine.setSelectedNode(node, in: workspaceId)
-                    }
-                }
                 _ = workspaceManager.commitWorkspaceSelection(
                     nodeId: nil,
                     focusedToken: token,
                     in: workspaceId,
                     onMonitor: monitorId
                 )
-                return
+                let activation = dwindleLayoutHandler.activateWindow(
+                    token,
+                    in: workspaceId,
+                    focusAfterLayout: focusDwindleCandidate
+                )
+                return focusDwindleCandidate && activation != .missing
             }
         }
 
@@ -2657,6 +2669,7 @@ final class WMController {
                 plannedSeq: workspaceManager.worldSeq
             )
         )
+        return false
     }
 
     func ensureFocusedTokenValid(
@@ -2677,8 +2690,14 @@ final class WMController {
             if let entry = workspaceManager.entry(for: preferredRecoveryToken),
                entry.workspaceId == workspaceId
             {
-                commitWorkspaceFocusCandidate(preferredRecoveryToken, in: workspaceId)
-                focusWindow(preferredRecoveryToken)
+                let routedDwindleFocus = commitWorkspaceFocusCandidate(
+                    preferredRecoveryToken,
+                    in: workspaceId,
+                    focusDwindleCandidate: true
+                )
+                if !routedDwindleFocus {
+                    focusWindow(preferredRecoveryToken)
+                }
                 return
             }
         }
@@ -2697,8 +2716,14 @@ final class WMController {
             return
         }
 
-        commitWorkspaceFocusCandidate(nextFocusToken, in: workspaceId)
-        focusWindow(nextFocusToken)
+        let routedDwindleFocus = commitWorkspaceFocusCandidate(
+            nextFocusToken,
+            in: workspaceId,
+            focusDwindleCandidate: true
+        )
+        if !routedDwindleFocus {
+            focusWindow(nextFocusToken)
+        }
     }
 
     func moveMouseToWindow(_ handle: WindowHandle, preferredFrame: CGRect? = nil) {
@@ -2889,6 +2914,9 @@ extension WMController {
             selectNativeFullscreenPlaceholder(entry)
             return
         }
+        if deferInactiveDwindleGroupFocus(entry, origin: origin) {
+            return
+        }
 
         let workspaceId = entry.workspaceId
         let request = intentLedger.beginManagedRequest(
@@ -2917,6 +2945,30 @@ extension WMController {
         )
     }
 
+    private func deferInactiveDwindleGroupFocus(
+        _ entry: WindowState,
+        origin: ManagedFocusOrigin
+    ) -> Bool {
+        let workspaceId = entry.workspaceId
+        guard entry.mode == .tiling,
+              entry.layoutReason == .standard,
+              workspaceManager.activeLayoutKind(for: workspaceId) == .dwindle,
+              let monitorId = workspaceManager.monitorId(for: workspaceId),
+              workspaceManager.activeWorkspace(on: monitorId)?.id == workspaceId,
+              let snapshot = dwindleEngine?.tileSnapshot(for: entry.token, in: workspaceId),
+              snapshot.members.count > 1,
+              snapshot.activeToken != entry.token
+        else {
+            return false
+        }
+
+        return dwindleLayoutHandler.activateWindow(
+            entry.token,
+            in: workspaceId,
+            origin: origin
+        ) == .activated
+    }
+
     func focusWindow(_ handle: WindowHandle) {
         focusWindow(handle.id)
     }
@@ -2929,8 +2981,9 @@ extension WMController {
                     return node.renderedFrame ?? node.frame
                 }
             case .dwindle:
-                if let node = dwindleEngine?.findNode(for: token, in: workspaceId) {
-                    return node.cachedFrame
+                if let engine = dwindleEngine {
+                    return engine.contentFrame(for: token, in: workspaceId)
+                        ?? engine.findNode(for: token, in: workspaceId)?.cachedFrame
                 }
             }
         }

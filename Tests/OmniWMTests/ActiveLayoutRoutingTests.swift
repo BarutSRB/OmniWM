@@ -476,16 +476,16 @@ final class ActiveLayoutRoutingTests: XCTestCase {
         let selectionBefore = controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId
         XCTAssertNotEqual(selectionBefore, staleNode?.id)
 
-        let info = TabbedColumnOverlayInfo(
+        let info = TabRailInfo(
             workspaceId: workspaceId,
-            columnId: column.id,
+            owner: .niriColumn(column.id),
             plannedSeq: controller.workspaceManager.worldSeq,
-            columnFrame: staleNiriFrame,
+            tileFrame: staleNiriFrame,
             tabCount: 1,
             activeVisualIndex: 0,
             activeWindowId: nil,
             tabs: [
-                TabbedColumnOverlayTabInfo(
+                TabRailTabInfo(
                     visualIndex: 0, token: token, windowId: nil, appName: nil, title: nil, isActive: true
                 )
             ]

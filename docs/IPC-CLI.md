@@ -24,7 +24,7 @@ This document covers the OmniWM automation surface. For the docs hub, see [Docum
   - [Workspace Switching](#workspace-switching)
   - [Move to Workspace](#move-to-workspace)
   - [Monitor Focus](#monitor-focus)
-  - [Column Operations (Niri)](#column-operations-niri)
+  - [Container and Column Operations](#container-and-column-operations)
   - [Dwindle Operations](#dwindle-operations)
   - [Layout & Sizing](#layout--sizing)
   - [Window Management](#window-management)
@@ -261,7 +261,9 @@ omniwmctl command <command-path> [arguments...]
 
 | Command | Arguments | Layout | Description |
 |---------|-----------|--------|-------------|
-| `command focus` | `<left\|right\|up\|down>` | shared | Focus a neighboring window |
+| `command focus` | `<left\|right\|up\|down>` | shared | Focus spatially; Dwindle Up/Down traverse grouped tabs before edge fallback |
+| `command focus-window down-or-top` | — | shared | Focus the next window in the active Niri column or Dwindle group, wrapping locally |
+| `command focus-window up-or-bottom` | — | shared | Focus the previous window in the active Niri column or Dwindle group, wrapping locally |
 | `command focus previous` | — | niri | Focus the previously focused window |
 | `command focus down-or-left` | — | niri | Traverse backward through the active Niri workspace |
 | `command focus up-or-right` | — | niri | Traverse forward through the active Niri workspace |
@@ -273,7 +275,11 @@ omniwmctl command <command-path> [arguments...]
 
 | Command | Arguments | Layout | Description |
 |---------|-----------|--------|-------------|
-| `command move` | `<left\|right\|up\|down>` | shared | Move the focused window in the given direction |
+| `command move` | `<left\|right\|up\|down>` | shared | Move with layout-aware consume/expel or Dwindle join/extract behavior |
+| `command move-window-down` | — | shared | Reorder the focused window down by one without wrapping within its Niri column or Dwindle group |
+| `command move-window-up` | — | shared | Reorder the focused window up by one without wrapping within its Niri column or Dwindle group |
+
+In Dwindle, `focus left/right` remains spatial. `focus up/down` traverses a group's eligible tabs; at the group edge it tries a spatial neighbor, then the configured monitor transition, and wraps locally only when neither exit succeeds. `move <direction>` joins a singleton with the touching tile or extracts only the active member from a group onto that side. Moving between two existing groups is a two-step extract-then-join operation. Use `move-column <direction>` when the complete tile or group should move instead.
 
 ### Workspace Switching
 
@@ -305,11 +311,11 @@ Workspace IDs are positive numeric strings. Direct hotkeys stay limited to `1-9`
 | `command focus-monitor last` | — | shared | Move focus back to the previous monitor |
 | `command swap-workspace-with-monitor` | `<left\|right\|up\|down>` | shared | Swap active workspace with the workspace on an adjacent monitor |
 
-### Column Operations (Niri)
+### Container and Column Operations
 
 | Command | Arguments | Layout | Description |
 |---------|-----------|--------|-------------|
-| `command move-column` | `<left\|right\|up\|down>` | niri | Move the focused Niri column |
+| `command move-column` | `<left\|right\|up\|down>` | shared left/right; dwindle up/down | Move a Niri column horizontally or swap a complete Dwindle tile/group without monitor fallback |
 | `command move-column-to-workspace` | `<number>` | niri | Move focused column to workspace by index |
 | `command move-column-to-workspace up` | — | niri | Move focused column to the adjacent workspace above |
 | `command move-column-to-workspace down` | — | niri | Move focused column to the adjacent workspace below |

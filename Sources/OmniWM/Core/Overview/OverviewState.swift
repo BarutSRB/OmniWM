@@ -57,6 +57,7 @@ struct OverviewWindowItem {
     var isSelected: Bool
     var matchesSearch: Bool
     var closeButtonHovered: Bool
+    var groupCount = 1
 
     var closeButtonFrame: CGRect {
         let size: CGFloat = 20

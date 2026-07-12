@@ -387,7 +387,7 @@ final class ServiceLifecycleManager {
         controller.resetMouseWarpPolicy()
         controller.axEventHandler.cleanup()
 
-        controller.tabbedOverlayManager.removeAll()
+        controller.tabRailManager.removeAll()
         controller.nativeFullscreenPlaceholderManager.removeAll()
         controller.surfaceReconciler.cleanup()
         controller.cleanupUIOnStop()

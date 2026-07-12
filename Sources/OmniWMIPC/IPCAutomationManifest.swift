@@ -420,7 +420,12 @@ public enum IPCAutomationManifest {
     ]
 
     public static let commandDescriptors: [IPCCommandDescriptor] = [
-        command(["focus"], name: .focus, summary: "Focus a neighboring window.", arguments: [directionArgument]),
+        command(
+            ["focus"],
+            name: .focus,
+            summary: "Focus spatially; Dwindle Up/Down traverse grouped tabs before edge fallback.",
+            arguments: [directionArgument]
+        ),
         command(
             ["focus", "previous"],
             name: .focusPrevious,
@@ -461,14 +466,12 @@ public enum IPCAutomationManifest {
         command(
             ["focus-window", "down-or-top"],
             name: .focusWindowDownOrTop,
-            summary: "Focus down in the focused Niri column, wrapping to the top.",
-            layoutCompatibility: .niri
+            summary: "Focus the next window in the active Niri column or Dwindle group, wrapping to the top."
         ),
         command(
             ["focus-window", "up-or-bottom"],
             name: .focusWindowUpOrBottom,
-            summary: "Focus up in the focused Niri column, wrapping to the bottom.",
-            layoutCompatibility: .niri
+            summary: "Focus the previous window in the active Niri column or Dwindle group, wrapping to the bottom."
         ),
         command(
             ["focus-window-or-workspace-down"],
@@ -516,20 +519,18 @@ public enum IPCAutomationManifest {
         command(
             ["move"],
             name: .move,
-            summary: "Move the focused window in the given direction.",
+            summary: "Move with layout-aware consume/expel or Dwindle join/extract behavior.",
             arguments: [directionArgument]
         ),
         command(
             ["move-window-down"],
             name: .moveWindowDown,
-            summary: "Move the focused Niri window down within its column.",
-            layoutCompatibility: .niri
+            summary: "Reorder the focused window down by one without wrapping within its Niri column or Dwindle group."
         ),
         command(
             ["move-window-up"],
             name: .moveWindowUp,
-            summary: "Move the focused Niri window up within its column.",
-            layoutCompatibility: .niri
+            summary: "Reorder the focused window up by one without wrapping within its Niri column or Dwindle group."
         ),
         command(
             ["move-window-down-or-to-workspace-down"],
@@ -634,9 +635,8 @@ public enum IPCAutomationManifest {
         command(
             ["move-column"],
             name: .moveColumn,
-            summary: "Move the focused Niri column in the given direction.",
-            arguments: [directionArgument],
-            layoutCompatibility: .niri
+            summary: "Move a Niri column horizontally or a complete Dwindle tile/group without monitor fallback.",
+            arguments: [directionArgument]
         ),
         command(
             ["move-column-to-first"],

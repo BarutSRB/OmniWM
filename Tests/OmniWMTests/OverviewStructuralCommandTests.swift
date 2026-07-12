@@ -434,6 +434,51 @@ final class OverviewStructuralCommandTests: XCTestCase {
         XCTAssertEqual(fixture.focusRecorder.callCount, 0)
     }
 
+    func testDwindleOverviewRejectsMoveAndMoveContainerInEveryDirection() throws {
+        let fixture = try makeFixture(layouts: [.dwindle])
+        let workspaceId = fixture.workspaceIds[0]
+        let first = try addManagedWindow(pid: 461_025, windowId: 31, to: workspaceId, fixture: fixture)
+        let second = try addManagedWindow(pid: 461_025, windowId: 32, to: workspaceId, fixture: fixture)
+        let engine = try XCTUnwrap(fixture.controller.dwindleEngine)
+        _ = fixture.controller.workspaceManager.withEngineMutationScope(in: workspaceId) {
+            engine.calculateLayout(for: workspaceId, screen: fixture.monitor.visibleFrame)
+        }
+        let firstNode = try XCTUnwrap(engine.findNode(for: first.id, in: workspaceId))
+        let secondNode = try XCTUnwrap(engine.findNode(for: second.id, in: workspaceId))
+        let parent = try XCTUnwrap(firstNode.parent)
+        XCTAssertEqual(secondNode.parent?.id, parent.id)
+        let originalChildIds = parent.children.map(\.id)
+        let originalFirstTile = try XCTUnwrap(engine.tileSnapshot(for: first.id, in: workspaceId))
+        let originalSecondTile = try XCTUnwrap(engine.tileSnapshot(for: second.id, in: workspaceId))
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy
+        )
+        let assertUnchanged = {
+            XCTAssertEqual(parent.children.map(\.id), originalChildIds)
+            XCTAssertEqual(engine.tileSnapshot(for: first.id, in: workspaceId), originalFirstTile)
+            XCTAssertEqual(engine.tileSnapshot(for: second.id, in: workspaceId), originalSecondTile)
+            XCTAssertEqual(engine.tileCount(in: workspaceId), 2)
+        }
+
+        for direction in [Direction.left, .right, .up, .down] {
+            XCTAssertEqual(
+                overview.performStructuralHotkey(.move(direction), selectedHandle: second),
+                .unchanged,
+                direction.rawValue
+            )
+            assertUnchanged()
+            XCTAssertEqual(
+                overview.performStructuralHotkey(.moveColumn(direction), selectedHandle: second),
+                .unchanged,
+                direction.rawValue
+            )
+            assertUnchanged()
+        }
+
+        XCTAssertEqual(fixture.focusRecorder.callCount, 0)
+    }
+
     func testFloatingColumnMoveNoOpDoesNotCreateAdjacentWorkspace() throws {
         let fixture = try makeFixture(layouts: [.niri])
         let workspaceId = fixture.workspaceIds[0]

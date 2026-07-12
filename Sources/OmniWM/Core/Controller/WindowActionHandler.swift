@@ -123,6 +123,17 @@ final class WindowActionHandler {
         overviewControllerStorage?.handleManagedWindowRemoved(entry)
     }
 
+    func refreshOverviewProjection(
+        affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>,
+        selectedToken: WindowToken? = nil
+    ) {
+        let selectedHandle = selectedToken.flatMap { controller?.workspaceManager.handle(for: $0) }
+        overviewControllerStorage?.refreshCachedOverviewProjection(
+            affectedWorkspaceIds: affectedWorkspaceIds,
+            selectedHandle: selectedHandle
+        )
+    }
+
     func isOverviewOpen() -> Bool {
         overviewControllerStorage?.isOpen == true
     }
@@ -412,8 +423,16 @@ final class WindowActionHandler {
 
     @discardableResult
     func navigateToWindowInternal(token: WindowToken, workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let controller else { return false }
-        guard let engine = controller.niriEngine else { return false }
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: token),
+              entry.workspaceId == workspaceId
+        else {
+            return false
+        }
+        let targetLayoutKind = controller.workspaceManager.activeLayoutKind(for: workspaceId)
+        if targetLayoutKind == .niri, controller.niriEngine == nil {
+            return false
+        }
 
         let currentWsId = controller.activeWorkspace()?.id
 
@@ -425,47 +444,62 @@ final class WindowActionHandler {
             }
         }
 
-        var targetState = controller.workspaceManager.niriViewportState(for: workspaceId)
-        if let niriWindow = engine.findNode(for: token, in: workspaceId) {
-            targetState.selectedNodeId = niriWindow.id
-
-            if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
-               let colIdx = engine.columnIndex(of: column, in: workspaceId),
-               let monitor = controller.workspaceManager.monitor(for: workspaceId)
-            {
-                controller.workspaceManager.withEngineMutationScope {
-                    engine.activateWindow(niriWindow.id, in: workspaceId)
-                }
-
-                let cols = engine.columns(in: workspaceId)
-                let gap = CGFloat(controller.workspaceManager.gaps)
-                let settings = engine.effectiveSettings(in: workspaceId)
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                targetState.transitionToColumn(
-                    colIdx,
-                    columns: cols,
-                    gap: gap,
-                    viewportWidth: workingFrame.width,
-                    motion: .disabled,
-                    animate: false,
-                    centerMode: settings.centerFocusedColumn,
-                    alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
-                    scale: engine.displayScale(in: workspaceId),
-                    workingArea: workingFrame,
-                    viewFrame: monitor.frame
+        switch targetLayoutKind {
+        case .dwindle:
+            if !prepareDwindleNavigationTarget(token, workspaceId: workspaceId) {
+                _ = controller.workspaceManager.applySessionPatch(
+                    .init(
+                        workspaceId: workspaceId,
+                        viewportState: nil,
+                        rememberedFocusToken: token,
+                        plannedSeq: controller.workspaceManager.worldSeq
+                    )
                 )
-                targetState.selectionProgress = 0
             }
-        }
+        case .niri:
+            guard let engine = controller.niriEngine else { return false }
+            var targetState = controller.workspaceManager.niriViewportState(for: workspaceId)
+            if let niriWindow = engine.findNode(for: token, in: workspaceId) {
+                targetState.selectedNodeId = niriWindow.id
 
-        _ = controller.workspaceManager.applySessionPatch(
-            .init(
-                workspaceId: workspaceId,
-                viewportState: targetState,
-                rememberedFocusToken: token,
-                plannedSeq: controller.workspaceManager.worldSeq
+                if let column = engine.findColumn(containing: niriWindow, in: workspaceId),
+                   let colIdx = engine.columnIndex(of: column, in: workspaceId),
+                   let monitor = controller.workspaceManager.monitor(for: workspaceId)
+                {
+                    controller.workspaceManager.withEngineMutationScope {
+                        engine.activateWindow(niriWindow.id, in: workspaceId)
+                    }
+
+                    let cols = engine.columns(in: workspaceId)
+                    let gap = CGFloat(controller.workspaceManager.gaps)
+                    let settings = engine.effectiveSettings(in: workspaceId)
+                    let workingFrame = controller.insetWorkingFrame(for: monitor)
+                    targetState.transitionToColumn(
+                        colIdx,
+                        columns: cols,
+                        gap: gap,
+                        viewportWidth: workingFrame.width,
+                        motion: .disabled,
+                        animate: false,
+                        centerMode: settings.centerFocusedColumn,
+                        alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
+                        scale: engine.displayScale(in: workspaceId),
+                        workingArea: workingFrame,
+                        viewFrame: monitor.frame
+                    )
+                    targetState.selectionProgress = 0
+                }
+            }
+
+            _ = controller.workspaceManager.applySessionPatch(
+                .init(
+                    workspaceId: workspaceId,
+                    viewportState: targetState,
+                    rememberedFocusToken: token,
+                    plannedSeq: controller.workspaceManager.worldSeq
+                )
             )
-        )
+        }
         controller.layoutRefreshController
             .commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
                 controller?.focusWindow(token)
@@ -559,8 +593,13 @@ final class WindowActionHandler {
             return true
         }
 
+        _ = controller.dwindleLayoutHandler.activateWindow(
+            focusedToken,
+            in: targetWorkspaceId,
+            layoutRefresh: false,
+            focusAfterLayout: false
+        )
         controller.workspaceManager.withEngineMutationScope {
-            engine.setSelectedNode(focusedNode, in: targetWorkspaceId)
             engine.setPreselection(.right, in: targetWorkspaceId)
         }
 
@@ -610,6 +649,29 @@ final class WindowActionHandler {
         return controller.settings.layoutType(for: workspaceName)
     }
 
+    private func prepareDwindleNavigationTarget(
+        _ token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        guard let controller,
+              controller.workspaceManager.activeLayoutKind(for: workspaceId) == .dwindle,
+              let entry = controller.workspaceManager.entry(for: token),
+              entry.workspaceId == workspaceId,
+              entry.mode == .tiling,
+              entry.layoutReason == .standard,
+              controller.dwindleEngine?.findNode(for: token, in: workspaceId) != nil
+        else {
+            return false
+        }
+
+        return controller.dwindleLayoutHandler.activateWindow(
+            token,
+            in: workspaceId,
+            layoutRefresh: false,
+            focusAfterLayout: false
+        ) != .missing
+    }
+
     @discardableResult
     func focusWorkspaceFromBar(named name: String) -> Bool {
         guard let controller else { return false }
@@ -620,6 +682,9 @@ final class WindowActionHandler {
         guard let result = controller.workspaceManager.focusWorkspace(named: name) else { return false }
 
         let focusedToken = controller.resolveAndSetWorkspaceFocusToken(for: result.workspace.id)
+        if let focusedToken {
+            _ = prepareDwindleNavigationTarget(focusedToken, workspaceId: result.workspace.id)
+        }
         controller.layoutRefreshController
             .commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
                 if let focusedToken {

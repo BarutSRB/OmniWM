@@ -508,7 +508,8 @@ enum StructuralMutationOutcome: Equatable {
                 viewportState: nil
             ),
             diff: diff,
-            isAnimationTick: animationTime != nil
+            isAnimationTick: animationTime != nil,
+            isActiveWorkspace: snapshot.isActiveWorkspace
         )
     }
 
@@ -1103,7 +1104,8 @@ enum StructuralMutationOutcome: Equatable {
                 rememberedFocusToken: rememberedFocusToken
             ),
             diff: diff,
-            animationDirectives: directives
+            animationDirectives: directives,
+            isActiveWorkspace: snapshot.isActiveWorkspace
         )
     }
 
@@ -1164,16 +1166,16 @@ enum StructuralMutationOutcome: Equatable {
         return diff
     }
 
-    func desiredTabRailInfos() -> [TabbedColumnOverlayInfo] {
+    func desiredTabRailInfos() -> [TabRailInfo] {
         guard let controller, let engine = controller.niriEngine else { return [] }
 
-        var infos: [TabbedColumnOverlayInfo] = []
+        var infos: [TabRailInfo] = []
         for monitor in controller.workspaceManager.monitors {
             guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id),
                   controller.workspaceManager.activeLayoutKind(for: workspace.id) == .niri
             else { continue }
 
-            infos.append(contentsOf: tabbedColumnOverlayInfos(
+            infos.append(contentsOf: niriTabRailInfos(
                 engine: engine,
                 workspaceId: workspace.id,
                 monitor: monitor
@@ -1182,18 +1184,18 @@ enum StructuralMutationOutcome: Equatable {
         return infos
     }
 
-    private func tabbedColumnOverlayInfos(
+    private func niriTabRailInfos(
         engine: NiriLayoutEngine,
         workspaceId: WorkspaceDescriptor.ID,
         monitor: Monitor
-    ) -> [TabbedColumnOverlayInfo] {
+    ) -> [TabRailInfo] {
         guard let controller else { return [] }
-        var infos: [TabbedColumnOverlayInfo] = []
+        var infos: [TabRailInfo] = []
         for column in engine.columns(in: workspaceId) where column.isTabbed {
             guard let frame = column.renderedFrame ?? column.frame else { continue }
             let visibleColumnFrame = frame.intersection(monitor.visibleFrame)
-            guard TabbedColumnOverlayManager.shouldShowOverlay(
-                columnFrame: frame,
+            guard TabRailManager.shouldShowRail(
+                tileFrame: frame,
                 visibleFrame: monitor.visibleFrame
             ) else { continue }
 
@@ -1211,12 +1213,12 @@ enum StructuralMutationOutcome: Equatable {
             )
 
             infos.append(
-                TabbedColumnOverlayInfo(
+                TabRailInfo(
                     workspaceId: workspaceId,
-                    columnId: column.id,
+                    owner: .niriColumn(column.id),
                     plannedSeq: controller.workspaceManager.worldSeq,
-                    columnFrame: frame,
-                    visibleColumnFrame: visibleColumnFrame,
+                    tileFrame: frame,
+                    visibleTileFrame: visibleColumnFrame,
                     tabCount: windows.count,
                     activeVisualIndex: activeVisualIndex,
                     activeWindowId: activeWindowId,
@@ -1232,10 +1234,10 @@ enum StructuralMutationOutcome: Equatable {
         windows: [NiriWindow],
         activeVisualIndex: Int,
         controller: WMController
-    ) -> [TabbedColumnOverlayTabInfo] {
+    ) -> [TabRailTabInfo] {
         guard !windows.isEmpty else { return [] }
         let clampedActiveVisualIndex = min(max(0, activeVisualIndex), windows.count - 1)
-        var tabs: [TabbedColumnOverlayTabInfo] = []
+        var tabs: [TabRailTabInfo] = []
         tabs.reserveCapacity(windows.count)
         for visualIndex in 0 ..< windows.count {
             guard let storageIndex = column.storageTileIndex(forVisualTileIndex: visualIndex),
@@ -1253,7 +1255,7 @@ enum StructuralMutationOutcome: Equatable {
             }
             let title = entry?.managedReplacementMetadata?.title
             tabs.append(
-                TabbedColumnOverlayTabInfo(
+                TabRailTabInfo(
                     visualIndex: visualIndex,
                     token: window.token,
                     windowId: entry?.windowId,
@@ -1267,11 +1269,12 @@ enum StructuralMutationOutcome: Equatable {
     }
 
     func selectTabInNiri(
-        info: TabbedColumnOverlayInfo,
+        info: TabRailInfo,
         visualIndex: Int,
         expectedToken: WindowToken?
     ) {
         guard let controller, let engine = controller.niriEngine else { return }
+        guard case let .niriColumn(columnId) = info.owner else { return }
         let workspaceId = info.workspaceId
         guard controller.workspaceManager.activeLayoutKind(for: workspaceId) == .niri else { return }
         guard controller.workspaceManager.isSeqCurrent(
@@ -1281,7 +1284,6 @@ enum StructuralMutationOutcome: Equatable {
         ) else {
             return
         }
-        let columnId = info.columnId
         guard let column = engine.columns(in: workspaceId).first(where: { $0.id == columnId }) else { return }
 
         let windows = column.windowNodes
@@ -1704,7 +1706,7 @@ enum StructuralMutationOutcome: Equatable {
         let engine = NiriLayoutEngine()
         engine.centerFocusedColumn = centerFocusedColumn
         engine.alwaysCenterSingleColumn = alwaysCenterSingleColumn
-        engine.renderStyle.tabIndicatorWidth = TabbedColumnOverlayManager.tabIndicatorWidth
+        engine.renderStyle.tabIndicatorWidth = TabRailManager.tabIndicatorWidth
         engine.animationClock = controller.animationClock
         controller.niriEngine = engine
 

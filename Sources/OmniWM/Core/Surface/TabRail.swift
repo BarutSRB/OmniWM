@@ -3,7 +3,7 @@
 
 import AppKit
 
-private enum TabbedOverlayMetrics {
+private enum TabRailMetrics {
     static let barThickness: CGFloat = 10
     static let spacing: CGFloat = 2
     static let totalWidth: CGFloat = barThickness + spacing
@@ -71,7 +71,21 @@ private enum TabbedOverlayMetrics {
     }
 }
 
-struct TabbedColumnOverlayTabInfo: Equatable {
+enum TabRailOwner: Hashable {
+    case niriColumn(NodeId)
+    case dwindleTile(DwindleTileId)
+
+    fileprivate var surfaceIdentifier: String {
+        switch self {
+        case let .niriColumn(id):
+            "niri-column-\(id.uuid.uuidString)"
+        case let .dwindleTile(id):
+            "dwindle-tile-\(id.uuidString)"
+        }
+    }
+}
+
+struct TabRailTabInfo: Equatable {
     let visualIndex: Int
     let token: WindowToken?
     let windowId: Int?
@@ -94,50 +108,50 @@ struct TabbedColumnOverlayTabInfo: Equatable {
     }
 }
 
-struct TabbedColumnOverlayInfo: Equatable {
+struct TabRailInfo: Equatable {
     let workspaceId: WorkspaceDescriptor.ID
-    let columnId: NodeId
+    let owner: TabRailOwner
     let plannedSeq: UInt64
-    let columnFrame: CGRect
-    let visibleColumnFrame: CGRect
+    let tileFrame: CGRect
+    let visibleTileFrame: CGRect
     let activeVisualIndex: Int
     let activeWindowId: Int?
-    let tabs: [TabbedColumnOverlayTabInfo]
+    let tabs: [TabRailTabInfo]
 
     var tabCount: Int {
         tabs.count
     }
 
-    var key: TabbedColumnOverlayKey {
-        TabbedColumnOverlayKey(workspaceId: workspaceId, columnId: columnId)
+    var key: TabRailKey {
+        TabRailKey(workspaceId: workspaceId, owner: owner)
     }
 
     init(
         workspaceId: WorkspaceDescriptor.ID,
-        columnId: NodeId,
+        owner: TabRailOwner,
         plannedSeq: UInt64,
-        columnFrame: CGRect,
-        visibleColumnFrame: CGRect? = nil,
+        tileFrame: CGRect,
+        visibleTileFrame: CGRect? = nil,
         tabCount: Int,
         activeVisualIndex: Int,
         activeWindowId: Int?,
-        tabs: [TabbedColumnOverlayTabInfo]? = nil
+        tabs: [TabRailTabInfo]? = nil
     ) {
         self.workspaceId = workspaceId
-        self.columnId = columnId
+        self.owner = owner
         self.plannedSeq = plannedSeq
-        self.columnFrame = columnFrame
-        self.visibleColumnFrame = visibleColumnFrame ?? columnFrame
+        self.tileFrame = tileFrame
+        self.visibleTileFrame = visibleTileFrame ?? tileFrame
         self.activeVisualIndex = activeVisualIndex
         self.activeWindowId = activeWindowId
         self.tabs = tabs ?? Self.defaultTabs(tabCount: tabCount, activeVisualIndex: activeVisualIndex)
     }
 
-    private static func defaultTabs(tabCount: Int, activeVisualIndex: Int) -> [TabbedColumnOverlayTabInfo] {
+    private static func defaultTabs(tabCount: Int, activeVisualIndex: Int) -> [TabRailTabInfo] {
         guard tabCount > 0 else { return [] }
         let clampedActiveVisualIndex = min(max(0, activeVisualIndex), tabCount - 1)
         return (0 ..< tabCount).map { visualIndex in
-            TabbedColumnOverlayTabInfo(
+            TabRailTabInfo(
                 visualIndex: visualIndex,
                 token: nil,
                 windowId: nil,
@@ -149,19 +163,19 @@ struct TabbedColumnOverlayInfo: Equatable {
     }
 }
 
-struct TabbedColumnOverlayKey: Hashable {
+struct TabRailKey: Hashable {
     let workspaceId: WorkspaceDescriptor.ID
-    let columnId: NodeId
+    let owner: TabRailOwner
 }
 
-struct TabbedRailLayout: Equatable {
+struct TabRailLayout: Equatable {
     struct Item: Equatable {
         let visualIndex: Int
         let hitRect: CGRect
         let pillRect: CGRect
     }
 
-    static let empty = TabbedRailLayout(railRect: .zero, items: [])
+    static let empty = TabRailLayout(railRect: .zero, items: [])
 
     let railRect: CGRect
     let items: [Item]
@@ -174,7 +188,7 @@ struct TabbedRailLayout: Equatable {
     init(tabCount: Int, bounds: CGRect) {
         guard tabCount > 0,
               bounds.width > 0,
-              bounds.height >= TabbedOverlayMetrics.minimumRailHeight
+              bounds.height >= TabRailMetrics.minimumRailHeight
         else {
             self = .empty
             return
@@ -211,9 +225,9 @@ struct TabbedRailLayout: Equatable {
             ).intersection(railRect)
             let pillRect = CGRect(
                 x: visualRailRect.minX,
-                y: hitRect.minY + TabbedOverlayMetrics.segmentVerticalInset,
+                y: hitRect.minY + TabRailMetrics.segmentVerticalInset,
                 width: visualRailRect.width,
-                height: max(0, hitRect.height - TabbedOverlayMetrics.segmentVerticalInset * 2)
+                height: max(0, hitRect.height - TabRailMetrics.segmentVerticalInset * 2)
             )
             guard !hitRect.isNull, hitRect.width > 0, hitRect.height > 0 else { continue }
             items.append(Item(visualIndex: visualIndex, hitRect: hitRect, pillRect: pillRect))
@@ -224,14 +238,14 @@ struct TabbedRailLayout: Equatable {
     }
 
     static func fittedHeight(tabCount: Int, availableHeight: CGFloat) -> CGFloat {
-        guard tabCount > 0, availableHeight >= TabbedOverlayMetrics.minimumRailHeight else { return 0 }
+        guard tabCount > 0, availableHeight >= TabRailMetrics.minimumRailHeight else { return 0 }
         let segmentGap = segmentGap(tabCount: tabCount, availableHeight: availableHeight)
         let segmentHeight = segmentHeight(
             tabCount: tabCount,
             availableHeight: availableHeight,
             segmentGap: segmentGap
         )
-        guard segmentHeight >= TabbedOverlayMetrics.minimumSegmentHeight else { return 0 }
+        guard segmentHeight >= TabRailMetrics.minimumSegmentHeight else { return 0 }
         return min(
             availableHeight,
             totalHeight(tabCount: tabCount, segmentHeight: segmentHeight, segmentGap: segmentGap)
@@ -240,9 +254,9 @@ struct TabbedRailLayout: Equatable {
 
     static func visualRailRect(in bounds: CGRect) -> CGRect {
         CGRect(
-            x: bounds.maxX - TabbedOverlayMetrics.totalWidth,
+            x: bounds.maxX - TabRailMetrics.totalWidth,
             y: bounds.minY,
-            width: TabbedOverlayMetrics.totalWidth,
+            width: TabRailMetrics.totalWidth,
             height: bounds.height
         )
     }
@@ -255,16 +269,16 @@ struct TabbedRailLayout: Equatable {
         guard tabCount > 1 else { return 0 }
         let preferredHeight = totalHeight(
             tabCount: tabCount,
-            segmentHeight: TabbedOverlayMetrics.preferredSegmentHeight,
-            segmentGap: TabbedOverlayMetrics.preferredSegmentGap
+            segmentHeight: TabRailMetrics.preferredSegmentHeight,
+            segmentGap: TabRailMetrics.preferredSegmentGap
         )
         guard preferredHeight > availableHeight else {
-            return TabbedOverlayMetrics.preferredSegmentGap
+            return TabRailMetrics.preferredSegmentGap
         }
         let scale = max(0, availableHeight / preferredHeight)
         return max(
-            TabbedOverlayMetrics.minimumSegmentGap,
-            min(TabbedOverlayMetrics.preferredSegmentGap, TabbedOverlayMetrics.preferredSegmentGap * scale)
+            TabRailMetrics.minimumSegmentGap,
+            min(TabRailMetrics.preferredSegmentGap, TabRailMetrics.preferredSegmentGap * scale)
         )
     }
 
@@ -276,82 +290,78 @@ struct TabbedRailLayout: Equatable {
         let totalGapHeight = CGFloat(max(0, tabCount - 1)) * segmentGap
         let availableForSegments = max(0, availableHeight - totalGapHeight)
         let fitHeight = availableForSegments / CGFloat(tabCount)
-        guard fitHeight >= TabbedOverlayMetrics.minimumSegmentHeight else { return 0 }
-        return min(TabbedOverlayMetrics.preferredSegmentHeight, fitHeight)
+        guard fitHeight >= TabRailMetrics.minimumSegmentHeight else { return 0 }
+        return min(TabRailMetrics.preferredSegmentHeight, fitHeight)
     }
 }
 
 @MainActor
-final class TabbedColumnOverlayManager {
-    typealias SelectionHandler = (TabbedColumnOverlayInfo, Int, WindowToken?) -> Void
+final class TabRailManager {
+    typealias SelectionHandler = (TabRailInfo, Int, WindowToken?) -> Void
 
-    static let tabIndicatorWidth: CGFloat = TabbedOverlayMetrics.totalWidth
+    static let tabIndicatorWidth: CGFloat = TabRailMetrics.totalWidth
 
     var onSelect: SelectionHandler?
 
-    private var overlays: [TabbedColumnOverlayKey: TabbedColumnOverlayWindow] = [:]
+    private var railWindows: [TabRailKey: TabRailWindow] = [:]
 
-    func updateOverlays(_ infos: [TabbedColumnOverlayInfo], forceOrdering: Bool = false) {
-        var desiredKeys = Set<TabbedColumnOverlayKey>()
+    func updateRails(_ infos: [TabRailInfo], forceOrdering: Bool = false) {
+        var desiredKeys = Set<TabRailKey>()
         desiredKeys.reserveCapacity(infos.count)
         for info in infos where info.tabCount > 0 {
             desiredKeys.insert(info.key)
-            updateOverlay(info, forceOrdering: forceOrdering)
+            updateRail(info, forceOrdering: forceOrdering)
         }
 
-        for (key, overlay) in overlays where !desiredKeys.contains(key) {
-            overlay.close()
-            overlays.removeValue(forKey: key)
+        for (key, window) in railWindows where !desiredKeys.contains(key) {
+            window.close()
+            railWindows.removeValue(forKey: key)
         }
     }
 
-    private func updateOverlay(_ info: TabbedColumnOverlayInfo, forceOrdering: Bool) {
+    private func updateRail(_ info: TabRailInfo, forceOrdering: Bool) {
         let key = info.key
-        let overlay = overlays[key] ?? {
-            let window = TabbedColumnOverlayWindow(columnId: info.columnId, workspaceId: info.workspaceId)
+        let window = railWindows[key] ?? {
+            let window = TabRailWindow(owner: info.owner, workspaceId: info.workspaceId)
             window.onSelect = { [weak self] info, visualIndex, token in
                 self?.onSelect?(info, visualIndex, token)
             }
-            overlays[key] = window
+            railWindows[key] = window
             return window
         }()
-        overlay.update(info: info, forceOrdering: forceOrdering)
+        window.update(info: info, forceOrdering: forceOrdering)
     }
 
     func removeAll() {
-        for (_, overlay) in overlays {
-            overlay.close()
+        for (_, window) in railWindows {
+            window.close()
         }
-        overlays.removeAll()
+        railWindows.removeAll()
     }
 
-    static func shouldShowOverlay(columnFrame: CGRect, visibleFrame: CGRect) -> Bool {
-        let intersection = columnFrame.intersection(visibleFrame)
-        return intersection.width >= TabbedOverlayMetrics.minVisibleIntersection &&
-            intersection.height >= TabbedOverlayMetrics.minVisibleIntersection
+    static func shouldShowRail(tileFrame: CGRect, visibleFrame: CGRect) -> Bool {
+        let intersection = tileFrame.intersection(visibleFrame)
+        return intersection.width >= TabRailMetrics.minVisibleIntersection &&
+            intersection.height >= TabRailMetrics.minVisibleIntersection
     }
 }
 
 @MainActor
-private final class TabbedColumnOverlayWindow: NSPanel {
-    private let overlayView: TabbedColumnOverlayView
-    private var columnId: NodeId
-    private var workspaceId: WorkspaceDescriptor.ID
+private final class TabRailWindow: NSPanel {
+    private let railView: TabRailView
     private let surfaceID: String
     private let surfaceCoordinator = SurfaceCoordinator.shared
     private var lastFrame: CGRect?
     private var lastActiveWindowId: Int?
-    private var currentInfo: TabbedColumnOverlayInfo?
+    private var currentInfo: TabRailInfo?
     private var registeredSurfaceWindowNumber: Int?
     private var accessibilityDisplayObserver: NSObjectProtocol?
 
-    var onSelect: ((TabbedColumnOverlayInfo, Int, WindowToken?) -> Void)?
+    var onSelect: ((TabRailInfo, Int, WindowToken?) -> Void)?
 
-    init(columnId: NodeId, workspaceId: WorkspaceDescriptor.ID) {
-        self.columnId = columnId
-        self.workspaceId = workspaceId
-        surfaceID = Self.surfaceID(workspaceId: workspaceId, columnId: columnId)
-        overlayView = TabbedColumnOverlayView(frame: .zero)
+    init(owner: TabRailOwner, workspaceId: WorkspaceDescriptor.ID) {
+        surfaceID = Self.surfaceID(workspaceId: workspaceId, owner: owner)
+        railView = TabRailView(frame: .zero)
 
         super.init(
             contentRect: .zero,
@@ -373,20 +383,20 @@ private final class TabbedColumnOverlayWindow: NSPanel {
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
 
-        overlayView.onSelect = { [weak self] visualIndex in
+        railView.onSelect = { [weak self] visualIndex in
             guard let self, let currentInfo else { return }
             let token = currentInfo.tabs.first(where: { $0.visualIndex == visualIndex })?.token
             self.onSelect?(currentInfo, visualIndex, token)
         }
-        contentView = overlayView
+        contentView = railView
 
         accessibilityDisplayObserver = NotificationCenter.default.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak overlayView] _ in
-            Task { @MainActor [weak overlayView] in
-                overlayView?.needsDisplay = true
+        ) { [weak railView] _ in
+            Task { @MainActor [weak railView] in
+                railView?.needsDisplay = true
             }
         }
     }
@@ -409,12 +419,10 @@ private final class TabbedColumnOverlayWindow: NSPanel {
         false
     }
 
-    func update(info: TabbedColumnOverlayInfo, forceOrdering: Bool) {
+    func update(info: TabRailInfo, forceOrdering: Bool) {
         currentInfo = info
-        workspaceId = info.workspaceId
-        columnId = info.columnId
 
-        let frame = Self.overlayFrame(for: info.visibleColumnFrame, tabCount: info.tabCount)
+        let frame = Self.railFrame(for: info.visibleTileFrame, tabCount: info.tabCount)
         guard frame.width > 1, frame.height > 1 else {
             orderOut(nil)
             lastFrame = nil
@@ -423,14 +431,18 @@ private final class TabbedColumnOverlayWindow: NSPanel {
             return
         }
 
+        let accessibilityOriginChanged = self.frame.origin != frame.origin
         if lastFrame != frame || self.frame != frame {
             setFrame(frame, display: false)
-            overlayView.frame = CGRect(origin: .zero, size: frame.size)
+            railView.frame = CGRect(origin: .zero, size: frame.size)
             lastFrame = frame
+            if accessibilityOriginChanged {
+                railView.refreshAccessibilityFrames()
+            }
         }
 
         let clampedActiveVisualIndex = min(max(0, info.activeVisualIndex), max(0, info.tabCount - 1))
-        overlayView.update(tabs: info.tabs, activeVisualIndex: clampedActiveVisualIndex)
+        railView.update(tabs: info.tabs, activeVisualIndex: clampedActiveVisualIndex)
 
         let wasVisible = isVisible
         if forceOrdering || !wasVisible {
@@ -447,13 +459,13 @@ private final class TabbedColumnOverlayWindow: NSPanel {
         lastActiveWindowId = info.activeWindowId
     }
 
-    private static func overlayFrame(for visibleColumnFrame: CGRect, tabCount: Int) -> CGRect {
-        guard tabCount > 0, !visibleColumnFrame.isNull else { return .zero }
-        let width = max(TabbedOverlayMetrics.hitWidth, TabbedOverlayMetrics.totalWidth)
-        let height = TabbedRailLayout.fittedHeight(tabCount: tabCount, availableHeight: visibleColumnFrame.height)
+    private static func railFrame(for visibleTileFrame: CGRect, tabCount: Int) -> CGRect {
+        guard tabCount > 0, !visibleTileFrame.isNull else { return .zero }
+        let width = max(TabRailMetrics.hitWidth, TabRailMetrics.totalWidth)
+        let height = TabRailLayout.fittedHeight(tabCount: tabCount, availableHeight: visibleTileFrame.height)
         guard height > 1 else { return .zero }
-        let x = visibleColumnFrame.minX - (width - TabbedOverlayMetrics.totalWidth)
-        let y = visibleColumnFrame.minY + (visibleColumnFrame.height - height) / 2
+        let x = visibleTileFrame.minX - (width - TabRailMetrics.totalWidth)
+        let y = visibleTileFrame.minY + (visibleTileFrame.height - height) / 2
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
@@ -476,7 +488,7 @@ private final class TabbedColumnOverlayWindow: NSPanel {
                 self?.isVisible == true && self?.lastFrame != nil
             },
             policy: SurfacePolicy(
-                kind: .tabbedColumnOverlay,
+                kind: .tabRail,
                 hitTestPolicy: .interactive,
                 capturePolicy: .excluded,
                 suppressesManagedFocusRecovery: false
@@ -485,13 +497,13 @@ private final class TabbedColumnOverlayWindow: NSPanel {
         registeredSurfaceWindowNumber = currentWindowNumber
     }
 
-    private static func surfaceID(workspaceId: WorkspaceDescriptor.ID, columnId: NodeId) -> String {
-        "tabbed-column-overlay-\(workspaceId.uuidString)-\(columnId.uuid.uuidString)"
+    private static func surfaceID(workspaceId: WorkspaceDescriptor.ID, owner: TabRailOwner) -> String {
+        "tab-rail-\(workspaceId.uuidString)-\(owner.surfaceIdentifier)"
     }
 }
 
-private final class TabbedColumnOverlayView: NSView {
-    private var tabs: [TabbedColumnOverlayTabInfo] = []
+private final class TabRailView: NSView {
+    private var tabs: [TabRailTabInfo] = []
 
     private var isHovered = false {
         didSet {
@@ -510,7 +522,7 @@ private final class TabbedColumnOverlayView: NSView {
     }
 
     private var tracking: NSTrackingArea?
-    private var accessibilityTabElements: [TabbedColumnAccessibilityElement] = []
+    private var accessibilityTabElements: [TabRailAccessibilityElement] = []
 
     private var tabCount: Int {
         tabs.count
@@ -520,7 +532,7 @@ private final class TabbedColumnOverlayView: NSView {
 
     var onSelect: ((Int) -> Void)?
 
-    func update(tabs: [TabbedColumnOverlayTabInfo], activeVisualIndex: Int) {
+    func update(tabs: [TabRailTabInfo], activeVisualIndex: Int) {
         let metadataChanged = !Self.hasSameAccessibilityMetadata(self.tabs, tabs)
         let tabsChanged = self.tabs != tabs
         let activeChanged = self.activeVisualIndex != activeVisualIndex
@@ -545,6 +557,23 @@ private final class TabbedColumnOverlayView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         refreshAccessibilityElements()
+    }
+
+    func refreshAccessibilityFrames() {
+        let items = currentLayout().items
+        guard items.count == accessibilityTabElements.count,
+              zip(accessibilityTabElements, items).allSatisfy({ pair in
+                  pair.0.visualIndex == pair.1.visualIndex
+              })
+        else {
+            refreshAccessibilityElements()
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+            return
+        }
+        for (element, item) in zip(accessibilityTabElements, items) {
+            element.updateScreenFrame(screenFrame(for: item.hitRect))
+        }
+        NSAccessibility.post(element: self, notification: .layoutChanged)
     }
 
     override func updateTrackingAreas() {
@@ -581,14 +610,14 @@ private final class TabbedColumnOverlayView: NSView {
 
         let layout = currentLayout()
         guard !layout.items.isEmpty else { return }
-        let visualRailRect = TabbedRailLayout.visualRailRect(in: layout.railRect)
+        let visualRailRect = TabRailLayout.visualRailRect(in: layout.railRect)
 
-        fillRoundedRect(visualBarRect(in: visualRailRect), color: TabbedOverlayMetrics.backgroundColor)
-        fillRect(gutterRect(in: visualRailRect), color: TabbedOverlayMetrics.gutterColor)
-        fillRect(edgeRect(in: visualRailRect), color: TabbedOverlayMetrics.edgeColor)
+        fillRoundedRect(visualBarRect(in: visualRailRect), color: TabRailMetrics.backgroundColor)
+        fillRect(gutterRect(in: visualRailRect), color: TabRailMetrics.gutterColor)
+        fillRect(edgeRect(in: visualRailRect), color: TabRailMetrics.edgeColor)
 
         if isHovered {
-            fillRoundedRect(visualRailRect, color: TabbedOverlayMetrics.hoverColor)
+            fillRoundedRect(visualRailRect, color: TabRailMetrics.hoverColor)
         }
 
         let clampedActiveVisualIndex = min(max(0, activeVisualIndex), tabCount - 1)
@@ -637,7 +666,7 @@ private final class TabbedColumnOverlayView: NSView {
     }
 
     override func accessibilityLabel() -> String? {
-        "Column tabs"
+        "Window tabs"
     }
 
     override func accessibilityValue() -> Any? {
@@ -654,37 +683,37 @@ private final class TabbedColumnOverlayView: NSView {
         CGRect(
             x: railRect.minX,
             y: railRect.minY,
-            width: TabbedOverlayMetrics.barThickness,
+            width: TabRailMetrics.barThickness,
             height: railRect.height
         )
     }
 
     private func gutterRect(in railRect: CGRect) -> CGRect {
         CGRect(
-            x: railRect.minX + TabbedOverlayMetrics.barThickness,
+            x: railRect.minX + TabRailMetrics.barThickness,
             y: railRect.minY,
-            width: TabbedOverlayMetrics.spacing,
+            width: TabRailMetrics.spacing,
             height: railRect.height
         )
     }
 
     private func edgeRect(in railRect: CGRect) -> CGRect {
         CGRect(
-            x: railRect.minX + TabbedOverlayMetrics.barThickness,
+            x: railRect.minX + TabRailMetrics.barThickness,
             y: railRect.minY + 1,
-            width: TabbedOverlayMetrics.edgeLineWidth,
+            width: TabRailMetrics.edgeLineWidth,
             height: max(0, railRect.height - 2)
         )
     }
 
-    private func visualRectForSegment(_ item: TabbedRailLayout.Item, selected: Bool, hovered: Bool) -> CGRect {
+    private func visualRectForSegment(_ item: TabRailLayout.Item, selected: Bool, hovered: Bool) -> CGRect {
         let segmentRect = item.pillRect
         let width = if selected {
-            TabbedOverlayMetrics.activeSegmentWidth
+            TabRailMetrics.activeSegmentWidth
         } else if hovered {
-            TabbedOverlayMetrics.hoveredSegmentWidth
+            TabRailMetrics.hoveredSegmentWidth
         } else {
-            TabbedOverlayMetrics.inactiveSegmentWidth
+            TabRailMetrics.inactiveSegmentWidth
         }
         let x = segmentRect.midX - width / 2
         return CGRect(
@@ -695,24 +724,24 @@ private final class TabbedColumnOverlayView: NSView {
         )
     }
 
-    private func drawSegment(_ item: TabbedRailLayout.Item, selected: Bool) {
+    private func drawSegment(_ item: TabRailLayout.Item, selected: Bool) {
         let hovered = hoveredVisualIndex == item.visualIndex
         let segmentRect = visualRectForSegment(item, selected: selected, hovered: hovered)
         guard segmentRect.width > 0, segmentRect.height > 0 else { return }
         let path = NSBezierPath(
             roundedRect: segmentRect,
-            xRadius: TabbedOverlayMetrics.cornerRadius,
-            yRadius: TabbedOverlayMetrics.cornerRadius
+            xRadius: TabRailMetrics.cornerRadius,
+            yRadius: TabRailMetrics.cornerRadius
         )
         if selected {
-            TabbedOverlayMetrics.selectedColor(hovered: hovered).setFill()
+            TabRailMetrics.selectedColor(hovered: hovered).setFill()
         } else {
-            TabbedOverlayMetrics.unselectedColor(hovered: hovered, railHovered: isHovered).setFill()
+            TabRailMetrics.unselectedColor(hovered: hovered, railHovered: isHovered).setFill()
         }
         path.fill()
 
         if selected {
-            TabbedOverlayMetrics.selectedStrokeColor.setStroke()
+            TabRailMetrics.selectedStrokeColor.setStroke()
             path.lineWidth = 1
             path.stroke()
         }
@@ -722,8 +751,8 @@ private final class TabbedColumnOverlayView: NSView {
         color.setFill()
         NSBezierPath(
             roundedRect: rect,
-            xRadius: TabbedOverlayMetrics.cornerRadius,
-            yRadius: TabbedOverlayMetrics.cornerRadius
+            xRadius: TabRailMetrics.cornerRadius,
+            yRadius: TabRailMetrics.cornerRadius
         ).fill()
     }
 
@@ -738,8 +767,8 @@ private final class TabbedColumnOverlayView: NSView {
         hoveredVisualIndex = visualIndex(at: point)
     }
 
-    private func currentLayout() -> TabbedRailLayout {
-        TabbedRailLayout(tabCount: tabCount, bounds: bounds)
+    private func currentLayout() -> TabRailLayout {
+        TabRailLayout(tabCount: tabCount, bounds: bounds)
     }
 
     private func refreshAccessibilityElements() {
@@ -758,7 +787,7 @@ private final class TabbedColumnOverlayView: NSView {
                 element.update(tab: tab, screenFrame: screenFrame)
                 return element
             }
-            let element = TabbedColumnAccessibilityElement(
+            let element = TabRailAccessibilityElement(
                 parent: self,
                 tab: tab,
                 screenFrame: screenFrame,
@@ -790,8 +819,8 @@ private final class TabbedColumnOverlayView: NSView {
     }
 
     private static func hasSameAccessibilityMetadata(
-        _ lhs: [TabbedColumnOverlayTabInfo],
-        _ rhs: [TabbedColumnOverlayTabInfo]
+        _ lhs: [TabRailTabInfo],
+        _ rhs: [TabRailTabInfo]
     ) -> Bool {
         guard lhs.count == rhs.count else { return false }
         for (left, right) in zip(lhs, rhs) {
@@ -807,9 +836,9 @@ private final class TabbedColumnOverlayView: NSView {
     }
 }
 
-private final class TabbedColumnAccessibilityElement: NSAccessibilityElement {
+private final class TabRailAccessibilityElement: NSAccessibilityElement {
     private weak var parentElement: AnyObject?
-    private var tab: TabbedColumnOverlayTabInfo
+    private var tab: TabRailTabInfo
     private var screenFrame: CGRect
     private let pressAction: (Int) -> Void
     private(set) var isSelected: Bool
@@ -820,7 +849,7 @@ private final class TabbedColumnAccessibilityElement: NSAccessibilityElement {
 
     init(
         parent: AnyObject,
-        tab: TabbedColumnOverlayTabInfo,
+        tab: TabRailTabInfo,
         screenFrame: CGRect,
         pressAction: @escaping (Int) -> Void
     ) {
@@ -865,8 +894,12 @@ private final class TabbedColumnAccessibilityElement: NSAccessibilityElement {
         return true
     }
 
-    func update(tab: TabbedColumnOverlayTabInfo, screenFrame: CGRect) {
+    func update(tab: TabRailTabInfo, screenFrame: CGRect) {
         self.tab = tab
+        self.screenFrame = screenFrame
+    }
+
+    func updateScreenFrame(_ screenFrame: CGRect) {
         self.screenFrame = screenFrame
     }
 

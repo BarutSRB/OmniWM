@@ -92,12 +92,14 @@ final class WorkspaceNavigationHandler {
             commitWorkspaceSelection(nodeId: node.id, focusedToken: token, in: workspaceId)
         case .dwindle:
             guard let engine = controller.dwindleEngine,
-                  let node = engine.findNode(for: token, in: workspaceId),
-                  engine.selectedNode(in: workspaceId) !== node
+                  engine.findNode(for: token, in: workspaceId) != nil
             else { return }
-            controller.workspaceManager.withEngineMutationScope(in: workspaceId) {
-                engine.setSelectedNode(node, in: workspaceId)
-            }
+            _ = controller.dwindleLayoutHandler.activateWindow(
+                token,
+                in: workspaceId,
+                layoutRefresh: false,
+                focusAfterLayout: false
+            )
         }
     }
 
@@ -219,23 +221,32 @@ final class WorkspaceNavigationHandler {
         switchToMonitor(previousId, fromMonitor: currentMonitorId)
     }
 
-    func focusMonitor(direction: Direction) {
-        guard let controller else { return }
-        guard let currentMonitorId = interactionMonitorId(for: controller) else { return }
+    @discardableResult
+    func focusMonitor(direction: Direction) -> Bool {
+        guard let controller else { return false }
+        guard let currentMonitorId = interactionMonitorId(for: controller) else { return false }
         guard let target = controller.workspaceManager.adjacentMonitor(
             from: currentMonitorId,
             direction: direction
-        ) else { return }
+        ) else { return false }
         guard let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: target.id)
-        else { return }
+        else { return false }
 
         let sourceFrame = controller.workspaceManager.focusedToken
             .flatMap { controller.preferredKeyboardFocusFrame(for: $0) }
+        let dwindleEngine = controller.workspaceManager.activeLayoutKind(for: targetWorkspace.id) == .dwindle
+            ? controller.dwindleEngine
+            : nil
         let candidates = controller.workspaceManager.tiledEntries(in: targetWorkspace.id)
-            .compactMap { entry in
-                controller.preferredKeyboardFocusFrame(for: entry.token).map { (token: entry.token, frame: $0) }
+            .compactMap { entry -> (token: WindowToken, frame: CGRect)? in
+                if dwindleEngine?.isInactiveGroupMember(entry.token, in: targetWorkspace.id) == true {
+                    return nil
+                }
+                return controller.preferredKeyboardFocusFrame(for: entry.token).map {
+                    (token: entry.token, frame: $0)
+                }
             }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else { return false }
 
         if let chosen = Self.spatialNeighborToken(
             from: sourceFrame,
@@ -245,7 +256,7 @@ final class WorkspaceNavigationHandler {
         ) {
             _ = controller.workspaceManager.rememberFocus(chosen, in: targetWorkspace.id)
         }
-        switchToMonitor(target.id, fromMonitor: currentMonitorId)
+        return switchToMonitor(target.id, fromMonitor: currentMonitorId)
     }
 
     func moveWindowToMonitor(direction: Direction) {
@@ -379,12 +390,16 @@ final class WorkspaceNavigationHandler {
         }?.token
     }
 
-    private func switchToMonitor(_ targetMonitorId: Monitor.ID, fromMonitor currentMonitorId: Monitor.ID) {
-        guard let controller else { return }
+    @discardableResult
+    private func switchToMonitor(
+        _ targetMonitorId: Monitor.ID,
+        fromMonitor currentMonitorId: Monitor.ID
+    ) -> Bool {
+        guard let controller, targetMonitorId != currentMonitorId else { return false }
 
         guard let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: targetMonitorId)
         else {
-            return
+            return false
         }
 
         _ = controller.workspaceManager.setInteractionMonitor(targetMonitorId)
@@ -398,6 +413,7 @@ final class WorkspaceNavigationHandler {
                 controller?.focusWindow(focusToken)
             }
         }
+        return true
     }
 
     func swapCurrentWorkspaceWithMonitor(direction: Direction) {
