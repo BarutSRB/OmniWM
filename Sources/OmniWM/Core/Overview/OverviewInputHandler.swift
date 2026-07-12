@@ -8,8 +8,9 @@ import Foundation
 @MainActor
 final class OverviewInputHandler {
     enum KeyAction: Equatable {
-        case clearSearchOrDismiss
+        case dismissSelection
         case activateSelection
+        case closeSelection
         case navigate(Direction)
         case deleteBackward
         case appendToSearch(String)
@@ -31,6 +32,7 @@ final class OverviewInputHandler {
         static let upArrow = UInt16(kVK_UpArrow)
         static let tab = UInt16(kVK_Tab)
         static let delete = UInt16(kVK_Delete)
+        static let w = UInt16(kVK_ANSI_W)
     }
 
     private weak var controller: OverviewController?
@@ -54,16 +56,36 @@ final class OverviewInputHandler {
         )
         guard result.shouldConsume else { return false }
 
-        switch result.action {
-        case .clearSearchOrDismiss:
-            if !searchQuery.isEmpty {
-                searchQuery = ""
-                controller.updateSearchQuery("")
-            } else {
-                controller.dismiss(reason: .cancel, animated: true)
+        switch controller.state {
+        case .closed:
+            return false
+        case .closing:
+            return true
+        case .opening:
+            switch result.action {
+            case .dismissSelection:
+                controller.dismissToSelection(animated: true)
+            case .activateSelection:
+                controller.dismissToSelection(animated: true)
+            case .closeSelection,
+                 .navigate,
+                 .deleteBackward,
+                 .appendToSearch,
+                 .consume:
+                break
             }
+            return true
+        case .open:
+            break
+        }
+
+        switch result.action {
+        case .dismissSelection:
+            controller.dismissToSelection(animated: true)
         case .activateSelection:
             controller.activateSelectedWindow()
+        case .closeSelection:
+            controller.closeSelectedWindow()
         case let .navigate(direction):
             controller.navigateSelection(direction)
         case .deleteBackward:
@@ -92,7 +114,7 @@ final class OverviewInputHandler {
         switch keyCode {
         case KeyCode.escape:
             guard !isRepeat else { return .init(action: .consume, shouldConsume: true) }
-            return .init(action: .clearSearchOrDismiss, shouldConsume: true)
+            return .init(action: .dismissSelection, shouldConsume: true)
         case KeyCode.returnKey,
              KeyCode.keypadEnter:
             guard relevantModifiers.isEmpty else { break }
@@ -117,6 +139,10 @@ final class OverviewInputHandler {
         case KeyCode.delete:
             guard relevantModifiers.isEmpty else { break }
             return .init(action: .deleteBackward, shouldConsume: true)
+        case KeyCode.w:
+            guard relevantModifiers == .command else { break }
+            guard !isRepeat else { return .init(action: .consume, shouldConsume: true) }
+            return .init(action: .closeSelection, shouldConsume: true)
         default:
             if relevantModifiers.intersection([.command, .control, .option]).isEmpty,
                let charactersIgnoringModifiers,
@@ -155,7 +181,7 @@ final class OverviewInputHandler {
             return
         }
 
-        controller.dismiss(reason: .cancel, animated: true)
+        controller.dismissToSelection(animated: true)
     }
 
     func handleScroll(delta: CGFloat) {

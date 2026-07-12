@@ -60,8 +60,8 @@ final class EventInterpreter: EventIntakeSink {
         case let .display(event):
             controller.serviceLifecycleManager.handleDisplayEvent(event)
 
-        case let .hotkeyCommand(command):
-            _ = controller.commandHandler.handleHotkeyCommand(command)
+        case let .hotkeyInvocation(invocation):
+            _ = controller.commandHandler.handleHotkeyInvocation(invocation)
 
         case let .intentExpired(intentId):
             controller.axEventHandler.handleIntentExpired(intentId)

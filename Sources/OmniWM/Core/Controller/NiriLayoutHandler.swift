@@ -17,6 +17,36 @@ import QuartzCore
         || engine.hasAnyColumnAnimationsRunning(in: workspaceId)
 }
 
+struct StructuralMutation: Equatable {
+    let sourceWorkspaceId: WorkspaceDescriptor.ID
+    let destinationWorkspaceId: WorkspaceDescriptor.ID
+    let selectedHandle: WindowHandle
+    let movedTokens: [WindowToken]
+    let scrollWorkspaceId: WorkspaceDescriptor.ID?
+
+    var affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> {
+        if sourceWorkspaceId == destinationWorkspaceId {
+            return [sourceWorkspaceId]
+        }
+        return [sourceWorkspaceId, destinationWorkspaceId]
+    }
+}
+
+enum StructuralMutationOutcome: Equatable {
+    case changed(StructuralMutation)
+    case atWorkspaceEdge
+    case unchanged
+
+    var mutation: StructuralMutation? {
+        guard case let .changed(mutation) = self else { return nil }
+        return mutation
+    }
+
+    var didMutate: Bool {
+        mutation != nil
+    }
+}
+
 @MainActor final class NiriLayoutHandler {
     weak var controller: WMController?
 
@@ -46,6 +76,18 @@ import QuartzCore
         var rememberedFocusToken: WindowToken?
         var hasNewWindowArrival: Bool
         var shouldStartScrollForNewWindow: Bool
+    }
+
+    private struct NiriStructuralMutation {
+        let movedTokens: [WindowToken]
+        let operation: LayoutOperation
+    }
+
+    private enum ColumnMoveTarget {
+        case direction(Direction)
+        case first
+        case last
+        case index(Int)
     }
 
     var scrollAnimationByDisplay: [CGDirectDisplayID: WorkspaceDescriptor.ID] = [:]
@@ -1876,53 +1918,128 @@ import QuartzCore
         state.activeColumnIndex = targetIndex
     }
 
-    func withNiriOperationContext(
-        perform operation: (NiriOperationContext, inout ViewportState) -> Bool
-    ) {
-        guard let controller else { return }
-        var animatingWorkspaceId: WorkspaceDescriptor.ID?
+    private func selectedWindowHandleInActiveWorkspace() -> WindowHandle? {
+        guard let controller,
+              let workspaceId = controller.activeWorkspace()?.id,
+              controller.workspaceManager.activeLayoutKind(for: workspaceId) == .niri,
+              let selectedNodeId = controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId,
+              let window = controller.niriEngine?.findNode(by: selectedNodeId, in: workspaceId) as? NiriWindow
+        else {
+            return nil
+        }
+        return window.handle
+    }
 
-        guard let engine = controller.niriEngine else { return }
-        guard let wsId = controller.activeWorkspace()?.id else { return }
+    private func performStructuralMutation(
+        handle: WindowHandle,
+        operation: (NiriOperationContext, inout ViewportState) -> NiriStructuralMutation?
+    ) -> StructuralMutationOutcome {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: handle.id),
+              controller.workspaceManager.activeLayoutKind(for: entry.workspaceId) == .niri,
+              let engine = controller.niriEngine,
+              let windowNode = engine.findNode(for: handle, in: entry.workspaceId),
+              let monitor = controller.workspaceManager.monitor(for: entry.workspaceId)
+        else {
+            return .unchanged
+        }
 
-        controller.workspaceManager.withNiriViewportState(for: wsId) { state in
-            guard let currentId = state.selectedNodeId,
-                  let currentNode = engine.findNode(by: currentId, in: wsId),
-                  let windowNode = currentNode as? NiriWindow
-            else { return }
+        let workspaceId = entry.workspaceId
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let context = NiriOperationContext(
+            controller: controller,
+            engine: engine,
+            motion: controller.motionPolicy.snapshot(),
+            wsId: workspaceId,
+            windowNode: windowNode,
+            monitor: monitor,
+            workingFrame: workingFrame,
+            gaps: gaps
+        )
+        var completedMutation: NiriStructuralMutation?
+        var committedState: ViewportState?
 
-            guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
-            let workingFrame = controller.insetWorkingFrame(for: monitor)
-            let gaps = CGFloat(controller.workspaceManager.gaps)
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            let originalState = state
+            state.selectedNodeId = windowNode.id
+            guard let mutation = operation(context, &state) else {
+                state = originalState
+                return
+            }
 
-            let ctx = NiriOperationContext(
-                controller: controller,
-                engine: engine,
-                motion: controller.motionPolicy.snapshot(),
-                wsId: wsId,
-                windowNode: windowNode,
-                monitor: monitor,
+            engine.activateWindow(windowNode.id, in: workspaceId)
+            state.selectedNodeId = windowNode.id
+            engine.ensureSelectionVisible(
+                node: windowNode,
+                in: workspaceId,
+                motion: context.motion,
+                state: &state,
                 workingFrame: workingFrame,
                 gaps: gaps
             )
-
-            if operation(ctx, &state) {
-                animatingWorkspaceId = wsId
-            }
+            completedMutation = mutation
+            committedState = state
         }
 
-        if let wsId = animatingWorkspaceId {
-            controller.layoutRefreshController.startScrollAnimation(for: wsId)
+        guard let completedMutation, let committedState else { return .unchanged }
+
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: windowNode.id,
+            focusedToken: handle.id,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+        recordLayoutOperation(completedMutation.operation, in: workspaceId)
+
+        let scrollWorkspaceId = hasPendingNiriAnimationWork(
+            state: committedState,
+            driver: controller.workspaceManager.animationDriver,
+            engine: engine,
+            workspaceId: workspaceId
+        ) ? workspaceId : nil
+
+        return .changed(
+            StructuralMutation(
+                sourceWorkspaceId: workspaceId,
+                destinationWorkspaceId: workspaceId,
+                selectedHandle: handle,
+                movedTokens: completedMutation.movedTokens,
+                scrollWorkspaceId: scrollWorkspaceId
+            )
+        )
+    }
+
+    private func commitNormalStructuralMutation(_ outcome: StructuralMutationOutcome) {
+        guard let controller, case let .changed(mutation) = outcome else { return }
+        controller.layoutRefreshController.requestLayoutCommandRelayout(
+            affectedWorkspaceIds: mutation.affectedWorkspaceIds
+        )
+        if let scrollWorkspaceId = mutation.scrollWorkspaceId {
+            controller.layoutRefreshController.startScrollAnimation(for: scrollWorkspaceId)
         }
     }
 
     @discardableResult
     func moveWindow(direction: Direction) -> WindowMoveOutcome {
-        let allowEdgeWrap = !(controller?.settings.moveCrossesMonitorAtEdge ?? false)
-        var result = WindowMoveOutcome.blocked
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return .blocked }
+        let outcome = moveWindow(handle: handle, direction: direction)
+        commitNormalStructuralMutation(outcome)
+        return switch outcome {
+        case .changed:
+            .movedWithinWorkspace
+        case .atWorkspaceEdge:
+            .atWorkspaceEdge
+        case .unchanged:
+            .blocked
+        }
+    }
 
-        withNiriOperationContext { ctx, state in
-            let edgeOutcome = windowMoveOutcomeAtEdge(
+    func moveWindow(handle: WindowHandle, direction: Direction) -> StructuralMutationOutcome {
+        let allowEdgeWrap = !(controller?.settings.moveCrossesMonitorAtEdge ?? false)
+        var edgeOutcome = WindowMoveOutcome.blocked
+        let outcome = performStructuralMutation(handle: handle) { ctx, state in
+            edgeOutcome = windowMoveOutcomeAtEdge(
                 for: ctx.windowNode,
                 direction: direction,
                 engine: ctx.engine,
@@ -1941,26 +2058,48 @@ import QuartzCore
                 gaps: ctx.gaps,
                 allowEdgeWrap: allowEdgeWrap
             ) else {
-                result = edgeOutcome
-                return false
+                return nil
             }
 
-            result = .movedWithinWorkspace
             if direction == .left || direction == .right {
-                ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
-                return ctx.commitSimple(state: state)
+                return NiriStructuralMutation(
+                    movedTokens: [ctx.windowNode.token],
+                    operation: .windowConsumedOrExpelled(token: ctx.windowNode.token)
+                )
             }
-            ctx.record(.windowMovedInColumn(token: ctx.windowNode.token))
-            return ctx.commitWithPredictedAnimation(state: state, oldFrames: oldFrames)
+            ctx.preparePredictedAnimation(
+                state: state,
+                oldFrames: oldFrames
+            )
+            return NiriStructuralMutation(
+                movedTokens: [ctx.windowNode.token],
+                operation: .windowMovedInColumn(token: ctx.windowNode.token)
+            )
         }
 
-        return result
+        if case .unchanged = outcome, edgeOutcome == .atWorkspaceEdge {
+            return .atWorkspaceEdge
+        }
+        return outcome
     }
 
     func moveWindowOrToAdjacentWorkspace(direction: Direction) {
         guard direction == .down || direction == .up else { return }
         guard moveWindow(direction: direction) == .atWorkspaceEdge else { return }
         controller?.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(direction: direction)
+    }
+
+    func moveWindowOrToAdjacentWorkspace(
+        handle: WindowHandle,
+        direction: Direction
+    ) -> StructuralMutationOutcome {
+        guard direction == .down || direction == .up else { return .unchanged }
+        let outcome = moveWindow(handle: handle, direction: direction)
+        guard case .atWorkspaceEdge = outcome else { return outcome }
+        return controller?.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(
+            handle: handle,
+            direction: direction
+        ) ?? .unchanged
     }
 
     func consumeTransferredWindow(
@@ -2019,8 +2158,16 @@ import QuartzCore
     }
 
     func consumeOrExpelWindow(direction: Direction) {
-        guard direction == .left || direction == .right else { return }
-        withNiriOperationContext { ctx, state in
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return }
+        commitNormalStructuralMutation(consumeOrExpelWindow(handle: handle, direction: direction))
+    }
+
+    func consumeOrExpelWindow(
+        handle: WindowHandle,
+        direction: Direction
+    ) -> StructuralMutationOutcome {
+        guard direction == .left || direction == .right else { return .unchanged }
+        return performStructuralMutation(handle: handle) { ctx, state in
             guard ctx.engine.consumeOrExpelWindow(
                 ctx.windowNode,
                 direction: direction,
@@ -2031,18 +2178,30 @@ import QuartzCore
                 gaps: ctx.gaps,
                 allowEdgeWrap: false
             ) else {
-                return false
+                return nil
             }
-            ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
-            return ctx.commitSimple(state: state)
+            return NiriStructuralMutation(
+                movedTokens: [ctx.windowNode.token],
+                operation: .windowConsumedOrExpelled(token: ctx.windowNode.token)
+            )
         }
     }
 
     func consumeWindowIntoColumn() {
-        withNiriOperationContext { ctx, state in
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return }
+        commitNormalStructuralMutation(consumeWindowIntoColumn(containing: handle))
+    }
+
+    func consumeWindowIntoColumn(containing handle: WindowHandle) -> StructuralMutationOutcome {
+        performStructuralMutation(handle: handle) { ctx, state in
             guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else {
-                return false
+                return nil
             }
+            guard let columnIndex = ctx.engine.columnIndex(of: column, in: ctx.wsId) else { return nil }
+            let columns = ctx.engine.columns(in: ctx.wsId)
+            guard columns.indices.contains(columnIndex + 1),
+                  let movedToken = columns[columnIndex + 1].windowNodes.last?.token
+            else { return nil }
             guard ctx.engine.consumeWindowIntoColumn(
                 focusedColumn: column,
                 in: ctx.wsId,
@@ -2051,18 +2210,26 @@ import QuartzCore
                 workingFrame: ctx.workingFrame,
                 gaps: ctx.gaps
             ) else {
-                return false
+                return nil
             }
-            ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
-            return ctx.commitSimple(state: state)
+            return NiriStructuralMutation(
+                movedTokens: [movedToken],
+                operation: .windowConsumedOrExpelled(token: movedToken)
+            )
         }
     }
 
     func expelWindowFromColumn() {
-        withNiriOperationContext { ctx, state in
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return }
+        commitNormalStructuralMutation(expelWindowFromColumn(containing: handle))
+    }
+
+    func expelWindowFromColumn(containing handle: WindowHandle) -> StructuralMutationOutcome {
+        performStructuralMutation(handle: handle) { ctx, state in
             guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else {
-                return false
+                return nil
             }
+            guard let movedToken = column.windowNodes.first?.token else { return nil }
             guard ctx.engine.expelWindowFromColumn(
                 focusedColumn: column,
                 in: ctx.wsId,
@@ -2071,11 +2238,120 @@ import QuartzCore
                 workingFrame: ctx.workingFrame,
                 gaps: ctx.gaps
             ) else {
-                return false
+                return nil
             }
-            ctx.record(.windowConsumedOrExpelled(token: ctx.windowNode.token))
-            return ctx.commitSimple(state: state)
+            return NiriStructuralMutation(
+                movedTokens: [movedToken],
+                operation: .windowConsumedOrExpelled(token: movedToken)
+            )
         }
+    }
+
+    func moveColumn(direction: Direction) {
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return }
+        commitNormalStructuralMutation(moveColumn(containing: handle, direction: direction))
+    }
+
+    func moveColumn(
+        containing handle: WindowHandle,
+        direction: Direction
+    ) -> StructuralMutationOutcome {
+        moveColumn(containing: handle, target: .direction(direction))
+    }
+
+    func moveColumnToFirst() {
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return }
+        commitNormalStructuralMutation(moveColumnToFirst(containing: handle))
+    }
+
+    func moveColumnToFirst(containing handle: WindowHandle) -> StructuralMutationOutcome {
+        moveColumn(containing: handle, target: .first)
+    }
+
+    func moveColumnToLast() {
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return }
+        commitNormalStructuralMutation(moveColumnToLast(containing: handle))
+    }
+
+    func moveColumnToLast(containing handle: WindowHandle) -> StructuralMutationOutcome {
+        moveColumn(containing: handle, target: .last)
+    }
+
+    func moveColumn(toOneBasedIndex index: Int) {
+        guard let handle = selectedWindowHandleInActiveWorkspace() else { return }
+        commitNormalStructuralMutation(moveColumn(containing: handle, toOneBasedIndex: index))
+    }
+
+    func moveColumnToIndex(_ index: Int) {
+        moveColumn(toOneBasedIndex: index)
+    }
+
+    func moveColumn(
+        containing handle: WindowHandle,
+        toOneBasedIndex index: Int
+    ) -> StructuralMutationOutcome {
+        moveColumn(containing: handle, target: .index(index))
+    }
+
+    private func moveColumn(
+        containing handle: WindowHandle,
+        target: ColumnMoveTarget
+    ) -> StructuralMutationOutcome {
+        performStructuralMutation(handle: handle) { ctx, state in
+            guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else { return nil }
+            let movedTokens = column.windowNodes.map(\.token)
+            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
+            let moved = switch target {
+            case let .direction(direction):
+                ctx.engine.moveColumn(
+                    column,
+                    direction: direction,
+                    in: ctx.wsId,
+                    motion: ctx.motion,
+                    state: &state,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps
+                )
+            case .first:
+                ctx.engine.moveColumnToFirst(
+                    column,
+                    in: ctx.wsId,
+                    motion: ctx.motion,
+                    state: &state,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps
+                )
+            case .last:
+                ctx.engine.moveColumnToLast(
+                    column,
+                    in: ctx.wsId,
+                    motion: ctx.motion,
+                    state: &state,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps
+                )
+            case let .index(index):
+                ctx.engine.moveColumnToIndex(
+                    column,
+                    index,
+                    in: ctx.wsId,
+                    motion: ctx.motion,
+                    state: &state,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps
+                )
+            }
+            guard moved else { return nil }
+            ctx.prepareCapturedAnimation(oldFrames: oldFrames)
+            return NiriStructuralMutation(movedTokens: movedTokens, operation: .columnMoved)
+        }
+    }
+
+    func moveColumnToIndex(
+        containing handle: WindowHandle,
+        index: Int
+    ) -> StructuralMutationOutcome {
+        moveColumn(containing: handle, toOneBasedIndex: index)
     }
 
     private func windowMoveOutcomeAtEdge(
@@ -2239,7 +2515,7 @@ struct NodeActivationOptions {
     var startAnimation: Bool = true
 }
 
-@MainActor struct NiriOperationContext {
+@MainActor private struct NiriOperationContext {
     let controller: WMController
     let engine: NiriLayoutEngine
     let motion: MotionSnapshot
@@ -2249,29 +2525,10 @@ struct NodeActivationOptions {
     let workingFrame: CGRect
     let gaps: CGFloat
 
-    private func hasPendingAnimationWork(state: ViewportState) -> Bool {
-        hasPendingNiriAnimationWork(
-            state: state,
-            driver: controller.workspaceManager.animationDriver,
-            engine: engine,
-            workspaceId: wsId
-        )
-    }
-
-    private func requestLayoutCommandRelayout() {
-        controller.layoutRefreshController.requestLayoutCommandRelayout(
-            affectedWorkspaceIds: [wsId]
-        )
-    }
-
-    func record(_ operation: LayoutOperation) {
-        controller.workspaceManager.recordLayoutOperation(operation, in: wsId)
-    }
-
-    func commitWithPredictedAnimation(
+    func preparePredictedAnimation(
         state: ViewportState,
         oldFrames: [WindowToken: CGRect]
-    ) -> Bool {
+    ) {
         let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
             .backingScaleFactor ?? 2.0
         let workingArea = WorkingAreaContext(
@@ -2300,15 +2557,9 @@ struct NodeActivationOptions {
             newFrames: newFrames,
             motion: motion
         )
-        requestLayoutCommandRelayout()
-        return hasPendingAnimationWork(state: state)
     }
 
-    func commitWithCapturedAnimation(
-        state: ViewportState,
-        oldFrames: [WindowToken: CGRect]
-    ) -> Bool {
-        requestLayoutCommandRelayout()
+    func prepareCapturedAnimation(oldFrames: [WindowToken: CGRect]) {
         let newFrames = engine.captureWindowFrames(in: wsId)
         _ = engine.triggerMoveAnimations(
             in: wsId,
@@ -2316,12 +2567,6 @@ struct NodeActivationOptions {
             newFrames: newFrames,
             motion: motion
         )
-        return hasPendingAnimationWork(state: state)
-    }
-
-    func commitSimple(state: ViewportState) -> Bool {
-        requestLayoutCommandRelayout()
-        return hasPendingAnimationWork(state: state)
     }
 }
 

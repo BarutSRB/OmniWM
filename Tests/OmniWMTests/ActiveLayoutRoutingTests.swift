@@ -323,7 +323,7 @@ final class ActiveLayoutRoutingTests: XCTestCase {
             controller.workspaceNavigationHandler.moveWindow(
                 handle: movedHandle,
                 toWorkspaceId: targetWorkspaceId
-            )
+            ).didMutate
         )
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: movedToken), targetWorkspaceId)

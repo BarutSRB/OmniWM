@@ -304,7 +304,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(repeatedTab.action, .navigate(.left))
     }
 
-    func testFirstEscapeClearsSearchBeforeRepeatedEscapeIsIgnored() {
+    func testEscapeDismissesSelectionEvenWithSearch() {
         let firstEscape = OverviewInputHandler.keyHandlingResult(
             keyCode: UInt16(kVK_Escape),
             modifierFlags: [],
@@ -320,8 +320,333 @@ final class OverviewBehaviorTests: XCTestCase {
             isRepeat: true
         )
 
-        XCTAssertEqual(firstEscape.action, .clearSearchOrDismiss)
+        XCTAssertEqual(firstEscape.action, .dismissSelection)
         XCTAssertEqual(repeatedEscape.action, .consume)
+    }
+
+    func testCommandWClosesSelectionWithoutRepeating() {
+        let commandW = OverviewInputHandler.keyHandlingResult(
+            keyCode: UInt16(kVK_ANSI_W),
+            modifierFlags: .command,
+            charactersIgnoringModifiers: "w",
+            searchQuery: "",
+            isRepeat: false
+        )
+        let repeatedCommandW = OverviewInputHandler.keyHandlingResult(
+            keyCode: UInt16(kVK_ANSI_W),
+            modifierFlags: .command,
+            charactersIgnoringModifiers: "w",
+            searchQuery: "",
+            isRepeat: true
+        )
+
+        XCTAssertEqual(commandW.action, .closeSelection)
+        XCTAssertEqual(repeatedCommandW.action, .consume)
+    }
+
+    func testRegisteredEscapeUsesPhysicalDismissalBeforeAssignedCommand() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+        var activatedHandle: WindowHandle?
+        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+
+        let disposition = overview.handleHotkeyInvocation(
+            HotkeyInvocation(
+                command: .toggleFullscreen,
+                trigger: PhysicalHotkeyTrigger(
+                    keyCode: UInt32(kVK_Escape),
+                    modifiers: UInt32(optionKey),
+                    isRepeat: false
+                )
+            )
+        )
+
+        XCTAssertEqual(disposition, .handled)
+        XCTAssertEqual(activatedHandle, selectedHandle)
+        XCTAssertFalse(overview.state.isOpen)
+    }
+
+    func testOverviewToggleCloseFocusesCurrentSelection() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+        var activatedHandle: WindowHandle?
+        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+
+        XCTAssertEqual(overview.handleHotkeyCommand(.toggleOverview), .handled)
+
+        XCTAssertEqual(activatedHandle, selectedHandle)
+        XCTAssertFalse(overview.state.isOpen)
+    }
+
+    func testRegisteredCommandWConsumesRepeatAndClosesOnce() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        var closeCount = 0
+        overview.onCloseWindow = { _ in
+            closeCount += 1
+            return true
+        }
+
+        let repeated = HotkeyInvocation(
+            command: .toggleFullscreen,
+            trigger: PhysicalHotkeyTrigger(
+                keyCode: UInt32(kVK_ANSI_W),
+                modifiers: UInt32(cmdKey),
+                isRepeat: true
+            )
+        )
+        let initial = HotkeyInvocation(
+            command: .toggleFullscreen,
+            trigger: PhysicalHotkeyTrigger(
+                keyCode: UInt32(kVK_ANSI_W),
+                modifiers: UInt32(cmdKey),
+                isRepeat: false
+            )
+        )
+
+        XCTAssertEqual(overview.handleHotkeyInvocation(repeated), .handled)
+        XCTAssertEqual(closeCount, 0)
+        XCTAssertEqual(overview.handleHotkeyInvocation(initial), .handled)
+        XCTAssertEqual(closeCount, 1)
+        XCTAssertTrue(overview.state.isOpen)
+    }
+
+    func testRepeatedRegisteredOverviewToggleIsConsumedWhileClosed() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+        let result = fixture.controller.commandHandler.handleHotkeyInvocation(
+            HotkeyInvocation(
+                command: .toggleOverview,
+                trigger: PhysicalHotkeyTrigger(
+                    keyCode: UInt32(kVK_ANSI_O),
+                    modifiers: UInt32(optionKey),
+                    isRepeat: true
+                )
+            )
+        )
+
+        XCTAssertEqual(result, .executed)
+        XCTAssertFalse(fixture.controller.isOverviewOpen())
+    }
+
+    func testRemovalSelectionChoosesNextThenPrevious() {
+        let handles = (1 ... 3).map { index in
+            WindowHandle(id: WindowToken(pid: pid_t(index), windowId: index))
+        }
+
+        XCTAssertEqual(
+            OverviewController.selectionAfterRemoving(
+                handles[1],
+                from: handles,
+                availableHandles: [handles[0], handles[2]]
+            ),
+            handles[2]
+        )
+        XCTAssertEqual(
+            OverviewController.selectionAfterRemoving(
+                handles[2],
+                from: handles,
+                availableHandles: [handles[0], handles[1]]
+            ),
+            handles[1]
+        )
+        XCTAssertNil(
+            OverviewController.selectionAfterRemoving(
+                handles[0],
+                from: handles,
+                availableHandles: []
+            )
+        )
+    }
+
+    func testSelectionDismissalFocusesCurrentOverviewSelection() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+        var activatedHandle: WindowHandle?
+        var activatedWorkspaceId: WorkspaceDescriptor.ID?
+        overview.onActivateWindow = { handle, workspaceId in
+            activatedHandle = handle
+            activatedWorkspaceId = workspaceId
+        }
+
+        overview.dismissToSelection(animated: false)
+
+        XCTAssertEqual(activatedHandle, selectedHandle)
+        XCTAssertEqual(activatedWorkspaceId, fixture.workspaceId)
+        XCTAssertEqual(overview.state.isOpen, false)
+    }
+
+    func testClosingStateFreezesKeyboardAndMouseSelection() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        let originalSelection = try XCTUnwrap(overview.selectedWindowHandle)
+        let directions: [Direction] = [.left, .right, .up, .down]
+        var returnDirection: Direction?
+
+        for direction in directions {
+            overview.navigateSelection(direction)
+            if overview.selectedWindowHandle != originalSelection {
+                returnDirection = switch direction {
+                case .left: .right
+                case .right: .left
+                case .up: .down
+                case .down: .up
+                }
+                break
+            }
+        }
+
+        let closingSelection = try XCTUnwrap(overview.selectedWindowHandle)
+        let direction = try XCTUnwrap(returnDirection)
+        overview.updateAnimationProgress(
+            0,
+            state: .closing(targetWindow: closingSelection, progress: 0)
+        )
+
+        overview.navigateSelection(direction)
+        overview.selectAndActivateWindow(originalSelection)
+
+        XCTAssertEqual(overview.selectedWindowHandle, closingSelection)
+    }
+
+    func testDismissalCancelsDragBeforeAnimatedCloseCompletes() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+        fixture.controller.motionPolicy.animationsEnabled = true
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+        let monitorId = try XCTUnwrap(fixture.controller.workspaceManager.monitors.first?.id)
+        var activatedHandle: WindowHandle?
+        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+
+        overview.beginDrag(on: monitorId, handle: selectedHandle, startPoint: .zero)
+        XCTAssertTrue(overview.hasActiveDragSession)
+
+        overview.dismissToSelection(animated: true)
+
+        XCTAssertFalse(overview.hasActiveDragSession)
+        guard case .closing = overview.state else {
+            return XCTFail("Expected animated dismissal to remain in closing state")
+        }
+        overview.endDrag(on: monitorId, at: CGPoint(x: 500, y: 500))
+        XCTAssertEqual(
+            fixture.controller.workspaceManager.workspace(for: selectedHandle.id),
+            fixture.workspaceId
+        )
+
+        overview.completeCloseTransition(targetWindow: selectedHandle)
+        XCTAssertEqual(activatedHandle, selectedHandle)
+    }
+
+    func testCloseSelectionWaitsForAuthoritativeRemovalBeforeAdvancing() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        let removedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+        let expectedSuccessorToken = try XCTUnwrap(
+            fixture.handles.first { $0.id != removedHandle.id }
+        ).id
+        var closeAccepted = false
+        overview.onCloseWindow = { handle in
+            XCTAssertEqual(handle, removedHandle)
+            return closeAccepted
+        }
+        fixture.controller.workspaceManager.onWindowRemoved = { entry in
+            XCTAssertNil(fixture.controller.workspaceManager.entry(for: entry.token))
+            overview.handleManagedWindowRemoved(entry)
+        }
+
+        overview.closeSelectedWindow()
+        XCTAssertEqual(overview.selectedWindowHandle, removedHandle)
+
+        closeAccepted = true
+        overview.closeSelectedWindow()
+        XCTAssertEqual(overview.selectedWindowHandle, removedHandle)
+
+        _ = fixture.controller.workspaceManager.removeWindow(
+            pid: removedHandle.id.pid,
+            windowId: removedHandle.id.windowId
+        )
+
+        XCTAssertEqual(overview.selectedWindowHandle?.id, expectedSuccessorToken)
+    }
+
+    func testCachedProjectionRefreshDoesNotRereadWindowMetadataOrRestartCapture() throws {
+        var titleReads = 0
+        var frameReads = 0
+        var captureStarts = 0
+        var fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        fixture.environment.windowTitle = { _ in
+            titleReads += 1
+            return "Window"
+        }
+        fixture.environment.windowFrame = { _ in
+            frameReads += 1
+            return CGRect(x: 10, y: 10, width: 500, height: 400)
+        }
+        fixture.environment.onThumbnailCaptureStarted = {
+            captureStarts += 1
+        }
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: fixture.environment
+        )
+        overview.prepareOpenState()
+        overview.updateAnimationProgress(1, state: .open)
+        XCTAssertEqual(titleReads, 2)
+        XCTAssertEqual(frameReads, 2)
+
+        titleReads = 0
+        frameReads = 0
+        overview.refreshCachedOverviewProjection(affectedWorkspaceIds: [fixture.workspaceId])
+        overview.refreshCachedOverviewProjection(affectedWorkspaceIds: [fixture.workspaceId])
+
+        XCTAssertEqual(titleReads, 0)
+        XCTAssertEqual(frameReads, 0)
+        XCTAssertEqual(captureStarts, 0)
     }
 
     private func makeGeometryLayout(scale: CGFloat = 1) -> OverviewLayout {
@@ -335,6 +660,74 @@ final class OverviewBehaviorTests: XCTestCase {
     private struct ProjectionFixture {
         var workspaces: [OverviewWorkspaceLayoutItem]
         var windows: [WindowHandle: OverviewWindowLayoutData]
+    }
+
+    private struct RuntimeOverviewFixture {
+        let controller: WMController
+        let workspaceId: WorkspaceDescriptor.ID
+        let handles: [WindowHandle]
+        var environment: OverviewEnvironment
+    }
+
+    private func makeRuntimeOverviewFixture(windowCount: Int) throws -> RuntimeOverviewFixture {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMOverviewBehaviorTests-\(UUID().uuidString)", isDirectory: true)
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(
+                directory: root.appendingPathComponent("config", isDirectory: true),
+                startWatching: false,
+                deferSaves: false
+            ),
+            runtimeState: RuntimeStateStore(
+                directory: root.appendingPathComponent("state", isDirectory: true),
+                deferSaves: false
+            ),
+            autosaveEnabled: false
+        )
+        let controller = WMController(
+            settings: settings,
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, _, _ in },
+                raiseWindow: { _ in }
+            )
+        )
+        controller.motionPolicy.animationsEnabled = false
+        let monitor = Monitor(
+            id: .init(displayId: 91_001),
+            displayId: 91_001,
+            frame: screenFrame,
+            visibleFrame: screenFrame,
+            hasNotch: false,
+            name: "Overview"
+        )
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        controller.workspaceManager.assignWorkspaceToMonitor(workspaceId, monitorId: monitor.id)
+        XCTAssertTrue(controller.workspaceManager.setActiveWorkspace(workspaceId, on: monitor.id))
+
+        let handles = (0 ..< windowCount).map { index in
+            let pid = pid_t(91_100 + index)
+            let windowId = 91_200 + index
+            let token = controller.workspaceManager.addWindow(
+                AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+                pid: pid,
+                windowId: windowId,
+                to: workspaceId
+            )
+            return WindowHandle(id: token)
+        }
+        var environment = OverviewEnvironment()
+        environment.windowTitle = { _ in "Window" }
+        environment.windowFrame = { _ in CGRect(x: 10, y: 10, width: 500, height: 400) }
+        return RuntimeOverviewFixture(
+            controller: controller,
+            workspaceId: workspaceId,
+            handles: handles,
+            environment: environment
+        )
     }
 
     private func makeProjectionFixture() -> ProjectionFixture {

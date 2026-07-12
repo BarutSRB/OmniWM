@@ -73,7 +73,7 @@ final class WindowActionHandler {
             self?.activateWindowFromOverview(handle: handle, workspaceId: workspaceId)
         }
         oc.onCloseWindow = { [weak self] handle in
-            self?.closeWindowFromOverview(handle: handle)
+            self?.closeWindowFromOverview(handle: handle) ?? false
         }
         overviewControllerStorage = oc
         return oc
@@ -111,18 +111,20 @@ final class WindowActionHandler {
         overviewController.toggle()
     }
 
-    func navigateOverviewSelection(_ direction: Direction) -> Bool {
-        guard overviewController.isOpen else { return false }
-        overviewController.navigateSelection(direction)
-        return true
+    func handleOverviewHotkey(_ invocation: HotkeyInvocation) -> OverviewHotkeyDisposition {
+        overviewControllerStorage?.handleHotkeyInvocation(invocation) ?? .inactive
     }
 
     func updateOverviewSettings() {
         overviewControllerStorage?.updateSettings()
     }
 
+    func handleOverviewWindowRemoved(_ entry: WindowState) {
+        overviewControllerStorage?.handleManagedWindowRemoved(entry)
+    }
+
     func isOverviewOpen() -> Bool {
-        overviewController.isOpen
+        overviewControllerStorage?.isOpen == true
     }
 
     func isPointInOverview(_ point: CGPoint) -> Bool {
@@ -135,20 +137,23 @@ final class WindowActionHandler {
         navigateToWindowInternal(token: handle.id, workspaceId: workspaceId)
     }
 
-    private func closeWindowFromOverview(handle: WindowHandle) {
-        guard let controller else { return }
-        guard let entry = controller.workspaceManager.entry(for: handle) else { return }
+    private func closeWindowFromOverview(handle: WindowHandle) -> Bool {
+        guard let controller else { return false }
+        guard let entry = controller.workspaceManager.entry(for: handle) else { return false }
 
         let element = entry.axRef.element
-        performAXAction(element, kAXRaiseAction as CFString, noteKey: "performRaiseFailed")
-
         var closeButton: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton) == .success,
            let closeButton,
            CFGetTypeID(closeButton) == AXUIElementGetTypeID()
         {
-            performAXAction(closeButton as! AXUIElement, kAXPressAction as CFString, noteKey: "performPressFailed")
+            return performAXAction(
+                closeButton as! AXUIElement,
+                kAXPressAction as CFString,
+                noteKey: "performPressFailed"
+            )
         }
+        return false
     }
 
     func raiseAllFloatingWindows() {
@@ -502,7 +507,7 @@ final class WindowActionHandler {
         guard controller.workspaceNavigationHandler.moveWindow(
             handle: WindowHandle(id: token),
             toWorkspaceId: targetWorkspaceId
-        ) else {
+        ).didMutate else {
             return false
         }
 
@@ -562,7 +567,7 @@ final class WindowActionHandler {
         guard controller.workspaceNavigationHandler.moveWindow(
             handle: WindowHandle(id: token),
             toWorkspaceId: targetWorkspaceId
-        ) else {
+        ).didMutate else {
             return false
         }
 

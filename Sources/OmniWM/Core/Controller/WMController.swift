@@ -272,10 +272,10 @@ final class WMController {
         intentLedger.deadlineWheel = deadlineWheel
         focusPolicyEngine.intentLedger = intentLedger
         focusPolicyEngine.deadlineWheel = deadlineWheel
-        hotkeys.onCommand = { [weak self] command in
+        hotkeys.onCommand = { [weak self] invocation in
             guard let self else { return }
-            if !eventIntake.enqueue(.hotkeyCommand(command)) {
-                _ = commandHandler.handleHotkeyCommand(command)
+            if !eventIntake.enqueue(.hotkeyInvocation(invocation)) {
+                _ = commandHandler.handleHotkeyInvocation(invocation)
             }
         }
         traceCaptureCoordinator.onStateChange = { [weak self] in
@@ -293,6 +293,9 @@ final class WMController {
         }
         workspaceManager.onRuntimeInvalidation = { [weak self] workspaceId, domains in
             self?.handleRuntimeInvalidation(workspaceId: workspaceId, domains: domains)
+        }
+        workspaceManager.onWindowRemoved = { [weak self] entry in
+            self?.windowActionHandlerStorage?.handleOverviewWindowRemoved(entry)
         }
         focusPolicyEngine.onLeaseChanged = { [weak self] lease in
             self?.workspaceManager.recordReconcileEvent(
@@ -2442,8 +2445,8 @@ final class WMController {
         windowActionHandler.toggleOverview()
     }
 
-    func navigateOverviewSelection(_ direction: Direction) -> Bool {
-        windowActionHandler.navigateOverviewSelection(direction)
+    func handleOverviewHotkey(_ invocation: HotkeyInvocation) -> OverviewHotkeyDisposition {
+        windowActionHandlerStorage?.handleOverviewHotkey(invocation) ?? .inactive
     }
 
     func updateOverviewSettings() {

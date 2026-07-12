@@ -3,6 +3,22 @@
 
 import Foundation
 
+struct PhysicalHotkeyTrigger: Equatable, Hashable, Sendable {
+    let keyCode: UInt32
+    let modifiers: UInt32
+    let isRepeat: Bool
+}
+
+struct HotkeyInvocation: Equatable, Sendable {
+    let command: HotkeyCommand
+    let trigger: PhysicalHotkeyTrigger?
+
+    init(command: HotkeyCommand, trigger: PhysicalHotkeyTrigger? = nil) {
+        self.command = command
+        self.trigger = trigger
+    }
+}
+
 enum LayoutCompatibility: String {
     case shared = "Shared"
     case niri = "Niri"

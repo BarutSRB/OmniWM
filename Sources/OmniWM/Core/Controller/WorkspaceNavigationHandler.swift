@@ -119,6 +119,7 @@ final class WorkspaceNavigationHandler {
         let gap = CGFloat(controller.workspaceManager.gaps)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         controller.workspaceManager.withEngineMutationScope {
+            engine.activateWindow(movedNode.id, in: workspaceId)
             engine.ensureSelectionVisible(
                 node: movedNode,
                 in: workspaceId,
@@ -250,64 +251,86 @@ final class WorkspaceNavigationHandler {
     func moveWindowToMonitor(direction: Direction) {
         guard let controller else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
-        guard let currentMonitorId = interactionMonitorId(for: controller) else { return }
         guard let currentWsId = controller.workspaceManager.workspace(for: token) else { return }
-
-        guard let targetMonitor = controller.workspaceManager.adjacentMonitor(
-            from: currentMonitorId,
-            direction: direction
-        ) else { return }
-        guard let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: targetMonitor.id),
-              targetWorkspace.id != currentWsId
-        else { return }
-
-        let targetLayout = controller.workspaceManager.descriptor(for: targetWorkspace.id)
-            .map { controller.settings.layoutType(for: $0.name) } ?? .defaultLayout
 
         controller.isTransferringWindow = true
         defer { controller.isTransferringWindow = false }
 
         saveNiriViewportState(for: currentWsId)
-
-        let anchorToken: WindowToken? = targetLayout == .dwindle ? nil : Self.spatialNeighborToken(
-            from: controller.preferredKeyboardFocusFrame(for: token),
-            candidates: controller.workspaceManager.tiledEntries(in: targetWorkspace.id)
-                .compactMap { entry in
-                    controller.preferredKeyboardFocusFrame(for: entry.token).map { (token: entry.token, frame: $0) }
-                },
-            direction: direction,
-            targetFrame: controller.insetWorkingFrame(for: targetMonitor)
-        )
-
-        let transferResult = transferWindowFromSourceEngine(token: token, from: currentWsId, to: targetWorkspace.id)
-        guard transferResult.succeeded else { return }
-        recoverSourceFocus(after: transferResult, from: currentWsId)
-
-        _ = controller.workspaceManager.setActiveWorkspace(targetWorkspace.id, on: targetMonitor.id)
-        _ = controller.workspaceManager.setInteractionMonitor(targetMonitor.id)
-
-        if targetLayout == .dwindle {
-            applySessionPatch(workspaceId: targetWorkspace.id, rememberedFocusToken: token)
-        } else {
-            controller.niriLayoutHandler.consumeTransferredWindow(
-                token, in: targetWorkspace.id, enteringFrom: direction, anchorToken: anchorToken
-            )
+        guard case let .changed(mutation) = moveWindowToMonitor(
+            handle: WindowHandle(id: token),
+            direction: direction
+        ) else { return }
+        guard let targetMonitor = controller.workspaceManager.monitor(for: mutation.destinationWorkspaceId) else {
+            return
         }
+
+        _ = controller.workspaceManager.setActiveWorkspace(mutation.destinationWorkspaceId, on: targetMonitor.id)
 
         if let sourceMonitor = controller.workspaceManager.monitor(for: currentWsId) {
             controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
         }
 
         controller.layoutRefreshController.commitWorkspaceTransition(
-            affectedWorkspaces: affectedWorkspaceIds(
-                sourceWorkspaceId: currentWsId,
-                targetWorkspaceId: targetWorkspace.id
-            ),
+            affectedWorkspaces: mutation.affectedWorkspaceIds,
             reason: .workspaceTransition,
-            postLayoutGateWorkspaceIds: [targetWorkspace.id]
+            postLayoutGateWorkspaceIds: [mutation.destinationWorkspaceId]
         ) { [weak controller] in
             controller?.focusWindow(token)
         }
+    }
+
+    func moveWindowToMonitor(
+        handle: WindowHandle,
+        direction: Direction
+    ) -> StructuralMutationOutcome {
+        guard let controller,
+              let sourceWorkspaceId = controller.workspaceManager.workspace(for: handle.id),
+              let sourceMonitorId = controller.workspaceManager.monitorId(for: sourceWorkspaceId),
+              let targetMonitor = controller.workspaceManager.adjacentMonitor(
+                  from: sourceMonitorId,
+                  direction: direction
+              ),
+              let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: targetMonitor.id),
+              targetWorkspace.id != sourceWorkspaceId
+        else {
+            return .unchanged
+        }
+
+        let targetIsNiri = controller.workspaceManager.activeLayoutKind(for: targetWorkspace.id) == .niri
+        let anchorToken: WindowToken? = targetIsNiri ? Self.spatialNeighborToken(
+            from: controller.preferredKeyboardFocusFrame(for: handle.id),
+            candidates: controller.workspaceManager.tiledEntries(in: targetWorkspace.id)
+                .compactMap { entry in
+                    controller.preferredKeyboardFocusFrame(for: entry.token).map { (token: entry.token, frame: $0) }
+                },
+            direction: direction,
+            targetFrame: controller.insetWorkingFrame(for: targetMonitor)
+        ) : nil
+
+        let outcome = moveWindow(handle: handle, toWorkspaceId: targetWorkspace.id)
+        guard case let .changed(mutation) = outcome else { return outcome }
+
+        if targetIsNiri,
+           controller.niriEngine?.findNode(for: handle, in: targetWorkspace.id) != nil
+        {
+            controller.niriLayoutHandler.consumeTransferredWindow(
+                handle.id,
+                in: targetWorkspace.id,
+                enteringFrom: direction,
+                anchorToken: anchorToken
+            )
+        }
+
+        return .changed(
+            StructuralMutation(
+                sourceWorkspaceId: mutation.sourceWorkspaceId,
+                destinationWorkspaceId: mutation.destinationWorkspaceId,
+                selectedHandle: mutation.selectedHandle,
+                movedTokens: mutation.movedTokens,
+                scrollWorkspaceId: nil
+            )
+        )
     }
 
     static func spatialNeighborToken(
@@ -574,7 +597,8 @@ final class WorkspaceNavigationHandler {
     private func resolveOrCreateAdjacentWorkspace(
         from workspaceId: WorkspaceDescriptor.ID,
         direction: Direction,
-        on monitorId: Monitor.ID
+        on monitorId: Monitor.ID,
+        requiredLayoutKind: ActiveLayoutKind? = nil
     ) -> WorkspaceDescriptor? {
         guard let controller else { return nil }
         let wm = controller.workspaceManager
@@ -590,15 +614,25 @@ final class WorkspaceNavigationHandler {
               let currentNumber = Int(currentName)
         else { return nil }
 
-        let candidateNumber = direction == .down ? currentNumber + 1 : currentNumber - 1
-        guard candidateNumber > 0 else { return nil }
-
-        let candidateName = String(candidateNumber)
-        guard wm.workspaceId(named: candidateName) == nil else { return nil }
-
-        guard let targetId = wm.workspaceId(for: candidateName, createIfMissing: false) else { return nil }
-        wm.assignWorkspaceToMonitor(targetId, monitorId: monitorId)
-        return wm.descriptor(for: targetId)
+        var candidateNumber = direction == .down ? currentNumber + 1 : currentNumber - 1
+        while candidateNumber > 0 {
+            let candidateName = String(candidateNumber)
+            if wm.workspaceId(named: candidateName) == nil {
+                let candidateLayoutKind: ActiveLayoutKind = controller.settings.layoutType(for: candidateName)
+                    == .dwindle ? .dwindle : .niri
+                guard requiredLayoutKind == nil || candidateLayoutKind == requiredLayoutKind else { return nil }
+                guard let workspace = wm.createDynamicWorkspace(named: candidateName, on: monitorId) else {
+                    return nil
+                }
+                controller.syncMonitorsToNiriEngine()
+                return workspace
+            }
+            let delta = direction == .down ? 1 : -1
+            let next = candidateNumber.addingReportingOverflow(delta)
+            guard !next.overflow else { return nil }
+            candidateNumber = next.partialValue
+        }
+        return nil
     }
 
     private func transferWindowFromSourceEngine(
@@ -618,6 +652,14 @@ final class WorkspaceNavigationHandler {
         let targetIsDwindle = targetLayout == .dwindle
         var newSourceFocusToken: WindowToken?
         var movedWithNiri = false
+
+        if controller.workspaceManager.windowMode(for: token) == .floating {
+            controller.reassignManagedWindow(token, to: targetWsId)
+            if let sourceWsId {
+                recordLayoutOperation(.windowMovedToWorkspace(token: token, to: targetWsId), in: sourceWsId)
+            }
+            return WindowTransferResult(succeeded: true, newSourceFocusToken: nil)
+        }
 
         if !sourceIsDwindle,
            !targetIsDwindle,
@@ -716,29 +758,18 @@ final class WorkspaceNavigationHandler {
     func moveWindowToAdjacentWorkspace(direction: Direction) {
         guard let controller else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
-        guard let currentMonitorId = interactionMonitorId(for: controller)
-        else { return }
-        guard let wsId = controller.activeWorkspace()?.id else { return }
+        guard let sourceWorkspaceId = controller.workspaceManager.workspace(for: token) else { return }
 
-        guard let targetWorkspace = resolveOrCreateAdjacentWorkspace(
-            from: wsId, direction: direction, on: currentMonitorId
+        saveNiriViewportState(for: sourceWorkspaceId)
+        guard case let .changed(mutation) = moveWindowToAdjacentWorkspace(
+            handle: WindowHandle(id: token),
+            direction: direction
         ) else { return }
 
-        saveNiriViewportState(for: wsId)
-
-        let transferResult = transferWindowFromSourceEngine(token: token, from: wsId, to: targetWorkspace.id)
-        guard transferResult.succeeded else { return }
-
-        applySessionPatch(workspaceId: targetWorkspace.id, rememberedFocusToken: token)
-
-        recoverSourceFocus(after: transferResult, from: wsId)
-        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: wsId)
+        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: sourceWorkspaceId)
 
         controller.layoutRefreshController.commitWorkspaceTransition(
-            affectedWorkspaces: affectedWorkspaceIds(
-                sourceWorkspaceId: wsId,
-                targetWorkspaceId: targetWorkspace.id
-            ),
+            affectedWorkspaces: mutation.affectedWorkspaceIds,
             reason: .workspaceTransition
         ) { [weak controller] in
             if let focusToken {
@@ -749,55 +780,19 @@ final class WorkspaceNavigationHandler {
 
     func moveColumnToAdjacentWorkspace(direction: Direction) {
         guard let controller else { return }
-        guard let engine = controller.niriEngine else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
-        guard let currentMonitorId = interactionMonitorId(for: controller)
-        else { return }
-        guard let wsId = controller.activeWorkspace()?.id,
-              controller.workspaceManager.activeLayoutKind(for: wsId) == .niri
-        else { return }
+        guard let sourceWorkspaceId = controller.workspaceManager.workspace(for: token) else { return }
 
-        guard let targetWorkspace = resolveOrCreateAdjacentWorkspace(
-            from: wsId, direction: direction, on: currentMonitorId
+        saveNiriViewportState(for: sourceWorkspaceId)
+        guard case let .changed(mutation) = moveColumnToAdjacentWorkspace(
+            containing: WindowHandle(id: token),
+            direction: direction
         ) else { return }
 
-        saveNiriViewportState(for: wsId)
-
-        guard let windowNode = engine.findNode(for: token, in: wsId),
-              let column = engine.findColumn(containing: windowNode, in: wsId)
-        else {
-            return
-        }
-
-        guard let result = controller.workspaceManager.withBatchedWorkspaceMove(
-            sourceWorkspaceId: wsId,
-            targetWorkspaceId: targetWorkspace.id,
-            { sourceState, targetState in
-                guard let moveResult = engine.moveColumnToWorkspace(
-                    column,
-                    from: wsId,
-                    to: targetWorkspace.id,
-                    sourceState: &sourceState,
-                    targetState: &targetState
-                ) else { return nil }
-                return (moveResult, column.windowNodes.map(\.token))
-            }
-        ) else {
-            return
-        }
-
-        recordLayoutOperation(.columnMovedToWorkspace(to: targetWorkspace.id), in: wsId)
-
-        applySessionPatch(workspaceId: targetWorkspace.id, rememberedFocusToken: token)
-
-        controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
-        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: wsId)
+        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: sourceWorkspaceId)
 
         controller.layoutRefreshController.commitWorkspaceTransition(
-            affectedWorkspaces: affectedWorkspaceIds(
-                sourceWorkspaceId: wsId,
-                targetWorkspaceId: targetWorkspace.id
-            ),
+            affectedWorkspaces: mutation.affectedWorkspaceIds,
             reason: .workspaceTransition
         ) { [weak controller] in
             if let focusToken {
@@ -813,56 +808,24 @@ final class WorkspaceNavigationHandler {
 
     func moveColumnToWorkspace(rawWorkspaceID: String) {
         guard let controller else { return }
-        guard let engine = controller.niriEngine else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
-        guard let wsId = controller.activeWorkspace()?.id else { return }
-        guard controller.workspaceManager.activeLayoutKind(for: wsId) == .niri else { return }
-
-        guard let targetWsId = controller.workspaceManager.workspaceId(for: rawWorkspaceID, createIfMissing: false)
+        guard let sourceWorkspaceId = controller.workspaceManager.workspace(for: token),
+              let targetWorkspaceId = controller.workspaceManager.workspaceId(
+                  for: rawWorkspaceID,
+                  createIfMissing: false
+              )
         else { return }
 
-        guard targetWsId != wsId else { return }
+        saveNiriViewportState(for: sourceWorkspaceId)
+        guard case let .changed(mutation) = moveColumn(
+            containing: WindowHandle(id: token),
+            toWorkspaceId: targetWorkspaceId
+        ) else { return }
 
-        saveNiriViewportState(for: wsId)
-
-        let currentSelection = controller.workspaceManager.niriViewportState(for: wsId)
-
-        guard let currentId = currentSelection.selectedNodeId,
-              let windowNode = engine.findNode(by: currentId, in: wsId) as? NiriWindow,
-              let column = engine.findColumn(containing: windowNode, in: wsId)
-        else {
-            return
-        }
-
-        guard let result = controller.workspaceManager.withBatchedWorkspaceMove(
-            sourceWorkspaceId: wsId,
-            targetWorkspaceId: targetWsId,
-            { sourceState, targetState in
-                guard let moveResult = engine.moveColumnToWorkspace(
-                    column,
-                    from: wsId,
-                    to: targetWsId,
-                    sourceState: &sourceState,
-                    targetState: &targetState
-                ) else { return nil }
-                return (moveResult, column.windowNodes.map(\.token))
-            }
-        ) else {
-            return
-        }
-
-        recordLayoutOperation(.columnMovedToWorkspace(to: targetWsId), in: wsId)
-
-        applySessionPatch(workspaceId: targetWsId, rememberedFocusToken: token)
-
-        controller.recoverSourceFocusAfterMove(in: wsId, preferredNodeId: result.newFocusNodeId)
-        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: wsId)
+        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: sourceWorkspaceId)
 
         controller.layoutRefreshController.commitWorkspaceTransition(
-            affectedWorkspaces: affectedWorkspaceIds(
-                sourceWorkspaceId: wsId,
-                targetWorkspaceId: targetWsId
-            ),
+            affectedWorkspaces: mutation.affectedWorkspaceIds,
             reason: .workspaceTransition
         ) { [weak controller] in
             if let focusToken {
@@ -943,25 +906,247 @@ final class WorkspaceNavigationHandler {
     }
 
     @discardableResult
-    func moveWindow(handle: WindowHandle, toWorkspaceId targetWsId: WorkspaceDescriptor.ID) -> Bool {
-        guard let controller else { return false }
+    func moveWindow(
+        handle: WindowHandle,
+        toWorkspaceId targetWsId: WorkspaceDescriptor.ID
+    ) -> StructuralMutationOutcome {
+        guard let controller,
+              controller.workspaceManager.descriptor(for: targetWsId) != nil,
+              controller.workspaceManager.monitorForWorkspace(targetWsId) != nil
+        else {
+            return .unchanged
+        }
         let token = handle.id
 
-        let currentWorkspaceId = controller.workspaceManager.workspace(for: token)
+        guard let currentWorkspaceId = controller.workspaceManager.workspace(for: token),
+              currentWorkspaceId != targetWsId
+        else {
+            return .unchanged
+        }
         let transferResult = transferWindowFromSourceEngine(
             token: token,
             from: currentWorkspaceId,
             to: targetWsId
         )
-        guard transferResult.succeeded else { return false }
+        guard transferResult.succeeded else { return .unchanged }
 
-        applySessionPatch(workspaceId: targetWsId, rememberedFocusToken: token)
+        let targetViewportState = transferredWindowNiriViewportState(
+            token: token,
+            workspaceId: targetWsId
+        )
+        applySessionPatch(
+            workspaceId: targetWsId,
+            viewportState: targetViewportState,
+            rememberedFocusToken: token
+        )
 
-        if let currentWorkspaceId {
-            recoverSourceFocus(after: transferResult, from: currentWorkspaceId)
+        recoverSourceFocus(after: transferResult, from: currentWorkspaceId)
+
+        return .changed(
+            StructuralMutation(
+                sourceWorkspaceId: currentWorkspaceId,
+                destinationWorkspaceId: targetWsId,
+                selectedHandle: handle,
+                movedTokens: [token],
+                scrollWorkspaceId: targetViewportState?.hasPendingOffsetAnimation == true ? targetWsId : nil
+            )
+        )
+    }
+
+    func moveWindow(
+        handle: WindowHandle,
+        toWorkspaceIndex index: Int
+    ) -> StructuralMutationOutcome {
+        guard let controller,
+              let rawWorkspaceId = WorkspaceIDPolicy.rawID(from: max(0, index) + 1),
+              let targetWorkspaceId = controller.workspaceManager.workspaceId(
+                  for: rawWorkspaceId,
+                  createIfMissing: false
+              )
+        else {
+            return .unchanged
+        }
+        return moveWindow(handle: handle, toWorkspaceId: targetWorkspaceId)
+    }
+
+    func moveWindowToAdjacentWorkspace(
+        handle: WindowHandle,
+        direction: Direction
+    ) -> StructuralMutationOutcome {
+        guard direction == .up || direction == .down,
+              let controller,
+              let sourceWorkspaceId = controller.workspaceManager.workspace(for: handle.id),
+              canTransferWindow(handle, from: sourceWorkspaceId),
+              let sourceMonitorId = controller.workspaceManager.monitorId(for: sourceWorkspaceId),
+              let targetWorkspace = resolveOrCreateAdjacentWorkspace(
+                  from: sourceWorkspaceId,
+                  direction: direction,
+                  on: sourceMonitorId
+              )
+        else {
+            return .unchanged
+        }
+        return moveWindow(handle: handle, toWorkspaceId: targetWorkspace.id)
+    }
+
+    private func canTransferWindow(
+        _ handle: WindowHandle,
+        from workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        guard let controller else { return false }
+        if controller.workspaceManager.windowMode(for: handle.id) == .floating {
+            return true
+        }
+        switch controller.workspaceManager.activeLayoutKind(for: workspaceId) {
+        case .niri:
+            return controller.niriEngine?.findNode(for: handle, in: workspaceId) != nil
+        case .dwindle:
+            return controller.dwindleEngine?.findNode(for: handle.id, in: workspaceId) != nil
+        }
+    }
+
+    func moveColumn(
+        containing handle: WindowHandle,
+        toWorkspaceId targetWorkspaceId: WorkspaceDescriptor.ID
+    ) -> StructuralMutationOutcome {
+        guard let controller,
+              let engine = controller.niriEngine,
+              let sourceWorkspaceId = controller.workspaceManager.workspace(for: handle.id),
+              sourceWorkspaceId != targetWorkspaceId,
+              controller.workspaceManager.activeLayoutKind(for: sourceWorkspaceId) == .niri,
+              controller.workspaceManager.activeLayoutKind(for: targetWorkspaceId) == .niri,
+              let targetMonitor = controller.workspaceManager.monitorForWorkspace(targetWorkspaceId),
+              let windowNode = engine.findNode(for: handle, in: sourceWorkspaceId),
+              let column = engine.findColumn(containing: windowNode, in: sourceWorkspaceId)
+        else {
+            return .unchanged
         }
 
-        return true
+        let movedTokens = column.windowNodes.map(\.token)
+        let targetWorkingFrame = controller.insetWorkingFrame(for: targetMonitor)
+        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let motion = controller.motionPolicy.snapshot()
+        guard let result = controller.workspaceManager.withBatchedWorkspaceMove(
+            sourceWorkspaceId: sourceWorkspaceId,
+            targetWorkspaceId: targetWorkspaceId,
+            { sourceState, targetState in
+                guard let moveResult = engine.moveColumnToWorkspace(
+                    column,
+                    from: sourceWorkspaceId,
+                    to: targetWorkspaceId,
+                    sourceState: &sourceState,
+                    targetState: &targetState
+                ) else { return nil }
+                engine.activateWindow(windowNode.id, in: targetWorkspaceId)
+                targetState.selectedNodeId = windowNode.id
+                engine.ensureSelectionVisible(
+                    node: windowNode,
+                    in: targetWorkspaceId,
+                    motion: motion,
+                    state: &targetState,
+                    workingFrame: targetWorkingFrame,
+                    gaps: gaps
+                )
+                return (moveResult, movedTokens)
+            }
+        ) else {
+            return .unchanged
+        }
+
+        recordLayoutOperation(.columnMovedToWorkspace(to: targetWorkspaceId), in: sourceWorkspaceId)
+        applySessionPatch(workspaceId: targetWorkspaceId, rememberedFocusToken: handle.id)
+        controller.recoverSourceFocusAfterMove(
+            in: sourceWorkspaceId,
+            preferredNodeId: result.newFocusNodeId
+        )
+
+        let targetState = controller.workspaceManager.niriViewportState(for: targetWorkspaceId)
+        return .changed(
+            StructuralMutation(
+                sourceWorkspaceId: sourceWorkspaceId,
+                destinationWorkspaceId: targetWorkspaceId,
+                selectedHandle: handle,
+                movedTokens: movedTokens,
+                scrollWorkspaceId: targetState.hasPendingOffsetAnimation ? targetWorkspaceId : nil
+            )
+        )
+    }
+
+    func moveColumn(
+        containing handle: WindowHandle,
+        toWorkspaceIndex index: Int
+    ) -> StructuralMutationOutcome {
+        guard let controller,
+              let rawWorkspaceId = WorkspaceIDPolicy.rawID(from: max(0, index) + 1),
+              let targetWorkspaceId = controller.workspaceManager.workspaceId(
+                  for: rawWorkspaceId,
+                  createIfMissing: false
+              )
+        else {
+            return .unchanged
+        }
+        return moveColumn(containing: handle, toWorkspaceId: targetWorkspaceId)
+    }
+
+    func moveColumnToAdjacentWorkspace(
+        containing handle: WindowHandle,
+        direction: Direction
+    ) -> StructuralMutationOutcome {
+        guard direction == .up || direction == .down,
+              let controller,
+              let sourceWorkspaceId = controller.workspaceManager.workspace(for: handle.id),
+              controller.workspaceManager.activeLayoutKind(for: sourceWorkspaceId) == .niri,
+              let sourceNode = controller.niriEngine?.findNode(for: handle, in: sourceWorkspaceId),
+              controller.niriEngine?.findColumn(containing: sourceNode, in: sourceWorkspaceId) != nil,
+              let sourceMonitorId = controller.workspaceManager.monitorId(for: sourceWorkspaceId),
+              let targetWorkspace = resolveOrCreateAdjacentWorkspace(
+                  from: sourceWorkspaceId,
+                  direction: direction,
+                  on: sourceMonitorId,
+                  requiredLayoutKind: .niri
+              )
+        else {
+            return .unchanged
+        }
+        return moveColumn(containing: handle, toWorkspaceId: targetWorkspace.id)
+    }
+
+    func moveWindowToWorkspaceOnMonitor(
+        handle: WindowHandle,
+        workspaceIndex: Int,
+        monitorDirection: Direction
+    ) -> StructuralMutationOutcome {
+        guard let rawWorkspaceId = WorkspaceIDPolicy.rawID(from: max(0, workspaceIndex) + 1) else {
+            return .unchanged
+        }
+        return moveWindowToWorkspaceOnMonitor(
+            handle: handle,
+            rawWorkspaceId: rawWorkspaceId,
+            monitorDirection: monitorDirection
+        )
+    }
+
+    func moveWindowToWorkspaceOnMonitor(
+        handle: WindowHandle,
+        rawWorkspaceId: String,
+        monitorDirection: Direction
+    ) -> StructuralMutationOutcome {
+        guard let controller,
+              let sourceWorkspaceId = controller.workspaceManager.workspace(for: handle.id),
+              let sourceMonitorId = controller.workspaceManager.monitorId(for: sourceWorkspaceId),
+              let targetMonitor = controller.workspaceManager.adjacentMonitor(
+                  from: sourceMonitorId,
+                  direction: monitorDirection
+              ),
+              let targetWorkspaceId = controller.workspaceManager.workspaceId(
+                  for: rawWorkspaceId,
+                  createIfMissing: false
+              ),
+              controller.workspaceManager.monitorId(for: targetWorkspaceId) == targetMonitor.id
+        else {
+            return .unchanged
+        }
+        return moveWindow(handle: handle, toWorkspaceId: targetWorkspaceId)
     }
 
     func moveWindowToWorkspaceOnMonitor(workspaceIndex: Int, monitorDirection: Direction) {
@@ -972,55 +1157,30 @@ final class WorkspaceNavigationHandler {
     func moveWindowToWorkspaceOnMonitor(rawWorkspaceID: String, monitorDirection: Direction) {
         guard let controller else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
-        guard let currentMonitorId = interactionMonitorId(for: controller)
-        else { return }
-        guard let currentWorkspaceId = controller.workspaceManager.workspace(for: token) else { return }
-
-        guard let targetMonitor = controller.workspaceManager.adjacentMonitor(
-            from: currentMonitorId,
-            direction: monitorDirection
+        guard case let .changed(mutation) = moveWindowToWorkspaceOnMonitor(
+            handle: WindowHandle(id: token),
+            rawWorkspaceId: rawWorkspaceID,
+            monitorDirection: monitorDirection
         ) else { return }
-
-        guard let targetWsId = controller.workspaceManager.workspaceId(for: rawWorkspaceID, createIfMissing: false)
-        else { return }
-        guard controller.workspaceManager.monitorId(for: targetWsId) == targetMonitor.id else { return }
-
-        let transferResult = transferWindowFromSourceEngine(
-            token: token, from: currentWorkspaceId, to: targetWsId
-        )
-        guard transferResult.succeeded else { return }
-        recoverSourceFocus(after: transferResult, from: currentWorkspaceId)
 
         let shouldFollowFocus = controller.settings.focusFollowsWindowToMonitor
 
         if shouldFollowFocus {
-            if let monitor = controller.workspaceManager.monitorForWorkspace(targetWsId) {
-                _ = controller.workspaceManager.setActiveWorkspace(targetWsId, on: monitor.id)
+            if let monitor = controller.workspaceManager.monitorForWorkspace(mutation.destinationWorkspaceId) {
+                _ = controller.workspaceManager.setActiveWorkspace(mutation.destinationWorkspaceId, on: monitor.id)
             }
 
-            applySessionPatch(
-                workspaceId: targetWsId,
-                viewportState: transferredWindowNiriViewportState(token: token, workspaceId: targetWsId),
-                rememberedFocusToken: token
-            )
-
             controller.layoutRefreshController.commitWorkspaceTransition(
-                affectedWorkspaces: affectedWorkspaceIds(
-                    sourceWorkspaceId: currentWorkspaceId,
-                    targetWorkspaceId: targetWsId
-                ),
+                affectedWorkspaces: mutation.affectedWorkspaceIds,
                 reason: .workspaceTransition
             ) { [weak controller] in
                 controller?.focusWindow(token)
             }
         } else {
-            let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: currentWorkspaceId)
+            let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: mutation.sourceWorkspaceId)
 
             controller.layoutRefreshController.commitWorkspaceTransition(
-                affectedWorkspaces: affectedWorkspaceIds(
-                    sourceWorkspaceId: currentWorkspaceId,
-                    targetWorkspaceId: targetWsId
-                ),
+                affectedWorkspaces: mutation.affectedWorkspaceIds,
                 reason: .workspaceTransition
             ) { [weak controller] in
                 if let focusToken {

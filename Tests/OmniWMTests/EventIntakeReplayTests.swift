@@ -139,18 +139,23 @@ final class EventIntakeReplayTests: XCTestCase {
         intake.open(sink: sink)
         defer { intake.close() }
 
+        let invocation = HotkeyInvocation(
+            command: .focusPrevious,
+            trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
+        )
         intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 10, y: 10)))
-        intake.enqueue(.hotkeyCommand(.focusPrevious))
+        intake.enqueue(.hotkeyInvocation(invocation))
         intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 20, y: 20)))
         intake.drainNow()
 
         XCTAssertEqual(sink.received.count, 3)
         guard case let .mouseDragged(_, firstLocation) = sink.received[0].event,
-              case .hotkeyCommand(.focusPrevious) = sink.received[1].event,
+              case let .hotkeyInvocation(receivedInvocation) = sink.received[1].event,
               case let .mouseDragged(_, secondLocation) = sink.received[2].event
         else {
             return XCTFail("Expected dragged, command, dragged in order: \(sink.received)")
         }
+        XCTAssertEqual(receivedInvocation, invocation)
         XCTAssertEqual(firstLocation, CGPoint(x: 10, y: 10))
         XCTAssertEqual(secondLocation, CGPoint(x: 20, y: 20))
     }

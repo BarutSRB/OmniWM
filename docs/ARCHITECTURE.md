@@ -431,9 +431,9 @@ There is one deliberate exception to "all mutation goes through commit": **per-f
 | Handler | Responsibility |
 |---------|---------------|
 | `axEventHandler` | CGS/AX events → admissions, focus confirm/retry, native-fullscreen detection |
-| `commandHandler` | Routes `HotkeyCommand` to layout/workspace calls; enforces the layout-compatibility guard |
+| `commandHandler` | Routes physical `HotkeyInvocation`s through Overview first, then routes inactive-Overview commands with layout-compatibility guards |
 | `mouseEventHandler` / `mouseWarpHandler` | CGEvent tap, focus-follows-mouse, gestures; cursor warp |
-| `workspaceNavigationHandler` | Workspace switch / window-to-workspace moves |
+| `workspaceNavigationHandler` | Workspace switching, explicit-handle window workspace/monitor transfers, and Niri whole-column workspace transfers |
 | `windowActionHandler` | Close, fullscreen, float toggle |
 | `serviceLifecycleManager` | Observer setup, permission polling, service start/stop |
 | `layoutRefreshController` | Refresh scheduling, the display-link loop, frame application (owns `niriLayoutHandler`/`dwindleLayoutHandler`) |
@@ -445,7 +445,7 @@ There is one deliberate exception to "all mutation goes through commit": **per-f
 
 ### 4.2 World State: WorldStore, WorkspaceManager, WindowState
 
-**`WorkspaceManager`** (`Core/Workspace/WorkspaceManager.swift`) is the authoritative state facade. It owns the only `WorldStore` instance (`private let world = WorldStore()`), the workspace descriptors (`workspacesById` / `workspaceIdByName`), the monitor list, gaps, the native-fullscreen record store, and the persisted-restore catalog. It exposes the commit entry point and a large derived-read surface, and emits `onSessionStateChanged` / `onRuntimeInvalidation` / `onGapsChanged`.
+**`WorkspaceManager`** (`Core/Workspace/WorkspaceManager.swift`) is the authoritative state facade. It owns the only `WorldStore` instance (`private let world = WorldStore()`), the workspace descriptors (`workspacesById` / `workspaceIdByName`), the monitor list, active workspace and interaction-monitor state, remembered workspace focus, gaps, the native-fullscreen record store, and the persisted-restore catalog. It exposes the commit entry point and a large derived-read surface, and emits `onSessionStateChanged` / `onRuntimeInvalidation` / `onGapsChanged`. Its `onWindowRemoved` notification is emitted only after authoritative managed-window removal.
 
 ```
 WorkspaceManager
@@ -589,9 +589,9 @@ Focus management is split across several objects (there is no single coordinator
 
 `ActionCatalog` is the source of truth for bindable actions. `buildSpecs()` materializes **144** `ActionSpec`s (90 standalone actions + 6 loop templates × 9), each with a title, search keywords, category, layout compatibility, and default binding. `HotkeyBinding`/`HotkeyBindingRegistry` persist and canonicalize per-action bindings (an action can have several shortcuts).
 
-`HotkeyCenter` (`Hotkeys.swift`) installs one Carbon `InstallEventHandler` and registers each binding via `RegisterEventHotKey`, plus a virtual-hyper synthesis path. On a press it fires `onCommand(command)`, which `WMController` wires to `eventIntake.enqueue(.hotkeyCommand(command))` — commands enter the same single-writer pipeline as everything else (falling back to a direct `CommandHandler` call only if the intake is closed).
+`HotkeyCenter` (`Hotkeys.swift`) installs one Carbon `InstallEventHandler` and registers each binding via `RegisterEventHotKey`, plus a virtual-hyper synthesis path. On a press it emits a `HotkeyInvocation` through `onCommand`; the invocation carries the semantic `HotkeyCommand` and optional `PhysicalHotkeyTrigger` metadata (`keyCode`, modifiers, and repeat state). `WMController` wires it to `eventIntake.enqueue(.hotkeyInvocation(invocation))`, so physical commands enter the same ordered intake pipeline as everything else (falling back to `CommandHandler.handleHotkeyInvocation` only if intake is closed).
 
-**Command routing** (`Core/Controller/CommandHandler.swift`). `performCommand` enforces `isEnabled`, overview suppression, and a **layout-compatibility guard**: a `.niri`-only command is ignored under Dwindle and vice versa (`.shared` commands work everywhere).
+**Command routing** (`Core/Controller/CommandHandler.swift`). `handleHotkeyInvocation` gives `OverviewController` first refusal while Overview is open. The modal router uses physical keys for Escape, Enter, and non-repeating Command-W, recognizes the configured physical Overview toggle, and routes assigned structural commands against the selected Overview `WindowHandle`; recognized no-ops are consumed. Unsupported commands and triggerless external/IPC commands remain blocked. When Overview is inactive, `performCommand` enforces `isEnabled` and the **layout-compatibility guard**: a `.niri`-only command is ignored under Dwindle and vice versa (`.shared` commands work everywhere).
 
 **Mouse events** (`Core/Controller/MouseEventHandler.swift`). A `CGEventTap` drives focus-follows-mouse (debounced) and interactive move/resize, while raw multitouch frames (`MultitouchGestureSource`) drive trackpad swipes through one idle→armed→committed state machine with two routed modes: Niri viewport column scrolling (horizontal) and one-shot workspace switching (`TrackpadGestureIntent` resolves the mode from finger count and dominant axis; the switch fires through the same `switchWorkspaceRelative` seam as hotkeys, targeting the monitor under the cursor). Transient mouse events are coalesced *in the intake* before draining.
 
@@ -739,7 +739,7 @@ The per-frame **display link** is owned by `LayoutRefreshController` (not by `An
 
 | Feature | Key Files | Description |
 |---------|-----------|-------------|
-| **Overview** | `Core/Overview/OverviewController.swift` | Expose-style workspace overview. Rendered with **Core Graphics** (`OverviewView.draw → OverviewRenderer.render(context: CGContext)`), not Metal; thumbnails via ScreenCaptureKit (`SCScreenshotManager`, ≤4 concurrent). Search, drag-to-reorganize. |
+| **Overview** | `Core/Overview/OverviewController.swift` | Expose-style workspace overview. Rendered with **Core Graphics** (`OverviewView.draw → OverviewRenderer.render(context: CGContext)`), not Metal; thumbnails via ScreenCaptureKit (`SCScreenshotManager`, ≤4 concurrent). Search, structural hotkeys, and Option-drag placement. |
 | **Quake Terminal** | `QuakeTerminal/QuakeTerminalController.swift` | Drop-down terminal on GhosttyKit. Each tab is a tree of split panes (`QuakeTerminalTab` → `QuakeSplitContainer`/`SplitNode`), each a `GhosttySurfaceView` (CAMetalLayer-backed). Slide-in/out animation; registers as a `.quake` surface. |
 | **Command Palette** | `UI/CommandPalette/CommandPaletteController.swift` | Fuzzy search over windows, commands, and clipboard history. |
 | **Menu Anywhere** | `UI/MenuAnywhere/MenuAnywhereController.swift` | Pops the frontmost app's menu bar as a native `NSMenu` at the cursor, via `MenuExtractor` (ObjC runtime AX-tree walk). |
@@ -751,6 +751,10 @@ The per-frame **display link** is owned by `LayoutRefreshController` (not by `An
 | **Sleep / Lock** | `Core/Sleep/`, `Core/LockScreen/` | `SleepPreventionManager` (IOPM assertion), `LockScreenObserver` (DistributedNotificationCenter lock/unlock). |
 | **Release Updater** | `App/UpdateCoordinator.swift` | Polls the latest GitHub release once per day, supports manual checks, shows a release-notes popup. |
 
+**Overview mutation ownership.** `NiriLayoutHandler` owns explicit-`WindowHandle` Niri reorder, consume/expel, column, and insertion mutations; `WorkspaceNavigationHandler` owns explicit-handle window workspace/monitor transfers and Niri whole-column workspace transfers. Their internal `StructuralMutationOutcome` reports the selected handle, moved tokens, destination, and affected workspaces. `OverviewController` uses that result to make `WorkspaceManager` activate the destination workspace and interaction monitor, commit remembered layout focus, request relayout only for affected workspaces, and keep the moved window selected. Overview mutations suppress client-window activation, so no AX focus is issued until an intentional dismissal focuses the current selection.
+
+Option-drag continues to resolve an `OverviewDragTarget` for workspace-only, exact-card, or between-column placement. A cross-layout move into Niri first commits destination admission, then applies the exact target in a version-gated post-layout continuation; if the continuation is invalidated, the workspace transfer remains authoritative and the stale insertion is discarded. Projection refreshes reuse cached titles, frames, icons, and thumbnails while updating affected engine snapshots and active-workspace flags. Close completion is driven by `WorkspaceManager.onWindowRemoved`, not a speculative timer, so selection advances only after authoritative removal.
+
 ---
 
 ## 5. Data Flow Diagrams
@@ -760,22 +764,31 @@ The per-frame **display link** is owned by `LayoutRefreshController` (not by `An
 User presses a focus hotkey (e.g. focus-left). Note how the `IntentLedger` makes the resulting AX echo classifiable as our own action:
 
 ```
-HotkeyCenter.dispatch → onCommand                         [INTAKE transport]
-    │  Hotkeys.swift:463
+HotkeyCenter.dispatch → onCommand(HotkeyInvocation)       [INTAKE transport]
+    │  command + optional PhysicalHotkeyTrigger(keyCode, modifiers, isRepeat)
     v
-EventIntake.enqueue(.hotkeyCommand) → drain               [STAGE 1]
+EventIntake.enqueue(.hotkeyInvocation) → drain            [STAGE 1]
     │  CFRunLoopPerformBlock on main
     v
-EventInterpreter.handleIntakeEvent → CommandHandler.handleHotkeyCommand
-    │  EventInterpreter.swift:60
-    v
-CommandHandler → executeCombinedNavigation → WMController.focusWindow
-    │  resolves the target NiriNode
-    ├──> IntentLedger.beginManagedRequest(token)          records .focusWindow Intent
-    │       + DeadlineWheel 100ms settle deadline          (so the echo = echoOf)
-    └──> WorkspaceManager.beginManagedFocusRequest
-            v
-        WorldStore.commit(.managedFocusRequested)         [STAGE 2] seq++
+EventInterpreter.handleIntakeEvent → CommandHandler.handleHotkeyInvocation
+    │
+    ├── Overview open: OverviewController modal routing            [TERMINAL]
+    │      selected-card navigation/mutation or consumed/blocked command;
+    │      no client AX focus until intentional dismissal
+    │
+    └── Overview inactive
+           │
+           v
+        CommandHandler.performCommand
+           │
+           v
+        executeCombinedNavigation → WMController.focusWindow
+           │  resolves the target NiriNode
+           ├──> IntentLedger.beginManagedRequest(token)   records .focusWindow Intent
+           │       + DeadlineWheel 100ms settle deadline   (so the echo = echoOf)
+           └──> WorkspaceManager.beginManagedFocusRequest
+                   v
+               WorldStore.commit(.managedFocusRequested)  [STAGE 2] seq++
     │
     v
 WMController.performWindowFronting                        [STAGE 3 — effector]
@@ -848,7 +861,9 @@ IPCApplicationBridge (actor): verify token + protocol version
     │  for mutating commands: EventIntake.post(.ipcCommand(intake))
     v
 EventInterpreter (.ipcCommand) → intake.perform(controller)             [STAGE 1]
-    │  → CommandHandler.performCommand(.focus(.left))  (same path as 5.1 from here)
+    │  → CommandHandler.performCommand(.focus(.left))
+    │      (same semantic path as the inactive-Overview branch in 5.1;
+    │       returns .ignoredOverview while Overview is open)
     v
 ExternalCommandResult → IPCResponse { ok: true } → NDJSON → client
     v
@@ -864,7 +879,8 @@ CLIRenderer displays the result
 1. **Add the enum case** in `Core/Input/HotkeyCommand.swift`.
 2. **Add the action spec** in `Core/Input/ActionCatalog.swift` (title, keywords, category, layout compatibility, default binding). This is the source of truth for the command palette and default bindings.
 3. **Handle it** in `Core/Controller/CommandHandler.swift` — set the right `LayoutCompatibility` so the guard accepts it under the active layout. Mutations must reach the world through `WorkspaceManager.recordReconcileEvent`, never by touching `WindowModel`/engines directly.
-4. **Expose via IPC** (optional) in `IPC/IPCCommandRouter.swift` and the manifest (`OmniWMIPC/IPCAutomationManifest.swift`); add the CLI name in `OmniWMCtl/CLIParser.swift`.
+4. **Route structural Overview behavior** when applicable in `OverviewController`, using an explicit-`WindowHandle` entry point owned by `NiriLayoutHandler` or `WorkspaceNavigationHandler`; do not fall back to the desktop-focused window.
+5. **Expose via IPC** (optional) in `IPC/IPCCommandRouter.swift` and the manifest (`OmniWMIPC/IPCAutomationManifest.swift`); add the CLI name in `OmniWMCtl/CLIParser.swift`.
 
 ### 6.2 Adding a New IPC Query
 

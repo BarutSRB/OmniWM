@@ -1804,6 +1804,29 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testPostLayoutActionRunsInvalidationContinuationInsteadOfStaleAction() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let plannedSeq = controller.workspaceManager.worldSeq
+        var ranCurrentAction = false
+        var ranInvalidatedAction = false
+        let action = RefreshPostLayoutAction(
+            workspaceSeqs: [workspaceId: plannedSeq],
+            domains: .layoutCommit,
+            action: { ranCurrentAction = true },
+            invalidatedAction: { ranInvalidatedAction = true }
+        )
+
+        controller.workspaceManager.invalidateLayout(for: [workspaceId])
+        action.runIfCurrent(using: controller.workspaceManager)
+
+        XCTAssertFalse(ranCurrentAction)
+        XCTAssertTrue(ranInvalidatedAction)
+    }
+
+    @MainActor
     func testLayoutPlanAcceptedSeqIncludesAnimationDirectiveFocusMutation() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
@@ -1837,6 +1860,163 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         XCTAssertTrue(accepted.domains.contains(.focus))
         XCTAssertEqual(controller.workspaceManager.pendingFocusedToken, token)
+    }
+
+    @MainActor
+    func testOverviewLayoutPlanSuppressesWindowActivationDirective() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_006), windowId: 765_106),
+            pid: 765_006,
+            windowId: 765_106,
+            to: workspaceId
+        )
+        let plannedSeq = controller.workspaceManager.worldSeq
+
+        let accepted = try XCTUnwrap(
+            controller.layoutRefreshController.executeLayoutPlanReturningAcceptedSeq(
+                WorkspaceLayoutPlan(
+                    workspaceId: workspaceId,
+                    monitor: Self.layoutMonitorSnapshot(monitor),
+                    sessionPatch: WorkspaceSessionPatch(
+                        workspaceId: workspaceId,
+                        plannedSeq: plannedSeq
+                    ),
+                    diff: WorkspaceLayoutDiff(),
+                    animationDirectives: [.activateWindow(token: token)]
+                ),
+                suppressWindowActivation: true
+            )
+        )
+
+        XCTAssertNil(controller.workspaceManager.pendingFocusedToken)
+        XCTAssertTrue(
+            controller.workspaceManager.isSeqCurrent(plannedSeq, for: workspaceId, domains: .focusCommit)
+        )
+        XCTAssertEqual(accepted.after, controller.workspaceManager.worldSeq)
+    }
+
+    @MainActor
+    func testOverviewMutationSuppressionSurvivesCallbackFreeFullRescanMerge() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        controller.layoutRefreshController.layoutState.pendingRefresh = .init(
+            kind: .fullRescan,
+            reason: .startup
+        )
+        defer { controller.layoutRefreshController.resetState() }
+
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .overviewMutation,
+            affectedWorkspaceIds: [workspaceId]
+        )
+
+        XCTAssertTrue(
+            try XCTUnwrap(
+                controller.layoutRefreshController.layoutState.activeRefresh
+            ).suppressesWindowActivation
+        )
+    }
+
+    @MainActor
+    func testOverviewMutationSuppressionSurvivesWindowRemovalMergeAndFollowUp() async throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        controller.motionPolicy.animationsEnabled = false
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+
+        let firstToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_007), windowId: 765_107),
+            pid: 765_007,
+            windowId: 765_107,
+            to: workspaceId
+        )
+        let engine = try XCTUnwrap(controller.niriEngine)
+        XCTAssertNil(engine.findNode(for: firstToken, in: workspaceId))
+        XCTAssertFalse(controller.shouldSuppressManagedFocusRecovery)
+        controller.layoutRefreshController.resetState()
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+
+        controller.layoutRefreshController.layoutState.pendingRefresh = .init(
+            kind: .windowRemoval,
+            reason: .windowDestroyed,
+            windowRemovalPayload: .init(
+                workspaceId: workspaceId,
+                layoutType: .niri,
+                removedNodeId: nil,
+                niriOldFrames: [:],
+                shouldRecoverFocus: false,
+                allowsPreferredRecoveryToken: false
+            )
+        )
+
+        var followUpToken: WindowToken?
+        let addFollowUpWindow: @MainActor @Sendable () -> Void = {
+            followUpToken = controller.workspaceManager.addWindow(
+                AXWindowRef(
+                    element: AXUIElementCreateApplication(765_008),
+                    windowId: 765_108
+                ),
+                pid: 765_008,
+                windowId: 765_108,
+                to: workspaceId
+            )
+        }
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .overviewMutation,
+            affectedWorkspaceIds: [workspaceId],
+            postLayout: addFollowUpWindow,
+            postLayoutInvalidated: addFollowUpWindow,
+            postLayoutDomains: .layoutCommit
+        )
+
+        let mergedRefresh = try XCTUnwrap(
+            controller.layoutRefreshController.layoutState.activeRefresh
+        )
+        XCTAssertEqual(mergedRefresh.kind, .windowRemoval)
+        XCTAssertTrue(mergedRefresh.suppressesWindowActivation)
+        XCTAssertEqual(mergedRefresh.followUpRefresh?.reason, .overviewMutation)
+        XCTAssertTrue(
+            try XCTUnwrap(mergedRefresh.followUpRefresh).suppressesWindowActivation
+        )
+
+        for _ in 0 ..< 8 {
+            if let task = controller.layoutRefreshController.layoutState.activeRefreshTask {
+                await task.value
+            } else if controller.layoutRefreshController.layoutState.pendingRefresh == nil {
+                break
+            } else {
+                await Task.yield()
+            }
+        }
+
+        let secondToken = try XCTUnwrap(followUpToken)
+        XCTAssertNotNil(engine.findNode(for: firstToken, in: workspaceId))
+        XCTAssertNotNil(engine.findNode(for: secondToken, in: workspaceId))
+        XCTAssertTrue(focusedTokens.isEmpty)
+        XCTAssertNil(controller.workspaceManager.pendingFocusedToken)
+        XCTAssertNil(controller.intentLedger.activeManagedRequest)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.activeRefresh)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
     }
 
     @MainActor

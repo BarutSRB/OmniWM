@@ -406,7 +406,7 @@ final class NiriAdmissionRestoreStateTests: XCTestCase {
             controller.workspaceNavigationHandler.moveWindow(
                 handle: WindowHandle(id: token),
                 toWorkspaceId: targetWorkspaceId
-            )
+            ).didMutate
         )
 
         XCTAssertNil(engine.findNode(for: token, in: sourceWorkspaceId))

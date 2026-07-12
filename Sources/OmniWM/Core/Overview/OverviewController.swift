@@ -2,8 +2,20 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import AppKit
+import Carbon
 import Foundation
 import ScreenCaptureKit
+
+enum OverviewHotkeyDisposition: Equatable {
+    case inactive
+    case handled
+    case blocked
+}
+
+enum OverviewPhysicalHotkeyAction: Equatable {
+    case dismissSelection
+    case closeSelection
+}
 
 @MainActor
 struct OverviewEnvironment {
@@ -27,6 +39,16 @@ struct OverviewEnvironment {
 
     var notificationCenter: NotificationCenter = .default
     var selectionDismissDelayNanoseconds: UInt64 = 50_000_000
+    var windowTitle: (WindowState) -> String? = { entry in
+        AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId))
+    }
+
+    var windowFrame: (WindowState) -> CGRect? = { entry in
+        AXWindowService.framePreferFast(entry.axRef)
+    }
+
+    var onThumbnailCaptureStarted: () -> Void = {}
+    var onCachedProjectionRefreshed: (Set<WorkspaceDescriptor.ID>) -> Void = { _ in }
 }
 
 @MainActor
@@ -101,8 +123,8 @@ final class OverviewController {
     private var configuredScale: CGFloat = 1.0
     private var appearance: OverviewAppearance
     private var renderPalette: OverviewRenderPalette
-    private var selectedWindowHandle: WindowHandle?
-    private var activeInteractionMonitorId: Monitor.ID?
+    private(set) var selectedWindowHandle: WindowHandle?
+    private(set) var activeInteractionMonitorId: Monitor.ID?
 
     private var windows: [OverviewWindow] = []
     private var animator: OverviewAnimator?
@@ -125,9 +147,13 @@ final class OverviewController {
     private var inputHandler: OverviewInputHandler?
     private var dragGhostController: DragGhostController?
     private var dragSession: DragSession?
+    private var structuralTransferGeneration: UInt64 = 0
+    private var activeStructuralTransferGeneration: UInt64?
+    private var projectionMutationGeneration: UInt64 = 0
+    private var pendingProjectionWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
 
     var onActivateWindow: ((WindowHandle, WorkspaceDescriptor.ID) -> Void)?
-    var onCloseWindow: ((WindowHandle) -> Void)?
+    var onCloseWindow: ((WindowHandle) -> Bool)?
     var isOpen: Bool {
         state.isOpen
     }
@@ -156,12 +182,375 @@ final class OverviewController {
         switch state {
         case .closed:
             open()
-        case .open:
-            dismiss(reason: .cancel, animated: true)
         case .opening,
-             .closing:
+             .open:
+            dismissToSelection(animated: true)
+        case .closing:
             break
         }
+    }
+
+    func handleHotkeyInvocation(_ invocation: HotkeyInvocation) -> OverviewHotkeyDisposition {
+        guard state.isOpen else { return .inactive }
+        if let trigger = invocation.trigger,
+           let action = Self.physicalHotkeyAction(for: trigger)
+        {
+            guard !trigger.isRepeat else { return .handled }
+            switch action {
+            case .dismissSelection:
+                dismissToSelection(animated: true)
+            case .closeSelection:
+                closeSelectedWindow()
+            }
+            return .handled
+        }
+        return handleHotkeyCommand(invocation.command)
+    }
+
+    static func physicalHotkeyAction(for trigger: PhysicalHotkeyTrigger) -> OverviewPhysicalHotkeyAction? {
+        let relevantModifiers = trigger.modifiers
+            & UInt32(controlKey | optionKey | shiftKey | cmdKey)
+        switch trigger.keyCode {
+        case UInt32(kVK_Escape):
+            return .dismissSelection
+        case UInt32(kVK_Return),
+             UInt32(kVK_ANSI_KeypadEnter):
+            return relevantModifiers == 0 ? .dismissSelection : nil
+        case UInt32(kVK_ANSI_W):
+            return relevantModifiers == UInt32(cmdKey) ? .closeSelection : nil
+        default:
+            return nil
+        }
+    }
+
+    func handleHotkeyCommand(_ command: HotkeyCommand) -> OverviewHotkeyDisposition {
+        guard state.isOpen else { return .inactive }
+
+        switch command {
+        case .toggleOverview:
+            switch state {
+            case .opening,
+                 .open:
+                dismissToSelection(animated: true)
+            case .closed,
+                 .closing:
+                break
+            }
+            return .handled
+        case let .focus(direction):
+            guard case .open = state, dragSession == nil else { return .handled }
+            navigateSelection(direction)
+            return .handled
+        default:
+            guard isStructuralHotkey(command) else { return .blocked }
+            guard case .open = state,
+                  dragSession == nil,
+                  activeStructuralTransferGeneration == nil
+            else {
+                return .handled
+            }
+            guard let selectedWindowHandle else { return .handled }
+            executeStructuralHotkey(command, selectedHandle: selectedWindowHandle)
+            return .handled
+        }
+    }
+
+    @discardableResult
+    func executeStructuralHotkey(
+        _ command: HotkeyCommand,
+        selectedHandle: WindowHandle
+    ) -> StructuralMutationOutcome? {
+        guard activeStructuralTransferGeneration == nil else { return .unchanged }
+        let outcome = performStructuralHotkey(command, selectedHandle: selectedHandle)
+        if let outcome, case let .changed(mutation) = outcome {
+            completeStructuralMutation(mutation)
+        }
+        return outcome
+    }
+
+    func performStructuralHotkey(
+        _ command: HotkeyCommand,
+        selectedHandle: WindowHandle
+    ) -> StructuralMutationOutcome? {
+        guard let wmController,
+              let workspaceId = wmController.workspaceManager.workspace(for: selectedHandle.id)
+        else {
+            return .unchanged
+        }
+        let isNiri = wmController.workspaceManager.activeLayoutKind(for: workspaceId) == .niri
+
+        switch command {
+        case let .move(direction):
+            guard isNiri else { return .unchanged }
+            let outcome = wmController.niriLayoutHandler.moveWindow(
+                handle: selectedHandle,
+                direction: direction
+            )
+            if case .atWorkspaceEdge = outcome,
+               wmController.settings.moveCrossesMonitorAtEdge
+            {
+                return wmController.workspaceNavigationHandler.moveWindowToMonitor(
+                    handle: selectedHandle,
+                    direction: direction
+                )
+            }
+            return outcome
+        case .moveWindowDown:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveWindow(handle: selectedHandle, direction: .down)
+        case .moveWindowUp:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveWindow(handle: selectedHandle, direction: .up)
+        case .moveWindowDownOrToWorkspaceDown:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveWindowOrToAdjacentWorkspace(
+                handle: selectedHandle,
+                direction: .down
+            )
+        case .moveWindowUpOrToWorkspaceUp:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveWindowOrToAdjacentWorkspace(
+                handle: selectedHandle,
+                direction: .up
+            )
+        case .consumeOrExpelWindowLeft:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.consumeOrExpelWindow(
+                handle: selectedHandle,
+                direction: .left
+            )
+        case .consumeOrExpelWindowRight:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.consumeOrExpelWindow(
+                handle: selectedHandle,
+                direction: .right
+            )
+        case .consumeWindowIntoColumn:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.consumeWindowIntoColumn(containing: selectedHandle)
+        case .expelWindowFromColumn:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.expelWindowFromColumn(containing: selectedHandle)
+        case let .moveColumn(direction):
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveColumn(
+                containing: selectedHandle,
+                direction: direction
+            )
+        case .moveColumnToFirst:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveColumnToFirst(containing: selectedHandle)
+        case .moveColumnToLast:
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveColumnToLast(containing: selectedHandle)
+        case let .moveColumnToIndex(index):
+            guard isNiri else { return .unchanged }
+            return wmController.niriLayoutHandler.moveColumn(
+                containing: selectedHandle,
+                toOneBasedIndex: index
+            )
+        case let .moveToWorkspace(index):
+            return wmController.workspaceNavigationHandler.moveWindow(
+                handle: selectedHandle,
+                toWorkspaceIndex: index
+            )
+        case .moveWindowToWorkspaceUp:
+            return wmController.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(
+                handle: selectedHandle,
+                direction: .up
+            )
+        case .moveWindowToWorkspaceDown:
+            return wmController.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(
+                handle: selectedHandle,
+                direction: .down
+            )
+        case let .moveColumnToWorkspace(index):
+            guard isNiri else { return .unchanged }
+            return wmController.workspaceNavigationHandler.moveColumn(
+                containing: selectedHandle,
+                toWorkspaceIndex: index
+            )
+        case .moveColumnToWorkspaceUp:
+            guard isNiri else { return .unchanged }
+            return wmController.workspaceNavigationHandler.moveColumnToAdjacentWorkspace(
+                containing: selectedHandle,
+                direction: .up
+            )
+        case .moveColumnToWorkspaceDown:
+            guard isNiri else { return .unchanged }
+            return wmController.workspaceNavigationHandler.moveColumnToAdjacentWorkspace(
+                containing: selectedHandle,
+                direction: .down
+            )
+        case let .moveWindowToWorkspaceOnMonitor(workspaceIndex, monitorDirection):
+            return wmController.workspaceNavigationHandler.moveWindowToWorkspaceOnMonitor(
+                handle: selectedHandle,
+                workspaceIndex: workspaceIndex,
+                monitorDirection: monitorDirection
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func isStructuralHotkey(_ command: HotkeyCommand) -> Bool {
+        switch command {
+        case .move,
+             .moveWindowDown,
+             .moveWindowUp,
+             .moveWindowDownOrToWorkspaceDown,
+             .moveWindowUpOrToWorkspaceUp,
+             .consumeOrExpelWindowLeft,
+             .consumeOrExpelWindowRight,
+             .consumeWindowIntoColumn,
+             .expelWindowFromColumn,
+             .moveColumn,
+             .moveColumnToFirst,
+             .moveColumnToLast,
+             .moveColumnToIndex,
+             .moveToWorkspace,
+             .moveWindowToWorkspaceUp,
+             .moveWindowToWorkspaceDown,
+             .moveColumnToWorkspace,
+             .moveColumnToWorkspaceUp,
+             .moveColumnToWorkspaceDown,
+             .moveWindowToWorkspaceOnMonitor:
+            true
+        default:
+            false
+        }
+    }
+
+    private func completeStructuralMutation(_ mutation: StructuralMutation) {
+        guard let wmController, activateStructuralDestination(mutation) else { return }
+        let transferGeneration = serializesTransfer(mutation) ? beginStructuralTransfer() : nil
+        let projectionGeneration = beginProjectionMutation(
+            affectedWorkspaceIds: projectionWorkspaceIds(for: mutation)
+        )
+
+        wmController.layoutRefreshController.requestImmediateRelayout(
+            reason: .overviewMutation,
+            affectedWorkspaceIds: mutation.affectedWorkspaceIds,
+            postLayout: { [weak self] in
+                self?.finishStructuralMutation(
+                    mutation,
+                    projectionGeneration: projectionGeneration,
+                    transferGeneration: transferGeneration
+                )
+            },
+            postLayoutInvalidated: { [weak self] in
+                self?.finishStructuralMutation(
+                    mutation,
+                    projectionGeneration: projectionGeneration,
+                    transferGeneration: transferGeneration
+                )
+            }
+        )
+        if let scrollWorkspaceId = mutation.scrollWorkspaceId {
+            wmController.layoutRefreshController.startScrollAnimation(for: scrollWorkspaceId)
+        }
+    }
+
+    private func beginProjectionMutation(
+        affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>
+    ) -> UInt64 {
+        pendingProjectionWorkspaceIds.formUnion(affectedWorkspaceIds)
+        projectionMutationGeneration &+= 1
+        return projectionMutationGeneration
+    }
+
+    private func finishStructuralMutation(
+        _ mutation: StructuralMutation,
+        projectionGeneration: UInt64,
+        transferGeneration: UInt64?
+    ) {
+        defer { finishStructuralTransfer(transferGeneration) }
+        guard projectionMutationGeneration == projectionGeneration else { return }
+        synchronizeStructuralSelection(mutation)
+        pendingProjectionWorkspaceIds.formUnion(projectionWorkspaceIds(for: mutation))
+        let affectedWorkspaceIds = pendingProjectionWorkspaceIds
+        pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
+        refreshCachedOverviewProjection(
+            affectedWorkspaceIds: affectedWorkspaceIds
+        )
+    }
+
+    private func projectionWorkspaceIds(
+        for mutation: StructuralMutation
+    ) -> Set<WorkspaceDescriptor.ID> {
+        var workspaceIds = mutation.affectedWorkspaceIds
+        if let workspaceId = wmController?.workspaceManager.workspace(for: mutation.selectedHandle.id) {
+            workspaceIds.insert(workspaceId)
+        }
+        return workspaceIds
+    }
+
+    private func activateStructuralDestination(_ mutation: StructuralMutation) -> Bool {
+        guard let wmController,
+              let monitor = wmController.workspaceManager.monitorForWorkspace(mutation.destinationWorkspaceId)
+        else {
+            return false
+        }
+        guard wmController.workspaceManager.setActiveWorkspace(
+            mutation.destinationWorkspaceId,
+            on: monitor.id
+        ) else {
+            return false
+        }
+        _ = wmController.workspaceManager.setInteractionMonitor(monitor.id)
+        synchronizeStructuralSelection(mutation)
+        activeInteractionMonitorId = monitor.id
+        setSelectedWindowHandle(mutation.selectedHandle)
+        return true
+    }
+
+    private func synchronizeStructuralSelection(_ mutation: StructuralMutation) {
+        guard let wmController,
+              wmController.workspaceManager.workspace(for: mutation.selectedHandle.id)
+              == mutation.destinationWorkspaceId,
+              let monitor = wmController.workspaceManager.monitorForWorkspace(mutation.destinationWorkspaceId)
+        else {
+            return
+        }
+
+        let nodeId = wmController.niriEngine?
+            .findNode(for: mutation.selectedHandle, in: mutation.destinationWorkspaceId)?.id
+        _ = wmController.workspaceManager.commitWorkspaceSelection(
+            nodeId: nodeId,
+            focusedToken: mutation.selectedHandle.id,
+            in: mutation.destinationWorkspaceId,
+            onMonitor: monitor.id
+        )
+        if wmController.workspaceManager.activeLayoutKind(for: mutation.destinationWorkspaceId) == .dwindle,
+           let engine = wmController.dwindleEngine,
+           let node = engine.findNode(for: mutation.selectedHandle.id, in: mutation.destinationWorkspaceId)
+        {
+            wmController.workspaceManager.withEngineMutationScope(in: mutation.destinationWorkspaceId) {
+                engine.setSelectedNode(node, in: mutation.destinationWorkspaceId)
+            }
+        }
+    }
+
+    private func serializesTransfer(_ mutation: StructuralMutation) -> Bool {
+        guard mutation.sourceWorkspaceId != mutation.destinationWorkspaceId,
+              let wmController
+        else {
+            return false
+        }
+        return wmController.workspaceManager.activeLayoutKind(for: mutation.sourceWorkspaceId)
+            != wmController.workspaceManager.activeLayoutKind(for: mutation.destinationWorkspaceId)
+    }
+
+    private func beginStructuralTransfer() -> UInt64? {
+        guard activeStructuralTransferGeneration == nil else { return nil }
+        structuralTransferGeneration &+= 1
+        activeStructuralTransferGeneration = structuralTransferGeneration
+        return structuralTransferGeneration
+    }
+
+    private func finishStructuralTransfer(_ generation: UInt64?) {
+        guard let generation, activeStructuralTransferGeneration == generation else { return }
+        activeStructuralTransferGeneration = nil
     }
 
     func open() {
@@ -261,6 +650,10 @@ final class OverviewController {
             break
         }
 
+        if hasActiveDragSession {
+            cancelDrag()
+        }
+
         let resolvedTargetWindow = reason == .selection ? targetWindow : nil
         pendingDismissReason = reason
         pendingFocusTargetWindow = resolvedTargetWindow
@@ -309,9 +702,9 @@ final class OverviewController {
                     guard entry.layoutReason == .standard,
                           let handle = workspaceManager.handle(for: entry.token) else { continue }
 
-                    let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)) ?? ""
+                    let title = environment.windowTitle(entry) ?? ""
                     let appInfo = appInfoCache.info(for: entry.pid)
-                    let frame = AXWindowService.framePreferFast(entry.axRef) ?? .zero
+                    let frame = environment.windowFrame(entry) ?? .zero
 
                     windowData[handle] = (
                         token: entry.token,
@@ -330,6 +723,101 @@ final class OverviewController {
             windows: windowData
         )
         overviewSnapshot.niriSnapshotsByWorkspace = buildNiriOverviewSnapshots()
+    }
+
+    func refreshCachedOverviewProjection(
+        affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>,
+        selectedHandle: WindowHandle? = nil
+    ) {
+        guard state.isOpen, let wmController else { return }
+        environment.onCachedProjectionRefreshed(affectedWorkspaceIds)
+        let anchors = captureSelectedViewportAnchors()
+        let workspaceManager = wmController.workspaceManager
+
+        var workspaces: [OverviewWorkspaceLayoutItem] = []
+        for monitor in workspaceManager.monitors {
+            let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
+            for workspace in workspaceManager.workspaces(on: monitor.id) {
+                workspaces.append((
+                    id: workspace.id,
+                    name: wmController.settings.displayName(for: workspace.name),
+                    isActive: workspace.id == activeWorkspaceId
+                ))
+            }
+        }
+        overviewSnapshot.workspaces = workspaces
+
+        var engineFrames: [WindowToken: CGRect] = [:]
+        for workspaceId in affectedWorkspaceIds {
+            switch workspaceManager.activeLayoutKind(for: workspaceId) {
+            case .niri:
+                if let frames = wmController.niriEngine?.captureWindowFrames(in: workspaceId) {
+                    engineFrames.merge(frames) { _, new in new }
+                }
+                if let snapshot = wmController.niriEngine?.overviewSnapshot(for: workspaceId),
+                   let filteredSnapshot = cachedNiriSnapshot(snapshot)
+                {
+                    overviewSnapshot.niriSnapshotsByWorkspace[workspaceId] = filteredSnapshot
+                } else {
+                    overviewSnapshot.niriSnapshotsByWorkspace.removeValue(forKey: workspaceId)
+                }
+            case .dwindle:
+                if let frames = wmController.dwindleEngine?.currentFrames(in: workspaceId) {
+                    engineFrames.merge(frames) { _, new in new }
+                }
+                overviewSnapshot.niriSnapshotsByWorkspace.removeValue(forKey: workspaceId)
+            }
+        }
+
+        for (handle, data) in overviewSnapshot.windows {
+            guard let entry = workspaceManager.entry(for: handle) else { continue }
+            let frame = engineFrames[data.token] ?? data.frame
+            if entry.workspaceId != data.workspaceId || frame != data.frame {
+                overviewSnapshot.windows[handle] = (
+                    token: data.token,
+                    workspaceId: entry.workspaceId,
+                    title: data.title,
+                    appName: data.appName,
+                    appIcon: data.appIcon,
+                    frame: frame
+                )
+            }
+        }
+
+        if let selectedHandle,
+           overviewSnapshot.windows[selectedHandle] != nil,
+           workspaceManager.entry(for: selectedHandle) != nil
+        {
+            selectedWindowHandle = selectedHandle
+        }
+        rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
+        updateWindowDisplays()
+    }
+
+    private func cachedNiriSnapshot(
+        _ snapshot: NiriOverviewWorkspaceSnapshot
+    ) -> NiriOverviewWorkspaceSnapshot? {
+        let columns = snapshot.columns.compactMap { column -> NiriOverviewColumnSnapshot? in
+            let tiles = column.tiles.filter { tile in
+                wmController?.workspaceManager.workspace(for: tile.token) == snapshot.workspaceId
+            }
+            guard !tiles.isEmpty else { return nil }
+            return NiriOverviewColumnSnapshot(
+                index: 0,
+                widthWeight: column.widthWeight,
+                preferredWidth: column.preferredWidth,
+                tiles: tiles
+            )
+        }.enumerated().map { index, column in
+            NiriOverviewColumnSnapshot(
+                index: index,
+                widthWeight: column.widthWeight,
+                preferredWidth: column.preferredWidth,
+                tiles: column.tiles
+            )
+        }
+        guard !columns.isEmpty else { return nil }
+        return NiriOverviewWorkspaceSnapshot(workspaceId: snapshot.workspaceId, columns: columns)
     }
 
     private struct SelectedViewportAnchor {
@@ -447,7 +935,7 @@ final class OverviewController {
             }
             window.onDismiss = { [weak self] monitorId in
                 self?.activeInteractionMonitorId = monitorId
-                self?.dismiss(reason: .cancel, animated: true)
+                self?.dismissToSelection(animated: true)
             }
             window.onScroll = { [weak self] monitorId, delta in
                 self?.adjustScrollOffset(by: delta, on: monitorId)
@@ -557,6 +1045,7 @@ final class OverviewController {
 
     private func startThumbnailCapture() {
         thumbnailCaptureTask?.cancel()
+        environment.onThumbnailCaptureStarted()
         thumbnailCaptureTask = Task { [weak self] in
             await self?.captureThumbnails()
         }
@@ -686,15 +1175,19 @@ final class OverviewController {
     func completeCloseTransition(targetWindow: WindowHandle?) {
         let dismissReason = pendingDismissReason
         let previousFrontmostApplicationPID = previousFrontmostApplicationPID
-        let resolvedTargetWindow = pendingFocusTargetWindow == targetWindow ? targetWindow : pendingFocusTargetWindow
+        let requestedTargetWindow = pendingFocusTargetWindow ?? targetWindow
+        let resolvedTargetWindow = requestedTargetWindow.flatMap { handle in
+            wmController?.workspaceManager.entry(for: handle) == nil ? nil : handle
+        }
 
         animator?.cancelAnimation()
         state = .closed
         cleanup()
         endOwnedSession()
 
-        if dismissReason.shouldRestorePreviousApplication,
-           let previousFrontmostApplicationPID
+        if (dismissReason
+            .shouldRestorePreviousApplication || dismissReason == .selection && resolvedTargetWindow == nil),
+            let previousFrontmostApplicationPID
         {
             environment.activateApplication(previousFrontmostApplicationPID)
         } else if dismissReason == .selection,
@@ -714,40 +1207,67 @@ final class OverviewController {
     }
 
     func selectAndActivateWindow(_ handle: WindowHandle) {
+        guard case .open = state else { return }
         setSelectedWindowHandle(handle)
         updateWindowDisplays()
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: self.environment.selectionDismissDelayNanoseconds)
             guard self.state.isOpen else { return }
-            self.dismiss(reason: .selection, targetWindow: handle, animated: true)
+            self.dismissToSelection(animated: true)
         }
     }
 
-    func closeWindow(_ handle: WindowHandle) {
-        onCloseWindow?(handle)
-
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            self.rebuildLayoutAfterWindowClose(removedHandle: handle)
-        }
+    @discardableResult
+    func closeWindow(_ handle: WindowHandle) -> Bool {
+        guard case .open = state else { return false }
+        return onCloseWindow?(handle) == true
     }
 
-    private func rebuildLayoutAfterWindowClose(removedHandle: WindowHandle) {
-        let removedWindowId = overviewSnapshot.windows[removedHandle]?.token.windowId
+    func handleManagedWindowRemoved(_ entry: WindowState) {
+        guard state.isOpen else { return }
+        guard let removedHandle = overviewSnapshot.windows.first(where: { $0.value.token == entry.token })?.key else {
+            return
+        }
+        let visibleOrder = canonicalLayout()?.allWindows
+            .filter(\.matchesSearch)
+            .map(\.handle) ?? []
+        guard let removedData = overviewSnapshot.windows.removeValue(forKey: removedHandle) else { return }
+
+        thumbnailCache.removeValue(forKey: removedData.token.windowId)
+        var nextSelection = selectedWindowHandle
         if selectedWindowHandle == removedHandle {
-            selectedWindowHandle = nil
+            nextSelection = Self.selectionAfterRemoving(
+                removedHandle,
+                from: visibleOrder,
+                availableHandles: Set(overviewSnapshot.windows.keys)
+            )
+            selectedWindowHandle = nextSelection
+        }
+        if pendingFocusTargetWindow == removedHandle {
+            pendingFocusTargetWindow = nextSelection
         }
 
-        buildOverviewState()
+        refreshCachedOverviewProjection(
+            affectedWorkspaceIds: [entry.workspaceId],
+            selectedHandle: nextSelection
+        )
+    }
 
-        let removedThumbnail: CGImage? = if let removedWindowId {
-            thumbnailCache.removeValue(forKey: removedWindowId)
-        } else {
-            nil
+    static func selectionAfterRemoving(
+        _ removedHandle: WindowHandle,
+        from visibleOrder: [WindowHandle],
+        availableHandles: Set<WindowHandle>
+    ) -> WindowHandle? {
+        guard let removedIndex = visibleOrder.firstIndex(of: removedHandle) else {
+            return visibleOrder.first { availableHandles.contains($0) }
         }
-
-        updateWindowDisplays(thumbnails: removedThumbnail == nil ? nil : thumbnailCache)
+        if removedIndex + 1 < visibleOrder.count,
+           let next = visibleOrder[(removedIndex + 1)...].first(where: { availableHandles.contains($0) })
+        {
+            return next
+        }
+        return visibleOrder[..<removedIndex].reversed().first { availableHandles.contains($0) }
     }
 
     func updateSearchQuery(_ query: String) {
@@ -758,6 +1278,7 @@ final class OverviewController {
     }
 
     func navigateSelection(_ direction: Direction, on monitorId: Monitor.ID? = nil) {
+        guard case .open = state else { return }
         let targetMonitorId = monitorId ?? activeInteractionMonitorId
         if let targetMonitorId {
             activeInteractionMonitorId = targetMonitorId
@@ -778,6 +1299,21 @@ final class OverviewController {
     func activateSelectedWindow() {
         guard let selectedWindowHandle else { return }
         selectAndActivateWindow(selectedWindowHandle)
+    }
+
+    func dismissToSelection(animated: Bool) {
+        guard let selectedWindowHandle,
+              overviewSnapshot.windows[selectedWindowHandle] != nil
+        else {
+            dismiss(reason: .cancel, animated: animated)
+            return
+        }
+        dismiss(reason: .selection, targetWindow: selectedWindowHandle, animated: animated)
+    }
+
+    func closeSelectedWindow() {
+        guard case .open = state, let selectedWindowHandle else { return }
+        closeWindow(selectedWindowHandle)
     }
 
     func adjustScrollOffset(by delta: CGFloat) {
@@ -860,6 +1396,9 @@ final class OverviewController {
         dragGhostController?.endDrag()
         dragGhostController = nil
         dragSession = nil
+        activeStructuralTransferGeneration = nil
+        projectionMutationGeneration &+= 1
+        pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
         closeWindows()
     }
 
@@ -1082,6 +1621,10 @@ final class OverviewController {
         )
     }
 
+    var hasActiveDragSession: Bool {
+        dragSession != nil
+    }
+
     deinit {
         MainActor.assumeIsolated {
             endOwnedSession()
@@ -1091,6 +1634,12 @@ final class OverviewController {
 }
 
 private extension OverviewController {
+    enum DragMutationOutcome {
+        case changed(StructuralMutation)
+        case awaitingAdmission(StructuralMutation, OverviewDragTarget)
+        case unchanged
+    }
+
     struct DragSession {
         let handle: WindowHandle
         let windowId: Int
@@ -1098,9 +1647,16 @@ private extension OverviewController {
         let monitorId: Monitor.ID
         let startPoint: CGPoint
     }
+}
 
+extension OverviewController {
     func beginDrag(on monitorId: Monitor.ID, handle: WindowHandle, startPoint: CGPoint) {
-        guard let wmController else { return }
+        guard case .open = state,
+              activeStructuralTransferGeneration == nil,
+              let wmController
+        else {
+            return
+        }
         guard let entry = wmController.workspaceManager.entry(for: handle) else { return }
 
         activeInteractionMonitorId = monitorId
@@ -1112,7 +1668,7 @@ private extension OverviewController {
             startPoint: startPoint
         )
 
-        if let frame = AXWindowService.framePreferFast(entry.axRef) {
+        if let frame = overviewSnapshot.windows[handle]?.frame {
             if dragGhostController == nil {
                 dragGhostController = DragGhostController()
             }
@@ -1125,6 +1681,10 @@ private extension OverviewController {
     }
 
     func updateDrag(on monitorId: Monitor.ID, at point: CGPoint) {
+        guard case .open = state else {
+            cancelDrag()
+            return
+        }
         guard dragSession != nil else { return }
         activeInteractionMonitorId = monitorId
         dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
@@ -1138,6 +1698,10 @@ private extension OverviewController {
     }
 
     func endDrag(on monitorId: Monitor.ID, at point: CGPoint) {
+        guard case .open = state else {
+            cancelDrag()
+            return
+        }
         guard let session = dragSession else { return }
         activeInteractionMonitorId = monitorId
         dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
@@ -1152,15 +1716,32 @@ private extension OverviewController {
             return
         }
 
-        performDragAction(
+        let outcome = performDragAction(
             session: session,
             target: target
         )
-
-        buildOverviewState()
-        updateWindowDisplays()
+        switch outcome {
+        case let .changed(mutation):
+            completeStructuralMutation(mutation)
+        case let .awaitingAdmission(mutation, deferredTarget):
+            completeDeferredDragMutation(mutation, target: deferredTarget)
+        case .unchanged:
+            updateWindowDisplays()
+        }
     }
 
+    static func deferredColumnInsertIndex(
+        requestedIndex: Int,
+        admittedColumnIndex: Int?
+    ) -> Int {
+        if let admittedColumnIndex, admittedColumnIndex < requestedIndex {
+            return requestedIndex + 1
+        }
+        return requestedIndex
+    }
+}
+
+private extension OverviewController {
     func cancelDrag() {
         clearDragTargets()
         dragGhostController?.endDrag()
@@ -1173,59 +1754,220 @@ private extension OverviewController {
         return layout.resolveDragTarget(at: point, draggedHandle: dragSession?.handle)
     }
 
-    func performDragAction(session: DragSession, target: OverviewDragTarget) {
-        guard let wmController else { return }
+    func performDragAction(session: DragSession, target: OverviewDragTarget) -> DragMutationOutcome {
+        guard let wmController else { return .unchanged }
 
         switch target {
         case let .workspaceMove(targetWsId):
-            guard targetWsId != session.workspaceId else { return }
-            wmController.workspaceNavigationHandler.moveWindow(
+            guard targetWsId != session.workspaceId else { return .unchanged }
+            guard case let .changed(mutation) = wmController.workspaceNavigationHandler.moveWindow(
                 handle: session.handle,
                 toWorkspaceId: targetWsId
-            )
+            ) else { return .unchanged }
+            return .changed(mutation)
 
         case let .niriWindowInsert(targetWsId, targetHandle, position):
-            guard isNiriLayout(workspaceId: targetWsId) else { return }
+            guard isNiriLayout(workspaceId: targetWsId) else { return .unchanged }
+            var transferMutation: StructuralMutation?
             if targetWsId != session.workspaceId {
-                wmController.workspaceNavigationHandler.moveWindow(
+                guard case let .changed(mutation) = wmController.workspaceNavigationHandler.moveWindow(
                     handle: session.handle,
                     toWorkspaceId: targetWsId
-                )
+                ) else { return .unchanged }
+                transferMutation = mutation
+                if !isNiriLayout(workspaceId: session.workspaceId) {
+                    return .awaitingAdmission(mutation, target)
+                }
             }
             let niriPosition = overviewInsertPositionToNiri(position)
-            wmController.niriLayoutHandler.insertWindow(
+            guard wmController.niriLayoutHandler.insertWindow(
                 handle: session.handle,
                 targetHandle: targetHandle,
                 position: niriPosition,
                 in: targetWsId,
                 source: .mouse
+            ) else {
+                return transferMutation.map(DragMutationOutcome.changed) ?? .unchanged
+            }
+            return .changed(
+                StructuralMutation(
+                    sourceWorkspaceId: session.workspaceId,
+                    destinationWorkspaceId: targetWsId,
+                    selectedHandle: session.handle,
+                    movedTokens: [session.handle.id],
+                    scrollWorkspaceId: targetWsId
+                )
             )
-            wmController.layoutRefreshController.startScrollAnimation(for: targetWsId)
 
         case let .niriColumnInsert(targetWsId, insertIndex):
-            guard isNiriLayout(workspaceId: targetWsId) else { return }
+            guard isNiriLayout(workspaceId: targetWsId) else { return .unchanged }
             let shouldInheritWidth = targetWsId != session.workspaceId
                 && isNiriLayout(workspaceId: session.workspaceId)
             let widthPolicy: NiriLayoutEngine.NewColumnWidthPolicy = shouldInheritWidth
                 ? .inheritSource
                 : .workspaceDefault
+            var transferMutation: StructuralMutation?
             if targetWsId != session.workspaceId {
-                wmController.workspaceNavigationHandler.moveWindow(
+                guard case let .changed(mutation) = wmController.workspaceNavigationHandler.moveWindow(
                     handle: session.handle,
                     toWorkspaceId: targetWsId
-                )
+                ) else { return .unchanged }
+                transferMutation = mutation
+                if !isNiriLayout(workspaceId: session.workspaceId) {
+                    return .awaitingAdmission(mutation, target)
+                }
             }
-            wmController.niriLayoutHandler.insertWindowInNewColumn(
+            guard wmController.niriLayoutHandler.insertWindowInNewColumn(
                 handle: session.handle,
                 insertIndex: insertIndex,
                 in: targetWsId,
                 widthPolicy: widthPolicy,
                 source: .mouse
+            ) else {
+                return transferMutation.map(DragMutationOutcome.changed) ?? .unchanged
+            }
+            return .changed(
+                StructuralMutation(
+                    sourceWorkspaceId: session.workspaceId,
+                    destinationWorkspaceId: targetWsId,
+                    selectedHandle: session.handle,
+                    movedTokens: [session.handle.id],
+                    scrollWorkspaceId: targetWsId
+                )
             )
-            wmController.layoutRefreshController.startScrollAnimation(for: targetWsId)
+        }
+    }
+
+    func completeDeferredDragMutation(
+        _ mutation: StructuralMutation,
+        target: OverviewDragTarget
+    ) {
+        guard let wmController, activateStructuralDestination(mutation) else { return }
+        guard let transferGeneration = beginStructuralTransfer() else { return }
+        let projectionGeneration = beginProjectionMutation(
+            affectedWorkspaceIds: projectionWorkspaceIds(for: mutation)
+        )
+        wmController.layoutRefreshController.requestImmediateRelayout(
+            reason: .overviewMutation,
+            affectedWorkspaceIds: mutation.affectedWorkspaceIds,
+            postLayout: { [weak self] in
+                self?.applyDeferredDragPlacement(
+                    mutation,
+                    target: target,
+                    transferGeneration: transferGeneration,
+                    projectionGeneration: projectionGeneration
+                )
+            },
+            postLayoutInvalidated: { [weak self] in
+                self?.finishDeferredDragMutation(
+                    mutation,
+                    transferGeneration: transferGeneration,
+                    projectionGeneration: projectionGeneration
+                )
+            }
+        )
+    }
+
+    func applyDeferredDragPlacement(
+        _ mutation: StructuralMutation,
+        target: OverviewDragTarget,
+        transferGeneration: UInt64,
+        projectionGeneration: UInt64
+    ) {
+        guard let wmController,
+              case .open = state,
+              projectionMutationGeneration == projectionGeneration,
+              activeStructuralTransferGeneration == transferGeneration,
+              wmController.workspaceManager.workspace(for: mutation.selectedHandle.id)
+              == mutation.destinationWorkspaceId
+        else {
+            finishDeferredDragMutation(
+                mutation,
+                transferGeneration: transferGeneration,
+                projectionGeneration: projectionGeneration
+            )
+            return
         }
 
-        wmController.layoutRefreshController.requestImmediateRelayout(reason: .overviewMutation)
+        let inserted: Bool
+        switch target {
+        case let .niriWindowInsert(workspaceId, targetHandle, position):
+            inserted = wmController.niriLayoutHandler.insertWindow(
+                handle: mutation.selectedHandle,
+                targetHandle: targetHandle,
+                position: overviewInsertPositionToNiri(position),
+                in: workspaceId,
+                source: .mouse
+            )
+        case let .niriColumnInsert(workspaceId, insertIndex):
+            let admittedColumnIndex = wmController.niriEngine
+                .flatMap { engine in
+                    engine.findNode(for: mutation.selectedHandle, in: workspaceId)
+                        .flatMap { engine.findColumn(containing: $0, in: workspaceId) }
+                        .flatMap { column in
+                            column.windowNodes.count == 1
+                                ? engine.columnIndex(of: column, in: workspaceId)
+                                : nil
+                        }
+                }
+            let resolvedInsertIndex = Self.deferredColumnInsertIndex(
+                requestedIndex: insertIndex,
+                admittedColumnIndex: admittedColumnIndex
+            )
+            inserted = wmController.niriLayoutHandler.insertWindowInNewColumn(
+                handle: mutation.selectedHandle,
+                insertIndex: resolvedInsertIndex,
+                in: workspaceId,
+                widthPolicy: .workspaceDefault,
+                source: .mouse
+            )
+        case .workspaceMove:
+            inserted = false
+        }
+
+        guard inserted else {
+            finishDeferredDragMutation(
+                mutation,
+                transferGeneration: transferGeneration,
+                projectionGeneration: projectionGeneration
+            )
+            return
+        }
+        wmController.layoutRefreshController.requestImmediateRelayout(
+            reason: .overviewMutation,
+            affectedWorkspaceIds: mutation.affectedWorkspaceIds,
+            postLayout: { [weak self] in
+                self?.finishDeferredDragMutation(
+                    mutation,
+                    transferGeneration: transferGeneration,
+                    projectionGeneration: projectionGeneration
+                )
+            },
+            postLayoutInvalidated: { [weak self] in
+                self?.finishDeferredDragMutation(
+                    mutation,
+                    transferGeneration: transferGeneration,
+                    projectionGeneration: projectionGeneration
+                )
+            }
+        )
+        wmController.layoutRefreshController.startScrollAnimation(for: mutation.destinationWorkspaceId)
+    }
+
+    func finishDeferredDragMutation(
+        _ mutation: StructuralMutation,
+        transferGeneration: UInt64,
+        projectionGeneration: UInt64
+    ) {
+        defer { finishStructuralTransfer(transferGeneration) }
+        guard self.projectionMutationGeneration == projectionGeneration else { return }
+        synchronizeStructuralSelection(mutation)
+        pendingProjectionWorkspaceIds.formUnion(projectionWorkspaceIds(for: mutation))
+        let affectedWorkspaceIds = pendingProjectionWorkspaceIds
+        pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
+        refreshCachedOverviewProjection(
+            affectedWorkspaceIds: affectedWorkspaceIds
+        )
     }
 
     func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {

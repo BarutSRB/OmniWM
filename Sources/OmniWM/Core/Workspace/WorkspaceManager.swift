@@ -82,6 +82,7 @@ final class WorkspaceManager {
     var onGapsChanged: (() -> Void)?
     var onSessionStateChanged: (() -> Void)?
     var onRuntimeInvalidation: ((WorkspaceDescriptor.ID?, InvalidationDomain) -> Void)?
+    var onWindowRemoved: ((WindowState) -> Void)?
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -1865,6 +1866,25 @@ final class WorkspaceManager {
         workspaceIdByName[name]
     }
 
+    func createDynamicWorkspace(
+        named name: String,
+        on monitorId: Monitor.ID
+    ) -> WorkspaceDescriptor? {
+        if let existingId = workspaceIdByName[name] {
+            return descriptor(for: existingId)
+        }
+        guard let monitor = monitor(byId: monitorId),
+              let workspaceId = createWorkspace(
+                  named: name,
+                  assignedMonitorPoint: monitor.workspaceAnchorPoint,
+                  requiresConfiguration: false
+              )
+        else {
+            return nil
+        }
+        return descriptor(for: workspaceId)
+    }
+
     func workspaces(on monitorId: Monitor.ID) -> [WorkspaceDescriptor] {
         workspaceIdsByMonitor()[monitorId]?.compactMap(descriptor(for:)) ?? []
     }
@@ -2468,6 +2488,7 @@ final class WorkspaceManager {
         if focusChanged || scratchpadChanged {
             notifySessionStateChanged()
         }
+        onWindowRemoved?(entry)
         return entry
     }
 
@@ -3355,6 +3376,7 @@ final class WorkspaceManager {
             return effectiveMonitor(for: workspaceId, context: context)?.id
         }
         return monitorIdShowingWorkspace(workspaceId)
+            ?? effectiveMonitor(for: workspaceId, context: context)?.id
     }
 
     private func workspaceMonitorId(for workspaceId: WorkspaceDescriptor.ID) -> Monitor.ID? {
@@ -3437,8 +3459,7 @@ final class WorkspaceManager {
         monitorId: Monitor.ID,
         context: MonitorResolutionContext
     ) -> Bool {
-        guard let workspace = descriptor(for: workspaceId) else { return false }
-        guard context.configuredWorkspaceNames.contains(workspace.name) else { return false }
+        guard descriptor(for: workspaceId) != nil else { return false }
         return effectiveMonitor(for: workspaceId, context: context)?.id == monitorId
     }
 
@@ -3524,10 +3545,14 @@ final class WorkspaceManager {
         }
     }
 
-    private func createWorkspace(named name: String) -> WorkspaceDescriptor.ID? {
+    private func createWorkspace(
+        named name: String,
+        assignedMonitorPoint: CGPoint? = nil,
+        requiresConfiguration: Bool = true
+    ) -> WorkspaceDescriptor.ID? {
         guard let rawID = WorkspaceIDPolicy.normalizeRawID(name) else { return nil }
-        guard configuredWorkspaceNameSet().contains(rawID) else { return nil }
-        let workspace = WorkspaceDescriptor(name: rawID)
+        guard !requiresConfiguration || configuredWorkspaceNameSet().contains(rawID) else { return nil }
+        let workspace = WorkspaceDescriptor(name: rawID, assignedMonitorPoint: assignedMonitorPoint)
         workspacesById[workspace.id] = workspace
         workspaceIdByName[workspace.name] = workspace.id
         _cachedSortedWorkspaces = nil

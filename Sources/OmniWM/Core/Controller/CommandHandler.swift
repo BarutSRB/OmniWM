@@ -18,14 +18,24 @@ final class CommandHandler {
 
     @discardableResult
     func handleHotkeyCommand(_ command: HotkeyCommand) -> ExternalCommandResult {
+        performCommand(command)
+    }
+
+    @discardableResult
+    func handleHotkeyInvocation(_ invocation: HotkeyInvocation) -> ExternalCommandResult {
         guard let controller else { return .notFound }
         guard controller.isEnabled else { return .ignoredDisabled }
-        if case let .focus(direction) = command,
-           controller.navigateOverviewSelection(direction)
-        {
+        if invocation.command == .toggleOverview, invocation.trigger?.isRepeat == true {
             return .executed
         }
-        return performCommand(command)
+        switch controller.handleOverviewHotkey(invocation) {
+        case .handled:
+            return .executed
+        case .blocked:
+            return .ignoredOverview
+        case .inactive:
+            return performCommand(invocation.command)
+        }
     }
 
     @discardableResult
@@ -111,13 +121,13 @@ final class CommandHandler {
         case .toggleNativeFullscreen:
             toggleNativeFullscreenForFocused()
         case let .moveColumn(direction):
-            moveColumnInNiri(direction: direction)
+            controller.niriLayoutHandler.moveColumn(direction: direction)
         case .moveColumnToFirst:
-            moveColumnToFirstInNiri()
+            controller.niriLayoutHandler.moveColumnToFirst()
         case .moveColumnToLast:
-            moveColumnToLastInNiri()
+            controller.niriLayoutHandler.moveColumnToLast()
         case let .moveColumnToIndex(index):
-            moveColumnToIndexInNiri(index: index)
+            controller.niriLayoutHandler.moveColumn(toOneBasedIndex: index)
         case .toggleColumnTabbed:
             toggleColumnTabbedInNiri()
         case .focusDownOrLeft:
@@ -230,8 +240,8 @@ final class CommandHandler {
         return .executed
     }
 
-    static func shouldIgnoreCommand(_ command: HotkeyCommand, isOverviewOpen: Bool) -> Bool {
-        isOverviewOpen && command != .toggleOverview
+    static func shouldIgnoreCommand(_: HotkeyCommand, isOverviewOpen: Bool) -> Bool {
+        isOverviewOpen
     }
 
     private func layoutHandler<T>(as capability: T.Type) -> T? {
@@ -639,78 +649,6 @@ final class CommandHandler {
         guard setFullscreen(entry.axRef, false) else {
             _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
             return
-        }
-    }
-
-    private func moveColumnInNiri(direction: Direction) {
-        guard let controller else { return }
-        controller.niriLayoutHandler.withNiriOperationContext { ctx, state in
-            guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else { return false }
-            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
-            guard ctx.engine.moveColumn(
-                column, direction: direction, in: ctx.wsId,
-                motion: ctx.motion,
-                state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps
-            ) else { return false }
-            ctx.record(.columnMoved)
-            return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
-        }
-    }
-
-    private func moveColumnToFirstInNiri() {
-        guard let controller else { return }
-        controller.niriLayoutHandler.withNiriOperationContext { ctx, state in
-            guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else { return false }
-            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
-            guard ctx.engine.moveColumnToFirst(
-                column,
-                in: ctx.wsId,
-                motion: ctx.motion,
-                state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps
-            ) else { return false }
-            ctx.record(.columnMoved)
-            return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
-        }
-    }
-
-    private func moveColumnToLastInNiri() {
-        guard let controller else { return }
-        controller.niriLayoutHandler.withNiriOperationContext { ctx, state in
-            guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else { return false }
-            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
-            guard ctx.engine.moveColumnToLast(
-                column,
-                in: ctx.wsId,
-                motion: ctx.motion,
-                state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps
-            ) else { return false }
-            ctx.record(.columnMoved)
-            return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
-        }
-    }
-
-    private func moveColumnToIndexInNiri(index: Int) {
-        guard let controller else { return }
-        controller.niriLayoutHandler.withNiriOperationContext { ctx, state in
-            guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else { return false }
-            let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
-            guard ctx.engine.moveColumnToIndex(
-                column,
-                index,
-                in: ctx.wsId,
-                motion: ctx.motion,
-                state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps
-            ) else { return false }
-            ctx.record(.columnMoved)
-            return ctx.commitWithCapturedAnimation(state: state, oldFrames: oldFrames)
         }
     }
 

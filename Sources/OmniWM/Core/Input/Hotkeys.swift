@@ -195,13 +195,14 @@ struct HyperTriggerStateMachine: Equatable {
 
 @MainActor
 final class HotkeyCenter {
-    var onCommand: ((HotkeyCommand) -> Void)?
+    var onCommand: ((HotkeyInvocation) -> Void)?
 
     private var refs: [EventHotKeyRef?] = []
     private var handler: EventHandlerRef?
     private var isRunning = false
     private var commandHotkeysSuspended = false
-    private var idToCommand: [UInt32: HotkeyCommand] = [:]
+    private var idToRegistration: [UInt32: HotkeyPlannedRegistration] = [:]
+    private var pressedHotKeyIds: Set<UInt32> = []
 
     private var configuration = HotkeyRuntimeConfiguration()
     private var sideSpecificDispatch: [CommandHotkeyTapMatcher.Entry] = []
@@ -279,7 +280,10 @@ final class HotkeyCenter {
         guard !isRunning else { return }
         isRunning = true
 
-        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventSpecs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let callback: EventHandlerUPP = { _, event, userData in
             guard let userData, let event else { return noErr }
             let center = Unmanaged<HotkeyCenter>.fromOpaque(userData).takeUnretainedValue()
@@ -294,12 +298,17 @@ final class HotkeyCenter {
                 &hotKeyID
             )
             MainActor.assumeIsolated {
-                center.dispatch(id: hotKeyID.id)
+                if GetEventKind(event) == UInt32(kEventHotKeyReleased) {
+                    center.pressedHotKeyIds.remove(hotKeyID.id)
+                } else {
+                    let isRepeat = !center.pressedHotKeyIds.insert(hotKeyID.id).inserted
+                    center.dispatch(id: hotKeyID.id, isRepeat: isRepeat)
+                }
             }
             return noErr
         }
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventSpec, selfPtr, &handler)
+        InstallEventHandler(GetApplicationEventTarget(), callback, 2, &eventSpecs, selfPtr, &handler)
 
         refreshCommandHotkeyRegistrations()
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "hotkeys.start")
@@ -347,7 +356,8 @@ final class HotkeyCenter {
             if let ref { UnregisterEventHotKey(ref) }
         }
         refs.removeAll()
-        idToCommand.removeAll()
+        idToRegistration.removeAll()
+        pressedHotKeyIds.removeAll()
     }
 
     private func reconcileEventTap() {
@@ -414,7 +424,7 @@ final class HotkeyCenter {
             )
             if status == noErr, let ref {
                 refs.append(ref)
-                idToCommand[nextId] = registration.command
+                idToRegistration[nextId] = registration
             } else {
                 registrationFailures[registration.command] = .systemReserved
                 FallbackFiringRecorder.shared.note(.input, "hotkeyRegistrationFailed")
@@ -438,10 +448,19 @@ final class HotkeyCenter {
         )
     }
 
-    private func dispatch(id: UInt32) {
-        guard let command = idToCommand[id] else { return }
-        InputTrace.record("hotkey.carbon cmd=\(command.displayName)")
-        onCommand?(command)
+    private func dispatch(id: UInt32, isRepeat: Bool) {
+        guard let registration = idToRegistration[id] else { return }
+        InputTrace.record("hotkey.carbon cmd=\(registration.command.displayName)")
+        onCommand?(
+            HotkeyInvocation(
+                command: registration.command,
+                trigger: PhysicalHotkeyTrigger(
+                    keyCode: registration.binding.keyCode,
+                    modifiers: registration.binding.modifiers,
+                    isRepeat: isRepeat
+                )
+            )
+        )
     }
 
     private func activateCapsLockHyperRemapIfNeeded() -> Bool {
@@ -627,14 +646,21 @@ final class HotkeyCenter {
     private func dispatchSideSpecificHotkey(keyCode: UInt32, event: CGEvent) -> Bool {
         guard event.getIntegerValueField(.keyboardEventAutorepeat) == 0 else { return false }
         let rawFlags = event.flags.rawValue
-        if let command = CommandHotkeyTapMatcher.match(
-            keyCode: keyCode,
-            rawFlags: rawFlags,
-            entries: sideSpecificDispatch
-        ) {
+        if let entry = sideSpecificDispatch.first(where: {
+            CommandHotkeyTapMatcher.matches($0.binding, keyCode: keyCode, rawFlags: rawFlags)
+        }) {
             suppressedHotkeyKeyCodes.insert(keyCode)
-            InputTrace.record("hotkey.sided cmd=\(command.displayName)")
-            onCommand?(command)
+            InputTrace.record("hotkey.sided cmd=\(entry.command.displayName)")
+            onCommand?(
+                HotkeyInvocation(
+                    command: entry.command,
+                    trigger: PhysicalHotkeyTrigger(
+                        keyCode: entry.binding.keyCode,
+                        modifiers: entry.binding.modifiers,
+                        isRepeat: false
+                    )
+                )
+            )
             return true
         }
         recordSidedMiss(keyCode: keyCode, rawFlags: rawFlags)

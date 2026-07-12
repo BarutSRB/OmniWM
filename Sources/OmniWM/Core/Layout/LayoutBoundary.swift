@@ -106,6 +106,7 @@ struct EffectPlanEffects {
     var visibility: RefreshVisibilityEffect?
     var focusValidationWorkspaceIds: [WorkspaceDescriptor.ID] = []
     var focusValidationPreferredTokens: [WorkspaceDescriptor.ID: WindowToken] = [:]
+    var suppressWindowActivation: Bool = false
     var markInitialRefreshComplete: Bool = false
     var drainDeferredCreatedWindows: Bool = false
     var subscribeManagedWindows: Bool = false
@@ -125,15 +126,18 @@ struct RefreshPostLayoutAction {
     let workspaceSeqs: [WorkspaceDescriptor.ID: UInt64]
     let domains: InvalidationDomain
     private let action: @MainActor () -> Void
+    private let invalidatedAction: (@MainActor () -> Void)?
 
     init(
         workspaceSeqs: [WorkspaceDescriptor.ID: UInt64] = [:],
         domains: InvalidationDomain = [.workspace, .layout, .focus, .fullscreen],
-        action: @escaping @MainActor () -> Void
+        action: @escaping @MainActor () -> Void,
+        invalidatedAction: (@MainActor () -> Void)? = nil
     ) {
         self.workspaceSeqs = workspaceSeqs
         self.domains = domains
         self.action = action
+        self.invalidatedAction = invalidatedAction
     }
 
     @MainActor
@@ -189,13 +193,17 @@ struct RefreshPostLayoutAction {
         return RefreshPostLayoutAction(
             workspaceSeqs: seqs,
             domains: domains,
-            action: action
+            action: action,
+            invalidatedAction: invalidatedAction
         )
     }
 
     @MainActor
     func runIfCurrent(using workspaceManager: WorkspaceManager) {
-        guard isCurrent(using: workspaceManager) else { return }
+        guard isCurrent(using: workspaceManager) else {
+            invalidatedAction?()
+            return
+        }
         action()
     }
 }

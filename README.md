@@ -389,8 +389,15 @@ See all windows at once with thumbnails:
 - Type to filter/search windows; `Backspace` deletes search text
 - `Alt (Option) + Shift + Mouse Scroll` temporarily zooms the current overview; the next opening starts from the configured baseline
 - `Arrow Keys` navigate the selection; `Tab` / `Shift + Tab` move horizontally, and keyboard navigation automatically scrolls the selected thumbnail into view
-- `Enter` activates the selected window
-- `Escape` clears the search first, then dismisses the overview when the search is empty
+- Assigned structural move, reorder, consume/expel, and workspace-transfer shortcuts operate on the selected thumbnail while Overview is open
+- In Niri workspaces, reorder windows and columns, consume or expel windows, move windows into or out of columns, move windows across workspaces and monitors, and move whole columns between Niri workspaces
+- Adjacent-workspace fallback actions can create the next compatible unused numeric workspace when moving past the current workspace edge
+- In Dwindle workspaces, Overview supports moving windows across workspaces and closing them without adding Overview-only tree placement controls
+- A successful move keeps the moved window selected and activates its destination workspace and monitor behind Overview
+- `Option + drag` a thumbnail onto a workspace, an exact window position, or a Niri column gap; layouts without an exact placement equivalent fall back to moving it to the destination workspace
+- `Command + W` closes the selected window once per press and keeps Overview open; selection advances only after the window has closed
+- `Enter`, `Escape`, the configured Overview shortcut, and clicking the backdrop dismiss Overview and focus the current selection; `Escape` does not clear search first
+- If another application takes focus, Overview dismisses without stealing focus back
 
 #### Workspace Bar
 
@@ -413,7 +420,7 @@ Conceal selected menu-bar icons and reach them from a panel:
 
 - **Workspaces** - Create named workspaces in Settings to organize by project or context (You can use emojis 🥳)
 - **App Rules** - Exclude problematic apps from tiling or assign them to specific workspaces
-- **Mouse** - `Option + drag` swaps tiled windows; `Option + Shift + drag` inserts windows to a column (Niri)
+- **Mouse** - On the desktop, `Option + drag` swaps tiled windows and `Option + Shift + drag` inserts into a Niri column; in Overview, `Option + drag` targets a workspace, window position, or Niri column gap
 - **Mouse Resize** - Hold `Option` and right-drag a tiled window to resize (Niri)
 - **Scroll Gestures (Mouse)** - Hold `Option + Shift + Mouse Scroll Wheel` (default, configurable) and scroll through columns horizontally
 - **Trackpad Gestures** - Use horizontal gestures with 2/3/4 fingers (configurable); direction can be inverted (local hardware validation is limited)

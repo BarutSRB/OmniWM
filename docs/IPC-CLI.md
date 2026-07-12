@@ -114,7 +114,8 @@ IPCWire.encodeRequestLine()  ──▶  Unix socket  ──▶  IPCServer
                                            │
                                            ▼
                                    WMController.commandHandler
-                                     (same path as hotkey commands)
+                                     (semantic command path only;
+                                      no physical trigger metadata)
                                            │
                                            ▼
                                    ExternalCommandResult
@@ -250,7 +251,7 @@ Global flags must appear before `--exec` in watch commands.
 
 ## Commands
 
-Execute window manager commands. These invoke the same code path as hotkey-bound commands.
+Execute window manager commands. While Overview is closed, these use the same semantic command path as hotkey-bound commands, without `PhysicalHotkeyTrigger` metadata.
 
 ```
 omniwmctl command <command-path> [arguments...]
@@ -358,9 +359,11 @@ Workspace IDs are positive numeric strings. Direct hotkeys stay limited to `1-9`
 | `command toggle-workspace-bar` | — | shared | Toggle workspace bar visibility |
 | `command hidden-bar panel` | — | shared | Toggle the panel containing configured hidden menu-bar items |
 | `command toggle-quake-terminal` | — | shared | Toggle the configured Quake terminal |
-| `command toggle-overview` | — | shared | Toggle the overview surface |
+| `command toggle-overview` | — | shared | Open Overview when it is closed; see the modal-routing note below |
 
 For example, run `omniwmctl command hidden-bar panel` to show or dismiss the Hidden Bar panel.
+
+Overview is modal with respect to external commands. `omniwmctl command toggle-overview` opens it while it is closed, but while Overview is open every IPC/external command—including another `toggle-overview`—returns `ignored_overview`. Dismissal remains local: Escape, Enter, backdrop dismissal, or the configured physical Overview toggle closes onto the current selection.
 
 **Layout compatibility:**
 - `shared` — works with any active layout
@@ -877,7 +880,7 @@ This envelope is produced locally by the CLI, so it does not include IPC fields 
 | `invalid_arguments` | Bad arguments for the command/rule |
 | `protocol_mismatch` | Client/server protocol version mismatch |
 | `ignored_disabled` | Window manager is disabled |
-| `ignored_overview` | Overview surface is open |
+| `ignored_overview` | Overview is open, so `CommandHandler` rejects external/IPC commands before normal execution |
 | `layout_mismatch` | Command incompatible with the active workspace layout |
 | `unauthorized` | Missing or invalid authorization token |
 | `stale_window_id` | Window ID is from a previous session or no longer valid |

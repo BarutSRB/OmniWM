@@ -19,7 +19,7 @@ enum IntakeEvent: Sendable {
     case axWindowMiniaturized(pid: pid_t, windowId: Int)
     case cgs(CGSWindowEvent)
     case display(DisplayConfigurationObserver.DisplayEvent)
-    case hotkeyCommand(HotkeyCommand)
+    case hotkeyInvocation(HotkeyInvocation)
     case intentExpired(intentId: IntentID)
     case ipcCommand(IPCCommandIntake)
     case mouseDragged(button: MouseEventHandler.MouseButton, location: CGPoint)
