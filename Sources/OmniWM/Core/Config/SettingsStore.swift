@@ -240,6 +240,12 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    private(set) var workspaceBarExcludedBundleIDs = SettingsStore.normalizedWorkspaceBarExcludedBundleIDs(
+        SettingsStore.defaultExport.workspaceBarExcludedBundleIDs
+    ) {
+        didSet { scheduleSave() }
+    }
+
     var workspaceBarReserveLayoutSpace = SettingsStore.defaultExport.workspaceBarReserveLayoutSpace {
         didSet { scheduleSave() }
     }
@@ -651,6 +657,9 @@ final class SettingsStore {
             workspaceBarSystemStatsButton: workspaceBarSystemStatsButton,
             workspaceBarDeduplicateAppIcons: workspaceBarDeduplicateAppIcons,
             workspaceBarHideEmptyWorkspaces: workspaceBarHideEmptyWorkspaces,
+            workspaceBarExcludedBundleIDs: SettingsStore.sortedWorkspaceBarExcludedBundleIDs(
+                workspaceBarExcludedBundleIDs
+            ),
             workspaceBarReserveLayoutSpace: workspaceBarReserveLayoutSpace,
             workspaceBarRevealModifier: workspaceBarRevealModifier.rawValue,
             workspaceBarRevealHoldMilliseconds: workspaceBarRevealHoldMilliseconds,
@@ -785,6 +794,9 @@ final class SettingsStore {
         workspaceBarSystemStatsButton = export.workspaceBarSystemStatsButton
         workspaceBarDeduplicateAppIcons = export.workspaceBarDeduplicateAppIcons
         workspaceBarHideEmptyWorkspaces = export.workspaceBarHideEmptyWorkspaces
+        workspaceBarExcludedBundleIDs = SettingsStore.normalizedWorkspaceBarExcludedBundleIDs(
+            export.workspaceBarExcludedBundleIDs
+        )
         workspaceBarReserveLayoutSpace = export.workspaceBarReserveLayoutSpace
         workspaceBarRevealModifier = WorkspaceBarRevealModifier(rawValue: export.workspaceBarRevealModifier) ?? .off
         workspaceBarRevealHoldMilliseconds = SettingsStore.validatedWorkspaceBarRevealHoldMilliseconds(
@@ -1059,6 +1071,7 @@ final class SettingsStore {
             showFloatingWindows: override?.showFloatingWindows ?? workspaceBarShowFloatingWindows,
             deduplicateAppIcons: override?.deduplicateAppIcons ?? workspaceBarDeduplicateAppIcons,
             hideEmptyWorkspaces: override?.hideEmptyWorkspaces ?? workspaceBarHideEmptyWorkspaces,
+            excludedBundleIDs: workspaceBarExcludedBundleIDs,
             reserveLayoutSpace: override?.reserveLayoutSpace ?? workspaceBarReserveLayoutSpace,
             notchMode: override?.notchMode ?? workspaceBarNotchMode,
             notchActiveZoneWidth: override?.notchActiveZoneWidth ?? workspaceBarNotchActiveZoneWidth,
@@ -1072,6 +1085,33 @@ final class SettingsStore {
             accentColor: workspaceBarAccentColor,
             textColor: workspaceBarTextColor
         )
+    }
+
+    @discardableResult
+    func addWorkspaceBarExcludedBundleID(_ rawBundleID: String) -> Bool {
+        let bundleID = rawBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !bundleID.isEmpty,
+              !workspaceBarExcludedBundleIDs.contains(where: {
+                  $0.caseInsensitiveCompare(bundleID) == .orderedSame
+              })
+        else {
+            return false
+        }
+        workspaceBarExcludedBundleIDs.insert(bundleID)
+        return true
+    }
+
+    @discardableResult
+    func removeWorkspaceBarExcludedBundleID(_ rawBundleID: String) -> Bool {
+        let bundleID = rawBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !bundleID.isEmpty else { return false }
+        guard let storedBundleID = workspaceBarExcludedBundleIDs.first(where: {
+            $0.caseInsensitiveCompare(bundleID) == .orderedSame
+        }) else {
+            return false
+        }
+        workspaceBarExcludedBundleIDs.remove(storedBundleID)
+        return true
     }
 
     func appRule(for bundleId: String) -> AppRule? {
@@ -1272,6 +1312,30 @@ final class SettingsStore {
     static func validatedWorkspaceBarRevealHoldMilliseconds(_ value: Double) -> Double {
         guard value.isFinite else { return defaultExport.workspaceBarRevealHoldMilliseconds }
         return min(max(value, 0), 1000)
+    }
+
+    static func normalizedWorkspaceBarExcludedBundleIDs(_ bundleIDs: [String]) -> Set<String> {
+        var normalized: Set<String> = []
+        normalized.reserveCapacity(bundleIDs.count)
+        for rawBundleID in bundleIDs {
+            let bundleID = rawBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !bundleID.isEmpty,
+                  !normalized.contains(where: {
+                      $0.caseInsensitiveCompare(bundleID) == .orderedSame
+                  })
+            else {
+                continue
+            }
+            normalized.insert(bundleID)
+        }
+        return normalized
+    }
+
+    static func sortedWorkspaceBarExcludedBundleIDs(_ bundleIDs: Set<String>) -> [String] {
+        bundleIDs.sorted { lhs, rhs in
+            let order = lhs.caseInsensitiveCompare(rhs)
+            return order == .orderedSame ? lhs < rhs : order == .orderedAscending
+        }
     }
 
     static func validatedHiddenBarRehideIntervalSeconds(_ value: Double) -> Double {

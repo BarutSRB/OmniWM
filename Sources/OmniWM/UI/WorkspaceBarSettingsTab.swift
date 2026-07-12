@@ -37,6 +37,11 @@ struct WorkspaceBarSettingsTab: View {
                     controller: controller
                 )
             }
+
+            WorkspaceBarExcludedAppsSection(
+                settings: settings,
+                controller: controller
+            )
         }
         .formStyle(.grouped)
         .onAppear {

@@ -37,6 +37,7 @@ final class HiddenBarPanelGeometryTests: XCTestCase {
             showFloatingWindows: true,
             deduplicateAppIcons: false,
             hideEmptyWorkspaces: false,
+            excludedBundleIDs: [],
             reserveLayoutSpace: false,
             notchMode: notchMode,
             notchActiveZoneWidth: 300,

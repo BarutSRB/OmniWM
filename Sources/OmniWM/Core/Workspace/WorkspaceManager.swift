@@ -2121,13 +2121,6 @@ final class WorkspaceManager {
         !tiledEntries(in: workspace).isEmpty
     }
 
-    func hasBarVisibleOccupancy(
-        in workspace: WorkspaceDescriptor.ID,
-        showFloatingWindows: Bool = false
-    ) -> Bool {
-        !barVisibleEntries(in: workspace, showFloatingWindows: showFloatingWindows).isEmpty
-    }
-
     func floatingEntries(in workspace: WorkspaceDescriptor.ID) -> [WindowState] {
         world.windows(in: workspace, mode: .floating)
     }

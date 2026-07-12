@@ -42,6 +42,7 @@ final class WorkspaceBarSplitGeometryTests: XCTestCase {
             showFloatingWindows: false,
             deduplicateAppIcons: false,
             hideEmptyWorkspaces: false,
+            excludedBundleIDs: [],
             reserveLayoutSpace: false,
             notchMode: notchMode,
             notchActiveZoneWidth: zoneWidth,

@@ -49,6 +49,7 @@ enum WorkspaceBarDataSource {
                 settings: settings
             ),
             scratchpad: scratchpadItem(
+                options: options,
                 workspaceManager: workspaceManager,
                 appInfoCache: appInfoCache,
                 focusedToken: focusedToken,
@@ -66,18 +67,11 @@ enum WorkspaceBarDataSource {
         settings: SettingsStore
     ) -> [WorkspaceBarItem] {
         var workspaces = workspaceManager.workspaces(on: monitor.id).map { workspace in
-            let projectedEntries = workspaceManager.barVisibleEntries(
-                in: workspace.id,
-                showFloatingWindows: options.showFloatingWindows
-            )
-            return WorkspaceSnapshot(
-                workspace: workspace,
-                tiledEntries: projectedEntries.filter { $0.mode == .tiling },
-                floatingEntries: projectedEntries.filter { $0.mode == .floating },
-                hasBarOccupancy: workspaceManager.hasBarVisibleOccupancy(
-                    in: workspace.id,
-                    showFloatingWindows: options.showFloatingWindows
-                )
+            workspaceSnapshot(
+                for: workspace,
+                options: options,
+                workspaceManager: workspaceManager,
+                appInfoCache: appInfoCache
             )
         }
 
@@ -124,7 +118,39 @@ enum WorkspaceBarDataSource {
         }
     }
 
+    private static func workspaceSnapshot(
+        for workspace: WorkspaceDescriptor,
+        options: WorkspaceBarProjectionOptions,
+        workspaceManager: WorkspaceManager,
+        appInfoCache: AppInfoCache
+    ) -> WorkspaceSnapshot {
+        let projectedEntries = workspaceManager.barVisibleEntries(
+            in: workspace.id,
+            showFloatingWindows: options.showFloatingWindows
+        )
+        var tiledEntries: [WindowState] = []
+        var floatingEntries: [WindowState] = []
+        for entry in projectedEntries {
+            if isExcluded(entry, options: options, appInfoCache: appInfoCache) {
+                continue
+            }
+            switch entry.mode {
+            case .tiling:
+                tiledEntries.append(entry)
+            case .floating:
+                floatingEntries.append(entry)
+            }
+        }
+        return WorkspaceSnapshot(
+            workspace: workspace,
+            tiledEntries: tiledEntries,
+            floatingEntries: floatingEntries,
+            hasBarOccupancy: !tiledEntries.isEmpty || !floatingEntries.isEmpty
+        )
+    }
+
     private static func scratchpadItem(
+        options: WorkspaceBarProjectionOptions,
         workspaceManager: WorkspaceManager,
         appInfoCache: AppInfoCache,
         focusedToken: WindowToken?,
@@ -132,6 +158,7 @@ enum WorkspaceBarDataSource {
     ) -> WorkspaceBarScratchpadItem? {
         guard let scratchpadToken = workspaceManager.scratchpadToken(),
               let entry = workspaceManager.entry(for: scratchpadToken),
+              !isExcluded(entry, options: options, appInfoCache: appInfoCache),
               let window = createWindowItems(
                   entries: [entry],
                   deduplicate: false,
@@ -152,6 +179,16 @@ enum WorkspaceBarDataSource {
             workspaceName: settings.displayName(for: rawWorkspaceName),
             rawWorkspaceName: rawWorkspaceName
         )
+    }
+
+    private static func isExcluded(
+        _ entry: WindowState,
+        options: WorkspaceBarProjectionOptions,
+        appInfoCache: AppInfoCache
+    ) -> Bool {
+        guard !options.excludedBundleIDs.isEmpty else { return false }
+        let bundleId = entry.managedReplacementMetadata?.bundleId ?? appInfoCache.bundleId(for: entry.pid)
+        return options.excludes(bundleId: bundleId)
     }
 
     private static func createWindowItems(

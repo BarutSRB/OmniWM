@@ -120,6 +120,7 @@ struct ResolvedBarSettings {
     let showFloatingWindows: Bool
     let deduplicateAppIcons: Bool
     let hideEmptyWorkspaces: Bool
+    let excludedBundleIDs: Set<String>
     let reserveLayoutSpace: Bool
     let notchMode: WorkspaceBarNotchMode
     let notchActiveZoneWidth: Double
