@@ -4816,20 +4816,26 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
-    func testMoveCrossesToAdjacentMonitorAtRightEdgeWhenEnabled() throws {
-        let controller = Self.controller()
-        let leftMonitor = Monitor(
+    private static func horizontallyAdjacentUnequalMonitors() -> (left: Monitor, right: Monitor) {
+        let left = Monitor(
             id: .init(displayId: 10_001), displayId: 10_001,
             frame: CGRect(x: 0, y: 0, width: 1200, height: 800),
             visibleFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
             hasNotch: false, name: "Left"
         )
-        let rightMonitor = Monitor(
+        let right = Monitor(
             id: .init(displayId: 10_002), displayId: 10_002,
-            frame: CGRect(x: 1200, y: 0, width: 1200, height: 800),
-            visibleFrame: CGRect(x: 1200, y: 0, width: 1200, height: 800),
+            frame: CGRect(x: 1200, y: 0, width: 1800, height: 800),
+            visibleFrame: CGRect(x: 1200, y: 0, width: 1800, height: 800),
             hasNotch: false, name: "Right"
         )
+        return (left, right)
+    }
+
+    @MainActor
+    func testMoveCrossesToAdjacentMonitorAtRightEdgeWhenEnabled() throws {
+        let controller = Self.controller()
+        let (leftMonitor, rightMonitor) = Self.horizontallyAdjacentUnequalMonitors()
         controller.workspaceManager.applyMonitorConfigurationChange([leftMonitor, rightMonitor])
         let leftWs = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let rightWs = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "6", createIfMissing: true))
@@ -4843,6 +4849,11 @@ final class RuntimeArchitectureTests: XCTestCase {
             pid: 822_900, windowId: 822_990, to: rightWs
         )
         let existingNode = engine.addWindow(token: existingToken, to: rightWs, afterSelection: nil)
+        let targetColumnWidth: CGFloat = 540
+        let targetColumn = try XCTUnwrap(engine.findColumn(containing: existingNode, in: rightWs))
+        targetColumn.width = .fixed(targetColumnWidth)
+        targetColumn.cachedWidth = targetColumnWidth
+        targetColumn.hasManualSingleWindowWidthOverride = true
         existingNode.renderedFrame = rightMonitor.visibleFrame
 
         let token = controller.workspaceManager.addWindow(
@@ -4858,7 +4869,16 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         XCTAssertEqual(controller.workspaceManager.focusedToken, token)
 
-        controller.commandHandler.handleHotkeyCommand(.move(.right))
+        controller.motionPolicy.animationsEnabled = false
+        XCTAssertEqual(
+            controller.commandHandler.handleHotkeyCommand(.setColumnWidth(.setProportion(50))),
+            .executed
+        )
+        let sourceColumn = try XCTUnwrap(engine.findColumn(containing: node, in: leftWs))
+        XCTAssertEqual(sourceColumn.width, .proportion(0.5))
+        XCTAssertTrue(sourceColumn.hasManualSingleWindowWidthOverride)
+
+        XCTAssertEqual(controller.commandHandler.handleHotkeyCommand(.move(.right)), .executed)
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: token), rightWs)
         let movedNode = try XCTUnwrap(engine.findNode(for: token, in: rightWs))
@@ -4872,23 +4892,21 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertEqual(controller.workspaceManager.niriViewportState(for: rightWs).selectedNodeId, movedNode.id)
         XCTAssertEqual(controller.workspaceManager.interactionMonitorId, rightMonitor.id)
         XCTAssertEqual(controller.workspaceManager.lastFocusedToken(in: rightWs), token)
+        XCTAssertEqual(existingColumn.width, .fixed(targetColumnWidth))
+        XCTAssertEqual(existingColumn.cachedWidth, targetColumnWidth, accuracy: 0.001)
+        XCTAssertTrue(existingColumn.hasManualSingleWindowWidthOverride)
+
+        let plans = controller.workspaceManager.withEngineMutationScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [rightWs])
+        }
+        XCTAssertFalse(plans.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(movedNode.renderedFrame?.width), targetColumnWidth, accuracy: 0.001)
     }
 
     @MainActor
     func testMoveCrossesIntoEmptyMonitorSelectsWindow() throws {
         let controller = Self.controller()
-        let leftMonitor = Monitor(
-            id: .init(displayId: 10_001), displayId: 10_001,
-            frame: CGRect(x: 0, y: 0, width: 1200, height: 800),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
-            hasNotch: false, name: "Left"
-        )
-        let rightMonitor = Monitor(
-            id: .init(displayId: 10_002), displayId: 10_002,
-            frame: CGRect(x: 1200, y: 0, width: 1200, height: 800),
-            visibleFrame: CGRect(x: 1200, y: 0, width: 1200, height: 800),
-            hasNotch: false, name: "Right"
-        )
+        let (leftMonitor, rightMonitor) = Self.horizontallyAdjacentUnequalMonitors()
         controller.workspaceManager.applyMonitorConfigurationChange([leftMonitor, rightMonitor])
         let leftWs = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let rightWs = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "6", createIfMissing: true))
@@ -4909,11 +4927,103 @@ final class RuntimeArchitectureTests: XCTestCase {
             token, in: leftWs, onMonitor: leftMonitor.id, activateWorkspaceOnMonitor: true
         )
 
-        controller.commandHandler.handleHotkeyCommand(.move(.right))
+        controller.motionPolicy.animationsEnabled = false
+        XCTAssertEqual(
+            controller.commandHandler.handleHotkeyCommand(.setColumnWidth(.setProportion(50))),
+            .executed
+        )
+        let sourceColumn = try XCTUnwrap(engine.findColumn(containing: node, in: leftWs))
+        XCTAssertEqual(sourceColumn.width, .proportion(0.5))
+        XCTAssertTrue(sourceColumn.hasManualSingleWindowWidthOverride)
+
+        XCTAssertEqual(controller.commandHandler.handleHotkeyCommand(.move(.right)), .executed)
 
         XCTAssertEqual(controller.workspaceManager.workspace(for: token), rightWs)
         let movedNode = try XCTUnwrap(engine.findNode(for: token, in: rightWs))
+        let movedColumn = try XCTUnwrap(engine.findColumn(containing: movedNode, in: rightWs))
         XCTAssertEqual(controller.workspaceManager.niriViewportState(for: rightWs).selectedNodeId, movedNode.id)
+        XCTAssertEqual(movedColumn.width, .proportion(0.5))
+        XCTAssertTrue(movedColumn.hasManualSingleWindowWidthOverride)
+
+        let plans = controller.workspaceManager.withEngineMutationScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [rightWs])
+        }
+        let targetWorkingFrame = controller.insetWorkingFrame(for: rightMonitor)
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let expectedTargetWidth = (targetWorkingFrame.width - gap) * 0.5 - gap
+        XCTAssertFalse(plans.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(movedNode.renderedFrame?.width), expectedTargetWidth, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testSummonRightAcrossNiriWorkspacesPreservesProportionalWidth() throws {
+        let controller = Self.controller()
+        let (leftMonitor, rightMonitor) = Self.horizontallyAdjacentUnequalMonitors()
+        controller.workspaceManager.applyMonitorConfigurationChange([leftMonitor, rightMonitor])
+        let leftWs = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let rightWs = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "6", createIfMissing: true))
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        controller.motionPolicy.animationsEnabled = false
+
+        let engine = try XCTUnwrap(controller.niriEngine)
+        let sourceToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(827_001), windowId: 827_101),
+            pid: 827_001, windowId: 827_101, to: leftWs
+        )
+        let sourceNode = engine.addWindow(token: sourceToken, to: leftWs, afterSelection: nil)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: sourceNode.id, focusedToken: sourceToken, in: leftWs, onMonitor: leftMonitor.id
+        )
+        _ = controller.workspaceManager.confirmManagedFocus(
+            sourceToken, in: leftWs, onMonitor: leftMonitor.id, activateWorkspaceOnMonitor: true
+        )
+        XCTAssertEqual(
+            controller.commandHandler.handleHotkeyCommand(.setColumnWidth(.setProportion(50))),
+            .executed
+        )
+        let sourceColumn = try XCTUnwrap(engine.findColumn(containing: sourceNode, in: leftWs))
+        XCTAssertEqual(sourceColumn.width, .proportion(0.5))
+        XCTAssertTrue(sourceColumn.hasManualSingleWindowWidthOverride)
+
+        let anchorToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(827_002), windowId: 827_102),
+            pid: 827_002, windowId: 827_102, to: rightWs
+        )
+        let anchorNode = engine.addWindow(token: anchorToken, to: rightWs, afterSelection: nil)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: anchorNode.id, focusedToken: anchorToken, in: rightWs, onMonitor: rightMonitor.id
+        )
+        _ = controller.workspaceManager.confirmManagedFocus(
+            anchorToken, in: rightWs, onMonitor: rightMonitor.id, activateWorkspaceOnMonitor: true
+        )
+
+        XCTAssertTrue(
+            controller.windowActionHandler.summonWindowRight(
+                handle: WindowHandle(id: sourceToken),
+                anchorToken: anchorToken,
+                anchorWorkspaceId: rightWs
+            )
+        )
+
+        XCTAssertEqual(controller.workspaceManager.workspace(for: sourceToken), rightWs)
+        let movedNode = try XCTUnwrap(engine.findNode(for: sourceToken, in: rightWs))
+        let movedColumn = try XCTUnwrap(engine.findColumn(containing: movedNode, in: rightWs))
+        let anchorColumn = try XCTUnwrap(engine.findColumn(containing: anchorNode, in: rightWs))
+        let columns = engine.columns(in: rightWs)
+        XCTAssertNotEqual(movedColumn.id, anchorColumn.id)
+        XCTAssertEqual(columns.firstIndex(where: { $0.id == movedColumn.id }), 1)
+        XCTAssertEqual(movedColumn.width, .proportion(0.5))
+        XCTAssertTrue(movedColumn.hasManualSingleWindowWidthOverride)
+
+        let plans = controller.workspaceManager.withEngineMutationScope {
+            controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [rightWs])
+        }
+        let targetWorkingFrame = controller.insetWorkingFrame(for: rightMonitor)
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let expectedTargetWidth = (targetWorkingFrame.width - gap) * 0.5 - gap
+        XCTAssertFalse(plans.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(movedNode.renderedFrame?.width), expectedTargetWidth, accuracy: 0.001)
     }
 
     @MainActor

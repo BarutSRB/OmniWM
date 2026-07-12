@@ -46,14 +46,13 @@ extension NiriLayoutEngine {
 
         let targetColumn: NiriContainer
         if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: targetRoot) {
-            initializeNewColumnWidth(existingColumn, in: targetWorkspaceId)
             targetColumn = existingColumn
         } else {
             let newColumn = NiriContainer()
-            initializeNewColumnWidth(newColumn, in: targetWorkspaceId)
             targetRoot.appendChild(newColumn)
             targetColumn = newColumn
         }
+        copyColumnWidthState(from: sourceColumn, to: targetColumn)
         targetColumn.appendChild(window)
         targetWorkspaceState.index(window)
 

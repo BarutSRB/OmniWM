@@ -113,6 +113,11 @@ final class NiriWorkspaceState {
 }
 
 final class NiriLayoutEngine {
+    enum NewColumnWidthPolicy {
+        case workspaceDefault
+        case inheritSource
+    }
+
     static let defaultPresetColumnWidthValues: [CGFloat] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
     static let defaultPresetColumnWidths: [PresetSize] = defaultPresetColumnWidthValues.map { .proportion($0) }
     static let defaultPresetWindowHeightValues: [CGFloat] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
@@ -245,6 +250,17 @@ final class NiriLayoutEngine {
         column.hasManualSingleWindowWidthOverride = false
         column.widthAnimation = nil
         column.targetWidth = nil
+    }
+
+    func copyColumnWidthState(from sourceColumn: NiriContainer, to targetColumn: NiriContainer) {
+        targetColumn.width = sourceColumn.width
+        targetColumn.presetWidthIdx = sourceColumn.presetWidthIdx
+        targetColumn.isFullWidth = sourceColumn.isFullWidth
+        targetColumn.savedWidth = sourceColumn.savedWidth
+        targetColumn.hasManualSingleWindowWidthOverride = sourceColumn.hasManualSingleWindowWidthOverride
+        targetColumn.cachedWidth = 0
+        targetColumn.widthAnimation = nil
+        targetColumn.targetWidth = nil
     }
 
     private func matchingPresetIndex(for width: CGFloat) -> Int? {

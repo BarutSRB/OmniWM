@@ -119,6 +119,22 @@ extension NiriLayoutEngine {
         return edges
     }
 
+    private func interactiveResizeStartWidth(for column: NiriContainer, window: NiriWindow) -> CGFloat {
+        if column.cachedWidth > 0 {
+            return column.cachedWidth
+        }
+        if let width = column.frame?.width, width > 0 {
+            return width
+        }
+        if let width = column.renderedFrame?.width, width > 0 {
+            return width
+        }
+        if let width = window.frame?.width, width > 0 {
+            return width + (column.isTabbed ? renderStyle.tabIndicatorWidth : 0)
+        }
+        return column.widthBounds().min
+    }
+
     func interactiveResizeBegin(
         windowId: NodeId,
         edges: ResizeEdge,
@@ -140,7 +156,9 @@ extension NiriLayoutEngine {
             return false
         }
 
-        let originalColumnWidth = edges.hasHorizontal ? column.cachedWidth : nil
+        let originalColumnWidth = edges.hasHorizontal
+            ? interactiveResizeStartWidth(for: column, window: windowNode)
+            : nil
         let originalWindowHeight = edges.hasVertical ? windowNode.size : nil
 
         interactiveResize = InteractiveResize(
@@ -188,6 +206,9 @@ extension NiriLayoutEngine {
         var changed = false
 
         if resize.edges.hasHorizontal, let originalWidth = resize.originalColumnWidth {
+            column.widthAnimation = nil
+            column.targetWidth = nil
+
             var dx = delta.x
 
             if resize.edges.contains(.left) {
@@ -205,6 +226,10 @@ extension NiriLayoutEngine {
             let newWidth = originalWidth + dx
             column.cachedWidth = newWidth.clamped(to: minWidth ... maxWidth)
             column.width = .fixed(column.cachedWidth)
+            column.presetWidthIdx = nil
+            column.isFullWidth = false
+            column.savedWidth = nil
+            column.hasManualSingleWindowWidthOverride = true
             changed = true
 
             if resize.edges.contains(.left), let origOffset = resize.originalViewOffset {

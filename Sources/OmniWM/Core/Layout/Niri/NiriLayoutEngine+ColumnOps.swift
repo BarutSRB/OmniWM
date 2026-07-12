@@ -31,17 +31,6 @@ extension NiriLayoutEngine {
         }
     }
 
-    private func copyColumnWidthState(from sourceColumn: NiriContainer, to targetColumn: NiriContainer) {
-        targetColumn.width = sourceColumn.width
-        targetColumn.presetWidthIdx = sourceColumn.presetWidthIdx
-        targetColumn.isFullWidth = sourceColumn.isFullWidth
-        targetColumn.savedWidth = sourceColumn.savedWidth
-        targetColumn.hasManualSingleWindowWidthOverride = sourceColumn.hasManualSingleWindowWidthOverride
-        targetColumn.cachedWidth = 0
-        targetColumn.widthAnimation = nil
-        targetColumn.targetWidth = nil
-    }
-
     private func resetMovedWindowColumnLocalSizing(_ window: NiriWindow) {
         window.height = .default
         window.windowWidth = .default
@@ -161,7 +150,8 @@ extension NiriLayoutEngine {
         motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
-        gaps: CGFloat
+        gaps: CGFloat,
+        widthPolicy: NewColumnWidthPolicy = .workspaceDefault
     ) -> Bool {
         assertSanctionedMutation()
         guard let root = root(for: workspaceId) else { return false }
@@ -171,7 +161,12 @@ extension NiriLayoutEngine {
         sourceColumn.adjustActiveTileIdxForRemoval(of: window)
 
         let newColumn = NiriContainer()
-        initializeNewColumnWidth(newColumn, in: workspaceId)
+        switch widthPolicy {
+        case .workspaceDefault:
+            initializeNewColumnWidth(newColumn, in: workspaceId)
+        case .inheritSource:
+            copyColumnWidthState(from: sourceColumn, to: newColumn)
+        }
 
         let cols = columns(in: workspaceId)
         let clampedIndex = insertIndex.clamped(to: 0 ... cols.count)

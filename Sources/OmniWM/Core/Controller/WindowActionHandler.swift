@@ -510,7 +510,8 @@ final class WindowActionHandler {
         guard controller.niriLayoutHandler.insertWindowInNewColumn(
             handle: WindowHandle(id: token),
             insertIndex: insertIndex,
-            in: targetWorkspaceId
+            in: targetWorkspaceId,
+            widthPolicy: .inheritSource
         ) else {
             return false
         }

@@ -92,6 +92,188 @@ final class NiriTransferRecoveryTests: XCTestCase {
         assertIndexMatchesTree(engine, in: workspaceB)
     }
 
+    func testWindowTransferPreservesDurableWidthStateAndInvalidatesTargetGeometry() throws {
+        let fixture = try makeStackedColumnFixture(pid: 948)
+        let targetWorkspace = WorkspaceDescriptor.ID()
+        let sourceAnimation = SpringAnimation(
+            from: 720,
+            to: 760,
+            startTime: 0,
+            config: .niriWindowMovement,
+            displayRefreshRate: 60
+        )
+        fixture.column.width = .proportion(0.5)
+        fixture.column.presetWidthIdx = 1
+        fixture.column.hasManualSingleWindowWidthOverride = true
+        fixture.column.cachedWidth = 720
+        fixture.column.widthAnimation = sourceAnimation
+        fixture.column.targetWidth = 760
+        var sourceState = ViewportState()
+        var targetState = ViewportState()
+
+        XCTAssertNotNil(
+            fixture.engine.moveWindowToWorkspace(
+                fixture.first,
+                from: fixture.workspaceId,
+                to: targetWorkspace,
+                sourceState: &sourceState,
+                targetState: &targetState
+            )
+        )
+
+        let targetColumn = try XCTUnwrap(
+            fixture.engine.findColumn(containing: fixture.first, in: targetWorkspace)
+        )
+        XCTAssertEqual(targetColumn.width, .proportion(0.5))
+        XCTAssertEqual(targetColumn.presetWidthIdx, 1)
+        XCTAssertFalse(targetColumn.isFullWidth)
+        XCTAssertNil(targetColumn.savedWidth)
+        XCTAssertTrue(targetColumn.hasManualSingleWindowWidthOverride)
+        XCTAssertEqual(targetColumn.cachedWidth, 0)
+        XCTAssertNil(targetColumn.widthAnimation)
+        XCTAssertNil(targetColumn.targetWidth)
+
+        XCTAssertTrue(
+            fixture.engine.findColumn(containing: fixture.second, in: fixture.workspaceId)
+                === fixture.column
+        )
+        XCTAssertEqual(fixture.column.width, .proportion(0.5))
+        XCTAssertEqual(fixture.column.presetWidthIdx, 1)
+        XCTAssertTrue(fixture.column.hasManualSingleWindowWidthOverride)
+        XCTAssertEqual(fixture.column.cachedWidth, 720)
+        XCTAssertTrue(fixture.column.widthAnimation === sourceAnimation)
+        XCTAssertEqual(fixture.column.targetWidth, 760)
+        assertIndexMatchesTree(fixture.engine, in: fixture.workspaceId)
+        assertIndexMatchesTree(fixture.engine, in: targetWorkspace)
+    }
+
+    func testWindowTransferPreservesFullWidthRestoreStateWhenRecoveringTargetDuplicate() throws {
+        let engine = NiriLayoutEngine()
+        let sourceWorkspace = WorkspaceDescriptor.ID()
+        let targetWorkspace = WorkspaceDescriptor.ID()
+        let token = WindowToken(pid: 949, windowId: 1)
+        let source = engine.addWindow(token: token, to: sourceWorkspace, afterSelection: nil)
+        let sourceColumn = try XCTUnwrap(engine.findColumn(containing: source, in: sourceWorkspace))
+        sourceColumn.width = .fixed(640)
+        sourceColumn.presetWidthIdx = nil
+        sourceColumn.isFullWidth = true
+        sourceColumn.savedWidth = .fixed(640)
+        sourceColumn.hasManualSingleWindowWidthOverride = true
+        sourceColumn.cachedWidth = 1600
+        sourceColumn.widthAnimation = SpringAnimation(
+            from: 1200,
+            to: 1600,
+            startTime: 0,
+            config: .niriWindowMovement,
+            displayRefreshRate: 60
+        )
+        sourceColumn.targetWidth = 1600
+
+        let staleTarget = engine.addWindow(token: token, to: targetWorkspace, afterSelection: nil)
+        let targetRoot = try XCTUnwrap(engine.root(for: targetWorkspace))
+        let claimedPlaceholder = NiriContainer()
+        claimedPlaceholder.cachedWidth = 480
+        claimedPlaceholder.widthAnimation = SpringAnimation(
+            from: 400,
+            to: 480,
+            startTime: 0,
+            config: .niriWindowMovement,
+            displayRefreshRate: 60
+        )
+        claimedPlaceholder.targetWidth = 480
+        targetRoot.appendChild(claimedPlaceholder)
+        let redundantPlaceholder = NiriContainer()
+        targetRoot.appendChild(redundantPlaceholder)
+        var sourceState = ViewportState()
+        var targetState = ViewportState()
+
+        XCTAssertNotNil(
+            engine.moveWindowToWorkspace(
+                source,
+                from: sourceWorkspace,
+                to: targetWorkspace,
+                sourceState: &sourceState,
+                targetState: &targetState
+            )
+        )
+
+        let targetColumn = try XCTUnwrap(engine.findColumn(containing: source, in: targetWorkspace))
+        XCTAssertTrue(targetColumn === claimedPlaceholder)
+        XCTAssertNil(redundantPlaceholder.parent)
+        XCTAssertNil(staleTarget.parent)
+        XCTAssertEqual(targetColumn.width, .fixed(640))
+        XCTAssertNil(targetColumn.presetWidthIdx)
+        XCTAssertTrue(targetColumn.isFullWidth)
+        XCTAssertEqual(targetColumn.savedWidth, .fixed(640))
+        XCTAssertTrue(targetColumn.hasManualSingleWindowWidthOverride)
+        XCTAssertEqual(targetColumn.cachedWidth, 0)
+        XCTAssertNil(targetColumn.widthAnimation)
+        XCTAssertNil(targetColumn.targetWidth)
+        assertSingleIndexedOccurrence(token, is: source, in: targetWorkspace, engine: engine)
+        assertIndexMatchesTree(engine, in: sourceWorkspace)
+        assertIndexMatchesTree(engine, in: targetWorkspace)
+    }
+
+    func testNewColumnWidthPolicySelectsWorkspaceDefaultOrSourceState() throws {
+        let defaultFixture = try makeStackedColumnFixture(pid: 950)
+        defaultFixture.column.width = .proportion(2.0 / 3.0)
+        defaultFixture.column.presetWidthIdx = 2
+        defaultFixture.column.hasManualSingleWindowWidthOverride = true
+        var defaultState = ViewportState()
+
+        XCTAssertTrue(
+            defaultFixture.engine.insertWindowInNewColumn(
+                defaultFixture.first,
+                insertIndex: 1,
+                in: defaultFixture.workspaceId,
+                motion: .disabled,
+                state: &defaultState,
+                workingFrame: workingFrame,
+                gaps: 0,
+                widthPolicy: .workspaceDefault
+            )
+        )
+
+        let defaultColumn = try XCTUnwrap(
+            defaultFixture.engine.findColumn(containing: defaultFixture.first, in: defaultFixture.workspaceId)
+        )
+        XCTAssertEqual(defaultColumn.width, .proportion(0.5))
+        XCTAssertEqual(defaultColumn.presetWidthIdx, 1)
+        XCTAssertFalse(defaultColumn.hasManualSingleWindowWidthOverride)
+
+        let inheritedFixture = try makeStackedColumnFixture(pid: 951)
+        inheritedFixture.column.width = .proportion(2.0 / 3.0)
+        inheritedFixture.column.presetWidthIdx = 2
+        inheritedFixture.column.hasManualSingleWindowWidthOverride = true
+        var inheritedState = ViewportState()
+
+        XCTAssertTrue(
+            inheritedFixture.engine.insertWindowInNewColumn(
+                inheritedFixture.first,
+                insertIndex: 1,
+                in: inheritedFixture.workspaceId,
+                motion: .disabled,
+                state: &inheritedState,
+                workingFrame: workingFrame,
+                gaps: 0,
+                widthPolicy: .inheritSource
+            )
+        )
+
+        let inheritedColumn = try XCTUnwrap(
+            inheritedFixture.engine.findColumn(
+                containing: inheritedFixture.first,
+                in: inheritedFixture.workspaceId
+            )
+        )
+        XCTAssertEqual(inheritedColumn.width, .proportion(2.0 / 3.0))
+        XCTAssertEqual(inheritedColumn.presetWidthIdx, 2)
+        XCTAssertTrue(inheritedColumn.hasManualSingleWindowWidthOverride)
+        XCTAssertEqual(inheritedFixture.column.width, .proportion(2.0 / 3.0))
+        XCTAssertEqual(inheritedFixture.column.presetWidthIdx, 2)
+        XCTAssertTrue(inheritedFixture.column.hasManualSingleWindowWidthOverride)
+    }
+
     func testColumnTransferPrunesOverlappingTargetTokenAndPreservesOtherTargetWindow() throws {
         let fixture = try makeColumnCollisionFixture()
         var sourceState = ViewportState()
@@ -208,6 +390,42 @@ final class NiriTransferRecoveryTests: XCTestCase {
             targetOnlyNode: targetOnlyNode,
             sourceColumn: sourceColumn
         )
+    }
+
+    private func makeStackedColumnFixture(pid: pid_t) throws -> (
+        engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID,
+        first: NiriWindow,
+        second: NiriWindow,
+        column: NiriContainer
+    ) {
+        let engine = NiriLayoutEngine()
+        let workspaceId = WorkspaceDescriptor.ID()
+        let first = engine.addWindow(
+            token: WindowToken(pid: pid, windowId: 1),
+            to: workspaceId,
+            afterSelection: nil
+        )
+        let second = engine.addWindow(
+            token: WindowToken(pid: pid, windowId: 2),
+            to: workspaceId,
+            afterSelection: first.id
+        )
+        let column = try XCTUnwrap(engine.findColumn(containing: first, in: workspaceId))
+        var state = ViewportState()
+        XCTAssertTrue(
+            engine.consumeWindow(
+                second,
+                into: column,
+                enteringFrom: .down,
+                in: workspaceId,
+                motion: .disabled,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: 0
+            )
+        )
+        return (engine, workspaceId, first, second, column)
     }
 
     private func assertColumnTransfer(

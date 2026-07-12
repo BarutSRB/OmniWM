@@ -1059,6 +1059,11 @@ private extension OverviewController {
 
         case let .niriColumnInsert(targetWsId, insertIndex):
             guard isNiriLayout(workspaceId: targetWsId) else { return }
+            let shouldInheritWidth = targetWsId != session.workspaceId
+                && isNiriLayout(workspaceId: session.workspaceId)
+            let widthPolicy: NiriLayoutEngine.NewColumnWidthPolicy = shouldInheritWidth
+                ? .inheritSource
+                : .workspaceDefault
             if targetWsId != session.workspaceId {
                 wmController.workspaceNavigationHandler.moveWindow(
                     handle: session.handle,
@@ -1069,6 +1074,7 @@ private extension OverviewController {
                 handle: session.handle,
                 insertIndex: insertIndex,
                 in: targetWsId,
+                widthPolicy: widthPolicy,
                 source: .mouse
             )
             wmController.layoutRefreshController.startScrollAnimation(for: targetWsId)

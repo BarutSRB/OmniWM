@@ -190,6 +190,132 @@ final class NiriInteractionOwnershipTests: NiriInteractionTestCase {
         )
         XCTAssertNil(engine.interactiveResize)
     }
+
+    func testHorizontalInteractiveResizeUsesRenderedSingleWindowWidthWhenCacheIsEmpty() throws {
+        let engine = NiriLayoutEngine()
+        let workspaceId = WorkspaceDescriptor.ID()
+        let window = addWindow(engine, pid: 1_024, to: workspaceId)
+        let frame = try XCTUnwrap(layout(engine, in: workspaceId)[window.token])
+        let column = try XCTUnwrap(engine.findColumn(containing: window, in: workspaceId))
+        XCTAssertEqual(column.cachedWidth, 0)
+
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                windowId: window.id,
+                edges: .right,
+                startLocation: CGPoint(x: frame.maxX, y: frame.midY),
+                in: workspaceId
+            )
+        )
+        XCTAssertTrue(
+            engine.interactiveResizeUpdate(
+                currentLocation: CGPoint(x: frame.maxX - 120, y: frame.midY),
+                monitorFrame: workingFrame,
+                gaps: LayoutGaps(horizontal: 0, vertical: 0)
+            )
+        )
+
+        let expectedWidth = frame.width - 120
+        XCTAssertEqual(column.cachedWidth, expectedWidth, accuracy: 0.001)
+        XCTAssertEqual(column.width, .fixed(expectedWidth))
+        XCTAssertTrue(column.hasManualSingleWindowWidthOverride)
+    }
+
+    func testHorizontalInteractiveResizeCanonicalizesWidthStateAndTransfersIt() throws {
+        let engine = NiriLayoutEngine()
+        let sourceWorkspace = WorkspaceDescriptor.ID()
+        let targetWorkspace = WorkspaceDescriptor.ID()
+        let source = addWindow(engine, pid: 1_025, to: sourceWorkspace)
+        let sibling = addWindow(engine, pid: 1_025, windowId: 2, to: sourceWorkspace, after: source)
+        let sourceColumn = try XCTUnwrap(engine.findColumn(containing: source, in: sourceWorkspace))
+        var state = ViewportState()
+        XCTAssertTrue(
+            engine.consumeWindow(
+                sibling,
+                into: sourceColumn,
+                enteringFrom: .down,
+                in: sourceWorkspace,
+                motion: .disabled,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: 0
+            )
+        )
+        let sourceFrame = try XCTUnwrap(layout(engine, in: sourceWorkspace)[source.token])
+        sourceColumn.presetWidthIdx = 2
+        sourceColumn.isFullWidth = true
+        sourceColumn.savedWidth = .proportion(0.4)
+        sourceColumn.hasManualSingleWindowWidthOverride = false
+        let sourceAnimation = SpringAnimation(
+            from: Double(sourceColumn.cachedWidth),
+            to: Double(sourceColumn.cachedWidth + 100),
+            startTime: 0,
+            config: .niriWindowMovement,
+            displayRefreshRate: 60
+        )
+        sourceColumn.widthAnimation = sourceAnimation
+        sourceColumn.targetWidth = sourceColumn.cachedWidth + 100
+
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                windowId: source.id,
+                edges: .right,
+                startLocation: CGPoint(x: sourceFrame.maxX, y: sourceFrame.midY),
+                in: sourceWorkspace
+            )
+        )
+        XCTAssertTrue(sourceColumn.widthAnimation === sourceAnimation)
+        XCTAssertEqual(sourceColumn.targetWidth, sourceColumn.cachedWidth + 100)
+        XCTAssertTrue(
+            engine.interactiveResizeUpdate(
+                currentLocation: CGPoint(x: sourceFrame.maxX + 120, y: sourceFrame.midY),
+                monitorFrame: workingFrame,
+                gaps: LayoutGaps(horizontal: 0, vertical: 0)
+            )
+        )
+
+        let resizedWidth = sourceColumn.cachedWidth
+        XCTAssertEqual(sourceColumn.width, .fixed(resizedWidth))
+        XCTAssertNil(sourceColumn.presetWidthIdx)
+        XCTAssertFalse(sourceColumn.isFullWidth)
+        XCTAssertNil(sourceColumn.savedWidth)
+        XCTAssertTrue(sourceColumn.hasManualSingleWindowWidthOverride)
+        XCTAssertNil(sourceColumn.widthAnimation)
+        XCTAssertNil(sourceColumn.targetWidth)
+
+        engine.interactiveResizeEnd(
+            motion: .disabled,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: 0
+        )
+        var targetState = ViewportState()
+        XCTAssertNotNil(
+            engine.moveWindowToWorkspace(
+                source,
+                from: sourceWorkspace,
+                to: targetWorkspace,
+                sourceState: &state,
+                targetState: &targetState
+            )
+        )
+
+        let targetColumn = try XCTUnwrap(engine.findColumn(containing: source, in: targetWorkspace))
+        XCTAssertEqual(targetColumn.width, .fixed(resizedWidth))
+        XCTAssertNil(targetColumn.presetWidthIdx)
+        XCTAssertFalse(targetColumn.isFullWidth)
+        XCTAssertNil(targetColumn.savedWidth)
+        XCTAssertTrue(targetColumn.hasManualSingleWindowWidthOverride)
+        XCTAssertEqual(targetColumn.cachedWidth, 0)
+        XCTAssertNil(targetColumn.widthAnimation)
+        XCTAssertNil(targetColumn.targetWidth)
+        let targetFrame = try XCTUnwrap(layout(engine, in: targetWorkspace)[source.token])
+        XCTAssertEqual(targetFrame.width, resizedWidth, accuracy: 0.001)
+        XCTAssertTrue(engine.findColumn(containing: sibling, in: sourceWorkspace) === sourceColumn)
+        XCTAssertEqual(sourceColumn.width, .fixed(resizedWidth))
+        XCTAssertEqual(sourceColumn.cachedWidth, resizedWidth)
+        XCTAssertTrue(sourceColumn.hasManualSingleWindowWidthOverride)
+    }
 }
 
 final class NiriInteractionLifecycleTests: NiriInteractionTestCase {

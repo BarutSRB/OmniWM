@@ -2132,7 +2132,7 @@ import QuartzCore
         source: WMEventSource = .command
     ) -> Bool {
         var didMove = false
-        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, monitor, workingFrame, gaps in
+        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let sourceNode = engine.findNode(for: handle, in: wsId) else { return }
             guard let target = engine.findNode(for: targetHandle, in: wsId) else { return }
             didMove = engine.insertWindowByMove(
@@ -2157,10 +2157,11 @@ import QuartzCore
         handle: WindowHandle,
         insertIndex: Int,
         in workspaceId: WorkspaceDescriptor.ID,
+        widthPolicy: NiriLayoutEngine.NewColumnWidthPolicy = .workspaceDefault,
         source: WMEventSource = .command
     ) -> Bool {
         var didMove = false
-        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, monitor, workingFrame, gaps in
+        withNiriWorkspaceContext(for: workspaceId) { engine, wsId, motion, state, _, workingFrame, gaps in
             guard let window = engine.findNode(for: handle, in: wsId) else { return }
             didMove = engine.insertWindowInNewColumn(
                 window,
@@ -2169,7 +2170,8 @@ import QuartzCore
                 motion: motion,
                 state: &state,
                 workingFrame: workingFrame,
-                gaps: gaps
+                gaps: gaps,
+                widthPolicy: widthPolicy
             )
         }
         if didMove {
