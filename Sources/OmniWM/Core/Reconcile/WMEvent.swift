@@ -100,6 +100,7 @@ enum WMEvent: Equatable {
         mode: TrackedWindowMode,
         axRef: AXWindowRef,
         ruleEffects: ManagedWindowRuleEffects,
+        admissionHints: ManagedWindowAdmissionHints,
         managedReplacementMetadata: ManagedReplacementMetadata?,
         source: WMEventSource
     )
@@ -151,6 +152,12 @@ enum WMEvent: Equatable {
         token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID,
         layoutOverride: ManualWindowOverride?,
+        source: WMEventSource
+    )
+    case windowAdmissionHintsChanged(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        admissionHints: ManagedWindowAdmissionHints,
         source: WMEventSource
     )
     case niriPlacementsResolved(
@@ -299,7 +306,17 @@ enum WMEvent: Equatable {
     @MainActor
     func strippingAXReferences() -> WMEvent {
         switch self {
-        case let .windowAdmitted(token, workspaceId, monitorId, mode, axRef, ruleEffects, metadata, source):
+        case let .windowAdmitted(
+            token,
+            workspaceId,
+            monitorId,
+            mode,
+            axRef,
+            ruleEffects,
+            admissionHints,
+            metadata,
+            source
+        ):
             .windowAdmitted(
                 token: token,
                 workspaceId: workspaceId,
@@ -307,6 +324,7 @@ enum WMEvent: Equatable {
                 mode: mode,
                 axRef: AXWindowRef(element: Self.placeholderAXElement, windowId: axRef.windowId),
                 ruleEffects: ruleEffects,
+                admissionHints: admissionHints,
                 managedReplacementMetadata: metadata,
                 source: source
             )
@@ -328,13 +346,14 @@ enum WMEvent: Equatable {
 
     var token: WindowToken? {
         switch self {
-        case let .windowAdmitted(token, _, _, _, _, _, _, _),
+        case let .windowAdmitted(token, _, _, _, _, _, _, _, _),
              let .windowRemoved(token, _, _),
              let .workspaceAssigned(token, _, _, _, _),
              let .windowModeChanged(token, _, _, _, _),
              let .floatingGeometryUpdated(token, _, _, _, _, _, _),
              let .floatingStateChanged(token, _, _, _),
              let .manualLayoutOverrideChanged(token, _, _, _),
+             let .windowAdmissionHintsChanged(token, _, _, _),
              let .hiddenStateChanged(token, _, _, _, _),
              let .nativeFullscreenTransition(token, _, _, _, _),
              let .managedReplacementMetadataChanged(token, _, _, _, _),
@@ -375,7 +394,7 @@ enum WMEvent: Equatable {
 
     var source: WMEventSource {
         switch self {
-        case let .windowAdmitted(_, _, _, _, _, _, _, source),
+        case let .windowAdmitted(_, _, _, _, _, _, _, _, source),
              let .windowRekeyed(_, _, _, _, _, _, _, source),
              let .windowRemoved(_, _, source),
              let .workspaceAssigned(_, _, _, _, source),
@@ -383,6 +402,7 @@ enum WMEvent: Equatable {
              let .floatingGeometryUpdated(_, _, _, _, _, _, source),
              let .floatingStateChanged(_, _, _, source),
              let .manualLayoutOverrideChanged(_, _, _, source),
+             let .windowAdmissionHintsChanged(_, _, _, source),
              let .niriPlacementsResolved(_, source),
              let .hiddenStateChanged(_, _, _, _, source),
              let .nativeFullscreenTransition(_, _, _, _, source),
@@ -419,7 +439,7 @@ enum WMEvent: Equatable {
 
     var summary: String {
         switch self {
-        case let .windowAdmitted(token, workspaceId, _, mode, _, _, _, _):
+        case let .windowAdmitted(token, workspaceId, _, mode, _, _, _, _, _):
             "window_admitted token=\(token) workspace=\(workspaceId.uuidString) mode=\(mode)"
         case let .windowRekeyed(from, to, workspaceId, _, reason, _, _, _):
             "window_rekeyed from=\(from) to=\(to) workspace=\(workspaceId.uuidString) reason=\(reason.rawValue)"
@@ -435,6 +455,8 @@ enum WMEvent: Equatable {
             "floating_state_changed token=\(token) workspace=\(workspaceId.uuidString) state=\(state != nil)"
         case let .manualLayoutOverrideChanged(token, workspaceId, layoutOverride, _):
             "manual_layout_override_changed token=\(token) workspace=\(workspaceId.uuidString) override=\(layoutOverride.map(\.rawValue) ?? "nil")"
+        case let .windowAdmissionHintsChanged(token, workspaceId, admissionHints, _):
+            "window_admission_hints_changed token=\(token) workspace=\(workspaceId.uuidString) initial_niri_width=\(admissionHints.initialNiriColumnWidth.map { String($0) } ?? "nil")"
         case let .niriPlacementsResolved(placements, _):
             "niri_placements_resolved count=\(placements.count)"
         case let .hiddenStateChanged(token, workspaceId, _, hiddenState, _):

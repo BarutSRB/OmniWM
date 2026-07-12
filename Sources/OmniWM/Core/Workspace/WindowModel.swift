@@ -208,6 +208,7 @@ final class WindowModel {
         workspace: WorkspaceDescriptor.ID,
         mode: TrackedWindowMode = .tiling,
         ruleEffects: ManagedWindowRuleEffects = .none,
+        admissionHints: ManagedWindowAdmissionHints = .none,
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowToken {
         let token = WindowToken(pid: pid, windowId: windowId)
@@ -222,6 +223,7 @@ final class WindowModel {
                 entries[token]?.ruleEffects = ruleEffects
                 constraintsCacheByToken.removeValue(forKey: token)
             }
+            entries[token]?.admissionHints = admissionHints
             missingDetectionCountByToken.removeValue(forKey: token)
             return token
         }
@@ -232,7 +234,8 @@ final class WindowModel {
             workspaceId: workspace,
             mode: mode,
             managedReplacementMetadata: managedReplacementMetadata,
-            ruleEffects: ruleEffects
+            ruleEffects: ruleEffects,
+            admissionHints: admissionHints
         )
         entries[token] = entry
         handleByToken[token] = WindowHandle(id: token)
@@ -409,6 +412,14 @@ final class WindowModel {
 
     func setManualLayoutOverride(_ override: ManualWindowOverride?, for token: WindowToken) {
         entries[token]?.manualLayoutOverride = override
+    }
+
+    func admissionHints(for token: WindowToken) -> ManagedWindowAdmissionHints? {
+        entries[token]?.admissionHints
+    }
+
+    func setAdmissionHints(_ hints: ManagedWindowAdmissionHints, for token: WindowToken) {
+        entries[token]?.admissionHints = hints
     }
 
     func lifecyclePhase(for token: WindowToken) -> WindowLifecyclePhase? {

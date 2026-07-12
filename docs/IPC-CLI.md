@@ -490,8 +490,8 @@ Numeric inputs are resolved as raw workspace IDs first. Display-name lookup is a
 
 ## Rules
 
-Manage persisted window rules that control layout behavior and default workspace placement for matching windows.
-Rule add, replace, and config reload update initial placement defaults; existing managed windows stay on their current workspace unless `rule apply` is used.
+Manage persisted window rules that control layout behavior, default workspace placement, and initial Niri column width for matching windows.
+Rule add, replace, and config reload update admission defaults; existing managed windows stay on their current workspace unless `rule apply` is used. Initial column width is a one-shot Niri admission hint and never resizes an existing column.
 
 ```
 omniwmctl rule <action> [arguments...] [options...]
@@ -509,6 +509,7 @@ omniwmctl rule <action> [arguments...] [options...]
 | `--ax-subrole` | `<subrole>` | Match accessibility subrole |
 | `--layout` | `<auto\|tile\|float>` | Layout action (`auto` = default behavior) |
 | `--assign-to-workspace` | `<raw-name>` | Open first matching app windows on this workspace raw name |
+| `--initial-column-width` | `<proportion>` | Initial Niri column width for a resizable window, from `0.05` through `1.0` inclusive |
 | `--min-width` | `<points>` | Minimum window width in points |
 | `--min-height` | `<points>` | Minimum window height in points |
 
@@ -517,6 +518,10 @@ at least one identifier — a bundle ID, app-name substring, or title (substring
 the app's *runtime* identifier (`NSRunningApplication.bundleIdentifier`); apps without one (e.g. ad-hoc
 or wrapper apps) are matched by app name and/or title. AX role/subrole refine an existing match but cannot
 identify a rule on their own.
+
+`initialColumnWidth` is stored and returned over IPC as a proportion. `omniwmctl query rules` renders it as a percentage in human-readable table or text output. It applies only when a matching resizable window creates or claims a new Niri column, and the user can resize that column afterward.
+
+Niri's Single Window Fit policy retains precedence for a lone window, so it can visually mask the seeded column width. A rule's `minWidth` can clamp the resolved width in pixels, but that constraint does not rewrite the stored `initialColumnWidth` proportion.
 
 ### Rule Actions
 
@@ -558,7 +563,7 @@ Moves a rule to a new one-based position in the rule list.
 omniwmctl rule apply [--focused | --window <opaque-id> | --pid <pid>]
 ```
 
-Re-evaluates the current rule set against the target. Defaults to `--focused` if no target is specified. This is the explicit path for applying placement rules to already managed windows.
+Re-evaluates the current rule set against the target. Defaults to `--focused` if no target is specified. This is the explicit path for applying ongoing rule effects to already managed windows; the one-shot initial column-width hint is not reasserted on an existing column.
 
 | Target | Description |
 |--------|-------------|
@@ -574,6 +579,9 @@ omniwmctl rule add --bundle-id com.apple.finder --layout float
 
 # Tile initial Safari windows on workspace 2
 omniwmctl rule add --bundle-id com.apple.Safari --layout tile --assign-to-workspace 2
+
+# Start new Kitty columns at 50% width in Niri
+omniwmctl rule add --bundle-id net.kovidgoyal.kitty --initial-column-width 0.5
 
 # Float windows with "Preferences" in the title
 omniwmctl rule add --bundle-id com.apple.Safari --title-substring Preferences --layout float

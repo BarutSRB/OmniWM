@@ -1476,7 +1476,8 @@ import QuartzCore
                    axRef: ax,
                    bundleId: bundleId ?? evaluation.facts.ax.bundleId,
                    mode: trackedMode,
-                   facts: evaluation.facts
+                   facts: evaluation.facts,
+                   admissionHints: evaluation.decision.admissionHints
                )
             {
                 seenKeys.insert(token)
@@ -1495,6 +1496,7 @@ import QuartzCore
             )
             let wsForWindow: WorkspaceDescriptor.ID
             let ruleEffects: ManagedWindowRuleEffects
+            let admissionHints: ManagedWindowAdmissionHints
             if let existingEntry {
                 if shouldPreservePreFullscreenState {
                     controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
@@ -1502,20 +1504,24 @@ import QuartzCore
                     let restoredEntry = controller.workspaceManager.entry(for: existingEntry.token) ?? existingEntry
                     wsForWindow = restoredEntry.workspaceId
                     ruleEffects = restoredEntry.ruleEffects
+                    admissionHints = restoredEntry.admissionHints
                 } else if appFullscreen {
                     _ = controller.workspaceManager.markNativeFullscreenSuspended(existingEntry.token)
                     let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
                     wsForWindow = existingAssignment ?? defaultWorkspace
                     ruleEffects = decision.ruleEffects
+                    admissionHints = decision.admissionHints
                 } else {
                     let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
                     wsForWindow = existingAssignment ?? defaultWorkspace
                     ruleEffects = decision.ruleEffects
+                    admissionHints = decision.admissionHints
                 }
             } else {
                 let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
                 wsForWindow = existingAssignment ?? defaultWorkspace
                 ruleEffects = decision.ruleEffects
+                admissionHints = decision.admissionHints
             }
             let refreshedEntry = existingEntry
                 .flatMap { controller.workspaceManager.entry(for: $0.token) }
@@ -1569,8 +1575,12 @@ import QuartzCore
                     to: wsForWindow,
                     mode: admittedMode,
                     ruleEffects: ruleEffects,
+                    admissionHints: admissionHints,
                     managedReplacementMetadata: managedReplacementMetadata
                 )
+            }
+            if refreshedEntry != nil {
+                _ = controller.workspaceManager.updateAdmissionHints(admissionHints, for: token)
             }
             if existingEntry == nil {
                 controller.axEventHandler.discardCreatePlacementContext(for: winId)

@@ -48,12 +48,19 @@ struct ManagedWindowRuleEffects: Equatable, Sendable {
     static let none = ManagedWindowRuleEffects()
 }
 
+struct ManagedWindowAdmissionHints: Equatable, Sendable {
+    var initialNiriColumnWidth: Double?
+
+    static let none = ManagedWindowAdmissionHints()
+}
+
 struct WindowDecision: Equatable, Sendable {
     let disposition: WindowDecisionDisposition
     let source: WindowDecisionSource
     let layoutDecisionKind: WindowDecisionLayoutKind
     let workspaceName: String?
     let ruleEffects: ManagedWindowRuleEffects
+    let admissionHints: ManagedWindowAdmissionHints
     let heuristicReasons: [AXWindowHeuristicReason]
     let deferredReason: WindowDecisionDeferredReason?
 
@@ -163,6 +170,7 @@ struct WindowDecisionDebugSnapshot: Equatable, Sendable {
     let workspaceName: String?
     let minWidth: Double?
     let minHeight: Double?
+    let initialNiriColumnWidth: Double?
     let matchedRuleId: UUID?
     let heuristicReasons: [AXWindowHeuristicReason]
     let attributeFetchSucceeded: Bool
@@ -202,6 +210,7 @@ struct WindowDecisionDebugSnapshot: Equatable, Sendable {
             "workspaceName=\(workspaceName ?? "nil")",
             "minWidth=\(stringValue(minWidth))",
             "minHeight=\(stringValue(minHeight))",
+            "initialNiriColumnWidth=\(stringValue(initialNiriColumnWidth))",
             "matchedRuleId=\(matchedRuleId?.uuidString ?? "nil")",
             "heuristicReasons=\(heuristicReasons.map(\.rawValue).joined(separator: ","))",
             "attributeFetchSucceeded=\(attributeFetchSucceeded)"
@@ -351,6 +360,7 @@ final class WindowRuleEngine {
             layoutDecisionKind: .explicitLayout,
             workspaceName: decision.workspaceName,
             ruleEffects: decision.ruleEffects,
+            admissionHints: decision.admissionHints,
             heuristicReasons: [],
             deferredReason: nil
         )
@@ -370,6 +380,7 @@ final class WindowRuleEngine {
                 layoutDecisionKind: .explicitLayout,
                 workspaceName: nil,
                 ruleEffects: .none,
+                admissionHints: .none,
                 heuristicReasons: [],
                 deferredReason: nil
             )
@@ -384,12 +395,16 @@ final class WindowRuleEngine {
             minHeight: userRule?.rule.minHeight,
             matchedRuleId: userRule?.rule.id
         )
+        let admissionHints = ManagedWindowAdmissionHints(
+            initialNiriColumnWidth: userRule?.rule.validInitialColumnWidth
+        )
 
         if let userRule,
            let userDecision = explicitDecision(
                userRule,
                workspaceName: workspaceName,
-               effects: effects
+               effects: effects,
+               admissionHints: admissionHints
            )
         {
             return userDecision
@@ -401,7 +416,8 @@ final class WindowRuleEngine {
            let builtInDecision = explicitDecision(
                builtInRule,
                workspaceName: workspaceName,
-               effects: effects
+               effects: effects,
+               admissionHints: admissionHints
            )
         {
             return builtInDecision
@@ -410,7 +426,8 @@ final class WindowRuleEngine {
         if let cleanShotDecision = cleanShotRecordingOverlayDecision(
             for: facts,
             workspaceName: workspaceName,
-            effects: effects
+            effects: effects,
+            admissionHints: admissionHints
         ) {
             return cleanShotDecision
         }
@@ -426,6 +443,7 @@ final class WindowRuleEngine {
                 layoutDecisionKind: .fallbackLayout,
                 workspaceName: workspaceName,
                 ruleEffects: effects,
+                admissionHints: admissionHints,
                 heuristicReasons: [],
                 deferredReason: .requiredTitleMissing
             )
@@ -440,6 +458,7 @@ final class WindowRuleEngine {
                 layoutDecisionKind: .fallbackLayout,
                 workspaceName: workspaceName,
                 ruleEffects: effects,
+                admissionHints: admissionHints,
                 heuristicReasons: [],
                 deferredReason: nil
             )
@@ -451,6 +470,7 @@ final class WindowRuleEngine {
                     userRule,
                     workspaceName: workspaceName,
                     effects: effects,
+                    admissionHints: admissionHints,
                     heuristicReasons: [.attributeFetchFailed]
                 )
             }
@@ -460,6 +480,7 @@ final class WindowRuleEngine {
                 layoutDecisionKind: .fallbackLayout,
                 workspaceName: workspaceName,
                 ruleEffects: effects,
+                admissionHints: admissionHints,
                 heuristicReasons: [.attributeFetchFailed],
                 deferredReason: .attributeFetchFailed
             )
@@ -476,6 +497,7 @@ final class WindowRuleEngine {
             layoutDecisionKind: .fallbackLayout,
             workspaceName: workspaceName,
             ruleEffects: effects,
+            admissionHints: admissionHints,
             heuristicReasons: heuristic.reasons,
             deferredReason: heuristic.disposition == .undecided ? .attributeFetchFailed : nil
         )
@@ -485,6 +507,7 @@ final class WindowRuleEngine {
         _ compiled: CompiledRule,
         workspaceName: String?,
         effects: ManagedWindowRuleEffects,
+        admissionHints: ManagedWindowAdmissionHints,
         heuristicReasons: [AXWindowHeuristicReason]
     ) -> WindowDecision {
         let disposition: WindowDecisionDisposition = switch compiled.rule.effectiveLayoutAction {
@@ -501,6 +524,7 @@ final class WindowRuleEngine {
             layoutDecisionKind: .fallbackLayout,
             workspaceName: workspaceName,
             ruleEffects: effects,
+            admissionHints: admissionHints,
             heuristicReasons: heuristicReasons,
             deferredReason: nil
         )
@@ -509,7 +533,8 @@ final class WindowRuleEngine {
     private func cleanShotRecordingOverlayDecision(
         for facts: WindowRuleFacts,
         workspaceName: String?,
-        effects: ManagedWindowRuleEffects
+        effects: ManagedWindowRuleEffects,
+        admissionHints: ManagedWindowAdmissionHints
     ) -> WindowDecision? {
         guard facts.ax.bundleId == Self.cleanShotBundleId,
               facts.ax.subrole == (kAXStandardWindowSubrole as String),
@@ -524,6 +549,7 @@ final class WindowRuleEngine {
             layoutDecisionKind: .explicitLayout,
             workspaceName: workspaceName,
             ruleEffects: effects,
+            admissionHints: admissionHints,
             heuristicReasons: [],
             deferredReason: nil
         )
@@ -532,7 +558,8 @@ final class WindowRuleEngine {
     private func explicitDecision(
         _ compiled: CompiledRule,
         workspaceName: String?,
-        effects: ManagedWindowRuleEffects
+        effects: ManagedWindowRuleEffects,
+        admissionHints: ManagedWindowAdmissionHints
     ) -> WindowDecision? {
         let source: WindowDecisionSource = switch compiled.source {
         case .user:
@@ -557,6 +584,7 @@ final class WindowRuleEngine {
             layoutDecisionKind: .explicitLayout,
             workspaceName: workspaceName,
             ruleEffects: effects,
+            admissionHints: admissionHints,
             heuristicReasons: [],
             deferredReason: nil
         )

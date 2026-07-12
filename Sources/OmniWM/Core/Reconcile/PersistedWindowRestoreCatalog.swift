@@ -4,6 +4,14 @@
 import CoreGraphics
 import Foundation
 
+struct NiriColumnWidthState: Codable, Equatable, Sendable {
+    let width: ProportionalSize
+    let presetWidthIndex: Int?
+    let isFullWidth: Bool
+    let savedWidth: ProportionalSize?
+    let hasManualSingleWindowWidthOverride: Bool
+}
+
 struct PersistedNiriColumnState: Codable, Equatable, Sendable {
     let displayMode: ColumnDisplay
     let activeTileIndex: Int
@@ -37,6 +45,7 @@ struct PersistedRestoreIntent: Codable, Equatable, Sendable {
     let restoreToFloating: Bool
     let rescueEligible: Bool
     let niriPlacement: PersistedNiriPlacement?
+    let detachedNiriColumnWidthState: NiriColumnWidthState?
 
     init(
         workspaceName: String,
@@ -46,7 +55,8 @@ struct PersistedRestoreIntent: Codable, Equatable, Sendable {
         normalizedFloatingOrigin: CGPoint?,
         restoreToFloating: Bool,
         rescueEligible: Bool,
-        niriPlacement: PersistedNiriPlacement? = nil
+        niriPlacement: PersistedNiriPlacement? = nil,
+        detachedNiriColumnWidthState: NiriColumnWidthState? = nil
     ) {
         self.workspaceName = workspaceName
         self.topologyProfile = topologyProfile
@@ -56,6 +66,7 @@ struct PersistedRestoreIntent: Codable, Equatable, Sendable {
         self.restoreToFloating = restoreToFloating
         self.rescueEligible = rescueEligible
         self.niriPlacement = niriPlacement
+        self.detachedNiriColumnWidthState = detachedNiriColumnWidthState
     }
 }
 

@@ -14,7 +14,7 @@ enum StateReducer {
         var plan = ActionPlan()
 
         switch event {
-        case let .windowAdmitted(_, workspaceId, monitorId, mode, _, _, _, _):
+        case let .windowAdmitted(_, workspaceId, monitorId, mode, _, _, _, _, _):
             plan.lifecyclePhase = lifecyclePhase(for: mode)
             plan.observedState = baseObservedState(
                 from: existingEntry,
@@ -118,6 +118,9 @@ enum StateReducer {
 
         case let .manualLayoutOverrideChanged(_, _, layoutOverride, _):
             plan.notes = ["manual_layout_override=\(layoutOverride.map(\.rawValue) ?? "cleared")"]
+
+        case .windowAdmissionHintsChanged:
+            break
 
         case let .niriPlacementsResolved(placements, _):
             plan.notes = ["niri_placements=\(placements.count)"]
@@ -371,7 +374,8 @@ enum StateReducer {
             normalizedFloatingOrigin: floatingState?.normalizedOrigin,
             restoreToFloating: floatingState?.restoreToFloating ?? (entry.mode == .floating),
             rescueEligible: entry.desiredState.rescueEligible || floatingState?.restoreToFloating == true,
-            niriPlacement: niriPlacement
+            niriPlacement: niriPlacement,
+            detachedNiriColumnWidthState: entry.restoreIntent?.detachedNiriColumnWidthState
         )
     }
 

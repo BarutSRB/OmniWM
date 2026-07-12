@@ -10,7 +10,17 @@ enum EventNormalizer {
         monitors _: [Monitor]
     ) -> WMEvent {
         switch event {
-        case let .windowAdmitted(token, workspaceId, monitorId, mode, axRef, ruleEffects, metadata, source):
+        case let .windowAdmitted(
+            token,
+            workspaceId,
+            monitorId,
+            mode,
+            axRef,
+            ruleEffects,
+            admissionHints,
+            metadata,
+            source
+        ):
             return .windowAdmitted(
                 token: token,
                 workspaceId: workspaceId,
@@ -18,6 +28,7 @@ enum EventNormalizer {
                 mode: mode,
                 axRef: axRef,
                 ruleEffects: ruleEffects,
+                admissionHints: admissionHints,
                 managedReplacementMetadata: metadata,
                 source: source
             )
@@ -130,6 +141,7 @@ enum EventNormalizer {
              .managedFocusConfirmed,
              .managedFocusRequested,
              .manualLayoutOverrideChanged,
+             .windowAdmissionHintsChanged,
              .nativeFullscreenPlaceholderSelected,
              .niriPlacementsResolved,
              .nonManagedFocusChanged,

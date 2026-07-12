@@ -4185,6 +4185,7 @@ final class RuntimeArchitectureTests: XCTestCase {
                 layoutDecisionKind: .fallbackLayout,
                 workspaceName: nil,
                 ruleEffects: .none,
+                admissionHints: .none,
                 heuristicReasons: reasons,
                 deferredReason: nil
             )

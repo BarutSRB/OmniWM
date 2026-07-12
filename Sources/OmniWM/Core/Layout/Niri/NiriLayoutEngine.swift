@@ -239,28 +239,74 @@ final class NiriLayoutEngine {
         return (1.0 / CGFloat(effectiveMaxVisibleColumns(in: workspaceId)), nil)
     }
 
-    func initializeNewColumnWidth(_ column: NiriContainer, in workspaceId: WorkspaceDescriptor.ID) {
-        let resolvedWidth = resolvedColumnResetWidth(in: workspaceId)
-        column.width = .proportion(resolvedWidth.proportion)
-        column.presetWidthIdx = resolvedWidth.presetWidthIdx
+    func initialColumnWidthState(for proportion: CGFloat) -> NiriColumnWidthState {
+        precondition(proportion.isFinite && (0.05 ... 1.0).contains(proportion))
+        return NiriColumnWidthState(
+            width: .proportion(proportion),
+            presetWidthIndex: matchingPresetIndex(for: proportion),
+            isFullWidth: false,
+            savedWidth: nil,
+            hasManualSingleWindowWidthOverride: false
+        )
+    }
 
+    func columnWidthState(
+        for token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> NiriColumnWidthState? {
+        guard let window = states[workspaceId]?.nodesByToken[token],
+              let column = window.parent as? NiriContainer
+        else {
+            return nil
+        }
+        return columnWidthState(for: column)
+    }
+
+    private func applyColumnWidthState(_ state: NiriColumnWidthState, to column: NiriContainer) {
+        column.width = state.width
+        column.presetWidthIdx = state.presetWidthIndex
+        column.isFullWidth = state.isFullWidth
+        column.savedWidth = state.savedWidth
+        column.hasManualSingleWindowWidthOverride = state.hasManualSingleWindowWidthOverride
         column.cachedWidth = 0
-        column.isFullWidth = false
-        column.savedWidth = nil
-        column.hasManualSingleWindowWidthOverride = false
         column.widthAnimation = nil
         column.targetWidth = nil
     }
 
+    func initializeNewColumnWidth(
+        _ column: NiriContainer,
+        in workspaceId: WorkspaceDescriptor.ID,
+        initialState: NiriColumnWidthState? = nil
+    ) {
+        if let initialState {
+            applyColumnWidthState(initialState, to: column)
+            return
+        }
+        let resolvedWidth = resolvedColumnResetWidth(in: workspaceId)
+        applyColumnWidthState(
+            NiriColumnWidthState(
+                width: .proportion(resolvedWidth.proportion),
+                presetWidthIndex: resolvedWidth.presetWidthIdx,
+                isFullWidth: false,
+                savedWidth: nil,
+                hasManualSingleWindowWidthOverride: false
+            ),
+            to: column
+        )
+    }
+
     func copyColumnWidthState(from sourceColumn: NiriContainer, to targetColumn: NiriContainer) {
-        targetColumn.width = sourceColumn.width
-        targetColumn.presetWidthIdx = sourceColumn.presetWidthIdx
-        targetColumn.isFullWidth = sourceColumn.isFullWidth
-        targetColumn.savedWidth = sourceColumn.savedWidth
-        targetColumn.hasManualSingleWindowWidthOverride = sourceColumn.hasManualSingleWindowWidthOverride
-        targetColumn.cachedWidth = 0
-        targetColumn.widthAnimation = nil
-        targetColumn.targetWidth = nil
+        applyColumnWidthState(columnWidthState(for: sourceColumn), to: targetColumn)
+    }
+
+    private func columnWidthState(for column: NiriContainer) -> NiriColumnWidthState {
+        NiriColumnWidthState(
+            width: column.width,
+            presetWidthIndex: column.presetWidthIdx,
+            isFullWidth: column.isFullWidth,
+            savedWidth: column.savedWidth,
+            hasManualSingleWindowWidthOverride: column.hasManualSingleWindowWidthOverride
+        )
     }
 
     private func matchingPresetIndex(for width: CGFloat) -> Int? {

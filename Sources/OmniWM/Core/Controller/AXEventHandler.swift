@@ -160,6 +160,7 @@ final class AXEventHandler {
         let token: WindowToken
         let axRef: AXWindowRef
         let ruleEffects: ManagedWindowRuleEffects
+        let admissionHints: ManagedWindowAdmissionHints
         let replacementMetadata: ManagedReplacementMetadata
         let structuralReplacementMatch: StructuralReplacementMatch?
         let requiresPostCreateLifecycleVerification: Bool
@@ -603,7 +604,8 @@ final class AXEventHandler {
         axRef: AXWindowRef,
         bundleId: String?,
         mode: TrackedWindowMode,
-        facts: WindowRuleFacts
+        facts: WindowRuleFacts,
+        admissionHints: ManagedWindowAdmissionHints? = nil
     ) -> Bool {
         let metadata = makeManagedReplacementMetadata(
             bundleId: bundleId,
@@ -626,6 +628,9 @@ final class AXEventHandler {
             to: token,
             workspaceId: match.workspaceId
         )
+        if let admissionHints {
+            _ = controller?.workspaceManager.updateAdmissionHints(admissionHints, for: token)
+        }
         discardCreatePlacementContext(windowId: windowId)
         return true
     }
@@ -1092,6 +1097,7 @@ final class AXEventHandler {
             to: candidate.workspaceId,
             mode: candidate.mode,
             ruleEffects: candidate.ruleEffects,
+            admissionHints: candidate.admissionHints,
             managedReplacementMetadata: candidate.replacementMetadata
         )
         guard let trackedEntry = controller.workspaceManager.entry(for: trackedToken) else {
@@ -2665,6 +2671,7 @@ final class AXEventHandler {
             token: token,
             axRef: axRef,
             ruleEffects: evaluation.decision.ruleEffects,
+            admissionHints: evaluation.decision.admissionHints,
             replacementMetadata: makeManagedReplacementMetadata(
                 bundleId: resolvedBundleId,
                 workspaceId: workspaceId,
@@ -3071,6 +3078,7 @@ final class AXEventHandler {
             managedReplacementMetadata: create.replacementMetadata
         )
         if entry != nil {
+            _ = controller?.workspaceManager.updateAdmissionHints(create.admissionHints, for: create.token)
             rekeyManagedReplacementFocusTransaction(
                 from: oldToken,
                 to: create.token,

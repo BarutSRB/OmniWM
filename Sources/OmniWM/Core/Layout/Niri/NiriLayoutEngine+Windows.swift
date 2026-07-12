@@ -61,7 +61,8 @@ extension NiriLayoutEngine {
         token: WindowToken,
         to workspaceId: WorkspaceDescriptor.ID,
         afterSelection selectedNodeId: NodeId?,
-        focusedToken: WindowToken? = nil
+        focusedToken: WindowToken? = nil,
+        columnWidthState: NiriColumnWidthState? = nil
     ) -> NiriWindow {
         let state = ensureState(for: workspaceId)
         if let existing = state.nodesByToken[token] {
@@ -70,7 +71,7 @@ extension NiriLayoutEngine {
         let root = state.root
 
         if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: root) {
-            initializeNewColumnWidth(existingColumn, in: workspaceId)
+            initializeNewColumnWidth(existingColumn, in: workspaceId, initialState: columnWidthState)
             let windowNode = NiriWindow(token: token)
             existingColumn.appendChild(windowNode)
             state.index(windowNode)
@@ -92,7 +93,7 @@ extension NiriLayoutEngine {
         }
 
         let newColumn = NiriContainer()
-        initializeNewColumnWidth(newColumn, in: workspaceId)
+        initializeNewColumnWidth(newColumn, in: workspaceId, initialState: columnWidthState)
         if let refCol = referenceColumn {
             root.insertAfter(newColumn, reference: refCol)
         } else {
@@ -533,7 +534,8 @@ extension NiriLayoutEngine {
         _ tokens: [WindowToken],
         in workspaceId: WorkspaceDescriptor.ID,
         selectedNodeId: NodeId?,
-        focusedToken: WindowToken? = nil
+        focusedToken: WindowToken? = nil,
+        columnWidthStates: [WindowToken: NiriColumnWidthState]? = nil
     ) -> Set<WindowToken> {
         assertSanctionedMutation()
         let state = ensureState(for: workspaceId)
@@ -555,7 +557,8 @@ extension NiriLayoutEngine {
                     token: token,
                     to: workspaceId,
                     afterSelection: selectedNodeId,
-                    focusedToken: focusedToken
+                    focusedToken: focusedToken,
+                    columnWidthState: columnWidthStates?[token]
                 )
             }
         }

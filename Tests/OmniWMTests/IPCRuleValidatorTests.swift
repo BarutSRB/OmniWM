@@ -93,6 +93,64 @@ final class IPCRuleValidatorTests: XCTestCase {
         XCTAssertTrue(report.isValid)
     }
 
+    func testInitialColumnWidthInclusiveBoundsAccepted() {
+        for value in [0.05, 0.5, 1.0] {
+            let report = IPCRuleValidator.validate(
+                IPCRuleDefinition(bundleId: "com.test.app", initialColumnWidth: value)
+            )
+            XCTAssertNil(report.initialColumnWidthError)
+            XCTAssertNil(report.effectError)
+            XCTAssertTrue(report.isValid)
+        }
+    }
+
+    func testInvalidInitialColumnWidthRejectedWithoutCountingAsEffect() {
+        for value in [0.049, 1.001, .nan, .infinity, -.infinity] {
+            let report = IPCRuleValidator.validate(
+                IPCRuleDefinition(bundleId: "com.test.app", initialColumnWidth: value)
+            )
+            XCTAssertNotNil(report.initialColumnWidthError)
+            XCTAssertNotNil(report.effectError)
+            XCTAssertFalse(report.isValid)
+        }
+    }
+
+    func testInvalidInitialColumnWidthDoesNotHideAnotherEffect() {
+        let report = IPCRuleValidator.validate(
+            IPCRuleDefinition(bundleId: "com.test.app", layout: .float, initialColumnWidth: 1.001)
+        )
+        XCTAssertNotNil(report.initialColumnWidthError)
+        XCTAssertNil(report.effectError)
+        XCTAssertFalse(report.isValid)
+    }
+
+    func testInitialColumnWidthIPCModelsRoundTrip() throws {
+        let definition = IPCRuleDefinition(bundleId: "com.test.app", initialColumnWidth: 0.5)
+        let definitionData = try JSONEncoder().encode(definition)
+        XCTAssertEqual(try JSONDecoder().decode(IPCRuleDefinition.self, from: definitionData), definition)
+
+        let snapshot = IPCRuleSnapshot(
+            id: "x",
+            position: 1,
+            bundleId: "com.test.app",
+            layout: .auto,
+            initialColumnWidth: 0.5,
+            specificity: 2,
+            isValid: true
+        )
+        let snapshotData = try JSONEncoder().encode(snapshot)
+        XCTAssertEqual(try JSONDecoder().decode(IPCRuleSnapshot.self, from: snapshotData), snapshot)
+    }
+
+    func testInitialColumnWidthManifestOption() throws {
+        let descriptor = try XCTUnwrap(
+            IPCAutomationManifest.ruleDefinitionOptionDescriptors.first {
+                $0.flag == "--initial-column-width"
+            }
+        )
+        XCTAssertEqual(descriptor.valuePlaceholder, "<proportion>")
+    }
+
     func testMessagesAggregateAllErrors() {
         let report = IPCRuleValidator.validate(IPCRuleDefinition(bundleId: ""))
         XCTAssertEqual(report.messages, report.messages.filter { !$0.isEmpty })

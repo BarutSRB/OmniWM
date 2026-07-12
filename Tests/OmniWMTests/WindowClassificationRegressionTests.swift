@@ -22,6 +22,11 @@ final class WindowClassificationRegressionTests: XCTestCase {
             XCTAssertEqual(got.workspaceName, want.workspaceName, "\(name): workspaceName")
             XCTAssertEqual(got.minWidth, want.minWidth, "\(name): minWidth")
             XCTAssertEqual(got.minHeight, want.minHeight, "\(name): minHeight")
+            XCTAssertEqual(
+                got.initialNiriColumnWidth,
+                want.initialNiriColumnWidth,
+                "\(name): initialNiriColumnWidth"
+            )
         }
     }
 }

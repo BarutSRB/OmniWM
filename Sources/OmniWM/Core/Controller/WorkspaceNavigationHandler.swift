@@ -664,6 +664,7 @@ final class WorkspaceNavigationHandler {
                 }
 
                 if targetIsDwindle, engine.findNode(for: token, in: sourceWsId) != nil {
+                    controller.workspaceManager.captureNiriColumnWidthState(for: token, in: sourceWsId)
                     engine.removeWindow(token: token, in: sourceWsId)
                 }
 

@@ -634,6 +634,13 @@ struct WindowDecision {
 }
 ```
 
+Per-app `initialColumnWidth` is an admission hint, not an ongoing `ManagedWindowRuleEffects` constraint.
+`WindowRuleEngine` takes it only from the single winning rule, and Niri consumes it once when a resizable
+window creates or claims a new column. Niri owns that initial column seed before its normal width fallback;
+Dwindle ignores it, restored placement takes precedence, and later resize or relayout operations do not
+reassert the rule value. Single Window Fit retains visual precedence for a lone window, while `minWidth`
+clamps the resolved pixel width without mutating the stored initial proportion.
+
 ### 4.8 IPC System
 
 For the protocol spec, current wire version, and CLI reference, see [IPC-CLI.md](IPC-CLI.md). This section covers the internal code architecture; `OmniWMIPCProtocol.version` in `Sources/OmniWMIPC/IPCModels.swift` is authoritative.

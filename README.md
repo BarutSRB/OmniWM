@@ -436,7 +436,19 @@ Configure per-application behavior in Settings > App Rules:
 
 - **Always Float** - Force specific apps to always float (e.g., calculators, preferences windows)
 - **Assign to Workspace** - Open first matching app windows on a specific workspace; later windows follow the app's current workspace unless rules are explicitly applied
+- **Initial Column Width (Niri)** - Start matching resizable windows at 5–100% when they create or claim a new column; the column remains freely resizable afterward
 - **Minimum Size** - Prevent the layout engine from sizing windows below a threshold
+
+Initial column width is a one-time seed. Niri's Single Window Fit still takes visual precedence for a lone
+window, and minimum width can clamp the resolved pixel size without changing the stored initial proportion.
+
+The equivalent TOML rule uses a proportion:
+
+```toml
+[[appRules]]
+bundleId = "net.kovidgoyal.kitty"
+initialColumnWidth = 0.5
+```
 
 ## Building from Source
 

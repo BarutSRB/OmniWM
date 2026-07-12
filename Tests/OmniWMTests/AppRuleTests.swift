@@ -41,7 +41,121 @@ final class AppRuleTests: XCTestCase {
         XCTAssertFalse(AppRule(bundleId: "com.test.app", appNameSubstring: "Test").hasEffect)
         XCTAssertTrue(AppRule(bundleId: "com.test.app", layout: .float).hasEffect)
         XCTAssertTrue(AppRule(bundleId: "com.test.app", assignToWorkspace: "2").hasEffect)
+        XCTAssertTrue(AppRule(bundleId: "com.test.app", initialColumnWidth: 0.05).hasEffect)
+        XCTAssertTrue(AppRule(bundleId: "com.test.app", initialColumnWidth: 1.0).hasEffect)
         XCTAssertTrue(AppRule(bundleId: "com.test.app", minWidth: 400).hasEffect)
         XCTAssertTrue(AppRule(bundleId: "com.test.app", minHeight: 300).hasEffect)
+    }
+
+    func testInvalidInitialColumnWidthDoesNotCountAsEffect() {
+        for value in [0.049, 1.001, .nan, .infinity, -.infinity] {
+            let rule = AppRule(bundleId: "com.test.app", initialColumnWidth: value)
+            XCTAssertNil(rule.validInitialColumnWidth)
+            XCTAssertFalse(rule.hasEffect)
+        }
+    }
+
+    func testInitialColumnWidthRoundTripsThroughTOML() throws {
+        var export = SettingsExport.defaults()
+        export.appRules = [AppRule(bundleId: "com.test.app", initialColumnWidth: 0.5)]
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let toml = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertTrue(toml.contains("initialColumnWidth = 0.5"))
+        XCTAssertEqual(try SettingsTOMLCodec.decode(data).appRules.first?.initialColumnWidth, 0.5)
+    }
+
+    func testNilInitialColumnWidthIsOmittedFromJSONAndTOML() throws {
+        let rule = AppRule(bundleId: "com.test.app", layout: .float)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(rule)) as? [String: Any]
+        )
+        XCTAssertNil(json["initialColumnWidth"])
+
+        var export = SettingsExport.defaults()
+        export.appRules = [rule]
+        let tomlData = try SettingsTOMLCodec.encode(export)
+        let toml = try XCTUnwrap(String(data: tomlData, encoding: .utf8))
+        XCTAssertFalse(toml.contains("initialColumnWidth"))
+        XCTAssertNil(try SettingsTOMLCodec.decode(tomlData).appRules.first?.initialColumnWidth)
+    }
+
+    @MainActor
+    func testIPCProjectionRoundTripsInitialColumnWidth() {
+        let rule = AppRule(bundleId: "com.test.app", initialColumnWidth: 0.5)
+        let definition = IPCRuleProjection.definition(from: rule)
+        let projectedRule = IPCRuleProjection.appRule(from: definition, id: rule.id)
+        let snapshot = IPCRuleProjection.snapshot(
+            from: projectedRule,
+            position: 1,
+            invalidRegexMessagesByRuleId: [:]
+        )
+
+        XCTAssertEqual(definition.initialColumnWidth, 0.5)
+        XCTAssertEqual(projectedRule, rule)
+        XCTAssertEqual(snapshot.initialColumnWidth, 0.5)
+        XCTAssertTrue(snapshot.isValid)
+    }
+
+    @MainActor
+    func testIPCProjectionReportsInvalidInitialColumnWidth() {
+        let rule = AppRule(bundleId: "com.test.app", initialColumnWidth: 1.001)
+        let snapshot = IPCRuleProjection.snapshot(
+            from: rule,
+            position: 1,
+            invalidRegexMessagesByRuleId: [:]
+        )
+
+        XCTAssertFalse(snapshot.isValid)
+        XCTAssertTrue(snapshot.validationMessages.contains { $0.hasPrefix("Initial column width") })
+    }
+
+    func testDraftDefaultsAndRoundTripsInitialColumnWidth() {
+        let emptyDraft = AppRuleDraft()
+        XCTAssertFalse(emptyDraft.initialColumnWidthEnabled)
+        XCTAssertEqual(emptyDraft.initialColumnWidth, 0.5)
+
+        let rule = AppRule(bundleId: "com.test.app", initialColumnWidth: 0.75)
+        let draft = AppRuleDraft(rule: rule)
+        XCTAssertTrue(draft.initialColumnWidthEnabled)
+        XCTAssertEqual(draft.initialColumnWidth, 0.75)
+        XCTAssertNil(draft.initialColumnWidthError)
+        XCTAssertEqual(draft.makeRule(), rule)
+    }
+
+    func testInitialColumnWidthPercentConversionHandlesFractionsAndExtremeValues() {
+        let proportion = 0.5555
+        let percent = AppRuleInitialColumnWidthPercent.percent(from: proportion)
+        XCTAssertEqual(percent, 55.55, accuracy: 0.000_000_1)
+        XCTAssertEqual(
+            AppRuleInitialColumnWidthPercent.proportion(from: percent),
+            proportion,
+            accuracy: 0.000_000_1
+        )
+        XCTAssertTrue(AppRuleInitialColumnWidthPercent.percent(from: .greatestFiniteMagnitude).isInfinite)
+        XCTAssertTrue(AppRuleInitialColumnWidthPercent.percent(from: .nan).isNaN)
+        XCTAssertEqual(AppRuleInitialColumnWidthPercent.percent(from: .infinity), .infinity)
+        XCTAssertEqual(AppRuleInitialColumnWidthPercent.percent(from: -.infinity), -.infinity)
+        XCTAssertEqual(AppRuleInitialColumnWidthPercent.displayText(for: proportion), "55.55")
+
+        var invalidDraft = AppRuleDraft(bundleId: "com.test.app")
+        invalidDraft.initialColumnWidthEnabled = true
+        invalidDraft.initialColumnWidth = AppRuleInitialColumnWidthPercent.proportion(from: 4.9)
+        XCTAssertEqual(invalidDraft.initialColumnWidth, 0.049, accuracy: 0.000_000_1)
+        XCTAssertNotNil(invalidDraft.initialColumnWidthError)
+    }
+
+    func testDraftEqualityAndRuleRepresentationAreNaNStable() {
+        let rule = AppRule(bundleId: "com.test.app", initialColumnWidth: .nan)
+        let lhs = AppRuleDraft(rule: rule)
+        let rhs = AppRuleDraft(rule: rule)
+
+        XCTAssertEqual(lhs, rhs)
+        XCTAssertTrue(lhs.represents(rule))
+
+        var changed = lhs
+        changed.initialColumnWidth = .infinity
+        XCTAssertNotEqual(changed, rhs)
+        XCTAssertFalse(changed.represents(rule))
     }
 }

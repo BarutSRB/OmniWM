@@ -22,12 +22,43 @@ enum TitleMatcherMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppRuleInitialColumnWidthPercent {
+    static func percent(from proportion: Double) -> Double {
+        proportion * 100
+    }
+
+    static func proportion(from percent: Double) -> Double {
+        percent / 100
+    }
+
+    static func displayText(for proportion: Double) -> String {
+        let percent = percent(from: proportion)
+        if percent.isNaN { return "NaN" }
+        if percent.isInfinite { return percent.sign == .minus ? "−∞" : "∞" }
+
+        var text = String(
+            format: "%.2f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            percent
+        )
+        while text.last == "0" {
+            text.removeLast()
+        }
+        if text.last == "." {
+            text.removeLast()
+        }
+        return text
+    }
+}
+
 struct AppRuleDraft: Identifiable, Equatable {
     let id: UUID
     var bundleId: String
     var layoutAction: WindowRuleLayoutAction
     var assignToWorkspaceEnabled: Bool
     var assignToWorkspace: String
+    var initialColumnWidthEnabled: Bool
+    var initialColumnWidth: Double
     var minWidthEnabled: Bool
     var minWidth: Double
     var minHeightEnabled: Bool
@@ -48,6 +79,8 @@ struct AppRuleDraft: Identifiable, Equatable {
         layoutAction = .auto
         assignToWorkspaceEnabled = false
         assignToWorkspace = ""
+        initialColumnWidthEnabled = false
+        initialColumnWidth = 0.5
         minWidthEnabled = false
         minWidth = 400
         minHeightEnabled = false
@@ -69,6 +102,8 @@ struct AppRuleDraft: Identifiable, Equatable {
         layoutAction = rule.effectiveLayoutAction
         assignToWorkspaceEnabled = rule.assignToWorkspace != nil
         assignToWorkspace = rule.assignToWorkspace ?? ""
+        initialColumnWidthEnabled = rule.initialColumnWidth != nil
+        initialColumnWidth = rule.initialColumnWidth ?? 0.5
         minWidthEnabled = rule.minWidth != nil
         minWidth = rule.minWidth ?? 400
         minHeightEnabled = rule.minHeight != nil
@@ -88,6 +123,29 @@ struct AppRuleDraft: Identifiable, Equatable {
         axRole = rule.axRole ?? ""
         axSubroleEnabled = rule.axSubrole?.isEmpty == false
         axSubrole = rule.axSubrole ?? ""
+    }
+
+    static func == (lhs: AppRuleDraft, rhs: AppRuleDraft) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.bundleId == rhs.bundleId &&
+            lhs.layoutAction == rhs.layoutAction &&
+            lhs.assignToWorkspaceEnabled == rhs.assignToWorkspaceEnabled &&
+            lhs.assignToWorkspace == rhs.assignToWorkspace &&
+            lhs.initialColumnWidthEnabled == rhs.initialColumnWidthEnabled &&
+            nanStableEqual(lhs.initialColumnWidth, rhs.initialColumnWidth) &&
+            lhs.minWidthEnabled == rhs.minWidthEnabled &&
+            nanStableEqual(lhs.minWidth, rhs.minWidth) &&
+            lhs.minHeightEnabled == rhs.minHeightEnabled &&
+            nanStableEqual(lhs.minHeight, rhs.minHeight) &&
+            lhs.appNameMatcherEnabled == rhs.appNameMatcherEnabled &&
+            lhs.appNameSubstring == rhs.appNameSubstring &&
+            lhs.titleMatcherMode == rhs.titleMatcherMode &&
+            lhs.titleSubstring == rhs.titleSubstring &&
+            lhs.titleRegex == rhs.titleRegex &&
+            lhs.axRoleEnabled == rhs.axRoleEnabled &&
+            lhs.axRole == rhs.axRole &&
+            lhs.axSubroleEnabled == rhs.axSubroleEnabled &&
+            lhs.axSubrole == rhs.axSubrole
     }
 
     static func guided(from snapshot: WindowDecisionDebugSnapshot) -> AppRuleDraft? {
@@ -147,16 +205,27 @@ struct AppRuleDraft: Identifiable, Equatable {
         return nil
     }
 
+    var initialColumnWidthError: String? {
+        IPCRuleValidator.initialColumnWidthError(
+            for: initialColumnWidthEnabled ? initialColumnWidth : nil
+        )
+    }
+
     var effectHint: String? {
         let rule = makeRule()
         guard rule.hasIdentifyingMatcher, !rule.hasEffect else { return nil }
-        return "This rule matches windows but has no effect — set a layout, workspace, or minimum size."
+        return "This rule matches windows but has no effect — set a layout, workspace, initial column width, "
+            + "or minimum size."
     }
 
     var isValid: Bool {
         let rule = makeRule()
-        return bundleIdError == nil && titleRegexError == nil && minSizeError == nil
+        return bundleIdError == nil && titleRegexError == nil && initialColumnWidthError == nil && minSizeError == nil
             && rule.hasIdentifyingMatcher && rule.hasEffect
+    }
+
+    func represents(_ rule: AppRule) -> Bool {
+        AppRuleDraft(rule: makeRule(id: rule.id)) == AppRuleDraft(rule: rule)
     }
 
     func makeRule(id: UUID? = nil) -> AppRule {
@@ -170,9 +239,14 @@ struct AppRuleDraft: Identifiable, Equatable {
             axSubrole: axSubroleEnabled ? axSubrole.trimmedNonEmpty : nil,
             layout: layoutAction == .auto ? nil : layoutAction,
             assignToWorkspace: assignToWorkspaceEnabled ? assignToWorkspace.trimmedNonEmpty : nil,
+            initialColumnWidth: initialColumnWidthEnabled ? initialColumnWidth : nil,
             minWidth: minWidthEnabled ? minWidth : nil,
             minHeight: minHeightEnabled ? minHeight : nil
         )
+    }
+
+    private static func nanStableEqual(_ lhs: Double, _ rhs: Double) -> Bool {
+        lhs == rhs || (lhs.isNaN && rhs.isNaN)
     }
 }
 

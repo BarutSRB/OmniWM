@@ -425,6 +425,7 @@ final class WorkspaceManager {
              .viewportForgotten,
              .visibleWorkspacesChanged,
              .windowAdmitted,
+             .windowAdmissionHintsChanged,
              .windowModeChanged,
              .windowRekeyed,
              .windowRemoved,
@@ -632,6 +633,7 @@ final class WorkspaceManager {
             targetMode: hydrationPlan.targetMode,
             floatingFrame: hydrationPlan.floatingFrame,
             niriPlacement: hydrationPlan.niriPlacement,
+            detachedNiriColumnWidthState: hydrationPlan.detachedNiriColumnWidthState,
             consumedKey: hydrationPlan.consumedKey,
             consumedEntry: hydrationPlan.consumedEntry
         )
@@ -688,7 +690,7 @@ final class WorkspaceManager {
         }
 
         if entry.workspaceId != hydration.workspaceId {
-            world.updateWorkspace(for: token, workspace: hydration.workspaceId)
+            world.updateWorkspace(for: token, workspace: hydration.workspaceId, monitors: monitors)
         }
 
         let focusChanged = applyWindowModeMutationWithoutReconcile(
@@ -700,6 +702,7 @@ final class WorkspaceManager {
         if let entry = world.entry(for: token) {
             var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
             restoreIntent.niriPlacement = hydration.niriPlacement
+            restoreIntent.detachedNiriColumnWidthState = hydration.detachedNiriColumnWidthState
             world.setRestoreIntent(restoreIntent, for: token)
         }
 
@@ -738,7 +741,7 @@ final class WorkspaceManager {
         let oldMode = entry.mode
         guard oldMode != mode else { return false }
 
-        world.setMode(mode, for: token)
+        world.setMode(mode, for: token, monitors: monitors)
         let previousWorkspaceId = focusInvalidationWorkspaceId(for: world.focus)
         guard world.updateFocus({
             $0.reconcileRememberedFocus(afterModeChangeOf: token, in: workspaceId, to: mode)
@@ -819,7 +822,8 @@ final class WorkspaceManager {
                     normalizedFloatingOrigin: restoreIntent.normalizedFloatingOrigin,
                     restoreToFloating: restoreIntent.restoreToFloating,
                     rescueEligible: restoreIntent.rescueEligible,
-                    niriPlacement: restoreIntent.niriPlacement
+                    niriPlacement: restoreIntent.niriPlacement,
+                    detachedNiriColumnWidthState: restoreIntent.detachedNiriColumnWidthState
                 )
             )
         }
@@ -2024,6 +2028,7 @@ final class WorkspaceManager {
         to workspace: WorkspaceDescriptor.ID,
         mode: TrackedWindowMode = .tiling,
         ruleEffects: ManagedWindowRuleEffects = .none,
+        admissionHints: ManagedWindowAdmissionHints = .none,
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowToken {
         let token = WindowToken(pid: pid, windowId: windowId)
@@ -2043,6 +2048,7 @@ final class WorkspaceManager {
                 mode: mode,
                 axRef: ax,
                 ruleEffects: ruleEffects,
+                admissionHints: admissionHints,
                 managedReplacementMetadata: managedReplacementMetadata,
                 source: .workspaceManager
             )
@@ -2194,10 +2200,16 @@ final class WorkspaceManager {
         world.restoreIntent(for: token)
     }
 
+    func admissionHints(for token: WindowToken) -> ManagedWindowAdmissionHints? {
+        world.admissionHints(for: token)
+    }
+
     func setNiriRestorePlacements(_ placements: [WindowToken: PersistedNiriPlacement]) {
         let changedPlacements = placements.filter { token, placement in
             guard let entry = world.entry(for: token), entry.mode == .tiling else { return false }
-            return StateReducer.restoreIntent(for: entry, monitors: monitors).niriPlacement != placement
+            let restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
+            return restoreIntent.niriPlacement != placement
+                || restoreIntent.detachedNiriColumnWidthState != nil
         }
         guard !changedPlacements.isEmpty else { return }
         recordReconcileEvent(
@@ -2305,6 +2317,23 @@ final class WorkspaceManager {
                 source: .workspaceManager
             )
         )
+    }
+
+    @discardableResult
+    func updateAdmissionHints(
+        _ admissionHints: ManagedWindowAdmissionHints,
+        for token: WindowToken
+    ) -> Bool {
+        guard let entry = world.entry(for: token), entry.admissionHints != admissionHints else { return false }
+        recordReconcileEvent(
+            .windowAdmissionHintsChanged(
+                token: token,
+                workspaceId: entry.workspaceId,
+                admissionHints: admissionHints,
+                source: .workspaceManager
+            )
+        )
+        return world.admissionHints(for: token) == admissionHints
     }
 
     func updateFloatingGeometry(
@@ -2688,7 +2717,35 @@ final class WorkspaceManager {
 
     var niriEngine: NiriLayoutEngine? {
         get { world.niriEngine }
-        set { world.installNiriEngine(newValue) }
+        set {
+            let captured: Bool
+            if let current = world.niriEngine, current !== newValue {
+                captured = withEngineMutationScope(label: "niri_engine_replaced", source: .workspaceManager) {
+                    world.installNiriEngine(newValue, monitors: monitors)
+                }
+            } else {
+                captured = world.installNiriEngine(newValue, monitors: monitors)
+            }
+            if captured {
+                schedulePersistedWindowRestoreCatalogSave()
+            }
+        }
+    }
+
+    @discardableResult
+    func captureNiriColumnWidthState(
+        for token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        let captured = world.captureNiriColumnWidthState(
+            for: token,
+            in: workspaceId,
+            monitors: monitors
+        )
+        if captured {
+            schedulePersistedWindowRestoreCatalogSave()
+        }
+        return captured
     }
 
     var dwindleEngine: DwindleLayoutEngine? {
@@ -2817,6 +2874,11 @@ final class WorkspaceManager {
                 self.applyViewportInBatch(sourceState, for: sourceWorkspaceId)
                 self.applyViewportInBatch(targetState, for: targetWorkspaceId)
                 for token in moved.tokens {
+                    _ = self.world.captureNiriColumnWidthState(
+                        for: token,
+                        in: targetWorkspaceId,
+                        monitors: self.monitors
+                    )
                     self.setWorkspace(for: token, to: targetWorkspaceId)
                 }
             },
@@ -3601,7 +3663,7 @@ final class WorkspaceManager {
 
     private func noteInvalidation(for event: WMEvent) {
         switch event {
-        case let .windowAdmitted(_, workspaceId, _, _, _, _, _, _),
+        case let .windowAdmitted(_, workspaceId, _, _, _, _, _, _, _),
              let .windowModeChanged(_, workspaceId, _, _, _),
              let .hiddenStateChanged(_, workspaceId, _, _, _),
              let .managedReplacementMetadataChanged(_, workspaceId, _, _, _):
@@ -3615,6 +3677,9 @@ final class WorkspaceManager {
             noteInvalidation(workspaceId: workspaceId, domains: .layout)
 
         case .niriPlacementsResolved:
+            break
+
+        case .windowAdmissionHintsChanged:
             break
 
         case let .windowRekeyed(_, _, workspaceId, _, _, _, _, _):

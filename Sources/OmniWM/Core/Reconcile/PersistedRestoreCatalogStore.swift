@@ -19,6 +19,7 @@ struct PersistedWindowRestoreCatalogBuildEntry: Sendable {
     let restoreToFloating: Bool
     let rescueEligible: Bool
     let niriPlacement: PersistedNiriPlacement?
+    let detachedNiriColumnWidthState: NiriColumnWidthState?
 }
 
 enum PersistedWindowRestoreCatalogBuilder {
@@ -46,7 +47,8 @@ enum PersistedWindowRestoreCatalogBuilder {
                     normalizedFloatingOrigin: snapshotEntry.normalizedFloatingOrigin,
                     restoreToFloating: snapshotEntry.restoreToFloating,
                     rescueEligible: snapshotEntry.rescueEligible,
-                    niriPlacement: snapshotEntry.niriPlacement
+                    niriPlacement: snapshotEntry.niriPlacement,
+                    detachedNiriColumnWidthState: snapshotEntry.detachedNiriColumnWidthState
                 )
             )
             candidatesByBaseKey[key.baseKey, default: []].append(

@@ -46,7 +46,7 @@ struct AppRuleDetailView: View {
     }
 
     private var isDirty: Bool {
-        draft.makeRule(id: rule.id) != rule
+        !draft.represents(rule)
     }
 
     var body: some View {
@@ -86,7 +86,7 @@ struct AppRuleDetailView: View {
         .safeAreaInset(edge: .bottom) { saveBar }
         .onChange(of: draft) { _, _ in editorState.isDirty = isDirty }
         .onChange(of: rule) { oldRule, newRule in
-            if draft.makeRule(id: oldRule.id) == oldRule {
+            if draft.represents(oldRule) {
                 draft = AppRuleDraft(rule: newRule)
             }
             editorState.isDirty = isDirty
@@ -324,7 +324,61 @@ struct RuleWindowBehaviorSection: View {
                         .foregroundStyle(.orange)
                 }
             }
+
+            Toggle("Initial Column Width", isOn: $draft.initialColumnWidthEnabled)
+            if draft.initialColumnWidthEnabled {
+                LabeledContent("Width") {
+                    HStack {
+                        TextField(
+                            "Initial Column Width",
+                            value: initialColumnWidthPercent,
+                            format: .number.precision(.significantDigits(1 ... 15)).grouping(.never)
+                        )
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .accessibilityLabel("Initial column width percentage")
+                        .accessibilityValue(initialColumnWidthAccessibilityValue)
+                        .accessibilityHint(initialColumnWidthAccessibilityHint)
+                        Text("%")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let error = draft.initialColumnWidthError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            SettingsCaption(
+                "Only affects resizable windows in Niri layout when they create or claim a new column. "
+                    + "The column remains resizable afterward."
+            )
         }
+    }
+
+    private var initialColumnWidthPercent: Binding<Double> {
+        Binding(
+            get: { AppRuleInitialColumnWidthPercent.percent(from: draft.initialColumnWidth) },
+            set: { percent in
+                draft.initialColumnWidth = AppRuleInitialColumnWidthPercent.proportion(from: percent)
+            }
+        )
+    }
+
+    private var initialColumnWidthAccessibilityValue: String {
+        let value = AppRuleInitialColumnWidthPercent.displayText(for: draft.initialColumnWidth) + " percent"
+        guard draft.initialColumnWidthError != nil else { return value }
+        return value + ", invalid"
+    }
+
+    private var initialColumnWidthAccessibilityHint: String {
+        let range = "Enter a value from 5 through 100 percent."
+        guard let error = draft.initialColumnWidthError else { return range }
+        return error + ". " + range
     }
 
     private var isWorkspaceMissing: Bool {

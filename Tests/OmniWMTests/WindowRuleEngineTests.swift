@@ -129,6 +129,24 @@ final class WindowRuleEngineTests: XCTestCase {
         XCTAssertEqual(decision.source, .userRule(bundled.id))
     }
 
+    func testMoreSpecificRuleWithoutInitialWidthShadowsGenericWidthRule() {
+        let engine = WindowRuleEngine()
+        let generic = AppRule(bundleId: "com.test.app", initialColumnWidth: 0.5)
+        let specific = AppRule(
+            bundleId: "com.test.app",
+            titleSubstring: "Inspector",
+            layout: .tile
+        )
+        engine.rebuild(rules: [generic, specific])
+
+        let decision = evaluate(
+            engine,
+            facts(appName: "Test", bundleId: "com.test.app", title: "Inspector")
+        )
+        XCTAssertEqual(decision.source, .userRule(specific.id))
+        XCTAssertNil(decision.admissionHints.initialNiriColumnWidth)
+    }
+
     func testSystemTextInputPanelStaysUnmanagedWithWildcard() {
         let engine = WindowRuleEngine()
         let wildcard = AppRule(bundleId: "", appNameSubstring: "Input", layout: .float)

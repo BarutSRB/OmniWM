@@ -1844,6 +1844,7 @@ final class WMController {
                 layoutDecisionKind: .explicitLayout,
                 workspaceName: nil,
                 ruleEffects: .none,
+                admissionHints: .none,
                 heuristicReasons: [],
                 deferredReason: nil
             ),
@@ -1902,6 +1903,7 @@ final class WMController {
             workspaceName: evaluation.decision.workspaceName,
             minWidth: evaluation.decision.ruleEffects.minWidth,
             minHeight: evaluation.decision.ruleEffects.minHeight,
+            initialNiriColumnWidth: evaluation.decision.admissionHints.initialNiriColumnWidth,
             matchedRuleId: evaluation.decision.ruleEffects.matchedRuleId,
             heuristicReasons: evaluation.decision.heuristicReasons,
             attributeFetchSucceeded: evaluation.facts.ax.attributeFetchSucceeded
@@ -2085,7 +2087,8 @@ final class WMController {
                    axRef: axRef,
                    bundleId: evaluation.facts.ax.bundleId,
                    mode: effectiveTrackedMode,
-                   facts: evaluation.facts
+                   facts: evaluation.facts,
+                   admissionHints: evaluation.decision.admissionHints
                )
             {
                 affectedWorkspaceIds.insert(workspaceId)
@@ -2131,7 +2134,14 @@ final class WMController {
                     to: workspaceId,
                     mode: oldMode ?? effectiveTrackedMode,
                     ruleEffects: evaluation.decision.ruleEffects,
+                    admissionHints: evaluation.decision.admissionHints,
                     managedReplacementMetadata: managedReplacementMetadata
+                )
+            }
+            if existingEntry != nil {
+                _ = workspaceManager.updateAdmissionHints(
+                    evaluation.decision.admissionHints,
+                    for: token
                 )
             }
             if existingEntry == nil {

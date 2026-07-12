@@ -26,6 +26,7 @@ import QuartzCore
         let monitor: Monitor
         let insetFrame: CGRect
         let gap: CGFloat
+        let windows: [LayoutWindowSnapshot]
     }
 
     struct RemovalContext {
@@ -481,7 +482,8 @@ import QuartzCore
             engine: engine,
             monitor: monitor,
             insetFrame: snapshot.monitor.workingFrame,
-            gap: snapshot.gap
+            gap: snapshot.gap,
+            windows: snapshot.windows
         )
         let windowTokens = snapshot.windows.map(\.token)
         let currentSelection = state.selectedNodeId
@@ -508,10 +510,6 @@ import QuartzCore
             preferredFocusToken: snapshot.preferredFocusToken,
             viewOriginBeforeInsertion: viewOriginBeforeInsertion
         )
-
-        for window in snapshot.windows {
-            engine.updateWindowConstraints(for: window.token, constraints: window.constraints, in: pass.wsId)
-        }
 
         let selection = resolveSelection(
             pass: pass,
@@ -605,11 +603,11 @@ import QuartzCore
         viewOriginBeforeInsertion: CGFloat?
     ) -> InsertionContext {
         let currentSelection = state.selectedNodeId
-        _ = pass.engine.syncWindows(
-            windowTokens,
-            in: pass.wsId,
+        syncWindowsAndInstallConstraints(
+            pass: pass,
+            windowTokens: windowTokens,
             selectedNodeId: currentSelection,
-            focusedToken: preferredFocusToken
+            preferredFocusToken: preferredFocusToken
         )
         let newTokens = windowTokens.filter { !removal.existingHandleIds.contains($0) }
         var tabLocalTokens = Set<WindowToken>()
@@ -672,6 +670,55 @@ import QuartzCore
             tabLocalTokens: tabLocalTokens,
             viewOriginBeforeInsertion: viewOriginBeforeInsertion
         )
+    }
+
+    private func syncWindowsAndInstallConstraints(
+        pass: NiriLayoutPass,
+        windowTokens: [WindowToken],
+        selectedNodeId: NodeId?,
+        preferredFocusToken: WindowToken?
+    ) {
+        let columnWidthStates = columnWidthStatesForMissingWindows(pass: pass, windowTokens: windowTokens)
+        _ = pass.engine.syncWindows(
+            windowTokens,
+            in: pass.wsId,
+            selectedNodeId: selectedNodeId,
+            focusedToken: preferredFocusToken,
+            columnWidthStates: columnWidthStates
+        )
+        for window in pass.windows {
+            pass.engine.updateWindowConstraints(
+                for: window.token,
+                constraints: window.constraints,
+                in: pass.wsId
+            )
+        }
+    }
+
+    private func columnWidthStatesForMissingWindows(
+        pass: NiriLayoutPass,
+        windowTokens: [WindowToken]
+    ) -> [WindowToken: NiriColumnWidthState]? {
+        guard let controller else { return nil }
+
+        var states: [WindowToken: NiriColumnWidthState]?
+        for token in windowTokens where pass.engine.findNode(for: token, in: pass.wsId) == nil {
+            let state: NiriColumnWidthState?
+            if let detached = controller.workspaceManager.restoreIntent(for: token)?.detachedNiriColumnWidthState {
+                state = detached
+            } else if let initial = controller.workspaceManager.admissionHints(for: token)?.initialNiriColumnWidth {
+                state = pass.engine.initialColumnWidthState(for: CGFloat(initial))
+            } else {
+                state = nil
+            }
+
+            guard let state else { continue }
+            if states == nil {
+                states = [:]
+            }
+            states?[token] = state
+        }
+        return states
     }
 
     private func resolveSelection(

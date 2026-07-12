@@ -196,8 +196,11 @@ final class WorldStore {
 
     private func applyWindowMutation(_ event: WMEvent, phase: MutationPhase, monitors: [Monitor]) {
         switch event {
-        case let .windowAdmitted(token, workspaceId, _, mode, axRef, ruleEffects, metadata, _):
+        case let .windowAdmitted(token, workspaceId, _, mode, axRef, ruleEffects, admissionHints, metadata, _):
             guard phase == .beforePlan else { return }
+            let resolvedAdmissionHints = canUpdateAdmissionHints(for: token)
+                ? admissionHints
+                : model.admissionHints(for: token) ?? admissionHints
             model.upsert(
                 window: axRef,
                 pid: token.pid,
@@ -205,9 +208,14 @@ final class WorldStore {
                 workspace: workspaceId,
                 mode: mode,
                 ruleEffects: ruleEffects,
+                admissionHints: resolvedAdmissionHints,
                 managedReplacementMetadata: metadata
             )
-            reconcileNiriMembership(for: token, keeping: mode == .tiling ? workspaceId : nil)
+            reconcileNiriMembership(
+                for: token,
+                keeping: mode == .tiling ? workspaceId : nil,
+                monitors: monitors
+            )
 
         case let .windowRekeyed(from, to, workspaceId, _, _, newAXRef, metadata, _):
             guard phase == .beforePlan else { return }
@@ -223,15 +231,15 @@ final class WorldStore {
         case let .windowRemoved(token, _, _):
             guard phase == .afterPlan else { return }
             model.removeWindow(key: token)
-            reconcileNiriMembership(for: token, keeping: nil)
+            reconcileNiriMembership(for: token, keeping: nil, monitors: monitors)
 
         case let .workspaceAssigned(token, _, to, _, _):
             guard phase == .beforePlan else { return }
-            updateWorkspace(for: token, workspace: to)
+            updateWorkspace(for: token, workspace: to, monitors: monitors)
 
         case let .windowModeChanged(token, _, _, mode, _):
             guard phase == .beforePlan else { return }
-            setMode(mode, for: token)
+            setMode(mode, for: token, monitors: monitors)
 
         case let .floatingGeometryUpdated(token, _, referenceMonitorId, frame, normalizedOrigin, restoreToFloating, _):
             guard phase == .beforePlan else { return }
@@ -253,13 +261,18 @@ final class WorldStore {
             guard phase == .beforePlan else { return }
             model.setManualLayoutOverride(layoutOverride, for: token)
 
+        case let .windowAdmissionHintsChanged(token, _, admissionHints, _):
+            guard phase == .beforePlan, canUpdateAdmissionHints(for: token) else { return }
+            model.setAdmissionHints(admissionHints, for: token)
+
         case let .niriPlacementsResolved(placements, _):
             guard phase == .beforePlan else { return }
             for (token, placement) in placements {
                 guard let entry = model.entry(for: token), entry.mode == .tiling else { continue }
                 var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
-                guard restoreIntent.niriPlacement != placement else { continue }
                 restoreIntent.niriPlacement = placement
+                restoreIntent.detachedNiriColumnWidthState = nil
+                guard entry.restoreIntent != restoreIntent else { continue }
                 model.setRestoreIntent(restoreIntent, for: token)
             }
 
@@ -321,6 +334,16 @@ final class WorldStore {
 
     private func assertInCommit(_ operation: StaticString) {
         assert(commitDepth > 0, "\(operation) must run inside WorldStore.commit")
+    }
+
+    private func canUpdateAdmissionHints(for token: WindowToken) -> Bool {
+        guard let entry = model.entry(for: token) else { return true }
+        guard entry.restoreIntent?.detachedNiriColumnWidthState == nil,
+              entry.restoreIntent?.niriPlacement == nil
+        else {
+            return false
+        }
+        return niriEngine?.workspaceIds(containing: token).isEmpty ?? true
     }
 }
 
@@ -405,6 +428,10 @@ extension WorldStore {
         model.manualLayoutOverride(for: token)
     }
 
+    func admissionHints(for token: WindowToken) -> ManagedWindowAdmissionHints? {
+        model.admissionHints(for: token)
+    }
+
     func hiddenState(for token: WindowToken) -> HiddenState? {
         model.hiddenState(for: token)
     }
@@ -451,16 +478,28 @@ extension WorldStore {
         model.setRestoreIntent(intent, for: token)
     }
 
-    func updateWorkspace(for token: WindowToken, workspace: WorkspaceDescriptor.ID) {
+    func updateWorkspace(
+        for token: WindowToken,
+        workspace: WorkspaceDescriptor.ID,
+        monitors: [Monitor]
+    ) {
         assertInCommit("updateWorkspace")
         model.updateWorkspace(for: token, workspace: workspace)
-        reconcileNiriMembership(for: token, keeping: model.mode(for: token) == .tiling ? workspace : nil)
+        reconcileNiriMembership(
+            for: token,
+            keeping: model.mode(for: token) == .tiling ? workspace : nil,
+            monitors: monitors
+        )
     }
 
-    func setMode(_ mode: TrackedWindowMode, for token: WindowToken) {
+    func setMode(_ mode: TrackedWindowMode, for token: WindowToken, monitors: [Monitor]) {
         assertInCommit("setMode")
         model.setMode(mode, for: token)
-        reconcileNiriMembership(for: token, keeping: mode == .tiling ? model.workspace(for: token) : nil)
+        reconcileNiriMembership(
+            for: token,
+            keeping: mode == .tiling ? model.workspace(for: token) : nil,
+            monitors: monitors
+        )
     }
 
     func setFloatingState(_ state: FloatingState?, for token: WindowToken) {
@@ -521,15 +560,68 @@ extension WorldStore {
 
     private func reconcileNiriMembership(
         for token: WindowToken,
-        keeping authoritativeWorkspaceId: WorkspaceDescriptor.ID?
+        keeping authoritativeWorkspaceId: WorkspaceDescriptor.ID?,
+        monitors: [Monitor]
     ) {
         guard let engine = niriEngine else { return }
-        for staleWorkspaceId in engine.workspaceIds(containing: token)
-            where staleWorkspaceId != authoritativeWorkspaceId
-        {
+        let authoritativeState = authoritativeWorkspaceId.flatMap {
+            engine.columnWidthState(for: token, in: $0)
+        }
+        let staleWorkspaceIds = engine.workspaceIds(containing: token)
+            .filter { $0 != authoritativeWorkspaceId }
+            .sorted { $0.uuidString < $1.uuidString }
+        if authoritativeState != nil, !staleWorkspaceIds.isEmpty {
+            _ = storeDetachedNiriColumnWidthState(nil, for: token, monitors: monitors)
+        } else if let state = staleWorkspaceIds.lazy.compactMap({
+            engine.columnWidthState(for: token, in: $0)
+        }).first {
+            _ = storeDetachedNiriColumnWidthState(state, for: token, monitors: monitors)
+        }
+        for staleWorkspaceId in staleWorkspaceIds {
             repairViewportSelection(in: staleWorkspaceId, removing: token, engine: engine)
             engine.removeWindow(token: token, in: staleWorkspaceId)
         }
+    }
+
+    @discardableResult
+    private func storeDetachedNiriColumnWidthState(
+        _ state: NiriColumnWidthState?,
+        for token: WindowToken,
+        monitors: [Monitor]
+    ) -> Bool {
+        guard let entry = model.entry(for: token) else { return false }
+        var restoreIntent = entry.restoreIntent ?? StateReducer.restoreIntent(for: entry, monitors: monitors)
+        restoreIntent.detachedNiriColumnWidthState = state
+        if let state, let placement = restoreIntent.niriPlacement {
+            restoreIntent.niriPlacement = PersistedNiriPlacement(
+                columnIndex: placement.columnIndex,
+                tileIndex: placement.tileIndex,
+                column: PersistedNiriColumnState(
+                    displayMode: placement.column.displayMode,
+                    activeTileIndex: placement.column.activeTileIndex,
+                    width: state.width,
+                    presetWidthIndex: state.presetWidthIndex,
+                    isFullWidth: state.isFullWidth,
+                    savedWidth: state.savedWidth,
+                    hasManualSingleWindowWidthOverride: state.hasManualSingleWindowWidthOverride
+                ),
+                window: placement.window
+            )
+        }
+        guard entry.restoreIntent != restoreIntent else { return false }
+        model.setRestoreIntent(restoreIntent, for: token)
+        return true
+    }
+
+    @discardableResult
+    func captureNiriColumnWidthState(
+        for token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID,
+        monitors: [Monitor]
+    ) -> Bool {
+        assertInCommit("captureNiriColumnWidthState")
+        guard let state = niriEngine?.columnWidthState(for: token, in: workspaceId) else { return false }
+        return storeDetachedNiriColumnWidthState(state, for: token, monitors: monitors)
     }
 
     private func repairViewportSelection(
@@ -559,9 +651,38 @@ extension WorldStore {
         activeLayoutResolver = resolver
     }
 
-    func installNiriEngine(_ engine: NiriLayoutEngine?) {
+    @discardableResult
+    func installNiriEngine(_ engine: NiriLayoutEngine?, monitors: [Monitor]) -> Bool {
+        let captured = if let current = niriEngine, current !== engine {
+            captureNiriColumnWidthStates(from: current, monitors: monitors)
+        } else {
+            false
+        }
         engine?.isMutationSanctioned = isEngineMutationSanctioned
         niriEngine = engine
+        return captured
+    }
+
+    private func captureNiriColumnWidthStates(
+        from engine: NiriLayoutEngine,
+        monitors: [Monitor]
+    ) -> Bool {
+        var captured = false
+        for entry in model.allEntries() {
+            let workspaceIds = engine.workspaceIds(containing: entry.token)
+            let state = engine.columnWidthState(for: entry.token, in: entry.workspaceId)
+                ?? workspaceIds.sorted(by: { $0.uuidString < $1.uuidString }).lazy.compactMap {
+                    engine.columnWidthState(for: entry.token, in: $0)
+                }.first
+            if let state {
+                captured = storeDetachedNiriColumnWidthState(
+                    state,
+                    for: entry.token,
+                    monitors: monitors
+                ) || captured
+            }
+        }
+        return captured
     }
 
     func installDwindleEngine(_ engine: DwindleLayoutEngine?) {

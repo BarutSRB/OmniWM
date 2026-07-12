@@ -32,6 +32,7 @@ struct AppRule: Codable, Identifiable, Equatable {
         case axSubrole
         case layout
         case assignToWorkspace
+        case initialColumnWidth
         case minWidth
         case minHeight
     }
@@ -45,6 +46,7 @@ struct AppRule: Codable, Identifiable, Equatable {
     var axSubrole: String?
     var layout: WindowRuleLayoutAction?
     var assignToWorkspace: String?
+    var initialColumnWidth: Double?
     var minWidth: Double?
     var minHeight: Double?
 
@@ -58,6 +60,7 @@ struct AppRule: Codable, Identifiable, Equatable {
         axSubrole: String? = nil,
         layout: WindowRuleLayoutAction? = nil,
         assignToWorkspace: String? = nil,
+        initialColumnWidth: Double? = nil,
         minWidth: Double? = nil,
         minHeight: Double? = nil
     ) {
@@ -70,6 +73,7 @@ struct AppRule: Codable, Identifiable, Equatable {
         self.axSubrole = axSubrole
         self.layout = layout
         self.assignToWorkspace = assignToWorkspace
+        self.initialColumnWidth = initialColumnWidth
         self.minWidth = minWidth
         self.minHeight = minHeight
         normalizeSingleTitle()
@@ -79,9 +83,20 @@ struct AppRule: Codable, Identifiable, Equatable {
         layout ?? .auto
     }
 
+    var validInitialColumnWidth: Double? {
+        guard let initialColumnWidth,
+              initialColumnWidth.isFinite,
+              (0.05 ... 1.0).contains(initialColumnWidth)
+        else {
+            return nil
+        }
+        return initialColumnWidth
+    }
+
     var hasEffect: Bool {
         effectiveLayoutAction != .auto ||
             assignToWorkspace?.isEmpty == false ||
+            validInitialColumnWidth != nil ||
             minWidth != nil || minHeight != nil
     }
 
@@ -126,6 +141,7 @@ struct AppRule: Codable, Identifiable, Equatable {
     var hasAnyRule: Bool {
         effectiveLayoutAction != .auto ||
             assignToWorkspace != nil ||
+            initialColumnWidth != nil ||
             minWidth != nil || minHeight != nil ||
             hasAdvancedMatchers
     }
@@ -141,6 +157,7 @@ struct AppRule: Codable, Identifiable, Equatable {
         axSubrole = try container.decodeIfPresent(String.self, forKey: .axSubrole)
         layout = try container.decodeIfPresent(WindowRuleLayoutAction.self, forKey: .layout)
         assignToWorkspace = try container.decodeIfPresent(String.self, forKey: .assignToWorkspace)
+        initialColumnWidth = try container.decodeIfPresent(Double.self, forKey: .initialColumnWidth)
         minWidth = try container.decodeIfPresent(Double.self, forKey: .minWidth)
         minHeight = try container.decodeIfPresent(Double.self, forKey: .minHeight)
         normalizeSingleTitle()
@@ -157,6 +174,7 @@ struct AppRule: Codable, Identifiable, Equatable {
         try container.encodeIfPresent(axSubrole, forKey: .axSubrole)
         try container.encodeIfPresent(layout, forKey: .layout)
         try container.encodeIfPresent(assignToWorkspace, forKey: .assignToWorkspace)
+        try container.encodeIfPresent(initialColumnWidth, forKey: .initialColumnWidth)
         try container.encodeIfPresent(minWidth, forKey: .minWidth)
         try container.encodeIfPresent(minHeight, forKey: .minHeight)
     }

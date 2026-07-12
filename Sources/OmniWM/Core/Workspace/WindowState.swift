@@ -112,6 +112,7 @@ struct WindowState: Equatable {
     var floatingState: FloatingState?
     var manualLayoutOverride: ManualWindowOverride?
     var ruleEffects: ManagedWindowRuleEffects = .none
+    var admissionHints: ManagedWindowAdmissionHints = .none
     var hiddenState: HiddenState?
     var layoutReason: LayoutReason = .standard
 
@@ -129,7 +130,8 @@ struct WindowState: Equatable {
         workspaceId: WorkspaceDescriptor.ID,
         mode: TrackedWindowMode,
         managedReplacementMetadata: ManagedReplacementMetadata?,
-        ruleEffects: ManagedWindowRuleEffects
+        ruleEffects: ManagedWindowRuleEffects,
+        admissionHints: ManagedWindowAdmissionHints
     ) {
         self.token = token
         self.axRef = axRef
@@ -147,5 +149,6 @@ struct WindowState: Equatable {
         )
         self.managedReplacementMetadata = managedReplacementMetadata
         self.ruleEffects = ruleEffects
+        self.admissionHints = admissionHints
     }
 }
