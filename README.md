@@ -138,7 +138,7 @@
   <a href="https://trendshift.io/repositories/16758?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-16758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/16758/monthly?language=Swift" alt="BarutSRB%2FOmniWM | Trendshift" width="250" height="55"/></a>
 </p>
 
-Small demo, not fully showing everything, gif recorded at 30fps due to size, some stuff is now more refined and better as soem gifs might be outdated, features shown:
+Small demo, not fully showing everything, gif recorded at 30fps due to size, some stuff is now more refined and better as some gifs might be outdated, features shown:
 - Real quake/sticky terminal using ghostty's libghostty
 - Best-effort macOS native-tab replacement support
 - IPC/CLI
@@ -148,7 +148,7 @@ Small demo, not fully showing everything, gif recorded at 30fps due to size, som
 - App menu anywhere
 - Niri tabs
 - Niri and Dwindle layout
-- Hide/unhide status bar icons (Simialr to Ice Bar)
+- Hide/unhide status bar icons (Similar to Ice Bar)
 - Keep awake (Similar to Caffeine)
 - Interactive workspace/app icon bar
 - A lot more features not show in the video.
