@@ -5,14 +5,84 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+struct OverviewRenderPalette {
+    private struct Components: Sendable {
+        let red: Double
+        let green: Double
+        let blue: Double
+        let alpha: Double
+    }
+
+    private static let backdropDefault = Components(red: 0.05, green: 0.05, blue: 0.08, alpha: 1.0)
+    private static let normalBorderDefault = Components(red: 0.3, green: 0.3, blue: 0.35, alpha: 0.5)
+    private static let hoveredBorderDefault = Components(red: 0.4, green: 0.6, blue: 1.0, alpha: 1.0)
+    private static let selectedBorderDefault = Components(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0)
+
+    static let `default` = OverviewRenderPalette(
+        backdrop: cgColor(backdropDefault),
+        normalBorder: cgColor(normalBorderDefault),
+        hoveredBorder: cgColor(hoveredBorderDefault),
+        selectedBorder: cgColor(selectedBorderDefault)
+    )
+
+    let backdrop: CGColor
+    let normalBorder: CGColor
+    let hoveredBorder: CGColor
+    let selectedBorder: CGColor
+
+    init(
+        backdropColor: SettingsColor,
+        normalBorderColor: SettingsColor,
+        hoveredBorderColor: SettingsColor,
+        selectedBorderColor: SettingsColor
+    ) {
+        backdrop = Self.cgColor(backdropColor, fallback: Self.backdropDefault)
+        normalBorder = Self.cgColor(normalBorderColor, fallback: Self.normalBorderDefault)
+        hoveredBorder = Self.cgColor(hoveredBorderColor, fallback: Self.hoveredBorderDefault)
+        selectedBorder = Self.cgColor(selectedBorderColor, fallback: Self.selectedBorderDefault)
+    }
+
+    private init(
+        backdrop: CGColor,
+        normalBorder: CGColor,
+        hoveredBorder: CGColor,
+        selectedBorder: CGColor
+    ) {
+        self.backdrop = backdrop
+        self.normalBorder = normalBorder
+        self.hoveredBorder = hoveredBorder
+        self.selectedBorder = selectedBorder
+    }
+
+    private static func cgColor(_ color: SettingsColor, fallback: Components) -> CGColor {
+        CGColor(
+            red: component(color.red, fallback: fallback.red),
+            green: component(color.green, fallback: fallback.green),
+            blue: component(color.blue, fallback: fallback.blue),
+            alpha: component(color.alpha, fallback: fallback.alpha)
+        )
+    }
+
+    private static func cgColor(_ components: Components) -> CGColor {
+        CGColor(
+            red: CGFloat(components.red),
+            green: CGFloat(components.green),
+            blue: CGFloat(components.blue),
+            alpha: CGFloat(components.alpha)
+        )
+    }
+
+    private static func component(_ value: Double, fallback: Double) -> CGFloat {
+        guard value.isFinite else { return CGFloat(fallback) }
+        return CGFloat(min(max(value, 0), 1))
+    }
+}
+
 enum OverviewRenderer {
     private enum Colors {
-        static let background = CGColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1.0)
         static let windowBackground = CGColor(red: 0.15, green: 0.15, blue: 0.18, alpha: 1.0)
-        static let windowBorder = CGColor(red: 0.3, green: 0.3, blue: 0.35, alpha: 1.0)
-        static let windowHoverBorder = CGColor(red: 0.4, green: 0.6, blue: 1.0, alpha: 1.0)
-        static let windowSelectedBorder = CGColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0)
         static let windowDimmed = CGColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 0.7)
+        static let infoBackground = CGColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 0.9)
         static let closeButtonBackground = CGColor(red: 0.9, green: 0.3, blue: 0.3, alpha: 0.9)
         static let closeButtonHover = CGColor(red: 1.0, green: 0.4, blue: 0.4, alpha: 1.0)
         static let closeButtonX = CGColor(gray: 1.0, alpha: 1.0)
@@ -25,9 +95,14 @@ enum OverviewRenderer {
         static let workspaceLabelInactive = CGColor(gray: 0.6, alpha: 1.0)
         static let dropTarget = CGColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 1.0)
         static let dropTargetBackground = CGColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 0.2)
-        static let columnBackground = CGColor(red: 0.12, green: 0.12, blue: 0.16, alpha: 1.0)
+        static let columnBackground = CGColor(red: 0.12, green: 0.12, blue: 0.16, alpha: 0.6)
         static let columnBorder = CGColor(red: 0.25, green: 0.25, blue: 0.3, alpha: 1.0)
         static let columnDivider = CGColor(red: 0.2, green: 0.2, blue: 0.25, alpha: 0.8)
+        static let textWhiteNS = NSColor(cgColor: textWhite)!
+        static let textGrayNS = NSColor(cgColor: textGray)!
+        static let textDimmedNS = NSColor(cgColor: textDimmed)!
+        static let workspaceLabelActiveNS = NSColor(cgColor: workspaceLabelActive)!
+        static let workspaceLabelInactiveNS = NSColor(cgColor: workspaceLabelInactive)!
     }
 
     private enum Metrics {
@@ -57,23 +132,38 @@ enum OverviewRenderer {
         thumbnails: [Int: CGImage],
         searchQuery: String,
         progress: Double,
-        bounds: CGRect
+        bounds: CGRect,
+        palette: OverviewRenderPalette = .default,
+        isFullyOpen: Bool = false
     ) {
         let alpha = CGFloat(progress)
 
         context.saveGState()
-        context.setFillColor(Colors.background.copy(alpha: alpha)!)
+        context.setAlpha(alpha)
+        context.setFillColor(palette.backdrop)
         context.fill(bounds)
         context.restoreGState()
 
         guard progress > 0 else { return }
 
         let scrollOffset = layout.scrollOffset
+        let visibleContentRect = visibleContentRect(
+            bounds: bounds,
+            scrollOffset: scrollOffset,
+            isFullyOpen: isFullyOpen
+        )
 
         context.saveGState()
         context.translateBy(x: 0, y: -scrollOffset)
 
         for section in layout.workspaceSections {
+            if !shouldRender(
+                frame: section.sectionFrame.union(section.labelFrame),
+                visibleContentRect: visibleContentRect
+            ) {
+                continue
+            }
+
             renderWorkspaceLabel(context: context, section: section, alpha: alpha)
 
             if let columns = layout.niriColumnsByWorkspace[section.workspaceId] {
@@ -81,16 +171,22 @@ enum OverviewRenderer {
                     context: context,
                     columns: columns,
                     layout: layout,
-                    alpha: alpha
+                    alpha: alpha,
+                    visibleContentRect: visibleContentRect
                 )
             }
 
             for window in section.windows {
+                if !shouldRender(frame: window.overviewFrame, visibleContentRect: visibleContentRect) {
+                    continue
+                }
+
                 renderWindow(
                     context: context,
                     window: window,
                     thumbnail: thumbnails[window.windowId],
-                    progress: progress
+                    progress: progress,
+                    palette: palette
                 )
             }
         }
@@ -114,14 +210,47 @@ enum OverviewRenderer {
         )
     }
 
+    static func visibleContentRect(
+        bounds: CGRect,
+        scrollOffset: CGFloat,
+        isFullyOpen: Bool
+    ) -> CGRect? {
+        guard isFullyOpen else { return nil }
+        return bounds.offsetBy(dx: 0, dy: scrollOffset)
+    }
+
+    static func shouldRender(frame: CGRect, visibleContentRect: CGRect?) -> Bool {
+        guard let visibleContentRect else { return true }
+        return frame.intersects(visibleContentRect)
+    }
+
+    static func borderColor(for window: OverviewWindowItem, palette: OverviewRenderPalette) -> CGColor {
+        if window.isSelected {
+            return palette.selectedBorder
+        }
+        if window.isHovered {
+            return palette.hoveredBorder
+        }
+        return palette.normalBorder
+    }
+
     private static func renderNiriColumns(
         context: CGContext,
         columns: [OverviewNiriColumn],
         layout: OverviewLayout,
-        alpha: CGFloat
+        alpha: CGFloat,
+        visibleContentRect: CGRect?
     ) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setAlpha(alpha)
+
         for column in columns {
             let frame = column.frame
+            if !shouldRender(frame: frame, visibleContentRect: visibleContentRect) {
+                continue
+            }
+
             let path = CGPath(
                 roundedRect: frame,
                 cornerWidth: Metrics.columnCornerRadius,
@@ -129,11 +258,11 @@ enum OverviewRenderer {
                 transform: nil
             )
             context.addPath(path)
-            context.setFillColor(Colors.columnBackground.copy(alpha: alpha * 0.6)!)
+            context.setFillColor(Colors.columnBackground)
             context.fillPath()
 
             context.addPath(path)
-            context.setStrokeColor(Colors.columnBorder.copy(alpha: alpha)!)
+            context.setStrokeColor(Colors.columnBorder)
             context.setLineWidth(1.0)
             context.strokePath()
 
@@ -150,7 +279,7 @@ enum OverviewRenderer {
                         width: frame.width - 16,
                         height: Metrics.dividerHeight
                     )
-                    context.setFillColor(Colors.columnDivider.copy(alpha: alpha)!)
+                    context.setFillColor(Colors.columnDivider)
                     context.fill(divider)
                 }
             }
@@ -163,6 +292,10 @@ enum OverviewRenderer {
         dragTarget: OverviewDragTarget,
         alpha: CGFloat
     ) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setAlpha(alpha)
+
         switch dragTarget {
         case let .niriWindowInsert(_, targetHandle, position):
             guard let window = layout.window(for: targetHandle) else { return }
@@ -174,7 +307,7 @@ enum OverviewRenderer {
                 width: frame.width,
                 height: Metrics.dropLineHeight
             )
-            context.setFillColor(Colors.dropTarget.copy(alpha: alpha)!)
+            context.setFillColor(Colors.dropTarget)
             context.fill(lineFrame)
 
         case let .niriColumnInsert(workspaceId, insertIndex):
@@ -187,12 +320,12 @@ enum OverviewRenderer {
                 width: Metrics.dropLineWidth,
                 height: zone.frame.height
             )
-            context.setFillColor(Colors.dropTarget.copy(alpha: alpha)!)
+            context.setFillColor(Colors.dropTarget)
             context.fill(lineFrame)
 
         case let .workspaceMove(workspaceId):
             guard let section = layout.workspaceSections.first(where: { $0.workspaceId == workspaceId }) else { return }
-            context.setStrokeColor(Colors.dropTarget.copy(alpha: alpha)!)
+            context.setStrokeColor(Colors.dropTarget)
             context.setLineWidth(Metrics.dropOutlineWidth)
             context.stroke(section.sectionFrame)
         }
@@ -204,17 +337,18 @@ enum OverviewRenderer {
         alpha: CGFloat
     ) {
         let font = CTFontCreateWithName("SF Pro Display" as CFString, Metrics.workspaceLabelFontSize, nil)
-        let color = section.isActive ? Colors.workspaceLabelActive : Colors.workspaceLabelInactive
+        let color = section.isActive ? Colors.workspaceLabelActiveNS : Colors.workspaceLabelInactiveNS
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor(cgColor: color.copy(alpha: alpha)!)!
+            .foregroundColor: color
         ]
 
         let attributedString = NSAttributedString(string: section.name, attributes: attributes)
         let line = CTLineCreateWithAttributedString(attributedString)
 
         context.saveGState()
+        context.setAlpha(alpha)
         context.textMatrix = .identity
         context.translateBy(x: section.labelFrame.minX, y: section.labelFrame.minY + 8)
         CTLineDraw(line, context)
@@ -225,12 +359,14 @@ enum OverviewRenderer {
         context: CGContext,
         window: OverviewWindowItem,
         thumbnail: CGImage?,
-        progress: Double
+        progress: Double,
+        palette: OverviewRenderPalette
     ) {
         let frame = window.interpolatedFrame(progress: progress)
         let alpha = CGFloat(progress) * (window.matchesSearch ? 1.0 : 0.3)
 
         context.saveGState()
+        context.setAlpha(alpha)
 
         let path = CGPath(
             roundedRect: frame,
@@ -238,8 +374,9 @@ enum OverviewRenderer {
             cornerHeight: Metrics.windowCornerRadius,
             transform: nil
         )
+
         context.addPath(path)
-        context.setFillColor(Colors.windowBackground.copy(alpha: alpha)!)
+        context.setFillColor(Colors.windowBackground)
         context.fillPath()
 
         if let thumbnail {
@@ -267,18 +404,8 @@ enum OverviewRenderer {
             context.fillPath()
         }
 
-        let borderColor: CGColor
-        let borderWidth: CGFloat
-        if window.isSelected {
-            borderColor = Colors.windowSelectedBorder.copy(alpha: alpha)!
-            borderWidth = Metrics.selectedBorderWidth
-        } else if window.isHovered {
-            borderColor = Colors.windowHoverBorder.copy(alpha: alpha)!
-            borderWidth = Metrics.windowBorderWidth
-        } else {
-            borderColor = Colors.windowBorder.copy(alpha: alpha * 0.5)!
-            borderWidth = Metrics.windowBorderWidth
-        }
+        let borderColor = Self.borderColor(for: window, palette: palette)
+        let borderWidth = window.isSelected ? Metrics.selectedBorderWidth : Metrics.windowBorderWidth
 
         context.addPath(path)
         context.setStrokeColor(borderColor)
@@ -323,7 +450,7 @@ enum OverviewRenderer {
         infoPath.closeSubpath()
 
         context.addPath(infoPath)
-        context.setFillColor(CGColor(red: 0.1, green: 0.1, blue: 0.12, alpha: alpha * 0.9))
+        context.setFillColor(Colors.infoBackground)
         context.fillPath()
         context.restoreGState()
 
@@ -346,7 +473,7 @@ enum OverviewRenderer {
         let truncatedTitle = truncateText(window.title, font: titleFont, maxWidth: maxTextWidth)
         let titleAttributes: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: NSColor(cgColor: Colors.textWhite.copy(alpha: alpha)!)!
+            .foregroundColor: Colors.textWhiteNS
         ]
         let titleString = NSAttributedString(string: truncatedTitle, attributes: titleAttributes)
         let titleLine = CTLineCreateWithAttributedString(titleString)
@@ -360,7 +487,7 @@ enum OverviewRenderer {
         let appFont = CTFontCreateWithName("SF Pro Text" as CFString, Metrics.appNameFontSize, nil)
         let appAttributes: [NSAttributedString.Key: Any] = [
             .font: appFont,
-            .foregroundColor: NSColor(cgColor: Colors.textGray.copy(alpha: alpha)!)!
+            .foregroundColor: Colors.textGrayNS
         ]
         let appString = NSAttributedString(string: window.appName, attributes: appAttributes)
         let appLine = CTLineCreateWithAttributedString(appString)
@@ -375,8 +502,7 @@ enum OverviewRenderer {
             renderCloseButton(
                 context: context,
                 frame: window.closeButtonFrame,
-                isHovered: window.closeButtonHovered,
-                alpha: alpha
+                isHovered: window.closeButtonHovered
             )
         }
 
@@ -386,18 +512,18 @@ enum OverviewRenderer {
     private static func renderCloseButton(
         context: CGContext,
         frame: CGRect,
-        isHovered: Bool,
-        alpha: CGFloat
+        isHovered: Bool
     ) {
         let bgColor = isHovered ? Colors.closeButtonHover : Colors.closeButtonBackground
         let path = CGPath(ellipseIn: frame, transform: nil)
 
+        context.saveGState()
         context.addPath(path)
-        context.setFillColor(bgColor.copy(alpha: alpha)!)
+        context.setFillColor(bgColor)
         context.fillPath()
 
         let xInset: CGFloat = 6
-        context.setStrokeColor(Colors.closeButtonX.copy(alpha: alpha)!)
+        context.setStrokeColor(Colors.closeButtonX)
         context.setLineWidth(2)
         context.setLineCap(.round)
 
@@ -408,6 +534,7 @@ enum OverviewRenderer {
         context.move(to: CGPoint(x: frame.maxX - xInset, y: frame.minY + xInset))
         context.addLine(to: CGPoint(x: frame.minX + xInset, y: frame.maxY - xInset))
         context.strokePath()
+        context.restoreGState()
     }
 
     private static func renderSearchBar(
@@ -423,22 +550,24 @@ enum OverviewRenderer {
             transform: nil
         )
 
+        context.saveGState()
+        context.setAlpha(alpha)
         context.addPath(path)
-        context.setFillColor(Colors.searchBarBackground.copy(alpha: alpha)!)
+        context.setFillColor(Colors.searchBarBackground)
         context.fillPath()
 
         context.addPath(path)
-        context.setStrokeColor(Colors.searchBarBorder.copy(alpha: alpha)!)
+        context.setStrokeColor(Colors.searchBarBorder)
         context.setLineWidth(Metrics.searchBarBorderWidth)
         context.strokePath()
 
         let displayText = searchQuery.isEmpty ? "Type to search..." : searchQuery
-        let textColor = searchQuery.isEmpty ? Colors.textDimmed : Colors.textWhite
+        let textColor = searchQuery.isEmpty ? Colors.textDimmedNS : Colors.textWhiteNS
 
         let font = CTFontCreateWithName("SF Pro Text" as CFString, Metrics.searchFontSize, nil)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor(cgColor: textColor.copy(alpha: alpha)!)!
+            .foregroundColor: textColor
         ]
         let attributedString = NSAttributedString(string: displayText, attributes: attributes)
         let line = CTLineCreateWithAttributedString(attributedString)
@@ -452,6 +581,7 @@ enum OverviewRenderer {
         context.translateBy(x: textX, y: textY)
         CTLineDraw(line, context)
         context.restoreGState()
+        context.restoreGState()
 
         if !searchQuery.isEmpty {
             let cursorX = textX + textBounds.width + 2
@@ -461,8 +591,11 @@ enum OverviewRenderer {
             let time = CACurrentMediaTime()
             let cursorAlpha = (sin(time * 3) + 1) / 2
 
-            context.setFillColor(Colors.textWhite.copy(alpha: alpha * CGFloat(cursorAlpha))!)
+            context.saveGState()
+            context.setAlpha(alpha * CGFloat(cursorAlpha))
+            context.setFillColor(Colors.textWhite)
             context.fill(CGRect(x: cursorX, y: cursorY, width: 2, height: cursorHeight))
+            context.restoreGState()
         }
     }
 

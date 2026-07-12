@@ -50,6 +50,12 @@ struct SettingsExport: Equatable {
     var borderColorBlue: Double
     var borderColorAlpha: Double
 
+    var overviewZoom: Double
+    var overviewBackdropColor: SettingsColor
+    var overviewNormalBorderColor: SettingsColor
+    var overviewHoveredBorderColor: SettingsColor
+    var overviewSelectedBorderColor: SettingsColor
+
     var hotkeyBindings: [HotkeyBinding]
     var systemHyperTrigger: SystemHyperTrigger
 
@@ -163,6 +169,11 @@ extension SettingsExport {
             borderColorGreen: 1.0,
             borderColorBlue: 0.97930003794467602,
             borderColorAlpha: 1.0,
+            overviewZoom: 1.0,
+            overviewBackdropColor: SettingsColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1.0),
+            overviewNormalBorderColor: SettingsColor(red: 0.3, green: 0.3, blue: 0.35, alpha: 0.5),
+            overviewHoveredBorderColor: SettingsColor(red: 0.4, green: 0.6, blue: 1.0, alpha: 1.0),
+            overviewSelectedBorderColor: SettingsColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0),
             hotkeyBindings: HotkeyBindingRegistry.defaults(),
             systemHyperTrigger: .default,
             workspaceBarEnabled: true,

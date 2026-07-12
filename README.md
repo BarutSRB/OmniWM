@@ -384,10 +384,11 @@ Access any application's menu from your keyboard:
 
 See all windows at once with thumbnails:
 - Open it from the global shortcut shown in `Keyboard Shortcuts`
+- Configure the 50–150% baseline zoom plus backdrop and window-border colors in **Settings → Overview**
 - Click a window to focus it
 - Type to filter/search windows; `Backspace` deletes search text
-- Alt + Shift + Mouse Scroll to zoom in/out
-- `Arrow Keys` navigate the selection; `Tab` / `Shift + Tab` move horizontally
+- `Alt (Option) + Shift + Mouse Scroll` temporarily zooms the current overview; the next opening starts from the configured baseline
+- `Arrow Keys` navigate the selection; `Tab` / `Shift + Tab` move horizontally, and keyboard navigation automatically scrolls the selected thumbnail into view
 - `Enter` activates the selected window
 - `Escape` clears the search first, then dismisses the overview when the search is empty
 

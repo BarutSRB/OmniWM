@@ -210,10 +210,19 @@ final class WMController {
     @ObservationIgnored
     private(set) lazy var serviceLifecycleManager = ServiceLifecycleManager(controller: self)
     @ObservationIgnored
-    private(set) lazy var windowActionHandler = WindowActionHandler(
-        controller: self,
-        orderWindow: windowFocusOperations.orderWindow
-    )
+    private var windowActionHandlerStorage: WindowActionHandler?
+    var windowActionHandler: WindowActionHandler {
+        if let windowActionHandlerStorage {
+            return windowActionHandlerStorage
+        }
+        let handler = WindowActionHandler(
+            controller: self,
+            orderWindow: windowFocusOperations.orderWindow
+        )
+        windowActionHandlerStorage = handler
+        return handler
+    }
+
     @ObservationIgnored
     private lazy var clipboardHistoryService = ClipboardHistoryService(configuration: clipboardHistoryConfiguration())
     @ObservationIgnored
@@ -363,6 +372,7 @@ final class WMController {
         updateAppRules()
 
         borderSettingsChanged()
+        updateOverviewSettings()
 
         setFocusFollowsMouse(settings.focusFollowsMouse)
         setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
@@ -2424,6 +2434,10 @@ final class WMController {
 
     func navigateOverviewSelection(_ direction: Direction) -> Bool {
         windowActionHandler.navigateOverviewSelection(direction)
+    }
+
+    func updateOverviewSettings() {
+        windowActionHandlerStorage?.updateOverviewSettings()
     }
 
     func raiseAllFloatingWindows() {

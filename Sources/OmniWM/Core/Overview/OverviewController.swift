@@ -57,9 +57,34 @@ final class OverviewController {
     private struct OverviewSnapshot {
         var workspaces: [OverviewWorkspaceLayoutItem] = []
         var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
+        var niriSnapshotsByWorkspace: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot] = [:]
 
         var windowIds: [Int] {
             windows.values.map(\.token.windowId).sorted()
+        }
+    }
+
+    private struct OverviewAppearance: Equatable {
+        let backdrop: SettingsColor
+        let normalBorder: SettingsColor
+        let hoveredBorder: SettingsColor
+        let selectedBorder: SettingsColor
+
+        @MainActor
+        init(settings: SettingsStore) {
+            backdrop = settings.overviewBackdropColor
+            normalBorder = settings.overviewNormalBorderColor
+            hoveredBorder = settings.overviewHoveredBorderColor
+            selectedBorder = settings.overviewSelectedBorderColor
+        }
+
+        var renderPalette: OverviewRenderPalette {
+            OverviewRenderPalette(
+                backdropColor: backdrop,
+                normalBorderColor: normalBorder,
+                hoveredBorderColor: hoveredBorder,
+                selectedBorderColor: selectedBorder
+            )
         }
     }
 
@@ -73,6 +98,9 @@ final class OverviewController {
     private var layoutsByMonitor: [Monitor.ID: OverviewLayout] = [:]
     private var searchQuery: String = ""
     private var scale: CGFloat = 1.0
+    private var configuredScale: CGFloat = 1.0
+    private var appearance: OverviewAppearance
+    private var renderPalette: OverviewRenderPalette
     private var selectedWindowHandle: WindowHandle?
     private var activeInteractionMonitorId: Monitor.ID?
 
@@ -110,10 +138,16 @@ final class OverviewController {
         environment: OverviewEnvironment = .init(),
         ownedWindowRegistry: OwnedWindowRegistry = .shared
     ) {
+        let appearance = OverviewAppearance(settings: wmController.settings)
+        let configuredScale = OverviewLayoutCalculator.clampedScale(CGFloat(wmController.settings.overviewZoom))
         self.wmController = wmController
         self.motionPolicy = motionPolicy
         self.environment = environment
         self.ownedWindowRegistry = ownedWindowRegistry
+        self.configuredScale = configuredScale
+        scale = configuredScale
+        self.appearance = appearance
+        renderPalette = appearance.renderPalette
         animator = OverviewAnimator(controller: self)
         inputHandler = OverviewInputHandler(controller: self)
     }
@@ -161,6 +195,10 @@ final class OverviewController {
         guard let wmController else { return }
 
         activeInteractionMonitorId = wmController.monitorForInteraction()?.id
+        configuredScale = OverviewLayoutCalculator.clampedScale(CGFloat(wmController.settings.overviewZoom))
+        scale = configuredScale
+        appearance = OverviewAppearance(settings: wmController.settings)
+        renderPalette = appearance.renderPalette
         buildOverviewSnapshot()
 
         if let focusedHandle = wmController.workspaceManager.focusedHandle,
@@ -170,6 +208,38 @@ final class OverviewController {
         }
 
         rebuildProjectedLayouts()
+    }
+
+    func updateSettings() {
+        guard let wmController else { return }
+
+        let nextConfiguredScale = OverviewLayoutCalculator.clampedScale(CGFloat(wmController.settings.overviewZoom))
+        let nextAppearance = OverviewAppearance(settings: wmController.settings)
+        let scaleChanged = abs(nextConfiguredScale - configuredScale) > ScrollTuning.zoomEpsilon
+        let appearanceChanged = nextAppearance != appearance
+
+        configuredScale = nextConfiguredScale
+        if appearanceChanged {
+            appearance = nextAppearance
+            renderPalette = nextAppearance.renderPalette
+        }
+
+        guard state.isOpen else {
+            scale = nextConfiguredScale
+            return
+        }
+        guard scaleChanged || appearanceChanged else { return }
+
+        if scaleChanged {
+            let anchors = captureSelectedViewportAnchors()
+            scale = nextConfiguredScale
+            rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
+            updateWindowDisplays(palette: appearanceChanged ? renderPalette : nil)
+        } else {
+            for window in windows {
+                window.updatePalette(renderPalette)
+            }
+        }
     }
 
     func dismiss(
@@ -259,9 +329,17 @@ final class OverviewController {
             workspaces: workspaces,
             windows: windowData
         )
+        overviewSnapshot.niriSnapshotsByWorkspace = buildNiriOverviewSnapshots()
     }
 
-    private func rebuildProjectedLayouts() {
+    private struct SelectedViewportAnchor {
+        let handle: WindowHandle
+        let midpointY: CGFloat
+    }
+
+    private func rebuildProjectedLayouts(
+        preservingSelectedAnchors anchors: [Monitor.ID: SelectedViewportAnchor] = [:]
+    ) {
         guard let wmController else { return }
 
         let previousLayouts = layoutsByMonitor
@@ -274,11 +352,10 @@ final class OverviewController {
         }
 
         layoutsByMonitor = [:]
-        let niriSnapshotsByWorkspace = buildNiriOverviewSnapshots()
         for monitor in monitors {
             var layout = projectedLayout(
                 for: monitor,
-                niriSnapshotsByWorkspace: niriSnapshotsByWorkspace
+                niriSnapshotsByWorkspace: overviewSnapshot.niriSnapshotsByWorkspace
             )
             let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
             let previousOffset = previousLayouts[monitor.id]?.scrollOffset ?? 0
@@ -303,6 +380,9 @@ final class OverviewController {
         if activeInteractionMonitorId == nil {
             activeInteractionMonitorId = monitors.first?.id
         }
+
+        restoreSelectedViewportAnchors(anchors)
+        revealSelectedWindow(on: activeInteractionMonitorId)
     }
 
     private func projectedLayout(
@@ -355,7 +435,7 @@ final class OverviewController {
         guard let wmController else { return }
 
         for monitor in wmController.workspaceManager.monitors {
-            let window = OverviewWindow(monitor: monitor)
+            let window = OverviewWindow(monitor: monitor, palette: renderPalette)
 
             window.onWindowSelected = { [weak self] monitorId, handle in
                 self?.activeInteractionMonitorId = monitorId
@@ -453,10 +533,24 @@ final class OverviewController {
         return false
     }
 
-    private func updateWindowDisplays() {
+    private func updateWindowDisplays(
+        palette: OverviewRenderPalette? = nil,
+        thumbnails: [Int: CGImage]? = nil
+    ) {
         for window in windows {
             let layout = layoutsByMonitor[window.monitorId] ?? .init()
-            window.updateLayout(layout, state: state, searchQuery: searchQuery)
+            window.updateLayout(
+                layout,
+                state: state,
+                searchQuery: searchQuery,
+                palette: palette,
+                thumbnails: thumbnails
+            )
+        }
+    }
+
+    private func updateWindowThumbnails() {
+        for window in windows {
             window.updateThumbnails(thumbnailCache)
         }
     }
@@ -511,7 +605,7 @@ final class OverviewController {
             }
 
             guard !Task.isCancelled else { return }
-            updateWindowDisplays()
+            updateWindowThumbnails()
         } catch {
             FallbackFiringRecorder.shared.note(.capture, "overviewContentException")
             return
@@ -647,11 +741,13 @@ final class OverviewController {
 
         buildOverviewState()
 
-        if let removedWindowId {
+        let removedThumbnail: CGImage? = if let removedWindowId {
             thumbnailCache.removeValue(forKey: removedWindowId)
+        } else {
+            nil
         }
 
-        updateWindowDisplays()
+        updateWindowDisplays(thumbnails: removedThumbnail == nil ? nil : thumbnailCache)
     }
 
     func updateSearchQuery(_ query: String) {
@@ -674,6 +770,7 @@ final class OverviewController {
             direction: direction
         ) {
             setSelectedWindowHandle(nextHandle)
+            revealSelectedWindow(on: targetMonitorId)
             updateWindowDisplays()
         }
     }
@@ -717,8 +814,11 @@ final class OverviewController {
         if modifiers.contains([.option, .shift]) {
             guard abs(delta) > ScrollTuning.zoomEpsilon else { return }
             let step: CGFloat = delta > 0 ? ScrollTuning.zoomStep : -ScrollTuning.zoomStep
-            scale = (scale + step).clamped(to: 0.5 ... 1.5)
-            buildOverviewState()
+            let nextScale = (scale + step).clamped(to: 0.5 ... 1.5)
+            guard abs(nextScale - scale) > ScrollTuning.zoomEpsilon else { return }
+            let anchors = captureSelectedViewportAnchors()
+            scale = nextScale
+            rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
             updateWindowDisplays()
             return
         }
@@ -860,6 +960,51 @@ final class OverviewController {
             return layout
         }
         return layoutsByMonitor.values.first
+    }
+
+    private func captureSelectedViewportAnchors() -> [Monitor.ID: SelectedViewportAnchor] {
+        guard let selectedWindowHandle else { return [:] }
+
+        var anchors: [Monitor.ID: SelectedViewportAnchor] = [:]
+        anchors.reserveCapacity(layoutsByMonitor.count)
+        for (monitorId, layout) in layoutsByMonitor {
+            guard let window = layout.window(for: selectedWindowHandle), window.matchesSearch else { continue }
+            anchors[monitorId] = SelectedViewportAnchor(
+                handle: selectedWindowHandle,
+                midpointY: window.overviewFrame.midY - layout.scrollOffset
+            )
+        }
+        return anchors
+    }
+
+    private func restoreSelectedViewportAnchors(_ anchors: [Monitor.ID: SelectedViewportAnchor]) {
+        guard let selectedWindowHandle else { return }
+
+        for (monitorId, anchor) in anchors where anchor.handle == selectedWindowHandle {
+            mutateLayout(for: monitorId) { layout in
+                guard let window = layout.window(for: selectedWindowHandle), window.matchesSearch else { return }
+                let screenFrame = viewportFrame(for: monitorId)
+                layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
+                    window.overviewFrame.midY - anchor.midpointY,
+                    layout: layout,
+                    screenFrame: screenFrame
+                )
+            }
+        }
+    }
+
+    private func revealSelectedWindow(on monitorId: Monitor.ID?) {
+        guard let monitorId, let selectedWindowHandle else { return }
+
+        mutateLayout(for: monitorId) { layout in
+            guard let window = layout.window(for: selectedWindowHandle), window.matchesSearch else { return }
+            layout.scrollOffset = OverviewLayoutCalculator.scrollOffsetRevealing(
+                targetFrame: window.overviewFrame,
+                currentOffset: layout.scrollOffset,
+                layout: layout,
+                screenFrame: viewportFrame(for: monitorId)
+            )
+        }
     }
 
     private func setSelectedWindowHandle(_ handle: WindowHandle?) {

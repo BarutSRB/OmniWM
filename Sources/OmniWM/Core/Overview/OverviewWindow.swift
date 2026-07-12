@@ -23,9 +23,9 @@ final class OverviewWindow: NSPanel {
     var onDragEnd: ((Monitor.ID, CGPoint) -> Void)?
     var onDragCancel: (() -> Void)?
 
-    init(monitor: Monitor) {
+    init(monitor: Monitor, palette: OverviewRenderPalette = .default) {
         self.monitor = monitor
-        overlayView = OverviewView(frame: .zero)
+        overlayView = OverviewView(frame: .zero, palette: palette)
 
         super.init(
             contentRect: monitor.frame,
@@ -115,25 +115,38 @@ final class OverviewWindow: NSPanel {
         overlayView.cancelPendingDragIfNeeded(optionPressed: optionPressed)
     }
 
-    func updateLayout(_ layout: OverviewLayout, state: OverviewState, searchQuery: String) {
-        overlayView.layout = layout
-        overlayView.overviewState = state
-        overlayView.searchQuery = searchQuery
-        overlayView.needsDisplay = true
+    func updateLayout(
+        _ layout: OverviewLayout,
+        state: OverviewState,
+        searchQuery: String,
+        palette: OverviewRenderPalette? = nil,
+        thumbnails: [Int: CGImage]? = nil
+    ) {
+        overlayView.updateLayout(
+            layout,
+            state: state,
+            searchQuery: searchQuery,
+            palette: palette,
+            thumbnails: thumbnails
+        )
     }
 
     func updateThumbnails(_ thumbnails: [Int: CGImage]) {
-        overlayView.thumbnails = thumbnails
-        overlayView.needsDisplay = true
+        overlayView.updateThumbnails(thumbnails)
+    }
+
+    func updatePalette(_ palette: OverviewRenderPalette) {
+        overlayView.updatePalette(palette)
     }
 }
 
 @MainActor
 final class OverviewView: NSView {
-    var layout: OverviewLayout = .init()
-    var overviewState: OverviewState = .closed
-    var searchQuery: String = ""
-    var thumbnails: [Int: CGImage] = [:]
+    private(set) var layout: OverviewLayout = .init()
+    private(set) var overviewState: OverviewState = .closed
+    private(set) var searchQuery: String = ""
+    private(set) var thumbnails: [Int: CGImage] = [:]
+    private(set) var palette: OverviewRenderPalette
 
     var onWindowSelected: ((WindowHandle) -> Void)?
     var onWindowClosed: ((WindowHandle) -> Void)?
@@ -152,7 +165,8 @@ final class OverviewView: NSView {
     private let dragThreshold: CGFloat = 6.0
     private let scrollAxisEpsilon: CGFloat = 0.0001
 
-    override init(frame: NSRect) {
+    init(frame: NSRect, palette: OverviewRenderPalette = .default) {
+        self.palette = palette
         super.init(frame: frame)
         wantsLayer = true
     }
@@ -160,6 +174,35 @@ final class OverviewView: NSView {
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateLayout(
+        _ layout: OverviewLayout,
+        state: OverviewState,
+        searchQuery: String,
+        palette: OverviewRenderPalette? = nil,
+        thumbnails: [Int: CGImage]? = nil
+    ) {
+        self.layout = layout
+        overviewState = state
+        self.searchQuery = searchQuery
+        if let palette {
+            self.palette = palette
+        }
+        if let thumbnails {
+            self.thumbnails = thumbnails
+        }
+        needsDisplay = true
+    }
+
+    func updateThumbnails(_ thumbnails: [Int: CGImage]) {
+        self.thumbnails = thumbnails
+        needsDisplay = true
+    }
+
+    func updatePalette(_ palette: OverviewRenderPalette) {
+        self.palette = palette
+        needsDisplay = true
     }
 
     override func updateTrackingAreas() {
@@ -314,6 +357,12 @@ final class OverviewView: NSView {
         case .open: 1.0
         case let .closing(_, p): 1.0 - p
         }
+        let isFullyOpen: Bool = switch overviewState {
+        case .open: true
+        case .closed,
+             .opening,
+             .closing: false
+        }
 
         OverviewRenderer.render(
             context: context,
@@ -321,7 +370,9 @@ final class OverviewView: NSView {
             thumbnails: thumbnails,
             searchQuery: searchQuery,
             progress: progress,
-            bounds: bounds
+            bounds: bounds,
+            palette: palette,
+            isFullyOpen: isFullyOpen
         )
     }
 }

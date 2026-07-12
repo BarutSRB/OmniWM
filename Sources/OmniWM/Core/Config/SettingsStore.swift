@@ -166,6 +166,26 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var overviewZoom = SettingsStore.defaultExport.overviewZoom {
+        didSet { scheduleSave() }
+    }
+
+    var overviewBackdropColor = SettingsStore.defaultExport.overviewBackdropColor {
+        didSet { scheduleSave() }
+    }
+
+    var overviewNormalBorderColor = SettingsStore.defaultExport.overviewNormalBorderColor {
+        didSet { scheduleSave() }
+    }
+
+    var overviewHoveredBorderColor = SettingsStore.defaultExport.overviewHoveredBorderColor {
+        didSet { scheduleSave() }
+    }
+
+    var overviewSelectedBorderColor = SettingsStore.defaultExport.overviewSelectedBorderColor {
+        didSet { scheduleSave() }
+    }
+
     var hotkeyBindings = SettingsStore.defaultExport.hotkeyBindings {
         didSet { scheduleSave() }
     }
@@ -614,6 +634,11 @@ final class SettingsStore {
             borderColorGreen: borderColorGreen,
             borderColorBlue: borderColorBlue,
             borderColorAlpha: borderColorAlpha,
+            overviewZoom: overviewZoom,
+            overviewBackdropColor: overviewBackdropColor,
+            overviewNormalBorderColor: overviewNormalBorderColor,
+            overviewHoveredBorderColor: overviewHoveredBorderColor,
+            overviewSelectedBorderColor: overviewSelectedBorderColor,
             hotkeyBindings: hotkeyBindings,
             systemHyperTrigger: systemHyperTrigger,
             workspaceBarEnabled: workspaceBarEnabled,
@@ -728,6 +753,24 @@ final class SettingsStore {
         borderColorGreen = SettingsStore.validatedColorComponent(export.borderColorGreen)
         borderColorBlue = SettingsStore.validatedColorComponent(export.borderColorBlue)
         borderColorAlpha = SettingsStore.validatedColorComponent(export.borderColorAlpha)
+
+        overviewZoom = SettingsStore.validatedOverviewZoom(export.overviewZoom)
+        overviewBackdropColor = SettingsStore.validatedOverviewColor(
+            export.overviewBackdropColor,
+            default: baseline.overviewBackdropColor
+        )
+        overviewNormalBorderColor = SettingsStore.validatedOverviewColor(
+            export.overviewNormalBorderColor,
+            default: baseline.overviewNormalBorderColor
+        )
+        overviewHoveredBorderColor = SettingsStore.validatedOverviewColor(
+            export.overviewHoveredBorderColor,
+            default: baseline.overviewHoveredBorderColor
+        )
+        overviewSelectedBorderColor = SettingsStore.validatedOverviewColor(
+            export.overviewSelectedBorderColor,
+            default: baseline.overviewSelectedBorderColor
+        )
 
         hotkeyBindings = export.hotkeyBindings
         systemHyperTrigger = export.systemHyperTrigger
@@ -1205,6 +1248,25 @@ final class SettingsStore {
 
     static func validatedColorComponent(_ value: Double) -> Double {
         min(1.0, max(0.0, value))
+    }
+
+    static func validatedOverviewZoom(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultExport.overviewZoom }
+        return min(1.5, max(0.5, value))
+    }
+
+    static func validatedOverviewColor(_ color: SettingsColor, default defaultColor: SettingsColor) -> SettingsColor {
+        SettingsColor(
+            red: validatedOverviewColorComponent(color.red, default: defaultColor.red),
+            green: validatedOverviewColorComponent(color.green, default: defaultColor.green),
+            blue: validatedOverviewColorComponent(color.blue, default: defaultColor.blue),
+            alpha: validatedOverviewColorComponent(color.alpha, default: defaultColor.alpha)
+        )
+    }
+
+    private static func validatedOverviewColorComponent(_ value: Double, default defaultValue: Double) -> Double {
+        guard value.isFinite else { return defaultValue }
+        return min(1.0, max(0.0, value))
     }
 
     static func validatedWorkspaceBarRevealHoldMilliseconds(_ value: Double) -> Double {

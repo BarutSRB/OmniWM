@@ -62,7 +62,11 @@ final class WindowActionHandler {
     private let frontOwnedWindow: (NSWindow) -> Void
 
     @ObservationIgnored
-    private lazy var overviewController: OverviewController = {
+    private var overviewControllerStorage: OverviewController?
+    private var overviewController: OverviewController {
+        if let overviewControllerStorage {
+            return overviewControllerStorage
+        }
         guard let controller else { fatal("WindowActionHandler requires controller") }
         let oc = OverviewController(wmController: controller, motionPolicy: controller.motionPolicy)
         oc.onActivateWindow = { [weak self] handle, workspaceId in
@@ -71,8 +75,9 @@ final class WindowActionHandler {
         oc.onCloseWindow = { [weak self] handle in
             self?.closeWindowFromOverview(handle: handle)
         }
+        overviewControllerStorage = oc
         return oc
-    }()
+    }
 
     init(
         controller: WMController,
@@ -110,6 +115,10 @@ final class WindowActionHandler {
         guard overviewController.isOpen else { return false }
         overviewController.navigateSelection(direction)
         return true
+    }
+
+    func updateOverviewSettings() {
+        overviewControllerStorage?.updateSettings()
     }
 
     func isOverviewOpen() -> Bool {

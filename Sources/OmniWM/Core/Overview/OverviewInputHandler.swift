@@ -49,7 +49,8 @@ final class OverviewInputHandler {
             keyCode: event.keyCode,
             modifierFlags: event.modifierFlags,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
-            searchQuery: searchQuery
+            searchQuery: searchQuery,
+            isRepeat: event.isARepeat
         )
         guard result.shouldConsume else { return false }
 
@@ -83,16 +84,19 @@ final class OverviewInputHandler {
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
         charactersIgnoringModifiers: String?,
-        searchQuery _: String
+        searchQuery _: String,
+        isRepeat: Bool = false
     ) -> KeyHandlingResult {
         let relevantModifiers = modifierFlags.intersection([.shift, .command, .control, .option])
 
         switch keyCode {
         case KeyCode.escape:
+            guard !isRepeat else { return .init(action: .consume, shouldConsume: true) }
             return .init(action: .clearSearchOrDismiss, shouldConsume: true)
         case KeyCode.returnKey,
              KeyCode.keypadEnter:
             guard relevantModifiers.isEmpty else { break }
+            guard !isRepeat else { return .init(action: .consume, shouldConsume: true) }
             return .init(action: .activateSelection, shouldConsume: true)
         case KeyCode.leftArrow:
             guard relevantModifiers.isEmpty else { break }

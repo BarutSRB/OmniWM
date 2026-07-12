@@ -16,6 +16,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var niri: Niri
     var dwindle: Dwindle
     var borders: Borders
+    var overview: Overview
     var workspaceBar: WorkspaceBar
     var gestures: Gestures
     var statusBar: StatusBar
@@ -103,6 +104,40 @@ struct CanonicalTOMLConfig: Codable, Equatable {
             var green: Double
             var blue: Double
             var alpha: Double
+        }
+    }
+
+    struct Overview: Codable, Equatable {
+        var zoom: Double
+        var backdrop: Color
+        var windowBorders: WindowBorders
+
+        struct WindowBorders: Codable, Equatable {
+            var normal: Color
+            var hovered: Color
+            var selected: Color
+        }
+
+        struct Color: Codable, Equatable {
+            var red: Double
+            var green: Double
+            var blue: Double
+            var alpha: Double
+
+            init(red: Double, green: Double, blue: Double, alpha: Double) {
+                self.red = red
+                self.green = green
+                self.blue = blue
+                self.alpha = alpha
+            }
+
+            init(_ color: SettingsColor) {
+                self.init(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+            }
+
+            var settingsColor: SettingsColor {
+                SettingsColor(red: red, green: green, blue: blue, alpha: alpha)
+            }
         }
     }
 
@@ -293,6 +328,12 @@ extension CanonicalTOMLConfig {
             Borders.self,
             forKey: .borders,
             default: defaults.borders,
+            recovering: recovering
+        )
+        overview = try container.decode(
+            Overview.self,
+            forKey: .overview,
+            default: defaults.overview,
             recovering: recovering
         )
         workspaceBar = try container.decode(
@@ -654,6 +695,91 @@ extension CanonicalTOMLConfig.Borders.Color {
         green = try container.decode(Double.self, forKey: .green, default: defaults.green, recovering: recovering)
         blue = try container.decode(Double.self, forKey: .blue, default: defaults.blue, recovering: recovering)
         alpha = try container.decode(Double.self, forKey: .alpha, default: defaults.alpha, recovering: recovering)
+    }
+}
+
+extension CanonicalTOMLConfig.Overview {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let recovering = decoder.recoversMissingSettingsTOMLKeys
+        let defaults = CanonicalTOMLConfig.recoveryDefaults().overview
+
+        zoom = try container.decode(Double.self, forKey: .zoom, default: defaults.zoom, recovering: recovering)
+        backdrop = try container.decode(
+            Color.self,
+            forKey: .backdrop,
+            default: defaults.backdrop,
+            recovering: recovering,
+            using: Color.decode
+        )
+        windowBorders = try container.decode(
+            WindowBorders.self,
+            forKey: .windowBorders,
+            default: defaults.windowBorders,
+            recovering: recovering
+        )
+    }
+}
+
+extension CanonicalTOMLConfig.Overview.WindowBorders {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let recovering = decoder.recoversMissingSettingsTOMLKeys
+        let defaults = CanonicalTOMLConfig.recoveryDefaults().overview.windowBorders
+
+        normal = try container.decode(
+            CanonicalTOMLConfig.Overview.Color.self,
+            forKey: .normal,
+            default: defaults.normal,
+            recovering: recovering,
+            using: CanonicalTOMLConfig.Overview.Color.decode
+        )
+        hovered = try container.decode(
+            CanonicalTOMLConfig.Overview.Color.self,
+            forKey: .hovered,
+            default: defaults.hovered,
+            recovering: recovering,
+            using: CanonicalTOMLConfig.Overview.Color.decode
+        )
+        selected = try container.decode(
+            CanonicalTOMLConfig.Overview.Color.self,
+            forKey: .selected,
+            default: defaults.selected,
+            recovering: recovering,
+            using: CanonicalTOMLConfig.Overview.Color.decode
+        )
+    }
+}
+
+private extension CanonicalTOMLConfig.Overview.Color {
+    static func decode(_ decoder: Decoder, _ defaultValue: Self, _ recovering: Bool) throws -> Self {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        return Self(
+            red: try container.decode(
+                Double.self,
+                forKey: .red,
+                default: defaultValue.red,
+                recovering: recovering
+            ),
+            green: try container.decode(
+                Double.self,
+                forKey: .green,
+                default: defaultValue.green,
+                recovering: recovering
+            ),
+            blue: try container.decode(
+                Double.self,
+                forKey: .blue,
+                default: defaultValue.blue,
+                recovering: recovering
+            ),
+            alpha: try container.decode(
+                Double.self,
+                forKey: .alpha,
+                default: defaultValue.alpha,
+                recovering: recovering
+            )
+        )
     }
 }
 
@@ -1030,6 +1156,15 @@ extension CanonicalTOMLConfig {
                 alpha: export.borderColorAlpha
             )
         )
+        overview = Overview(
+            zoom: export.overviewZoom,
+            backdrop: Overview.Color(export.overviewBackdropColor),
+            windowBorders: Overview.WindowBorders(
+                normal: Overview.Color(export.overviewNormalBorderColor),
+                hovered: Overview.Color(export.overviewHoveredBorderColor),
+                selected: Overview.Color(export.overviewSelectedBorderColor)
+            )
+        )
         workspaceBar = WorkspaceBar(
             enabled: export.workspaceBarEnabled,
             showLabels: export.workspaceBarShowLabels,
@@ -1135,6 +1270,11 @@ extension CanonicalTOMLConfig {
             borderColorGreen: borders.color.green,
             borderColorBlue: borders.color.blue,
             borderColorAlpha: borders.color.alpha,
+            overviewZoom: overview.zoom,
+            overviewBackdropColor: overview.backdrop.settingsColor,
+            overviewNormalBorderColor: overview.windowBorders.normal.settingsColor,
+            overviewHoveredBorderColor: overview.windowBorders.hovered.settingsColor,
+            overviewSelectedBorderColor: overview.windowBorders.selected.settingsColor,
             hotkeyBindings: hotkeys,
             systemHyperTrigger: general.systemHyperTrigger,
             workspaceBarEnabled: workspaceBar.enabled,

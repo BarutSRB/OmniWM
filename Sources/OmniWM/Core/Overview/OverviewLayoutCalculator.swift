@@ -661,6 +661,71 @@ struct OverviewLayoutCalculator {
         scrollOffset.clamped(to: scrollOffsetBounds(layout: layout, screenFrame: screenFrame))
     }
 
+    static func visibleContentFrame(
+        layout: OverviewLayout,
+        screenFrame: CGRect,
+        scrollOffset: CGFloat? = nil
+    ) -> CGRect {
+        let metricsScale = clampedScale(layout.scale)
+        let contentTop = layout.searchBarFrame.minY - OverviewLayoutMetrics.contentTopPadding * metricsScale
+        let offset = scrollOffset ?? layout.scrollOffset
+        return CGRect(
+            x: screenFrame.minX,
+            y: screenFrame.minY + offset,
+            width: screenFrame.width,
+            height: max(0, contentTop - screenFrame.minY)
+        )
+    }
+
+    static func scrollOffsetRevealing(
+        targetFrame: CGRect,
+        currentOffset: CGFloat,
+        layout: OverviewLayout,
+        screenFrame: CGRect
+    ) -> CGFloat {
+        let currentOffset = clampedScrollOffset(
+            currentOffset,
+            layout: layout,
+            screenFrame: screenFrame
+        )
+        let viewport = visibleContentFrame(
+            layout: layout,
+            screenFrame: screenFrame,
+            scrollOffset: currentOffset
+        )
+        guard viewport.height > 0 else { return currentOffset }
+
+        let targetFrame = targetFrame.standardized
+        let padding = min(
+            OverviewLayoutMetrics.windowSpacing * clampedScale(layout.scale),
+            max(0, (viewport.height - targetFrame.height) / 2)
+        )
+        let paddedViewport = viewport.insetBy(dx: 0, dy: padding)
+
+        if targetFrame.minY >= paddedViewport.minY,
+           targetFrame.maxY <= paddedViewport.maxY
+        {
+            return currentOffset
+        }
+
+        let nextOffset: CGFloat
+        if targetFrame.height >= viewport.height {
+            nextOffset = targetFrame.maxY - viewport.maxY + currentOffset
+        } else {
+            let alignTop = targetFrame.maxY - paddedViewport.maxY + currentOffset
+            let alignBottom = targetFrame.minY - paddedViewport.minY + currentOffset
+            nextOffset = abs(alignTop - currentOffset) <= abs(alignBottom - currentOffset)
+                ? alignTop
+                : alignBottom
+        }
+
+        return clampedScrollOffset(
+            nextOffset,
+            layout: layout,
+            screenFrame: screenFrame
+        )
+    }
+
     static func findNextWindow(
         in layout: OverviewLayout,
         from currentHandle: WindowHandle?,
