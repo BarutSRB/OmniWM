@@ -101,29 +101,47 @@ struct GeneralSettingsTab: View {
                 )
             }
 
+            MonitorScopeSection(
+                selectedMonitor: $selectedGapMonitor,
+                monitors: connectedMonitors,
+                hasOverrides: { settings.gapSettings(for: $0) != nil },
+                reset: { monitor in
+                    settings.removeGapSettings(for: monitor)
+                    controller.updateMonitorGapSettings()
+                }
+            )
+
             Section("Layout") {
-                SettingsSliderRow(
-                    label: "Inner Gaps",
-                    value: $settings.gapSize,
-                    range: 0 ... 32,
-                    step: 1,
-                    valueText: "\(Int(settings.gapSize)) px",
-                    valueWidth: 64
-                )
-                .onChange(of: settings.gapSize) { _, newValue in
-                    controller.setGapSize(newValue)
+                if let monitorId = selectedGapMonitor,
+                   let monitor = connectedMonitors.first(where: { $0.id == monitorId })
+                {
+                    OverridableSlider(
+                        label: "Inner Gaps",
+                        value: settings.gapSettings(for: monitor)?.innerGap,
+                        globalValue: settings.gapSize,
+                        range: 0 ... 32,
+                        step: 1,
+                        formatter: { "\(Int($0)) px" },
+                        onChange: { value in updateGapSetting(for: monitor) { $0.innerGap = value } },
+                        onReset: { updateGapSetting(for: monitor) { $0.innerGap = nil } }
+                    )
+                    SettingsCaption("Overrides the global inner gap for \(monitor.name).")
+                } else {
+                    SettingsSliderRow(
+                        label: "Inner Gaps",
+                        value: $settings.gapSize,
+                        range: 0 ... 32,
+                        step: 1,
+                        valueText: "\(Int(settings.gapSize)) px",
+                        valueWidth: 64
+                    )
+                    .onChange(of: settings.gapSize) { _, newValue in
+                        controller.setGapSize(newValue)
+                    }
                 }
             }
 
             Section("Outer Margins") {
-                Picker("Configure", selection: $selectedGapMonitor) {
-                    Text("Global Defaults").tag(nil as Monitor.ID?)
-                    ForEach(connectedMonitors, id: \.id) { monitor in
-                        Text(monitor.isMain ? "\(monitor.name) (Main)" : monitor.name)
-                            .tag(monitor.id as Monitor.ID?)
-                    }
-                }
-
                 if let monitorId = selectedGapMonitor,
                    let monitor = connectedMonitors.first(where: { $0.id == monitorId })
                 {

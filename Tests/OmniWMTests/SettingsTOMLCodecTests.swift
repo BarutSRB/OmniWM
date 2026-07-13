@@ -7,6 +7,25 @@ import Foundation
 import XCTest
 
 final class SettingsTOMLCodecTests: XCTestCase {
+    func testMonitorInnerGapOverrideRoundTrips() throws {
+        var export = SettingsExport.defaults()
+        export.monitorGapSettings = [
+            MonitorGapSettings(
+                monitorName: "Built-in",
+                monitorDisplayId: 7,
+                innerGap: 6,
+                outerGapTop: 20
+            )
+        ]
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let decoded = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertEqual(decoded.monitorGapSettings, export.monitorGapSettings)
+        let toml = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(toml.contains("innerGap = 6.0"))
+    }
+
     func testLoadingReinjectsNewlyAddedDefaultActionsMissingFromFile() throws {
         var export = SettingsExport.defaults()
         let customTrigger = HotkeyTrigger.chord(

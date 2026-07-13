@@ -343,12 +343,13 @@ final class WMController {
         updateHotkeyBindings(settings.hotkeyBindings)
         setHotkeysEnabled(settings.hotkeysEnabled)
 
-        setGapSize(settings.gapSize)
+        setGapSize(settings.gapSize, publishChange: false)
         setOuterGaps(
             left: settings.outerGapLeft,
             right: settings.outerGapRight,
             top: settings.outerGapTop,
-            bottom: settings.outerGapBottom
+            bottom: settings.outerGapBottom,
+            publishChange: false
         )
 
         if niriEngine == nil {
@@ -486,12 +487,24 @@ final class WMController {
         refreshHotkeyFailureSnapshots()
     }
 
-    func setGapSize(_ size: Double) {
+    func setGapSize(_ size: Double, publishChange: Bool = true) {
         workspaceManager.setGaps(to: size)
+        if publishChange {
+            publishDisplayChanged()
+        }
     }
 
-    func setOuterGaps(left: Double, right: Double, top: Double, bottom: Double) {
+    func setOuterGaps(
+        left: Double,
+        right: Double,
+        top: Double,
+        bottom: Double,
+        publishChange: Bool = true
+    ) {
         workspaceManager.setOuterGaps(left: left, right: right, top: top, bottom: bottom)
+        if publishChange {
+            publishDisplayChanged()
+        }
     }
 
     func borderSettingsChanged() {
@@ -708,6 +721,14 @@ final class WMController {
 
     func updateMonitorGapSettings() {
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
+        publishDisplayChanged()
+    }
+
+    private func publishDisplayChanged() {
+        guard let ipcApplicationBridge else { return }
+        Task {
+            await ipcApplicationBridge.publishEvent(.displayChanged)
+        }
     }
 
     func workspaceBarItems(
@@ -875,6 +896,20 @@ final class WMController {
 
     func resetMouseWarpTransientState() {
         mouseWarpHandler.resetTransientState()
+    }
+
+    func innerGap(for monitor: Monitor) -> CGFloat {
+        guard settings.gapSettings(for: monitor)?.innerGap != nil else {
+            return CGFloat(workspaceManager.gaps)
+        }
+        return settings.resolvedGapSettings(for: monitor).innerGap
+    }
+
+    func innerGap(for workspaceId: WorkspaceDescriptor.ID) -> CGFloat {
+        guard let monitor = workspaceManager.monitor(for: workspaceId) else {
+            return CGFloat(workspaceManager.gaps)
+        }
+        return innerGap(for: monitor)
     }
 
     func insetWorkingFrame(for monitor: Monitor) -> CGRect {

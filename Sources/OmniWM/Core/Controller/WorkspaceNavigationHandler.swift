@@ -118,7 +118,7 @@ final class WorkspaceNavigationHandler {
 
         var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         state.selectedNodeId = movedNode.id
-        let gap = CGFloat(controller.workspaceManager.gaps)
+        let gap = controller.innerGap(for: monitor)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         controller.workspaceManager.withEngineMutationScope {
             engine.activateWindow(movedNode.id, in: workspaceId)
@@ -1040,7 +1040,7 @@ final class WorkspaceNavigationHandler {
 
         let movedTokens = column.windowNodes.map(\.token)
         let targetWorkingFrame = controller.insetWorkingFrame(for: targetMonitor)
-        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let gaps = controller.innerGap(for: targetMonitor)
         let motion = controller.motionPolicy.snapshot()
         guard let result = controller.workspaceManager.withBatchedWorkspaceMove(
             sourceWorkspaceId: sourceWorkspaceId,
