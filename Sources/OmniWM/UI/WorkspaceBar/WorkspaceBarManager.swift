@@ -314,7 +314,7 @@ final class WorkspaceBarManager {
             showsSystemStatsButton: showsSystemStatsButton,
             motionPolicy: motionPolicy,
             onFocusWorkspace: { [weak controller] item in
-                controller?.focusWorkspaceFromBar(named: item.name)
+                controller?.focusWorkspaceFromBar(id: item.id)
             },
             onFocusWindow: { [weak controller] token in
                 controller?.focusWindowFromBar(token: token)

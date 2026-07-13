@@ -742,6 +742,10 @@ final class WMController {
         windowActionHandler.focusWorkspaceFromBar(named: name)
     }
 
+    func focusWorkspaceFromBar(id workspaceId: WorkspaceDescriptor.ID) {
+        windowActionHandler.focusWorkspaceFromBar(id: workspaceId)
+    }
+
     func focusWindowFromBar(token: WindowToken) {
         windowActionHandler.focusWindowFromBar(token: token)
     }

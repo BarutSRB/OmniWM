@@ -695,6 +695,28 @@ final class WindowActionHandler {
     }
 
     @discardableResult
+    func focusWorkspaceFromBar(id workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let controller else { return false }
+        if let currentWorkspace = controller.activeWorkspace() {
+            controller.workspaceNavigationHandler.saveNiriViewportState(for: currentWorkspace.id)
+        }
+
+        guard let result = controller.workspaceManager.focusWorkspace(id: workspaceId) else { return false }
+
+        let focusedToken = controller.resolveAndSetWorkspaceFocusToken(for: result.workspace.id)
+        if let focusedToken {
+            _ = prepareDwindleNavigationTarget(focusedToken, workspaceId: result.workspace.id)
+        }
+        controller.layoutRefreshController
+            .commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
+                if let focusedToken {
+                    controller?.focusWindow(focusedToken)
+                }
+            }
+        return true
+    }
+
+    @discardableResult
     func focusWindowFromBar(token: WindowToken) -> Bool {
         guard let controller else { return false }
         guard let entry = controller.workspaceManager.entry(for: token) else { return false }
