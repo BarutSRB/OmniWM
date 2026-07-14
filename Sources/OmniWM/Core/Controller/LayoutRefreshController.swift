@@ -998,12 +998,14 @@ import QuartzCore
         affectedWorkspaces: Set<WorkspaceDescriptor.ID> = [],
         reason: RefreshReason = .workspaceTransition,
         postLayoutGateWorkspaceIds: Set<WorkspaceDescriptor.ID>? = nil,
+        postLayoutInvalidated: PostLayoutAction? = nil,
         postLayout: PostLayoutAction? = nil
     ) {
         requestImmediateRelayout(
             reason: reason,
             affectedWorkspaceIds: affectedWorkspaces,
             postLayout: postLayout,
+            postLayoutInvalidated: postLayoutInvalidated,
             postLayoutGateWorkspaceIds: postLayoutGateWorkspaceIds
         )
     }

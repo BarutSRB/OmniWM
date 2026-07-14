@@ -1831,6 +1831,38 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceTransitionPreservesInvalidatedFocusHandoff() async throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+        var ranCurrentAction = false
+        var ranInvalidatedAction = false
+
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            affectedWorkspaces: [workspaceId],
+            postLayoutGateWorkspaceIds: [workspaceId],
+            postLayoutInvalidated: { ranInvalidatedAction = true },
+            postLayout: { ranCurrentAction = true }
+        )
+        controller.workspaceManager.invalidateLayout(for: [workspaceId])
+
+        for _ in 0 ..< 8 {
+            if let task = controller.layoutRefreshController.layoutState.activeRefreshTask {
+                await task.value
+            } else if controller.layoutRefreshController.layoutState.pendingRefresh == nil {
+                break
+            } else {
+                await Task.yield()
+            }
+        }
+
+        XCTAssertFalse(ranCurrentAction)
+        XCTAssertTrue(ranInvalidatedAction)
+    }
+
+    @MainActor
     func testLayoutPlanAcceptedSeqIncludesAnimationDirectiveFocusMutation() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
