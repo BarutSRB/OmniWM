@@ -363,8 +363,15 @@ enum CLIRenderer {
         guard values.contains(where: { $0 != nil }) else { return }
         headers.append(header)
         for index in rows.indices {
-            rows[index].append(values[index].map { String($0) } ?? "-")
+            rows[index].append(values[index].map { gapValueDescription($0) } ?? "-")
         }
+    }
+
+    private static func gapValueDescription(_ value: Double) -> String {
+        guard value.isFinite else { return String(value) }
+        return value == value.rounded()
+            ? String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), value)
+            : String(value)
     }
 
     private static func formattedRules(_ payload: IPCRulesQueryResult, format: CLIOutputFormat) -> String {
