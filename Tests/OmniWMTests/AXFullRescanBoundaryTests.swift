@@ -160,6 +160,82 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         XCTAssertTrue(promotions.isEmpty)
     }
 
+    func testFrameSuccessCallbackRejectsStaleResults() throws {
+        let ledger = AXFrameApplicationLedger()
+        let pid: pid_t = 72_003
+        let windowId = 72_004
+        let firstTarget = CGRect(x: 10, y: 20, width: 800, height: 600)
+        let secondTarget = CGRect(x: 30, y: 40, width: 900, height: 700)
+        let firstRequest = try XCTUnwrap(
+            ledger.prepareFrameApplication(
+                pid: pid,
+                windowId: windowId,
+                frame: firstTarget,
+                isRetry: false,
+                terminalObserver: nil
+            ).request
+        )
+        let secondRequest = try XCTUnwrap(
+            ledger.prepareFrameApplication(
+                pid: pid,
+                windowId: windowId,
+                frame: secondTarget,
+                isRetry: false,
+                terminalObserver: nil
+            ).request
+        )
+        var acceptedWindowIds: [Int] = []
+
+        _ = ledger.handleFrameApplyResults([successfulResult(for: firstRequest)]) {
+            acceptedWindowIds.append($0.windowId)
+        }
+        XCTAssertTrue(acceptedWindowIds.isEmpty)
+
+        _ = ledger.handleFrameApplyResults([successfulResult(for: secondRequest)]) {
+            acceptedWindowIds.append($0.windowId)
+        }
+        XCTAssertEqual(acceptedWindowIds, [windowId])
+    }
+
+    func testIncarnationResetRejectsOldResultAndForcesSameFrameWrite() throws {
+        let ledger = AXFrameApplicationLedger()
+        let oldPID: pid_t = 72_005
+        let newPID: pid_t = 72_006
+        let windowId = 72_007
+        let target = CGRect(x: 10, y: 20, width: 800, height: 600)
+        let oldRequest = try XCTUnwrap(
+            ledger.prepareFrameApplication(
+                pid: oldPID,
+                windowId: windowId,
+                frame: target,
+                isRetry: false,
+                terminalObserver: nil
+            ).request
+        )
+        _ = ledger.removeWindowState(windowId: windowId)
+        ledger.forceApplyNextFrame(for: windowId)
+        let newRequest = try XCTUnwrap(
+            ledger.prepareFrameApplication(
+                pid: newPID,
+                windowId: windowId,
+                frame: target,
+                isRetry: false,
+                terminalObserver: nil
+            ).request
+        )
+        var accepted: [AXFrameApplyResult] = []
+
+        _ = ledger.handleFrameApplyResults([successfulResult(for: oldRequest)]) {
+            accepted.append($0)
+        }
+        XCTAssertTrue(accepted.isEmpty)
+
+        _ = ledger.handleFrameApplyResults([successfulResult(for: newRequest)]) {
+            accepted.append($0)
+        }
+        XCTAssertEqual(accepted.map(\.pid), [newPID])
+    }
+
     func testGenerationMoveInvalidatesLateOldWindowResult() {
         let generations = LockedWindowGenerationMap()
         let oldWindowId = 72_017
@@ -170,6 +246,53 @@ final class AXFullRescanBoundaryTests: XCTestCase {
 
         XCTAssertFalse(generations.isCurrent(inFlightGeneration, for: oldWindowId))
         XCTAssertFalse(generations.isCurrent(inFlightGeneration, for: newWindowId))
+    }
+
+    func testManagerDoesNotRecordRejectedRawSuccessAsFrameActivity() {
+        let manager = AXManager()
+        let pid: pid_t = 72_008
+        let windowId = 72_009
+        let target = CGRect(x: 10, y: 20, width: 800, height: 600)
+        manager.recordParkCommand(for: windowId)
+
+        manager.handleFrameApplyResults([
+            AXFrameApplyResult(
+                requestId: 999,
+                pid: pid,
+                windowId: windowId,
+                targetFrame: target,
+                currentFrameHint: nil,
+                writeResult: AXFrameWriteResult(
+                    targetFrame: target,
+                    observedFrame: target,
+                    writeOrder: .sizeThenPosition,
+                    sizeError: .success,
+                    positionError: .success,
+                    failureReason: nil
+                )
+            )
+        ])
+
+        XCTAssertTrue(manager.parkQuietSinceCommand(for: windowId))
+        manager.cleanup()
+    }
+
+    private func successfulResult(for request: AXFrameApplicationRequest) -> AXFrameApplyResult {
+        AXFrameApplyResult(
+            requestId: request.requestId,
+            pid: request.pid,
+            windowId: request.windowId,
+            targetFrame: request.frame,
+            currentFrameHint: request.currentFrameHint,
+            writeResult: AXFrameWriteResult(
+                targetFrame: request.frame,
+                observedFrame: request.frame,
+                writeOrder: .sizeThenPosition,
+                sizeError: .success,
+                positionError: .success,
+                failureReason: nil
+            )
+        )
     }
 
     private func candidate(

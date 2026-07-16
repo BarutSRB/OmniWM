@@ -106,7 +106,7 @@ final class DurableParkTests: XCTestCase {
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
     }
 
-    func testCompletedWriteOnParkedWindowRemarksPending() throws {
+    func testAcceptedWriteOnParkedWindowRemarksPending() throws {
         let controller = Self.controller()
         let monitor = Self.monitor()
         controller.workspaceManager.applyMonitorConfigurationChange([monitor])
@@ -128,46 +128,30 @@ final class DurableParkTests: XCTestCase {
         XCTAssertFalse(controller.axManager.pendingParkWindowIds.contains(token.windowId))
 
         let stragglerFrame = CGRect(x: -857, y: 16, width: 1256, height: 1378)
-        controller.axManager.handleFrameApplyResults([
-            AXFrameApplyResult(
-                pid: token.pid,
-                windowId: token.windowId,
+        let acceptedResult = AXFrameApplyResult(
+            pid: token.pid,
+            windowId: token.windowId,
+            targetFrame: stragglerFrame,
+            currentFrameHint: nil,
+            writeResult: AXFrameWriteResult(
                 targetFrame: stragglerFrame,
-                currentFrameHint: nil,
-                writeResult: AXFrameWriteResult(
-                    targetFrame: stragglerFrame,
-                    observedFrame: stragglerFrame,
-                    writeOrder: .sizeThenPosition,
-                    sizeError: .success,
-                    positionError: .success,
-                    failureReason: nil
-                )
+                observedFrame: stragglerFrame,
+                writeOrder: .sizeThenPosition,
+                sizeError: .success,
+                positionError: .success,
+                failureReason: nil
             )
-        ])
+        )
+        controller.axManager.handleAcceptedFrameApplySuccess(acceptedResult)
         XCTAssertTrue(controller.axManager.pendingParkWindowIds.contains(token.windowId))
 
         controller.workspaceManager.setHiddenState(nil, for: token)
         controller.axManager.clearParkPending(for: token.windowId, pid: token.pid, reason: "test")
-        controller.axManager.handleFrameApplyResults([
-            AXFrameApplyResult(
-                pid: token.pid,
-                windowId: token.windowId,
-                targetFrame: stragglerFrame,
-                currentFrameHint: nil,
-                writeResult: AXFrameWriteResult(
-                    targetFrame: stragglerFrame,
-                    observedFrame: stragglerFrame,
-                    writeOrder: .sizeThenPosition,
-                    sizeError: .success,
-                    positionError: .success,
-                    failureReason: nil
-                )
-            )
-        ])
+        controller.axManager.handleAcceptedFrameApplySuccess(acceptedResult)
         XCTAssertFalse(controller.axManager.pendingParkWindowIds.contains(token.windowId))
     }
 
-    func testStragglerLandingAfterParkBlocksClearUntilSettle() throws {
+    func testStaleStragglerLandingAfterParkDoesNotDelaySettle() throws {
         let controller = Self.controller()
         let monitor = Self.monitor()
         controller.workspaceManager.applyMonitorConfigurationChange([monitor])
@@ -226,7 +210,7 @@ final class DurableParkTests: XCTestCase {
                 Self.hidePlan(workspaceId: workspaceId, monitor: monitor, token: token)
             )
         )
-        XCTAssertTrue(controller.axManager.pendingParkWindowIds.contains(token.windowId))
+        XCTAssertFalse(controller.axManager.pendingParkWindowIds.contains(token.windowId))
 
         XCTAssertTrue(
             controller.layoutRefreshController.executeLayoutPlan(

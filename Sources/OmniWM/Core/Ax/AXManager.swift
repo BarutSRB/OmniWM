@@ -80,6 +80,7 @@ final class AXManager {
     var onAppTerminated: ((pid_t) -> Void)?
     var isWindowParked: ((Int) -> Bool)?
     var onTerminalFrameRefusal: ((AXFrameTerminalRefusal) -> Void)?
+    var onFrameApplySucceeded: ((Int) -> Void)?
 
     private let frameLedger = AXFrameApplicationLedger()
     private var framesByPidBuffer: [pid_t: [AXFrameApplicationRequest]] = [:]
@@ -1003,16 +1004,11 @@ final class AXManager {
     }
 
     func handleFrameApplyResults(_ results: [AXFrameApplyResult]) {
-        let outcome = frameLedger.handleFrameApplyResults(results)
+        let outcome = frameLedger.handleFrameApplyResults(results) { [weak self] result in
+            self?.handleAcceptedFrameApplySuccess(result)
+        }
         for result in results {
             FrameApplyTrace.recordResult(result)
-            if result.writeResult.failureReason == nil || result.confirmedFrame != nil {
-                frameOrderSeq &+= 1
-                lastFrameResultSeqByWindowId[result.windowId] = frameOrderSeq
-                if isWindowParked?(result.windowId) == true {
-                    markParkPending(for: result.windowId, pid: result.pid)
-                }
-            }
         }
         for retry in outcome.retries {
             FrameApplyTrace.recordEvent(
@@ -1030,11 +1026,20 @@ final class AXManager {
             FrameApplyTrace.recordEvent(
                 pid: refusal.pid,
                 windowId: refusal.windowId,
-                outcome: "outcome=terminal-refusal",
+                outcome: "outcome=terminal-refusal/\(refusal.failureReason.traceDescription)",
                 target: refusal.targetFrame
             )
             onTerminalFrameRefusal?(refusal)
         }
+    }
+
+    func handleAcceptedFrameApplySuccess(_ result: AXFrameApplyResult) {
+        frameOrderSeq &+= 1
+        lastFrameResultSeqByWindowId[result.windowId] = frameOrderSeq
+        if isWindowParked?(result.windowId) == true {
+            markParkPending(for: result.windowId, pid: result.pid)
+        }
+        onFrameApplySucceeded?(result.windowId)
     }
 
     private func scheduleFrameRetry(pid: pid_t, windowId: Int, frame: CGRect) {

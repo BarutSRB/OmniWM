@@ -22,6 +22,8 @@ extension AXEventHandler {
         let workspaceId = entry.workspaceId
         let layoutType = controller.workspaceManager.descriptor(for: workspaceId)
             .map { controller.settings.layoutType(for: $0.name) } ?? .defaultLayout
+        let ownsLiveFocus = controller.workspaceManager.focusedToken == token
+            || controller.workspaceManager.nonManagedFocusToken == token
         let policy = retirementPolicy(for: reason)
 
         var oldFrames: [WindowToken: CGRect] = [:]
@@ -54,6 +56,12 @@ extension AXEventHandler {
             shouldRecoverFocus: policy.shouldRecoverFocus,
             allowsPreferredRecoveryToken: policy.allowsPreferredRecoveryToken
         )
+        if case .terminalFrameRefusal = reason {
+            if ownsLiveFocus {
+                _ = controller.workspaceManager.enterNonManagedFocus(target: token)
+            }
+            controller.surfaceReconciler.noteRestackOccurred()
+        }
     }
 
     func retireManagedWindowFromAuthoritativeRescan(_ entry: WindowState) {
@@ -65,6 +73,34 @@ extension AXEventHandler {
                 allowsPreferredRecoveryToken: false
             )
         )
+    }
+
+    func handleTerminalFrameRefusal(_ refusal: AXFrameTerminalRefusal) {
+        guard let controller,
+              let entry = terminalRefusalEntry(refusal, controller: controller)
+        else { return }
+
+        guard recordTerminalFrameFailure(for: entry) >= 2 else {
+            controller.axManager.forceApplyNextFrame(for: entry.windowId)
+            controller.layoutRefreshController.requestRelayout(
+                reason: .observedConstraintsChanged,
+                affectedWorkspaceIds: [entry.workspaceId]
+            )
+            return
+        }
+
+        quarantineAfterTerminalFrameRefusal(entry)
+        if let windowId = UInt32(exactly: refusal.windowId) {
+            recordNiriCreateFocusTrace(
+                .init(
+                    kind: .admissionRejected(
+                        windowId: windowId,
+                        pid: entry.pid,
+                        reason: .terminalFrameRefusal
+                    )
+                )
+            )
+        }
     }
 
     private func retirementPolicy(
@@ -95,4 +131,57 @@ extension AXEventHandler {
         }
     }
 
+    private func terminalRefusalEntry(
+        _ refusal: AXFrameTerminalRefusal,
+        controller: WMController
+    ) -> WindowState? {
+        guard WMController.isMeaningfulAdmissionFrame(refusal.targetFrame),
+              !WMController.isMeaningfulAdmissionFrame(refusal.observedFrame)
+        else {
+            controller.adoptObservedSizeAfterTerminalFrameRefusal(refusal)
+            return nil
+        }
+        guard isAdmissionRefusal(refusal.failureReason) else {
+            controller.adoptObservedSizeAfterTerminalFrameRefusal(refusal)
+            return nil
+        }
+        guard let entry = controller.workspaceManager.entry(forWindowId: refusal.windowId),
+              entry.mode == .tiling,
+              controller.workspaceManager.hiddenState(for: entry.token) == nil
+        else { return nil }
+        return entry
+    }
+
+    private func isAdmissionRefusal(_ reason: AXFrameWriteFailureReason) -> Bool {
+        switch reason {
+        case .sizeWriteFailed,
+             .verificationMismatch:
+            true
+        default:
+            false
+        }
+    }
+
+    private func recordTerminalFrameFailure(for entry: WindowState) -> Int {
+        if var state = terminalFrameFailureStateByWindowId[entry.windowId],
+           CFEqual(state.axRef.element, entry.axRef.element)
+        {
+            state.count += 1
+            terminalFrameFailureStateByWindowId[entry.windowId] = state
+            return state.count
+        }
+        terminalFrameFailureStateByWindowId[entry.windowId] = TerminalFrameFailureState(
+            axRef: entry.axRef,
+            count: 1
+        )
+        return 1
+    }
+
+    private func quarantineAfterTerminalFrameRefusal(_ entry: WindowState) {
+        admissionQuarantineByWindowId[entry.windowId] = AdmissionQuarantine(
+            token: entry.token,
+            axRef: entry.axRef
+        )
+        retireManagedWindow(entry, reason: .terminalFrameRefusal)
+    }
 }

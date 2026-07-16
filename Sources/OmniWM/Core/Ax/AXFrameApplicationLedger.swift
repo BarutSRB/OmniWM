@@ -29,6 +29,7 @@ struct AXFrameTerminalRefusal: Equatable {
     let windowId: Int
     let targetFrame: CGRect
     let observedFrame: CGRect
+    let failureReason: AXFrameWriteFailureReason
 }
 
 struct AXFrameEnqueueDecision {
@@ -99,7 +100,9 @@ final class AXFrameApplicationLedger {
                 var parts = ["win=\(windowId)"]
                 if let frame = lastAppliedFrames[windowId] { parts.append("lastApplied=\(TraceFormat.rect(frame))") }
                 if let pending = pendingFrameWrites[windowId] { parts.append("pending=\(TraceFormat.rect(pending))") }
-                if let failure = recentFrameWriteFailures[windowId] { parts.append("failure=\(failure)") }
+                if let failure = recentFrameWriteFailures[windowId] {
+                    parts.append("failure=\(failure.traceDescription)")
+                }
                 if let retry = retryBudgetByWindowId[windowId] { parts.append("retryBudget=\(retry)") }
                 return parts.joined(separator: " ")
             }
@@ -316,7 +319,9 @@ final class AXFrameApplicationLedger {
         let requestId = makeNextFrameApplicationRequestId()
         pendingFrameWrites[windowId] = frame
         pendingFrameRequestIdByWindowId[windowId] = requestId
-        recentFrameWriteFailures.removeValue(forKey: windowId)
+        if !isRetry {
+            recentFrameWriteFailures.removeValue(forKey: windowId)
+        }
         if let existingObserverRequestId,
            var pendingObserver = pendingFrameObserversByRequestId[existingObserverRequestId],
            pendingObserver.targetFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite)
@@ -355,7 +360,10 @@ final class AXFrameApplicationLedger {
         )
     }
 
-    func handleFrameApplyResults(_ results: [AXFrameApplyResult]) -> AXFrameApplyOutcome {
+    func handleFrameApplyResults(
+        _ results: [AXFrameApplyResult],
+        onAcceptedSuccess: (AXFrameApplyResult) -> Void = { _ in }
+    ) -> AXFrameApplyOutcome {
         var outcome = AXFrameApplyOutcome()
         for result in results {
             let resolvedWindowId = resolveWindowId(for: result.windowId)
@@ -381,6 +389,7 @@ final class AXFrameApplicationLedger {
                 }
                 recentFrameWriteFailures.removeValue(forKey: resolvedWindowId)
                 retryBudgetByWindowId.removeValue(forKey: resolvedWindowId)
+                onAcceptedSuccess(resolvedResult)
                 outcome.deliveries.append(contentsOf: notifyPendingFrameObserver(with: resolvedResult))
                 clearSettledRekeyMappings(to: resolvedWindowId)
                 continue
@@ -399,8 +408,8 @@ final class AXFrameApplicationLedger {
                   )
             else {
                 retryBudgetByWindowId.removeValue(forKey: resolvedWindowId)
-                if resolvedResult.writeResult.failureReason == .verificationMismatch,
-                   priorFailureReason == .verificationMismatch,
+                if let failureReason = resolvedResult.writeResult.failureReason,
+                   priorFailureReason == failureReason,
                    let observedFrame = resolvedResult.writeResult.observedFrame
                 {
                     outcome.terminalRefusals.append(
@@ -408,14 +417,17 @@ final class AXFrameApplicationLedger {
                             pid: resolvedResult.pid,
                             windowId: resolvedWindowId,
                             targetFrame: resolvedResult.targetFrame,
-                            observedFrame: observedFrame
+                            observedFrame: observedFrame,
+                            failureReason: failureReason
                         )
                     )
-                    learnSizeQuantum(
-                        windowId: resolvedWindowId,
-                        target: resolvedResult.targetFrame,
-                        observed: observedFrame
-                    )
+                    if failureReason == .verificationMismatch {
+                        learnSizeQuantum(
+                            windowId: resolvedWindowId,
+                            target: resolvedResult.targetFrame,
+                            observed: observedFrame
+                        )
+                    }
                 }
                 outcome.deliveries.append(contentsOf: notifyPendingFrameObserver(with: resolvedResult))
                 clearSettledRekeyMappings(to: resolvedWindowId)

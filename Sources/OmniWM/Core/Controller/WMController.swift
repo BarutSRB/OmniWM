@@ -1184,13 +1184,13 @@ final class WMController {
     }
 
     func adoptObservedSizeAfterTerminalFrameRefusal(_ refusal: AXFrameTerminalRefusal) {
-        let token = WindowToken(pid: refusal.pid, windowId: refusal.windowId)
-        guard let entry = workspaceManager.entry(for: token),
+        guard let entry = workspaceManager.entry(forWindowId: refusal.windowId),
               entry.mode == .tiling,
-              workspaceManager.hiddenState(for: token) == nil
+              workspaceManager.hiddenState(for: entry.token) == nil
         else {
             return
         }
+        let token = entry.token
 
         let target = refusal.targetFrame.size
         let observed = refusal.observedFrame.size

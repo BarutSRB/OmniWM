@@ -55,6 +55,31 @@ enum AXFrameWriteFailureReason: Equatable, Sendable {
     case verificationMismatch
     case cancelled
     case suppressed
+
+    var traceDescription: String {
+        switch self {
+        case .valueCreationFailed:
+            "valueCreationFailed"
+        case let .sizeWriteFailed(error):
+            "sizeWriteFailed(raw=\(error.rawValue))"
+        case let .positionWriteFailed(error):
+            "positionWriteFailed(raw=\(error.rawValue))"
+        case .staleElement:
+            "staleElement"
+        case .cacheMiss:
+            "cacheMiss"
+        case .contextUnavailable:
+            "contextUnavailable"
+        case .readbackFailed:
+            "readbackFailed"
+        case .verificationMismatch:
+            "verificationMismatch"
+        case .cancelled:
+            "cancelled"
+        case .suppressed:
+            "suppressed"
+        }
+    }
 }
 
 struct AXFrameWriteResult: Equatable, Sendable {

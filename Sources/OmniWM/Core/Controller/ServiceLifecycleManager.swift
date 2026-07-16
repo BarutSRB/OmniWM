@@ -111,7 +111,10 @@ final class ServiceLifecycleManager {
             EventIntake.post(.appTerminated(pid: pid))
         }
         controller.axManager.onTerminalFrameRefusal = { [weak controller] refusal in
-            controller?.adoptObservedSizeAfterTerminalFrameRefusal(refusal)
+            controller?.axEventHandler.handleTerminalFrameRefusal(refusal)
+        }
+        controller.axManager.onFrameApplySucceeded = { [weak controller] windowId in
+            controller?.axEventHandler.clearTerminalFrameFailure(windowId: windowId)
         }
         setupWorkspaceObservation()
         controller.mouseEventHandler.setup()
@@ -380,6 +383,7 @@ final class ServiceLifecycleManager {
         controller.axManager.onAppLaunched = nil
         controller.axManager.onAppTerminated = nil
         controller.axManager.onTerminalFrameRefusal = nil
+        controller.axManager.onFrameApplySucceeded = nil
         controller.workspaceManager.onGapsChanged = nil
 
         controller.layoutRefreshController.resetState()

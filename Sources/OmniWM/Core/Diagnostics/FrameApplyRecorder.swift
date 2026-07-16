@@ -31,7 +31,7 @@ enum FrameApplyTrace {
     static func recordResult(_ result: AXFrameApplyResult) {
         guard shared.isActive else { return }
         let outcome: String = if let reason = result.writeResult.failureReason {
-            "outcome=skip/\(reason)"
+            "outcome=skip/\(reason.traceDescription)"
         } else {
             result.confirmedFrame != nil ? "outcome=confirmed" : "outcome=applied"
         }
