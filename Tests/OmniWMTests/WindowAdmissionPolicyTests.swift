@@ -35,6 +35,40 @@ final class WindowAdmissionPolicyTests: XCTestCase {
         )
     }
 
+    func testManualTilePromotionDefersUnmanageableFloatingWindow() throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let pid: pid_t = 467_918
+        let windowId = 467_919
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            pid: pid,
+            windowId: windowId,
+            to: workspaceId,
+            mode: .floating
+        )
+        XCTAssertTrue(
+            controller.workspaceManager.confirmManagedFocus(
+                token,
+                in: workspaceId,
+                activateWorkspaceOnMonitor: false
+            )
+        )
+
+        XCTAssertEqual(controller.toggleFocusedWindowFloating(), .executed)
+
+        XCTAssertEqual(controller.workspaceManager.entry(for: token)?.mode, .floating)
+        XCTAssertEqual(controller.workspaceManager.manualLayoutOverride(for: token), .forceTile)
+        XCTAssertNotNil(controller.axEventHandler.admissionRetryStateByWindowId[UInt32(windowId)])
+
+        XCTAssertEqual(controller.toggleFocusedWindowFloating(), .executed)
+
+        XCTAssertEqual(controller.workspaceManager.entry(for: token)?.mode, .floating)
+        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[UInt32(windowId)])
+        controller.axEventHandler.handleCGSEvent(.destroyed(windowId: UInt32(windowId), spaceId: 0))
+    }
 }
 
 private func explicitProxyEvaluation(

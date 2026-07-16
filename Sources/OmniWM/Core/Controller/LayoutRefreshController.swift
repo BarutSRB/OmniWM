@@ -176,7 +176,7 @@ import QuartzCore
     private var nextPendingRevealTransactionId: UInt64 = 1
     private var pendingRevealTransactionsByWindowId: [Int: PendingRevealTransaction] = [:]
     private var pendingRevealVerificationTasksByWindowId: [Int: Task<Void, Never>] = [:]
-    private var nativeFullscreenRestoredFrameApplyTokens: Set<WindowToken> = []
+    var nativeFullscreenRestoredFrameApplyTokens: Set<WindowToken> = []
 
     var fastFrameProvider: (WindowToken, AXWindowRef) -> CGRect? = { _, axRef in
         AXWindowService.framePreferFast(axRef)
@@ -1446,6 +1446,21 @@ import QuartzCore
             let ax = candidate.axRef
             let pid = candidate.pid
             let winId = candidate.windowId
+            let token = WindowToken(pid: pid, windowId: winId)
+            let existingEntry: WindowState?
+            switch controller.axEventHandler.resolveFullRescanIdentity(
+                axRef: ax,
+                pid: pid,
+                windowId: winId,
+                observedAliases: enumerationSnapshot.identityAliasesByWindowId[winId],
+                failedPIDs: enumerationSnapshot.failedPIDs
+            ) {
+            case let .process(entry):
+                existingEntry = entry
+            case let .preserve(token):
+                seenKeys.insert(token)
+                continue
+            }
             let bundleId = controller.appInfoCache.bundleId(for: pid)
                 ?? NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
             if let bundleId {
@@ -1454,7 +1469,12 @@ import QuartzCore
                 }
             }
 
-            let token = WindowToken(pid: pid, windowId: winId)
+            if existingEntry == nil,
+               controller.axEventHandler.isAdmissionQuarantined(windowId: winId, axRef: ax)
+            {
+                controller.axEventHandler.discardCreatePlacementContext(for: winId)
+                continue
+            }
             let appFullscreen = candidate.isFullscreen(screenFrames: screenFrames)
             let evaluation = controller.evaluateWindowDisposition(
                 axRef: ax,
@@ -1464,7 +1484,6 @@ import QuartzCore
                 admissionGeometry: candidate.enumeratedWindow.admissionGeometry
             )
             let decision = evaluation.decision
-            let existingEntry = controller.workspaceManager.entry(for: token)
             let createPlacementContext = existingEntry == nil
                 ? controller.axEventHandler.pendingCreatePlacementContext(for: winId)
                 : nil
@@ -1488,9 +1507,38 @@ import QuartzCore
 
             guard let trackedMode = effectiveTrackedMode else {
                 if existingEntry != nil {
-                    decisionBasedRemovals.append(token)
+                    controller.axEventHandler.cancelTrackedTilingPromotionRetry(windowId: winId)
+                    decisionBasedRemovals.append(existingEntry?.token ?? token)
                 } else {
+                    if decision.disposition == .undecided,
+                       let windowId = UInt32(exactly: winId)
+                    {
+                        _ = controller.axEventHandler.scheduleCandidateAdmissionRetry(
+                            windowId: windowId,
+                            pid: pid,
+                            axRef: ax,
+                            reason: .factsDeferred
+                        )
+                    }
                     controller.axEventHandler.discardCreatePlacementContext(for: winId)
+                }
+                continue
+            }
+            if trackedMode != .tiling {
+                controller.axEventHandler.cancelTrackedTilingPromotionRetry(windowId: winId)
+            }
+
+            if trackedMode == .tiling,
+               controller.axEventHandler.deferTilingAdmissionIfNeeded(
+                   evaluation: evaluation,
+                   axRef: ax,
+                   pid: pid,
+                   windowId: winId,
+                   existingEntry: existingEntry
+               )
+            {
+                if let existingEntry {
+                    seenKeys.insert(existingEntry.token)
                 }
                 continue
             }
@@ -1519,6 +1567,9 @@ import QuartzCore
             {
                 seenKeys.insert(token)
                 controller.axEventHandler.discardCreatePlacementContext(for: winId)
+                controller.axEventHandler.finishAdmissionRetryAfterTracking(
+                    windowId: windowId
+                )
                 continue
             }
 
@@ -1590,6 +1641,7 @@ import QuartzCore
                     || evaluation.facts.degradedWindowServerChildEvidence
             )
 
+            let admittedToken: WindowToken
             if let refreshedEntry,
                !Self.shouldReadmitTrackedWindow(
                    entry: refreshedEntry,
@@ -1604,8 +1656,9 @@ import QuartzCore
                     managedReplacementMetadata,
                     for: refreshedEntry.token
                 )
+                admittedToken = refreshedEntry.token
             } else {
-                _ = controller.workspaceManager.addWindow(
+                admittedToken = controller.workspaceManager.addWindow(
                     ax,
                     pid: pid,
                     windowId: winId,
@@ -1616,39 +1669,55 @@ import QuartzCore
                     managedReplacementMetadata: managedReplacementMetadata
                 )
             }
+            guard admittedToken == token else {
+                seenKeys.insert(admittedToken)
+                if let windowId = UInt32(exactly: winId) {
+                    controller.axEventHandler.finishAdmissionRetryAfterTracking(
+                        windowId: windowId
+                    )
+                }
+                continue
+            }
             if refreshedEntry != nil {
-                _ = controller.workspaceManager.updateAdmissionHints(admissionHints, for: token)
+                _ = controller.workspaceManager.updateAdmissionHints(admissionHints, for: admittedToken)
             }
             if existingEntry == nil {
                 controller.axEventHandler.discardCreatePlacementContext(for: winId)
             }
+            if let windowId = UInt32(exactly: winId) {
+                controller.axEventHandler.finishAdmissionRetryAfterTracking(
+                    windowId: windowId
+                )
+            }
 
             if shouldPreservePreFullscreenState {
-                seenKeys.insert(token)
+                seenKeys.insert(admittedToken)
                 continue
             }
 
             if let oldMode, oldMode != trackedMode {
                 _ = controller.transitionWindowMode(
-                    for: token,
+                    for: admittedToken,
                     to: trackedMode,
                     preferredMonitor: controller.workspaceManager.monitor(for: wsForWindow),
                     applyFloatingFrame: false
                 )
             } else if trackedMode == .floating {
                 controller.seedFloatingGeometryIfNeeded(
-                    for: token,
+                    for: admittedToken,
                     preferredMonitor: controller.workspaceManager.monitor(for: wsForWindow)
                 )
             }
-            seenKeys.insert(token)
+            seenKeys.insert(admittedToken)
         }
 
+        controller.axEventHandler.updateIdentityAliases(
+            enumerationSnapshot.identityAliasesByWindowId
+        )
+
         for token in decisionBasedRemovals {
-            controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
-            controller.axManager.removeWindowState(pid: token.pid, windowId: token.windowId)
-            _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
-            controller.workspaceManager.clearNonManagedFocusTarget(matching: token)
+            guard let entry = controller.workspaceManager.entry(for: token) else { continue }
+            controller.axEventHandler.retireManagedWindowFromAuthoritativeRescan(entry)
         }
 
         let shouldPreserveMissingWindows = shouldPreserveMissingWindowsDuringNativeFullscreen(
@@ -1683,20 +1752,23 @@ import QuartzCore
             )
         }
 
-        let scratchpadTokenBeforeRemove = controller.workspaceManager.scratchpadToken()
-        let removedEntries = controller.workspaceManager.removeMissing(keys: seenKeys, requiredConsecutiveMisses: 2)
-        for entry in removedEntries {
-            controller.axManager.removeWindowState(pid: entry.pid, windowId: entry.windowId)
-            controller.workspaceManager.clearNonManagedFocusTarget(matching: entry.token)
-        }
-        if let scratchpadTokenBeforeRemove,
-           controller.workspaceManager.entry(for: scratchpadTokenBeforeRemove) == nil
-        {
-            controller.cleanupScratchpadWindowResources(for: scratchpadTokenBeforeRemove)
+        let missingEntries = controller.workspaceManager.confirmedMissingEntries(
+            keys: seenKeys,
+            requiredConsecutiveMisses: 2
+        )
+        for entry in missingEntries {
+            controller.axEventHandler.retireManagedWindowFromAuthoritativeRescan(entry)
         }
         if !shouldPreserveMissingWindows {
             controller.workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWorkspaceId)
         }
+
+        let retainedEntries = controller.workspaceManager.allEntries()
+        controller.axEventHandler.pruneIdentityAliases(
+            retainingWindowIds: Set(retainedEntries.map(\.windowId))
+                .union(controller.axEventHandler.activeAdmissionRetryWindowIds)
+                .union(controller.axEventHandler.admissionQuarantineByWindowId.keys)
+        )
 
         try Task.checkCancellation()
 
@@ -3568,41 +3640,6 @@ import QuartzCore
         }
 
         return CGPoint(x: clampedX, y: clampedTopLeftY - windowSize.height)
-    }
-
-    static func shouldReadmitTrackedWindow(
-        entry: WindowState,
-        workspaceId: WorkspaceDescriptor.ID,
-        mode: TrackedWindowMode,
-        ruleEffects: ManagedWindowRuleEffects,
-        shouldPreservePreFullscreenState: Bool,
-        appFullscreen: Bool
-    ) -> Bool {
-        shouldPreservePreFullscreenState
-            || appFullscreen
-            || entry.workspaceId != workspaceId
-            || entry.mode != mode
-            || entry.ruleEffects != ruleEffects
-    }
-
-    private func observedWindowFrame(_ entry: WindowState) -> CGRect? {
-        fastFrame(for: entry.token, axRef: entry.axRef)
-    }
-
-    static func hiddenEdgeReveal(isZoomApp: Bool) -> CGFloat {
-        isZoomApp ? 0 : hiddenWindowEdgeRevealEpsilon
-    }
-
-    func isZoomApp(_ pid: pid_t) -> Bool {
-        controller?.appInfoCache.bundleId(for: pid) == "us.zoom.xos"
-    }
-
-    func markNativeFullscreenRestoredForFrameApply(_ token: WindowToken) {
-        nativeFullscreenRestoredFrameApplyTokens.insert(token)
-    }
-
-    func consumeNativeFullscreenRestoredFrameApply(for token: WindowToken) -> Bool {
-        nativeFullscreenRestoredFrameApplyTokens.remove(token) != nil
     }
 }
 

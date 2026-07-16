@@ -342,6 +342,7 @@ final class EventIntakeReplayTests: XCTestCase {
                 pid: pid,
                 source: .focusedWindowChanged,
                 origin: .external,
+                observationGeneration: 0,
                 requestedAtSeq: 0,
                 focusedWindow: FocusedWindowFact(
                     axRef: AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 42),

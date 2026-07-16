@@ -381,8 +381,8 @@ final class WorkspaceDeletionEngineCleanupTests: XCTestCase {
             controller: controller
         )
         let niriToken = addManagedWindow(pid: 911, windowId: 1, to: niriWorkspaceId, controller: controller)
-        let dwindleToken = addManagedWindow(pid: 912, windowId: 1, to: dwindleWorkspaceId, controller: controller)
-        let quietToken = addManagedWindow(pid: 917, windowId: 1, to: quietDwindleWorkspaceId, controller: controller)
+        let dwindleToken = addManagedWindow(pid: 912, windowId: 2, to: dwindleWorkspaceId, controller: controller)
+        let quietToken = addManagedWindow(pid: 917, windowId: 3, to: quietDwindleWorkspaceId, controller: controller)
 
         controller.workspaceManager.withEngineMutationScope {
             _ = niriEngine.addWindow(token: niriToken, to: niriWorkspaceId, afterSelection: nil)

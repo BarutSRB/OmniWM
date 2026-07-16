@@ -267,21 +267,15 @@ final class DurableParkTests: XCTestCase {
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
     }
 
-    func testParkPendingBookkeepingFollowsWindowLifecycle() {
+    func testRemovingWindowClearsParkPendingBookkeeping() {
         let controller = Self.controller()
         let axManager = controller.axManager
 
         axManager.markParkPending(for: 42, pid: 953_001)
-        axManager.rekeyWindowState(
-            pid: 953_001,
-            oldWindowId: 42,
-            newWindow: AXWindowRef(element: AXUIElementCreateApplication(953_001), windowId: 43)
-        )
-        XCTAssertFalse(axManager.pendingParkWindowIds.contains(42))
-        XCTAssertTrue(axManager.pendingParkWindowIds.contains(43))
+        XCTAssertTrue(axManager.pendingParkWindowIds.contains(42))
 
-        axManager.removeWindowState(pid: 953_001, windowId: 43)
-        XCTAssertFalse(axManager.pendingParkWindowIds.contains(43))
+        axManager.removeWindowState(pid: 953_001, windowId: 42)
+        XCTAssertFalse(axManager.pendingParkWindowIds.contains(42))
     }
 
     private static func hidePlan(

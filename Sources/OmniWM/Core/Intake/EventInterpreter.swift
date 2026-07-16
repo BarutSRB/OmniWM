@@ -48,8 +48,8 @@ final class EventInterpreter: EventIntakeSink {
                 source: .focusedWindowChanged
             )
 
-        case let .axWindowDestroyed(pid, windowId):
-            controller.axEventHandler.handleRemoved(pid: pid, winId: windowId)
+        case let .axWindowDestroyed(pid, axRef):
+            controller.axEventHandler.handleRemoved(pid: pid, winId: axRef.windowId, axRef: axRef)
 
         case let .axWindowMiniaturized(pid, windowId):
             controller.axEventHandler.handleWindowMiniaturized(pid: pid, windowId: windowId)

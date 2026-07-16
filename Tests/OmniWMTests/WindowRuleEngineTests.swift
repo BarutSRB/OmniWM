@@ -13,7 +13,8 @@ final class WindowRuleEngineTests: XCTestCase {
         bundleId: String?,
         title: String? = nil,
         role: String? = kAXWindowRole as String,
-        subrole: String? = kAXStandardWindowSubrole as String
+        subrole: String? = kAXStandardWindowSubrole as String,
+        attributeFetchSucceeded: Bool = true
     ) -> WindowRuleFacts {
         WindowRuleFacts(
             appName: appName,
@@ -28,7 +29,7 @@ final class WindowRuleEngineTests: XCTestCase {
                 hasMinimizeButton: true,
                 appPolicy: .regular,
                 bundleId: bundleId,
-                attributeFetchSucceeded: true
+                attributeFetchSucceeded: attributeFetchSucceeded
             ),
             sizeConstraints: nil,
             windowServer: nil
@@ -127,6 +128,35 @@ final class WindowRuleEngineTests: XCTestCase {
         let decision = evaluate(engine, facts(appName: "Test App", bundleId: "com.test.app"))
         XCTAssertEqual(decision.disposition, .managed)
         XCTAssertEqual(decision.source, .userRule(bundled.id))
+    }
+
+    func testSteamBuiltInDefersWhenAXFactsFailed() {
+        let engine = WindowRuleEngine()
+        let decision = evaluate(
+            engine,
+            facts(
+                appName: "Steam",
+                bundleId: "com.valvesoftware.steam",
+                role: nil,
+                subrole: nil,
+                attributeFetchSucceeded: false
+            )
+        )
+
+        XCTAssertEqual(decision.disposition, .undecided)
+        XCTAssertEqual(decision.deferredReason, .attributeFetchFailed)
+        XCTAssertEqual(decision.admissionOutcome, .deferred)
+    }
+
+    func testSteamBuiltInTilesWhenAXFactsAreValid() {
+        let engine = WindowRuleEngine()
+        let decision = evaluate(
+            engine,
+            facts(appName: "Steam", bundleId: "com.valvesoftware.steam")
+        )
+
+        XCTAssertEqual(decision.disposition, .managed)
+        XCTAssertEqual(decision.source, .builtInRule("steamClient"))
     }
 
     func testMoreSpecificRuleWithoutInitialWidthShadowsGenericWidthRule() {

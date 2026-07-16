@@ -160,6 +160,18 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         XCTAssertTrue(promotions.isEmpty)
     }
 
+    func testGenerationMoveInvalidatesLateOldWindowResult() {
+        let generations = LockedWindowGenerationMap()
+        let oldWindowId = 72_017
+        let newWindowId = 72_018
+        let inFlightGeneration = generations.nextGeneration(for: oldWindowId)
+
+        generations.invalidateAndMoveValue(from: oldWindowId, to: newWindowId)
+
+        XCTAssertFalse(generations.isCurrent(inFlightGeneration, for: oldWindowId))
+        XCTAssertFalse(generations.isCurrent(inFlightGeneration, for: newWindowId))
+    }
+
     private func candidate(
         pid: pid_t,
         windowId: Int,

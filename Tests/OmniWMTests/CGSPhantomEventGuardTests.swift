@@ -38,7 +38,7 @@ final class CGSPhantomEventGuardTests: XCTestCase {
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
     }
 
-    func testCGSCreateForTrackedWindowIsIgnored() throws {
+    func testCGSCreateForTrackedWindowVerifiesIdentityWithoutMutation() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         _ = controller.workspaceManager.focusWorkspace(named: "1")
@@ -50,8 +50,6 @@ final class CGSPhantomEventGuardTests: XCTestCase {
         )
         _ = controller.niriEngine?.addWindow(token: token, to: workspaceId, afterSelection: nil)
         let entryBefore = try XCTUnwrap(controller.workspaceManager.entry(for: token))
-        let traceBefore = controller.axEventHandler.createFocusTraceDump()
-
         controller.axEventHandler.handleCGSEvent(
             .created(windowId: UInt32(token.windowId), spaceId: 0)
         )
@@ -60,7 +58,10 @@ final class CGSPhantomEventGuardTests: XCTestCase {
         XCTAssertEqual(entryAfter.workspaceId, entryBefore.workspaceId)
         XCTAssertEqual(entryAfter.mode, entryBefore.mode)
         XCTAssertEqual(entryAfter.hiddenState, entryBefore.hiddenState)
-        XCTAssertEqual(controller.axEventHandler.createFocusTraceDump(), traceBefore)
+        let trace = controller.axEventHandler.createFocusTraceDump()
+        XCTAssertTrue(trace.contains("create_seen window=\(token.windowId)"))
+        XCTAssertFalse(trace.contains("create_retry_scheduled"))
+        XCTAssertFalse(trace.contains("admission_rejected"))
         XCTAssertNil(controller.axEventHandler.pendingCreatePlacementContext(for: token.windowId))
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
     }

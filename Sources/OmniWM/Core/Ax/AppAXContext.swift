@@ -111,6 +111,7 @@ final class AppAXContext {
     private let subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>
     private let axObserverCallbackKey: UInt?
     private let focusedWindowObserverCallbackKey: UInt?
+    private let callbackGeneration: UInt64
 
     @MainActor static var contexts: [pid_t: AppAXContext] = [:]
     @MainActor private static var inFlightCreations: [pid_t: (
@@ -127,6 +128,7 @@ final class AppAXContext {
         _ subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>,
         _ axObserverCallbackKey: UInt?,
         _ focusedWindowObserverCallbackKey: UInt?,
+        _ callbackGeneration: UInt64,
         _ thread: Thread
     ) {
         self.nsApp = nsApp
@@ -138,6 +140,7 @@ final class AppAXContext {
         self.subscribedWindows = subscribedWindows
         self.axObserverCallbackKey = axObserverCallbackKey
         self.focusedWindowObserverCallbackKey = focusedWindowObserverCallbackKey
+        self.callbackGeneration = callbackGeneration
         self.thread = thread
     }
 
@@ -262,6 +265,7 @@ final class AppAXContext {
                             guardedSubscribedWindows,
                             observerCallbackKey,
                             focusedWindowObserverCallbackKey,
+                            generation,
                             currentThread
                         )
                         guard let continuation = state.takeContinuation() else {
@@ -311,6 +315,7 @@ final class AppAXContext {
 
     nonisolated static func handleWindowDestroyedCallback(
         pid: pid_t,
+        element: AXUIElement,
         observerKey: UInt,
         refcon: UnsafeMutableRawPointer?
     ) {
@@ -319,7 +324,12 @@ final class AppAXContext {
             return
         }
         appAXCallbackGenerationRegistry.performIfCurrent(observerKey: observerKey) {
-            EventIntake.post(.axWindowDestroyed(pid: pid, windowId: windowId))
+            EventIntake.post(
+                .axWindowDestroyed(
+                    pid: pid,
+                    axRef: AXWindowRef(element: element, windowId: windowId)
+                )
+            )
         }
     }
 
@@ -1021,7 +1031,12 @@ private func axWindowNotificationCallback(
     let observerKey = axCallbackObserverKey(observer)
 
     if isDestroyed {
-        AppAXContext.handleWindowDestroyedCallback(pid: pid, observerKey: observerKey, refcon: refcon)
+        AppAXContext.handleWindowDestroyedCallback(
+            pid: pid,
+            element: element,
+            observerKey: observerKey,
+            refcon: refcon
+        )
     } else {
         AppAXContext.handleWindowMiniaturizedCallback(pid: pid, observerKey: observerKey, refcon: refcon)
     }

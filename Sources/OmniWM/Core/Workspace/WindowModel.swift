@@ -212,6 +212,12 @@ final class WindowModel {
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowToken {
         let token = WindowToken(pid: pid, windowId: windowId)
+        if let existingToken = windowIdToToken[windowId], existingToken != token {
+            Log.reconcile.fault(
+                "WindowModel rejected duplicate windowId=\(windowId) existing=\(existingToken.pid):\(existingToken.windowId) proposed=\(token.pid):\(token.windowId)"
+            )
+            return existingToken
+        }
         if entries[token] != nil {
             entries[token]?.axRef = window
             updateWorkspace(for: token, workspace: workspace)
@@ -259,6 +265,13 @@ final class WindowModel {
                 entries[oldToken]?.managedReplacementMetadata = managedReplacementMetadata
             }
             return entries[oldToken]
+        }
+
+        if let existingToken = windowIdToToken[newToken.windowId], existingToken != oldToken {
+            Log.reconcile.fault(
+                "WindowModel rejected rekey windowId=\(newToken.windowId) existing=\(existingToken.pid):\(existingToken.windowId) proposed=\(newToken.pid):\(newToken.windowId)"
+            )
+            return nil
         }
 
         guard entries[newToken] == nil,

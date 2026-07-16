@@ -250,13 +250,89 @@ final class AXManager {
         inactiveWorkspaceWindowIds.removeAll()
     }
 
-    func rekeyWindowState(pid: pid_t, oldWindowId: Int, newWindow: AXWindowRef) {
-        let newWindowId = newWindow.windowId
-        guard oldWindowId != newWindowId else { return }
-        _ = AppAXContext.contexts[pid]?.rekeyWindow(oldWindowId: oldWindowId, newWindow: newWindow)
-        frameLedger.rekeyWindowState(oldWindowId: oldWindowId, newWindowId: newWindowId)
-        FrameApplyTrace.recordEvent(pid: pid, windowId: oldWindowId, outcome: "outcome=rekey→\(newWindowId)")
+    func rebindWindowState(
+        from oldWindow: AXManagedWindowIdentity,
+        to newWindow: AXManagedWindowIdentity
+    ) -> Bool {
+        if oldWindow.token == newWindow.token,
+           CFEqual(oldWindow.axRef.element, newWindow.axRef.element)
+        {
+            return true
+        }
 
+        let oldWindowId = oldWindow.token.windowId
+        let newWindowId = newWindow.token.windowId
+        let isIncarnationReplacement = oldWindow.token.pid != newWindow.token.pid
+            || oldWindowId == newWindowId
+        guard scheduleAXContextRebind(from: oldWindow, to: newWindow) else { return false }
+        let deliveries = resetFrameApplicationStateForRebind(
+            oldWindowId: oldWindowId,
+            newWindowId: newWindowId,
+            isIncarnationReplacement: isIncarnationReplacement
+        )
+        for delivery in deliveries {
+            delivery.deliver()
+        }
+        FrameApplyTrace.recordEvent(
+            pid: newWindow.token.pid,
+            windowId: oldWindowId,
+            outcome: "outcome=rebind→\(newWindowId)"
+        )
+        return true
+    }
+
+    private func scheduleAXContextRebind(
+        from oldWindow: AXManagedWindowIdentity,
+        to newWindow: AXManagedWindowIdentity
+    ) -> Bool {
+        let oldContext = AppAXContext.contexts[oldWindow.token.pid]
+        guard let destinationContext = AppAXContext.contexts[newWindow.token.pid] else {
+            return oldWindow.token.pid == newWindow.token.pid && oldContext == nil
+        }
+        let didSchedule = if oldContext === destinationContext {
+            destinationContext.rekeyWindow(
+                oldWindowId: oldWindow.token.windowId,
+                newWindow: newWindow.axRef
+            )
+        } else {
+            destinationContext.bindWindow(newWindow.axRef)
+        }
+        guard didSchedule else { return false }
+        if oldContext !== destinationContext {
+            oldContext?.removeWindowState(windowId: oldWindow.token.windowId)
+        }
+        destinationContext.cancelFrameJob(for: newWindow.token.windowId)
+        return true
+    }
+
+    private func resetFrameApplicationStateForRebind(
+        oldWindowId: Int,
+        newWindowId: Int,
+        isIncarnationReplacement: Bool
+    ) -> [AXFrameTerminalDelivery] {
+        var deliveries = isIncarnationReplacement
+            ? frameLedger.removeWindowState(windowId: oldWindowId)
+            : frameLedger.cancelFrameJob(windowId: oldWindowId)
+        cancelPendingFrameRetry(for: oldWindowId)
+        if oldWindowId != newWindowId {
+            cancelPendingFrameRetry(for: newWindowId)
+            if isIncarnationReplacement {
+                deliveries.append(contentsOf: frameLedger.removeWindowState(windowId: newWindowId))
+            } else {
+                frameLedger.rekeyWindowState(oldWindowId: oldWindowId, newWindowId: newWindowId)
+            }
+            rekeyAuxiliaryWindowState(from: oldWindowId, to: newWindowId)
+        }
+        if isIncarnationReplacement {
+            resetIncarnationAuxiliaryState(oldWindowId: oldWindowId, newWindowId: newWindowId)
+        }
+        frameLedger.forceApplyNextFrame(for: newWindowId)
+        clearSkyLightLivePosition(for: oldWindowId)
+        clearSkyLightLivePosition(for: newWindowId)
+        return deliveries
+    }
+
+    private func rekeyAuxiliaryWindowState(from oldWindowId: Int, to newWindowId: Int) {
         if inactiveWorkspaceWindowIds.remove(oldWindowId) != nil {
             inactiveWorkspaceWindowIds.insert(newWindowId)
         }
@@ -269,13 +345,15 @@ final class AXManager {
         if let seq = lastFrameResultSeqByWindowId.removeValue(forKey: oldWindowId) {
             lastFrameResultSeqByWindowId[newWindowId] = seq
         }
+    }
 
-        if let retryTask = pendingFrameRetryTasksByWindowId.removeValue(forKey: oldWindowId) {
-            pendingFrameRetryTasksByWindowId[newWindowId] = retryTask
-        }
-        if let retryGeneration = pendingFrameRetryGenerationByWindowId.removeValue(forKey: oldWindowId) {
-            pendingFrameRetryGenerationByWindowId[newWindowId] = retryGeneration
-        }
+    private func resetIncarnationAuxiliaryState(oldWindowId: Int, newWindowId: Int) {
+        pendingParkWindowIds.remove(oldWindowId)
+        pendingParkWindowIds.remove(newWindowId)
+        lastParkCommandSeqByWindowId.removeValue(forKey: oldWindowId)
+        lastParkCommandSeqByWindowId.removeValue(forKey: newWindowId)
+        lastFrameResultSeqByWindowId.removeValue(forKey: oldWindowId)
+        lastFrameResultSeqByWindowId.removeValue(forKey: newWindowId)
     }
 
     func confirmFrameWrite(for windowId: Int, frame: CGRect) {

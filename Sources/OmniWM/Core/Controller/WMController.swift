@@ -2103,6 +2103,7 @@ final class WMController {
                 existingEntry: existingEntry,
                 context: context
             ) else {
+                axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
                 if let existingEntry {
                     affectedWorkspaceIds.insert(existingEntry.workspaceId)
                     cleanupScratchpadWindowResourcesIfNeeded(for: token)
@@ -2111,6 +2112,21 @@ final class WMController {
                 } else if evaluation.decision.disposition != .undecided {
                     axEventHandler.discardCreatePlacementContext(for: token.windowId)
                 }
+                continue
+            }
+            if effectiveTrackedMode != .tiling {
+                axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
+            }
+
+            if effectiveTrackedMode == .tiling,
+               axEventHandler.deferTilingAdmissionIfNeeded(
+                   evaluation: evaluation,
+                   axRef: axRef,
+                   pid: token.pid,
+                   windowId: token.windowId,
+                   existingEntry: existingEntry
+               )
+            {
                 continue
             }
 
@@ -2152,6 +2168,7 @@ final class WMController {
             {
                 affectedWorkspaceIds.insert(workspaceId)
                 relayoutNeeded = true
+                axEventHandler.finishAdmissionRetryAfterTracking(windowId: windowId)
                 continue
             }
 
@@ -2260,6 +2277,11 @@ final class WMController {
                 affectedWorkspaceIds.insert(workspaceId)
                 relayoutNeeded = true
             }
+            if workspaceManager.entry(for: token) != nil,
+               let windowId = UInt32(exactly: token.windowId)
+            {
+                axEventHandler.finishAdmissionRetryAfterTracking(windowId: windowId)
+            }
         }
 
         if relayoutNeeded {
@@ -2364,12 +2386,28 @@ final class WMController {
             decision: evaluation.decision,
             existingEntry: entry
         ) else {
+            axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
             cleanupScratchpadWindowResourcesIfNeeded(for: token)
             _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
             layoutRefreshController.requestRelayout(
                 reason: .windowRuleReevaluation,
                 affectedWorkspaceIds: [entry.workspaceId]
             )
+            return
+        }
+        if trackedMode != .tiling {
+            axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
+        }
+
+        if trackedMode == .tiling,
+           axEventHandler.deferTilingAdmissionIfNeeded(
+               evaluation: evaluation,
+               axRef: entry.axRef,
+               pid: token.pid,
+               windowId: token.windowId,
+               existingEntry: entry
+           )
+        {
             return
         }
 
@@ -2379,6 +2417,9 @@ final class WMController {
             preferredMonitor: monitorForInteraction(),
             applyFloatingFrame: true
         )
+        if let windowId = UInt32(exactly: token.windowId) {
+            axEventHandler.finishAdmissionRetryAfterTracking(windowId: windowId)
+        }
         layoutRefreshController.requestRelayout(
             reason: .windowRuleReevaluation,
             affectedWorkspaceIds: [entry.workspaceId]

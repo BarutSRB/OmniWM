@@ -251,6 +251,16 @@ final class WindowRuleEngine {
             rule.hasAdvancedMatchers
         }
 
+        func canApplyExplicitly(to facts: WindowRuleFacts) -> Bool {
+            switch source {
+            case .builtIn("steamClient"):
+                facts.ax.attributeFetchSucceeded
+            case .user,
+                 .builtIn:
+                true
+            }
+        }
+
         func matches(_ facts: WindowRuleFacts) -> Bool {
             if let bundleId = nonEmpty(rule.bundleId),
                bundleId.caseInsensitiveCompare(facts.ax.bundleId ?? "") != .orderedSame
@@ -413,6 +423,7 @@ final class WindowRuleEngine {
         // Built-in layout can still inherit workspace assignment and sizing effects
         // from a matching user auto rule.
         if let builtInRule,
+           builtInRule.canApplyExplicitly(to: facts),
            let builtInDecision = explicitDecision(
                builtInRule,
                workspaceName: workspaceName,

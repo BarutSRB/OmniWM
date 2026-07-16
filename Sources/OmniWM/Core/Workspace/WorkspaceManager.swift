@@ -2052,6 +2052,12 @@ final class WorkspaceManager {
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowToken {
         let token = WindowToken(pid: pid, windowId: windowId)
+        if let existingEntry = world.entry(forWindowId: windowId), existingEntry.token != token {
+            Log.reconcile.fault(
+                "WorkspaceManager rejected duplicate windowId=\(windowId) existing=\(existingEntry.pid):\(existingEntry.windowId) proposed=\(pid):\(windowId)"
+            )
+            return existingEntry.token
+        }
         if let originalToken = nativeFullscreenOriginalToken(for: token),
            var record = nativeFullscreenRecordsByOriginalToken[originalToken],
            record.currentToken == token,
@@ -2086,6 +2092,12 @@ final class WorkspaceManager {
         guard let existingEntry = world.entry(for: oldToken),
               oldToken == newToken || world.entry(for: newToken) == nil
         else {
+            return nil
+        }
+        if oldToken != newToken,
+           let collision = world.entry(forWindowId: newToken.windowId),
+           collision.token != oldToken
+        {
             return nil
         }
 
@@ -2427,7 +2439,7 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func removeMissing(
+    func confirmedMissingEntries(
         keys activeKeys: Set<WindowToken>,
         requiredConsecutiveMisses: Int = 1
     ) -> [WindowState] {
@@ -2435,16 +2447,12 @@ final class WorkspaceManager {
             keys: activeKeys,
             requiredConsecutiveMisses: requiredConsecutiveMisses
         )
-        var removedEntries: [WindowState] = []
-        removedEntries.reserveCapacity(confirmedMissingKeys.count)
-        for key in confirmedMissingKeys {
-            guard let entry = world.entry(for: key) else { continue }
-            removedEntries.append(removeTrackedWindow(entry))
+        return confirmedMissingKeys.compactMap { world.entry(for: $0) }.sorted {
+            if $0.pid == $1.pid {
+                return $0.windowId < $1.windowId
+            }
+            return $0.pid < $1.pid
         }
-        if !removedEntries.isEmpty {
-            schedulePersistedWindowRestoreCatalogSave()
-        }
-        return removedEntries
     }
 
     @discardableResult
