@@ -83,6 +83,10 @@ final class WorkspaceNavigationHandler {
     ) {
         guard let controller else { return }
 
+        if let sourceMonitor = controller.workspaceManager.monitor(for: sourceWorkspaceId) {
+            controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
+        }
+
         if controller.settings.focusFollowsWindowToMonitor {
             controller.isTransferringWindow = true
             defer { controller.isTransferringWindow = false }
@@ -91,19 +95,6 @@ final class WorkspaceNavigationHandler {
             if let targetMonitor = controller.workspaceManager.monitorForWorkspace(destinationWorkspaceId) {
                 _ = controller.workspaceManager.setActiveWorkspace(destinationWorkspaceId, on: targetMonitor.id)
             }
-
-            if let sourceMonitor = controller.workspaceManager.monitor(for: sourceWorkspaceId) {
-                controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
-            }
-
-            applySessionPatch(
-                workspaceId: destinationWorkspaceId,
-                viewportState: transferredWindowNiriViewportState(
-                    token: followToken,
-                    workspaceId: destinationWorkspaceId
-                ),
-                rememberedFocusToken: followToken
-            )
 
             controller.layoutRefreshController.commitWorkspaceTransition(
                 affectedWorkspaces: mutation.affectedWorkspaceIds,
