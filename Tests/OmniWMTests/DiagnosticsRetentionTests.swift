@@ -31,7 +31,7 @@ final class DiagnosticsRetentionTests: XCTestCase {
 
         _ = try write("omniwm-trace-1.log", in: dir)
         _ = try write("omniwm-diagnostics-1.log", in: dir)
-        _ = try write("omniwm-bundle-1.zip", in: dir)
+        _ = try write("omniwm-crash-1.log", in: dir)
         _ = try write("keep.txt", in: dir)
 
         DiagnosticsRetention.wipe(directory: dir)
@@ -45,9 +45,9 @@ final class DiagnosticsRetentionTests: XCTestCase {
 
         _ = try write("omniwm-trace-1.log", in: dir)
         _ = try write("omniwm-diagnostics-1.log", in: dir)
-        _ = try write("omniwm-bundle-1.zip", in: dir)
+        _ = try write("omniwm-crash-1.log", in: dir)
 
-        DiagnosticsRetention.wipe(directory: dir, prefixes: ["omniwm-diagnostics-", "omniwm-bundle-"])
+        DiagnosticsRetention.wipe(directory: dir, prefixes: ["omniwm-diagnostics-", "omniwm-crash-"])
 
         XCTAssertEqual(names(in: dir), ["omniwm-trace-1.log"])
     }
@@ -56,11 +56,11 @@ final class DiagnosticsRetentionTests: XCTestCase {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        _ = try write("omniwm-bundle-old.zip", in: dir)
-        let keep = try write("omniwm-bundle-new.zip", in: dir)
+        _ = try write("omniwm-diagnostics-old.log", in: dir)
+        let keep = try write("omniwm-diagnostics-new.log", in: dir)
 
-        DiagnosticsRetention.wipe(directory: dir, prefixes: ["omniwm-bundle-"], except: [keep])
+        DiagnosticsRetention.wipe(directory: dir, prefixes: ["omniwm-diagnostics-"], except: [keep])
 
-        XCTAssertEqual(names(in: dir), ["omniwm-bundle-new.zip"])
+        XCTAssertEqual(names(in: dir), ["omniwm-diagnostics-new.log"])
     }
 }

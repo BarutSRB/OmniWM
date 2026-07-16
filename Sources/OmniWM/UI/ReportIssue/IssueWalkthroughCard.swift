@@ -36,7 +36,7 @@ struct IssueWalkthroughCard: View {
             id: 4,
             icon: "paperplane",
             title: "Submit",
-            detail: "OmniWM creates and reveals a diagnostics bundle, then opens a pre-filled GitHub issue — drag the bundle in and post."
+            detail: "OmniWM creates one fresh diagnostic log with any evidence you selected, then opens GitHub."
         )
     ]
 

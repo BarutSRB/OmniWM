@@ -11,6 +11,7 @@ final class ReportIssueViewModel {
     enum Phase: Equatable {
         case editing
         case rewriting
+        case submitting
         case submitted(SubmissionOutcome)
     }
 
@@ -59,14 +60,17 @@ final class ReportIssueViewModel {
     private(set) var suggestion: RewrittenIssue?
     private(set) var polishedBody: String?
     private(set) var errorMessage: String?
-    private(set) var lastBundleURL: URL?
-    private(set) var lastBundleError: String?
+    private(set) var lastAttachment: URL?
+    private(set) var lastAttachmentError: String?
+    private(set) var lastAttachmentWarning: String?
+    private(set) var selectedEvidence: IssueDiagnosticEvidence?
 
     let availability: IssueAIAvailability
 
     private let engine: (any IssueRewriting)?
     private let urlBuilder: GitHubIssueURLBuilder
-    private let makeDiagnosticsBundle: @MainActor () throws -> URL
+    private let prepareDiagnosticAttachment: @MainActor (IssueDiagnosticEvidence?) async throws
+        -> DiagnosticAttachmentResult
     private let hotkeyContextProvider: @MainActor (String) -> String
     private let revealInFinder: @MainActor (URL) -> Void
     private let openURL: @MainActor (URL) -> Void
@@ -78,7 +82,10 @@ final class ReportIssueViewModel {
         engine: (any IssueRewriting)? = nil,
         defaultLayout: LayoutType = .niri,
         urlBuilder: GitHubIssueURLBuilder = GitHubIssueURLBuilder(),
-        makeDiagnosticsBundle: @MainActor @escaping () throws -> URL = { throw IssueReportError.unavailable },
+        prepareDiagnosticAttachment: @MainActor @escaping (IssueDiagnosticEvidence?) async throws
+            -> DiagnosticAttachmentResult = { _ in
+                throw IssueReportError.unavailable
+            },
         hotkeyContextProvider: @MainActor @escaping (String) -> String = { _ in "" },
         revealInFinder: @MainActor @escaping (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) },
         openURL: @MainActor @escaping (URL) -> Void = { _ = NSWorkspace.shared.open($0) },
@@ -93,7 +100,7 @@ final class ReportIssueViewModel {
         self.engine = engine
         availability = engine?.availability ?? .unsupported
         self.urlBuilder = urlBuilder
-        self.makeDiagnosticsBundle = makeDiagnosticsBundle
+        self.prepareDiagnosticAttachment = prepareDiagnosticAttachment
         self.hotkeyContextProvider = hotkeyContextProvider
         self.revealInFinder = revealInFinder
         self.openURL = openURL
@@ -168,18 +175,28 @@ final class ReportIssueViewModel {
         suggestion = nil
     }
 
-    func submit() {
+    func submit() async {
         guard canSubmit else { return }
-        lastBundleURL = nil
-        lastBundleError = nil
+        let evidence = selectedEvidence
+        let submittedTitle = title
+        let submittedBody = submissionBody
+        phase = .submitting
+        lastAttachment = nil
+        lastAttachmentError = nil
+        lastAttachmentWarning = nil
         do {
-            let url = try makeDiagnosticsBundle()
-            lastBundleURL = url
-            revealInFinder(url)
+            let result = try await prepareDiagnosticAttachment(evidence)
+            guard phase == .submitting else { return }
+            lastAttachment = result.url
+            if evidence != nil, !result.includedEvidence {
+                lastAttachmentWarning = "The selected evidence was unavailable, so the log contains a fresh snapshot only."
+            }
+            revealInFinder(result.url)
         } catch {
-            lastBundleError = error.localizedDescription
+            guard phase == .submitting else { return }
+            lastAttachmentError = error.localizedDescription
         }
-        switch urlBuilder.submission(title: title, body: submissionBody) {
+        switch urlBuilder.submission(title: submittedTitle, body: submittedBody) {
         case let .url(url):
             openURL(url)
             phase = .submitted(.openedBrowser)
@@ -191,9 +208,19 @@ final class ReportIssueViewModel {
         saveDraft(nil)
     }
 
-    func revealLastBundle() {
-        guard let lastBundleURL else { return }
-        revealInFinder(lastBundleURL)
+    func selectEvidence(_ evidence: IssueDiagnosticEvidence) {
+        selectedEvidence = evidence
+        lastAttachmentWarning = nil
+    }
+
+    func useFreshSnapshot() {
+        selectedEvidence = nil
+        lastAttachmentWarning = nil
+    }
+
+    func revealLastAttachment() {
+        guard let lastAttachment else { return }
+        revealInFinder(lastAttachment)
     }
 
     func startOver() {
@@ -210,8 +237,10 @@ final class ReportIssueViewModel {
         suggestion = nil
         polishedBody = nil
         errorMessage = nil
-        lastBundleURL = nil
-        lastBundleError = nil
+        lastAttachment = nil
+        lastAttachmentError = nil
+        lastAttachmentWarning = nil
+        selectedEvidence = nil
         phase = .editing
         saveDraft(nil)
     }

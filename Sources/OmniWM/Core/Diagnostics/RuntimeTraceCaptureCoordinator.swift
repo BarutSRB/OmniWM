@@ -240,7 +240,6 @@ final class RuntimeTraceCaptureCoordinator {
         let session = TraceCaptureSession(startedAt: Date(), startReport: reportProvider())
         self.session = session
         phase = .recording
-        lastArtifact = nil
         onStateChange?()
 
         do {
@@ -248,6 +247,10 @@ final class RuntimeTraceCaptureCoordinator {
             guard phase == .recording,
                   self.session?.startedAt == session.startedAt
             else { return .noChange }
+            if lastArtifact != nil {
+                lastArtifact = nil
+                onStateChange?()
+            }
         } catch {
             guard phase == .recording,
                   self.session?.startedAt == session.startedAt

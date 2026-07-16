@@ -248,17 +248,17 @@ final class IssueReporterTests: XCTestCase {
         XCTAssertTrue(body.contains("## Additional Context\nNot provided"))
     }
 
-    func testSubmitOpensBrowser() {
+    func testSubmitOpensBrowser() async {
         var opened: [URL] = []
         let model = makeModel(engine: FakeIssueEngine(), openURL: { opened.append($0) })
         model.title = "Bug"
         model.actual = "Body"
-        model.submit()
+        await model.submit()
         XCTAssertEqual(model.phase, .submitted(.openedBrowser))
         XCTAssertEqual(opened.count, 1)
     }
 
-    func testSubmitLongBodyCopiesToClipboard() {
+    func testSubmitLongBodyCopiesToClipboard() async {
         var opened: [URL] = []
         var copied: [String] = []
         let builder = GitHubIssueURLBuilder(appVersion: "1.0", osVersion: "26.0", maxURLLength: 60)
@@ -270,50 +270,160 @@ final class IssueReporterTests: XCTestCase {
         )
         model.title = "Bug"
         model.actual = String(repeating: "x", count: 500)
-        model.submit()
+        await model.submit()
         XCTAssertEqual(model.phase, .submitted(.copiedToClipboard))
         XCTAssertEqual(opened.count, 1)
         XCTAssertEqual(copied.count, 1)
         XCTAssertTrue(copied.first?.contains("## Environment") ?? false)
     }
 
-    func testSubmitWithDiagnosticsBundleRevealsAndRecords() {
+    func testSubmitRevealsAndRecordsSingleDiagnosticAttachment() async {
         var revealed: [URL] = []
-        let bundle = URL(fileURLWithPath: "/tmp/omniwm-bundle.zip")
+        var resolvedEvidence: [IssueDiagnosticEvidence?] = []
+        let attachment = URL(fileURLWithPath: "/tmp/omniwm-diagnostics.log")
+        let crash = URL(fileURLWithPath: "/tmp/omniwm-crash.log")
         let model = makeModel(
             engine: FakeIssueEngine(),
-            makeDiagnosticsBundle: { bundle },
+            prepareDiagnosticAttachment: {
+                resolvedEvidence.append($0)
+                return DiagnosticAttachmentResult(url: attachment, includedEvidence: true)
+            },
             revealInFinder: { revealed.append($0) }
         )
         model.title = "Bug"
         model.actual = "Body"
-        model.submit()
+        model.category = .placement
+        model.selectEvidence(.crash(crash))
+        await model.submit()
         XCTAssertEqual(model.phase, .submitted(.openedBrowser))
-        XCTAssertEqual(model.lastBundleURL, bundle)
-        XCTAssertNil(model.lastBundleError)
-        XCTAssertEqual(revealed, [bundle])
+        XCTAssertEqual(model.lastAttachment, attachment)
+        XCTAssertNil(model.lastAttachmentError)
+        XCTAssertEqual(resolvedEvidence, [.crash(crash)])
+        XCTAssertEqual(revealed, [attachment])
     }
 
-    func testSubmitDiagnosticsFailureStillSubmits() {
+    func testSubmitDiagnosticAttachmentFailureStillSubmits() async {
         var opened: [URL] = []
         let model = makeModel(
             engine: FakeIssueEngine(),
-            makeDiagnosticsBundle: { throw IssueReportError.generationFailed("disk full") },
+            prepareDiagnosticAttachment: { _ in throw IssueReportError.generationFailed("disk full") },
             openURL: { opened.append($0) }
         )
         model.title = "Bug"
         model.actual = "Body"
-        model.submit()
+        await model.submit()
         XCTAssertEqual(model.phase, .submitted(.openedBrowser))
-        XCTAssertNil(model.lastBundleURL)
-        XCTAssertEqual(model.lastBundleError, "disk full")
+        XCTAssertNil(model.lastAttachment)
+        XCTAssertEqual(model.lastAttachmentError, "disk full")
         XCTAssertEqual(opened.count, 1)
+    }
+
+    func testUnavailableSelectedEvidenceProducesNonfatalWarning() async {
+        let attachment = URL(fileURLWithPath: "/tmp/omniwm-diagnostics.log")
+        let model = makeModel(
+            engine: FakeIssueEngine(),
+            prepareDiagnosticAttachment: { _ in
+                DiagnosticAttachmentResult(url: attachment, includedEvidence: false)
+            }
+        )
+        model.title = "Bug"
+        model.actual = "Body"
+        model.selectEvidence(.crash(URL(fileURLWithPath: "/tmp/missing-crash.log")))
+
+        await model.submit()
+
+        XCTAssertEqual(model.phase, .submitted(.openedBrowser))
+        XCTAssertNotNil(model.lastAttachmentWarning)
+        XCTAssertNil(model.lastAttachmentError)
+    }
+
+    func testSubmittingPhasePreventsDuplicateSubmission() async {
+        let gate = IssueAttachmentGate()
+        let started = expectation(description: "attachment preparation started")
+        let attachment = URL(fileURLWithPath: "/tmp/omniwm-diagnostics.log")
+        var opened: [URL] = []
+        let model = makeModel(
+            engine: FakeIssueEngine(),
+            prepareDiagnosticAttachment: { _ in
+                started.fulfill()
+                await gate.wait()
+                return DiagnosticAttachmentResult(url: attachment, includedEvidence: false)
+            },
+            openURL: { opened.append($0) }
+        )
+        model.title = "Bug"
+        model.actual = "Body"
+
+        let firstSubmission = Task { @MainActor in await model.submit() }
+        await fulfillment(of: [started], timeout: 1)
+        XCTAssertEqual(model.phase, .submitting)
+
+        let duplicateSubmission = Task { @MainActor in await model.submit() }
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
+        let preparationCount = await gate.waitCount()
+        XCTAssertEqual(preparationCount, 1)
+
+        await gate.release()
+        await firstSubmission.value
+        await duplicateSubmission.value
+        XCTAssertEqual(opened.count, 1)
+    }
+
+    func testSubmitUsesContentValidatedBeforeAttachmentPreparation() async throws {
+        let gate = IssueAttachmentGate()
+        let started = expectation(description: "attachment preparation started")
+        let attachment = URL(fileURLWithPath: "/tmp/omniwm-diagnostics.log")
+        var opened: [URL] = []
+        let model = makeModel(
+            engine: FakeIssueEngine(),
+            prepareDiagnosticAttachment: { _ in
+                started.fulfill()
+                await gate.wait()
+                return DiagnosticAttachmentResult(url: attachment, includedEvidence: false)
+            },
+            openURL: { opened.append($0) }
+        )
+        model.title = "Original title"
+        model.actual = "Original behavior"
+
+        let submission = Task { @MainActor in await model.submit() }
+        await fulfillment(of: [started], timeout: 1)
+        model.title = ""
+        model.actual = "Edited during submission"
+        await gate.release()
+        await submission.value
+
+        let openedURL = try XCTUnwrap(opened.first)
+        let queryItems = try XCTUnwrap(URLComponents(url: openedURL, resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(queryItems.first { $0.name == "title" }?.value, "Original title")
+        let body = try XCTUnwrap(queryItems.first { $0.name == "body" }?.value)
+        XCTAssertTrue(body.contains("Original behavior"))
+        XCTAssertFalse(body.contains("Edited during submission"))
+    }
+
+    func testEvidenceSelectionIsSessionOnly() {
+        var saved: IssueDraft?
+        let crash = URL(fileURLWithPath: "/tmp/omniwm-crash.log")
+        let model = ReportIssueViewModel(engine: FakeIssueEngine(), saveDraft: { saved = $0 })
+        model.title = "Bug"
+        model.actual = "Body"
+        model.selectEvidence(.crash(crash))
+
+        let restored = ReportIssueViewModel(engine: FakeIssueEngine(), loadDraft: { saved })
+
+        XCTAssertEqual(model.selectedEvidence, .crash(crash))
+        XCTAssertNil(restored.selectedEvidence)
     }
 
     private func makeModel(
         engine: any IssueRewriting,
         urlBuilder: GitHubIssueURLBuilder = GitHubIssueURLBuilder(appVersion: "1.0", osVersion: "26.0"),
-        makeDiagnosticsBundle: @MainActor @escaping () throws -> URL = { throw IssueReportError.unavailable },
+        prepareDiagnosticAttachment: @MainActor @escaping (IssueDiagnosticEvidence?) async throws
+            -> DiagnosticAttachmentResult = { _ in
+                throw IssueReportError.unavailable
+            },
         hotkeyContextProvider: @MainActor @escaping (String) -> String = { _ in "" },
         revealInFinder: @MainActor @escaping (URL) -> Void = { _ in },
         openURL: @MainActor @escaping (URL) -> Void = { _ in },
@@ -322,7 +432,7 @@ final class IssueReporterTests: XCTestCase {
         ReportIssueViewModel(
             engine: engine,
             urlBuilder: urlBuilder,
-            makeDiagnosticsBundle: makeDiagnosticsBundle,
+            prepareDiagnosticAttachment: prepareDiagnosticAttachment,
             hotkeyContextProvider: hotkeyContextProvider,
             revealInFinder: revealInFinder,
             openURL: openURL,
@@ -348,5 +458,24 @@ private final class FakeIssueEngine: IssueRewriting {
     func rewrite(_ freeform: String, hotkeyContext: String) async throws -> RewrittenIssue {
         lastHotkeyContext = hotkeyContext
         return try rewriteResult.get()
+    }
+}
+
+private actor IssueAttachmentGate {
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var count = 0
+
+    func wait() async {
+        count += 1
+        await withCheckedContinuation { continuations.append($0) }
+    }
+
+    func waitCount() -> Int {
+        count
+    }
+
+    func release() {
+        continuations.forEach { $0.resume() }
+        continuations.removeAll(keepingCapacity: true)
     }
 }

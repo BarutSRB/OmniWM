@@ -3,6 +3,34 @@
 
 import Foundation
 
+enum IssueDiagnosticEvidence: Equatable, Sendable {
+    case crash(URL)
+    case trace(TraceCaptureArtifact)
+
+    var url: URL {
+        switch self {
+        case let .crash(url):
+            url
+        case let .trace(artifact):
+            artifact.url
+        }
+    }
+
+    var kind: String {
+        switch self {
+        case .crash:
+            "crash"
+        case .trace:
+            "trace"
+        }
+    }
+}
+
+struct DiagnosticAttachmentResult: Equatable, Sendable {
+    let url: URL
+    let includedEvidence: Bool
+}
+
 @MainActor
 extension WMController {
     func refreshDiagnosticsIssues() {
@@ -20,104 +48,138 @@ extension WMController {
         let filename = "omniwm-diagnostics-\(Int(Date().timeIntervalSince1970 * 1000)).log"
         let url = directory.appendingPathComponent(filename, isDirectory: false)
         try diagnosticsReportText(traceLimit: traceLimit).write(to: url, atomically: true, encoding: .utf8)
+        DiagnosticsRetention.wipe(directory: directory, prefixes: ["omniwm-diagnostics-"], except: [url])
         return url
     }
 
-    func writeDiagnosticsBundle() throws -> URL {
-        let reportURL = try writeDiagnosticsReport()
-        var committed = false
-        defer {
-            if !committed { try? FileManager.default.removeItem(at: reportURL) }
-        }
+    func prepareDiagnosticAttachment(evidence: IssueDiagnosticEvidence?) async throws -> DiagnosticAttachmentResult {
+        let report = diagnosticsReportText()
         let directory = diagnosticsDirectory
-        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
-        let destination = directory.appendingPathComponent("omniwm-bundle-\(timestamp).zip", isDirectory: false)
-
-        let sources = [reportURL]
-            + recentCrashLogs(in: directory)
-            + recentTraceLogs(in: directory)
-            + recentWindowDumps(in: directory)
-        let staging = directory.appendingPathComponent("omniwm-support-\(timestamp)", isDirectory: true)
-        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: staging) }
-        for source in sources {
-            try FileManager.default.copyItem(
-                at: source,
-                to: staging.appendingPathComponent(source.lastPathComponent, isDirectory: false)
+        return try await Task.detached(priority: .utility) {
+            try DiagnosticAttachmentWriter.prepare(
+                report: report,
+                evidence: evidence,
+                directory: directory
             )
-        }
-        stageSettings(into: staging)
+        }.value
+    }
+}
 
-        var coordinatorError: NSError?
-        var copyError: Error?
-        NSFileCoordinator().coordinate(
-            readingItemAt: staging,
-            options: .forUploading,
-            error: &coordinatorError
-        ) { zippedURL in
+private enum SelectedEvidenceReadError: Error {
+    case unavailable
+}
+
+private enum DiagnosticAttachmentWriter {
+    private static let evidenceChunkSize = 64 * 1024
+
+    static func prepare(
+        report: String,
+        evidence: IssueDiagnosticEvidence?,
+        directory: URL
+    ) throws -> DiagnosticAttachmentResult {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(
+            "omniwm-diagnostics-\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString).log",
+            isDirectory: false
+        )
+        let includedEvidence: Bool
+        let temporary: URL
+        if let evidence {
+            let candidate = temporaryURL(in: directory)
             do {
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    try FileManager.default.removeItem(at: destination)
-                }
-                try FileManager.default.copyItem(at: zippedURL, to: destination)
-            } catch {
-                copyError = error
+                try write(report: report, evidence: evidence, evidenceStatus: "included", to: candidate)
+                temporary = candidate
+                includedEvidence = true
+            } catch SelectedEvidenceReadError.unavailable {
+                try? FileManager.default.removeItem(at: candidate)
+                let fallback = temporaryURL(in: directory)
+                try write(report: report, evidence: evidence, evidenceStatus: "unavailable", to: fallback)
+                temporary = fallback
+                includedEvidence = false
             }
+        } else {
+            let candidate = temporaryURL(in: directory)
+            try write(report: report, evidence: nil, evidenceStatus: "not_selected", to: candidate)
+            temporary = candidate
+            includedEvidence = false
         }
-        if let coordinatorError { throw coordinatorError }
-        if let copyError { throw copyError }
-
-        committed = true
+        do {
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
         DiagnosticsRetention.wipe(
             directory: directory,
-            prefixes: ["omniwm-diagnostics-", "omniwm-bundle-"],
-            except: [reportURL, destination]
+            prefixes: ["omniwm-diagnostics-"],
+            except: [destination]
         )
-        return destination
+        return DiagnosticAttachmentResult(url: destination, includedEvidence: includedEvidence)
     }
 
-    private func stageSettings(into staging: URL) {
-        guard let raw = try? String(contentsOf: settings.settingsFileURL, encoding: .utf8) else { return }
-        try? raw.write(
-            to: staging.appendingPathComponent(SettingsFilePersistence.fileName, isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-    }
-
-    private func recentCrashLogs(in directory: URL, limit: Int = 5) -> [URL] {
-        recentFiles(in: directory, limit: limit) {
-            $0.lastPathComponent.hasPrefix("omniwm-crash-") && $0.pathExtension == "log"
+    private static func write(
+        report: String,
+        evidence: IssueDiagnosticEvidence?,
+        evidenceStatus: String,
+        to url: URL
+    ) throws {
+        try Data().write(to: url, options: .withoutOverwriting)
+        let output: FileHandle
+        do {
+            output = try FileHandle(forWritingTo: url)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
+        do {
+            try output.write(contentsOf: Data(report.utf8))
+            try output.write(contentsOf: Data(evidenceHeader(for: evidence, status: evidenceStatus).utf8))
+            if evidenceStatus == "included", let evidence {
+                try stream(evidence.url, to: output)
+            }
+            try output.close()
+        } catch {
+            try? output.close()
+            try? FileManager.default.removeItem(at: url)
+            throw error
         }
     }
 
-    private func recentTraceLogs(in directory: URL, limit: Int = 10) -> [URL] {
-        recentFiles(in: directory, limit: limit) {
-            $0.lastPathComponent.hasPrefix("omniwm-trace-")
-                && $0.pathExtension == "log"
-                && !$0.lastPathComponent.hasSuffix(".partial.log")
+    private static func stream(_ url: URL, to output: FileHandle) throws {
+        let input: FileHandle
+        do {
+            input = try FileHandle(forReadingFrom: url)
+        } catch {
+            throw SelectedEvidenceReadError.unavailable
+        }
+        defer { try? input.close() }
+        while true {
+            let chunk: Data?
+            do {
+                chunk = try input.read(upToCount: evidenceChunkSize)
+            } catch {
+                throw SelectedEvidenceReadError.unavailable
+            }
+            guard let chunk, !chunk.isEmpty else { return }
+            try output.write(contentsOf: chunk)
         }
     }
 
-    private func recentWindowDumps(in directory: URL, limit: Int = 10) -> [URL] {
-        recentFiles(in: directory, limit: limit) {
-            $0.lastPathComponent.hasPrefix("omniwm-window-") && $0.pathExtension == "json"
+    private static func evidenceHeader(
+        for evidence: IssueDiagnosticEvidence?,
+        status: String
+    ) -> String {
+        var lines = ["", "", "== Selected Diagnostic Evidence ==", "evidenceStatus=\(status)"]
+        if let evidence {
+            lines.append("evidenceType=\(evidence.kind)")
+            lines.append("evidenceFile=\(evidence.url.lastPathComponent)")
         }
+        lines.append("")
+        lines.append("")
+        return lines.joined(separator: "\n")
     }
 
-    private func recentFiles(in directory: URL, limit: Int, matching: (URL) -> Bool) -> [URL] {
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey]
-        )) ?? []
-        return contents
-            .filter(matching)
-            .sorted { modified($0) > modified($1) }
-            .prefix(limit)
-            .map(\.self)
-    }
-
-    private func modified(_ url: URL) -> Date {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+    private static func temporaryURL(in directory: URL) -> URL {
+        directory.appendingPathComponent(".omniwm-diagnostics-\(UUID().uuidString).tmp", isDirectory: false)
     }
 }

@@ -345,9 +345,6 @@ struct DiagnosticsSettingsTab: View {
         if name.hasPrefix("omniwm-diagnostics-") {
             return "Diagnostics"
         }
-        if name.hasPrefix("omniwm-bundle-") {
-            return "Bundle"
-        }
         return name
     }
 
