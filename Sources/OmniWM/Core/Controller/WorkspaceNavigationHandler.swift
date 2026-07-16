@@ -71,6 +71,60 @@ final class WorkspaceNavigationHandler {
         return ids
     }
 
+    /// Completes a window/column workspace transfer, either following focus to the
+    /// destination workspace or staying on the source, based on the
+    /// `focusFollowsWindowToMonitor` setting. Mirrors the follow/stay branching of
+    /// `moveFocusedWindow(toRawWorkspaceID:)` so all move-to-workspace operations behave
+    /// consistently under the same toggle.
+    private func finishWorkspaceMove(
+        followToken: WindowToken,
+        sourceWorkspaceId: WorkspaceDescriptor.ID,
+        mutation: StructuralMutation
+    ) {
+        guard let controller else { return }
+
+        if controller.settings.focusFollowsWindowToMonitor {
+            controller.isTransferringWindow = true
+            defer { controller.isTransferringWindow = false }
+
+            let destinationWorkspaceId = mutation.destinationWorkspaceId
+            if let targetMonitor = controller.workspaceManager.monitorForWorkspace(destinationWorkspaceId) {
+                _ = controller.workspaceManager.setActiveWorkspace(destinationWorkspaceId, on: targetMonitor.id)
+            }
+
+            if let sourceMonitor = controller.workspaceManager.monitor(for: sourceWorkspaceId) {
+                controller.layoutRefreshController.stopScrollAnimation(for: sourceMonitor.displayId)
+            }
+
+            applySessionPatch(
+                workspaceId: destinationWorkspaceId,
+                viewportState: transferredWindowNiriViewportState(
+                    token: followToken,
+                    workspaceId: destinationWorkspaceId
+                ),
+                rememberedFocusToken: followToken
+            )
+
+            controller.layoutRefreshController.commitWorkspaceTransition(
+                affectedWorkspaces: mutation.affectedWorkspaceIds,
+                reason: .workspaceTransition
+            ) { [weak controller] in
+                controller?.focusWindow(followToken)
+            }
+        } else {
+            let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: sourceWorkspaceId)
+
+            controller.layoutRefreshController.commitWorkspaceTransition(
+                affectedWorkspaces: mutation.affectedWorkspaceIds,
+                reason: .workspaceTransition
+            ) { [weak controller] in
+                if let focusToken {
+                    controller?.focusWindow(focusToken)
+                }
+            }
+        }
+    }
+
     private func recoverSourceFocus(
         after transfer: WindowTransferResult,
         from workspaceId: WorkspaceDescriptor.ID
@@ -782,16 +836,11 @@ final class WorkspaceNavigationHandler {
             direction: direction
         ) else { return }
 
-        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: sourceWorkspaceId)
-
-        controller.layoutRefreshController.commitWorkspaceTransition(
-            affectedWorkspaces: mutation.affectedWorkspaceIds,
-            reason: .workspaceTransition
-        ) { [weak controller] in
-            if let focusToken {
-                controller?.focusWindow(focusToken)
-            }
-        }
+        finishWorkspaceMove(
+            followToken: token,
+            sourceWorkspaceId: sourceWorkspaceId,
+            mutation: mutation
+        )
     }
 
     func moveColumnToAdjacentWorkspace(direction: Direction) {
@@ -805,16 +854,11 @@ final class WorkspaceNavigationHandler {
             direction: direction
         ) else { return }
 
-        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: sourceWorkspaceId)
-
-        controller.layoutRefreshController.commitWorkspaceTransition(
-            affectedWorkspaces: mutation.affectedWorkspaceIds,
-            reason: .workspaceTransition
-        ) { [weak controller] in
-            if let focusToken {
-                controller?.focusWindow(focusToken)
-            }
-        }
+        finishWorkspaceMove(
+            followToken: token,
+            sourceWorkspaceId: sourceWorkspaceId,
+            mutation: mutation
+        )
     }
 
     func moveColumnToWorkspaceByIndex(index: Int) {
@@ -838,16 +882,11 @@ final class WorkspaceNavigationHandler {
             toWorkspaceId: targetWorkspaceId
         ) else { return }
 
-        let focusToken = controller.resolveAndSetWorkspaceFocusToken(for: sourceWorkspaceId)
-
-        controller.layoutRefreshController.commitWorkspaceTransition(
-            affectedWorkspaces: mutation.affectedWorkspaceIds,
-            reason: .workspaceTransition
-        ) { [weak controller] in
-            if let focusToken {
-                controller?.focusWindow(focusToken)
-            }
-        }
+        finishWorkspaceMove(
+            followToken: token,
+            sourceWorkspaceId: sourceWorkspaceId,
+            mutation: mutation
+        )
     }
 
     func moveFocusedWindow(toWorkspaceIndex index: Int) {
