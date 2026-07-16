@@ -8,15 +8,64 @@ import Foundation
 
 private let perAppTimeout: TimeInterval = 0.5
 
+private struct FullRescanAppEnumerationResult: Sendable {
+    let pid: pid_t
+    let route: FullRescanEnumerationRoute
+    let windows: [AXEnumeratedWindow]
+    let failed: Bool
+}
+
+private struct FullRescanAppTarget: @unchecked Sendable {
+    let app: NSRunningApplication
+    let route: FullRescanEnumerationRoute
+}
+
+private struct FullRescanDiscoveryEvidence {
+    var pidsWithWindows: Set<pid_t>
+    var windowServerInfoByWindowId: [Int: WindowServerInfo]
+    var ownerPIDByWindowId: [Int: pid_t]
+}
+
+private struct FullRescanCandidateCollection {
+    var candidatesByWindowId: [Int: [FullRescanWindowCandidate]]
+    var identityAliasesByWindowId: [Int: FullRescanWindowIdentityAliases]
+    var failedPIDs: Set<pid_t>
+}
+
+enum FullRescanCandidatePreferenceReason: String, Equatable, Sendable {
+    case manageability = "manageability"
+    case preservedLogicalPID = "preserved_logical_pid"
+    case regularActivationPolicy = "regular_activation_policy"
+    case axHostPID = "ax_host_pid"
+    case windowServerOwnerPID = "window_server_owner_pid"
+    case lowerPID = "lower_pid"
+    case stableFirstCandidate = "stable_first_candidate"
+}
+
+struct FullRescanCandidatePreference: Equatable, Sendable {
+    let prefersCandidate: Bool
+    let reason: FullRescanCandidatePreferenceReason
+}
+
+struct FullRescanWindowIdentityAliases {
+    var pids: Set<pid_t> = []
+    var axRefs: [AXWindowRef] = []
+}
+
 @MainActor
 final class AXManager {
     typealias FrameApplicationTerminalObserver = AXFrameApplicationTerminalObserver
 
     struct FullRescanEnumerationSnapshot {
-        let windows: [(AXWindowRef, pid_t, Int)]
+        let windows: [FullRescanWindowCandidate]
         let failedPIDs: Set<pid_t>
+        let identityAliasesByWindowId: [Int: FullRescanWindowIdentityAliases]
 
-        static let empty = FullRescanEnumerationSnapshot(windows: [], failedPIDs: [])
+        static let empty = FullRescanEnumerationSnapshot(
+            windows: [],
+            failedPIDs: [],
+            identityAliasesByWindowId: [:]
+        )
     }
 
     private static let systemUIBundleIds: Set<String> = [
@@ -204,7 +253,7 @@ final class AXManager {
     func rekeyWindowState(pid: pid_t, oldWindowId: Int, newWindow: AXWindowRef) {
         let newWindowId = newWindow.windowId
         guard oldWindowId != newWindowId else { return }
-        AppAXContext.contexts[pid]?.rekeyWindow(oldWindowId: oldWindowId, newWindow: newWindow)
+        _ = AppAXContext.contexts[pid]?.rekeyWindow(oldWindowId: oldWindowId, newWindow: newWindow)
         frameLedger.rekeyWindowState(oldWindowId: oldWindowId, newWindowId: newWindowId)
         FrameApplyTrace.recordEvent(pid: pid, windowId: oldWindowId, outcome: "outcome=rekey→\(newWindowId)")
 
@@ -268,14 +317,13 @@ final class AXManager {
     func windowsForApp(_ app: NSRunningApplication) async -> [(AXWindowRef, pid_t, Int)] {
         guard shouldTrack(app) else { return [] }
         do {
-            guard let context = try await AppAXContext.getOrCreate(app) else { return [] }
-            let appWindows = try await withTimeoutOrNil(seconds: perAppTimeout) {
-                try await context.getWindowsAsync()
+            guard let context = try await AppAXContext.getOrCreate(app) else {
+                return []
             }
-            if let windows = appWindows {
-                return windows.map { ($0.0, app.processIdentifier, $0.1) }
-            }
-        } catch {}
+            let windows = try await context.getWindowsAsync(timeoutSeconds: perAppTimeout)
+            return windows.map { ($0.axRef, app.processIdentifier, $0.axRef.windowId) }
+        } catch {
+        }
         return []
     }
 
@@ -289,82 +337,320 @@ final class AXManager {
     }
 
     func currentWindowsAsync() async -> [(AXWindowRef, pid_t, Int)] {
-        return await fullRescanEnumerationSnapshot().windows
+        guard let snapshot = try? await fullRescanEnumerationSnapshot() else { return [] }
+        return snapshot.windows.map { ($0.axRef, $0.pid, $0.windowId) }
     }
 
-    func fullRescanEnumerationSnapshot() async -> FullRescanEnumerationSnapshot {
+    func fullRescanEnumerationSnapshot(
+        preservingPIDsByWindowId: [Int: pid_t] = [:]
+    ) async throws -> FullRescanEnumerationSnapshot {
+        try Task.checkCancellation()
         AppAXContext.garbageCollect()
+        let discoveryEvidence = fullRescanDiscoveryEvidence()
+        let appTargets = fullRescanAppTargets(
+            discoveryEvidence: discoveryEvidence,
+            preservingPIDsByWindowId: preservingPIDsByWindowId
+        )
+        let activationPolicyByPID = Dictionary(
+            uniqueKeysWithValues: appTargets.map { ($0.app.processIdentifier, $0.app.activationPolicy) }
+        )
+        let appsByPID = Dictionary(
+            uniqueKeysWithValues: appTargets.map { ($0.app.processIdentifier, $0.app) }
+        )
+        let enumerationResults = try await enumerateFullRescanApps(appTargets)
+        try Task.checkCancellation()
+        let collection = collectFullRescanCandidates(
+            enumerationResults,
+            discoveryEvidence: discoveryEvidence
+        )
+        return try await finalizeFullRescanSnapshot(
+            collection: collection,
+            activationPolicyByPID: activationPolicyByPID,
+            appsByPID: appsByPID,
+            preservingPIDsByWindowId: preservingPIDsByWindowId
+        )
+    }
 
+    private func finalizeFullRescanSnapshot(
+        collection initialCollection: FullRescanCandidateCollection,
+        activationPolicyByPID: [pid_t: NSApplication.ActivationPolicy],
+        appsByPID: [pid_t: NSRunningApplication],
+        preservingPIDsByWindowId: [Int: pid_t]
+    ) async throws -> FullRescanEnumerationSnapshot {
+        try Task.checkCancellation()
+        var collection = initialCollection
+        var selected = Self.selectFullRescanCandidates(
+            collection.candidatesByWindowId,
+            activationPolicyByPID: activationPolicyByPID,
+            preservingPIDsByWindowId: preservingPIDsByWindowId
+        )
+        let failedPromotions = try await promoteOneShotCandidates(selected, appsByPID: appsByPID)
+        try Task.checkCancellation()
+        if !failedPromotions.isEmpty {
+            collection.failedPIDs.formUnion(failedPromotions)
+            for candidate in selected
+                where candidate.enumerationRoute == .oneShot && failedPromotions.contains(candidate.pid)
+            {
+                if let preservedPID = preservingPIDsByWindowId[candidate.windowId] {
+                    collection.failedPIDs.insert(preservedPID)
+                }
+            }
+            selected.removeAll {
+                $0.enumerationRoute == .oneShot && failedPromotions.contains($0.pid)
+            }
+        }
+
+        let selectedWindowIds = Set(selected.map(\.windowId))
+        collection.identityAliasesByWindowId = collection.identityAliasesByWindowId.filter {
+            selectedWindowIds.contains($0.key)
+        }
+        return .init(
+            windows: selected,
+            failedPIDs: collection.failedPIDs,
+            identityAliasesByWindowId: collection.identityAliasesByWindowId
+        )
+    }
+
+    private func fullRescanAppTargets(
+        discoveryEvidence: FullRescanDiscoveryEvidence,
+        preservingPIDsByWindowId: [Int: pid_t]
+    ) -> [FullRescanAppTarget] {
+        let existingContextPIDs = Set(AppAXContext.contexts.keys)
+        let preservingPIDs = Set(preservingPIDsByWindowId.values)
+        return NSWorkspace.shared.runningApplications.compactMap { app in
+            guard shouldTrack(app),
+                  let route = Self.fullRescanEnumerationRoute(
+                      activationPolicy: app.activationPolicy,
+                      hasDiscoveryEvidence: discoveryEvidence.pidsWithWindows.contains(app.processIdentifier),
+                      hasContext: existingContextPIDs.contains(app.processIdentifier),
+                      hasPreservedState: preservingPIDs.contains(app.processIdentifier)
+                  )
+            else {
+                return nil
+            }
+            return FullRescanAppTarget(app: app, route: route)
+        }
+    }
+
+    private func fullRescanDiscoveryEvidence() -> FullRescanDiscoveryEvidence {
         let visibleWindows = SkyLight.shared.queryAllVisibleWindows()
-        var pidsWithWindows = Set(visibleWindows.map { $0.pid })
-        let skyLightPidCount = pidsWithWindows.count
-
-        // Some Electron apps are missed by the broad SLS enumeration but are
-        // visible through CGWindowList. Add regular rendered windows from the
-        // public API without changing apps already discovered through SLS.
-        if let cgWindows = CGWindowListCopyWindowInfo(
+        var evidence = FullRescanDiscoveryEvidence(
+            pidsWithWindows: Set(visibleWindows.map { $0.pid }),
+            windowServerInfoByWindowId: [:],
+            ownerPIDByWindowId: [:]
+        )
+        for window in visibleWindows {
+            evidence.windowServerInfoByWindowId[Int(window.id)] = window
+            evidence.ownerPIDByWindowId[Int(window.id)] = pid_t(window.pid)
+        }
+        let skyLightPIDCount = evidence.pidsWithWindows.count
+        guard let windows = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
-        ) as? [[String: Any]] {
-            for window in cgWindows {
-                guard let pidNumber = window[kCGWindowOwnerPID as String] as? Int,
-                      let layer = window[kCGWindowLayer as String] as? Int,
-                      layer == 0,
-                      let alpha = window[kCGWindowAlpha as String] as? Double,
-                      alpha > 0
-                else { continue }
-                pidsWithWindows.insert(pid_t(pidNumber))
-            }
-        } else {
+        ) as? [[String: Any]] else {
             FallbackFiringRecorder.shared.note(.capture, "cgWindowListNull")
+            return evidence
+        }
+        for window in windows {
+            guard let pidNumber = window[kCGWindowOwnerPID as String] as? Int,
+                  let windowNumber = window[kCGWindowNumber as String] as? Int,
+                  let layer = window[kCGWindowLayer as String] as? Int,
+                  layer == 0,
+                  let alpha = window[kCGWindowAlpha as String] as? Double,
+                  alpha > 0
+            else { continue }
+            let pid = pid_t(pidNumber)
+            evidence.pidsWithWindows.insert(pid)
+            evidence.ownerPIDByWindowId[windowNumber] = evidence.ownerPIDByWindowId[windowNumber] ?? pid
         }
         FallbackFiringRecorder.shared.note(
             .capture,
             "cgWindowListSupplementPids",
-            pidsWithWindows.count - skyLightPidCount
+            evidence.pidsWithWindows.count - skyLightPIDCount
         )
+        return evidence
+    }
 
-        let apps = NSWorkspace.shared.runningApplications.filter {
-            shouldTrack($0) && pidsWithWindows.contains($0.processIdentifier)
+    private func collectFullRescanCandidates(
+        _ results: [FullRescanAppEnumerationResult],
+        discoveryEvidence: FullRescanDiscoveryEvidence
+    ) -> FullRescanCandidateCollection {
+        var collection = FullRescanCandidateCollection(
+            candidatesByWindowId: [:],
+            identityAliasesByWindowId: [:],
+            failedPIDs: []
+        )
+        for result in results {
+            if result.failed {
+                collection.failedPIDs.insert(result.pid)
+            }
+            for window in result.windows {
+                let windowId = window.axRef.windowId
+                let ownerPID = discoveryEvidence.ownerPIDByWindowId[windowId]
+                appendFullRescanAliases(
+                    for: window,
+                    logicalPID: result.pid,
+                    ownerPID: ownerPID,
+                    to: &collection.identityAliasesByWindowId
+                )
+                let candidate = FullRescanWindowCandidate(
+                    enumeratedWindow: window,
+                    logicalPID: result.pid,
+                    windowServerInfo: discoveryEvidence.windowServerInfoByWindowId[windowId],
+                    windowServerOwnerPID: ownerPID,
+                    enumerationRoute: result.route
+                )
+                collection.candidatesByWindowId[windowId, default: []].append(candidate)
+            }
         }
+        return collection
+    }
 
-        return await withTaskGroup(
-            of: (pid: pid_t, windows: [(AXWindowRef, pid_t, Int)], failed: Bool).self
-        ) { group in
-            for app in apps {
-                group.addTask {
-                    do {
-                        guard let context = try await AppAXContext.getOrCreate(app) else {
-                            return (app.processIdentifier, [], true)
-                        }
+    private func appendFullRescanAliases(
+        for window: AXEnumeratedWindow,
+        logicalPID: pid_t,
+        ownerPID: pid_t?,
+        to aliasesByWindowId: inout [Int: FullRescanWindowIdentityAliases]
+    ) {
+        let windowId = window.axRef.windowId
+        var aliases = aliasesByWindowId[windowId] ?? .init()
+        aliases.pids.insert(logicalPID)
+        if let axPid = window.axPid {
+            aliases.pids.insert(axPid)
+        }
+        if let ownerPID {
+            aliases.pids.insert(ownerPID)
+        }
+        if !aliases.axRefs.contains(where: { CFEqual($0.element, window.axRef.element) }) {
+            aliases.axRefs.append(window.axRef)
+        }
+        aliasesByWindowId[windowId] = aliases
+    }
 
-                        let appWindows = try await self.withTimeoutOrNil(seconds: perAppTimeout) {
-                            try await context.getWindowsAsync()
-                        }
+    private func enumerateFullRescanApps(
+        _ targets: [FullRescanAppTarget]
+    ) async throws -> [FullRescanAppEnumerationResult] {
+        try await withThrowingTaskGroup(of: FullRescanAppEnumerationResult.self) { group in
+            for target in targets {
+                group.addTask(priority: target.route == .oneShot ? .utility : nil) {
+                    try await Self.enumerateFullRescanApp(target.app, route: target.route)
+                }
+            }
+            var results: [FullRescanAppEnumerationResult] = []
+            results.reserveCapacity(targets.count)
+            for try await result in group {
+                results.append(result)
+            }
+            return results
+        }
+    }
 
-                        if let windows = appWindows {
-                            return (
-                                app.processIdentifier,
-                                windows.map { ($0.0, app.processIdentifier, $0.1) },
-                                false
-                            )
-                        }
-                    } catch {
+    private nonisolated static func enumerateFullRescanApp(
+        _ app: NSRunningApplication,
+        route: FullRescanEnumerationRoute
+    ) async throws -> FullRescanAppEnumerationResult {
+        try Task.checkCancellation()
+        let pid = app.processIdentifier
+        do {
+            let windows: [AXEnumeratedWindow]
+            switch route {
+            case .persistent:
+                guard let context = try await AppAXContext.getOrCreate(app) else {
+                    return .init(pid: pid, route: route, windows: [], failed: true)
+                }
+                windows = try await context.getWindowsAsync(timeoutSeconds: perAppTimeout)
+            case .oneShot:
+                windows = try AXWindowEnumerationInspector.enumerateApplication(
+                    pid: pid,
+                    timeout: perAppTimeout
+                )
+                try Task.checkCancellation()
+            }
+            return .init(pid: pid, route: route, windows: windows, failed: false)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return .init(pid: pid, route: route, windows: [], failed: true)
+        }
+    }
+
+    static func selectFullRescanCandidates(
+        _ candidatesByWindowId: [Int: [FullRescanWindowCandidate]],
+        activationPolicyByPID: [pid_t: NSApplication.ActivationPolicy],
+        preservingPIDsByWindowId: [Int: pid_t]
+    ) -> [FullRescanWindowCandidate] {
+        var selected: [FullRescanWindowCandidate] = []
+        selected.reserveCapacity(candidatesByWindowId.count)
+        for windowId in candidatesByWindowId.keys.sorted() {
+            guard let candidates = candidatesByWindowId[windowId], var current = candidates.first else {
+                continue
+            }
+            for candidate in candidates.dropFirst() {
+                let preference = Self.fullRescanCandidatePreference(
+                    candidate,
+                    over: current,
+                    activationPolicyByPID: activationPolicyByPID,
+                    ownerPID: candidate.windowServerOwnerPID ?? current.windowServerOwnerPID,
+                    existingPID: preservingPIDsByWindowId[windowId]
+                )
+                if preference.prefersCandidate {
+                    current = candidate
+                }
+            }
+            selected.append(current)
+        }
+        return selected
+    }
+
+    private func promoteOneShotCandidates(
+        _ candidates: [FullRescanWindowCandidate],
+        appsByPID: [pid_t: NSRunningApplication]
+    ) async throws -> Set<pid_t> {
+        try Task.checkCancellation()
+        let grouped = Self.oneShotPromotionCandidatesByPID(candidates)
+        var failedPIDs: Set<pid_t> = []
+        for pid in grouped.keys.sorted() {
+            try Task.checkCancellation()
+            guard let app = appsByPID[pid], let candidates = grouped[pid] else {
+                failedPIDs.insert(pid)
+                continue
+            }
+            let hadContext = AppAXContext.contexts[pid] != nil
+            do {
+                guard let context = try await AppAXContext.getOrCreate(app),
+                      try await context.bindWindowsAsync(
+                          candidates.map(\.axRef),
+                          timeoutSeconds: perAppTimeout
+                      )
+                else {
+                    failedPIDs.insert(pid)
+                    if !hadContext {
+                        AppAXContext.contexts[pid]?.destroy()
                     }
-                    return (app.processIdentifier, [], true)
+                    continue
+                }
+            } catch is CancellationError {
+                if !hadContext {
+                    AppAXContext.contexts[pid]?.destroy()
+                }
+                throw CancellationError()
+            } catch {
+                failedPIDs.insert(pid)
+                if !hadContext {
+                    AppAXContext.contexts[pid]?.destroy()
                 }
             }
-
-            var results: [(AXWindowRef, pid_t, Int)] = []
-            var failedPIDs: Set<pid_t> = []
-            for await result in group {
-                results.append(contentsOf: result.windows)
-                if result.failed {
-                    failedPIDs.insert(result.pid)
-                }
-            }
-            return .init(windows: results, failedPIDs: failedPIDs)
         }
+        return failedPIDs
+    }
+
+    static func oneShotPromotionCandidatesByPID(
+        _ selectedCandidates: [FullRescanWindowCandidate]
+    ) -> [pid_t: [FullRescanWindowCandidate]] {
+        Dictionary(
+            grouping: selectedCandidates.filter { $0.enumerationRoute == .oneShot },
+            by: \.pid
+        )
     }
 
     func applyFramesParallel(
@@ -540,27 +826,6 @@ final class AXManager {
         SkyLight.shared.batchMoveWindows(batchPositions)
     }
 
-    private func withTimeoutOrNil<T: Sendable>(
-        seconds: TimeInterval,
-        operation: @Sendable @escaping () async throws -> T
-    ) async throws -> T? {
-        try await withThrowingTaskGroup(of: T?.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return nil
-            }
-
-            if let result = try await group.next() {
-                group.cancelAll()
-                return result
-            }
-            return nil
-        }
-    }
-
     private func shouldTrack(_ app: NSRunningApplication) -> Bool {
         guard !app.isTerminated, app.activationPolicy != .prohibited else { return false }
         guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
@@ -570,6 +835,83 @@ final class AXManager {
         }
 
         return true
+    }
+
+    static func shouldEnumerateForFullRescan(
+        activationPolicy: NSApplication.ActivationPolicy,
+        hasDiscoveryEvidence: Bool
+    ) -> Bool {
+        fullRescanEnumerationRoute(
+            activationPolicy: activationPolicy,
+            hasDiscoveryEvidence: hasDiscoveryEvidence,
+            hasContext: false,
+            hasPreservedState: false
+        ) != nil
+    }
+
+    static func fullRescanEnumerationRoute(
+        activationPolicy: NSApplication.ActivationPolicy,
+        hasDiscoveryEvidence: Bool,
+        hasContext: Bool,
+        hasPreservedState: Bool
+    ) -> FullRescanEnumerationRoute? {
+        guard activationPolicy != .prohibited else { return nil }
+        if hasDiscoveryEvidence || hasContext || hasPreservedState {
+            return .persistent
+        }
+        return activationPolicy == .regular ? .oneShot : nil
+    }
+
+    static func shouldPreferFullRescanCandidate(
+        _ candidate: FullRescanWindowCandidate,
+        over current: FullRescanWindowCandidate,
+        activationPolicyByPID: [pid_t: NSApplication.ActivationPolicy],
+        ownerPID: pid_t?,
+        existingPID: pid_t?
+    ) -> Bool {
+        fullRescanCandidatePreference(
+            candidate,
+            over: current,
+            activationPolicyByPID: activationPolicyByPID,
+            ownerPID: ownerPID,
+            existingPID: existingPID
+        ).prefersCandidate
+    }
+
+    static func fullRescanCandidatePreference(
+        _ candidate: FullRescanWindowCandidate,
+        over current: FullRescanWindowCandidate,
+        activationPolicyByPID: [pid_t: NSApplication.ActivationPolicy],
+        ownerPID: pid_t?,
+        existingPID: pid_t?
+    ) -> FullRescanCandidatePreference {
+        if candidate.isManageable != current.isManageable {
+            return .init(prefersCandidate: candidate.isManageable, reason: .manageability)
+        }
+        let candidateIsExisting = candidate.pid == existingPID
+        let currentIsExisting = current.pid == existingPID
+        if candidateIsExisting != currentIsExisting {
+            return .init(prefersCandidate: candidateIsExisting, reason: .preservedLogicalPID)
+        }
+        let candidateIsRegular = activationPolicyByPID[candidate.pid] == .regular
+        let currentIsRegular = activationPolicyByPID[current.pid] == .regular
+        if candidateIsRegular != currentIsRegular {
+            return .init(prefersCandidate: candidateIsRegular, reason: .regularActivationPolicy)
+        }
+        let candidateHostsAXElement = candidate.pid == candidate.axPid
+        let currentHostsAXElement = current.pid == current.axPid
+        if candidateHostsAXElement != currentHostsAXElement {
+            return .init(prefersCandidate: candidateHostsAXElement, reason: .axHostPID)
+        }
+        let candidateOwnsWindow = candidate.pid == ownerPID
+        let currentOwnsWindow = current.pid == ownerPID
+        if candidateOwnsWindow != currentOwnsWindow {
+            return .init(prefersCandidate: candidateOwnsWindow, reason: .windowServerOwnerPID)
+        }
+        guard candidate.pid != current.pid else {
+            return .init(prefersCandidate: false, reason: .stableFirstCandidate)
+        }
+        return .init(prefersCandidate: candidate.pid < current.pid, reason: .lowerPID)
     }
 
     private func groupedWindowIdsByPid(

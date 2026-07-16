@@ -99,16 +99,16 @@ extension Thread {
                 }
 
                 self.runInLoopAsync(job: job, autoCheckCancelled: false) { job in
-                    timeoutTask.cancel()
-
                     do {
                         try job.checkCancellation()
                         let value = try body(job)
+                        timeoutTask.cancel()
                         guard let continuation = state.takeContinuation(orStore: .success(value)) else {
                             return
                         }
                         continuation.resume(returning: value)
                     } catch {
+                        timeoutTask.cancel()
                         guard let continuation = state.takeContinuation(orStore: .failure(error)) else {
                             return
                         }

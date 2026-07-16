@@ -206,6 +206,12 @@ enum AXWindowService {
         pinnedElements.removeValue(forKey: windowId)
     }
 
+    static func hasPinnedAXElement(for windowId: UInt32) -> Bool {
+        pinnedElementsLock.lock()
+        defer { pinnedElementsLock.unlock() }
+        return pinnedElements[windowId] != nil
+    }
+
     private static func pinnedAXElement(for windowId: UInt32) -> AXUIElement? {
         pinnedElementsLock.lock()
         defer { pinnedElementsLock.unlock() }
@@ -266,6 +272,21 @@ enum AXWindowService {
 
     static func windowId(_ window: AXWindowRef) -> Int {
         window.windowId
+    }
+
+    static func processIdentifier(_ window: AXWindowRef) -> pid_t? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(window.element, &pid) == .success else { return nil }
+        return pid
+    }
+
+    static func isSizeSettable(_ window: AXWindowRef) -> Bool {
+        var settable = DarwinBoolean(false)
+        return AXUIElementIsAttributeSettable(
+            window.element,
+            kAXSizeAttribute as CFString,
+            &settable
+        ) == .success && settable.boolValue
     }
 
     static func frame(_ window: AXWindowRef) throws(AXErrorWrapper) -> CGRect {

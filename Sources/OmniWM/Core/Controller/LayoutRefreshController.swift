@@ -1426,18 +1426,26 @@ import QuartzCore
 
         let rescanSeq = controller.workspaceManager.worldSeq
         let hadNativeFullscreenLifecycleContextAtStart = controller.workspaceManager.hasNativeFullscreenLifecycleContext
-        let enumerationSnapshot = await controller.axManager.fullRescanEnumerationSnapshot()
+        let preservingPIDsByWindowId = Dictionary(
+            uniqueKeysWithValues: controller.workspaceManager.allEntries().map { ($0.windowId, $0.pid) }
+        )
+        let enumerationSnapshot = try await controller.axManager.fullRescanEnumerationSnapshot(
+            preservingPIDsByWindowId: preservingPIDsByWindowId
+        )
         try Task.checkCancellation()
         guard controller.workspaceManager.isSeqEpochCurrent(rescanSeq, domains: .layoutCommit) else {
             requestFullRescan(reason: .staleFullRescan)
             throw CancellationError()
         }
-        let windows = enumerationSnapshot.windows
         var seenKeys: Set<WindowToken> = []
         var decisionBasedRemovals: [WindowToken] = []
         let focusedWorkspaceId = controller.activeWorkspace()?.id
+        let screenFrames = NSScreen.screens.map(\.frame)
 
-        for (ax, pid, winId) in windows {
+        for candidate in enumerationSnapshot.windows {
+            let ax = candidate.axRef
+            let pid = candidate.pid
+            let winId = candidate.windowId
             let bundleId = controller.appInfoCache.bundleId(for: pid)
                 ?? NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
             if let bundleId {
@@ -1447,11 +1455,13 @@ import QuartzCore
             }
 
             let token = WindowToken(pid: pid, windowId: winId)
-            let appFullscreen = AXWindowService.isFullscreen(ax)
+            let appFullscreen = candidate.isFullscreen(screenFrames: screenFrames)
             let evaluation = controller.evaluateWindowDisposition(
                 axRef: ax,
                 pid: pid,
-                appFullscreen: appFullscreen
+                appFullscreen: appFullscreen,
+                windowInfo: candidate.windowServerInfo,
+                admissionGeometry: candidate.enumeratedWindow.admissionGeometry
             )
             let decision = evaluation.decision
             let existingEntry = controller.workspaceManager.entry(for: token)

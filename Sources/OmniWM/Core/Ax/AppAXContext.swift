@@ -52,12 +52,10 @@ final class LockedWindowGenerationMap: @unchecked Sendable {
         lock.unlock()
     }
 
-    func moveValue(from oldId: Int, to newId: Int) {
+    func invalidateAndMoveValue(from oldId: Int, to newId: Int) {
         lock.lock()
-        let generation = generations.removeValue(forKey: oldId)
-        if let generation {
-            generations[newId] = generation
-        }
+        let generation = (generations.removeValue(forKey: oldId) ?? 0) + 1
+        generations[newId] = generation
         lock.unlock()
     }
 }
@@ -385,118 +383,119 @@ final class AppAXContext {
         windowId: Int,
         existingElement: AXUIElement?,
         observer: AXObserver?,
-        subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>
+        subscribedElement: AXUIElement?
     ) -> Bool {
         if let uintWindowId = UInt32(exactly: windowId),
-           AXWindowService.pinnedWindowId(for: uintWindowId) == CGWindowID(uintWindowId)
+           AXWindowService.hasPinnedAXElement(for: uintWindowId)
         {
             return false
         }
 
-        let element = subscribedWindows[windowId] ?? existingElement
-        subscribedWindows[windowId] = nil
+        let element = subscribedElement ?? existingElement
         if let observer, let element {
             AppAXContext.removeWindowNotifications(observer: observer, element: element)
         }
         return true
     }
 
-    func getWindowsAsync() async throws -> [(AXWindowRef, Int)] {
-        guard let thread else { return [] }
+    func getWindowsAsync(timeoutSeconds: TimeInterval = 0.5) async throws -> [AXEnumeratedWindow] {
+        guard let thread else {
+            throw AXWindowEnumerationError.contextUnavailable
+        }
         nonisolated(unsafe) let appThread = thread
 
-        let (results, deadWindowIds) = try await appThread.runInLoop { [
+        let deadline = ProcessInfo.processInfo.systemUptime + timeoutSeconds
+        let timeout = Duration.milliseconds(Int64(timeoutSeconds * 1_000))
+        let (results, deadWindowIds) = try await appThread.runInLoop(timeout: timeout) { [
+            pid,
             axApp,
             windows,
             axObserver,
             subscribedWindows
         ] job -> (
-            [(AXWindowRef, Int)],
+            [AXEnumeratedWindow],
             [Int]
         ) in
-            var results: [(AXWindowRef, Int)] = []
-
-            var value: CFTypeRef?
-            let result = AXUIElementCopyAttributeValue(
+            let windowElements = try AXWindowEnumerationInspector.applicationWindowElements(
                 axApp.value,
-                kAXWindowsAttribute as CFString,
-                &value
+                deadline: deadline,
+                checkCancellation: { try job.checkCancellation() }
             )
-
-            guard result == .success, let windowElements = value as? [AXUIElement] else {
-                return (results, [])
-            }
-
+            var results: [AXEnumeratedWindow] = []
+            results.reserveCapacity(windowElements.count)
             var seenIds = Set<Int>(minimumCapacity: windowElements.count)
             var newWindows: [Int: AXUIElement] = Dictionary(minimumCapacity: windowElements.count)
 
             for element in windowElements {
                 try job.checkCancellation()
-
-                var windowIdRaw: CGWindowID = 0
-                let idResult = _AXUIElementGetWindow(element, &windowIdRaw)
-                let windowId = Int(windowIdRaw)
-                guard idResult == .success else { continue }
-
-                var roleValue: CFTypeRef?
-                let roleResult = AXUIElementCopyAttributeValue(
+                guard let enumeratedWindow = try AXWindowEnumerationInspector.inspect(
                     element,
-                    kAXRoleAttribute as CFString,
-                    &roleValue
-                )
-                let role: String? = if roleResult == .success {
-                    roleValue as? String
-                } else {
-                    nil
-                }
-
-                var subrole: String?
-                if role != kAXWindowRole as String {
-                    var subroleValue: CFTypeRef?
-                    let subroleResult = AXUIElementCopyAttributeValue(
-                        element,
-                        kAXSubroleAttribute as CFString,
-                        &subroleValue
-                    )
-                    if subroleResult == .success {
-                        subrole = subroleValue as? String
-                    }
-                }
-
-                guard AXWindowService.shouldTreatAsTopLevelWindow(role: role, subrole: subrole) else {
+                    deadline: deadline,
+                    checkCancellation: { try job.checkCancellation() }
+                ) else {
                     continue
                 }
+                let windowId = enumeratedWindow.axRef.windowId
+                if let resolvedElementPid = enumeratedWindow.axPid, resolvedElementPid != pid {
+                    DiagnosticsEventRecorder.shared.recordLifecycle(
+                        name: "ax.pidMismatch.expected=\(pid)",
+                        pid: resolvedElementPid,
+                        windowId: CGWindowID(windowId)
+                    )
+                }
 
-                let axRef = AXWindowRef(element: element, windowId: windowId)
                 newWindows[windowId] = element
                 seenIds.insert(windowId)
-                results.append((axRef, windowId))
+                results.append(enumeratedWindow)
+            }
 
-                if subscribedWindows[windowId] == nil, let obs = axObserver.value {
-                    if AppAXContext.addWindowNotifications(observer: obs, element: element, windowId: windowId) {
+            try job.checkCancellation()
+            for enumeratedWindow in results {
+                let windowId = enumeratedWindow.axRef.windowId
+                let element = enumeratedWindow.axRef.element
+                if let subscribedElement = subscribedWindows[windowId],
+                   !CFEqual(subscribedElement, element),
+                   let observer = axObserver.value
+                {
+                    try job.checkCancellation()
+                    AppAXContext.removeWindowNotifications(observer: observer, element: subscribedElement)
+                    try job.checkCancellation()
+                    subscribedWindows[windowId] = nil
+                }
+                if subscribedWindows[windowId] == nil, let observer = axObserver.value {
+                    try job.checkCancellation()
+                    if AppAXContext.addWindowNotifications(
+                        observer: observer,
+                        element: element,
+                        windowId: windowId
+                    ) {
+                        try job.checkCancellation()
                         subscribedWindows[windowId] = element
                     }
                 }
             }
 
             var deadIds: [Int] = []
-            windows.forEachKey { existingId in
-                if !seenIds.contains(existingId) {
-                    let existingElement = windows[existingId]
-                    let didRemoveSubscription = AppAXContext.removeMissingWindowSubscription(
-                        windowId: existingId,
-                        existingElement: existingElement,
-                        observer: axObserver.value,
-                        subscribedWindows: subscribedWindows
-                    )
-                    if didRemoveSubscription {
-                        deadIds.append(existingId)
-                    } else if let existingElement {
-                        newWindows[existingId] = existingElement
-                    }
+            let existingWindowIds = Array(windows.value.keys)
+            for existingId in existingWindowIds where !seenIds.contains(existingId) {
+                let existingElement = windows[existingId]
+                try job.checkCancellation()
+                let didRemoveSubscription = AppAXContext.removeMissingWindowSubscription(
+                    windowId: existingId,
+                    existingElement: existingElement,
+                    observer: axObserver.value,
+                    subscribedElement: subscribedWindows[existingId]
+                )
+                try job.checkCancellation()
+                if didRemoveSubscription {
+                    subscribedWindows[existingId] = nil
+                    deadIds.append(existingId)
+                } else if let existingElement {
+                    newWindows[existingId] = existingElement
                 }
             }
 
+            try job.checkCancellation()
             windows.value = newWindows
             return (results, deadIds)
         }
@@ -513,39 +512,134 @@ final class AppAXContext {
         _ = frameWriteGenerations.nextGeneration(for: windowId)
     }
 
-    func rekeyWindow(oldWindowId: Int, newWindow: AXWindowRef) {
-        guard oldWindowId != newWindow.windowId else { return }
-        frameWriteGenerations.moveValue(from: oldWindowId, to: newWindow.windowId)
+    func bindWindow(_ window: AXWindowRef) -> Bool {
+        guard let thread else { return false }
+        _ = frameWriteGenerations.nextGeneration(for: window.windowId)
+        nonisolated(unsafe) let appThread = thread
+        appThread.runInLoopAsync { [windows, axObserver, subscribedWindows] job in
+            guard !job.isCancelled else { return }
+            AXUIElementSetMessagingTimeout(window.element, 0.5)
+            defer { AXUIElementSetMessagingTimeout(window.element, 0) }
+            try? AppAXContext.bindWindowElement(
+                window,
+                windows: windows,
+                observer: axObserver.value,
+                subscribedWindows: subscribedWindows,
+                checkCancellation: { try job.checkCancellation() }
+            )
+        }
+        return true
+    }
+
+    func bindWindowsAsync(
+        _ boundWindows: [AXWindowRef],
+        timeoutSeconds: TimeInterval = 0.5
+    ) async throws -> Bool {
+        guard !boundWindows.isEmpty else { return true }
+        guard let thread else { return false }
+        for window in boundWindows {
+            _ = frameWriteGenerations.nextGeneration(for: window.windowId)
+        }
+        nonisolated(unsafe) let appThread = thread
+        let timeout = Duration.milliseconds(Int64(timeoutSeconds * 1_000))
+        return try await appThread.runInLoop(timeout: timeout) { [windows, axObserver, subscribedWindows] job in
+            for window in boundWindows {
+                try job.checkCancellation()
+                AXUIElementSetMessagingTimeout(window.element, Float(timeoutSeconds))
+                do {
+                    defer { AXUIElementSetMessagingTimeout(window.element, 0) }
+                    try AppAXContext.bindWindowElement(
+                        window,
+                        windows: windows,
+                        observer: axObserver.value,
+                        subscribedWindows: subscribedWindows,
+                        checkCancellation: { try job.checkCancellation() }
+                    )
+                }
+                try job.checkCancellation()
+            }
+            return true
+        }
+    }
+
+    func rekeyWindow(oldWindowId: Int, newWindow: AXWindowRef) -> Bool {
+        guard let thread else { return false }
+        frameWriteGenerations.invalidateAndMoveValue(from: oldWindowId, to: newWindow.windowId)
 
         if suppressedFrameWindowIds.contains(oldWindowId) {
             suppressedFrameWindowIds.remove(oldWindowId)
             suppressedFrameWindowIds.insert(newWindow.windowId)
         }
 
-        guard let thread else { return }
         nonisolated(unsafe) let appThread = thread
 
-        appThread.runInLoopAsync { [windows, axObserver, subscribedWindows] _ in
-            if let oldElement = subscribedWindows[oldWindowId],
+        appThread.runInLoopAsync { [windows, axObserver, subscribedWindows] job in
+            guard !job.isCancelled else { return }
+            if oldWindowId != newWindow.windowId,
+               let oldElement = subscribedWindows[oldWindowId],
                let observer = axObserver.value
             {
+                AXUIElementSetMessagingTimeout(oldElement, 0.5)
                 AppAXContext.removeWindowNotifications(observer: observer, element: oldElement)
+                AXUIElementSetMessagingTimeout(oldElement, 0)
+                guard !job.isCancelled else { return }
             }
-            subscribedWindows[oldWindowId] = nil
-
-            windows[oldWindowId] = nil
-            windows[newWindow.windowId] = newWindow.element
-
-            if subscribedWindows[newWindow.windowId] == nil,
-               let observer = axObserver.value,
-               AppAXContext.addWindowNotifications(
-                   observer: observer,
-                   element: newWindow.element,
-                   windowId: newWindow.windowId
-               )
-            {
-                subscribedWindows[newWindow.windowId] = newWindow.element
+            AXUIElementSetMessagingTimeout(newWindow.element, 0.5)
+            defer { AXUIElementSetMessagingTimeout(newWindow.element, 0) }
+            guard (try? AppAXContext.bindWindowElement(
+                newWindow,
+                windows: windows,
+                observer: axObserver.value,
+                subscribedWindows: subscribedWindows,
+                checkCancellation: { try job.checkCancellation() }
+            )) != nil else {
+                return
             }
+            if oldWindowId != newWindow.windowId {
+                subscribedWindows[oldWindowId] = nil
+                windows[oldWindowId] = nil
+            }
+        }
+        return true
+    }
+
+    private nonisolated static func bindWindowElement(
+        _ window: AXWindowRef,
+        windows: ThreadGuardedValue<[Int: AXUIElement]>,
+        observer: AXObserver?,
+        subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>,
+        checkCancellation: () throws -> Void
+    ) throws {
+        let windowId = window.windowId
+        let subscribedElement = subscribedWindows[windowId]
+        let replacesSubscription = subscribedElement.map { !CFEqual($0, window.element) } == true
+        if replacesSubscription, let subscribedElement, let observer {
+            try checkCancellation()
+            removeWindowNotifications(observer: observer, element: subscribedElement)
+            try checkCancellation()
+        }
+
+        let needsSubscription = subscribedElement == nil || replacesSubscription
+        let didAddSubscription: Bool
+        if needsSubscription, let observer {
+            try checkCancellation()
+            didAddSubscription = addWindowNotifications(
+                observer: observer,
+                element: window.element,
+                windowId: windowId
+            )
+            try checkCancellation()
+        } else {
+            didAddSubscription = false
+        }
+
+        try checkCancellation()
+        windows[windowId] = window.element
+        if replacesSubscription {
+            subscribedWindows[windowId] = nil
+        }
+        if didAddSubscription {
+            subscribedWindows[windowId] = window.element
         }
     }
 

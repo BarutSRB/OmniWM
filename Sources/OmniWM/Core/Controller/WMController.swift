@@ -57,6 +57,7 @@ final class WMController {
         let decision: WindowDecision
         let appFullscreen: Bool
         let manualOverride: ManualWindowOverride?
+        let admissionGeometry: WindowAdmissionGeometryEvidence?
     }
 
     var isEnabled: Bool = true
@@ -1208,13 +1209,15 @@ final class WMController {
 
     private func evaluateSizeConstraints(
         for token: WindowToken,
-        axRef: AXWindowRef
+        axRef: AXWindowRef,
+        admissionGeometry: WindowAdmissionGeometryEvidence? = nil
     ) -> WindowSizeConstraints {
         if let cached = workspaceManager.cachedConstraints(for: token) {
             return cached
         }
 
-        let currentSize = AXWindowService.framePreferFast(axRef)?.size
+        let currentSize = admissionGeometry?.frame?.size
+            ?? AXWindowService.framePreferFast(axRef)?.size
             ?? axManager.lastAppliedFrame(for: token.windowId)?.size
         let resolved = AXWindowService.sizeConstraints(axRef, currentSize: currentSize)
         workspaceManager.setCachedConstraints(resolved, for: token)
@@ -1683,6 +1686,42 @@ final class WMController {
         return nil
     }
 
+    func shouldDeferTilingAdmission(
+        evaluation: WindowDecisionEvaluation,
+        axRef: AXWindowRef,
+        windowInfo: WindowServerInfo?
+    ) -> Bool {
+        if let admissionGeometry = evaluation.admissionGeometry {
+            guard admissionGeometry.isSizeSettable else { return true }
+            guard let frame = evaluation.facts.windowServer?.frame
+                ?? windowInfo?.frame
+                ?? admissionGeometry.frame
+            else {
+                return true
+            }
+            return !Self.isMeaningfulAdmissionFrame(frame)
+        }
+        guard AXWindowService.isSizeSettable(axRef) else { return true }
+        if let frame = evaluation.facts.windowServer?.frame ?? windowInfo?.frame,
+           Self.isMeaningfulAdmissionFrame(frame)
+        {
+            return false
+        }
+        guard let axFrame = AXWindowService.framePreferFast(axRef)
+            ?? (try? AXWindowService.frame(axRef))
+        else {
+            return true
+        }
+        return !Self.isMeaningfulAdmissionFrame(axFrame)
+    }
+
+    static func isMeaningfulAdmissionFrame(_ frame: CGRect) -> Bool {
+        !frame.isNull
+            && !frame.isInfinite
+            && frame.width > 1
+            && frame.height > 1
+    }
+
     func trackedModePreservingAutomaticFallbackState(
         decision: WindowDecision,
         existingEntry: WindowState?,
@@ -1781,13 +1820,18 @@ final class WMController {
         pid: pid_t,
         appFullscreen: Bool? = nil,
         applyingManualOverride: Bool = true,
-        windowInfo: WindowServerInfo? = nil
+        windowInfo: WindowServerInfo? = nil,
+        admissionGeometry: WindowAdmissionGeometryEvidence? = nil
     ) -> WindowDecisionEvaluation {
         let token = WindowToken(pid: pid, windowId: axRef.windowId)
         if pid == ProcessInfo.processInfo.processIdentifier || isOwnedWindow(windowNumber: axRef.windowId) {
             return Self.ownedWindowDispositionEvaluation(token: token)
         }
-        let sizeConstraints = evaluateSizeConstraints(for: token, axRef: axRef)
+        let sizeConstraints = evaluateSizeConstraints(
+            for: token,
+            axRef: axRef,
+            admissionGeometry: admissionGeometry
+        )
         let appInfo = resolvedAppInfo(for: pid)
         let baseFacts = WindowRuleFacts(
             appName: appInfo?.name,
@@ -1826,7 +1870,8 @@ final class WMController {
             facts: facts,
             decision: decision,
             appFullscreen: fullscreen,
-            manualOverride: manualOverride
+            manualOverride: manualOverride,
+            admissionGeometry: admissionGeometry
         )
     }
 
@@ -1862,7 +1907,8 @@ final class WMController {
                 deferredReason: nil
             ),
             appFullscreen: false,
-            manualOverride: nil
+            manualOverride: nil,
+            admissionGeometry: nil
         )
     }
 
