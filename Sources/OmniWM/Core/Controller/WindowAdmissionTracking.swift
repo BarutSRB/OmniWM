@@ -30,12 +30,46 @@ extension AXEventHandler {
             managedReplacementMetadata: candidate.replacementMetadata
         )
         guard let trackedEntry = controller.workspaceManager.entry(for: trackedToken) else {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionDisappeared,
+                    pid: candidate.token.pid,
+                    windowId: candidate.token.windowId,
+                    bundleId: candidate.bundleId,
+                    axPid: axPid,
+                    reason: "workspace_add_failed",
+                    axRef: candidate.axRef
+                )
+            )
             scheduleAXContextWarmup(for: candidate.token.pid)
             return
         }
         guard trackedToken == candidate.token else {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionReplaced,
+                    pid: trackedEntry.pid,
+                    windowId: trackedEntry.windowId,
+                    bundleId: candidate.bundleId,
+                    axPid: axPid,
+                    competingPid: candidate.token.pid,
+                    reason: "workspace_identity_replaced",
+                    axRef: trackedEntry.axRef
+                )
+            )
             return
         }
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionTracked,
+                pid: trackedEntry.pid,
+                windowId: trackedEntry.windowId,
+                bundleId: candidate.bundleId,
+                axPid: axPid,
+                outcome: String(describing: trackedEntry.mode),
+                axRef: trackedEntry.axRef
+            )
+        )
 
         if trackedEntry.mode == .floating {
             controller.focusPolicyEngine.beginLease(

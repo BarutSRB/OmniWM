@@ -331,29 +331,33 @@ extension ReportIssueSettingsTab {
     }
 
     private func startRecording() {
-        switch controller.toggleTraceCaptureForUI(desiredState: .active) {
-        case .started:
-            traceStatus = .success("Recording started")
-        case .noChange:
-            traceStatus = .failure("A recording is already running")
-        case .stopped,
-             .writeFailed:
-            traceStatus = .failure("Unexpected recording state")
+        Task {
+            switch await controller.toggleTraceCaptureForUI(desiredState: .active) {
+            case .started:
+                traceStatus = .success("Recording started")
+            case .noChange:
+                traceStatus = .failure("A recording is already running")
+            case .stopped,
+                 .writeFailed:
+                traceStatus = .failure("Unexpected recording state")
+            }
         }
     }
 
     private func stopRecording() {
-        switch controller.toggleTraceCaptureForUI(desiredState: .inactive) {
-        case .stopped:
-            traceStatus = .idle
-        case let .writeFailed(reason):
-            traceStatus = .failure("Failed to write the recording: \(reason)")
-        case .noChange:
-            traceStatus = .failure("No recording is running")
-        case .started:
-            traceStatus = .failure("Unexpected recording state")
+        Task {
+            switch await controller.toggleTraceCaptureForUI(desiredState: .inactive) {
+            case .stopped:
+                traceStatus = .idle
+            case let .writeFailed(reason):
+                traceStatus = .failure("Failed to write the recording: \(reason)")
+            case .noChange:
+                traceStatus = .failure("No recording is running")
+            case .started:
+                traceStatus = .failure("Unexpected recording state")
+            }
+            traceReloadToken += 1
         }
-        traceReloadToken += 1
     }
 
     @ViewBuilder

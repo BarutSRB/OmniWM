@@ -7,24 +7,24 @@ import XCTest
 
 final class DiagnosticsTraceCaptureTests: XCTestCase {
     @MainActor
-    func testTraceCaptureToggleLifecycle() throws {
+    func testTraceCaptureToggleLifecycle() async throws {
         let directory = try makeDiagnosticsDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: directory)
 
         XCTAssertFalse(controller.isTraceCaptureActive)
 
-        guard case .started = controller.toggleTraceCaptureForUI(desiredState: .active) else {
+        guard case .started = await controller.toggleTraceCaptureForUI(desiredState: .active) else {
             return XCTFail("expected capture to start")
         }
         XCTAssertTrue(controller.isTraceCaptureActive)
         XCTAssertNotNil(controller.traceCaptureStatus.startedAt)
 
-        guard case .noChange = controller.toggleTraceCaptureForUI(desiredState: .active) else {
+        guard case .noChange = await controller.toggleTraceCaptureForUI(desiredState: .active) else {
             return XCTFail("expected no change when already active")
         }
 
-        guard case .stopped = controller.toggleTraceCaptureForUI(desiredState: .inactive) else {
+        guard case .stopped = await controller.toggleTraceCaptureForUI(desiredState: .inactive) else {
             return XCTFail("expected capture to stop and produce an artifact")
         }
         XCTAssertFalse(controller.isTraceCaptureActive)
@@ -32,13 +32,13 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
     }
 
     @MainActor
-    func testTraceCaptureRemovesPartialSidecarOnStop() throws {
+    func testTraceCaptureRemovesPartialSidecarOnStop() async throws {
         let directory = try makeDiagnosticsDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: directory)
 
-        _ = controller.toggleTraceCaptureForUI(desiredState: .active)
-        _ = controller.toggleTraceCaptureForUI(desiredState: .inactive)
+        _ = await controller.toggleTraceCaptureForUI(desiredState: .active)
+        _ = await controller.toggleTraceCaptureForUI(desiredState: .inactive)
 
         let partials = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?
             .filter { $0.lastPathComponent.hasSuffix(".partial.log") } ?? []
@@ -65,7 +65,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
     }
 
     @MainActor
-    func testStartRecordingWipesStaleTracesButPreservesCrashLogsAndBundles() throws {
+    func testStartRecordingWipesStaleTracesButPreservesCrashLogsAndBundles() async throws {
         let directory = try makeDiagnosticsDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -78,12 +78,12 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
 
         let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: directory)
 
-        _ = controller.toggleTraceCaptureForUI(desiredState: .active)
+        _ = await controller.toggleTraceCaptureForUI(desiredState: .active)
         XCTAssertFalse(FileManager.default.fileExists(atPath: staleTrace.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: staleBundle.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: crashLog.path))
 
-        guard case let .stopped(artifact) = controller.toggleTraceCaptureForUI(desiredState: .inactive) else {
+        guard case let .stopped(artifact) = await controller.toggleTraceCaptureForUI(desiredState: .inactive) else {
             return XCTFail("expected capture to stop")
         }
 
@@ -94,7 +94,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
     }
 
     @MainActor
-    func testStartRecordingFailsCleanlyWhenDirectoryUnusable() throws {
+    func testStartRecordingFailsCleanlyWhenDirectoryUnusable() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMDiagBlock-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -105,7 +105,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
 
         let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: unusable)
 
-        guard case .writeFailed = controller.toggleTraceCaptureForUI(desiredState: .active) else {
+        guard case .writeFailed = await controller.toggleTraceCaptureForUI(desiredState: .active) else {
             return XCTFail("expected .writeFailed when the diagnostics directory cannot be created")
         }
         XCTAssertFalse(controller.isTraceCaptureActive)

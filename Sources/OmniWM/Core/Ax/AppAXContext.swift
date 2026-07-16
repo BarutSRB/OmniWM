@@ -285,6 +285,14 @@ final class AppAXContext {
                                 generation: generation
                             )
                         }
+                        WindowAdmissionTrace.record(
+                            .init(
+                                action: .endpointCreated,
+                                pid: pid,
+                                bundleId: nsApp.bundleIdentifier,
+                                callbackGeneration: generation
+                            )
+                        )
                         continuation.resume(returning: context)
                     }
 
@@ -410,9 +418,25 @@ final class AppAXContext {
 
     func getWindowsAsync(timeoutSeconds: TimeInterval = 0.5) async throws -> [AXEnumeratedWindow] {
         guard let thread else {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .enumerationFailed,
+                    pid: pid,
+                    bundleId: nsApp.bundleIdentifier,
+                    reason: "context_thread_unavailable"
+                )
+            )
             throw AXWindowEnumerationError.contextUnavailable
         }
         nonisolated(unsafe) let appThread = thread
+        WindowAdmissionTrace.record(
+            .init(
+                action: .enumerationStarted,
+                pid: pid,
+                bundleId: nsApp.bundleIdentifier,
+                callbackGeneration: callbackGeneration
+            )
+        )
 
         let deadline = ProcessInfo.processInfo.systemUptime + timeoutSeconds
         let timeout = Duration.milliseconds(Int64(timeoutSeconds * 1_000))
@@ -431,6 +455,12 @@ final class AppAXContext {
                 deadline: deadline,
                 checkCancellation: { try job.checkCancellation() }
             )
+            if windowElements.isEmpty {
+                WindowAdmissionTrace.record(
+                    .init(action: .enumerationEmpty, pid: pid, count: 0)
+                )
+            }
+
             var results: [AXEnumeratedWindow] = []
             results.reserveCapacity(windowElements.count)
             var seenIds = Set<Int>(minimumCapacity: windowElements.count)
@@ -454,6 +484,17 @@ final class AppAXContext {
                     )
                 }
 
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .topLevelAccepted,
+                        pid: pid,
+                        windowId: windowId,
+                        axPid: enumeratedWindow.axPid,
+                        role: enumeratedWindow.role,
+                        subrole: enumeratedWindow.subrole,
+                        axRef: enumeratedWindow.axRef
+                    )
+                )
                 newWindows[windowId] = element
                 seenIds.insert(windowId)
                 results.append(enumeratedWindow)
@@ -499,6 +540,17 @@ final class AppAXContext {
                 try job.checkCancellation()
                 if didRemoveSubscription {
                     subscribedWindows[existingId] = nil
+                    WindowAdmissionTrace.record(
+                        .init(
+                            action: .admissionDisappeared,
+                            pid: pid,
+                            windowId: existingId,
+                            reason: "missing_from_ax_windows",
+                            axRef: existingElement.map {
+                                AXWindowRef(element: $0, windowId: existingId)
+                            }
+                        )
+                    )
                     deadIds.append(existingId)
                 } else if let existingElement {
                     newWindows[existingId] = existingElement
@@ -507,6 +559,9 @@ final class AppAXContext {
 
             try job.checkCancellation()
             windows.value = newWindows
+            WindowAdmissionTrace.record(
+                .init(action: .enumerationCompleted, pid: pid, count: results.count)
+            )
             return (results, deadIds)
         }
 
@@ -840,6 +895,16 @@ final class AppAXContext {
     }
 
     func destroy() {
+        if thread != nil {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .endpointDestroyed,
+                    pid: pid,
+                    bundleId: nsApp.bundleIdentifier,
+                    callbackGeneration: callbackGeneration
+                )
+            )
+        }
         if let axObserverCallbackKey {
             appAXCallbackGenerationRegistry.unregister(observerKey: axObserverCallbackKey)
         }

@@ -49,7 +49,9 @@ final class SessionTraceRecorder<Record: Sendable>: RuntimeTraceRecording, @unch
 
     func record(_ make: @autoclosure () -> Record) {
         guard active.load(ordering: .relaxed) else { return }
-        buffer.append(make())
+        buffer.append(make(), while: {
+            active.load(ordering: .relaxed)
+        })
     }
 
     func beginCapture() {
@@ -59,6 +61,7 @@ final class SessionTraceRecorder<Record: Sendable>: RuntimeTraceRecording, @unch
 
     func endCapture() {
         active.store(false, ordering: .relaxed)
+        buffer.synchronize()
     }
 
     func dump() -> String {

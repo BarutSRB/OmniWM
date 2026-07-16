@@ -223,6 +223,17 @@ extension AXEventHandler {
             task: nil
         )
         discardCreatePlacementContext(windowId: windowId)
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionRetryExhausted,
+                pid: schedule.expectedToken?.pid,
+                windowId: Int(windowId),
+                reason: schedule.reason.rawValue,
+                attempt: Self.createdWindowRetryLimit,
+                retryGeneration: generation,
+                axRef: schedule.axRef
+            )
+        )
         recordNiriCreateFocusTrace(
             .init(
                 kind: .admissionRejected(
@@ -284,6 +295,17 @@ extension AXEventHandler {
         attempt: Int,
         generation: UInt64
     ) {
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionRetryScheduled,
+                pid: schedule.expectedToken?.pid,
+                windowId: Int(windowId),
+                reason: schedule.reason.rawValue,
+                attempt: attempt,
+                retryGeneration: generation,
+                axRef: schedule.axRef
+            )
+        )
         recordNiriCreateFocusTrace(
             .init(
                 kind: .createRetryScheduled(
@@ -363,6 +385,21 @@ extension AXEventHandler {
             return windowId
         }
         for windowId in retryWindowIds {
+            if WindowAdmissionTrace.shared.isActive,
+               let state = admissionRetryStateByWindowId[windowId]
+            {
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .admissionDisappeared,
+                        pid: state.expectedToken?.pid ?? pid,
+                        windowId: Int(windowId),
+                        reason: "process_terminated",
+                        attempt: state.attempt,
+                        retryGeneration: state.generation,
+                        axRef: state.axRef
+                    )
+                )
+            }
             cancelCreatedWindowRetry(windowId: windowId)
         }
 

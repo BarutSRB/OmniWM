@@ -6,6 +6,19 @@ import Foundation
 import OmniWMIPC
 import XCTest
 
+private actor DiagnosticsEvidenceGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 final class DiagnosticsTraceRecorderTests: XCTestCase {
     func testSessionTraceRecorderGatingEvictionAndReset() {
         let recorder = SessionTraceRecorder<Int>(sectionTitle: "Nums", capacity: 3) { "\($0)" }
@@ -67,7 +80,7 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
     }
 
     @MainActor
-    func testCaptureCoordinatorTogglesDomainRecorders() {
+    func testCaptureCoordinatorTogglesDomainRecorders() async {
         RawAXNotificationTrace.record(name: "ax.before", pid: 1, windowId: nil)
         XCTAssertFalse(RawAXNotificationTrace.shared.dump().contains("ax.before"))
 
@@ -76,7 +89,7 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let coordinator = RuntimeTraceCaptureCoordinator(diagnosticsDirectory: directory)
-        let startOutcome = coordinator.toggle(desiredState: .active) { "report" }
+        let startOutcome = await coordinator.toggle(desiredState: .active) { "report" }
         guard case .started = startOutcome else {
             return XCTFail("expected capture to start")
         }
@@ -131,7 +144,7 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
         XCTAssertTrue(ScrollTickTrace.shared.dump().contains("commit=290.00ms"))
         XCTAssertTrue(AXWriteLatencyTrace.shared.dump().contains("pid=4242"))
 
-        let outcome = coordinator.toggle(desiredState: .inactive) { "report" }
+        let outcome = await coordinator.toggle(desiredState: .inactive) { "report" }
         guard case let .stopped(artifact) = outcome else {
             return XCTFail("expected capture to stop with an artifact")
         }
@@ -148,6 +161,53 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
 
         RawAXNotificationTrace.record(name: "ax.after", pid: 1, windowId: nil)
         XCTAssertFalse(RawAXNotificationTrace.shared.dump().contains("ax.after"))
+    }
+
+    @MainActor
+    func testFinalizationFreezesRecorderBeforeAwaitingEvidence() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMTraceFinalize-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = SessionTraceRecorder<String>(sectionTitle: "Test Records", capacity: 4) { $0 }
+        let coordinator = RuntimeTraceCaptureCoordinator(
+            diagnosticsDirectory: directory,
+            recorders: [recorder]
+        )
+        let gate = DiagnosticsEvidenceGate()
+        let evidenceStarted = expectation(description: "automatic evidence started")
+
+        guard case .started = await coordinator.toggle(
+            desiredState: .active,
+            reportProvider: { "start report" },
+            automaticEvidenceProvider: {
+                evidenceStarted.fulfill()
+                await gate.wait()
+                return "status=timed_out"
+            }
+        ) else {
+            return XCTFail("expected capture to start")
+        }
+        recorder.record("before stop")
+
+        let stopTask = Task { @MainActor in
+            await coordinator.toggle(desiredState: .inactive, reportProvider: { "end report" })
+        }
+        await fulfillment(of: [evidenceStarted], timeout: 1)
+
+        XCTAssertEqual(coordinator.status.phase, .finalizing)
+        XCTAssertFalse(recorder.isActive)
+        recorder.record("after stop")
+        await gate.release()
+
+        guard case let .stopped(artifact) = await stopTask.value else {
+            return XCTFail("expected final artifact")
+        }
+        let body = try String(contentsOf: artifact.url, encoding: .utf8)
+        XCTAssertTrue(body.contains("before stop"))
+        XCTAssertFalse(body.contains("after stop"))
+        XCTAssertTrue(body.contains("== Automatic AX Evidence ==\nstatus=timed_out"))
+        XCTAssertEqual(coordinator.status.phase, .idle)
     }
 
     func testBorderOpMetricsRecorderGatingAndReset() {

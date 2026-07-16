@@ -112,7 +112,7 @@ final class InputDiagnosticsTests: XCTestCase {
     }
 
     @MainActor
-    func testInputTraceRecordsOnlyDuringCaptureAndAppearsInArtifact() {
+    func testInputTraceRecordsOnlyDuringCaptureAndAppearsInArtifact() async {
         InputTrace.record("before")
         XCTAssertFalse(InputTrace.shared.dump().contains("before"))
 
@@ -122,14 +122,14 @@ final class InputDiagnosticsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let coordinator = RuntimeTraceCaptureCoordinator(diagnosticsDirectory: directory)
-        guard case .started = coordinator.toggle(desiredState: .active, reportProvider: { "report" }) else {
+        guard case .started = await coordinator.toggle(desiredState: .active, reportProvider: { "report" }) else {
             return XCTFail("expected capture to start")
         }
 
         InputTrace.record("hyper apply decision=inject")
         XCTAssertTrue(InputTrace.shared.dump().contains("decision=inject"))
 
-        let outcome = coordinator.toggle(desiredState: .inactive, reportProvider: { "report" })
+        let outcome = await coordinator.toggle(desiredState: .inactive, reportProvider: { "report" })
         guard case let .stopped(artifact) = outcome else {
             return XCTFail("expected capture to stop with an artifact")
         }

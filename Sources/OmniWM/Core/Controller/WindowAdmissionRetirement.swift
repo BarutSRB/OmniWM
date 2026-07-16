@@ -10,6 +10,16 @@ extension AXEventHandler {
     }
 
     func discardStaleManagedWindowIncarnation(_ entry: WindowState) {
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionDisappeared,
+                pid: entry.pid,
+                windowId: entry.windowId,
+                bundleId: entry.managedReplacementMetadata?.bundleId,
+                reason: "stale_ax_incarnation",
+                axRef: entry.axRef
+            )
+        )
         retireManagedWindow(entry, reason: .staleIncarnation)
     }
 
@@ -79,6 +89,18 @@ extension AXEventHandler {
         guard let controller,
               let entry = terminalRefusalEntry(refusal, controller: controller)
         else { return }
+        WindowAdmissionTrace.record(
+            .init(
+                action: .terminalFrameRefusal,
+                pid: entry.pid,
+                windowId: entry.windowId,
+                bundleId: entry.managedReplacementMetadata?.bundleId,
+                reason: refusal.failureReason.traceDescription,
+                targetFrame: refusal.targetFrame,
+                observedFrame: refusal.observedFrame,
+                axRef: entry.axRef
+            )
+        )
 
         guard recordTerminalFrameFailure(for: entry) >= 2 else {
             controller.axManager.forceApplyNextFrame(for: entry.windowId)
@@ -181,6 +203,16 @@ extension AXEventHandler {
         admissionQuarantineByWindowId[entry.windowId] = AdmissionQuarantine(
             token: entry.token,
             axRef: entry.axRef
+        )
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionQuarantined,
+                pid: entry.pid,
+                windowId: entry.windowId,
+                bundleId: entry.managedReplacementMetadata?.bundleId,
+                reason: WindowAdmissionRejectionReason.terminalFrameRefusal.rawValue,
+                axRef: entry.axRef
+            )
         )
         retireManagedWindow(entry, reason: .terminalFrameRefusal)
     }

@@ -96,7 +96,7 @@ struct WindowClassificationInput: Codable, Equatable, Sendable {
     var rules: [AppRule]
 }
 
-struct WindowClassificationExpectation: Codable, Equatable, Sendable {
+struct WindowClassificationDecisionDTO: Codable, Equatable, Sendable {
     var disposition: String
     var source: String
     var heuristicReasons: [String]

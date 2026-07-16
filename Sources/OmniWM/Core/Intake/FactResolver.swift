@@ -117,13 +117,6 @@ final class FactResolver {
         }
     }
 
-    func dumpWindowAXTree(axRef: AXWindowRef, pid: pid_t) async -> AXWindowAXTreeDump? {
-        nonisolated(unsafe) let thread = AppAXContext.contexts[pid]?.axThread ?? sharedResolverThread()
-        return try? await thread.runInLoop { _ in
-            AXWindowDump.tree(window: axRef.element, app: AXUIElementCreateApplication(pid))
-        }
-    }
-
     func stop() {
         pendingActivationRequestsByPid.removeAll()
         guard let thread = resolverThread else { return }

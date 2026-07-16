@@ -422,14 +422,23 @@ final class AXEventHandler {
 
         switch event {
         case let .created(windowId, spaceId):
+            WindowAdmissionTrace.record(
+                .init(action: .cgsCreated, windowId: Int(windowId))
+            )
             handleCGSWindowCreated(windowId: windowId, spaceId: spaceId)
             controller.spaceTracker.noteWindowSpace(windowId: Int(windowId), spaceId: spaceId)
 
         case let .destroyed(windowId, _):
+            WindowAdmissionTrace.record(
+                .init(action: .cgsDestroyed, windowId: Int(windowId), reason: "destroyed")
+            )
             handleCGSWindowDestroyed(windowId: windowId)
             controller.spaceTracker.noteWindowDestroyed(windowId: Int(windowId))
 
         case let .closed(windowId):
+            WindowAdmissionTrace.record(
+                .init(action: .cgsDestroyed, windowId: Int(windowId), reason: "closed")
+            )
             handleCGSWindowDestroyed(windowId: windowId)
             controller.spaceTracker.noteWindowDestroyed(windowId: Int(windowId))
 
@@ -437,6 +446,15 @@ final class AXEventHandler {
             handleFrameChanged(windowId: windowId)
 
         case let .frontAppChanged(pid):
+            if WindowAdmissionTrace.shared.isActive, !isOwnProcessPid(pid) {
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .frontmostObserved,
+                        pid: pid,
+                        bundleId: resolveBundleId(pid)
+                    )
+                )
+            }
             handleAppActivation(pid: pid, source: .cgsFrontAppChanged)
 
         case let .orderChanged(windowId):
@@ -510,6 +528,14 @@ final class AXEventHandler {
         captureCreatePlacementContext(windowId: windowId, spaceId: spaceId)
         recordNiriCreateFocusTrace(.init(kind: .createSeen(windowId: windowId)))
         if shouldDeferCreateForInactiveNativeSpace(spaceId) {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionPending,
+                    windowId: Int(windowId),
+                    reason: "inactive_native_space_\(spaceId)",
+                    outcome: "deferred"
+                )
+            )
             deferCreatedWindow(windowId)
             return
         }
@@ -536,10 +562,25 @@ final class AXEventHandler {
     ) {
         guard let controller else { return }
         if controller.isDiscoveryInProgress {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionPending,
+                    windowId: Int(windowId),
+                    reason: "discovery_in_progress",
+                    outcome: "deferred"
+                )
+            )
             deferCreatedWindow(windowId)
             return
         }
         if controller.isOwnedWindow(windowNumber: Int(windowId)) {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionIgnored,
+                    windowId: Int(windowId),
+                    reason: WindowAdmissionRejectionReason.ownedWindow.rawValue
+                )
+            )
             cancelCreatedWindowRetry(windowId: windowId)
             discardCreatePlacementContext(windowId: windowId)
             removeDeferredCreatedWindow(windowId)
@@ -548,6 +589,13 @@ final class AXEventHandler {
 
         let windowInfo = resolveWindowInfo(windowId)
         if let windowInfo, isOwnProcessPid(pid_t(windowInfo.pid)) {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionIgnored,
+                    windowId: Int(windowId),
+                    reason: WindowAdmissionRejectionReason.ownedWindow.rawValue
+                )
+            )
             cancelCreatedWindowRetry(windowId: windowId)
             discardCreatePlacementContext(windowId: windowId)
             removeDeferredCreatedWindow(windowId)
@@ -1074,6 +1122,15 @@ final class AXEventHandler {
                 continue
             }
             if shouldDeferCreateForInactiveNativeSpace(liveCreateSpace(for: windowId)) {
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .admissionPending,
+                        pid: pid_t(windowInfo.pid),
+                        windowId: Int(windowId),
+                        reason: "inactive_native_space",
+                        outcome: "deferred"
+                    )
+                )
                 deferCreatedWindow(windowId)
                 continue
             }
@@ -1105,6 +1162,15 @@ final class AXEventHandler {
     func handleRemoved(pid: pid_t, winId: Int, axRef: AXWindowRef? = nil) {
         guard let windowId = UInt32(exactly: winId) else { return }
         if let axRef, !isCurrentAXIncarnation(windowId: winId, axRef: axRef) {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionIgnored,
+                    pid: pid,
+                    windowId: winId,
+                    reason: "stale_destroy_callback",
+                    axRef: axRef
+                )
+            )
             return
         }
         AXWindowService.invalidateCachedTitle(windowId: windowId)
@@ -1833,12 +1899,42 @@ final class AXEventHandler {
             candidate = prepared
         case .alreadyTracked:
             return .handled
-        case let .pending(_, _, reason):
+        case let .pending(pendingToken, pendingAXRef, reason):
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionPending,
+                    pid: pendingToken?.pid,
+                    windowId: Int(windowId),
+                    bundleId: pendingToken.flatMap { resolveBundleId($0.pid) },
+                    reason: reason.rawValue,
+                    axRef: pendingAXRef
+                )
+            )
             return .admissionPending(reason)
-        case .ignored:
+        case let .ignored(ignoredToken, reason):
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionIgnored,
+                    pid: ignoredToken?.pid,
+                    windowId: Int(windowId),
+                    bundleId: ignoredToken.flatMap { resolveBundleId($0.pid) },
+                    reason: reason.rawValue
+                )
+            )
             return .rejected
         }
         guard candidate.token == token else {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionIgnored,
+                    pid: candidate.token.pid,
+                    windowId: candidate.token.windowId,
+                    bundleId: candidate.bundleId,
+                    competingPid: token.pid,
+                    reason: WindowAdmissionRejectionReason.invalidIdentity.rawValue,
+                    axRef: candidate.axRef
+                )
+            )
             return .rejected
         }
 
@@ -2016,6 +2112,16 @@ final class AXEventHandler {
         bindCurrentPidRequest: Bool = true
     ) {
         guard let controller else { return }
+        WindowAdmissionTrace.record(
+            .init(
+                action: .managedFocusObserved,
+                pid: entry.pid,
+                windowId: entry.windowId,
+                bundleId: entry.managedReplacementMetadata?.bundleId,
+                reason: String(describing: source),
+                axRef: entry.axRef
+            )
+        )
         if appFullscreen {
             suspendManagedWindowForNativeFullscreen(entry)
             return
@@ -2364,6 +2470,15 @@ final class AXEventHandler {
         if let existingEntry = controller.workspaceManager.entry(forWindowId: Int(windowId)) {
             if CFEqual(existingEntry.axRef.element, axRef.element) {
                 guard existingEntry.token != token else {
+                    WindowAdmissionTrace.record(
+                        .init(
+                            action: .admissionAlreadyTracked,
+                            pid: existingEntry.pid,
+                            windowId: existingEntry.windowId,
+                            bundleId: resolveBundleId(existingEntry.pid),
+                            axRef: axRef
+                        )
+                    )
                     return .alreadyTracked(existingEntry.token)
                 }
                 guard allowsTrackedIdentityReplacement,
@@ -2381,6 +2496,17 @@ final class AXEventHandler {
                     return .ignored(token: token, reason: .invalidIdentity)
                 }
                 scheduleWindowRuleReevaluationIfNeeded(targets: [.window(rekeyedEntry.token)])
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .admissionReplaced,
+                        pid: rekeyedEntry.pid,
+                        windowId: rekeyedEntry.windowId,
+                        bundleId: resolveBundleId(rekeyedEntry.pid),
+                        competingPid: existingEntry.pid,
+                        reason: "identity_rekeyed",
+                        axRef: axRef
+                    )
+                )
                 return .alreadyTracked(rekeyedEntry.token)
             }
             guard allowsTrackedIdentityReplacement,
@@ -2411,6 +2537,33 @@ final class AXEventHandler {
             pid: token.pid,
             appFullscreen: appFullscreen,
             windowInfo: matchingWindowInfo
+        )
+        WindowAdmissionTrace.record(
+            .init(
+                action: .classificationObserved,
+                pid: token.pid,
+                windowId: token.windowId,
+                bundleId: bundleId ?? evaluation.facts.ax.bundleId,
+                axPid: axPid,
+                observation: WindowClassificationObservation(
+                    tokenPid: token.pid,
+                    tokenWindowId: token.windowId,
+                    appName: evaluation.facts.appName,
+                    bundleId: bundleId ?? evaluation.facts.ax.bundleId,
+                    workspaceName: evaluation.decision.workspaceName,
+                    input: WindowClassificationInput(
+                        appName: evaluation.facts.appName,
+                        ax: AXWindowFactsDTO(from: evaluation.facts.ax),
+                        sizeConstraints: evaluation.facts.sizeConstraints.map(WindowSizeConstraintsDTO.init(from:)),
+                        windowServer: evaluation.facts.windowServer.map(WindowServerInfoDTO.init(from:)),
+                        appFullscreen: evaluation.appFullscreen,
+                        manualOverride: evaluation.manualOverride,
+                        rules: controller.settings.appRules
+                    ),
+                    observedDecision: WindowClassificationDecisionDTO(from: evaluation.decision)
+                ),
+                axRef: axRef
+            )
         )
 
         let trackedMode = controller.trackedModeForLifecycle(
@@ -2487,6 +2640,17 @@ final class AXEventHandler {
                 facts: evaluation.facts
             )
         )
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionPrepared,
+                pid: token.pid,
+                windowId: token.windowId,
+                bundleId: resolvedBundleId,
+                axPid: axPid,
+                outcome: String(describing: trackedMode),
+                axRef: axRef
+            )
+        )
         return .prepared(prepared)
     }
 
@@ -2502,6 +2666,16 @@ final class AXEventHandler {
             discardCreatePlacementContext(windowId: windowId)
             finishAdmissionRetryAfterTracking(windowId: windowId)
         case let .pending(token, axRef, reason):
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionPending,
+                    pid: token?.pid,
+                    windowId: Int(windowId),
+                    bundleId: token.flatMap { resolveBundleId($0.pid) },
+                    reason: reason.rawValue,
+                    axRef: axRef
+                )
+            )
             _ = scheduleAdmissionRetry(
                 windowId: windowId,
                 expectedToken: token,
@@ -2510,6 +2684,15 @@ final class AXEventHandler {
                 trigger: trigger
             )
         case let .ignored(token, reason):
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionIgnored,
+                    pid: token?.pid,
+                    windowId: Int(windowId),
+                    bundleId: token.flatMap { resolveBundleId($0.pid) },
+                    reason: reason.rawValue
+                )
+            )
             cancelCreatedWindowRetry(windowId: windowId)
             discardCreatePlacementContext(windowId: windowId)
             recordNiriCreateFocusTrace(
@@ -2631,9 +2814,29 @@ final class AXEventHandler {
         let resolvedToken = resolveTrackedToken(windowId, resolvedWindowToken: observedToken)
             ?? observedToken
             ?? pidHint.map { WindowToken(pid: $0, windowId: Int(windowId)) }
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionDestroyed,
+                pid: resolvedToken?.pid ?? pidHint,
+                windowId: Int(windowId),
+                bundleId: resolvedToken.flatMap { resolveBundleId($0.pid) },
+                reason: resolvedToken == nil ? "unresolved_identity" : "resolved_identity",
+                axRef: resolvedToken.flatMap {
+                    controller?.workspaceManager.entry(for: $0)?.axRef
+                }
+            )
+        )
 
         guard let candidate = prepareDestroyCandidate(windowId: windowId, pidHint: pidHint) else {
             discardUnmanagedDestroyedWindowState(windowId: windowId, resolvedToken: resolvedToken)
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionDisappeared,
+                    pid: resolvedToken?.pid ?? pidHint,
+                    windowId: Int(windowId),
+                    reason: "destroy_without_managed_candidate"
+                )
+            )
             clearFocusedTargetForDestroyedWindow(
                 windowId: windowId,
                 resolvedToken: resolvedToken,
@@ -2735,6 +2938,17 @@ final class AXEventHandler {
         focusedActivation: PendingFocusedManagedActivation? = nil
     ) {
         guard let policy = managedReplacementCorrelationPolicy(for: candidate.replacementMetadata) else { return }
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionPending,
+                pid: candidate.token.pid,
+                windowId: candidate.token.windowId,
+                bundleId: candidate.bundleId,
+                reason: "managed_replacement_correlation",
+                outcome: "deferred",
+                axRef: candidate.axRef
+            )
+        )
         let key = ManagedReplacementKey(pid: candidate.token.pid, workspaceId: candidate.workspaceId)
         armManagedReplacementFocusTransaction(
             token: candidate.token,
@@ -2927,6 +3141,18 @@ final class AXEventHandler {
             managedReplacementMetadata: create.replacementMetadata
         )
         if entry != nil {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .admissionReplaced,
+                    pid: create.token.pid,
+                    windowId: create.token.windowId,
+                    bundleId: create.bundleId,
+                    competingPid: oldToken.pid,
+                    reason: "structural_managed_replacement",
+                    outcome: "oldWindowId=\(oldToken.windowId)",
+                    axRef: create.axRef
+                )
+            )
             _ = controller?.workspaceManager.updateAdmissionHints(create.admissionHints, for: create.token)
             rekeyManagedReplacementFocusTransaction(
                 from: oldToken,

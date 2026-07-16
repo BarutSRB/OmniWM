@@ -4,6 +4,11 @@
 import Foundation
 @testable import OmniWM
 
+struct WindowClassificationRegressionFixture: Codable, Equatable, Sendable {
+    var observation: WindowClassificationObservation
+    var expectedDecision: WindowClassificationDecisionDTO
+}
+
 enum WindowClassificationFixtureLoader {
     static func fixtureURLs() throws -> [URL] {
         guard let resourceURL = Bundle.module.resourceURL else { return [] }
@@ -14,7 +19,7 @@ enum WindowClassificationFixtureLoader {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    static func load(_ url: URL) throws -> WindowDiagnosticDump {
-        try JSONDecoder().decode(WindowDiagnosticDump.self, from: Data(contentsOf: url))
+    static func load(_ url: URL) throws -> WindowClassificationRegressionFixture {
+        try JSONDecoder().decode(WindowClassificationRegressionFixture.self, from: Data(contentsOf: url))
     }
 }

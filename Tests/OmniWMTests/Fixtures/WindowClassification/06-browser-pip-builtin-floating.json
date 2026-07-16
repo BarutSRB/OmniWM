@@ -1,12 +1,5 @@
 {
-  "generatedAt": "2026-06-23T00:00:00Z",
-  "os": "fixture",
-  "appVersion": "fixture",
-  "ax": {
-    "window": { "attributes": {}, "writable": [], "failed": [], "ignored": [] },
-    "app": { "attributes": {}, "writable": [], "failed": [], "ignored": [] }
-  },
-  "omniwm": {
+  "observation": {
     "tokenPid": 1000,
     "tokenWindowId": 6,
     "appName": "Firefox",
@@ -29,11 +22,17 @@
       "appFullscreen": false,
       "rules": []
     },
-    "expected": {
+    "observedDecision": {
       "disposition": "floating",
       "source": "builtInRule(browserPictureInPicture)",
       "heuristicReasons": [],
       "layoutDecisionKind": "explicitLayout"
     }
+  },
+  "expectedDecision": {
+    "disposition": "floating",
+    "source": "builtInRule(browserPictureInPicture)",
+    "heuristicReasons": [],
+    "layoutDecisionKind": "explicitLayout"
   }
 }

@@ -16,7 +16,6 @@ struct DiagnosticsSettingsTab: View {
     let navigation: SettingsNavigationModel
 
     @State private var traceStatus: DiagnosticsActionStatus = .idle
-    @State private var recoveryStatus: DiagnosticsActionStatus = .idle
     @State private var probeStatus: DiagnosticsActionStatus = .idle
     @State private var recentFiles: [DiagnosticsFile] = []
     @State private var reloadToken = 0
@@ -32,7 +31,6 @@ struct DiagnosticsSettingsTab: View {
             privateAPICapabilitySection
             recordingSection
             savedDiagnosticsSection
-            windowSnapshotSection
         }
         .formStyle(.grouped)
         .task(id: reloadToken) {
@@ -144,20 +142,27 @@ struct DiagnosticsSettingsTab: View {
     @ViewBuilder
     private var recordingSection: some View {
         Section("Record a Problem") {
-            if controller.isTraceCaptureActive {
+            switch controller.traceCaptureStatus.phase {
+            case .idle:
+                Button("Start Recording") {
+                    startRecording()
+                }
+            case .recording:
                 recordingProgressLabel
                 Button("Stop & Save Recording") {
                     stopRecording()
                 }
-            } else {
-                Button("Start Recording") {
-                    startRecording()
+            case .finalizing:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Finalizing diagnostics…")
                 }
             }
             statusLabel(traceStatus)
             SettingsCaption(
-                "Records window-server activity until you stop, then saves a trace log. "
-                    + "Use it to capture a problem you can reproduce."
+                "Start recording, reproduce one problem, then stop and attach the saved trace log. "
+                    + "The app and window evidence is captured automatically."
             )
         }
     }
@@ -241,20 +246,6 @@ struct DiagnosticsSettingsTab: View {
     }
 
     @ViewBuilder
-    private var windowSnapshotSection: some View {
-        Section("Window Snapshot") {
-            Button("Dump Focused Window AX") {
-                dumpFocusedWindow()
-            }
-            statusLabel(recoveryStatus)
-            SettingsCaption(
-                "Saves the focused window's accessibility details for a maintainer. Focus the misbehaving "
-                    + "window first — the file is added to your next diagnostics bundle."
-            )
-        }
-    }
-
-    @ViewBuilder
     private func statusLabel(_ status: DiagnosticsActionStatus) -> some View {
         switch status {
         case .idle:
@@ -267,24 +258,6 @@ struct DiagnosticsSettingsTab: View {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundStyle(.red)
-        }
-    }
-
-    private func dumpFocusedWindow() {
-        Task {
-            guard let dump = await controller.makeFocusedWindowDiagnosticDump() else {
-                recoveryStatus = .failure("No focused window to dump")
-                return
-            }
-            do {
-                let url = try controller.writeWindowDiagnosticDump(dump)
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-                copyToPasteboard(url.path)
-                reportSuccess("Window AX dump saved \(url.lastPathComponent) — path copied", into: $recoveryStatus)
-                reloadToken += 1
-            } catch {
-                recoveryStatus = .failure("Failed to write window dump: \(error.localizedDescription)")
-            }
         }
     }
 
@@ -303,27 +276,31 @@ struct DiagnosticsSettingsTab: View {
     }
 
     private func startRecording() {
-        switch controller.toggleTraceCaptureForUI(desiredState: .active) {
-        case .started:
-            reportSuccess("Recording started", into: $traceStatus)
-        case .noChange:
-            traceStatus = .failure("A recording is already running")
-        case .stopped,
-             .writeFailed:
-            traceStatus = .failure("Unexpected recording state")
+        Task {
+            switch await controller.toggleTraceCaptureForUI(desiredState: .active) {
+            case .started:
+                reportSuccess("Recording started", into: $traceStatus)
+            case .noChange:
+                traceStatus = .failure("A recording is already running")
+            case .stopped,
+                 .writeFailed:
+                traceStatus = .failure("Unexpected recording state")
+            }
         }
     }
 
     private func stopRecording() {
-        switch controller.toggleTraceCaptureForUI(desiredState: .inactive) {
-        case .stopped:
-            break
-        case let .writeFailed(reason):
-            traceStatus = .failure("Failed to write the recording: \(reason)")
-        case .noChange:
-            traceStatus = .failure("No recording is running")
-        case .started:
-            traceStatus = .failure("Unexpected recording state")
+        Task {
+            switch await controller.toggleTraceCaptureForUI(desiredState: .inactive) {
+            case .stopped:
+                break
+            case let .writeFailed(reason):
+                traceStatus = .failure("Failed to write the recording: \(reason)")
+            case .noChange:
+                traceStatus = .failure("No recording is running")
+            case .started:
+                traceStatus = .failure("Unexpected recording state")
+            }
         }
     }
 
@@ -361,9 +338,6 @@ struct DiagnosticsSettingsTab: View {
         let name = file.name
         if name.hasPrefix("omniwm-trace-") {
             return name.hasSuffix(".partial.log") ? "Trace (incomplete)" : "Trace"
-        }
-        if name.hasPrefix("omniwm-window-") {
-            return "Window AX"
         }
         if name.hasPrefix("omniwm-crash-") {
             return "Crash"

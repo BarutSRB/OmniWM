@@ -1,12 +1,5 @@
 {
-  "generatedAt": "2026-06-23T00:00:00Z",
-  "os": "fixture",
-  "appVersion": "fixture",
-  "ax": {
-    "window": { "attributes": {}, "writable": [], "failed": [], "ignored": [] },
-    "app": { "attributes": {}, "writable": [], "failed": [], "ignored": [] }
-  },
-  "omniwm": {
+  "observation": {
     "tokenPid": 1000,
     "tokenWindowId": 3,
     "appName": "Dialog App",
@@ -28,11 +21,21 @@
       "appFullscreen": false,
       "rules": []
     },
-    "expected": {
+    "observedDecision": {
       "disposition": "floating",
       "source": "heuristic",
-      "heuristicReasons": ["nonStandardSubrole"],
+      "heuristicReasons": [
+        "nonStandardSubrole"
+      ],
       "layoutDecisionKind": "fallbackLayout"
     }
+  },
+  "expectedDecision": {
+    "disposition": "floating",
+    "source": "heuristic",
+    "heuristicReasons": [
+      "nonStandardSubrole"
+    ],
+    "layoutDecisionKind": "fallbackLayout"
   }
 }

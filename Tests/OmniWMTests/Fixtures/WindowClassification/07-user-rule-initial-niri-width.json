@@ -1,12 +1,5 @@
 {
-  "generatedAt": "2026-07-12T00:00:00Z",
-  "os": "fixture",
-  "appVersion": "fixture",
-  "ax": {
-    "window": { "attributes": {}, "writable": [], "failed": [], "ignored": [] },
-    "app": { "attributes": {}, "writable": [], "failed": [], "ignored": [] }
-  },
-  "omniwm": {
+  "observation": {
     "tokenPid": 1000,
     "tokenWindowId": 7,
     "appName": "Wide App",
@@ -35,12 +28,19 @@
         }
       ]
     },
-    "expected": {
+    "observedDecision": {
       "disposition": "managed",
       "source": "userRule(22222222-2222-2222-2222-222222222222)",
       "heuristicReasons": [],
       "layoutDecisionKind": "fallbackLayout",
       "initialNiriColumnWidth": 0.75
     }
+  },
+  "expectedDecision": {
+    "disposition": "managed",
+    "source": "userRule(22222222-2222-2222-2222-222222222222)",
+    "heuristicReasons": [],
+    "layoutDecisionKind": "fallbackLayout",
+    "initialNiriColumnWidth": 0.75
   }
 }

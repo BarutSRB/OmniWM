@@ -10,21 +10,31 @@ enum TraceCaptureDesiredState {
     case toggle
 }
 
-struct TraceCaptureSession {
+enum TraceCapturePhase: Equatable {
+    case idle
+    case recording
+    case finalizing
+}
+
+struct TraceCaptureSession: Sendable {
     let startedAt: Date
     let startReport: String
 }
 
-struct TraceCaptureArtifact: Equatable {
+struct TraceCaptureArtifact: Equatable, Sendable {
     let url: URL
     let startedAt: Date
     let endedAt: Date
 }
 
 struct TraceCaptureStatus: Equatable {
-    let isActive: Bool
+    let phase: TraceCapturePhase
     let startedAt: Date?
     let lastArtifact: TraceCaptureArtifact?
+
+    var isActive: Bool {
+        phase != .idle
+    }
 }
 
 enum TraceCaptureOutcome {
@@ -34,163 +44,77 @@ enum TraceCaptureOutcome {
     case writeFailed(String)
 }
 
-@MainActor @Observable
-final class RuntimeTraceCaptureCoordinator {
-    private static let flushIntervalSeconds = 15
-    private static let maxCaptureSeconds = 600
-
-    private var session: TraceCaptureSession?
-    private var reportProvider: (() -> String)?
-    private var captureTask: Task<Void, Never>?
-    private(set) var lastArtifact: TraceCaptureArtifact?
-    var onStateChange: (() -> Void)?
-    private let recorders: [any RuntimeTraceRecording]
+private actor TraceCaptureFileWriter {
     private let diagnosticsDirectory: URL
 
-    init(
-        diagnosticsDirectory: URL = OmniWMStoragePaths.live.diagnosticsDirectory,
-        recorders: [any RuntimeTraceRecording] = [
-            RawAXNotificationTrace.shared,
-            FrameApplyTrace.shared,
-            NiriLayoutTrace.shared,
-            AnimationTickTrace.shared,
-            ParkVisibilityAudit.shared,
-            ScrollTickTrace.shared,
-            AXWriteLatencyTrace.shared,
-            BorderOpMetricsRecorder.shared,
-            MouseTrace.shared,
-            InputTrace.shared
-        ]
-    ) {
+    init(diagnosticsDirectory: URL) {
         self.diagnosticsDirectory = diagnosticsDirectory
-        self.recorders = recorders
     }
 
-    var isActive: Bool {
-        session != nil
-    }
-
-    var status: TraceCaptureStatus {
-        TraceCaptureStatus(isActive: isActive, startedAt: session?.startedAt, lastArtifact: lastArtifact)
-    }
-
-    func toggle(desiredState: TraceCaptureDesiredState, reportProvider: @escaping () -> String) -> TraceCaptureOutcome {
-        switch desiredState {
-        case .active:
-            return isActive ? .noChange : start(reportProvider: reportProvider)
-        case .inactive:
-            return isActive ? finalize() : .noChange
-        case .toggle:
-            return isActive ? finalize() : start(reportProvider: reportProvider)
-        }
-    }
-
-    private func start(reportProvider: @escaping () -> String) -> TraceCaptureOutcome {
-        DiagnosticsEventRecorder.shared.beginVerboseCapture()
-        recorders.forEach { $0.beginCapture() }
-        self.reportProvider = reportProvider
-        let session = TraceCaptureSession(startedAt: Date(), startReport: reportProvider())
-        self.session = session
-
-        let partialURL: URL
-        do {
-            partialURL = try writePartial(session: session)
-        } catch {
-            DiagnosticsEventRecorder.shared.endVerboseCapture()
-            recorders.forEach { $0.endCapture() }
-            self.session = nil
-            self.reportProvider = nil
-            return .writeFailed(error.localizedDescription)
-        }
-
-        DiagnosticsRetention.wipe(directory: diagnosticsDirectory, prefixes: ["omniwm-trace-"], except: [partialURL])
-        startCaptureTask()
-        onStateChange?()
-        return .started
-    }
-
-    private func startCaptureTask() {
-        let maxFlushes = Self.maxCaptureSeconds / Self.flushIntervalSeconds
-        captureTask = Task { [weak self] in
-            var flushes = 0
-            while flushes < maxFlushes {
-                try? await Task.sleep(for: .seconds(Self.flushIntervalSeconds))
-                if Task.isCancelled { return }
-                guard let self else { return }
-                writePartial()
-                flushes += 1
-            }
-            if Task.isCancelled { return }
-            self?.captureTask = nil
-            self?.finalize()
-        }
-    }
-
-    @discardableResult
-    private func finalize() -> TraceCaptureOutcome {
-        guard let session else { return .noChange }
-        captureTask?.cancel()
-        captureTask = nil
-
-        let endedAt = Date()
-        let endReport = reportProvider?() ?? "report unavailable"
-        let lifecycleEvents = DiagnosticsEventRecorder.shared.dumpLifecycle()
-        let verboseEvents = DiagnosticsEventRecorder.shared.dumpVerbose()
-        DiagnosticsEventRecorder.shared.endVerboseCapture()
-        recorders.forEach { $0.endCapture() }
-        self.session = nil
-        reportProvider = nil
-
-        let body = buildBody(
-            session: session,
-            endedAt: endedAt,
-            lifecycleEvents: lifecycleEvents,
-            verboseEvents: verboseEvents,
-            endReport: endReport
+    func writeInitialPartial(
+        session: TraceCaptureSession,
+        recorders: [any RuntimeTraceRecording]
+    ) throws -> URL {
+        let url = try writePartial(session: session, recorders: recorders)
+        DiagnosticsRetention.wipe(
+            directory: diagnosticsDirectory,
+            prefixes: ["omniwm-trace-"],
+            except: [url]
         )
-
-        do {
-            let directory = diagnosticsDirectory
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let filename = "omniwm-trace-\(milliseconds(session.startedAt))-\(milliseconds(endedAt)).log"
-            let url = directory.appendingPathComponent(filename, isDirectory: false)
-            try body.write(to: url, atomically: true, encoding: .utf8)
-            removePartial(startedAt: session.startedAt)
-            let artifact = TraceCaptureArtifact(url: url, startedAt: session.startedAt, endedAt: endedAt)
-            lastArtifact = artifact
-            onStateChange?()
-            return .stopped(artifact)
-        } catch {
-            onStateChange?()
-            return .writeFailed(error.localizedDescription)
-        }
+        return url
     }
 
-    private func writePartial() {
-        guard let session else { return }
-        _ = try? writePartial(session: session)
-    }
-
-    @discardableResult
-    private func writePartial(session: TraceCaptureSession) throws -> URL {
+    func writePartial(
+        session: TraceCaptureSession,
+        recorders: [any RuntimeTraceRecording]
+    ) throws -> URL {
         let body = buildBody(
             session: session,
             endedAt: nil,
             lifecycleEvents: DiagnosticsEventRecorder.shared.dumpLifecycle(),
             verboseEvents: DiagnosticsEventRecorder.shared.dumpVerbose(),
+            recorders: recorders,
+            automaticEvidence: nil,
             endReport: nil
         )
-        let directory = diagnosticsDirectory
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(partialFilename(startedAt: session.startedAt), isDirectory: false)
+        try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
+        let url = diagnosticsDirectory.appendingPathComponent(
+            partialFilename(startedAt: session.startedAt),
+            isDirectory: false
+        )
         try body.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
-    private func removePartial(startedAt: Date) {
-        let url = diagnosticsDirectory
-            .appendingPathComponent(partialFilename(startedAt: startedAt), isDirectory: false)
-        try? FileManager.default.removeItem(at: url)
+    func writeFinal(
+        session: TraceCaptureSession,
+        endedAt: Date,
+        recorders: [any RuntimeTraceRecording],
+        automaticEvidence: String,
+        endReport: String
+    ) throws -> URL {
+        let lifecycleEvents = DiagnosticsEventRecorder.shared.dumpLifecycle()
+        let verboseEvents = DiagnosticsEventRecorder.shared.dumpVerbose()
+        let body = buildBody(
+            session: session,
+            endedAt: endedAt,
+            lifecycleEvents: lifecycleEvents,
+            verboseEvents: verboseEvents,
+            recorders: recorders,
+            automaticEvidence: automaticEvidence,
+            endReport: endReport
+        )
+        try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
+        let filename = "omniwm-trace-\(milliseconds(session.startedAt))-\(milliseconds(endedAt)).log"
+        let url = diagnosticsDirectory.appendingPathComponent(filename, isDirectory: false)
+        try body.write(to: url, atomically: true, encoding: .utf8)
+        try? FileManager.default.removeItem(
+            at: diagnosticsDirectory.appendingPathComponent(
+                partialFilename(startedAt: session.startedAt),
+                isDirectory: false
+            )
+        )
+        return url
     }
 
     private func buildBody(
@@ -198,6 +122,8 @@ final class RuntimeTraceCaptureCoordinator {
         endedAt: Date?,
         lifecycleEvents: String,
         verboseEvents: String,
+        recorders: [any RuntimeTraceRecording],
+        automaticEvidence: String?,
         endReport: String?
     ) -> String {
         var lines = [
@@ -217,6 +143,9 @@ final class RuntimeTraceCaptureCoordinator {
         for recorder in recorders {
             lines.append(contentsOf: ["", "== \(recorder.sectionTitle) ==", recorder.dump()])
         }
+        if let automaticEvidence {
+            lines.append(contentsOf: ["", "== Automatic AX Evidence ==", automaticEvidence])
+        }
         if let endReport {
             lines.append(contentsOf: ["", "== State At End ==", endReport])
         }
@@ -229,5 +158,177 @@ final class RuntimeTraceCaptureCoordinator {
 
     private func milliseconds(_ date: Date) -> Int {
         Int(date.timeIntervalSince1970 * 1000)
+    }
+}
+
+@MainActor @Observable
+final class RuntimeTraceCaptureCoordinator {
+    private static let flushIntervalSeconds = 15
+    private static let maxCaptureSeconds = 600
+
+    private var phase: TraceCapturePhase = .idle
+    private var session: TraceCaptureSession?
+    private var reportProvider: (() -> String)?
+    private var automaticEvidenceProvider: (() async -> String)?
+    private var captureTask: Task<Void, Never>?
+    private(set) var lastArtifact: TraceCaptureArtifact?
+    var onStateChange: (() -> Void)?
+    private let recorders: [any RuntimeTraceRecording]
+    private let writer: TraceCaptureFileWriter
+
+    init(
+        diagnosticsDirectory: URL = OmniWMStoragePaths.live.diagnosticsDirectory,
+        recorders: [any RuntimeTraceRecording] = [
+            WindowAdmissionTrace.shared,
+            RawAXNotificationTrace.shared,
+            FrameApplyTrace.shared,
+            NiriLayoutTrace.shared,
+            AnimationTickTrace.shared,
+            ParkVisibilityAudit.shared,
+            ScrollTickTrace.shared,
+            AXWriteLatencyTrace.shared,
+            BorderOpMetricsRecorder.shared,
+            MouseTrace.shared,
+            InputTrace.shared
+        ]
+    ) {
+        writer = TraceCaptureFileWriter(diagnosticsDirectory: diagnosticsDirectory)
+        self.recorders = recorders
+    }
+
+    var isActive: Bool {
+        phase != .idle
+    }
+
+    var status: TraceCaptureStatus {
+        TraceCaptureStatus(phase: phase, startedAt: session?.startedAt, lastArtifact: lastArtifact)
+    }
+
+    func toggle(
+        desiredState: TraceCaptureDesiredState,
+        reportProvider: @escaping () -> String,
+        automaticEvidenceProvider: @escaping () async -> String = { "none" }
+    ) async -> TraceCaptureOutcome {
+        switch desiredState {
+        case .active:
+            return phase == .idle
+                ? await start(
+                    reportProvider: reportProvider,
+                    automaticEvidenceProvider: automaticEvidenceProvider
+                )
+                : .noChange
+        case .inactive:
+            return phase == .recording ? await stop() : .noChange
+        case .toggle:
+            return phase == .idle
+                ? await start(
+                    reportProvider: reportProvider,
+                    automaticEvidenceProvider: automaticEvidenceProvider
+                )
+                : phase == .recording ? await stop() : .noChange
+        }
+    }
+
+    private func start(
+        reportProvider: @escaping () -> String,
+        automaticEvidenceProvider: @escaping () async -> String
+    ) async -> TraceCaptureOutcome {
+        DiagnosticsEventRecorder.shared.beginVerboseCapture()
+        recorders.forEach { $0.beginCapture() }
+        self.reportProvider = reportProvider
+        self.automaticEvidenceProvider = automaticEvidenceProvider
+        let session = TraceCaptureSession(startedAt: Date(), startReport: reportProvider())
+        self.session = session
+        phase = .recording
+        lastArtifact = nil
+        onStateChange?()
+
+        do {
+            _ = try await writer.writeInitialPartial(session: session, recorders: recorders)
+            guard phase == .recording,
+                  self.session?.startedAt == session.startedAt
+            else { return .noChange }
+        } catch {
+            guard phase == .recording,
+                  self.session?.startedAt == session.startedAt
+            else { return .noChange }
+            DiagnosticsEventRecorder.shared.endVerboseCapture()
+            recorders.forEach { $0.endCapture() }
+            self.session = nil
+            self.reportProvider = nil
+            self.automaticEvidenceProvider = nil
+            phase = .idle
+            onStateChange?()
+            return .writeFailed(error.localizedDescription)
+        }
+
+        startCaptureTask()
+        return .started
+    }
+
+    private func startCaptureTask() {
+        captureTask = Task { [weak self] in
+            let maxFlushes = Self.maxCaptureSeconds / Self.flushIntervalSeconds
+            for _ in 0 ..< maxFlushes {
+                do {
+                    try await Task.sleep(for: .seconds(Self.flushIntervalSeconds))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, let self else { return }
+                await self.writePartial()
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.captureTask = nil
+            _ = await self.finalize()
+        }
+    }
+
+    private func stop() async -> TraceCaptureOutcome {
+        let activeTask = captureTask
+        captureTask = nil
+        activeTask?.cancel()
+        return await finalize()
+    }
+
+    private func finalize() async -> TraceCaptureOutcome {
+        guard phase == .recording, let session else { return .noChange }
+        phase = .finalizing
+        onStateChange?()
+
+        let endedAt = Date()
+        DiagnosticsEventRecorder.shared.endVerboseCapture()
+        recorders.forEach { $0.endCapture() }
+        let endReport = reportProvider?() ?? "report unavailable"
+        let evidenceProvider = automaticEvidenceProvider
+        reportProvider = nil
+        automaticEvidenceProvider = nil
+        let automaticEvidence = await evidenceProvider?() ?? "none"
+
+        do {
+            let url = try await writer.writeFinal(
+                session: session,
+                endedAt: endedAt,
+                recorders: recorders,
+                automaticEvidence: automaticEvidence,
+                endReport: endReport
+            )
+            let artifact = TraceCaptureArtifact(url: url, startedAt: session.startedAt, endedAt: endedAt)
+            lastArtifact = artifact
+            self.session = nil
+            phase = .idle
+            onStateChange?()
+            return .stopped(artifact)
+        } catch {
+            self.session = nil
+            phase = .idle
+            onStateChange?()
+            return .writeFailed(error.localizedDescription)
+        }
+    }
+
+    private func writePartial() async {
+        guard phase == .recording, let session else { return }
+        _ = try? await writer.writePartial(session: session, recorders: recorders)
     }
 }

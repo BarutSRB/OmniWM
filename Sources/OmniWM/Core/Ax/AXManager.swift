@@ -121,6 +121,15 @@ final class AXManager {
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             else { return }
             let pid = app.processIdentifier
+            if WindowAdmissionTrace.shared.isActive, pid != getpid() {
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .processTerminated,
+                        pid: pid,
+                        bundleId: app.bundleIdentifier
+                    )
+                )
+            }
             Task { @MainActor in
                 self?.onAppTerminated?(pid)
                 if let context = AppAXContext.contexts[pid] {
@@ -138,6 +147,15 @@ final class AXManager {
         ) { [weak self] notification in
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             else { return }
+            if WindowAdmissionTrace.shared.isActive, app.processIdentifier != getpid() {
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .processLaunched,
+                        pid: app.processIdentifier,
+                        bundleId: app.bundleIdentifier
+                    )
+                )
+            }
             Task { @MainActor in
                 self?.onAppLaunched?(app)
             }
@@ -397,11 +415,27 @@ final class AXManager {
         guard shouldTrack(app) else { return [] }
         do {
             guard let context = try await AppAXContext.getOrCreate(app) else {
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .enumerationFailed,
+                        pid: app.processIdentifier,
+                        bundleId: app.bundleIdentifier,
+                        reason: "context_unavailable"
+                    )
+                )
                 return []
             }
             let windows = try await context.getWindowsAsync(timeoutSeconds: perAppTimeout)
             return windows.map { ($0.axRef, app.processIdentifier, $0.axRef.windowId) }
         } catch {
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .enumerationFailed,
+                    pid: app.processIdentifier,
+                    bundleId: app.bundleIdentifier,
+                    reason: String(describing: error)
+                )
+            )
         }
         return []
     }
@@ -479,6 +513,22 @@ final class AXManager {
             }
         }
 
+        if WindowAdmissionTrace.shared.isActive {
+            for candidate in selected {
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .fullRescanSelected,
+                        pid: candidate.pid,
+                        windowId: candidate.windowId,
+                        axPid: candidate.axPid,
+                        windowServerPid: candidate.windowServerOwnerPID,
+                        reason: "final_selection",
+                        manageable: candidate.isManageable,
+                        axRef: candidate.axRef
+                    )
+                )
+            }
+        }
         let selectedWindowIds = Set(selected.map(\.windowId))
         collection.identityAliasesByWindowId = collection.identityAliasesByWindowId.filter {
             selectedWindowIds.contains($0.key)
@@ -580,6 +630,7 @@ final class AXManager {
                     enumerationRoute: result.route
                 )
                 collection.candidatesByWindowId[windowId, default: []].append(candidate)
+                recordFullRescanCandidate(candidate)
             }
         }
         return collection
@@ -604,6 +655,20 @@ final class AXManager {
             aliases.axRefs.append(window.axRef)
         }
         aliasesByWindowId[windowId] = aliases
+    }
+
+    private func recordFullRescanCandidate(_ candidate: FullRescanWindowCandidate) {
+        WindowAdmissionTrace.record(
+            .init(
+                action: .fullRescanCandidate,
+                pid: candidate.pid,
+                windowId: candidate.windowId,
+                axPid: candidate.axPid,
+                windowServerPid: candidate.windowServerOwnerPID,
+                manageable: candidate.isManageable,
+                axRef: candidate.axRef
+            )
+        )
     }
 
     private func enumerateFullRescanApps(
@@ -635,22 +700,48 @@ final class AXManager {
             switch route {
             case .persistent:
                 guard let context = try await AppAXContext.getOrCreate(app) else {
+                    recordFullRescanEnumerationFailure(app, reason: "context_unavailable")
                     return .init(pid: pid, route: route, windows: [], failed: true)
                 }
                 windows = try await context.getWindowsAsync(timeoutSeconds: perAppTimeout)
             case .oneShot:
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .enumerationStarted,
+                        pid: pid,
+                        bundleId: app.bundleIdentifier
+                    )
+                )
                 windows = try AXWindowEnumerationInspector.enumerateApplication(
                     pid: pid,
                     timeout: perAppTimeout
                 )
                 try Task.checkCancellation()
+                WindowAdmissionTrace.record(
+                    .init(action: .enumerationCompleted, pid: pid, count: windows.count)
+                )
             }
             return .init(pid: pid, route: route, windows: windows, failed: false)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            recordFullRescanEnumerationFailure(app, reason: String(describing: error))
             return .init(pid: pid, route: route, windows: [], failed: true)
         }
+    }
+
+    private nonisolated static func recordFullRescanEnumerationFailure(
+        _ app: NSRunningApplication,
+        reason: String
+    ) {
+        WindowAdmissionTrace.record(
+            .init(
+                action: .enumerationFailed,
+                pid: app.processIdentifier,
+                bundleId: app.bundleIdentifier,
+                reason: reason
+            )
+        )
     }
 
     static func selectFullRescanCandidates(
@@ -671,6 +762,22 @@ final class AXManager {
                     activationPolicyByPID: activationPolicyByPID,
                     ownerPID: candidate.windowServerOwnerPID ?? current.windowServerOwnerPID,
                     existingPID: preservingPIDsByWindowId[windowId]
+                )
+                let winner = preference.prefersCandidate ? candidate : current
+                let loser = preference.prefersCandidate ? current : candidate
+                WindowAdmissionTrace.record(
+                    .init(
+                        action: .fullRescanRejected,
+                        pid: loser.pid,
+                        windowId: windowId,
+                        axPid: loser.axPid,
+                        windowServerPid: loser.windowServerOwnerPID,
+                        competingPid: winner.pid,
+                        reason: preference.reason.rawValue,
+                        outcome: preference.prefersCandidate ? "replaced" : "not_preferred",
+                        manageable: loser.isManageable,
+                        axRef: loser.axRef
+                    )
                 )
                 if preference.prefersCandidate {
                     current = candidate
@@ -718,6 +825,7 @@ final class AXManager {
                 if !hadContext {
                     AppAXContext.contexts[pid]?.destroy()
                 }
+                Self.recordFullRescanEnumerationFailure(app, reason: "promotion_\(error)")
             }
         }
         return failedPIDs

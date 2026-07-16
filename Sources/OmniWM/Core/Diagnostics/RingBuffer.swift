@@ -11,7 +11,7 @@ struct RingBuffer<Element> {
 
     init(capacity: Int) {
         self.capacity = max(1, capacity)
-        storage = ContiguousArray(repeating: nil, count: self.capacity)
+        storage = []
     }
 
     var isEmpty: Bool {
@@ -19,6 +19,9 @@ struct RingBuffer<Element> {
     }
 
     mutating func append(_ element: Element) {
+        if storage.isEmpty {
+            storage = ContiguousArray(repeating: nil, count: capacity)
+        }
         storage[nextIndex] = element
         nextIndex = (nextIndex + 1) % capacity
         if size < capacity {
@@ -61,11 +64,22 @@ final class LockedRingBuffer<Element: Sendable>: @unchecked Sendable {
         state.withLock { $0.append(element) }
     }
 
+    func append(_ element: Element, while predicate: @Sendable () -> Bool) {
+        state.withLock { state in
+            guard predicate() else { return }
+            state.append(element)
+        }
+    }
+
     func snapshot() -> [Element] {
         state.withLock { $0.snapshot() }
     }
 
     func removeAll() {
         state.withLock { $0.removeAll() }
+    }
+
+    func synchronize() {
+        state.withLock { _ in }
     }
 }

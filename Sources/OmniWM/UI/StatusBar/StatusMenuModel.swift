@@ -69,6 +69,10 @@ final class StatusMenuModel {
         controller?.isTraceCaptureActive ?? false
     }
 
+    var traceCapturePhase: TraceCapturePhase {
+        controller?.traceCaptureStatus.phase ?? .idle
+    }
+
     var canShowHiddenIcons: Bool {
         settings.hiddenBarEnabled && controller?.isHiddenBarHidingAvailable == true
     }
@@ -244,17 +248,19 @@ final class StatusMenuModel {
     func toggleTraceRecording() {
         guard let controller else { return }
         let wasRecording = controller.isTraceCaptureActive
-        switch controller.toggleTraceCaptureForUI(desiredState: .toggle) {
-        case .noChange,
-             .started:
-            break
-        case let .stopped(artifact):
-            NSWorkspace.shared.activateFileViewerSelecting([artifact.url])
-        case let .writeFailed(reason):
-            infoAlertPresenter(
-                wasRecording ? "Recording could not be saved" : "Recording could not be started",
-                reason
-            )
+        Task {
+            switch await controller.toggleTraceCaptureForUI(desiredState: .toggle) {
+            case .noChange,
+                 .started:
+                break
+            case let .stopped(artifact):
+                NSWorkspace.shared.activateFileViewerSelecting([artifact.url])
+            case let .writeFailed(reason):
+                infoAlertPresenter(
+                    wasRecording ? "Recording could not be saved" : "Recording could not be started",
+                    reason
+                )
+            }
         }
     }
 

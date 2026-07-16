@@ -143,14 +143,31 @@ struct StatusMenuDiagnosticsView: View {
     var body: some View {
         VStack(spacing: 0) {
             MenuActionRow(
-                icon: model.isTraceCaptureActive ? "stop.circle" : "record.circle",
-                label: model.isTraceCaptureActive ? "Stop & Save Recording" : "Start Recording"
+                icon: traceIcon,
+                label: traceLabel
             ) {
                 model.toggleTraceRecording()
             }
+            .disabled(model.traceCapturePhase == .finalizing)
             MenuActionRow(icon: "stethoscope", label: "Open Troubleshooting…", showChevron: true) {
                 model.openSettings(section: .diagnostics)
             }
+        }
+    }
+
+    private var traceIcon: String {
+        switch model.traceCapturePhase {
+        case .idle: "record.circle"
+        case .recording: "stop.circle"
+        case .finalizing: "hourglass"
+        }
+    }
+
+    private var traceLabel: String {
+        switch model.traceCapturePhase {
+        case .idle: "Start Recording"
+        case .recording: "Stop & Save Recording"
+        case .finalizing: "Finalizing diagnostics…"
         }
     }
 }

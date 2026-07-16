@@ -32,7 +32,10 @@ final class BorderOpMetricsRecorder: RuntimeTraceRecording, @unchecked Sendable 
 
     private func bump(_ body: @Sendable (inout Counters) -> Void) {
         guard active.load(ordering: .relaxed) else { return }
-        counters.withLock(body)
+        counters.withLock { counters in
+            guard active.load(ordering: .relaxed) else { return }
+            body(&counters)
+        }
     }
 
     func noteApply() {
@@ -86,6 +89,7 @@ final class BorderOpMetricsRecorder: RuntimeTraceRecording, @unchecked Sendable 
 
     func endCapture() {
         active.store(false, ordering: .relaxed)
+        counters.withLock { _ in }
     }
 
     func dump() -> String {
