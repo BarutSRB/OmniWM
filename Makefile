@@ -1,6 +1,6 @@
 .PHONY: format format-check lint lint-fix build run release-check verify check check-tool-versions check-swiftformat-version check-swiftlint-version
 
-SWIFTFORMAT_VERSION = 0.61.1
+SWIFTFORMAT_VERSION = 0.62.1
 SWIFTLINT_VERSION = 0.65.0
 SWIFT_WITH_GHOSTTY = LIBRARY_PATH="$$(./Scripts/ghostty-preflight.sh print-library-dir)$${LIBRARY_PATH:+:$$LIBRARY_PATH}"
 
