@@ -2761,6 +2761,10 @@ final class WMController {
     func runningAppsWithWindows() -> [RunningAppInfo] {
         windowActionHandler.runningAppsWithWindows()
     }
+
+    func runningAppsForRulePicker() -> [RunningAppInfo] {
+        RunningAppInventory.rulePickerCandidates(trackedApplications: runningAppsWithWindows())
+    }
 }
 
 extension WMController {

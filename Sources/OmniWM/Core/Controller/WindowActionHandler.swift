@@ -718,6 +718,7 @@ final class WindowActionHandler {
 
             appInfoMap[key] = RunningAppInfo(
                 id: key,
+                pid: entry.pid,
                 bundleId: bundleId,
                 appName: cachedInfo?.name ?? "Unknown",
                 icon: cachedInfo?.icon,

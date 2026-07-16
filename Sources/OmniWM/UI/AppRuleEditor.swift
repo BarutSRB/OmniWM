@@ -3,14 +3,6 @@
 
 import SwiftUI
 
-struct RunningAppInfo: Identifiable {
-    let id: String
-    let bundleId: String?
-    let appName: String
-    let icon: NSImage?
-    let windowSize: CGSize
-}
-
 struct AppRuleDetailView: View {
     @Binding var rule: AppRule
     let workspaceNames: [String]
@@ -191,98 +183,6 @@ struct AppRuleAddSheet: View {
         }
         .padding()
         .frame(minWidth: 520)
-    }
-}
-
-struct RuleApplicationSection: View {
-    @Binding var draft: AppRuleDraft
-    let controller: WMController
-
-    @State private var runningApps: [RunningAppInfo] = []
-    @State private var isPickerExpanded = false
-    @State private var selectedAppInfo: RunningAppInfo?
-
-    var body: some View {
-        Section("Application") {
-            TextField("Bundle ID", text: $draft.bundleId)
-                .textFieldStyle(.roundedBorder)
-            if let error = draft.bundleIdError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-
-            DisclosureGroup("Pick from running apps", isExpanded: $isPickerExpanded) {
-                if runningApps.isEmpty {
-                    SettingsCaption("No apps with windows found")
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 4) {
-                            ForEach(runningApps) { app in
-                                RunningAppRow(
-                                    app: app,
-                                    isSelected: selectedAppInfo?.id == app.id,
-                                    onSelect: { selectApp(app) }
-                                )
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 200)
-                }
-            }
-            .onAppear {
-                runningApps = controller.runningAppsWithWindows()
-                isPickerExpanded = draft.bundleId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-
-            if let appInfo = selectedAppInfo {
-                Button {
-                    useCurrentWindowSize(appInfo.windowSize)
-                } label: {
-                    Label(
-                        "Use current size: \(Int(appInfo.windowSize.width)) × \(Int(appInfo.windowSize.height)) px",
-                        systemImage: "arrow.down.doc"
-                    )
-                }
-                .buttonStyle(.bordered)
-            }
-
-            Toggle("Also match by app name", isOn: $draft.appNameMatcherEnabled)
-            if draft.appNameMatcherEnabled {
-                TextField("App name contains, e.g. Preview", text: $draft.appNameSubstring)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            SettingsCaption(
-                "Bundle ID is the app's runtime identifier (e.g. com.apple.finder). Some apps have none — "
-                    + "leave it blank and match by app name or title instead. A codesign identifier won't match."
-            )
-
-            if let identifierHint = draft.identifierHint {
-                Text(identifierHint)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-        }
-    }
-
-    private func selectApp(_ app: RunningAppInfo) {
-        selectedAppInfo = app
-        if let bundleId = app.bundleId {
-            draft.bundleId = bundleId
-        } else {
-            draft.bundleId = ""
-            draft.appNameMatcherEnabled = true
-            draft.appNameSubstring = app.appName
-        }
-        isPickerExpanded = false
-    }
-
-    private func useCurrentWindowSize(_ size: CGSize) {
-        draft.minWidth = size.width
-        draft.minHeight = size.height
-        draft.minWidthEnabled = true
-        draft.minHeightEnabled = true
     }
 }
 
@@ -537,58 +437,5 @@ struct FocusedWindowInspectorView: View {
 
     private func refreshSnapshot() {
         snapshot = controller.focusedWindowDecisionDebugSnapshot()
-    }
-}
-
-struct RunningAppRow: View {
-    let app: RunningAppInfo
-    let isSelected: Bool
-    let onSelect: () -> Void
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 8) {
-                if let icon = app.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 20, height: 20)
-                        .accessibilityHidden(true)
-                } else {
-                    Image(systemName: "app")
-                        .frame(width: 20, height: 20)
-                        .accessibilityHidden(true)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(app.appName)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                    Text(app.bundleId ?? "No bundle ID")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Text("\(Int(app.windowSize.width))×\(Int(app.windowSize.height))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.tint)
-                        .accessibilityHidden(true)
-                }
-            }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 8)
-            .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(app.appName), \(app.bundleId ?? "no bundle ID")")
-        .accessibilityValue("\(Int(app.windowSize.width)) by \(Int(app.windowSize.height)) pixels")
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
