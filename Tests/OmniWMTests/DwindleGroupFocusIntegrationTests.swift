@@ -846,7 +846,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
             axRef: replacementRef
         )
 
-        XCTAssertNotNil(replacementEntry)
+        XCTAssertNotNil(replacementEntry.committedEntry)
         XCTAssertEqual(fixture.engine.activeToken(in: fixture.workspaceId), replacementToken)
         fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
             with: frameResult(token: replacementToken, frame: pending.frame),
@@ -894,7 +894,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
                 to: replacementToken,
                 windowId: UInt32(replacementToken.windowId),
                 axRef: replacementRef
-            )
+            ).committedEntry
         )
         fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
             with: frameResult(token: replacementToken, frame: pending.frame),
@@ -935,7 +935,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
                 to: replacementToken,
                 windowId: UInt32(replacementToken.windowId),
                 axRef: replacementRef
-            )
+            ).committedEntry
         )
         XCTAssertNotNil(
             fixture.controller.dwindleLayoutHandler.pendingGroupRevealTransactionId(
@@ -976,7 +976,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
                 to: replacementToken,
                 windowId: UInt32(replacementToken.windowId),
                 axRef: replacementRef
-            )
+            ).committedEntry
         )
         fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
             with: frameResult(

@@ -22,12 +22,26 @@ final class DiagnosticsEventRecorder: @unchecked Sendable {
     private let verboseActive = Atomic<Bool>(false)
 
     func recordLifecycle(name: String, pid: pid_t? = nil, windowId: UInt32? = nil) {
-        lifecycle.append(Record(timestamp: Date(), name: name, pid: pid, windowId: windowId))
+        lifecycle.append(
+            Record(
+                timestamp: Date(),
+                name: RuntimeTraceLimits.boundedString(name),
+                pid: pid,
+                windowId: windowId
+            )
+        )
     }
 
     func recordVerbose(name: String, pid: pid_t? = nil, windowId: UInt32? = nil) {
         guard verboseActive.load(ordering: .relaxed) else { return }
-        verbose.append(Record(timestamp: Date(), name: name, pid: pid, windowId: windowId))
+        verbose.append(
+            Record(
+                timestamp: Date(),
+                name: RuntimeTraceLimits.boundedString(name),
+                pid: pid,
+                windowId: windowId
+            )
+        )
     }
 
     func recordCGS(_ event: CGSWindowEvent) {
@@ -66,19 +80,37 @@ final class DiagnosticsEventRecorder: @unchecked Sendable {
         format(verbose.snapshot())
     }
 
+    func forEachLifecycleLine(_ body: (String) -> Bool) {
+        forEachLine(lifecycle.snapshot(), body)
+    }
+
+    func forEachVerboseLine(_ body: (String) -> Bool) {
+        forEachLine(verbose.snapshot(), body)
+    }
+
     private func format(_ records: [Record]) -> String {
         guard !records.isEmpty else { return "none" }
-        return records
-            .map { record in
-                var line = "\(record.timestamp.ISO8601Format()) ev=\(record.name)"
-                if let pid = record.pid {
-                    line += " pid=\(pid)"
-                }
-                if let windowId = record.windowId {
-                    line += " win=\(windowId)"
-                }
-                return line
-            }
-            .joined(separator: "\n")
+        return records.map(format).joined(separator: "\n")
+    }
+
+    private func forEachLine(_ records: [Record], _ body: (String) -> Bool) {
+        guard !records.isEmpty else {
+            _ = body("none")
+            return
+        }
+        for record in records {
+            guard body(format(record)) else { return }
+        }
+    }
+
+    private func format(_ record: Record) -> String {
+        var line = "\(record.timestamp.ISO8601Format()) ev=\(record.name)"
+        if let pid = record.pid {
+            line += " pid=\(pid)"
+        }
+        if let windowId = record.windowId {
+            line += " win=\(windowId)"
+        }
+        return line
     }
 }

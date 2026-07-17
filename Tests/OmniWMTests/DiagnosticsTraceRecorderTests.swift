@@ -20,6 +20,13 @@ private actor DiagnosticsEvidenceGate {
 }
 
 final class DiagnosticsTraceRecorderTests: XCTestCase {
+    func testDiagnosticStringBudgetPreservesValidUTF8() {
+        let bounded = RuntimeTraceLimits.boundedString(String(repeating: "🪟", count: 2_000))
+
+        XCTAssertLessThanOrEqual(bounded.utf8.count, RuntimeTraceLimits.diagnosticStringBytes)
+        XCTAssertEqual(String(data: Data(bounded.utf8), encoding: .utf8), bounded)
+    }
+
     func testSessionTraceRecorderGatingEvictionAndReset() {
         let recorder = SessionTraceRecorder<Int>(sectionTitle: "Nums", capacity: 3) { "\($0)" }
 
@@ -77,6 +84,21 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
 
         LogErrorTap.shared.reset()
         XCTAssertEqual(LogErrorTap.shared.dump(), "none")
+    }
+
+    func testLogErrorTapBoundsIndividualStrings() {
+        LogErrorTap.shared.reset()
+        let oversized = String(repeating: "🪟", count: 2_000)
+
+        LogErrorTap.shared.record(category: oversized, level: oversized, message: oversized)
+
+        let dump = LogErrorTap.shared.dump()
+        XCTAssertFalse(dump.contains(oversized))
+        XCTAssertLessThanOrEqual(
+            dump.utf8.count,
+            RuntimeTraceLimits.diagnosticStringBytes * 3 + 128
+        )
+        LogErrorTap.shared.reset()
     }
 
     @MainActor
@@ -208,6 +230,57 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
         XCTAssertFalse(body.contains("after stop"))
         XCTAssertTrue(body.contains("== Automatic AX Evidence ==\nstatus=timed_out"))
         XCTAssertEqual(coordinator.status.phase, .idle)
+    }
+
+    @MainActor
+    func testFinalTraceIsByteBoundedAndPreservesReservedTail() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMTraceBudget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = SessionTraceRecorder<String>(sectionTitle: "Large Records", capacity: 3_000) { $0 }
+        let coordinator = RuntimeTraceCaptureCoordinator(
+            diagnosticsDirectory: directory,
+            recorders: [recorder]
+        )
+        var reportCount = 0
+
+        guard case .started = await coordinator.toggle(
+            desiredState: .active,
+            reportProvider: {
+                reportCount += 1
+                return reportCount == 1
+                    ? "start-sentinel\n" + String(repeating: "s", count: 2 * 1024 * 1024)
+                    : "end-sentinel\n" + String(repeating: "e", count: 2 * 1024 * 1024)
+            },
+            automaticEvidenceProvider: {
+                "automatic-sentinel\n" + String(repeating: "a", count: 1024 * 1024)
+            }
+        ) else {
+            return XCTFail("expected capture to start")
+        }
+        for index in 0 ..< 3_000 {
+            recorder.record("record-\(index)-" + String(repeating: "🪟", count: 1_500))
+        }
+
+        guard case let .stopped(artifact) = await coordinator.toggle(
+            desiredState: .inactive,
+            reportProvider: { "unused" }
+        ) else {
+            return XCTFail("expected capture artifact")
+        }
+        let data = try Data(contentsOf: artifact.url)
+        let body = try XCTUnwrap(String(data: data, encoding: .utf8))
+
+        XCTAssertLessThanOrEqual(data.count, RuntimeTraceLimits.captureBytes)
+        XCTAssertEqual(body.components(separatedBy: "== Trace Data Truncated ==").count - 1, 1)
+        XCTAssertTrue(body.contains("start-sentinel"))
+        XCTAssertTrue(body.contains("automatic-sentinel"))
+        XCTAssertTrue(body.contains("end-sentinel"))
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .contains { $0.hasPrefix(".omniwm-trace-") && $0.hasSuffix(".tmp") }
+        )
     }
 
     func testBorderOpMetricsRecorderGatingAndReset() {

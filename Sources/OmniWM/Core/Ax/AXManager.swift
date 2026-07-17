@@ -7,17 +7,64 @@ import CoreGraphics
 import Foundation
 
 private let perAppTimeout: TimeInterval = 0.5
+private let maxConcurrentFullRescanEnumerations = 4
+
+private struct IndexedAsyncValue<Value: Sendable>: Sendable {
+    let index: Int
+    let value: Value
+}
+
+func boundedFullRescanMap<Input: Sendable, Output: Sendable>(
+    _ inputs: [Input],
+    maxConcurrent: Int,
+    priority: @Sendable @escaping (Input) -> TaskPriority? = { _ in nil },
+    operation: @Sendable @escaping (Input) async throws -> Output
+) async throws -> [Output] {
+    guard !inputs.isEmpty else { return [] }
+    precondition(maxConcurrent > 0)
+    return try await withThrowingTaskGroup(of: IndexedAsyncValue<Output>.self) { group in
+        var nextIndex = 0
+        let initialCount = min(maxConcurrent, inputs.count)
+        for index in 0 ..< initialCount {
+            try Task.checkCancellation()
+            let input = inputs[index]
+            guard group.addTaskUnlessCancelled(priority: priority(input), operation: {
+                IndexedAsyncValue(index: index, value: try await operation(input))
+            }) else { throw CancellationError() }
+            nextIndex += 1
+        }
+
+        var completed: [IndexedAsyncValue<Output>] = []
+        completed.reserveCapacity(inputs.count)
+        while let result = try await group.next() {
+            completed.append(result)
+            try Task.checkCancellation()
+            if nextIndex < inputs.count {
+                let index = nextIndex
+                let input = inputs[index]
+                guard group.addTaskUnlessCancelled(priority: priority(input), operation: {
+                    IndexedAsyncValue(index: index, value: try await operation(input))
+                }) else { throw CancellationError() }
+                nextIndex += 1
+            }
+        }
+        completed.sort { $0.index < $1.index }
+        return completed.map(\.value)
+    }
+}
 
 private struct FullRescanAppEnumerationResult: Sendable {
     let pid: pid_t
     let route: FullRescanEnumerationRoute
     let windows: [AXEnumeratedWindow]
     let failed: Bool
+    let callbackGeneration: UInt64?
 }
 
 private struct FullRescanAppTarget: @unchecked Sendable {
     let app: NSRunningApplication
     let route: FullRescanEnumerationRoute
+    let inspectionContext: AXWindowInspectionContext
 }
 
 private struct FullRescanDiscoveryEvidence {
@@ -30,6 +77,15 @@ private struct FullRescanCandidateCollection {
     var candidatesByWindowId: [Int: [FullRescanWindowCandidate]]
     var identityAliasesByWindowId: [Int: FullRescanWindowIdentityAliases]
     var failedPIDs: Set<pid_t>
+}
+
+struct AXManagedWindowRebindAcknowledgement {
+    let oldPID: pid_t
+    let oldContext: AppAXContext?
+    let oldCallbackGeneration: UInt64?
+    let destinationContext: AppAXContext
+    let destinationCallbackGeneration: UInt64
+    let destinationBinding: AppAXWindowRebindBinding
 }
 
 enum FullRescanCandidatePreferenceReason: String, Equatable, Sendable {
@@ -60,11 +116,13 @@ final class AXManager {
         let windows: [FullRescanWindowCandidate]
         let failedPIDs: Set<pid_t>
         let identityAliasesByWindowId: [Int: FullRescanWindowIdentityAliases]
+        let windowServerInfoByWindowId: [Int: WindowServerInfo]
 
         static let empty = FullRescanEnumerationSnapshot(
             windows: [],
             failedPIDs: [],
-            identityAliasesByWindowId: [:]
+            identityAliasesByWindowId: [:],
+            windowServerInfoByWindowId: [:]
         )
     }
 
@@ -269,21 +327,145 @@ final class AXManager {
         inactiveWorkspaceWindowIds.removeAll()
     }
 
-    func rebindWindowState(
+    func rebindWindowAsync(
+        from oldWindow: AXManagedWindowIdentity,
+        to newWindow: AXManagedWindowIdentity,
+        timeoutSeconds: TimeInterval = 0.5
+    ) async -> AXManagedWindowRebindAcknowledgement? {
+        let destinationContext: AppAXContext
+        if let existing = AppAXContext.contexts[newWindow.token.pid] {
+            destinationContext = existing
+        } else {
+            guard let app = NSRunningApplication(processIdentifier: newWindow.token.pid),
+                  !app.isTerminated,
+                  let created = try? await AppAXContext.getOrCreate(app)
+            else {
+                return nil
+            }
+            destinationContext = created
+        }
+
+        guard AppAXContext.contexts[newWindow.token.pid] === destinationContext else {
+            return nil
+        }
+        let oldContext = AppAXContext.contexts[oldWindow.token.pid]
+        let oldCallbackGeneration = oldContext?.callbackGeneration
+        let binding: AppAXWindowRebindBinding?
+        do {
+            binding = try await destinationContext.rebindWindowAsync(
+                oldWindowId: oldWindow.token.windowId,
+                newWindow: newWindow.axRef,
+                timeoutSeconds: timeoutSeconds
+            )
+        } catch {
+            return nil
+        }
+        guard let binding else { return nil }
+        return AXManagedWindowRebindAcknowledgement(
+            oldPID: oldWindow.token.pid,
+            oldContext: oldContext,
+            oldCallbackGeneration: oldCallbackGeneration,
+            destinationContext: destinationContext,
+            destinationCallbackGeneration: destinationContext.callbackGeneration,
+            destinationBinding: binding
+        )
+    }
+
+    func rollbackWindowRebind(
+        _ acknowledgement: AXManagedWindowRebindAcknowledgement,
+        newWindow: AXManagedWindowIdentity
+    ) {
+        acknowledgement.destinationContext.rollbackWindowRebind(
+            acknowledgement.destinationBinding,
+            newWindow: newWindow.axRef
+        )
+    }
+
+    func isCurrentWindowRebindAcknowledgement(
+        _ acknowledgement: AXManagedWindowRebindAcknowledgement,
         from oldWindow: AXManagedWindowIdentity,
         to newWindow: AXManagedWindowIdentity
     ) -> Bool {
-        if oldWindow.token == newWindow.token,
-           CFEqual(oldWindow.axRef.element, newWindow.axRef.element)
-        {
+        guard acknowledgement.oldPID == oldWindow.token.pid,
+              acknowledgement.destinationContext.pid == newWindow.token.pid,
+              AppAXContext.contexts[newWindow.token.pid] === acknowledgement.destinationContext,
+              acknowledgement.destinationContext.callbackGeneration
+              == acknowledgement.destinationCallbackGeneration
+        else {
+            return false
+        }
+        guard oldWindow.token.pid != newWindow.token.pid else {
             return true
         }
+        guard let oldContext = acknowledgement.oldContext else {
+            return AppAXContext.contexts[oldWindow.token.pid] == nil
+        }
+        return AppAXContext.contexts[oldWindow.token.pid] === oldContext
+            && oldContext.callbackGeneration == acknowledgement.oldCallbackGeneration
+    }
 
+    func finalizeWindowRebindContextState(
+        from oldWindow: AXManagedWindowIdentity,
+        to newWindow: AXManagedWindowIdentity,
+        acknowledgement: AXManagedWindowRebindAcknowledgement?
+    ) async -> Bool {
+        if let acknowledgement {
+            guard isCurrentWindowRebindAcknowledgement(
+                acknowledgement,
+                from: oldWindow,
+                to: newWindow
+            ) else {
+                return false
+            }
+            guard (try? await acknowledgement.destinationContext.commitWindowRebindAsync(
+                oldWindow: oldWindow.axRef,
+                newWindow: newWindow.axRef,
+                retireOldWindowState: acknowledgement.oldContext === acknowledgement.destinationContext
+            )) == true else {
+                return false
+            }
+            guard isCurrentWindowRebindAcknowledgement(
+                acknowledgement,
+                from: oldWindow,
+                to: newWindow
+            ) else {
+                return false
+            }
+            if acknowledgement.oldContext === acknowledgement.destinationContext {
+                acknowledgement.destinationContext.finalizeWindowRebind(
+                    from: oldWindow.token.windowId,
+                    to: newWindow.token.windowId
+                )
+            }
+            if acknowledgement.oldContext !== acknowledgement.destinationContext {
+                if let oldContext = acknowledgement.oldContext,
+                   (try? await oldContext.removeWindowStateAsync(
+                       windowId: oldWindow.token.windowId
+                   )) != true
+                {
+                    return false
+                }
+            }
+            guard isCurrentWindowRebindAcknowledgement(
+                acknowledgement,
+                from: oldWindow,
+                to: newWindow
+            ) else {
+                return false
+            }
+            acknowledgement.destinationContext.cancelFrameJob(for: newWindow.token.windowId)
+        }
+        return true
+    }
+
+    func commitFrameApplicationStateForRebind(
+        from oldWindow: AXManagedWindowIdentity,
+        to newWindow: AXManagedWindowIdentity
+    ) {
         let oldWindowId = oldWindow.token.windowId
         let newWindowId = newWindow.token.windowId
         let isIncarnationReplacement = oldWindow.token.pid != newWindow.token.pid
             || oldWindowId == newWindowId
-        guard scheduleAXContextRebind(from: oldWindow, to: newWindow) else { return false }
         let deliveries = resetFrameApplicationStateForRebind(
             oldWindowId: oldWindowId,
             newWindowId: newWindowId,
@@ -297,31 +479,6 @@ final class AXManager {
             windowId: oldWindowId,
             outcome: "outcome=rebind→\(newWindowId)"
         )
-        return true
-    }
-
-    private func scheduleAXContextRebind(
-        from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity
-    ) -> Bool {
-        let oldContext = AppAXContext.contexts[oldWindow.token.pid]
-        guard let destinationContext = AppAXContext.contexts[newWindow.token.pid] else {
-            return oldWindow.token.pid == newWindow.token.pid && oldContext == nil
-        }
-        let didSchedule = if oldContext === destinationContext {
-            destinationContext.rekeyWindow(
-                oldWindowId: oldWindow.token.windowId,
-                newWindow: newWindow.axRef
-            )
-        } else {
-            destinationContext.bindWindow(newWindow.axRef)
-        }
-        guard didSchedule else { return false }
-        if oldContext !== destinationContext {
-            oldContext?.removeWindowState(windowId: oldWindow.token.windowId)
-        }
-        destinationContext.cancelFrameJob(for: newWindow.token.windowId)
-        return true
     }
 
     private func resetFrameApplicationStateForRebind(
@@ -413,6 +570,7 @@ final class AXManager {
 
     func windowsForApp(_ app: NSRunningApplication) async -> [(AXWindowRef, pid_t, Int)] {
         guard shouldTrack(app) else { return [] }
+        var callbackGeneration: UInt64?
         do {
             guard let context = try await AppAXContext.getOrCreate(app) else {
                 WindowAdmissionTrace.record(
@@ -425,6 +583,7 @@ final class AXManager {
                 )
                 return []
             }
+            callbackGeneration = context.callbackGeneration
             let windows = try await context.getWindowsAsync(timeoutSeconds: perAppTimeout)
             return windows.map { ($0.axRef, app.processIdentifier, $0.axRef.windowId) }
         } catch {
@@ -433,7 +592,8 @@ final class AXManager {
                     action: .enumerationFailed,
                     pid: app.processIdentifier,
                     bundleId: app.bundleIdentifier,
-                    reason: String(describing: error)
+                    reason: String(describing: error),
+                    callbackGeneration: callbackGeneration
                 )
             )
         }
@@ -455,14 +615,16 @@ final class AXManager {
     }
 
     func fullRescanEnumerationSnapshot(
-        preservingPIDsByWindowId: [Int: pid_t] = [:]
+        preservingPIDsByWindowId: [Int: pid_t] = [:],
+        requiresTitleForApp: (String?, String?) -> Bool = { _, _ in false }
     ) async throws -> FullRescanEnumerationSnapshot {
         try Task.checkCancellation()
         AppAXContext.garbageCollect()
         let discoveryEvidence = fullRescanDiscoveryEvidence()
         let appTargets = fullRescanAppTargets(
             discoveryEvidence: discoveryEvidence,
-            preservingPIDsByWindowId: preservingPIDsByWindowId
+            preservingPIDsByWindowId: preservingPIDsByWindowId,
+            requiresTitleForApp: requiresTitleForApp
         )
         let activationPolicyByPID = Dictionary(
             uniqueKeysWithValues: appTargets.map { ($0.app.processIdentifier, $0.app.activationPolicy) }
@@ -480,7 +642,8 @@ final class AXManager {
             collection: collection,
             activationPolicyByPID: activationPolicyByPID,
             appsByPID: appsByPID,
-            preservingPIDsByWindowId: preservingPIDsByWindowId
+            preservingPIDsByWindowId: preservingPIDsByWindowId,
+            windowServerInfoByWindowId: discoveryEvidence.windowServerInfoByWindowId
         )
     }
 
@@ -488,7 +651,8 @@ final class AXManager {
         collection initialCollection: FullRescanCandidateCollection,
         activationPolicyByPID: [pid_t: NSApplication.ActivationPolicy],
         appsByPID: [pid_t: NSRunningApplication],
-        preservingPIDsByWindowId: [Int: pid_t]
+        preservingPIDsByWindowId: [Int: pid_t],
+        windowServerInfoByWindowId: [Int: WindowServerInfo]
     ) async throws -> FullRescanEnumerationSnapshot {
         try Task.checkCancellation()
         var collection = initialCollection
@@ -523,6 +687,8 @@ final class AXManager {
                         axPid: candidate.axPid,
                         windowServerPid: candidate.windowServerOwnerPID,
                         reason: "final_selection",
+                        callbackGeneration: candidate.callbackGeneration
+                            ?? AppAXContext.contexts[candidate.pid]?.callbackGeneration,
                         manageable: candidate.isManageable,
                         axRef: candidate.axRef
                     )
@@ -536,13 +702,15 @@ final class AXManager {
         return .init(
             windows: selected,
             failedPIDs: collection.failedPIDs,
-            identityAliasesByWindowId: collection.identityAliasesByWindowId
+            identityAliasesByWindowId: collection.identityAliasesByWindowId,
+            windowServerInfoByWindowId: windowServerInfoByWindowId
         )
     }
 
     private func fullRescanAppTargets(
         discoveryEvidence: FullRescanDiscoveryEvidence,
-        preservingPIDsByWindowId: [Int: pid_t]
+        preservingPIDsByWindowId: [Int: pid_t],
+        requiresTitleForApp: (String?, String?) -> Bool
     ) -> [FullRescanAppTarget] {
         let existingContextPIDs = Set(AppAXContext.contexts.keys)
         let preservingPIDs = Set(preservingPIDsByWindowId.values)
@@ -557,8 +725,30 @@ final class AXManager {
             else {
                 return nil
             }
-            return FullRescanAppTarget(app: app, route: route)
+            return FullRescanAppTarget(
+                app: app,
+                route: route,
+                inspectionContext: Self.fullRescanInspectionContext(
+                    activationPolicy: app.activationPolicy,
+                    bundleId: app.bundleIdentifier,
+                    appName: app.localizedName,
+                    requiresTitleForApp: requiresTitleForApp
+                )
+            )
         }
+    }
+
+    static func fullRescanInspectionContext(
+        activationPolicy: NSApplication.ActivationPolicy,
+        bundleId: String?,
+        appName: String?,
+        requiresTitleForApp: (String?, String?) -> Bool
+    ) -> AXWindowInspectionContext {
+        AXWindowInspectionContext(
+            appPolicy: activationPolicy,
+            bundleId: bundleId,
+            includeTitle: requiresTitleForApp(bundleId, appName)
+        )
     }
 
     private func fullRescanDiscoveryEvidence() -> FullRescanDiscoveryEvidence {
@@ -627,7 +817,8 @@ final class AXManager {
                     logicalPID: result.pid,
                     windowServerInfo: discoveryEvidence.windowServerInfoByWindowId[windowId],
                     windowServerOwnerPID: ownerPID,
-                    enumerationRoute: result.route
+                    enumerationRoute: result.route,
+                    callbackGeneration: result.callbackGeneration
                 )
                 collection.candidatesByWindowId[windowId, default: []].append(candidate)
                 recordFullRescanCandidate(candidate)
@@ -665,6 +856,7 @@ final class AXManager {
                 windowId: candidate.windowId,
                 axPid: candidate.axPid,
                 windowServerPid: candidate.windowServerOwnerPID,
+                callbackGeneration: candidate.callbackGeneration,
                 manageable: candidate.isManageable,
                 axRef: candidate.axRef
             )
@@ -674,36 +866,46 @@ final class AXManager {
     private func enumerateFullRescanApps(
         _ targets: [FullRescanAppTarget]
     ) async throws -> [FullRescanAppEnumerationResult] {
-        try await withThrowingTaskGroup(of: FullRescanAppEnumerationResult.self) { group in
-            for target in targets {
-                group.addTask(priority: target.route == .oneShot ? .utility : nil) {
-                    try await Self.enumerateFullRescanApp(target.app, route: target.route)
-                }
-            }
-            var results: [FullRescanAppEnumerationResult] = []
-            results.reserveCapacity(targets.count)
-            for try await result in group {
-                results.append(result)
-            }
-            return results
+        try await boundedFullRescanMap(
+            targets,
+            maxConcurrent: maxConcurrentFullRescanEnumerations,
+            priority: { $0.route == .oneShot ? .utility : nil }
+        ) { target in
+            try await Self.enumerateFullRescanApp(
+                target.app,
+                route: target.route,
+                inspectionContext: target.inspectionContext
+            )
         }
     }
 
     private nonisolated static func enumerateFullRescanApp(
         _ app: NSRunningApplication,
-        route: FullRescanEnumerationRoute
+        route: FullRescanEnumerationRoute,
+        inspectionContext: AXWindowInspectionContext
     ) async throws -> FullRescanAppEnumerationResult {
         try Task.checkCancellation()
         let pid = app.processIdentifier
+        var callbackGeneration: UInt64?
         do {
             let windows: [AXEnumeratedWindow]
             switch route {
             case .persistent:
                 guard let context = try await AppAXContext.getOrCreate(app) else {
                     recordFullRescanEnumerationFailure(app, reason: "context_unavailable")
-                    return .init(pid: pid, route: route, windows: [], failed: true)
+                    return .init(
+                        pid: pid,
+                        route: route,
+                        windows: [],
+                        failed: true,
+                        callbackGeneration: nil
+                    )
                 }
-                windows = try await context.getWindowsAsync(timeoutSeconds: perAppTimeout)
+                callbackGeneration = context.callbackGeneration
+                windows = try await context.getWindowsAsync(
+                    timeoutSeconds: perAppTimeout,
+                    includeTitle: inspectionContext.includeTitle
+                )
             case .oneShot:
                 WindowAdmissionTrace.record(
                     .init(
@@ -714,32 +916,51 @@ final class AXManager {
                 )
                 windows = try AXWindowEnumerationInspector.enumerateApplication(
                     pid: pid,
-                    timeout: perAppTimeout
+                    timeout: perAppTimeout,
+                    context: inspectionContext
                 )
                 try Task.checkCancellation()
                 WindowAdmissionTrace.record(
                     .init(action: .enumerationCompleted, pid: pid, count: windows.count)
                 )
             }
-            return .init(pid: pid, route: route, windows: windows, failed: false)
+            return .init(
+                pid: pid,
+                route: route,
+                windows: windows,
+                failed: false,
+                callbackGeneration: callbackGeneration
+            )
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            recordFullRescanEnumerationFailure(app, reason: String(describing: error))
-            return .init(pid: pid, route: route, windows: [], failed: true)
+            recordFullRescanEnumerationFailure(
+                app,
+                reason: String(describing: error),
+                callbackGeneration: callbackGeneration
+            )
+            return .init(
+                pid: pid,
+                route: route,
+                windows: [],
+                failed: true,
+                callbackGeneration: callbackGeneration
+            )
         }
     }
 
     private nonisolated static func recordFullRescanEnumerationFailure(
         _ app: NSRunningApplication,
-        reason: String
+        reason: String,
+        callbackGeneration: UInt64? = nil
     ) {
         WindowAdmissionTrace.record(
             .init(
                 action: .enumerationFailed,
                 pid: app.processIdentifier,
                 bundleId: app.bundleIdentifier,
-                reason: reason
+                reason: reason,
+                callbackGeneration: callbackGeneration
             )
         )
     }
@@ -775,6 +996,7 @@ final class AXManager {
                         competingPid: winner.pid,
                         reason: preference.reason.rawValue,
                         outcome: preference.prefersCandidate ? "replaced" : "not_preferred",
+                        callbackGeneration: loser.callbackGeneration,
                         manageable: loser.isManageable,
                         axRef: loser.axRef
                     )
@@ -793,27 +1015,33 @@ final class AXManager {
         appsByPID: [pid_t: NSRunningApplication]
     ) async throws -> Set<pid_t> {
         try Task.checkCancellation()
-        let grouped = Self.oneShotPromotionCandidatesByPID(candidates)
         var failedPIDs: Set<pid_t> = []
-        for pid in grouped.keys.sorted() {
+        try await Self.forEachOneShotPromotionBatch(candidates) { pid, candidates in
             try Task.checkCancellation()
-            guard let app = appsByPID[pid], let candidates = grouped[pid] else {
+            guard let app = appsByPID[pid] else {
                 failedPIDs.insert(pid)
-                continue
+                return
             }
             let hadContext = AppAXContext.contexts[pid] != nil
+            var callbackGeneration: UInt64?
             do {
-                guard let context = try await AppAXContext.getOrCreate(app),
-                      try await context.bindWindowsAsync(
-                          candidates.map(\.axRef),
-                          timeoutSeconds: perAppTimeout
-                      )
-                else {
+                guard let context = try await AppAXContext.getOrCreate(app) else {
                     failedPIDs.insert(pid)
                     if !hadContext {
                         AppAXContext.contexts[pid]?.destroy()
                     }
-                    continue
+                    return
+                }
+                callbackGeneration = context.callbackGeneration
+                guard try await context.bindWindowsAsync(
+                    candidates.map(\.axRef),
+                    timeoutSeconds: perAppTimeout
+                ) else {
+                    failedPIDs.insert(pid)
+                    if !hadContext {
+                        AppAXContext.contexts[pid]?.destroy()
+                    }
+                    return
                 }
             } catch is CancellationError {
                 if !hadContext {
@@ -825,7 +1053,11 @@ final class AXManager {
                 if !hadContext {
                     AppAXContext.contexts[pid]?.destroy()
                 }
-                Self.recordFullRescanEnumerationFailure(app, reason: "promotion_\(error)")
+                Self.recordFullRescanEnumerationFailure(
+                    app,
+                    reason: "promotion_\(error)",
+                    callbackGeneration: callbackGeneration
+                )
             }
         }
         return failedPIDs
@@ -838,6 +1070,17 @@ final class AXManager {
             grouping: selectedCandidates.filter { $0.enumerationRoute == .oneShot },
             by: \.pid
         )
+    }
+
+    static func forEachOneShotPromotionBatch(
+        _ selectedCandidates: [FullRescanWindowCandidate],
+        operation: (pid_t, [FullRescanWindowCandidate]) async throws -> Void
+    ) async rethrows {
+        let grouped = oneShotPromotionCandidatesByPID(selectedCandidates)
+        for pid in grouped.keys.sorted() {
+            guard let candidates = grouped[pid] else { continue }
+            try await operation(pid, candidates)
+        }
     }
 
     func applyFramesParallel(

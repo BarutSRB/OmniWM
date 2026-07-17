@@ -18,7 +18,14 @@ final class LogErrorTap: @unchecked Sendable {
     private let buffer = LockedRingBuffer<Entry>(capacity: LogErrorTap.limit)
 
     func record(category: String, level: String, message: String) {
-        buffer.append(Entry(timestamp: Date(), category: category, level: level, message: message))
+        buffer.append(
+            Entry(
+                timestamp: Date(),
+                category: RuntimeTraceLimits.boundedString(category),
+                level: RuntimeTraceLimits.boundedString(level),
+                message: RuntimeTraceLimits.boundedString(message)
+            )
+        )
     }
 
     func dump() -> String {

@@ -18,6 +18,18 @@ struct WindowAdmissionGeometryEvidence: Equatable, Sendable {
     }
 }
 
+struct AXWindowInspectionContext: Sendable {
+    let appPolicy: NSApplication.ActivationPolicy?
+    let bundleId: String?
+    let includeTitle: Bool
+
+    static let unidentified = AXWindowInspectionContext(
+        appPolicy: nil,
+        bundleId: nil,
+        includeTitle: false
+    )
+}
+
 struct AXEnumeratedWindow: Sendable {
     let axRef: AXWindowRef
     let axPid: pid_t?
@@ -25,6 +37,7 @@ struct AXEnumeratedWindow: Sendable {
     let subrole: String?
     let admissionGeometry: WindowAdmissionGeometryEvidence
     let fullscreenAttribute: Bool?
+    let decisionEvidence: AXWindowDecisionEvidence
 
     init(
         axRef: AXWindowRef,
@@ -32,7 +45,8 @@ struct AXEnumeratedWindow: Sendable {
         role: String?,
         subrole: String?,
         admissionGeometry: WindowAdmissionGeometryEvidence,
-        fullscreenAttribute: Bool? = nil
+        fullscreenAttribute: Bool? = nil,
+        decisionEvidence: AXWindowDecisionEvidence? = nil
     ) {
         self.axRef = axRef
         self.axPid = axPid
@@ -40,6 +54,7 @@ struct AXEnumeratedWindow: Sendable {
         self.subrole = subrole
         self.admissionGeometry = admissionGeometry
         self.fullscreenAttribute = fullscreenAttribute
+        self.decisionEvidence = decisionEvidence ?? .unavailable(role: role, subrole: subrole)
     }
 }
 
@@ -54,6 +69,7 @@ struct FullRescanWindowCandidate: Sendable {
     let windowServerInfo: WindowServerInfo?
     let windowServerOwnerPID: pid_t?
     let enumerationRoute: FullRescanEnumerationRoute
+    let callbackGeneration: UInt64?
 
     var axRef: AXWindowRef {
         enumeratedWindow.axRef
@@ -75,6 +91,10 @@ struct FullRescanWindowCandidate: Sendable {
         enumeratedWindow.admissionGeometry.isManageable
     }
 
+    var capturedFrame: CGRect? {
+        windowServerInfo?.frame ?? enumeratedWindow.admissionGeometry.frame
+    }
+
     func isFullscreen(screenFrames: [CGRect]) -> Bool {
         if enumeratedWindow.subrole == "AXFullScreenWindow" {
             return true
@@ -82,7 +102,7 @@ struct FullRescanWindowCandidate: Sendable {
         if let fullscreenAttribute = enumeratedWindow.fullscreenAttribute {
             return fullscreenAttribute
         }
-        guard let frame = enumeratedWindow.admissionGeometry.frame ?? windowServerInfo?.frame,
+        guard let frame = capturedFrame,
               let screenFrame = screenFrames.first(where: { $0.contains(frame.center) })
         else {
             return false
@@ -95,13 +115,15 @@ struct FullRescanWindowCandidate: Sendable {
         logicalPID: pid_t,
         windowServerInfo: WindowServerInfo?,
         windowServerOwnerPID: pid_t?,
-        enumerationRoute: FullRescanEnumerationRoute
+        enumerationRoute: FullRescanEnumerationRoute,
+        callbackGeneration: UInt64? = nil
     ) {
         self.enumeratedWindow = enumeratedWindow
         self.logicalPID = logicalPID
         self.windowServerInfo = windowServerInfo
         self.windowServerOwnerPID = windowServerOwnerPID
         self.enumerationRoute = enumerationRoute
+        self.callbackGeneration = callbackGeneration
     }
 }
 
@@ -118,9 +140,31 @@ enum AXWindowEnumerationError: Error, Sendable {
 }
 
 enum AXWindowEnumerationInspector {
+    private struct DecisionEvidenceContext {
+        let inspection: AXWindowInspectionContext
+        let geometry: WindowAdmissionGeometryEvidence
+        let deadline: TimeInterval
+    }
+
+    private static let decisionAttributeNames = [
+        kAXRoleAttribute as String,
+        kAXSubroleAttribute as String,
+        kAXPositionAttribute as String,
+        kAXSizeAttribute as String,
+        "AXFullScreen",
+        kAXCloseButtonAttribute as String,
+        kAXFullScreenButtonAttribute as String,
+        kAXZoomButtonAttribute as String,
+        kAXMinimizeButtonAttribute as String,
+        "AXGrowArea",
+        "AXMinSize",
+        "AXMaxSize"
+    ]
+
     static func enumerateApplication(
         pid: pid_t,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        context: AXWindowInspectionContext = .unidentified
     ) throws -> [AXEnumeratedWindow] {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         let appElement = AXUIElementCreateApplication(pid)
@@ -136,6 +180,7 @@ enum AXWindowEnumerationInspector {
             if let window = try inspect(
                 element,
                 deadline: deadline,
+                context: context,
                 checkCancellation: { try Task.checkCancellation() }
             ) {
                 results.append(window)
@@ -173,6 +218,7 @@ enum AXWindowEnumerationInspector {
     static func inspect(
         _ element: AXUIElement,
         deadline: TimeInterval,
+        context: AXWindowInspectionContext = .unidentified,
         checkCancellation: () throws -> Void
     ) throws -> AXEnumeratedWindow? {
         try checkCancellation()
@@ -184,30 +230,17 @@ enum AXWindowEnumerationInspector {
         try checkCancellation()
         guard windowIdResult == .success else { return nil }
 
-        try setRemainingTimeout(on: element, until: deadline)
-        var axPid: pid_t = 0
-        let pidResult = AXUIElementGetPid(element, &axPid)
-        try checkCancellation()
-        let resolvedPid = pidResult == .success ? axPid : nil
-
-        let attributes = [
-            kAXRoleAttribute as CFString,
-            kAXSubroleAttribute as CFString,
-            kAXPositionAttribute as CFString,
-            kAXSizeAttribute as CFString,
-            "AXFullScreen" as CFString
-        ] as CFArray
-        var values: CFArray?
-        try setRemainingTimeout(on: element, until: deadline)
-        let valuesResult = AXUIElementCopyMultipleAttributeValues(
-            element,
-            attributes,
-            .init(),
-            &values
+        let resolvedPid = try resolvedPID(
+            for: element,
+            deadline: deadline,
+            checkCancellation: checkCancellation
         )
-        try checkCancellation()
-
-        let resolvedValues = valuesResult == .success ? values as? [Any?] : nil
+        let resolvedValues = try decisionAttributeValues(
+            element,
+            context: context,
+            deadline: deadline,
+            checkCancellation: checkCancellation
+        )
         let role = value(at: 0, in: resolvedValues) as? String
         let subrole = value(at: 1, in: resolvedValues) as? String
         guard AXWindowService.shouldTreatAsTopLevelWindow(role: role, subrole: subrole) else {
@@ -220,14 +253,129 @@ enum AXWindowEnumerationInspector {
             deadline: deadline,
             checkCancellation: checkCancellation
         )
+        let evidence = try decisionEvidence(
+            values: resolvedValues,
+            context: DecisionEvidenceContext(
+                inspection: context,
+                geometry: geometry,
+                deadline: deadline
+            ),
+            checkCancellation: checkCancellation
+        )
         return AXEnumeratedWindow(
             axRef: AXWindowRef(element: element, windowId: Int(windowIdRaw)),
             axPid: resolvedPid,
             role: role,
             subrole: subrole,
             admissionGeometry: geometry,
-            fullscreenAttribute: value(at: 4, in: resolvedValues) as? Bool
+            fullscreenAttribute: value(at: 4, in: resolvedValues) as? Bool,
+            decisionEvidence: evidence
         )
+    }
+
+    private static func resolvedPID(
+        for element: AXUIElement,
+        deadline: TimeInterval,
+        checkCancellation: () throws -> Void
+    ) throws -> pid_t? {
+        try setRemainingTimeout(on: element, until: deadline)
+        var pid: pid_t = 0
+        let result = AXUIElementGetPid(element, &pid)
+        try checkCancellation()
+        return result == .success ? pid : nil
+    }
+
+    private static func decisionAttributeValues(
+        _ element: AXUIElement,
+        context: AXWindowInspectionContext,
+        deadline: TimeInterval,
+        checkCancellation: () throws -> Void
+    ) throws -> [Any?] {
+        let attributes = context.includeTitle
+            ? decisionAttributeNames + [kAXTitleAttribute as String]
+            : decisionAttributeNames
+        var values: CFArray?
+        try setRemainingTimeout(on: element, until: deadline)
+        let result = AXUIElementCopyMultipleAttributeValues(
+            element,
+            attributes as CFArray,
+            .init(),
+            &values
+        )
+        try checkCancellation()
+        guard result == .success else {
+            throw AXWindowEnumerationError.applicationUnavailable(result)
+        }
+        guard let values = values as? [Any?], values.count >= decisionAttributeNames.count else {
+            throw AXWindowEnumerationError.invalidApplicationWindows
+        }
+        return values
+    }
+
+    private static func decisionEvidence(
+        values: [Any?],
+        context: DecisionEvidenceContext,
+        checkCancellation: () throws -> Void
+    ) throws -> AXWindowDecisionEvidence {
+        let fullscreenButtonValue = value(at: 6, in: values)
+        let fullscreenButtonState = try fullscreenButtonEnabled(
+            fullscreenButtonValue,
+            deadline: context.deadline,
+            checkCancellation: checkCancellation
+        )
+        let facts = AXWindowService.makeWindowFacts(
+            AXWindowFactAttributeValues(
+                role: value(at: 0, in: values) as? String,
+                subrole: value(at: 1, in: values) as? String,
+                title: context.inspection.includeTitle ? value(at: 12, in: values) as? String : nil,
+                closeButton: value(at: 5, in: values),
+                fullscreenButton: fullscreenButtonValue,
+                fullscreenButtonEnabled: fullscreenButtonState.enabled,
+                zoomButton: value(at: 7, in: values),
+                minimizeButton: value(at: 8, in: values)
+            ),
+            appPolicy: context.inspection.appPolicy,
+            bundleId: context.inspection.bundleId,
+            attributeFetchSucceeded: fullscreenButtonState.succeeded
+        )
+        let constraints = AXWindowService.resolvedSizeConstraints(
+            AXWindowConstraintInputs(
+                hasGrowArea: AXWindowService.resolvedAttribute(value(at: 9, in: values)),
+                hasZoomButton: AXWindowService.resolvedAttribute(value(at: 7, in: values)),
+                subrole: value(at: 1, in: values) as? String,
+                minSize: AXWindowService.sizeValue(value(at: 10, in: values)),
+                maxSize: AXWindowService.sizeValue(value(at: 11, in: values)),
+                currentSize: context.geometry.frame?.size
+            )
+        )
+        return AXWindowDecisionEvidence(facts: facts, sizeConstraints: constraints)
+    }
+
+    private static func fullscreenButtonEnabled(
+        _ value: Any?,
+        deadline: TimeInterval,
+        checkCancellation: () throws -> Void
+    ) throws -> (enabled: Bool?, succeeded: Bool) {
+        guard AXWindowService.resolvedAttribute(value) else { return (nil, true) }
+        guard let value,
+              CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID()
+        else {
+            return (nil, false)
+        }
+        let button = unsafeDowncast(value as AnyObject, to: AXUIElement.self)
+        try setRemainingTimeout(on: button, until: deadline)
+        defer { AXUIElementSetMessagingTimeout(button, 0) }
+        var enabledValue: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            button,
+            kAXEnabledAttribute as CFString,
+            &enabledValue
+        )
+        try checkCancellation()
+        guard result == .success else { return (nil, true) }
+        guard let enabledValue else { return (nil, true) }
+        guard let enabled = enabledValue as? Bool else { return (nil, false) }
+        return (enabled, true)
     }
 
     private static func admissionGeometry(

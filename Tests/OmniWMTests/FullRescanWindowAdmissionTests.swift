@@ -92,7 +92,7 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         let retryState = try XCTUnwrap(
             controller.axEventHandler.admissionRetryStateByWindowId[UInt32(windowId)]
         )
-        guard case let .identityRebind(oldWindow, newWindow, _) = retryState.trigger else {
+        guard case let .identityRebind(oldWindow, newWindow, _, _, _) = retryState.trigger else {
             return XCTFail("Expected an identity-rebind retry")
         }
         XCTAssertEqual(oldWindow.token, oldToken)

@@ -251,6 +251,22 @@ final class WindowRuleEngine {
             rule.hasAdvancedMatchers
         }
 
+        func matchesApp(bundleId: String?, appName: String?) -> Bool {
+            if let requiredBundleId = nonEmpty(rule.bundleId),
+               requiredBundleId.caseInsensitiveCompare(bundleId ?? "") != .orderedSame
+            {
+                return false
+            }
+            if let appNameSubstring = nonEmpty(rule.appNameSubstring) {
+                guard let appName,
+                      appName.localizedCaseInsensitiveContains(appNameSubstring)
+                else {
+                    return false
+                }
+            }
+            return true
+        }
+
         func canApplyExplicitly(to facts: WindowRuleFacts) -> Bool {
             switch source {
             case .builtIn("steamClient"):
@@ -311,18 +327,14 @@ final class WindowRuleEngine {
 
     private var compiledUserRules: [CompiledRule] = []
     private let builtInRules: [CompiledRule]
-    private var titleFetchBundleIds: Set<String> = []
-    private var fetchTitleForUnidentifiedWindow = false
+    private var titleRules: [CompiledRule] = []
     private(set) var invalidRegexMessagesByRuleId: [UUID: String] = [:]
 
-    private(set) var requiresTitle = false
     private(set) var hasDynamicReevaluationRules = false
 
     init() {
         builtInRules = Self.makeBuiltInRules()
-        titleFetchBundleIds = Self.titleBundleIds(from: builtInRules)
-        fetchTitleForUnidentifiedWindow = Self.requiresUnidentifiedTitle(from: builtInRules)
-        requiresTitle = !titleFetchBundleIds.isEmpty || fetchTitleForUnidentifiedWindow
+        titleRules = builtInRules.filter(\.requiresTitle)
         hasDynamicReevaluationRules = builtInRules.contains { $0.requiresDynamicReevaluation }
     }
 
@@ -330,9 +342,8 @@ final class WindowRuleEngine {
         hasDynamicReevaluationRules
     }
 
-    func requiresTitle(for bundleId: String?) -> Bool {
-        guard let bundleId, !bundleId.isEmpty else { return fetchTitleForUnidentifiedWindow }
-        return titleFetchBundleIds.contains(bundleId.lowercased())
+    func requiresTitle(for bundleId: String?, appName: String? = nil) -> Bool {
+        titleRules.contains { $0.matchesApp(bundleId: bundleId, appName: appName) }
     }
 
     func rebuild(rules: [AppRule]) {
@@ -348,11 +359,7 @@ final class WindowRuleEngine {
         }
         self.invalidRegexMessagesByRuleId = invalidRegexMessagesByRuleId
 
-        titleFetchBundleIds = Self.titleBundleIds(from: builtInRules)
-        titleFetchBundleIds.formUnion(Self.titleBundleIds(from: compiledUserRules))
-        fetchTitleForUnidentifiedWindow = Self.requiresUnidentifiedTitle(from: builtInRules)
-            || Self.requiresUnidentifiedTitle(from: compiledUserRules)
-        requiresTitle = !titleFetchBundleIds.isEmpty || fetchTitleForUnidentifiedWindow
+        titleRules = (builtInRules + compiledUserRules).filter(\.requiresTitle)
         hasDynamicReevaluationRules = compiledUserRules.contains { $0.requiresDynamicReevaluation }
             || builtInRules.contains { $0.requiresDynamicReevaluation }
     }
@@ -444,7 +451,7 @@ final class WindowRuleEngine {
         }
 
         if facts.ax.title == nil,
-           requiresTitle(for: facts.ax.bundleId)
+           requiresTitle(for: facts.ax.bundleId, appName: facts.appName)
         {
             return WindowDecision(
                 disposition: .undecided,
@@ -627,19 +634,6 @@ final class WindowRuleEngine {
         }
 
         return best
-    }
-
-    private static func titleBundleIds(from rules: [CompiledRule]) -> Set<String> {
-        Set(
-            rules.compactMap { compiled in
-                guard compiled.requiresTitle, compiled.rule.hasBundleId else { return nil }
-                return compiled.rule.bundleId.lowercased()
-            }
-        )
-    }
-
-    private static func requiresUnidentifiedTitle(from rules: [CompiledRule]) -> Bool {
-        rules.contains { $0.requiresTitle && !$0.rule.hasBundleId }
     }
 
     private func compile(

@@ -4,6 +4,7 @@
     "tokenWindowId": 3,
     "appName": "Dialog App",
     "bundleId": "com.example.dialog",
+    "rulesRevision": 1,
     "input": {
       "appName": "Dialog App",
       "ax": {
@@ -18,8 +19,7 @@
         "bundleId": "com.example.dialog",
         "attributeFetchSucceeded": true
       },
-      "appFullscreen": false,
-      "rules": []
+      "appFullscreen": false
     },
     "observedDecision": {
       "disposition": "floating",
@@ -30,6 +30,7 @@
       "layoutDecisionKind": "fallbackLayout"
     }
   },
+  "rules": [],
   "expectedDecision": {
     "disposition": "floating",
     "source": "heuristic",

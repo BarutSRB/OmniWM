@@ -44,6 +44,61 @@ enum TraceCaptureOutcome {
     case writeFailed(String)
 }
 
+private final class TraceByteSink {
+    private let handle: FileHandle
+    private(set) var byteCount = 0
+
+    init(handle: FileHandle) {
+        self.handle = handle
+    }
+
+    func write(_ data: Data) throws {
+        try handle.write(contentsOf: data)
+        byteCount += data.count
+    }
+}
+
+private final class BoundedTraceWriter {
+    private static let truncationData = Data("\n== Trace Data Truncated ==\nreason=byte_budget\n".utf8)
+
+    private let sink: TraceByteSink
+    private let contentLimit: Int
+    private(set) var truncated = false
+    private var failure: Error?
+
+    init(sink: TraceByteSink, reservedTailBytes: Int) {
+        self.sink = sink
+        contentLimit = RuntimeTraceLimits.captureBytes - reservedTailBytes - Self.truncationData.count
+    }
+
+    func appendLine(_ line: String) -> Bool {
+        guard failure == nil, !truncated else { return false }
+        var data = Data(line.utf8)
+        data.append(0x0A)
+        guard sink.byteCount + data.count <= contentLimit else {
+            truncated = true
+            return false
+        }
+        do {
+            try sink.write(data)
+            return true
+        } catch {
+            failure = error
+            return false
+        }
+    }
+
+    func finish(tail: Data) throws {
+        if let failure {
+            throw failure
+        }
+        if truncated {
+            try sink.write(Self.truncationData)
+        }
+        try sink.write(tail)
+    }
+}
+
 private actor TraceCaptureFileWriter {
     private let diagnosticsDirectory: URL
 
@@ -68,21 +123,20 @@ private actor TraceCaptureFileWriter {
         session: TraceCaptureSession,
         recorders: [any RuntimeTraceRecording]
     ) throws -> URL {
-        let body = buildBody(
-            session: session,
-            endedAt: nil,
-            lifecycleEvents: DiagnosticsEventRecorder.shared.dumpLifecycle(),
-            verboseEvents: DiagnosticsEventRecorder.shared.dumpVerbose(),
-            recorders: recorders,
-            automaticEvidence: nil,
-            endReport: nil
-        )
-        try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
         let url = diagnosticsDirectory.appendingPathComponent(
             partialFilename(startedAt: session.startedAt),
             isDirectory: false
         )
-        try body.write(to: url, atomically: true, encoding: .utf8)
+        try writeAtomically(to: url) { sink in
+            try writeCapture(
+                to: sink,
+                session: session,
+                endedAt: nil,
+                recorders: recorders,
+                automaticEvidence: nil,
+                endReport: nil
+            )
+        }
         return url
     }
 
@@ -93,21 +147,18 @@ private actor TraceCaptureFileWriter {
         automaticEvidence: String,
         endReport: String
     ) throws -> URL {
-        let lifecycleEvents = DiagnosticsEventRecorder.shared.dumpLifecycle()
-        let verboseEvents = DiagnosticsEventRecorder.shared.dumpVerbose()
-        let body = buildBody(
-            session: session,
-            endedAt: endedAt,
-            lifecycleEvents: lifecycleEvents,
-            verboseEvents: verboseEvents,
-            recorders: recorders,
-            automaticEvidence: automaticEvidence,
-            endReport: endReport
-        )
-        try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
         let filename = "omniwm-trace-\(milliseconds(session.startedAt))-\(milliseconds(endedAt)).log"
         let url = diagnosticsDirectory.appendingPathComponent(filename, isDirectory: false)
-        try body.write(to: url, atomically: true, encoding: .utf8)
+        try writeAtomically(to: url) { sink in
+            try writeCapture(
+                to: sink,
+                session: session,
+                endedAt: endedAt,
+                recorders: recorders,
+                automaticEvidence: automaticEvidence,
+                endReport: endReport
+            )
+        }
         try? FileManager.default.removeItem(
             at: diagnosticsDirectory.appendingPathComponent(
                 partialFilename(startedAt: session.startedAt),
@@ -117,39 +168,89 @@ private actor TraceCaptureFileWriter {
         return url
     }
 
-    private func buildBody(
+    private func writeCapture(
+        to sink: TraceByteSink,
         session: TraceCaptureSession,
         endedAt: Date?,
-        lifecycleEvents: String,
-        verboseEvents: String,
         recorders: [any RuntimeTraceRecording],
         automaticEvidence: String?,
         endReport: String?
-    ) -> String {
-        var lines = [
-            "== OmniWM Trace Capture ==",
-            "startedAt=\(session.startedAt.ISO8601Format())",
-            endedAt.map { "endedAt=\($0.ISO8601Format())" } ?? "status=in-progress (partial)",
-            "",
-            "== State At Start ==",
-            session.startReport,
-            "",
-            "== Lifecycle Events (recent, always-on) ==",
-            lifecycleEvents,
-            "",
-            "== Verbose Window Events (capture window) ==",
-            verboseEvents
-        ]
+    ) throws {
+        let tail = tailData(automaticEvidence: automaticEvidence, endReport: endReport)
+        let writer = BoundedTraceWriter(sink: sink, reservedTailBytes: tail.count)
+        let append: (String) -> Bool = { writer.appendLine($0) }
+
+        _ = append("== OmniWM Trace Capture ==")
+        _ = append("startedAt=\(session.startedAt.ISO8601Format())")
+        _ = append(endedAt.map { "endedAt=\($0.ISO8601Format())" } ?? "status=in-progress (partial)")
+        _ = append("")
+        _ = append("== State At Start ==")
+        _ = append(RuntimeTraceLimits.boundedString(session.startReport, maxBytes: RuntimeTraceLimits.stateReportBytes))
+        _ = append("")
+        _ = append("== Lifecycle Events (recent, always-on) ==")
+        DiagnosticsEventRecorder.shared.forEachLifecycleLine(append)
+        _ = append("")
+        _ = append("== Verbose Window Events (capture window) ==")
+        DiagnosticsEventRecorder.shared.forEachVerboseLine(append)
         for recorder in recorders {
-            lines.append(contentsOf: ["", "== \(recorder.sectionTitle) ==", recorder.dump()])
+            guard append(""), append("== \(recorder.sectionTitle) ==") else { break }
+            recorder.forEachLine(append)
+            if writer.truncated { break }
+        }
+        try writer.finish(tail: tail)
+    }
+
+    private func tailData(automaticEvidence: String?, endReport: String?) -> Data {
+        var data = Data()
+        func append(_ string: String) {
+            data.append(contentsOf: string.utf8)
         }
         if let automaticEvidence {
-            lines.append(contentsOf: ["", "== Automatic AX Evidence ==", automaticEvidence])
+            append("\n== Automatic AX Evidence ==\n")
+            append(
+                RuntimeTraceLimits.boundedString(
+                    automaticEvidence,
+                    maxBytes: RuntimeTraceLimits.automaticEvidenceBytes
+                )
+            )
+            append("\n")
         }
         if let endReport {
-            lines.append(contentsOf: ["", "== State At End ==", endReport])
+            append("\n== State At End ==\n")
+            append(RuntimeTraceLimits.boundedString(endReport, maxBytes: RuntimeTraceLimits.stateReportBytes))
+            append("\n")
         }
-        return lines.joined(separator: "\n")
+        return data
+    }
+
+    private func writeAtomically(to destination: URL, body: (TraceByteSink) throws -> Void) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
+        let temporary = diagnosticsDirectory.appendingPathComponent(
+            ".omniwm-trace-\(UUID().uuidString).tmp",
+            isDirectory: false
+        )
+        var handle: FileHandle?
+        do {
+            guard fileManager.createFile(atPath: temporary.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            let openedHandle = try FileHandle(forWritingTo: temporary)
+            handle = openedHandle
+            try body(TraceByteSink(handle: openedHandle))
+            try openedHandle.synchronize()
+            try openedHandle.close()
+            handle = nil
+            if fileManager.fileExists(atPath: destination.path) {
+                _ = try fileManager.replaceItemAt(destination, withItemAt: temporary)
+            } else {
+                try fileManager.moveItem(at: temporary, to: destination)
+            }
+        } catch {
+            try? handle?.close()
+            try? fileManager.removeItem(at: temporary)
+            throw error
+        }
     }
 
     private func partialFilename(startedAt: Date) -> String {
@@ -237,7 +338,13 @@ final class RuntimeTraceCaptureCoordinator {
         recorders.forEach { $0.beginCapture() }
         self.reportProvider = reportProvider
         self.automaticEvidenceProvider = automaticEvidenceProvider
-        let session = TraceCaptureSession(startedAt: Date(), startReport: reportProvider())
+        let session = TraceCaptureSession(
+            startedAt: Date(),
+            startReport: RuntimeTraceLimits.boundedString(
+                reportProvider(),
+                maxBytes: RuntimeTraceLimits.stateReportBytes
+            )
+        )
         self.session = session
         phase = .recording
         onStateChange?()
@@ -302,11 +409,17 @@ final class RuntimeTraceCaptureCoordinator {
         let endedAt = Date()
         DiagnosticsEventRecorder.shared.endVerboseCapture()
         recorders.forEach { $0.endCapture() }
-        let endReport = reportProvider?() ?? "report unavailable"
+        let endReport = RuntimeTraceLimits.boundedString(
+            reportProvider?() ?? "report unavailable",
+            maxBytes: RuntimeTraceLimits.stateReportBytes
+        )
         let evidenceProvider = automaticEvidenceProvider
         reportProvider = nil
         automaticEvidenceProvider = nil
-        let automaticEvidence = await evidenceProvider?() ?? "none"
+        let automaticEvidence = RuntimeTraceLimits.boundedString(
+            await evidenceProvider?() ?? "none",
+            maxBytes: RuntimeTraceLimits.automaticEvidenceBytes
+        )
 
         do {
             let url = try await writer.writeFinal(

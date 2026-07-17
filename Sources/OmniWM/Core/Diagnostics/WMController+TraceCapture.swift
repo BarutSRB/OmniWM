@@ -60,8 +60,7 @@ extension WMController {
             return AutomaticAXSnapshotRequest(
                 reason: "window_admission:\(target.reason)",
                 pid: target.pid,
-                windowId: target.windowId,
-                axRef: target.axRef
+                windowId: target.windowId
             )
         }
         if let frontmost = NSWorkspace.shared.frontmostApplication,
@@ -69,12 +68,10 @@ extension WMController {
         {
             let pid = frontmost.processIdentifier
             let token = workspaceManager.focusedToken.flatMap { $0.pid == pid ? $0 : nil }
-            let axRef = token.flatMap { workspaceManager.entry(for: $0)?.axRef }
             return AutomaticAXSnapshotRequest(
                 reason: "frontmost_external",
                 pid: pid,
-                windowId: token?.windowId,
-                axRef: axRef
+                windowId: token?.windowId
             )
         }
         guard let token = workspaceManager.focusedToken,
@@ -82,16 +79,25 @@ extension WMController {
         else {
             return nil
         }
-        let axRef = workspaceManager.entry(for: token)?.axRef
         return AutomaticAXSnapshotRequest(
             reason: "last_managed_focus",
             pid: token.pid,
-            windowId: token.windowId,
-            axRef: axRef
+            windowId: token.windowId
         )
     }
 
     private func seedWindowAdmissionTrace() {
+        for pid in AppAXContext.contexts.keys.sorted() {
+            guard let context = AppAXContext.contexts[pid] else { continue }
+            WindowAdmissionTrace.record(
+                .init(
+                    action: .endpointCreated,
+                    pid: pid,
+                    bundleId: context.nsApp.bundleIdentifier,
+                    callbackGeneration: context.callbackGeneration
+                )
+            )
+        }
         let ownPID = getpid()
         if let frontmost = NSWorkspace.shared.frontmostApplication,
            frontmost.processIdentifier != ownPID

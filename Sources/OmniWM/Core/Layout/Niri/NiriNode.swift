@@ -76,7 +76,7 @@ enum WeightedSize: Codable, Equatable, Sendable {
     static let `default` = WeightedSize.auto(weight: 1.0)
 }
 
-struct WindowSizeConstraints: Equatable {
+struct WindowSizeConstraints: Equatable, Sendable {
     var minSize: CGSize
 
     var maxSize: CGSize

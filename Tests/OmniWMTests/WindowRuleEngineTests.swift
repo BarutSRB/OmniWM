@@ -203,6 +203,32 @@ final class WindowRuleEngineTests: XCTestCase {
         XCTAssertEqual(decision.source, .userRule(rule.id))
     }
 
+    func testUnscopedTitleRuleFetchesTitleForBundledApp() {
+        let engine = WindowRuleEngine()
+        let rule = AppRule(bundleId: "", titleSubstring: "Main", layout: .float)
+        engine.rebuild(rules: [rule])
+
+        XCTAssertTrue(engine.requiresTitle(for: "example.app"))
+    }
+
+    func testAppNameScopedTitleRuleFetchesOnlyForMatchingApp() {
+        let engine = WindowRuleEngine()
+        let rule = AppRule(
+            bundleId: "",
+            appNameSubstring: "VMD",
+            titleSubstring: "Main",
+            layout: .float
+        )
+        engine.rebuild(rules: [rule])
+
+        XCTAssertTrue(engine.requiresTitle(for: "example.app", appName: "VMD Viewer"))
+        XCTAssertFalse(engine.requiresTitle(for: "example.app", appName: "Other App"))
+        XCTAssertNotEqual(
+            evaluate(engine, facts(appName: "Other App", bundleId: "example.app")).disposition,
+            .undecided
+        )
+    }
+
     func testProjectionSnapshotValidWhenAnchoredOnAppName() {
         let rule = AppRule(bundleId: "", appNameSubstring: "VMD", layout: .float)
         let snapshot = IPCRuleProjection.snapshot(from: rule, position: 1, invalidRegexMessagesByRuleId: [:])

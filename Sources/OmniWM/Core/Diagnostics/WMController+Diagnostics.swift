@@ -3,16 +3,16 @@
 
 import Foundation
 
-enum IssueDiagnosticEvidence: Equatable, Sendable {
+enum IssueDiagnosticEvidence: Equatable, Hashable, Sendable {
     case crash(URL)
-    case trace(TraceCaptureArtifact)
+    case trace(URL)
 
     var url: URL {
         switch self {
         case let .crash(url):
             url
-        case let .trace(artifact):
-            artifact.url
+        case let .trace(url):
+            url
         }
     }
 
@@ -78,6 +78,7 @@ private enum DiagnosticAttachmentWriter {
         directory: URL
     ) throws -> DiagnosticAttachmentResult {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        DiagnosticsRetention.removeStaleTemporaryFiles(directory: directory)
         let destination = directory.appendingPathComponent(
             "omniwm-diagnostics-\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString).log",
             isDirectory: false

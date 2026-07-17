@@ -87,6 +87,13 @@ extension AXEventHandler {
         reason: WindowAdmissionPendingReason,
         trigger: AdmissionRetryTrigger
     ) -> Bool {
+        let state = normalizedAdmissionRetryState(windowId: windowId, observedAXRef: axRef)
+        if let state,
+           !state.exhausted,
+           state.trigger.priority > trigger.priority
+        {
+            return true
+        }
         guard isAdmissionRetryEligible(
             windowId: windowId,
             expectedToken: expectedToken,
@@ -96,7 +103,6 @@ extension AXEventHandler {
             discardCreatePlacementContext(windowId: windowId)
             return false
         }
-        let state = normalizedAdmissionRetryState(windowId: windowId, observedAXRef: axRef)
         let schedule = resolvedAdmissionRetrySchedule(
             state: state,
             expectedToken: expectedToken,
@@ -124,7 +130,7 @@ extension AXEventHandler {
         let permitsTrackedEntry = switch trigger {
         case .ruleReevaluation:
             existingEntry?.token == expectedToken && existingEntry?.mode == .floating
-        case let .identityRebind(oldWindow, _, _):
+        case let .identityRebind(oldWindow, _, _, _, _):
             existingEntry?.token == oldWindow.token
         case .create,
              .candidate,
@@ -330,12 +336,15 @@ extension AXEventHandler {
     func finishAdmissionRetryAfterTracking(windowId: UInt32) {
         guard let state = admissionRetryStateByWindowId.removeValue(forKey: windowId) else { return }
         state.task?.cancel()
-        guard case let .focused(token, source, observationGeneration) = state.trigger else { return }
+        guard case let .focused(token, source, observationGeneration, callbackGeneration) = state.trigger else {
+            return
+        }
         handleAppActivation(
             pid: token.pid,
             source: source,
             origin: .retry,
-            causalObservationGeneration: observationGeneration
+            causalObservationGeneration: observationGeneration,
+            callbackGeneration: callbackGeneration
         )
     }
 
@@ -351,7 +360,7 @@ extension AXEventHandler {
 
     func retireStaleFocusedAdmissionRetry(pid: pid_t, observationGeneration: UInt64) {
         let matchingWindowIds = admissionRetryStateByWindowId.compactMap { windowId, state -> UInt32? in
-            guard case let .focused(token, _, generation) = state.trigger,
+            guard case let .focused(token, _, generation, _) = state.trigger,
                   token.pid == pid,
                   generation == observationGeneration
             else {
@@ -370,10 +379,10 @@ extension AXEventHandler {
             case .create:
                 false
             case let .candidate(token, _),
-                 let .focused(token, _, _),
+                 let .focused(token, _, _, _),
                  let .ruleReevaluation(token, _):
                 token.pid == pid
-            case let .identityRebind(oldWindow, newWindow, _):
+            case let .identityRebind(oldWindow, newWindow, _, _, _):
                 oldWindow.token.pid == pid || newWindow.token.pid == pid
             }
             guard state.expectedToken?.pid == pid
@@ -459,22 +468,37 @@ extension AXEventHandler {
                 fallbackAXRef: axRef,
                 retryTrigger: state.trigger
             )
-        case let .focused(token, source, observationGeneration):
+        case let .focused(token, source, observationGeneration, callbackGeneration):
             handleAppActivation(
                 pid: token.pid,
                 source: source,
                 origin: .retry,
-                causalObservationGeneration: observationGeneration
+                causalObservationGeneration: observationGeneration,
+                callbackGeneration: callbackGeneration
             )
-        case let .identityRebind(oldWindow, newWindow, managedReplacementMetadata):
+        case let .identityRebind(
+            oldWindow,
+            newWindow,
+            managedReplacementMetadata,
+            admissionHints,
+            sizeConstraints
+        ):
             guard let windowId = UInt32(exactly: newWindow.token.windowId) else { return }
-            _ = rekeyManagedWindowIdentity(
-                from: oldWindow.token,
-                to: newWindow.token,
-                windowId: windowId,
-                axRef: newWindow.axRef,
-                managedReplacementMetadata: managedReplacementMetadata
-            )
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.completeManagedWindowIdentityRebind(
+                    from: oldWindow,
+                    to: newWindow,
+                    windowId: windowId,
+                    retryGeneration: state.generation,
+                    managedReplacementMetadata: managedReplacementMetadata,
+                    admissionHints: admissionHints,
+                    sizeConstraints: sizeConstraints
+                )
+            }
+            var activeState = state
+            activeState.task = task
+            admissionRetryStateByWindowId[windowId] = activeState
         case let .ruleReevaluation(token, axRef):
             Task { @MainActor [weak self] in
                 guard let self, let controller = self.controller else { return }

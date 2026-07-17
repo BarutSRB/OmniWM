@@ -11,7 +11,7 @@ final class AXCallbackGenerationRegistryTests: XCTestCase {
         let generation = registry.currentGeneration
         var callbackCount = 0
 
-        XCTAssertTrue(registry.register(observerKey: 1, generation: generation))
+        registerObserver(1, in: registry, serviceGeneration: generation)
         XCTAssertTrue(registry.performIfCurrent(observerKey: 1) {
             callbackCount += 1
         })
@@ -21,7 +21,7 @@ final class AXCallbackGenerationRegistryTests: XCTestCase {
     func testAdvanceRejectsRetiredObserversAndInFlightRegistration() {
         let registry = AXCallbackGenerationRegistry()
         let retiredGeneration = registry.currentGeneration
-        XCTAssertTrue(registry.register(observerKey: 1, generation: retiredGeneration))
+        registerObserver(1, in: registry, serviceGeneration: retiredGeneration)
 
         let currentGeneration = registry.advance()
         var callbackCount = 0
@@ -31,7 +31,7 @@ final class AXCallbackGenerationRegistryTests: XCTestCase {
         XCTAssertFalse(registry.performIfCurrent(observerKey: 1) {
             callbackCount += 1
         })
-        XCTAssertFalse(registry.register(observerKey: 2, generation: retiredGeneration))
+        XCTAssertNil(registry.reserveCallbackGeneration(serviceGeneration: retiredGeneration))
         XCTAssertFalse(registry.performIfCurrent(observerKey: 2) {
             callbackCount += 1
         })
@@ -41,13 +41,13 @@ final class AXCallbackGenerationRegistryTests: XCTestCase {
     func testNewGenerationAcceptsReplacementObserver() {
         let registry = AXCallbackGenerationRegistry()
         let retiredGeneration = registry.currentGeneration
-        XCTAssertTrue(registry.register(observerKey: 1, generation: retiredGeneration))
+        registerObserver(1, in: registry, serviceGeneration: retiredGeneration)
 
         let currentGeneration = registry.advance()
         var callbackCount = 0
 
-        XCTAssertTrue(registry.register(observerKey: 2, generation: currentGeneration))
-        XCTAssertFalse(registry.register(observerKey: 2, generation: retiredGeneration))
+        registerObserver(2, in: registry, serviceGeneration: currentGeneration)
+        XCTAssertNil(registry.reserveCallbackGeneration(serviceGeneration: retiredGeneration))
         XCTAssertTrue(registry.performIfCurrent(observerKey: 2) {
             callbackCount += 1
         })
@@ -60,7 +60,7 @@ final class AXCallbackGenerationRegistryTests: XCTestCase {
     func testUnregisterRejectsObserverWithoutAdvancingGeneration() {
         let registry = AXCallbackGenerationRegistry()
         let generation = registry.currentGeneration
-        XCTAssertTrue(registry.register(observerKey: 1, generation: generation))
+        registerObserver(1, in: registry, serviceGeneration: generation)
 
         registry.unregister(observerKey: 1)
 
@@ -71,7 +71,7 @@ final class AXCallbackGenerationRegistryTests: XCTestCase {
     func testAdvanceWaitsForAdmittedCallbackToLeaveGate() {
         let registry = AXCallbackGenerationRegistry()
         let generation = registry.currentGeneration
-        XCTAssertTrue(registry.register(observerKey: 1, generation: generation))
+        registerObserver(1, in: registry, serviceGeneration: generation)
 
         let callbackEntered = DispatchSemaphore(value: 0)
         let releaseCallback = DispatchSemaphore(value: 0)
@@ -98,5 +98,41 @@ final class AXCallbackGenerationRegistryTests: XCTestCase {
 
         XCTAssertEqual(advanceFinished.wait(timeout: .now() + 2), .success)
         XCTAssertFalse(registry.performIfCurrent(observerKey: 1) {})
+    }
+
+    func testContextIncarnationsReceiveDistinctCallbackGenerationsWithinOneServiceGeneration() {
+        let registry = AXCallbackGenerationRegistry()
+        let serviceGeneration = registry.currentGeneration
+        let first = registerObserver(1, in: registry, serviceGeneration: serviceGeneration)
+        registry.unregister(observerKey: 1)
+        let second = registerObserver(2, in: registry, serviceGeneration: serviceGeneration)
+
+        XCTAssertGreaterThan(second, first)
+        XCTAssertEqual(registry.generation(observerKey: 1), first)
+        XCTAssertEqual(registry.generation(observerKey: 2), second)
+        XCTAssertFalse(registry.performIfCurrent(observerKey: 1) {})
+        XCTAssertTrue(registry.performIfCurrent(observerKey: 2) {})
+    }
+
+    @discardableResult
+    private func registerObserver(
+        _ observerKey: UInt,
+        in registry: AXCallbackGenerationRegistry,
+        serviceGeneration: UInt64
+    ) -> UInt64 {
+        guard let callbackGeneration = registry.reserveCallbackGeneration(
+            serviceGeneration: serviceGeneration
+        ) else {
+            XCTFail("Expected callback generation")
+            return 0
+        }
+        XCTAssertTrue(
+            registry.register(
+                observerKey: observerKey,
+                serviceGeneration: serviceGeneration,
+                callbackGeneration: callbackGeneration
+            )
+        )
+        return callbackGeneration
     }
 }

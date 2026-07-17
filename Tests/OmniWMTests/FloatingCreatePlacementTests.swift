@@ -366,6 +366,38 @@ final class FloatingCreatePlacementTests: XCTestCase {
         XCTAssertEqual(resolved.rung, .focusedContext)
     }
 
+    func testFullRescanPlacementUsesCapturedAXFrameWithoutAXReference() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let token = WindowToken(pid: 6_108, windowId: 562)
+        let capturedFrame = CGRect(x: 2_000, y: 1_400, width: 600, height: 400)
+        let evaluation = fixture.controller.evaluateWindowDisposition(
+            token: token,
+            evidence: .unavailable(
+                role: kAXWindowRole as String,
+                subrole: kAXStandardWindowSubrole as String,
+                appPolicy: .regular,
+                bundleId: "example.full-rescan-placement"
+            ),
+            appFullscreen: false,
+            windowInfo: nil,
+            admissionGeometry: WindowAdmissionGeometryEvidence(
+                isSizeSettable: true,
+                frame: capturedFrame
+            )
+        )
+
+        let workspaceId = fixture.controller.resolvedWorkspaceId(
+            for: evaluation,
+            axRef: nil,
+            existingEntry: nil,
+            fallbackWorkspaceId: fixture.primaryWorkspace,
+            createPlacementContext: placementContext(),
+            windowFrame: capturedFrame
+        )
+
+        XCTAssertEqual(workspaceId, fixture.secondaryWorkspace)
+    }
+
     private func placementContext(
         nativeSpaceMonitorId: Monitor.ID? = nil,
         focusedWorkspaceId: WorkspaceDescriptor.ID? = nil,

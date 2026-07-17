@@ -288,8 +288,23 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    private(set) var appRulesRevision: UInt64 = 0
+    private(set) var appRulesDiagnosticSnapshot = WindowClassificationRulesSnapshot(
+        revision: 0,
+        rules: SettingsStore.defaultExport.appRules
+    )
+
     var appRules = SettingsStore.defaultExport.appRules {
-        didSet { scheduleSave() }
+        didSet {
+            if appRules != oldValue {
+                appRulesRevision &+= 1
+                appRulesDiagnosticSnapshot = WindowClassificationRulesSnapshot(
+                    revision: appRulesRevision,
+                    rules: appRules
+                )
+            }
+            scheduleSave()
+        }
     }
 
     var monitorOrientationSettings = SettingsStore.defaultExport.monitorOrientationSettings {

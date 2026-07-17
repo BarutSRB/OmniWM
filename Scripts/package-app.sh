@@ -9,8 +9,8 @@ GHOSTTY_LIBRARY_DIR="$("$ROOT_DIR/Scripts/ghostty-preflight.sh" print-library-di
 SWIFT_BUILD_ARGS=(-c "$CONFIG" --arch arm64)
 
 # Signing identity and notarization profile
-SIGNING_IDENTITY="Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
-NOTARIZE_PROFILE="OmniWM-Notarize"
+SIGNING_IDENTITY="${OMNIWM_SIGNING_IDENTITY:-Developer ID Application: Oliver Nikolic (VF8LDJRGFM)}"
+NOTARIZE_PROFILE="${OMNIWM_NOTARIZE_PROFILE:-OmniWM-Notarize}"
 ENTITLEMENTS="$ROOT_DIR/OmniWM.entitlements"
 
 echo "Running release checks..."

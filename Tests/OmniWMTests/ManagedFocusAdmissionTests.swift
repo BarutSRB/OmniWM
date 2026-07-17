@@ -222,7 +222,8 @@ final class ManagedFocusAdmissionTests: XCTestCase {
                 trigger: .focused(
                     token: token,
                     source: .workspaceDidActivateApplication,
-                    observationGeneration: 1
+                    observationGeneration: 1,
+                    callbackGeneration: nil
                 )
             )
         )

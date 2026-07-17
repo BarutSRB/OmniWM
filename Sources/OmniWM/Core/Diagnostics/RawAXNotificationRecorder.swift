@@ -15,6 +15,7 @@ final class RawAXNotificationTrace: RuntimeTraceRecording, @unchecked Sendable {
         let name: String
         let pid: pid_t
         let windowId: Int?
+        let callbackGeneration: UInt64?
     }
 
     private struct State {
@@ -29,18 +30,34 @@ final class RawAXNotificationTrace: RuntimeTraceRecording, @unchecked Sendable {
         initialState: State(buffer: RingBuffer(capacity: RawAXNotificationTrace.capacity))
     )
 
-    static func record(name: String, pid: pid_t, windowId: Int?) {
-        shared.record(name: name, pid: pid, windowId: windowId)
+    static func record(
+        name: String,
+        pid: pid_t,
+        windowId: Int?,
+        callbackGeneration: UInt64? = nil
+    ) {
+        shared.record(
+            name: name,
+            pid: pid,
+            windowId: windowId,
+            callbackGeneration: callbackGeneration
+        )
     }
 
-    func record(name: String, pid: pid_t, windowId: Int?) {
+    func record(
+        name: String,
+        pid: pid_t,
+        windowId: Int?,
+        callbackGeneration: UInt64? = nil
+    ) {
         lockedState.withLock { state in
             let record = Record(
                 sequence: state.nextSequence,
                 timestamp: Date(),
-                name: name,
+                name: RuntimeTraceLimits.boundedString(name),
                 pid: pid,
-                windowId: windowId
+                windowId: windowId,
+                callbackGeneration: callbackGeneration
             )
             state.nextSequence += 1
             state.buffer.append(record)
@@ -61,12 +78,18 @@ final class RawAXNotificationTrace: RuntimeTraceRecording, @unchecked Sendable {
     }
 
     func dump() -> String {
-        let records: [Record] = lockedState.withLock { state in
-            guard let start = state.captureStart else { return [] }
-            let end = state.captureEnd ?? state.nextSequence
-            return state.buffer.snapshot().filter { $0.sequence >= start && $0.sequence < end }
+        format(capturedRecords())
+    }
+
+    func forEachLine(_ body: (String) -> Bool) {
+        let records = capturedRecords()
+        guard !records.isEmpty else {
+            _ = body("none")
+            return
         }
-        return format(records)
+        for record in records {
+            guard body(format(record)) else { return }
+        }
     }
 
     func recentDump() -> String {
@@ -75,14 +98,25 @@ final class RawAXNotificationTrace: RuntimeTraceRecording, @unchecked Sendable {
 
     private func format(_ records: [Record]) -> String {
         guard !records.isEmpty else { return "none" }
-        return records
-            .map { record in
-                var line = "\(record.timestamp.ISO8601Format()) ax=\(record.name) pid=\(record.pid)"
-                if let windowId = record.windowId {
-                    line += " win=\(windowId)"
-                }
-                return line
-            }
-            .joined(separator: "\n")
+        return records.map(format).joined(separator: "\n")
+    }
+
+    private func format(_ record: Record) -> String {
+        var line = "\(record.timestamp.ISO8601Format()) ax=\(record.name) pid=\(record.pid)"
+        if let windowId = record.windowId {
+            line += " win=\(windowId)"
+        }
+        if let callbackGeneration = record.callbackGeneration {
+            line += " callback_gen=\(callbackGeneration)"
+        }
+        return RuntimeTraceLimits.boundedString(line)
+    }
+
+    private func capturedRecords() -> [Record] {
+        lockedState.withLock { state in
+            guard let start = state.captureStart else { return [] }
+            let end = state.captureEnd ?? state.nextSequence
+            return state.buffer.snapshot().filter { $0.sequence >= start && $0.sequence < end }
+        }
     }
 }

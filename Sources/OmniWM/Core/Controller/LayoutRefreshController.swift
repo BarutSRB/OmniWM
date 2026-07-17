@@ -1430,7 +1430,10 @@ import QuartzCore
             uniqueKeysWithValues: controller.workspaceManager.allEntries().map { ($0.windowId, $0.pid) }
         )
         let enumerationSnapshot = try await controller.axManager.fullRescanEnumerationSnapshot(
-            preservingPIDsByWindowId: preservingPIDsByWindowId
+            preservingPIDsByWindowId: preservingPIDsByWindowId,
+            requiresTitleForApp: {
+                controller.windowRuleEngine.requiresTitle(for: $0, appName: $1)
+            }
         )
         try Task.checkCancellation()
         guard controller.workspaceManager.isSeqEpochCurrent(rescanSeq, domains: .layoutCommit) else {
@@ -1453,7 +1456,8 @@ import QuartzCore
                 pid: pid,
                 windowId: winId,
                 observedAliases: enumerationSnapshot.identityAliasesByWindowId[winId],
-                failedPIDs: enumerationSnapshot.failedPIDs
+                failedPIDs: enumerationSnapshot.failedPIDs,
+                sizeConstraints: candidate.enumeratedWindow.decisionEvidence.sizeConstraints
             ) {
             case let .process(entry):
                 existingEntry = entry
@@ -1477,8 +1481,8 @@ import QuartzCore
             }
             let appFullscreen = candidate.isFullscreen(screenFrames: screenFrames)
             let evaluation = controller.evaluateWindowDisposition(
-                axRef: ax,
-                pid: pid,
+                token: token,
+                evidence: candidate.enumeratedWindow.decisionEvidence,
                 appFullscreen: appFullscreen,
                 windowInfo: candidate.windowServerInfo,
                 admissionGeometry: candidate.enumeratedWindow.admissionGeometry
@@ -1548,7 +1552,8 @@ import QuartzCore
                     token: token,
                     bundleId: bundleId ?? evaluation.facts.ax.bundleId,
                     mode: trackedMode,
-                    facts: evaluation.facts
+                    facts: evaluation.facts,
+                    capturedWindowServerInfoByWindowId: enumerationSnapshot.windowServerInfoByWindowId
                 )
                 : nil
             if existingEntry == nil,
@@ -1562,25 +1567,24 @@ import QuartzCore
                    bundleId: bundleId ?? evaluation.facts.ax.bundleId,
                    mode: trackedMode,
                    facts: evaluation.facts,
-                   admissionHints: evaluation.decision.admissionHints
+                   admissionHints: evaluation.decision.admissionHints,
+                   sizeConstraints: candidate.enumeratedWindow.decisionEvidence.sizeConstraints
                )
             {
                 seenKeys.insert(token)
-                controller.axEventHandler.discardCreatePlacementContext(for: winId)
-                controller.axEventHandler.finishAdmissionRetryAfterTracking(
-                    windowId: windowId
-                )
+                seenKeys.insert(structuralMatch.token)
                 continue
             }
 
             let defaultWorkspace = controller.resolvedWorkspaceId(
                 for: evaluation,
-                axRef: ax,
+                axRef: nil,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId,
                 structuralReplacementWorkspaceId: structuralMatch?.workspaceId,
                 restrictWorkspaceRuleToPlacementMonitor: trackedMode != .floating,
-                createPlacementContext: createPlacementContext
+                createPlacementContext: createPlacementContext,
+                windowFrame: candidate.capturedFrame
             )
             let wsForWindow: WorkspaceDescriptor.ID
             let ruleEffects: ManagedWindowRuleEffects
@@ -1678,6 +1682,10 @@ import QuartzCore
                 }
                 continue
             }
+            controller.workspaceManager.setCachedConstraints(
+                candidate.enumeratedWindow.decisionEvidence.sizeConstraints,
+                for: admittedToken
+            )
             if refreshedEntry != nil {
                 _ = controller.workspaceManager.updateAdmissionHints(admissionHints, for: admittedToken)
             }
@@ -1700,12 +1708,16 @@ import QuartzCore
                     for: admittedToken,
                     to: trackedMode,
                     preferredMonitor: controller.workspaceManager.monitor(for: wsForWindow),
-                    applyFloatingFrame: false
+                    applyFloatingFrame: false,
+                    observedFrame: candidate.capturedFrame,
+                    allowLiveFrameFallback: false
                 )
             } else if trackedMode == .floating {
                 controller.seedFloatingGeometryIfNeeded(
                     for: admittedToken,
-                    preferredMonitor: controller.workspaceManager.monitor(for: wsForWindow)
+                    preferredMonitor: controller.workspaceManager.monitor(for: wsForWindow),
+                    observedFrame: candidate.capturedFrame,
+                    allowLiveFrameFallback: false
                 )
             }
             seenKeys.insert(admittedToken)
@@ -1748,6 +1760,7 @@ import QuartzCore
 
             preserveScratchpadHiddenWindowsDuringFullRescan(
                 trackedEntries,
+                windowServerInfoByWindowId: enumerationSnapshot.windowServerInfoByWindowId,
                 seenKeys: &seenKeys
             )
         }
@@ -1818,8 +1831,6 @@ import QuartzCore
 
     private enum ScratchpadRescanEvidence {
         case visibleFrame
-        case orderedOut
-        case orderedIn
         case windowServer
         case pinnedAX
     }
@@ -1829,13 +1840,19 @@ import QuartzCore
         let visibleFrame: CGRect?
     }
 
-    private func preserveScratchpadHiddenWindowsDuringFullRescan(
+    func preserveScratchpadHiddenWindowsDuringFullRescan(
         _ entries: [WindowState],
-        seenKeys: inout Set<WindowToken>
+        windowServerInfoByWindowId: [Int: WindowServerInfo],
+        seenKeys: inout Set<WindowToken>,
+        hasPinnedAXElement: (UInt32) -> Bool = { AXWindowService.hasPinnedAXElement(for: $0) }
     ) {
         guard let controller else { return }
         for entry in entries where controller.workspaceManager.hiddenState(for: entry.token)?.isScratchpad == true {
-            let observation = scratchpadRescanObservation(for: entry)
+            let observation = scratchpadRescanObservation(
+                for: entry,
+                windowServerInfo: windowServerInfoByWindowId[entry.windowId],
+                hasPinnedAXElement: hasPinnedAXElement
+            )
             switch observation?.evidence {
             case .visibleFrame:
                 if pendingRevealTransactionsByWindowId[entry.windowId]?.token == entry.token,
@@ -1851,9 +1868,7 @@ import QuartzCore
                     controller.axManager.unsuppressFrameWrites([(entry.pid, entry.windowId)])
                 }
                 seenKeys.insert(entry.token)
-            case .orderedOut,
-                 .orderedIn,
-                 .windowServer,
+            case .windowServer,
                  .pinnedAX:
                 seenKeys.insert(entry.token)
             case nil:
@@ -1862,11 +1877,15 @@ import QuartzCore
         }
     }
 
-    private func scratchpadRescanObservation(for entry: WindowState) -> ScratchpadRescanObservation? {
+    private func scratchpadRescanObservation(
+        for entry: WindowState,
+        windowServerInfo: WindowServerInfo?,
+        hasPinnedAXElement: (UInt32) -> Bool
+    ) -> ScratchpadRescanObservation? {
         guard controller != nil else { return nil }
         guard let windowId = UInt32(exactly: entry.windowId) else { return nil }
 
-        if let windowInfo = SkyLight.shared.queryWindowInfo(windowId) {
+        if let windowInfo = windowServerInfo {
             guard windowInfo.pid == entry.pid else { return nil }
             if let visibleFrame = scratchpadVisibleWindowServerFrame(windowInfo.frame, for: entry) {
                 return ScratchpadRescanObservation(evidence: .visibleFrame, visibleFrame: visibleFrame)
@@ -1874,22 +1893,7 @@ import QuartzCore
             return ScratchpadRescanObservation(evidence: .windowServer, visibleFrame: nil)
         }
 
-        if let observedFrame = observedWindowFrame(entry),
-           scratchpadFrameIsVisible(observedFrame, for: entry)
-        {
-            return ScratchpadRescanObservation(evidence: .visibleFrame, visibleFrame: observedFrame)
-        }
-
-        switch SkyLight.shared.isWindowOrderedIn(windowId) {
-        case .some(true):
-            return ScratchpadRescanObservation(evidence: .orderedIn, visibleFrame: nil)
-        case .some(false):
-            return ScratchpadRescanObservation(evidence: .orderedOut, visibleFrame: nil)
-        case nil:
-            break
-        }
-
-        if AXWindowService.pinnedWindowId(for: windowId) == CGWindowID(windowId) {
+        if hasPinnedAXElement(windowId) {
             return ScratchpadRescanObservation(evidence: .pinnedAX, visibleFrame: nil)
         }
 

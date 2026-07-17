@@ -1265,9 +1265,11 @@ final class WMController {
 
     private func initialFloatingFrame(
         for entry: WindowState,
-        preferredMonitor: Monitor?
+        preferredMonitor: Monitor?,
+        sourceFrame: CGRect? = nil,
+        allowLiveFrameFallback: Bool = true
     ) -> CGRect? {
-        guard let frame = liveFrame(for: entry) else { return nil }
+        guard let frame = sourceFrame ?? (allowLiveFrameFallback ? liveFrame(for: entry) : nil) else { return nil }
         let offsetFrame = frame.offsetBy(dx: 50, dy: 50)
         guard let monitor = floatingPlacementMonitor(
             for: entry,
@@ -1288,11 +1290,13 @@ final class WMController {
 
     func seedFloatingGeometryIfNeeded(
         for token: WindowToken,
-        preferredMonitor: Monitor? = nil
+        preferredMonitor: Monitor? = nil,
+        observedFrame: CGRect? = nil,
+        allowLiveFrameFallback: Bool = true
     ) {
         guard workspaceManager.floatingState(for: token) == nil,
               let entry = workspaceManager.entry(for: token),
-              let frame = liveFrame(for: entry)
+              let frame = observedFrame ?? (allowLiveFrameFallback ? liveFrame(for: entry) : nil)
         else {
             return
         }
@@ -1614,13 +1618,15 @@ final class WMController {
         for token: WindowToken,
         to targetMode: TrackedWindowMode,
         preferredMonitor: Monitor? = nil,
-        applyFloatingFrame: Bool? = nil
+        applyFloatingFrame: Bool? = nil,
+        observedFrame: CGRect? = nil,
+        allowLiveFrameFallback: Bool = true
     ) -> Bool {
         guard let entry = workspaceManager.entry(for: token) else { return false }
         let currentMode = entry.mode
         guard currentMode != targetMode else { return false }
 
-        let currentFrame = liveFrame(for: entry)
+        let currentFrame = observedFrame ?? (allowLiveFrameFallback ? liveFrame(for: entry) : nil)
         let referenceMonitor = floatingPlacementMonitor(
             for: entry,
             preferredMonitor: preferredMonitor,
@@ -1631,7 +1637,9 @@ final class WMController {
         case (.tiling, .floating):
             let targetFrame = initialFloatingFrame(
                 for: entry,
-                preferredMonitor: referenceMonitor
+                preferredMonitor: referenceMonitor,
+                sourceFrame: currentFrame,
+                allowLiveFrameFallback: allowLiveFrameFallback
             )
             _ = workspaceManager.setWindowMode(.floating, for: token)
             if let targetFrame {
@@ -1786,12 +1794,13 @@ final class WMController {
 
     func resolvedWorkspaceId(
         for evaluation: WindowDecisionEvaluation,
-        axRef: AXWindowRef,
+        axRef: AXWindowRef?,
         existingEntry: WindowState?,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?,
         structuralReplacementWorkspaceId: WorkspaceDescriptor.ID? = nil,
         restrictWorkspaceRuleToPlacementMonitor: Bool = true,
         createPlacementContext: WindowCreatePlacementContext? = nil,
+        windowFrame: CGRect? = nil,
         context: WindowRuleReevaluationContext = .automatic
     ) -> WorkspaceDescriptor.ID {
         let inheritTrackedParentWorkspace = shouldInheritTrackedParentWorkspace(for: evaluation)
@@ -1808,7 +1817,7 @@ final class WMController {
             structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
             restrictWorkspaceRuleToPlacementMonitor: restrictWorkspaceRuleToPlacementMonitor,
             createPlacementContext: createPlacementContext,
-            windowFrame: evaluation.facts.windowServer?.frame,
+            windowFrame: windowFrame ?? evaluation.facts.windowServer?.frame,
             existingEntry: existingEntry,
             fallbackWorkspaceId: fallbackWorkspaceId,
             context: context
@@ -1839,7 +1848,10 @@ final class WMController {
                 axRef,
                 appPolicy: appInfo?.activationPolicy,
                 bundleId: appInfo?.bundleId,
-                includeTitle: windowRuleEngine.requiresTitle(for: appInfo?.bundleId)
+                includeTitle: windowRuleEngine.requiresTitle(
+                    for: appInfo?.bundleId,
+                    appName: appInfo?.name
+                )
             ),
             sizeConstraints: sizeConstraints,
             windowServer: nil
@@ -1856,11 +1868,67 @@ final class WMController {
             windowServer: resolvedWindowInfo
         )
         let fullscreen = appFullscreen ?? AXWindowService.isFullscreen(axRef)
+        return makeWindowDispositionEvaluation(
+            token: token,
+            facts: facts,
+            appFullscreen: fullscreen,
+            applyingManualOverride: applyingManualOverride,
+            admissionGeometry: admissionGeometry
+        )
+    }
+
+    func evaluateWindowDisposition(
+        token: WindowToken,
+        evidence: AXWindowDecisionEvidence,
+        appFullscreen: Bool,
+        applyingManualOverride: Bool = true,
+        windowInfo: WindowServerInfo?,
+        admissionGeometry: WindowAdmissionGeometryEvidence
+    ) -> WindowDecisionEvaluation {
+        if token.pid == ProcessInfo.processInfo.processIdentifier || isOwnedWindow(windowNumber: token.windowId) {
+            return Self.ownedWindowDispositionEvaluation(token: token)
+        }
+        let appInfo = resolvedAppInfo(for: token.pid)
+        let captured = evidence.facts
+        let axFacts = AXWindowFacts(
+            role: captured.role,
+            subrole: captured.subrole,
+            title: captured.title,
+            hasCloseButton: captured.hasCloseButton,
+            hasFullscreenButton: captured.hasFullscreenButton,
+            fullscreenButtonEnabled: captured.fullscreenButtonEnabled,
+            hasZoomButton: captured.hasZoomButton,
+            hasMinimizeButton: captured.hasMinimizeButton,
+            appPolicy: captured.appPolicy ?? appInfo?.activationPolicy,
+            bundleId: captured.bundleId ?? appInfo?.bundleId,
+            attributeFetchSucceeded: captured.attributeFetchSucceeded
+        )
+        return makeWindowDispositionEvaluation(
+            token: token,
+            facts: WindowRuleFacts(
+                appName: appInfo?.name,
+                ax: axFacts,
+                sizeConstraints: evidence.sizeConstraints,
+                windowServer: windowInfo
+            ),
+            appFullscreen: appFullscreen,
+            applyingManualOverride: applyingManualOverride,
+            admissionGeometry: admissionGeometry
+        )
+    }
+
+    private func makeWindowDispositionEvaluation(
+        token: WindowToken,
+        facts: WindowRuleFacts,
+        appFullscreen: Bool,
+        applyingManualOverride: Bool,
+        admissionGeometry: WindowAdmissionGeometryEvidence?
+    ) -> WindowDecisionEvaluation {
         let manualOverride = workspaceManager.manualLayoutOverride(for: token)
         let baseDecision = windowRuleEngine.decision(
             for: facts,
             token: token,
-            appFullscreen: fullscreen
+            appFullscreen: appFullscreen
         )
         let decision = applyingManualOverride
             ? WindowRuleEngine.applyingManualOverride(baseDecision, manualOverride: manualOverride)
@@ -1869,7 +1937,7 @@ final class WMController {
             token: token,
             facts: facts,
             decision: decision,
-            appFullscreen: fullscreen,
+            appFullscreen: appFullscreen,
             manualOverride: manualOverride,
             admissionGeometry: admissionGeometry
         )
@@ -2168,7 +2236,6 @@ final class WMController {
             {
                 affectedWorkspaceIds.insert(workspaceId)
                 relayoutNeeded = true
-                axEventHandler.finishAdmissionRetryAfterTracking(windowId: windowId)
                 continue
             }
 

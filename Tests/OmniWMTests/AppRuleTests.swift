@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
+import Foundation
 @testable import OmniWM
 import XCTest
 
@@ -78,6 +79,32 @@ final class AppRuleTests: XCTestCase {
         let toml = try XCTUnwrap(String(data: tomlData, encoding: .utf8))
         XCTAssertFalse(toml.contains("initialColumnWidth"))
         XCTAssertNil(try SettingsTOMLCodec.decode(tomlData).appRules.first?.initialColumnWidth)
+    }
+
+    @MainActor
+    func testAppRulesRevisionChangesOnlyForDistinctRules() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMRuleRevision-\(UUID().uuidString)", isDirectory: true)
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(
+                directory: root.appendingPathComponent("config", isDirectory: true),
+                startWatching: false,
+                deferSaves: false
+            ),
+            runtimeState: RuntimeStateStore(
+                directory: root.appendingPathComponent("state", isDirectory: true),
+                deferSaves: false
+            ),
+            autosaveEnabled: false
+        )
+        let baseline = settings.appRulesRevision
+        let rules = [AppRule(bundleId: "com.test.app", layout: .float)]
+
+        settings.appRules = rules
+        XCTAssertEqual(settings.appRulesRevision, baseline + 1)
+
+        settings.appRules = rules
+        XCTAssertEqual(settings.appRulesRevision, baseline + 1)
     }
 
     @MainActor

@@ -4,6 +4,7 @@
     "tokenWindowId": 4,
     "appName": "Utility App",
     "bundleId": "com.example.nofullscreen",
+    "rulesRevision": 1,
     "input": {
       "appName": "Utility App",
       "ax": {
@@ -18,8 +19,7 @@
         "bundleId": "com.example.nofullscreen",
         "attributeFetchSucceeded": true
       },
-      "appFullscreen": false,
-      "rules": []
+      "appFullscreen": false
     },
     "observedDecision": {
       "disposition": "floating",
@@ -30,6 +30,7 @@
       "layoutDecisionKind": "fallbackLayout"
     }
   },
+  "rules": [],
   "expectedDecision": {
     "disposition": "floating",
     "source": "heuristic",

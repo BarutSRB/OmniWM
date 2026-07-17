@@ -4,6 +4,7 @@
     "tokenWindowId": 2,
     "appName": "Mini Player",
     "bundleId": "com.example.accessory",
+    "rulesRevision": 1,
     "input": {
       "appName": "Mini Player",
       "ax": {
@@ -18,8 +19,7 @@
         "bundleId": "com.example.accessory",
         "attributeFetchSucceeded": true
       },
-      "appFullscreen": false,
-      "rules": []
+      "appFullscreen": false
     },
     "observedDecision": {
       "disposition": "floating",
@@ -30,6 +30,7 @@
       "layoutDecisionKind": "fallbackLayout"
     }
   },
+  "rules": [],
   "expectedDecision": {
     "disposition": "floating",
     "source": "heuristic",

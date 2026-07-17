@@ -112,6 +112,100 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
     }
 
     @MainActor
+    func testFinalWriteFailurePreservesPartialAndRemovesTemporaryFile() async throws {
+        let directory = try makeDiagnosticsDirectory()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let coordinator = RuntimeTraceCaptureCoordinator(diagnosticsDirectory: directory, recorders: [])
+
+        guard case .started = await coordinator.toggle(desiredState: .active, reportProvider: { "report" }) else {
+            return XCTFail("expected capture to start")
+        }
+        let partial = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasSuffix(".partial.log") }
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+
+        guard case .writeFailed = await coordinator.toggle(
+            desiredState: .inactive,
+            reportProvider: { "report" }
+        ) else {
+            return XCTFail("expected final write to fail")
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: partial.path))
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .contains { $0.hasPrefix(".omniwm-trace-") && $0.hasSuffix(".tmp") }
+        )
+    }
+
+    @MainActor
+    func testOversizedPartialIsBoundedAndPreservedUntilSuccessfulFinalization() async throws {
+        let directory = try makeDiagnosticsDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let gate = TraceFinalizationGate()
+        let evidenceStarted = expectation(description: "automatic evidence started")
+        let coordinator = RuntimeTraceCaptureCoordinator(
+            diagnosticsDirectory: directory,
+            recorders: [OversizedRuntimeTraceRecorder()]
+        )
+
+        guard case .started = await coordinator.toggle(
+            desiredState: .active,
+            reportProvider: { String(repeating: "🪟", count: 400_000) },
+            automaticEvidenceProvider: {
+                evidenceStarted.fulfill()
+                await gate.wait()
+                return String(repeating: "é", count: 400_000)
+            }
+        ) else {
+            return XCTFail("expected capture to start")
+        }
+        let partial = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+                .first { $0.lastPathComponent.hasSuffix(".partial.log") }
+        )
+        let partialData = try Data(contentsOf: partial)
+        XCTAssertLessThanOrEqual(partialData.count, RuntimeTraceLimits.captureBytes)
+        XCTAssertNotNil(String(data: partialData, encoding: .utf8))
+        XCTAssertEqual(
+            String(decoding: partialData, as: UTF8.self)
+                .components(separatedBy: "== Trace Data Truncated ==").count - 1,
+            1
+        )
+
+        let finalization = Task { @MainActor in
+            await coordinator.toggle(desiredState: .inactive, reportProvider: { "unused" })
+        }
+        await fulfillment(of: [evidenceStarted], timeout: 1)
+
+        XCTAssertEqual(try Data(contentsOf: partial), partialData)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .contains { $0.hasPrefix(".omniwm-trace-") && $0.hasSuffix(".tmp") }
+        )
+
+        await gate.release()
+        guard case let .stopped(artifact) = await finalization.value else {
+            return XCTFail("expected capture to finalize")
+        }
+        let finalData = try Data(contentsOf: artifact.url)
+        XCTAssertLessThanOrEqual(finalData.count, RuntimeTraceLimits.captureBytes)
+        XCTAssertNotNil(String(data: finalData, encoding: .utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.url.path))
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .contains { $0.hasPrefix(".omniwm-trace-") && $0.hasSuffix(".tmp") }
+        )
+    }
+
+    @MainActor
     func testReplacementRecordingClearsLastArtifactAfterInitialPartialSucceeds() async throws {
         let directory = try makeDiagnosticsDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -228,9 +322,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
         try "selected-trace-evidence".write(to: selected, atomically: true, encoding: .utf8)
         try "newer-unselected-evidence".write(to: newer, atomically: true, encoding: .utf8)
         let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: directory)
-        let artifact = TraceCaptureArtifact(url: selected, startedAt: Date(timeIntervalSince1970: 1), endedAt: Date())
-
-        let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(artifact))
+        let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(selected))
         let body = try String(contentsOf: result.url, encoding: .utf8)
 
         XCTAssertTrue(result.includedEvidence)
@@ -283,9 +375,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
         let trace = directory.appendingPathComponent("omniwm-trace-settings.log", isDirectory: false)
         try "== Evidence Settings ==\nfollowsMouse = false".write(to: trace, atomically: true, encoding: .utf8)
         settings.focusFollowsMouse = true
-        let artifact = TraceCaptureArtifact(url: trace, startedAt: Date(timeIntervalSince1970: 1), endedAt: Date())
-
-        let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(artifact))
+        let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(trace))
         let body = try String(contentsOf: result.url, encoding: .utf8)
         let freshSettings = try XCTUnwrap(body.range(of: "followsMouse = true"))
         let evidenceHeader = try XCTUnwrap(body.range(of: "== Selected Diagnostic Evidence =="))
@@ -325,5 +415,43 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
+    }
+}
+
+private actor TraceFinalizationGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        if let continuation {
+            continuation.resume()
+            self.continuation = nil
+        } else {
+            released = true
+        }
+    }
+}
+
+private struct OversizedRuntimeTraceRecorder: RuntimeTraceRecording {
+    let sectionTitle = "Oversized Records"
+
+    func beginCapture() {}
+
+    func endCapture() {}
+
+    func dump() -> String {
+        String(repeating: "x", count: RuntimeTraceLimits.captureBytes * 2)
+    }
+
+    func forEachLine(_ body: (String) -> Bool) {
+        let line = String(repeating: "🪟", count: 1_024)
+        for _ in 0 ..< 4_096 {
+            guard body(line) else { return }
+        }
     }
 }

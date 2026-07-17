@@ -4,6 +4,7 @@
     "tokenWindowId": 1,
     "appName": "Standard App",
     "bundleId": "com.example.standard",
+    "rulesRevision": 1,
     "input": {
       "appName": "Standard App",
       "ax": {
@@ -19,8 +20,7 @@
         "bundleId": "com.example.standard",
         "attributeFetchSucceeded": true
       },
-      "appFullscreen": false,
-      "rules": []
+      "appFullscreen": false
     },
     "observedDecision": {
       "disposition": "managed",
@@ -29,6 +29,7 @@
       "layoutDecisionKind": "fallbackLayout"
     }
   },
+  "rules": [],
   "expectedDecision": {
     "disposition": "managed",
     "source": "heuristic",

@@ -6,9 +6,16 @@ import Foundation
 @MainActor
 final class EventInterpreter: EventIntakeSink {
     weak var controller: WMController?
+    private let callbackGenerationProvider: @MainActor (pid_t) -> UInt64?
 
-    init(controller: WMController) {
+    init(
+        controller: WMController,
+        callbackGenerationProvider: @escaping @MainActor (pid_t) -> UInt64? = {
+            AppAXContext.contexts[$0]?.callbackGeneration
+        }
+    ) {
         self.controller = controller
+        self.callbackGenerationProvider = callbackGenerationProvider
     }
 
     func handleIntakeEvent(_ stamped: StampedIntakeEvent) {
@@ -42,16 +49,25 @@ final class EventInterpreter: EventIntakeSink {
         case let .appUnhidden(pid):
             controller.axEventHandler.handleAppUnhidden(pid: pid)
 
-        case let .axFocusedWindowChanged(pid):
+        case let .axFocusedWindowChanged(pid, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
             controller.axEventHandler.handleAppActivation(
                 pid: pid,
-                source: .focusedWindowChanged
+                source: .focusedWindowChanged,
+                callbackGeneration: callbackGeneration
             )
 
-        case let .axWindowDestroyed(pid, axRef):
-            controller.axEventHandler.handleRemoved(pid: pid, winId: axRef.windowId, axRef: axRef)
+        case let .axWindowDestroyed(pid, axRef, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
+            controller.axEventHandler.handleRemoved(
+                pid: pid,
+                winId: axRef.windowId,
+                axRef: axRef,
+                callbackGeneration: callbackGeneration
+            )
 
-        case let .axWindowMiniaturized(pid, windowId):
+        case let .axWindowMiniaturized(pid, windowId, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
             controller.axEventHandler.handleWindowMiniaturized(pid: pid, windowId: windowId)
 
         case let .cgs(event):
@@ -102,5 +118,10 @@ final class EventInterpreter: EventIntakeSink {
         case let .windowConstraintsResolved(fact):
             controller.layoutRefreshController.applyResolvedConstraints(fact)
         }
+    }
+
+    private func acceptsCallbackGeneration(_ callbackGeneration: UInt64?, pid: pid_t) -> Bool {
+        guard let callbackGeneration else { return true }
+        return callbackGenerationProvider(pid) == callbackGeneration
     }
 }

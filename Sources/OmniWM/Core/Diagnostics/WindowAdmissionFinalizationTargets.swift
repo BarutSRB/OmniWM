@@ -73,19 +73,25 @@ struct WindowAdmissionFinalizationTargets {
             terminal = removing(candidate, from: terminal)
             pending = candidate
         case .enumerationCompleted:
-            clearResolvedEnumerationTargets(for: candidate.pid)
+            clearResolvedEnumerationTargets(with: candidate)
         default:
             break
         }
     }
 
-    private mutating func clearResolvedEnumerationTargets(for pid: pid_t) {
-        if terminal?.pid == pid, terminal?.windowId == nil {
+    private mutating func clearResolvedEnumerationTargets(with candidate: WindowAdmissionFinalizationTarget) {
+        if let current = terminal,
+           current.pid == candidate.pid,
+           current.windowId == nil,
+           sameContext(current, candidate)
+        {
             terminal = nil
         }
-        if pending?.pid == pid,
-           pending?.windowId == nil,
-           pending?.action == .enumerationFailed
+        if let current = pending,
+           current.pid == candidate.pid,
+           current.windowId == nil,
+           current.action == .enumerationFailed,
+           sameContext(current, candidate)
         {
             pending = nil
         }
@@ -98,7 +104,10 @@ struct WindowAdmissionFinalizationTargets {
         guard let existing,
               existing.pid == candidate.pid,
               existing.processGeneration == candidate.processGeneration,
-              existing.windowId == nil || candidate.windowId == nil || existing.windowId == candidate.windowId
+              compatible(existing.windowId, candidate.windowId),
+              compatible(existing.windowGeneration, candidate.windowGeneration),
+              compatible(existing.endpointGeneration, candidate.endpointGeneration),
+              compatible(existing.callbackGeneration, candidate.callbackGeneration)
         else {
             return existing
         }
@@ -107,11 +116,11 @@ struct WindowAdmissionFinalizationTargets {
             pid: existing.pid,
             windowId: candidate.windowId ?? existing.windowId,
             bundleId: candidate.bundleId ?? existing.bundleId,
-            axRef: candidate.axRef ?? existing.axRef,
             reason: existing.reason,
             processGeneration: candidate.processGeneration,
             windowGeneration: candidate.windowGeneration ?? existing.windowGeneration,
-            endpointGeneration: candidate.endpointGeneration ?? existing.endpointGeneration
+            endpointGeneration: candidate.endpointGeneration ?? existing.endpointGeneration,
+            callbackGeneration: candidate.callbackGeneration ?? existing.callbackGeneration
         )
     }
 
@@ -122,10 +131,26 @@ struct WindowAdmissionFinalizationTargets {
         guard let existing,
               existing.pid == candidate.pid,
               existing.processGeneration == candidate.processGeneration,
-              existing.windowId == nil || candidate.windowId == nil || existing.windowId == candidate.windowId
+              existing.windowId == candidate.windowId,
+              compatible(existing.windowGeneration, candidate.windowGeneration),
+              compatible(existing.endpointGeneration, candidate.endpointGeneration),
+              compatible(existing.callbackGeneration, candidate.callbackGeneration)
         else {
             return existing
         }
         return nil
+    }
+
+    private func sameContext(
+        _ existing: WindowAdmissionFinalizationTarget,
+        _ candidate: WindowAdmissionFinalizationTarget
+    ) -> Bool {
+        existing.processGeneration == candidate.processGeneration
+            && (existing.endpointGeneration == nil || existing.endpointGeneration == candidate.endpointGeneration)
+            && (existing.callbackGeneration == nil || existing.callbackGeneration == candidate.callbackGeneration)
+    }
+
+    private func compatible<T: Equatable>(_ lhs: T?, _ rhs: T?) -> Bool {
+        lhs == nil || lhs == rhs
     }
 }

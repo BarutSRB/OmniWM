@@ -60,9 +60,12 @@ extension WindowServerInfoDTO {
 
 @MainActor
 enum WindowClassificationReproducer {
-    static func recompute(_ input: WindowClassificationInput) -> WindowClassificationDecisionDTO {
+    static func recompute(
+        _ input: WindowClassificationInput,
+        rules: [AppRule]
+    ) -> WindowClassificationDecisionDTO {
         let engine = WindowRuleEngine()
-        engine.rebuild(rules: input.rules)
+        engine.rebuild(rules: rules)
         let facts = WindowRuleFacts(
             appName: input.appName,
             ax: input.ax.toModel(),

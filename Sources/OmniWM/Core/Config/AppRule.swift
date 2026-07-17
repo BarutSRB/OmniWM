@@ -21,7 +21,7 @@ enum WindowRuleLayoutAction: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct AppRule: Codable, Identifiable, Equatable {
+struct AppRule: Codable, Identifiable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case bundleId

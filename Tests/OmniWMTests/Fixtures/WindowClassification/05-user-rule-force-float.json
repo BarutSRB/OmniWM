@@ -4,6 +4,7 @@
     "tokenWindowId": 5,
     "appName": "Tiled By Default",
     "bundleId": "com.example.userfloat",
+    "rulesRevision": 1,
     "input": {
       "appName": "Tiled By Default",
       "ax": {
@@ -19,14 +20,7 @@
         "bundleId": "com.example.userfloat",
         "attributeFetchSucceeded": true
       },
-      "appFullscreen": false,
-      "rules": [
-        {
-          "id": "11111111-1111-1111-1111-111111111111",
-          "bundleId": "com.example.userfloat",
-          "layout": "float"
-        }
-      ]
+      "appFullscreen": false
     },
     "observedDecision": {
       "disposition": "floating",
@@ -35,6 +29,13 @@
       "layoutDecisionKind": "explicitLayout"
     }
   },
+  "rules": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "bundleId": "com.example.userfloat",
+      "layout": "float"
+    }
+  ],
   "expectedDecision": {
     "disposition": "floating",
     "source": "userRule(11111111-1111-1111-1111-111111111111)",

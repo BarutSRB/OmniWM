@@ -14,9 +14,9 @@ enum IntakeEvent: Sendable {
     case appLaunched
     case appTerminated(pid: pid_t)
     case appUnhidden(pid: pid_t)
-    case axFocusedWindowChanged(pid: pid_t)
-    case axWindowDestroyed(pid: pid_t, axRef: AXWindowRef)
-    case axWindowMiniaturized(pid: pid_t, windowId: Int)
+    case axFocusedWindowChanged(pid: pid_t, callbackGeneration: UInt64?)
+    case axWindowDestroyed(pid: pid_t, axRef: AXWindowRef, callbackGeneration: UInt64?)
+    case axWindowMiniaturized(pid: pid_t, windowId: Int, callbackGeneration: UInt64?)
     case cgs(CGSWindowEvent)
     case display(DisplayConfigurationObserver.DisplayEvent)
     case hotkeyInvocation(HotkeyInvocation)

@@ -6,6 +6,7 @@ import Foundation
 
 struct WindowClassificationRegressionFixture: Codable, Equatable, Sendable {
     var observation: WindowClassificationObservation
+    var rules: [AppRule]
     var expectedDecision: WindowClassificationDecisionDTO
 }
 

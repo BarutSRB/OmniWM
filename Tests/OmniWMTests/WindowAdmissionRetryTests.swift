@@ -117,7 +117,8 @@ final class WindowAdmissionRetryTests: XCTestCase {
                 trigger: .focused(
                     token: token,
                     source: .focusedWindowChanged,
-                    observationGeneration: 7
+                    observationGeneration: 7,
+                    callbackGeneration: nil
                 )
             )
         )
@@ -132,7 +133,7 @@ final class WindowAdmissionRetryTests: XCTestCase {
         )
 
         let state = try XCTUnwrap(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
-        guard case let .focused(triggerToken, source, observationGeneration) = state.trigger else {
+        guard case let .focused(triggerToken, source, observationGeneration, _) = state.trigger else {
             return XCTFail("Expected focused retry")
         }
         XCTAssertEqual(triggerToken, token)
@@ -158,7 +159,8 @@ final class WindowAdmissionRetryTests: XCTestCase {
                 trigger: .focused(
                     token: token,
                     source: .focusedWindowChanged,
-                    observationGeneration: 7
+                    observationGeneration: 7,
+                    callbackGeneration: nil
                 )
             )
         )
@@ -204,7 +206,8 @@ final class WindowAdmissionRetryTests: XCTestCase {
                 trigger: .focused(
                     token: logicalToken,
                     source: .focusedWindowChanged,
-                    observationGeneration: 9
+                    observationGeneration: 9,
+                    callbackGeneration: nil
                 )
             )
         )
@@ -254,7 +257,8 @@ final class WindowAdmissionRetryTests: XCTestCase {
                 trigger: .focused(
                     token: token,
                     source: .focusedWindowChanged,
-                    observationGeneration: 7
+                    observationGeneration: 7,
+                    callbackGeneration: nil
                 )
             )
         )

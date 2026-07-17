@@ -82,6 +82,245 @@ final class WindowAdmissionTraceTests: XCTestCase {
         XCTAssertEqual(records[9].callbackGeneration, 4)
     }
 
+    func testReusedOrDestroyedWindowCannotRemainFinalizationTarget() {
+        let recorder = WindowAdmissionTrace(capacity: 16)
+        let pid: pid_t = 8_111
+        let windowId = 8_112
+        let ref = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
+        recorder.beginCapture()
+        recorder.record(.init(action: .cgsCreated, windowId: windowId))
+        recorder.record(
+            .init(action: .admissionPending, pid: pid, windowId: windowId, axRef: ref)
+        )
+        XCTAssertEqual(recorder.finalizationTarget(excludingPID: 99)?.windowId, windowId)
+
+        recorder.record(.init(action: .cgsDestroyed, windowId: windowId))
+        XCTAssertNil(recorder.finalizationTarget(excludingPID: 99))
+
+        recorder.record(.init(action: .cgsCreated, windowId: windowId))
+        XCTAssertNil(recorder.finalizationTarget(excludingPID: 99))
+    }
+
+    func testLateEndpointGenerationCannotClearCurrentFailure() throws {
+        let recorder = WindowAdmissionTrace(capacity: 32)
+        let pid: pid_t = 8_121
+        recorder.beginCapture()
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 1))
+        recorder.record(
+            .init(action: .enumerationFailed, pid: pid, reason: "old", callbackGeneration: 1)
+        )
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 2))
+        recorder.record(
+            .init(action: .enumerationFailed, pid: pid, reason: "current", callbackGeneration: 2)
+        )
+        recorder.record(.init(action: .enumerationCompleted, pid: pid, callbackGeneration: 1))
+
+        let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
+        XCTAssertEqual(target.reason, "current")
+        XCTAssertEqual(target.endpointGeneration, 2)
+        XCTAssertEqual(target.callbackGeneration, 2)
+        XCTAssertNil(recorder.recordsSnapshot().last?.endpointGeneration)
+    }
+
+    func testUnknownCallbackEventCannotPreemptSeededEndpoint() throws {
+        let recorder = WindowAdmissionTrace(capacity: 16)
+        let pid: pid_t = 8_125
+        recorder.beginCapture()
+        recorder.record(
+            .init(action: .enumerationFailed, pid: pid, reason: "stale", callbackGeneration: 1)
+        )
+        XCTAssertNil(recorder.recordsSnapshot().last?.endpointGeneration)
+        XCTAssertNil(recorder.finalizationTarget(excludingPID: 99))
+
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 2))
+        recorder.record(
+            .init(action: .enumerationFailed, pid: pid, reason: "current", callbackGeneration: 2)
+        )
+
+        let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
+        XCTAssertEqual(target.reason, "current")
+        XCTAssertEqual(target.callbackGeneration, 2)
+    }
+
+    func testContextRecreationWithinServiceGenerationIsolatesLateEnumeration() throws {
+        let registry = AXCallbackGenerationRegistry()
+        let serviceGeneration = registry.currentGeneration
+        let firstCallback = try XCTUnwrap(
+            registry.reserveCallbackGeneration(serviceGeneration: serviceGeneration)
+        )
+        let secondCallback = try XCTUnwrap(
+            registry.reserveCallbackGeneration(serviceGeneration: serviceGeneration)
+        )
+        let recorder = WindowAdmissionTrace(capacity: 32)
+        let pid: pid_t = 8_126
+        recorder.beginCapture()
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: firstCallback))
+        recorder.record(
+            .init(action: .enumerationFailed, pid: pid, reason: "old", callbackGeneration: firstCallback)
+        )
+        recorder.record(.init(action: .endpointDestroyed, pid: pid, callbackGeneration: firstCallback))
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: secondCallback))
+        recorder.record(
+            .init(action: .enumerationFailed, pid: pid, reason: "current", callbackGeneration: secondCallback)
+        )
+        recorder.record(.init(action: .enumerationCompleted, pid: pid, callbackGeneration: firstCallback))
+
+        let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
+        XCTAssertEqual(target.reason, "current")
+        XCTAssertEqual(target.endpointGeneration, 2)
+        XCTAssertEqual(target.callbackGeneration, secondCallback)
+        XCTAssertNil(recorder.recordsSnapshot().last?.endpointGeneration)
+    }
+
+    func testLateCallbackCannotRetireCurrentWindowTarget() throws {
+        let recorder = WindowAdmissionTrace(capacity: 32)
+        let pid: pid_t = 8_131
+        let windowId = 8_132
+        let ref = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
+        recorder.beginCapture()
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 1))
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 2))
+        recorder.record(
+            .init(
+                action: .admissionPending,
+                pid: pid,
+                windowId: windowId,
+                callbackGeneration: 2,
+                axRef: ref
+            )
+        )
+        recorder.record(
+            .init(
+                action: .admissionDisappeared,
+                pid: pid,
+                windowId: windowId,
+                callbackGeneration: 1,
+                axRef: ref
+            )
+        )
+
+        let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
+        XCTAssertEqual(target.windowId, windowId)
+        XCTAssertEqual(target.callbackGeneration, 2)
+        XCTAssertNil(recorder.recordsSnapshot().last?.endpointGeneration)
+    }
+
+    func testLatePreviousOwnerCannotRetireReusedWindowTarget() throws {
+        let recorder = WindowAdmissionTrace(capacity: 32)
+        let oldPID: pid_t = 8_141
+        let currentPID: pid_t = 8_142
+        let windowId = 8_143
+        let oldRef = AXWindowRef(element: AXUIElementCreateApplication(oldPID), windowId: windowId)
+        let currentRef = AXWindowRef(element: AXUIElementCreateApplication(currentPID), windowId: windowId)
+        recorder.beginCapture()
+        recorder.record(.init(action: .processLaunched, pid: oldPID))
+        recorder.record(.init(action: .cgsCreated, windowId: windowId))
+        recorder.record(.init(action: .admissionPending, pid: oldPID, windowId: windowId, axRef: oldRef))
+        recorder.record(.init(action: .processTerminated, pid: oldPID))
+        recorder.record(.init(action: .cgsCreated, windowId: windowId))
+        recorder.record(.init(action: .processLaunched, pid: currentPID))
+        recorder.record(
+            .init(action: .admissionPending, pid: currentPID, windowId: windowId, axRef: currentRef)
+        )
+
+        let currentGeneration = recorder.recordsSnapshot().last?.windowGeneration
+        recorder.record(
+            .init(action: .admissionDisappeared, pid: oldPID, windowId: windowId, axRef: oldRef)
+        )
+
+        let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
+        XCTAssertEqual(target.pid, currentPID)
+        XCTAssertEqual(target.windowId, windowId)
+        XCTAssertEqual(target.windowGeneration, currentGeneration)
+        XCTAssertEqual(recorder.recordsSnapshot().last?.windowGeneration, currentGeneration)
+    }
+
+    func testFullRescanAliasesDoNotAdvanceWindowGeneration() {
+        let recorder = WindowAdmissionTrace(capacity: 16)
+        let firstPID: pid_t = 8_146
+        let secondPID: pid_t = 8_147
+        let windowId = 8_148
+        let firstRef = AXWindowRef(element: AXUIElementCreateApplication(firstPID), windowId: windowId)
+        let secondRef = AXWindowRef(element: AXUIElementCreateApplication(secondPID), windowId: windowId)
+        recorder.beginCapture()
+        recorder.record(.init(action: .cgsCreated, windowId: windowId))
+        recorder.record(
+            .init(action: .fullRescanCandidate, pid: firstPID, windowId: windowId, axRef: firstRef)
+        )
+        recorder.record(
+            .init(
+                action: .fullRescanRejected,
+                pid: firstPID,
+                windowId: windowId,
+                competingPid: secondPID,
+                axRef: firstRef
+            )
+        )
+        recorder.record(
+            .init(action: .fullRescanSelected, pid: secondPID, windowId: windowId, axRef: secondRef)
+        )
+
+        XCTAssertEqual(
+            recorder.recordsSnapshot().compactMap(\.windowGeneration),
+            [1, 1, 1, 1]
+        )
+    }
+
+    func testSelectedFullRescanOwnerRejectsLatePreviousOwnerDisappearance() throws {
+        let recorder = WindowAdmissionTrace(capacity: 24)
+        let oldPID: pid_t = 8_149
+        let currentPID: pid_t = 8_150
+        let windowId = 8_151
+        let oldRef = AXWindowRef(element: AXUIElementCreateApplication(oldPID), windowId: windowId)
+        let currentRef = AXWindowRef(element: AXUIElementCreateApplication(currentPID), windowId: windowId)
+        recorder.beginCapture()
+        recorder.record(.init(action: .cgsCreated, windowId: windowId))
+        recorder.record(.init(action: .admissionTracked, pid: oldPID, windowId: windowId, axRef: oldRef))
+        recorder.record(.init(action: .cgsCreated, windowId: windowId))
+        recorder.record(
+            .init(action: .fullRescanSelected, pid: currentPID, windowId: windowId, axRef: currentRef)
+        )
+        recorder.record(
+            .init(action: .fullRescanRejected, pid: currentPID, windowId: windowId, axRef: currentRef)
+        )
+        recorder.record(
+            .init(action: .admissionDisappeared, pid: oldPID, windowId: windowId, axRef: oldRef)
+        )
+
+        let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
+        XCTAssertEqual(target.pid, currentPID)
+        XCTAssertEqual(target.windowId, windowId)
+        XCTAssertEqual(target.windowGeneration, 2)
+    }
+
+    func testDestroyedEndpointRejectsLateSameCallbackEvents() {
+        let recorder = WindowAdmissionTrace(capacity: 16)
+        let pid: pid_t = 8_151
+        recorder.beginCapture()
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 7))
+        recorder.record(.init(action: .enumerationFailed, pid: pid, callbackGeneration: 7))
+        recorder.record(.init(action: .endpointDestroyed, pid: pid, callbackGeneration: 7))
+        recorder.record(.init(action: .enumerationCompleted, pid: pid, callbackGeneration: 7))
+
+        XCTAssertNil(recorder.recordsSnapshot().last?.endpointGeneration)
+        XCTAssertNil(recorder.finalizationTarget(excludingPID: 99))
+    }
+
+    func testGenerationlessResolutionCannotClearGenerationBoundFailure() throws {
+        let recorder = WindowAdmissionTrace(capacity: 16)
+        let pid: pid_t = 8_161
+        recorder.beginCapture()
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 8))
+        recorder.record(
+            .init(action: .enumerationFailed, pid: pid, reason: "current", callbackGeneration: 8)
+        )
+        recorder.record(.init(action: .enumerationCompleted, pid: pid))
+
+        let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
+        XCTAssertEqual(target.reason, "current")
+        XCTAssertEqual(target.callbackGeneration, 8)
+    }
+
     func testFinalizationTargetPrioritizesAnomalyAndHonorsExclusion() throws {
         let recorder = WindowAdmissionTrace(capacity: 16)
         let pendingRef = AXWindowRef(
@@ -120,12 +359,10 @@ final class WindowAdmissionTraceTests: XCTestCase {
         XCTAssertEqual(terminal.pid, 8_203)
         XCTAssertEqual(terminal.windowId, 8_213)
         XCTAssertEqual(terminal.reason, "sizeWriteFailed")
-        XCTAssertTrue(CFEqual(try XCTUnwrap(terminal.axRef).element, refusalRef.element))
 
         let pending = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 8_203))
         XCTAssertEqual(pending.pid, 8_202)
         XCTAssertEqual(pending.windowId, 8_212)
-        XCTAssertTrue(CFEqual(try XCTUnwrap(pending.axRef).element, pendingRef.element))
     }
 
     func testResolvedEnumerationFailureFallsBackToLastManagedFocus() throws {
@@ -158,7 +395,6 @@ final class WindowAdmissionTraceTests: XCTestCase {
         let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
         XCTAssertEqual(target.pid, 8_221)
         XCTAssertEqual(target.windowId, 8_231)
-        XCTAssertTrue(CFEqual(try XCTUnwrap(target.axRef).element, focusedRef.element))
     }
 
     func testProcessTerminationClearsEveryFinalizationTargetForPID() {
@@ -279,12 +515,162 @@ final class WindowAdmissionTraceTests: XCTestCase {
 
     func testRepeatedClassificationObservationsAreRetained() {
         let recorder = WindowAdmissionTrace(capacity: 4)
-        let observation = WindowClassificationObservation(
+        let observation = classificationObservation(rulesRevision: 7)
+        recorder.beginCapture()
+
+        recorder.record(
+            .init(
+                action: .classificationObserved,
+                pid: observation.tokenPid,
+                windowId: observation.tokenWindowId,
+                observation: observation,
+                classificationRulesSnapshot: .init(revision: observation.rulesRevision, rules: [])
+            )
+        )
+        recorder.record(
+            .init(
+                action: .classificationObserved,
+                pid: observation.tokenPid,
+                windowId: observation.tokenWindowId,
+                observation: observation,
+                classificationRulesSnapshot: .init(revision: observation.rulesRevision, rules: [])
+            )
+        )
+
+        XCTAssertEqual(recorder.recordsSnapshot().count, 2)
+        XCTAssertEqual(recorder.recordsSnapshot().first?.observation, observation)
+        let snapshots = recorder.dump().split(separator: "\n").filter { line in
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            else { return false }
+            return object["kind"] as? String == "rules_snapshot"
+        }
+        XCTAssertEqual(snapshots.count, 1)
+    }
+
+    func testRulesSnapshotIsIndividuallyByteBounded() throws {
+        let recorder = WindowAdmissionTrace(capacity: 4)
+        let rules = largeRules()
+        let observation = classificationObservation(rulesRevision: 9)
+        recorder.beginCapture()
+        recorder.record(
+            .init(
+                action: .classificationObserved,
+                pid: observation.tokenPid,
+                windowId: observation.tokenWindowId,
+                observation: observation,
+                classificationRulesSnapshot: .init(revision: observation.rulesRevision, rules: rules)
+            )
+        )
+
+        let line = try XCTUnwrap(recorder.dump().split(separator: "\n").first)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(object["kind"] as? String, "rules_snapshot")
+        XCTAssertEqual(object["truncated"] as? Bool, true)
+        XCTAssertLessThanOrEqual(line.utf8.count, RuntimeTraceLimits.rulesSnapshotBytes)
+    }
+
+    func testRulesSnapshotsHaveCumulativeByteBudget() throws {
+        let recorder = WindowAdmissionTrace(capacity: 8)
+        let rules = largeRules()
+        recorder.beginCapture()
+        for revision in 1 ... 3 {
+            let observation = classificationObservation(rulesRevision: UInt64(revision))
+            recorder.record(
+                .init(
+                    action: .classificationObserved,
+                    pid: observation.tokenPid,
+                    windowId: observation.tokenWindowId,
+                    observation: observation,
+                    classificationRulesSnapshot: .init(revision: observation.rulesRevision, rules: rules)
+                )
+            )
+        }
+
+        let lines = recorder.dump().split(separator: "\n")
+        let objects = try lines.map { line in
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        }
+        let rulesBytes = zip(lines, objects)
+            .filter {
+                let kind = $0.1["kind"] as? String
+                return kind == "rules_snapshot" || kind == "rules_snapshots_truncated"
+            }
+            .reduce(0) { $0 + $1.0.utf8.count + 1 }
+
+        XCTAssertLessThanOrEqual(rulesBytes, RuntimeTraceLimits.cumulativeRulesSnapshotBytes)
+        XCTAssertTrue(objects.contains { $0["kind"] as? String == "rules_snapshots_truncated" })
+    }
+
+    func testSmallReferencedRulesSnapshotsAllFitWithoutTruncation() throws {
+        let recorder = WindowAdmissionTrace(capacity: 8)
+        recorder.beginCapture()
+        for revision in 1 ... 4 {
+            let observation = classificationObservation(rulesRevision: UInt64(revision))
+            recorder.record(
+                .init(
+                    action: .classificationObserved,
+                    pid: observation.tokenPid,
+                    windowId: observation.tokenWindowId,
+                    observation: observation,
+                    classificationRulesSnapshot: .init(
+                        revision: observation.rulesRevision,
+                        rules: [AppRule(bundleId: "example.\(revision)", layout: .float)]
+                    )
+                )
+            )
+        }
+
+        let objects = try recorder.dump().split(separator: "\n").map { line in
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        }
+        let revisions = objects.compactMap { object -> Int? in
+            guard object["kind"] as? String == "rules_snapshot" else { return nil }
+            return object["revision"] as? Int
+        }
+        XCTAssertEqual(revisions, [1, 2, 3, 4])
+        XCTAssertFalse(objects.contains { $0["kind"] as? String == "rules_snapshots_truncated" })
+    }
+
+    func testEvictedRuleRevisionCannotDisplaceRetainedRevision() throws {
+        let recorder = WindowAdmissionTrace(capacity: 1)
+        recorder.beginCapture()
+        for revision in 1 ... 2 {
+            let observation = classificationObservation(rulesRevision: UInt64(revision))
+            recorder.record(
+                .init(
+                    action: .classificationObserved,
+                    pid: observation.tokenPid,
+                    windowId: observation.tokenWindowId,
+                    observation: observation,
+                    classificationRulesSnapshot: .init(
+                        revision: observation.rulesRevision,
+                        rules: largeRules()
+                    )
+                )
+            )
+        }
+
+        let objects = try recorder.dump().split(separator: "\n").map { line in
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        }
+        let revisions = objects.compactMap { object -> Int? in
+            guard object["kind"] as? String == "rules_snapshot" else { return nil }
+            return object["revision"] as? Int
+        }
+        XCTAssertEqual(revisions, [2])
+        XCTAssertFalse(objects.contains { $0["revision"] as? Int == 1 })
+    }
+
+    private func classificationObservation(rulesRevision: UInt64) -> WindowClassificationObservation {
+        WindowClassificationObservation(
             tokenPid: 8_501,
             tokenWindowId: 8_502,
             appName: "Example",
             bundleId: "example.app",
             workspaceName: nil,
+            rulesRevision: rulesRevision,
             input: WindowClassificationInput(
                 appName: "Example",
                 ax: AXWindowFactsDTO(
@@ -305,8 +691,7 @@ final class WindowAdmissionTraceTests: XCTestCase {
                 sizeConstraints: nil,
                 windowServer: nil,
                 appFullscreen: false,
-                manualOverride: nil,
-                rules: []
+                manualOverride: nil
             ),
             observedDecision: WindowClassificationDecisionDTO(
                 from: WindowDecision(
@@ -321,27 +706,20 @@ final class WindowAdmissionTraceTests: XCTestCase {
                 )
             )
         )
-        recorder.beginCapture()
+    }
 
-        recorder.record(
-            .init(
-                action: .classificationObserved,
-                pid: observation.tokenPid,
-                windowId: observation.tokenWindowId,
-                observation: observation
+    private func largeRules() -> [AppRule] {
+        let value = String(repeating: "🪟", count: 2_000)
+        return (0 ..< 80).map { index in
+            AppRule(
+                bundleId: "example.\(index).\(value)",
+                appNameSubstring: value,
+                titleRegex: value,
+                axRole: value,
+                axSubrole: value,
+                assignToWorkspace: value
             )
-        )
-        recorder.record(
-            .init(
-                action: .classificationObserved,
-                pid: observation.tokenPid,
-                windowId: observation.tokenWindowId,
-                observation: observation
-            )
-        )
-
-        XCTAssertEqual(recorder.recordsSnapshot().count, 2)
-        XCTAssertEqual(recorder.recordsSnapshot().first?.observation, observation)
+        }
     }
 
     private func fullRescanCandidate(pid: pid_t, windowId: Int) -> FullRescanWindowCandidate {

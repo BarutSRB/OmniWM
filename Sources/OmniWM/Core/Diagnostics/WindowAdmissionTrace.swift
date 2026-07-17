@@ -72,6 +72,7 @@ struct WindowAdmissionTraceEvent: Sendable {
     let targetFrame: WindowAdmissionTraceRect?
     let observedFrame: WindowAdmissionTraceRect?
     let observation: WindowClassificationObservation?
+    let classificationRulesSnapshot: WindowClassificationRulesSnapshot?
     let axRef: AXWindowRef?
 
     init(
@@ -94,19 +95,20 @@ struct WindowAdmissionTraceEvent: Sendable {
         targetFrame: CGRect? = nil,
         observedFrame: CGRect? = nil,
         observation: WindowClassificationObservation? = nil,
+        classificationRulesSnapshot: WindowClassificationRulesSnapshot? = nil,
         axRef: AXWindowRef? = nil
     ) {
         self.action = action
         self.pid = pid
         self.windowId = windowId
-        self.bundleId = bundleId
+        self.bundleId = bundleId.map(RuntimeTraceLimits.boundedString)
         self.axPid = axPid
         self.windowServerPid = windowServerPid
         self.competingPid = competingPid
-        self.role = role
-        self.subrole = subrole
-        self.reason = reason
-        self.outcome = outcome
+        self.role = role.map(RuntimeTraceLimits.boundedString)
+        self.subrole = subrole.map(RuntimeTraceLimits.boundedString)
+        self.reason = reason.map(RuntimeTraceLimits.boundedString)
+        self.outcome = outcome.map(RuntimeTraceLimits.boundedString)
         self.count = count
         self.attempt = attempt
         self.retryGeneration = retryGeneration
@@ -114,7 +116,8 @@ struct WindowAdmissionTraceEvent: Sendable {
         self.manageable = manageable
         self.targetFrame = targetFrame.map(WindowAdmissionTraceRect.init)
         self.observedFrame = observedFrame.map(WindowAdmissionTraceRect.init)
-        self.observation = observation
+        self.observation = observation?.boundedForDiagnostics()
+        self.classificationRulesSnapshot = classificationRulesSnapshot
         self.axRef = axRef
     }
 }
@@ -151,11 +154,11 @@ struct WindowAdmissionFinalizationTarget: Sendable {
     let pid: pid_t
     let windowId: Int?
     let bundleId: String?
-    let axRef: AXWindowRef?
     let reason: String
     let processGeneration: UInt64
     let windowGeneration: UInt64?
     let endpointGeneration: UInt64?
+    let callbackGeneration: UInt64?
 }
 
 final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
@@ -171,12 +174,19 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
     private struct WindowState {
         var generation: UInt64
         var isLive: Bool
-        var axRef: AXWindowRef?
+        var ownerPID: pid_t?
+        var ownerProcessGeneration: UInt64?
     }
 
     private struct EndpointState {
         var generation: UInt64
         var isLive: Bool
+        var callbackGeneration: UInt64?
+    }
+
+    private struct StoredRulesSnapshot {
+        let snapshot: WindowClassificationRulesSnapshot
+        let estimatedBytes: Int
     }
 
     private struct State {
@@ -186,6 +196,10 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
         var windows: [Int: WindowState] = [:]
         var endpoints: [pid_t: EndpointState] = [:]
         var finalizationTargets = WindowAdmissionFinalizationTargets()
+        var rulesSnapshots: [UInt64: StoredRulesSnapshot] = [:]
+        var rulesSnapshotReferenceCounts: [UInt64: Int] = [:]
+        var rulesRevisionOrder: [UInt64] = []
+        var rulesSnapshotStorageOrder: [UInt64] = []
     }
 
     private static let defaultCapacity = 4096
@@ -212,8 +226,13 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
         state.withLock { state in
             guard active.load(ordering: .relaxed) else { return }
             let processGeneration = processGeneration(for: event, state: &state)
-            let windowGeneration = windowGeneration(for: event, state: &state)
             let endpointGeneration = endpointGeneration(for: event, state: &state)
+            let windowGeneration = windowGeneration(
+                for: event,
+                processGeneration: processGeneration,
+                allowMutation: event.callbackGeneration == nil || endpointGeneration != nil,
+                state: &state
+            )
             let record = WindowAdmissionTraceRecord(
                 sequence: state.nextSequence,
                 timestamp: timestamp,
@@ -241,7 +260,8 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
                 observation: event.observation
             )
             state.nextSequence &+= 1
-            state.records.append(record)
+            let evicted = state.records.append(record)
+            updateRulesSnapshots(event: event, evicted: evicted, state: &state)
             updateTargets(event: event, record: record, state: &state)
             pruneAuxiliaryState(&state)
         }
@@ -260,22 +280,75 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
     }
 
     func dump() -> String {
-        let records = state.withLock { $0.records.snapshot() }
-        guard !records.isEmpty else { return "none" }
+        var lines: [String] = []
+        forEachLine {
+            lines.append($0)
+            return true
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    func forEachLine(_ body: (String) -> Bool) {
+        let snapshot = state.withLock { state in
+            (
+                records: state.records.snapshot(),
+                rulesSnapshots: state.rulesRevisionOrder.compactMap { revision in
+                    state.rulesSnapshots[revision]?.snapshot
+                },
+                referencedRulesSnapshotCount: state.rulesSnapshotReferenceCounts.count,
+                omittedRulesSnapshotCount: state.rulesSnapshotReferenceCounts.count
+                    - state.rulesSnapshots.count
+            )
+        }
+        guard !snapshot.records.isEmpty else {
+            _ = body("none")
+            return
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        var output = ""
-        for record in records {
+        let encodedSnapshots = snapshot.rulesSnapshots.map { rulesSnapshot in
+            rulesSnapshot.encodedLine(using: encoder)
+        }
+        var selectedLines: [String] = []
+        var selectedBytes = 0
+        for line in encodedSnapshots.reversed() {
+            let candidateCount = selectedLines.count + 1
+            let omittedCount = snapshot.omittedRulesSnapshotCount
+                + encodedSnapshots.count
+                - candidateCount
+            let markerBytes = omittedCount > 0
+                ? rulesTruncationMarker(omittedCount: omittedCount).utf8.count + 1
+                : 0
+            let lineBytes = line.utf8.count + 1
+            guard selectedBytes + lineBytes + markerBytes
+                <= RuntimeTraceLimits.cumulativeRulesSnapshotBytes
+            else {
+                continue
+            }
+            selectedLines.append(line)
+            selectedBytes += lineBytes
+        }
+        for line in selectedLines.reversed() {
+            guard body(line) else { return }
+        }
+        let omittedCount = snapshot.referencedRulesSnapshotCount - selectedLines.count
+        if omittedCount > 0 {
+            let marker = rulesTruncationMarker(
+                omittedCount: omittedCount
+            )
+            guard body(marker) else { return }
+        }
+        for record in snapshot.records {
             guard let data = try? encoder.encode(record),
                   let line = String(data: data, encoding: .utf8)
             else { continue }
-            if !output.isEmpty {
-                output.append("\n")
-            }
-            output.append(line)
+            guard body(line) else { return }
         }
-        return output.isEmpty ? "none" : output
+    }
+
+    private func rulesTruncationMarker(omittedCount: Int) -> String {
+        "{\"kind\":\"rules_snapshots_truncated\",\"omittedCount\":\(omittedCount)}"
     }
 
     func recordsSnapshot() -> [WindowAdmissionTraceRecord] {
@@ -285,10 +358,38 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
     func finalizationTarget(excludingPID excludedPID: pid_t) -> WindowAdmissionFinalizationTarget? {
         state.withLock { state in
             state.finalizationTargets.prioritized
-                .first {
-                    let process = state.processes[$0.pid]
-                    return $0.pid != excludedPID && process?.isLive == true
-                        && process?.generation == $0.processGeneration
+                .first { target in
+                    guard target.pid != excludedPID,
+                          let process = state.processes[target.pid],
+                          process.isLive,
+                          process.generation == target.processGeneration
+                    else {
+                        return false
+                    }
+                    if let windowId = target.windowId {
+                        guard let window = state.windows[windowId],
+                              window.isLive,
+                              target.windowGeneration == window.generation
+                        else {
+                            return false
+                        }
+                    }
+                    if let endpointGeneration = target.endpointGeneration {
+                        guard let endpoint = state.endpoints[target.pid],
+                              endpoint.isLive,
+                              endpoint.generation == endpointGeneration
+                        else {
+                            return false
+                        }
+                        if let callbackGeneration = target.callbackGeneration,
+                           endpoint.callbackGeneration != callbackGeneration
+                        {
+                            return false
+                        }
+                    } else if target.callbackGeneration != nil {
+                        return false
+                    }
+                    return true
                 }
         }
     }
@@ -311,47 +412,188 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
         return process.generation
     }
 
-    private func windowGeneration(for event: WindowAdmissionTraceEvent, state: inout State) -> UInt64? {
+    private func windowGeneration(
+        for event: WindowAdmissionTraceEvent,
+        processGeneration: UInt64?,
+        allowMutation: Bool,
+        state: inout State
+    ) -> UInt64? {
         guard let windowId = event.windowId else { return nil }
-        var window = state.windows[windowId] ?? WindowState(generation: 1, isLive: true, axRef: nil)
+        guard allowMutation else { return state.windows[windowId]?.generation }
+        let existing = state.windows[windowId]
+        let establishesOwner = establishesWindowOwner(event.action)
+        var window = existing ?? WindowState(
+            generation: 1,
+            isLive: true,
+            ownerPID: establishesOwner ? event.pid : nil,
+            ownerProcessGeneration: establishesOwner ? processGeneration : nil
+        )
         switch event.action {
         case .cgsCreated:
-            if state.windows[windowId] != nil {
+            if existing != nil {
                 window.generation &+= 1
             }
             window.isLive = true
-            window.axRef = nil
+            window.ownerPID = nil
+            window.ownerProcessGeneration = nil
         case .cgsDestroyed,
              .admissionDestroyed,
              .admissionDisappeared:
+            guard matchesWindowOwner(
+                eventPID: event.pid,
+                processGeneration: processGeneration,
+                window: window
+            ) else {
+                return window.generation
+            }
             window.isLive = false
-            window.axRef = nil
+            if window.ownerPID == nil {
+                window.ownerPID = event.pid
+                window.ownerProcessGeneration = processGeneration
+            }
         default:
-            if let axRef = event.axRef {
-                if !window.isLive {
+            if event.axRef != nil {
+                let ownerChanged = establishesOwner
+                    && window.ownerPID != nil
+                    && !matchesWindowOwner(
+                        eventPID: event.pid,
+                        processGeneration: processGeneration,
+                        window: window
+                    )
+                if !window.isLive || ownerChanged {
                     window.generation &+= 1
                 }
                 window.isLive = true
-                window.axRef = axRef
+            }
+            if establishesOwner, window.ownerPID == nil || event.axRef != nil {
+                window.ownerPID = event.pid ?? window.ownerPID
+                window.ownerProcessGeneration = processGeneration ?? window.ownerProcessGeneration
             }
         }
         state.windows[windowId] = window
         return window.generation
     }
 
+    private func matchesWindowOwner(
+        eventPID: pid_t?,
+        processGeneration: UInt64?,
+        window: WindowState
+    ) -> Bool {
+        guard let eventPID, let ownerPID = window.ownerPID else { return true }
+        guard eventPID == ownerPID else { return false }
+        guard let processGeneration, let ownerProcessGeneration = window.ownerProcessGeneration else {
+            return true
+        }
+        return processGeneration == ownerProcessGeneration
+    }
+
+    private func establishesWindowOwner(_ action: WindowAdmissionTraceAction) -> Bool {
+        switch action {
+        case .frontmostObserved,
+             .managedFocusObserved,
+             .fullRescanSelected,
+             .admissionPrepared,
+             .admissionAlreadyTracked,
+             .admissionReplaced,
+             .admissionPending,
+             .admissionRetryScheduled,
+             .admissionRetryExhausted,
+             .admissionTracked,
+             .admissionQuarantined,
+             .terminalFrameRefusal:
+            true
+        default:
+            false
+        }
+    }
+
+    private func updateRulesSnapshots(
+        event: WindowAdmissionTraceEvent,
+        evicted: WindowAdmissionTraceRecord?,
+        state: inout State
+    ) {
+        if let revision = evicted?.observation?.rulesRevision,
+           let count = state.rulesSnapshotReferenceCounts[revision]
+        {
+            if count == 1 {
+                state.rulesSnapshotReferenceCounts.removeValue(forKey: revision)
+                state.rulesSnapshots.removeValue(forKey: revision)
+                state.rulesRevisionOrder.removeAll { $0 == revision }
+                state.rulesSnapshotStorageOrder.removeAll { $0 == revision }
+            } else {
+                state.rulesSnapshotReferenceCounts[revision] = count - 1
+            }
+        }
+        guard let observation = event.observation else { return }
+        let revision = observation.rulesRevision
+        if state.rulesSnapshotReferenceCounts[revision] == nil {
+            state.rulesRevisionOrder.append(revision)
+        }
+        state.rulesSnapshotReferenceCounts[revision, default: 0] += 1
+        if state.rulesSnapshots[revision] == nil,
+           let snapshot = event.classificationRulesSnapshot
+        {
+            state.rulesSnapshots[revision] = StoredRulesSnapshot(
+                snapshot: snapshot,
+                estimatedBytes: snapshot.estimatedDiagnosticBytes
+            )
+            state.rulesSnapshotStorageOrder.append(revision)
+        }
+        enforceRulesSnapshotBudget(&state)
+    }
+
+    private func enforceRulesSnapshotBudget(_ state: inout State) {
+        var storedBytes = state.rulesSnapshots.values.reduce(0) { $0 + $1.estimatedBytes }
+        while storedBytes > RuntimeTraceLimits.cumulativeRulesSnapshotBytes {
+            guard let oldestRevision = state.rulesSnapshotStorageOrder.first(where: {
+                state.rulesSnapshots[$0] != nil
+            }),
+                let removed = state.rulesSnapshots.removeValue(forKey: oldestRevision)
+            else { return }
+            storedBytes -= removed.estimatedBytes
+            state.rulesSnapshotStorageOrder.removeAll { $0 == oldestRevision }
+        }
+    }
+
     private func endpointGeneration(for event: WindowAdmissionTraceEvent, state: inout State) -> UInt64? {
         guard let pid = event.pid, usesEndpoint(event) else { return nil }
-        var endpoint = state.endpoints[pid] ?? EndpointState(generation: 1, isLive: true)
+        guard state.endpoints[pid] != nil || event.action == .endpointCreated else { return nil }
+        var endpoint = state.endpoints[pid] ?? EndpointState(
+            generation: 1,
+            isLive: true,
+            callbackGeneration: event.callbackGeneration
+        )
         switch event.action {
         case .endpointCreated:
+            if let existing = state.endpoints[pid],
+               let incomingGeneration = event.callbackGeneration,
+               let currentGeneration = existing.callbackGeneration
+            {
+                if incomingGeneration == currentGeneration {
+                    return existing.isLive ? existing.generation : nil
+                }
+                guard incomingGeneration > currentGeneration else { return nil }
+            }
             if state.endpoints[pid] != nil {
                 endpoint.generation &+= 1
             }
             endpoint.isLive = true
+            endpoint.callbackGeneration = event.callbackGeneration
         case .endpointDestroyed:
+            if endpoint.callbackGeneration == nil {
+                endpoint.callbackGeneration = event.callbackGeneration
+            }
+            guard endpoint.isLive,
+                  callbackMatches(event.callbackGeneration, endpoint.callbackGeneration)
+            else { return nil }
             endpoint.isLive = false
         default:
-            break
+            if endpoint.callbackGeneration == nil {
+                endpoint.callbackGeneration = event.callbackGeneration
+            }
+            guard endpoint.isLive,
+                  callbackMatches(event.callbackGeneration, endpoint.callbackGeneration)
+            else { return nil }
         }
         state.endpoints[pid] = endpoint
         return endpoint.generation
@@ -372,6 +614,12 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
         guard let process = state.processes[pid],
               process.isLive,
               process.generation == processGeneration,
+              event.callbackGeneration == nil || record.endpointGeneration != nil,
+              windowLifecycleEventMatchesOwner(
+                  event,
+                  processGeneration: processGeneration,
+                  state: state
+              ),
               event.action != .admissionDisappeared || event.reason != "process_terminated"
         else {
             return
@@ -381,13 +629,35 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
             pid: pid,
             windowId: event.windowId,
             bundleId: event.bundleId,
-            axRef: event.axRef,
             reason: event.reason ?? event.action.rawValue,
             processGeneration: processGeneration,
             windowGeneration: record.windowGeneration,
-            endpointGeneration: record.endpointGeneration
+            endpointGeneration: record.endpointGeneration,
+            callbackGeneration: event.callbackGeneration
         )
         state.finalizationTargets.update(action: event.action, candidate: candidate)
+    }
+
+    private func windowLifecycleEventMatchesOwner(
+        _ event: WindowAdmissionTraceEvent,
+        processGeneration: UInt64,
+        state: State
+    ) -> Bool {
+        switch event.action {
+        case .cgsDestroyed,
+             .admissionDestroyed,
+             .admissionDisappeared:
+            guard let windowId = event.windowId, let window = state.windows[windowId] else {
+                return true
+            }
+            return matchesWindowOwner(
+                eventPID: event.pid,
+                processGeneration: processGeneration,
+                window: window
+            )
+        default:
+            return true
+        }
     }
 
     private func pruneAuxiliaryState(_ state: inout State) {
@@ -404,10 +674,9 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
 }
 
 private func usesEndpoint(_ event: WindowAdmissionTraceEvent) -> Bool {
-    event.axRef != nil || event.action == .endpointCreated || event.action == .endpointDestroyed
-        || event.action == .enumerationStarted || event.action == .enumerationCompleted
-        || event.action == .enumerationEmpty || event.action == .enumerationFailed
-        || event.action == .topLevelAccepted || event.action == .topLevelRejected
-        || event.action == .fullRescanCandidate || event.action == .fullRescanSelected
-        || event.action == .fullRescanRejected
+    event.callbackGeneration != nil || event.action == .endpointCreated || event.action == .endpointDestroyed
+}
+
+private func callbackMatches(_ eventGeneration: UInt64?, _ currentGeneration: UInt64?) -> Bool {
+    eventGeneration == nil || eventGeneration == currentGeneration
 }

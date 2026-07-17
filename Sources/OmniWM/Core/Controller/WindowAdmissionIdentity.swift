@@ -22,7 +22,8 @@ extension AXEventHandler {
         pid: pid_t,
         windowId: Int,
         observedAliases: FullRescanWindowIdentityAliases?,
-        failedPIDs: Set<pid_t> = []
+        failedPIDs: Set<pid_t> = [],
+        sizeConstraints: WindowSizeConstraints? = nil
     ) -> FullRescanIdentityResolution {
         guard let controller,
               let existingEntry = controller.workspaceManager.entry(forWindowId: windowId)
@@ -34,36 +35,27 @@ extension AXEventHandler {
             || observedAliases?.axRefs.contains(where: {
                 CFEqual($0.element, existingEntry.axRef.element)
             }) == true
-        guard isSameElement || isKnownAlias else {
-            if failedPIDs.contains(existingEntry.pid) {
-                return .preserve(existingEntry.token)
-            }
-            discardStaleManagedWindowIncarnation(existingEntry)
-            return .process(nil)
+        if !isSameElement,
+           !isKnownAlias,
+           failedPIDs.contains(existingEntry.pid)
+        {
+            return .preserve(existingEntry.token)
         }
         let token = WindowToken(pid: pid, windowId: windowId)
-        if existingEntry.token == token {
-            guard !isSameElement else { return .process(existingEntry) }
-            guard let windowId = UInt32(exactly: windowId),
-                  let updatedEntry = rekeyManagedWindowIdentity(
-                      from: token,
-                      to: token,
-                      windowId: windowId,
-                      axRef: axRef
-                  )
-            else {
-                return .preserve(existingEntry.token)
-            }
-            return .process(updatedEntry)
+        if existingEntry.token == token, isSameElement {
+            return .process(existingEntry)
         }
-        guard let windowId = UInt32(exactly: windowId),
-              let rekeyedEntry = rekeyManagedWindowIdentity(
-                  from: existingEntry.token,
-                  to: token,
-                  windowId: windowId,
-                  axRef: axRef
-              )
-        else {
+        guard let windowId = UInt32(exactly: windowId) else {
+            return .preserve(existingEntry.token)
+        }
+        let result = rekeyManagedWindowIdentity(
+            from: existingEntry.token,
+            to: token,
+            windowId: windowId,
+            axRef: axRef,
+            sizeConstraints: sizeConstraints
+        )
+        guard let rekeyedEntry = result.committedEntry else {
             return .preserve(existingEntry.token)
         }
         return .process(rekeyedEntry)

@@ -28,6 +28,15 @@ final class RunLoopJob: Sendable {
         }
     }
 
+    func performUnlessCancelled<T>(_ body: () throws -> T) throws -> T {
+        try state.withLock { state in
+            if state.cancelled {
+                throw CancellationError()
+            }
+            return try body()
+        }
+    }
+
     func schedule(_ body: @escaping @Sendable (RunLoopJob) -> Void) {
         state.withLock { $0.scheduledBody = body }
     }

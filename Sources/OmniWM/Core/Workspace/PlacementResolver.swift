@@ -59,7 +59,7 @@ final class PlacementResolver {
 
     func resolveWorkspacePlacement(
         workspaceName: String?,
-        axRef: AXWindowRef,
+        axRef: AXWindowRef?,
         pid: pid_t?,
         parentWindowId: UInt32?,
         inheritTrackedParentWorkspace: Bool,
@@ -235,7 +235,7 @@ final class PlacementResolver {
     }
 
     private func createPlacementTarget(
-        axRef: AXWindowRef,
+        axRef: AXWindowRef?,
         pid: pid_t?,
         createPlacementContext: WindowCreatePlacementContext?,
         windowFrame: CGRect?,
@@ -302,6 +302,7 @@ final class PlacementResolver {
         }
 
         if workspaceManager.monitors.count > 1,
+           let axRef,
            let monitor = monitorForPlacementFrame(AXWindowService.framePreferFast(axRef)),
            let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
         {

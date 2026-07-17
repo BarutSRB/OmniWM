@@ -64,8 +64,10 @@ final class ReportIssueViewModel {
     private(set) var lastAttachmentError: String?
     private(set) var lastAttachmentWarning: String?
     private(set) var selectedEvidence: IssueDiagnosticEvidence?
+    private(set) var availableEvidence: [IssueDiagnosticEvidence] = []
 
     let availability: IssueAIAvailability
+    let restoredDraft: Bool
 
     private let engine: (any IssueRewriting)?
     private let urlBuilder: GitHubIssueURLBuilder
@@ -97,8 +99,10 @@ final class ReportIssueViewModel {
         saveDraft: @MainActor @escaping (IssueDraft?) -> Void = { _ in }
     ) {
         let engine = engine ?? IssueRewritingFactory.make()
+        let draft = loadDraft()
         self.engine = engine
         availability = engine?.availability ?? .unsupported
+        restoredDraft = draft != nil
         self.urlBuilder = urlBuilder
         self.prepareDiagnosticAttachment = prepareDiagnosticAttachment
         self.hotkeyContextProvider = hotkeyContextProvider
@@ -106,7 +110,7 @@ final class ReportIssueViewModel {
         self.openURL = openURL
         self.copyToClipboard = copyToClipboard
         self.saveDraft = saveDraft
-        restore(draft: loadDraft(), defaultLayout: defaultLayout.normalizedForReport)
+        restore(draft: draft, defaultLayout: defaultLayout.normalizedForReport)
     }
 
     var canRequestRewrite: Bool {
@@ -211,6 +215,43 @@ final class ReportIssueViewModel {
     func selectEvidence(_ evidence: IssueDiagnosticEvidence) {
         selectedEvidence = evidence
         lastAttachmentWarning = nil
+    }
+
+    func updateAvailableEvidence(_ evidence: [IssueDiagnosticEvidence]) {
+        availableEvidence = evidence
+    }
+
+    func applyFreshCrashPrefill(_ report: FatalCapture.PendingCrashReport) {
+        let evidence = IssueDiagnosticEvidence.crash(report.url)
+        guard !restoredDraft,
+              !hasDraftContent,
+              availableEvidence.contains(evidence)
+        else { return }
+        title = "Crash: \(report.reason)"
+        category = .crash
+        actual = "OmniWM recovered from a crash (log: \(report.url.lastPathComponent)).\n\n"
+            + "Reason: \(report.reason)"
+        selectEvidence(evidence)
+    }
+
+    func recordingStarted() {
+        availableEvidence.removeAll {
+            if case .trace = $0 { return true }
+            return false
+        }
+        if case .trace? = selectedEvidence {
+            useFreshSnapshot()
+        }
+    }
+
+    func recordingFinished(traceURL: URL) {
+        let trace = IssueDiagnosticEvidence.trace(traceURL)
+        availableEvidence.removeAll {
+            if case .trace = $0 { return true }
+            return false
+        }
+        availableEvidence.append(trace)
+        selectEvidence(trace)
     }
 
     func useFreshSnapshot() {

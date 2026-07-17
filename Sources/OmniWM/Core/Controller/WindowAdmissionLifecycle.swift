@@ -23,11 +23,18 @@ enum WindowAdmissionRejectionReason: String, Equatable {
 enum AdmissionRetryTrigger {
     case create
     case candidate(token: WindowToken, axRef: AXWindowRef)
-    case focused(token: WindowToken, source: ActivationEventSource, observationGeneration: UInt64)
+    case focused(
+        token: WindowToken,
+        source: ActivationEventSource,
+        observationGeneration: UInt64,
+        callbackGeneration: UInt64?
+    )
     case identityRebind(
         oldWindow: AXManagedWindowIdentity,
         newWindow: AXManagedWindowIdentity,
-        managedReplacementMetadata: ManagedReplacementMetadata?
+        managedReplacementMetadata: ManagedReplacementMetadata?,
+        admissionHints: ManagedWindowAdmissionHints?,
+        sizeConstraints: WindowSizeConstraints?
     )
     case ruleReevaluation(token: WindowToken, axRef: AXWindowRef)
 
@@ -48,6 +55,27 @@ enum AdmissionRetryTrigger {
             3
         case .identityRebind:
             4
+        }
+    }
+}
+
+enum ManagedWindowIdentityRebindResult {
+    case committed(WindowState)
+    case pending
+    case rejected
+
+    var committedEntry: WindowState? {
+        guard case let .committed(entry) = self else { return nil }
+        return entry
+    }
+
+    var isHandled: Bool {
+        switch self {
+        case .committed,
+             .pending:
+            true
+        case .rejected:
+            false
         }
     }
 }

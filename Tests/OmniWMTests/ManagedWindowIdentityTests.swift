@@ -6,6 +6,34 @@ import Foundation
 @testable import OmniWM
 import XCTest
 
+private actor ManagedWindowRebindGate {
+    private var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        entered = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        while !entered {
+            await Task.yield()
+        }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+@MainActor
+private final class ManagedWindowRebindLiveness {
+    var isAlive = true
+}
+
 @MainActor
 final class ManagedWindowIdentityTests: XCTestCase {
     func testWorkspaceManagerRejectsDuplicateWindowIdBeforeReconcileMutation() throws {
@@ -232,7 +260,9 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 trigger: .identityRebind(
                     oldWindow: identity,
                     newWindow: identity,
-                    managedReplacementMetadata: nil
+                    managedReplacementMetadata: nil,
+                    admissionHints: nil,
+                    sizeConstraints: nil
                 )
             )
         )
@@ -244,7 +274,494 @@ final class ManagedWindowIdentityTests: XCTestCase {
             axRef: axRef
         )
 
-        XCTAssertNotNil(rebound)
+        XCTAssertNotNil(rebound.committedEntry)
         XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
+    }
+
+    func testCreatePathKeepsIdentityRebindPendingWithoutDuplicateAdmission() throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let windowId: UInt32 = 467_975
+        let oldToken = WindowToken(pid: 467_976, windowId: Int(windowId))
+        let newToken = WindowToken(pid: 467_977, windowId: Int(windowId))
+        let sharedElement = AXUIElementCreateApplication(oldToken.pid)
+        let oldRef = AXWindowRef(element: sharedElement, windowId: Int(windowId))
+        let newRef = AXWindowRef(element: sharedElement, windowId: Int(windowId))
+        _ = controller.workspaceManager.addWindow(
+            oldRef,
+            pid: oldToken.pid,
+            windowId: oldToken.windowId,
+            to: workspaceId
+        )
+        controller.hasStartedServices = true
+        controller.axEventHandler.managedWindowIdentityRebindTargetIsAliveProvider = { _ in true }
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in false }
+        controller.axEventHandler.windowInfoProvider = { requestedWindowId in
+            guard requestedWindowId == windowId else { return nil }
+            return WindowServerInfo(
+                id: windowId,
+                pid: newToken.pid,
+                level: 0,
+                frame: CGRect(x: 10, y: 20, width: 800, height: 600)
+            )
+        }
+
+        controller.axEventHandler.processCreatedWindow(
+            windowId: windowId,
+            fallbackToken: newToken,
+            fallbackAXRef: newRef
+        )
+
+        let state = try XCTUnwrap(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
+        guard case let .identityRebind(retryOld, retryNew, _, _, _) = state.trigger else {
+            return XCTFail("Expected identity rebind retry")
+        }
+        XCTAssertEqual(retryOld.token, oldToken)
+        XCTAssertEqual(retryNew.token, newToken)
+        XCTAssertNotNil(controller.workspaceManager.entry(for: oldToken))
+        XCTAssertNil(controller.workspaceManager.entry(for: newToken))
+        XCTAssertEqual(controller.workspaceManager.allEntries().count, 1)
+        controller.axEventHandler.cancelCreatedWindowRetry(windowId: windowId)
+    }
+
+    func testSameIncarnationLowerPriorityRetryCannotReplaceIdentityRebind() throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 5)
+        let generation = pending.state.generation
+
+        XCTAssertTrue(
+            controller.axEventHandler.scheduleAdmissionRetry(
+                windowId: pending.windowId,
+                expectedToken: pending.newWindow.token,
+                axRef: pending.newWindow.axRef,
+                reason: .factsDeferred,
+                trigger: .focused(
+                    token: pending.newWindow.token,
+                    source: .focusedWindowChanged,
+                    observationGeneration: 1,
+                    callbackGeneration: nil
+                )
+            )
+        )
+
+        let state = try XCTUnwrap(controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId])
+        guard case .identityRebind = state.trigger else {
+            return XCTFail("Expected higher-priority identity rebind retry")
+        }
+        XCTAssertEqual(state.generation, generation)
+        controller.axEventHandler.cancelCreatedWindowRetry(windowId: pending.windowId)
+    }
+
+    func testReplacementIncarnationDisplacesStaleIdentityRebindRetry() throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 6)
+        let replacementRef = AXWindowRef(
+            element: AXUIElementCreateApplication(pending.newWindow.token.pid + 1),
+            windowId: pending.newWindow.token.windowId
+        )
+
+        XCTAssertTrue(
+            controller.axEventHandler.scheduleAdmissionRetry(
+                windowId: pending.windowId,
+                expectedToken: pending.newWindow.token,
+                axRef: replacementRef,
+                reason: .factsDeferred,
+                trigger: .candidate(token: pending.newWindow.token, axRef: replacementRef)
+            )
+        )
+
+        let state = try XCTUnwrap(controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId])
+        guard case .candidate = state.trigger else {
+            return XCTFail("Expected replacement candidate retry")
+        }
+        XCTAssertNotEqual(state.generation, pending.state.generation)
+        controller.axEventHandler.cancelCreatedWindowRetry(windowId: pending.windowId)
+    }
+
+    func testDelayedAcknowledgementPreservesOldIdentityUntilCommit() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 10)
+        let gate = ManagedWindowRebindGate()
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in
+            await gate.wait()
+            return true
+        }
+
+        let completion = Task { @MainActor in
+            await controller.axEventHandler.completeManagedWindowIdentityRebind(
+                from: pending.oldWindow,
+                to: pending.newWindow,
+                windowId: pending.windowId,
+                retryGeneration: pending.state.generation,
+                managedReplacementMetadata: nil,
+                admissionHints: nil
+            )
+        }
+        await gate.waitUntilEntered()
+
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+
+        await gate.release()
+        await completion.value
+
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId])
+    }
+
+    func testFailedAcknowledgementKeepsOldIdentityAndAdvancesRetry() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 20)
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in false }
+
+        await controller.axEventHandler.completeManagedWindowIdentityRebind(
+            from: pending.oldWindow,
+            to: pending.newWindow,
+            windowId: pending.windowId,
+            retryGeneration: pending.state.generation,
+            managedReplacementMetadata: nil,
+            admissionHints: nil
+        )
+
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+        XCTAssertEqual(
+            controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId]?.attempt,
+            pending.state.attempt + 1
+        )
+        controller.axEventHandler.cancelCreatedWindowRetry(windowId: pending.windowId)
+    }
+
+    func testFailedAcknowledgementForTerminatedTargetRetiresRetry() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 21)
+        controller.axEventHandler.managedWindowIdentityRebindTargetIsAliveProvider = { _ in false }
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in false }
+
+        await controller.axEventHandler.completeManagedWindowIdentityRebind(
+            from: pending.oldWindow,
+            to: pending.newWindow,
+            windowId: pending.windowId,
+            retryGeneration: pending.state.generation,
+            managedReplacementMetadata: nil,
+            admissionHints: nil
+        )
+
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId])
+    }
+
+    func testCapturedConstraintsSurvivePendingIdentityRebind() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let constraints = WindowSizeConstraints.fixed(size: CGSize(width: 640, height: 480))
+        let pending = try makePendingRebind(
+            controller: controller,
+            suffix: 22,
+            sizeConstraints: constraints
+        )
+        guard case let .identityRebind(_, _, _, _, capturedConstraints) = pending.state.trigger else {
+            return XCTFail("Expected identity rebind retry")
+        }
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in true }
+        controller.axEventHandler.managedWindowIdentityRebindFinalizationProvider = { _, _ in true }
+
+        await controller.axEventHandler.completeManagedWindowIdentityRebind(
+            from: pending.oldWindow,
+            to: pending.newWindow,
+            windowId: pending.windowId,
+            retryGeneration: pending.state.generation,
+            managedReplacementMetadata: nil,
+            admissionHints: nil,
+            sizeConstraints: capturedConstraints
+        )
+
+        XCTAssertEqual(
+            controller.workspaceManager.cachedConstraints(
+                for: pending.newWindow.token,
+                maxAge: .greatestFiniteMagnitude
+            ),
+            constraints.normalized()
+        )
+    }
+
+    func testCollisionAfterAcknowledgementCannotCommit() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 30)
+        let gate = ManagedWindowRebindGate()
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in
+            await gate.wait()
+            return true
+        }
+        let completion = Task { @MainActor in
+            await controller.axEventHandler.completeManagedWindowIdentityRebind(
+                from: pending.oldWindow,
+                to: pending.newWindow,
+                windowId: pending.windowId,
+                retryGeneration: pending.state.generation,
+                managedReplacementMetadata: nil,
+                admissionHints: nil
+            )
+        }
+        await gate.waitUntilEntered()
+        let collisionToken = controller.workspaceManager.addWindow(
+            AXWindowRef(
+                element: AXUIElementCreateApplication(pending.newWindow.token.pid + 1),
+                windowId: pending.newWindow.token.windowId
+            ),
+            pid: pending.newWindow.token.pid + 1,
+            windowId: pending.newWindow.token.windowId,
+            to: pending.workspaceId
+        )
+
+        await gate.release()
+        await completion.value
+
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertEqual(
+            controller.workspaceManager.entry(forWindowId: pending.newWindow.token.windowId)?.token,
+            collisionToken
+        )
+        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId])
+    }
+
+    func testTerminationDuringAcknowledgementCannotCommit() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 40)
+        let gate = ManagedWindowRebindGate()
+        let liveness = ManagedWindowRebindLiveness()
+        controller.axEventHandler.managedWindowIdentityRebindTargetIsAliveProvider = { _ in
+            liveness.isAlive
+        }
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in
+            await gate.wait()
+            return true
+        }
+        let completion = Task { @MainActor in
+            await controller.axEventHandler.completeManagedWindowIdentityRebind(
+                from: pending.oldWindow,
+                to: pending.newWindow,
+                windowId: pending.windowId,
+                retryGeneration: pending.state.generation,
+                managedReplacementMetadata: nil,
+                admissionHints: nil
+            )
+        }
+        await gate.waitUntilEntered()
+        liveness.isAlive = false
+
+        await gate.release()
+        await completion.value
+
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId])
+    }
+
+    func testStaleAcknowledgementCannotConsumeNewerRetryGeneration() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 50)
+        let gate = ManagedWindowRebindGate()
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in
+            await gate.wait()
+            return true
+        }
+        let completion = Task { @MainActor in
+            await controller.axEventHandler.completeManagedWindowIdentityRebind(
+                from: pending.oldWindow,
+                to: pending.newWindow,
+                windowId: pending.windowId,
+                retryGeneration: pending.state.generation,
+                managedReplacementMetadata: nil,
+                admissionHints: nil
+            )
+        }
+        await gate.waitUntilEntered()
+        var newerState = try XCTUnwrap(
+            controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId]
+        )
+        newerState.generation &+= 1
+        controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId] = newerState
+
+        await gate.release()
+        await completion.value
+
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+        XCTAssertEqual(
+            controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId]?.generation,
+            newerState.generation
+        )
+        controller.axEventHandler.cancelCreatedWindowRetry(windowId: pending.windowId)
+    }
+
+    func testStaleFinalizationCannotRunSuccessCleanup() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 60)
+        let gate = ManagedWindowRebindGate()
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in true }
+        controller.axEventHandler.managedWindowIdentityRebindFinalizationProvider = { _, _ in
+            await gate.wait()
+            return true
+        }
+        controller.axEventHandler.admissionQuarantineByWindowId[pending.oldWindow.token.windowId] =
+            AdmissionQuarantine(token: pending.oldWindow.token, axRef: pending.oldWindow.axRef)
+
+        let completion = Task { @MainActor in
+            await controller.axEventHandler.completeManagedWindowIdentityRebind(
+                from: pending.oldWindow,
+                to: pending.newWindow,
+                windowId: pending.windowId,
+                retryGeneration: pending.state.generation,
+                managedReplacementMetadata: nil,
+                admissionHints: nil
+            )
+        }
+        await gate.waitUntilEntered()
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+
+        var newerState = try XCTUnwrap(
+            controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId]
+        )
+        newerState.generation &+= 1
+        controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId] = newerState
+        await gate.release()
+        await completion.value
+
+        XCTAssertEqual(
+            controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId]?.generation,
+            newerState.generation
+        )
+        XCTAssertNotNil(
+            controller.axEventHandler.admissionQuarantineByWindowId[pending.oldWindow.token.windowId]
+        )
+        controller.axEventHandler.cancelCreatedWindowRetry(windowId: pending.windowId)
+    }
+
+    func testFailedFinalizationStillRetiresOldFrameState() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 61)
+        let oldFrame = CGRect(x: 10, y: 20, width: 700, height: 500)
+        controller.axManager.confirmFrameWrite(
+            for: pending.oldWindow.token.windowId,
+            frame: oldFrame
+        )
+        controller.axEventHandler.admissionQuarantineByWindowId[pending.oldWindow.token.windowId] =
+            AdmissionQuarantine(token: pending.oldWindow.token, axRef: pending.oldWindow.axRef)
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in true }
+        controller.axEventHandler.managedWindowIdentityRebindFinalizationProvider = { _, _ in false }
+
+        await controller.axEventHandler.completeManagedWindowIdentityRebind(
+            from: pending.oldWindow,
+            to: pending.newWindow,
+            windowId: pending.windowId,
+            retryGeneration: pending.state.generation,
+            managedReplacementMetadata: nil,
+            admissionHints: nil
+        )
+
+        XCTAssertNil(controller.workspaceManager.entry(for: pending.oldWindow.token))
+        XCTAssertNotNil(controller.workspaceManager.entry(for: pending.newWindow.token))
+        XCTAssertNil(controller.axManager.lastAppliedFrame(for: pending.oldWindow.token.windowId))
+        XCTAssertNil(controller.axManager.lastAppliedFrame(for: pending.newWindow.token.windowId))
+        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[pending.windowId])
+        XCTAssertNotNil(
+            controller.axEventHandler.admissionQuarantineByWindowId[pending.oldWindow.token.windowId]
+        )
+    }
+
+    func testFrameLedgerCommitsBeforeContextFinalizationAndIsNotResetTwice() async throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let pending = try makePendingRebind(controller: controller, suffix: 62)
+        let gate = ManagedWindowRebindGate()
+        let oldFrame = CGRect(x: 10, y: 20, width: 700, height: 500)
+        let newFrame = CGRect(x: 30, y: 40, width: 900, height: 600)
+        controller.axManager.confirmFrameWrite(
+            for: pending.oldWindow.token.windowId,
+            frame: oldFrame
+        )
+        controller.axEventHandler.managedWindowIdentityRebindAcknowledgementProvider = { _, _ in true }
+        controller.axEventHandler.managedWindowIdentityRebindFinalizationProvider = { _, _ in
+            await gate.wait()
+            return false
+        }
+
+        let completion = Task { @MainActor in
+            await controller.axEventHandler.completeManagedWindowIdentityRebind(
+                from: pending.oldWindow,
+                to: pending.newWindow,
+                windowId: pending.windowId,
+                retryGeneration: pending.state.generation,
+                managedReplacementMetadata: nil,
+                admissionHints: nil
+            )
+        }
+        await gate.waitUntilEntered()
+
+        XCTAssertNil(controller.axManager.lastAppliedFrame(for: pending.oldWindow.token.windowId))
+        controller.axManager.confirmFrameWrite(
+            for: pending.newWindow.token.windowId,
+            frame: newFrame
+        )
+
+        await gate.release()
+        await completion.value
+
+        XCTAssertEqual(
+            controller.axManager.lastAppliedFrame(for: pending.newWindow.token.windowId),
+            newFrame
+        )
+    }
+
+    private func makePendingRebind(
+        controller: WMController,
+        suffix: Int,
+        sizeConstraints: WindowSizeConstraints? = nil
+    ) throws -> (
+        workspaceId: WorkspaceDescriptor.ID,
+        windowId: UInt32,
+        oldWindow: AXManagedWindowIdentity,
+        newWindow: AXManagedWindowIdentity,
+        state: AdmissionRetryState
+    ) {
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let oldToken = WindowToken(pid: pid_t(468_000 + suffix), windowId: 468_100 + suffix)
+        let newToken = WindowToken(pid: pid_t(468_200 + suffix), windowId: 468_300 + suffix)
+        let oldRef = WindowAdmissionTestSupport.track(oldToken, in: workspaceId, controller: controller)
+        let newRef = AXWindowRef(
+            element: AXUIElementCreateApplication(newToken.pid),
+            windowId: newToken.windowId
+        )
+        controller.hasStartedServices = true
+        controller.axEventHandler.managedWindowIdentityRebindTargetIsAliveProvider = { _ in true }
+
+        guard case .pending = controller.axEventHandler.rekeyManagedWindowIdentity(
+            from: oldToken,
+            to: newToken,
+            windowId: UInt32(newToken.windowId),
+            axRef: newRef,
+            sizeConstraints: sizeConstraints
+        ) else {
+            XCTFail("Expected identity rebind to enter the retry lifecycle")
+            throw NSError(domain: "ManagedWindowIdentityTests", code: 1)
+        }
+        let windowId = UInt32(newToken.windowId)
+        var state = try XCTUnwrap(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
+        state.task?.cancel()
+        state.task = nil
+        controller.axEventHandler.admissionRetryStateByWindowId[windowId] = state
+        return (
+            workspaceId,
+            windowId,
+            AXManagedWindowIdentity(token: oldToken, axRef: oldRef),
+            AXManagedWindowIdentity(token: newToken, axRef: newRef),
+            state
+        )
     }
 }

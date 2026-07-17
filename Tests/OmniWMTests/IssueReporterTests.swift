@@ -417,6 +417,123 @@ final class IssueReporterTests: XCTestCase {
         XCTAssertNil(restored.selectedEvidence)
     }
 
+    func testRestoredDraftRequiresExplicitEvidenceReselection() {
+        let crash = URL(fileURLWithPath: "/tmp/omniwm-crash.log")
+        let draft = IssueDraft(
+            title: "Bug",
+            actual: "Body",
+            expected: "",
+            repro: "",
+            affectedApps: "",
+            category: IssueCategory.unspecified.rawValue,
+            layout: LayoutType.niri.rawValue,
+            regression: IssueRegression.unknown.rawValue,
+            regressionVersion: "",
+            polishedBody: ""
+        )
+        let model = ReportIssueViewModel(engine: FakeIssueEngine(), loadDraft: { draft })
+
+        model.updateAvailableEvidence([.crash(crash)])
+
+        XCTAssertTrue(model.restoredDraft)
+        XCTAssertEqual(model.availableEvidence, [.crash(crash)])
+        XCTAssertNil(model.selectedEvidence)
+    }
+
+    func testFreshCrashPrefillsAndSelectsOnlyWithoutDraftContent() {
+        let crash = URL(fileURLWithPath: "/tmp/omniwm-crash-fresh.log")
+        let report = FatalCapture.PendingCrashReport(
+            url: crash,
+            reason: "unexpected signal",
+            detectedAt: Date(timeIntervalSince1970: 1)
+        )
+        let fresh = makeModel(engine: FakeIssueEngine())
+        fresh.updateAvailableEvidence([.crash(crash)])
+
+        fresh.applyFreshCrashPrefill(report)
+
+        XCTAssertEqual(fresh.title, "Crash: unexpected signal")
+        XCTAssertEqual(fresh.category, .crash)
+        XCTAssertTrue(fresh.actual.contains("omniwm-crash-fresh.log"))
+        XCTAssertTrue(fresh.actual.contains("unexpected signal"))
+        XCTAssertEqual(fresh.selectedEvidence, .crash(crash))
+
+        let draft = IssueDraft(
+            title: "Existing report",
+            actual: "Existing details",
+            expected: "",
+            repro: "",
+            affectedApps: "",
+            category: IssueCategory.placement.rawValue,
+            layout: LayoutType.niri.rawValue,
+            regression: IssueRegression.unknown.rawValue,
+            regressionVersion: "",
+            polishedBody: ""
+        )
+        let restored = ReportIssueViewModel(engine: FakeIssueEngine(), loadDraft: { draft })
+        restored.updateAvailableEvidence([.crash(crash)])
+
+        restored.applyFreshCrashPrefill(report)
+
+        XCTAssertEqual(restored.title, "Existing report")
+        XCTAssertEqual(restored.actual, "Existing details")
+        XCTAssertEqual(restored.category, .placement)
+        XCTAssertNil(restored.selectedEvidence)
+    }
+
+    func testRecordingStartClearsOnlySelectedTrace() {
+        let crash = IssueDiagnosticEvidence.crash(URL(fileURLWithPath: "/tmp/omniwm-crash.log"))
+        let trace = IssueDiagnosticEvidence.trace(URL(fileURLWithPath: "/tmp/omniwm-trace.log"))
+        let model = makeModel(engine: FakeIssueEngine())
+        model.updateAvailableEvidence([crash, trace])
+        model.selectEvidence(crash)
+
+        model.recordingStarted()
+
+        XCTAssertEqual(model.selectedEvidence, crash)
+        XCTAssertEqual(model.availableEvidence, [crash])
+
+        model.updateAvailableEvidence([crash, trace])
+        model.selectEvidence(trace)
+        model.recordingStarted()
+
+        XCTAssertNil(model.selectedEvidence)
+        XCTAssertEqual(model.availableEvidence, [crash])
+    }
+
+    func testFinishedRecordingReplacesTraceChoiceAndSelectsIt() {
+        let crash = IssueDiagnosticEvidence.crash(URL(fileURLWithPath: "/tmp/omniwm-crash.log"))
+        let oldTrace = IssueDiagnosticEvidence.trace(URL(fileURLWithPath: "/tmp/omniwm-trace-old.log"))
+        let newTraceURL = URL(fileURLWithPath: "/tmp/omniwm-trace-new.log")
+        let model = makeModel(engine: FakeIssueEngine())
+        model.updateAvailableEvidence([crash, oldTrace])
+
+        model.recordingFinished(traceURL: newTraceURL)
+
+        XCTAssertEqual(model.availableEvidence, [crash, .trace(newTraceURL)])
+        XCTAssertEqual(model.selectedEvidence, .trace(newTraceURL))
+    }
+
+    func testEvidenceCatalogRefreshRetainsMissingSelectionForSubmissionWarning() async {
+        let selectedTrace = IssueDiagnosticEvidence.trace(URL(fileURLWithPath: "/tmp/missing-trace.log"))
+        let attachment = URL(fileURLWithPath: "/tmp/omniwm-diagnostics.log")
+        let model = makeModel(
+            engine: FakeIssueEngine(),
+            prepareDiagnosticAttachment: { _ in
+                DiagnosticAttachmentResult(url: attachment, includedEvidence: false)
+            }
+        )
+        model.title = "Bug"
+        model.actual = "Body"
+        model.selectEvidence(selectedTrace)
+
+        model.updateAvailableEvidence([])
+        await model.submit()
+
+        XCTAssertEqual(model.selectedEvidence, selectedTrace)
+        XCTAssertNotNil(model.lastAttachmentWarning)
+    }
+
     private func makeModel(
         engine: any IssueRewriting,
         urlBuilder: GitHubIssueURLBuilder = GitHubIssueURLBuilder(appVersion: "1.0", osVersion: "26.0"),

@@ -353,7 +353,7 @@ final class EventIntakeReplayTests: XCTestCase {
         )
         let observationStream: [IntakeEvent] = [
             .cgs(.frontAppChanged(pid: pid)),
-            .axFocusedWindowChanged(pid: pid)
+            .axFocusedWindowChanged(pid: pid, callbackGeneration: nil)
         ]
 
         var outcomes: [String] = []
@@ -375,8 +375,8 @@ final class EventIntakeReplayTests: XCTestCase {
     func testStaleFocusEchoOfConfirmedIntentDoesNotPreemptNewerIntent() throws {
         let pid: pid_t = 100
         let echoStream: [IntakeEvent] = [
-            .axFocusedWindowChanged(pid: pid),
-            .axFocusedWindowChanged(pid: pid)
+            .axFocusedWindowChanged(pid: pid, callbackGeneration: nil),
+            .axFocusedWindowChanged(pid: pid, callbackGeneration: nil)
         ]
         let hintStream: [IntakeEvent] = [
             .cgs(.frontAppChanged(pid: pid))
@@ -420,7 +420,7 @@ final class EventIntakeReplayTests: XCTestCase {
         }
 
         system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
         scenario.drainToQuiescence()
 
         XCTAssertEqual(controller.workspaceManager.systemModalFocusToken, scenario.tokenB)
@@ -429,7 +429,7 @@ final class EventIntakeReplayTests: XCTestCase {
 
         reportSystemModal = false
         system.focusedWindowIdByPid[pid] = scenario.tokenA.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
         scenario.drainToQuiescence()
 
         XCTAssertNil(controller.workspaceManager.systemModalFocusToken)
@@ -444,7 +444,7 @@ final class EventIntakeReplayTests: XCTestCase {
         let system = scenario.system
 
         system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
         scenario.drainToQuiescence()
 
         controller.workspaceManager.setSystemModalFocus(scenario.tokenA)
@@ -465,7 +465,7 @@ final class EventIntakeReplayTests: XCTestCase {
         let controller = scenario.controller
 
         scenario.system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
         scenario.drainToQuiescence()
 
         let frame = CGRect(x: 0, y: 0, width: 200, height: 150)
@@ -487,7 +487,7 @@ final class EventIntakeReplayTests: XCTestCase {
         let controller = scenario.controller
 
         scenario.system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
         scenario.drainToQuiescence()
 
         let world = WorldView(controller: controller, borderFrameResolver: { _ in .zero })
@@ -540,7 +540,7 @@ final class EventIntakeReplayTests: XCTestCase {
         )
 
         controller.focusWindow(tokenA)
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid))
+        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
         scenario.drainToQuiescence()
         XCTAssertEqual(controller.workspaceManager.focusedToken, tokenA)
 

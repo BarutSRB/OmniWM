@@ -13,7 +13,10 @@ final class WindowClassificationRegressionTests: XCTestCase {
         for url in urls {
             let name = url.lastPathComponent
             let fixture = try WindowClassificationFixtureLoader.load(url)
-            let got = WindowClassificationReproducer.recompute(fixture.observation.input)
+            let got = WindowClassificationReproducer.recompute(
+                fixture.observation.input,
+                rules: fixture.rules
+            )
             XCTAssertEqual(got, fixture.expectedDecision, "\(name): decision")
         }
     }
@@ -33,7 +36,10 @@ final class WindowClassificationRegressionTests: XCTestCase {
         let url = try XCTUnwrap(WindowClassificationFixtureLoader.fixtureURLs().first)
         var fixture = try WindowClassificationFixtureLoader.load(url)
         fixture.observation.observedDecision.disposition = "floating"
-        let got = WindowClassificationReproducer.recompute(fixture.observation.input)
+        let got = WindowClassificationReproducer.recompute(
+            fixture.observation.input,
+            rules: fixture.rules
+        )
         XCTAssertEqual(got, fixture.expectedDecision)
         XCTAssertNotEqual(got, fixture.observation.observedDecision)
     }

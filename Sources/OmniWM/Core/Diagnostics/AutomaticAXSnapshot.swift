@@ -10,7 +10,12 @@ struct AutomaticAXSnapshotRequest: Sendable {
     let reason: String
     let pid: pid_t
     let windowId: Int?
-    let axRef: AXWindowRef?
+
+    init(reason: String, pid: pid_t, windowId: Int?) {
+        self.reason = RuntimeTraceLimits.boundedString(reason)
+        self.pid = pid
+        self.windowId = windowId
+    }
 }
 
 struct AutomaticAXSnapshot: Codable, Equatable, Sendable {
@@ -55,7 +60,6 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
     static let shared = AutomaticAXSnapshotCollector()
 
     private static let arrayLimit = 64
-    private static let stringLimit = 16 * 1024
     private static let encodedLimit = 512 * 1024
     private static let messagingTimeoutSeconds: Float = 0.5
     private static let overallTimeoutSeconds = 2.5
@@ -112,9 +116,6 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
         deadline: TimeInterval
     ) -> AutomaticAXSnapshot {
         let appElement = AXUIElementCreateApplication(request.pid)
-        AXUIElementSetMessagingTimeout(appElement, messagingTimeoutSeconds)
-        defer { AXUIElementSetMessagingTimeout(appElement, 0) }
-
         let appAttributes = [
             kAXRoleAttribute as String,
             kAXTitleAttribute as String,
@@ -123,12 +124,14 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
             kAXMainWindowAttribute as String,
             kAXWindowsAttribute as String
         ]
-        let appRead = snapshot(
-            element: appElement,
-            attributes: appAttributes,
-            writableAttributes: [],
-            deadline: deadline
-        )
+        let appRead = withMessagingTimeout(appElement) {
+            snapshot(
+                element: appElement,
+                attributes: appAttributes,
+                writableAttributes: [],
+                deadline: deadline
+            )
+        }
         if ProcessInfo.processInfo.systemUptime >= deadline {
             return AutomaticAXSnapshot(
                 generatedAt: Date().ISO8601Format(),
@@ -140,56 +143,52 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
                 window: nil
             )
         }
-        let windowElement = request.axRef?.element
-            ?? selectedWindowElement(
-                windowId: request.windowId,
-                values: appRead.values,
-                focusedIndex: appAttributes.firstIndex(of: kAXFocusedWindowAttribute as String),
-                windowsIndex: appAttributes.firstIndex(of: kAXWindowsAttribute as String),
-                deadline: deadline
-            )
-        var resolvedWindowId = request.windowId ?? request.axRef?.windowId
-        if resolvedWindowId == nil,
-           ProcessInfo.processInfo.systemUptime < deadline,
-           let windowElement
+        let windowElement = selectedWindowElement(
+            windowId: request.windowId,
+            values: appRead.values,
+            focusedIndex: appAttributes.firstIndex(of: kAXFocusedWindowAttribute as String),
+            windowsIndex: appAttributes.firstIndex(of: kAXWindowsAttribute as String),
+            deadline: deadline
+        )
+        let resolvedWindowId = if ProcessInfo.processInfo.systemUptime < deadline,
+                                  let windowElement
         {
-            var windowId: CGWindowID = 0
-            if _AXUIElementGetWindow(windowElement, &windowId) == .success {
-                resolvedWindowId = Int(windowId)
-            }
+            windowId(for: windowElement)
+        } else {
+            request.windowId
         }
 
         var windowRead: AutomaticAXSnapshotRead?
         if let windowElement, ProcessInfo.processInfo.systemUptime < deadline {
-            AXUIElementSetMessagingTimeout(windowElement, messagingTimeoutSeconds)
-            windowRead = snapshot(
-                element: windowElement,
-                attributes: [
-                    kAXRoleAttribute as String,
-                    kAXSubroleAttribute as String,
-                    kAXTitleAttribute as String,
-                    kAXIdentifierAttribute as String,
-                    kAXPositionAttribute as String,
-                    kAXSizeAttribute as String,
-                    kAXMinimizedAttribute as String,
-                    "AXFullScreen",
-                    kAXMainAttribute as String,
-                    kAXFocusedAttribute as String,
-                    kAXModalAttribute as String,
-                    kAXParentAttribute as String,
-                    kAXTopLevelUIElementAttribute as String,
-                    kAXCloseButtonAttribute as String,
-                    kAXMinimizeButtonAttribute as String,
-                    kAXZoomButtonAttribute as String,
-                    kAXFullScreenButtonAttribute as String
-                ],
-                writableAttributes: [
-                    kAXPositionAttribute as String,
-                    kAXSizeAttribute as String
-                ],
-                deadline: deadline
-            )
-            AXUIElementSetMessagingTimeout(windowElement, 0)
+            windowRead = withMessagingTimeout(windowElement) {
+                snapshot(
+                    element: windowElement,
+                    attributes: [
+                        kAXRoleAttribute as String,
+                        kAXSubroleAttribute as String,
+                        kAXTitleAttribute as String,
+                        kAXIdentifierAttribute as String,
+                        kAXPositionAttribute as String,
+                        kAXSizeAttribute as String,
+                        kAXMinimizedAttribute as String,
+                        "AXFullScreen",
+                        kAXMainAttribute as String,
+                        kAXFocusedAttribute as String,
+                        kAXModalAttribute as String,
+                        kAXParentAttribute as String,
+                        kAXTopLevelUIElementAttribute as String,
+                        kAXCloseButtonAttribute as String,
+                        kAXMinimizeButtonAttribute as String,
+                        kAXZoomButtonAttribute as String,
+                        kAXFullScreenButtonAttribute as String
+                    ],
+                    writableAttributes: [
+                        kAXPositionAttribute as String,
+                        kAXSizeAttribute as String
+                    ],
+                    deadline: deadline
+                )
+            }
         }
         let status = if ProcessInfo.processInfo.systemUptime >= deadline {
             "timed_out"
@@ -221,29 +220,52 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
         deadline: TimeInterval
     ) -> AXUIElement? {
         guard let values else { return nil }
-        if let windowId,
-           let windowsIndex,
-           values.indices.contains(windowsIndex),
-           let windows = values[windowsIndex] as? [AXUIElement]
-        {
-            for element in windows.prefix(arrayLimit) {
-                guard ProcessInfo.processInfo.systemUptime < deadline else { return nil }
-                var candidateId: CGWindowID = 0
-                if _AXUIElementGetWindow(element, &candidateId) == .success,
-                   Int(candidateId) == windowId
-                {
-                    return element
-                }
-            }
-            return nil
+        let windows = windowsIndex.flatMap { index in
+            values.indices.contains(index) ? values[index] as? [AXUIElement] : nil
+        } ?? []
+        let focusedWindow = focusedIndex.flatMap { index -> AXUIElement? in
+            guard values.indices.contains(index), let rawValue = values[index] else { return nil }
+            let value = rawValue as CFTypeRef
+            guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+            return unsafeDowncast(value, to: AXUIElement.self)
         }
-        guard let focusedIndex,
-              values.indices.contains(focusedIndex),
-              let rawValue = values[focusedIndex]
-        else { return nil }
-        let value = rawValue as CFTypeRef
-        guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-        return unsafeDowncast(value, to: AXUIElement.self)
+        return selectWindowElement(
+            windowId: windowId,
+            focusedWindow: focusedWindow,
+            windows: windows
+        ) { element in
+            guard ProcessInfo.processInfo.systemUptime < deadline else { return nil }
+            return self.windowId(for: element)
+        }
+    }
+
+    private static func windowId(for element: AXUIElement) -> Int? {
+        withMessagingTimeout(element) {
+            var windowId: CGWindowID = 0
+            guard _AXUIElementGetWindow(element, &windowId) == .success else { return nil }
+            return Int(windowId)
+        }
+    }
+
+    static func selectWindowElement(
+        windowId: Int?,
+        focusedWindow: AXUIElement?,
+        windows: [AXUIElement],
+        resolveWindowId: (AXUIElement) -> Int?
+    ) -> AXUIElement? {
+        guard let windowId else { return focusedWindow }
+        return windows.prefix(arrayLimit).first { resolveWindowId($0) == windowId } ?? focusedWindow
+    }
+
+    static func withMessagingTimeout<T>(
+        _ element: AXUIElement,
+        timeoutSeconds: Float = AutomaticAXSnapshotCollector.messagingTimeoutSeconds,
+        setter: (AXUIElement, Float) -> Void = { AXUIElementSetMessagingTimeout($0, $1) },
+        operation: () throws -> T
+    ) rethrows -> T {
+        setter(element, timeoutSeconds)
+        defer { setter(element, 0) }
+        return try operation()
     }
 
     private static func snapshot(
@@ -355,7 +377,7 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
             if values.count > arrayLimit {
                 descriptions.append("truncated=\(values.count - arrayLimit)")
             }
-            return "[\(descriptions.joined(separator: ", "))]"
+            return bounded("[\(descriptions.joined(separator: ", "))]")
         }
         return bounded(String(describing: value))
     }
@@ -388,16 +410,7 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
     }
 
     private static func bounded(_ value: String) -> String {
-        guard value.utf8.count > stringLimit else { return value }
-        var end = value.startIndex
-        var count = 0
-        while end < value.endIndex, count < stringLimit {
-            let next = value.index(after: end)
-            count += value[end ..< next].utf8.count
-            if count > stringLimit { break }
-            end = next
-        }
-        return String(value[..<end]) + "<truncated>"
+        RuntimeTraceLimits.boundedString(value)
     }
 
     private static func failure(

@@ -17,6 +17,25 @@ struct ActivationFacts: Sendable {
     let observationGeneration: UInt64
     let requestedAtSeq: UInt64
     let focusedWindow: FocusedWindowFact?
+    let callbackGeneration: UInt64?
+
+    init(
+        pid: pid_t,
+        source: ActivationEventSource,
+        origin: ActivationCallOrigin,
+        observationGeneration: UInt64,
+        requestedAtSeq: UInt64,
+        focusedWindow: FocusedWindowFact?,
+        callbackGeneration: UInt64? = nil
+    ) {
+        self.pid = pid
+        self.source = source
+        self.origin = origin
+        self.observationGeneration = observationGeneration
+        self.requestedAtSeq = requestedAtSeq
+        self.focusedWindow = focusedWindow
+        self.callbackGeneration = callbackGeneration
+    }
 }
 
 struct WindowConstraintsFact: Sendable {
@@ -32,6 +51,7 @@ final class FactResolver {
         let origin: ActivationCallOrigin
         let observationGeneration: UInt64
         let requestedAtSeq: UInt64
+        let callbackGeneration: UInt64?
     }
 
     var factProvider: ((pid_t) -> FocusedWindowFact?)?
@@ -45,14 +65,16 @@ final class FactResolver {
         pid: pid_t,
         source: ActivationEventSource,
         origin: ActivationCallOrigin,
-        observationGeneration: UInt64
+        observationGeneration: UInt64,
+        callbackGeneration: UInt64? = nil
     ) {
         let request = ActivationFactRequest(
             pid: pid,
             source: source,
             origin: origin,
             observationGeneration: observationGeneration,
-            requestedAtSeq: EventIntake.currentSeq()
+            requestedAtSeq: EventIntake.currentSeq(),
+            callbackGeneration: callbackGeneration
         )
         resolveActivationFacts(request)
     }
@@ -67,7 +89,8 @@ final class FactResolver {
                         origin: request.origin,
                         observationGeneration: request.observationGeneration,
                         requestedAtSeq: request.requestedAtSeq,
-                        focusedWindow: factProvider(request.pid)
+                        focusedWindow: factProvider(request.pid),
+                        callbackGeneration: request.callbackGeneration
                     )
                 )
             )
@@ -92,7 +115,8 @@ final class FactResolver {
                         origin: request.origin,
                         observationGeneration: request.observationGeneration,
                         requestedAtSeq: request.requestedAtSeq,
-                        focusedWindow: focusedWindow
+                        focusedWindow: focusedWindow,
+                        callbackGeneration: request.callbackGeneration
                     )
                 )
             )

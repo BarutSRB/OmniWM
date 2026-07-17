@@ -3462,6 +3462,55 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testStructuralReplacementUsesCapturedWindowServerEvidenceWithoutLiveQueries() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        let frame = CGRect(x: 160, y: 120, width: 720, height: 520)
+        let oldToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_515), windowId: 765_615),
+            pid: 765_515,
+            windowId: 765_615,
+            to: workspaceId,
+            managedReplacementMetadata: Self.managedReplacementMetadata(
+                workspaceId: workspaceId,
+                pid: 765_515,
+                frame: frame
+            )
+        )
+        let newToken = WindowToken(pid: oldToken.pid, windowId: 765_616)
+        let newWindowInfo = Self.visibleWindowInfo(
+            pid: newToken.pid,
+            windowId: newToken.windowId,
+            frame: frame
+        )
+        var visibleQueryCount = 0
+        var windowQueryCount = 0
+        controller.axEventHandler.visibleWindowInfoProvider = {
+            visibleQueryCount += 1
+            return []
+        }
+        controller.axEventHandler.windowInfoProvider = { _ in
+            windowQueryCount += 1
+            return nil
+        }
+
+        let match = controller.axEventHandler.structuralReplacementMatch(
+            token: newToken,
+            bundleId: Self.nativeTabBundleId(pid: newToken.pid),
+            mode: .tiling,
+            facts: Self.nativeTabFacts(pid: newToken.pid, windowId: newToken.windowId, frame: frame),
+            capturedWindowServerInfoByWindowId: [newToken.windowId: newWindowInfo]
+        )
+
+        XCTAssertEqual(match?.token, oldToken)
+        XCTAssertEqual(visibleQueryCount, 0)
+        XCTAssertEqual(windowQueryCount, 0)
+    }
+
+    @MainActor
     func testNiriNativeMacOSTabRekeysInvisibleSiblingWithoutOmniWMTab() async throws {
         let columnWidth: CGFloat = 320
         let controller = Self.controller()

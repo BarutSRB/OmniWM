@@ -4,6 +4,7 @@
     "tokenWindowId": 6,
     "appName": "Firefox",
     "bundleId": "org.mozilla.firefox",
+    "rulesRevision": 1,
     "input": {
       "appName": "Firefox",
       "ax": {
@@ -19,8 +20,7 @@
         "bundleId": "org.mozilla.firefox",
         "attributeFetchSucceeded": true
       },
-      "appFullscreen": false,
-      "rules": []
+      "appFullscreen": false
     },
     "observedDecision": {
       "disposition": "floating",
@@ -29,6 +29,7 @@
       "layoutDecisionKind": "explicitLayout"
     }
   },
+  "rules": [],
   "expectedDecision": {
     "disposition": "floating",
     "source": "builtInRule(browserPictureInPicture)",

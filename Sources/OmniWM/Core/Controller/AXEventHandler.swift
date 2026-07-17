@@ -192,6 +192,7 @@ final class AXEventHandler {
     private enum CreatePreparationOutcome {
         case prepared(PreparedCreate)
         case alreadyTracked(WindowToken)
+        case identityRebindPending
         case pending(token: WindowToken?, axRef: AXWindowRef?, reason: WindowAdmissionPendingReason)
         case ignored(token: WindowToken?, reason: WindowAdmissionRejectionReason)
     }
@@ -254,6 +255,7 @@ final class AXEventHandler {
         let origin: ActivationCallOrigin
         let appFullscreen: Bool
         let request: PendingFocusedManagedActivationRequest
+        let callbackGeneration: UInt64?
     }
 
     private struct WindowCloseFocusRecoveryContext {
@@ -381,6 +383,11 @@ final class AXEventHandler {
     private var nextManagedReplacementEventSequence: UInt64 = 0
     var visibleWindowInfoProvider: () -> [WindowServerInfo]
     var windowInfoProvider: (UInt32) -> WindowServerInfo?
+    var managedWindowIdentityRebindAcknowledgementProvider:
+        ((AXManagedWindowIdentity, AXManagedWindowIdentity) async -> Bool)?
+    var managedWindowIdentityRebindFinalizationProvider:
+        ((AXManagedWindowIdentity, AXManagedWindowIdentity) async -> Bool)?
+    var managedWindowIdentityRebindTargetIsAliveProvider: ((pid_t) -> Bool)?
 
     init(
         controller: WMController,
@@ -669,7 +676,8 @@ final class AXEventHandler {
         bundleId: String?,
         mode: TrackedWindowMode,
         facts: WindowRuleFacts,
-        admissionHints: ManagedWindowAdmissionHints? = nil
+        admissionHints: ManagedWindowAdmissionHints? = nil,
+        sizeConstraints: WindowSizeConstraints? = nil
     ) -> Bool {
         let metadata = makeManagedReplacementMetadata(
             bundleId: bundleId,
@@ -677,25 +685,18 @@ final class AXEventHandler {
             mode: mode,
             facts: facts
         )
-        guard rekeyManagedWindowIdentity(
+        let rebindResult = rekeyManagedWindowIdentity(
             from: match.token,
             to: token,
             windowId: windowId,
             axRef: axRef,
-            managedReplacementMetadata: metadata
-        ) != nil else {
+            managedReplacementMetadata: metadata,
+            admissionHints: admissionHints,
+            sizeConstraints: sizeConstraints
+        )
+        guard rebindResult.isHandled else {
             return false
         }
-
-        rekeyManagedReplacementFocusTransaction(
-            from: match.token,
-            to: token,
-            workspaceId: match.workspaceId
-        )
-        if let admissionHints {
-            _ = controller?.workspaceManager.updateAdmissionHints(admissionHints, for: token)
-        }
-        discardCreatePlacementContext(windowId: windowId)
         return true
     }
 
@@ -848,7 +849,7 @@ final class AXEventHandler {
         }
     }
 
-    private func rekeyManagedReplacementFocusTransaction(
+    func rekeyManagedReplacementFocusTransaction(
         from oldToken: WindowToken,
         to newToken: WindowToken,
         workspaceId: WorkspaceDescriptor.ID
@@ -1159,7 +1160,12 @@ final class AXEventHandler {
         }
     }
 
-    func handleRemoved(pid: pid_t, winId: Int, axRef: AXWindowRef? = nil) {
+    func handleRemoved(
+        pid: pid_t,
+        winId: Int,
+        axRef: AXWindowRef? = nil,
+        callbackGeneration: UInt64? = nil
+    ) {
         guard let windowId = UInt32(exactly: winId) else { return }
         if let axRef, !isCurrentAXIncarnation(windowId: winId, axRef: axRef) {
             WindowAdmissionTrace.record(
@@ -1168,6 +1174,7 @@ final class AXEventHandler {
                     pid: pid,
                     windowId: winId,
                     reason: "stale_destroy_callback",
+                    callbackGeneration: callbackGeneration,
                     axRef: axRef
                 )
             )
@@ -1175,7 +1182,11 @@ final class AXEventHandler {
         }
         AXWindowService.invalidateCachedTitle(windowId: windowId)
         removeDeferredCreatedWindow(windowId)
-        handleWindowDestroyed(windowId: windowId, pidHint: pid)
+        handleWindowDestroyed(
+            windowId: windowId,
+            pidHint: pid,
+            callbackGeneration: callbackGeneration
+        )
     }
 
     func handleRemoved(token: WindowToken) {
@@ -1545,7 +1556,8 @@ final class AXEventHandler {
         pid: pid_t,
         source: ActivationEventSource = .workspaceDidActivateApplication,
         origin: ActivationCallOrigin = .external,
-        causalObservationGeneration: UInt64? = nil
+        causalObservationGeneration: UInt64? = nil,
+        callbackGeneration: UInt64? = nil
     ) {
         guard let controller else { return }
         guard controller.hasStartedServices else { return }
@@ -1630,7 +1642,8 @@ final class AXEventHandler {
             pid: pid,
             source: source,
             origin: origin,
-            observationGeneration: observationGeneration
+            observationGeneration: observationGeneration,
+            callbackGeneration: callbackGeneration
         )
     }
 
@@ -1668,6 +1681,9 @@ final class AXEventHandler {
     func handleActivationFactsResolved(_ facts: ActivationFacts) {
         guard let controller, controller.hasStartedServices else { return }
         guard facts.observationGeneration == latestActivationObservationGeneration else { return }
+        if let callbackGeneration = facts.callbackGeneration {
+            guard AppAXContext.contexts[facts.pid]?.callbackGeneration == callbackGeneration else { return }
+        }
         if let issuedAtSeq = controller.intentLedger.newestFocusIntentIssuedAtSeq(),
            issuedAtSeq > facts.requestedAtSeq
         {
@@ -1769,7 +1785,8 @@ final class AXEventHandler {
                 appFullscreen: appFullscreen,
                 source: source,
                 confirmRequest: true,
-                origin: origin
+                origin: origin,
+                callbackGeneration: facts.callbackGeneration
             )
             return
         }
@@ -1780,7 +1797,8 @@ final class AXEventHandler {
             source: source,
             origin: origin,
             requestDisposition: requestDisposition,
-            appFullscreen: appFullscreen
+            appFullscreen: appFullscreen,
+            callbackGeneration: facts.callbackGeneration
         )
         if admissionAttempt == .handled {
             return
@@ -1844,7 +1862,8 @@ final class AXEventHandler {
                 axRef: axRef,
                 reason: reason,
                 source: source,
-                observationGeneration: facts.observationGeneration
+                observationGeneration: facts.observationGeneration,
+                callbackGeneration: facts.callbackGeneration
             )
             return
         }
@@ -1876,7 +1895,8 @@ final class AXEventHandler {
         source: ActivationEventSource,
         origin: ActivationCallOrigin,
         requestDisposition: ActivationRequestDisposition,
-        appFullscreen: Bool
+        appFullscreen: Bool,
+        callbackGeneration: UInt64?
     ) -> FocusedAdmissionAttempt {
         guard let controller,
               let windowId = UInt32(exactly: token.windowId)
@@ -1899,6 +1919,8 @@ final class AXEventHandler {
             candidate = prepared
         case .alreadyTracked:
             return .handled
+        case .identityRebindPending:
+            return .handled
         case let .pending(pendingToken, pendingAXRef, reason):
             WindowAdmissionTrace.record(
                 .init(
@@ -1907,6 +1929,7 @@ final class AXEventHandler {
                     windowId: Int(windowId),
                     bundleId: pendingToken.flatMap { resolveBundleId($0.pid) },
                     reason: reason.rawValue,
+                    callbackGeneration: callbackGeneration,
                     axRef: pendingAXRef
                 )
             )
@@ -1918,7 +1941,8 @@ final class AXEventHandler {
                     pid: ignoredToken?.pid,
                     windowId: Int(windowId),
                     bundleId: ignoredToken.flatMap { resolveBundleId($0.pid) },
-                    reason: reason.rawValue
+                    reason: reason.rawValue,
+                    callbackGeneration: callbackGeneration
                 )
             )
             return .rejected
@@ -1932,6 +1956,7 @@ final class AXEventHandler {
                     bundleId: candidate.bundleId,
                     competingPid: token.pid,
                     reason: WindowAdmissionRejectionReason.invalidIdentity.rawValue,
+                    callbackGeneration: callbackGeneration,
                     axRef: candidate.axRef
                 )
             )
@@ -1954,7 +1979,8 @@ final class AXEventHandler {
                     source: source,
                     origin: origin,
                     appFullscreen: appFullscreen,
-                    request: .init(requestDisposition)
+                    request: .init(requestDisposition),
+                    callbackGeneration: callbackGeneration
                 ),
                 requestDisposition: requestDisposition
             ) ? .handled : .rejected
@@ -1966,7 +1992,8 @@ final class AXEventHandler {
                     source: source,
                     origin: origin,
                     appFullscreen: appFullscreen,
-                    request: .init(requestDisposition)
+                    request: .init(requestDisposition),
+                    callbackGeneration: callbackGeneration
                 )
             )
             return .handled
@@ -1989,7 +2016,8 @@ final class AXEventHandler {
                 source: source,
                 origin: origin,
                 appFullscreen: appFullscreen,
-                request: .init(requestDisposition)
+                request: .init(requestDisposition),
+                callbackGeneration: callbackGeneration
             ),
             requestDisposition: requestDisposition
         ) ? .handled : .rejected
@@ -2000,7 +2028,8 @@ final class AXEventHandler {
         axRef: AXWindowRef,
         reason: WindowAdmissionPendingReason,
         source: ActivationEventSource,
-        observationGeneration: UInt64
+        observationGeneration: UInt64,
+        callbackGeneration: UInt64?
     ) -> Bool {
         guard let windowId = UInt32(exactly: token.windowId) else { return false }
         return scheduleAdmissionRetry(
@@ -2011,7 +2040,8 @@ final class AXEventHandler {
             trigger: .focused(
                 token: token,
                 source: source,
-                observationGeneration: observationGeneration
+                observationGeneration: observationGeneration,
+                callbackGeneration: callbackGeneration
             )
         )
     }
@@ -2063,7 +2093,8 @@ final class AXEventHandler {
                     confirmRequest: true,
                     origin: activation.origin,
                     activeRequestId: nil,
-                    bindCurrentPidRequest: false
+                    bindCurrentPidRequest: false,
+                    callbackGeneration: activation.callbackGeneration
                 )
                 return true
             }
@@ -2096,7 +2127,8 @@ final class AXEventHandler {
             confirmRequest: true,
             origin: activation.origin,
             activeRequestId: activation.request.requestId,
-            bindCurrentPidRequest: bindCurrentPidRequest
+            bindCurrentPidRequest: bindCurrentPidRequest,
+            callbackGeneration: activation.callbackGeneration
         )
         return true
     }
@@ -2109,7 +2141,8 @@ final class AXEventHandler {
         confirmRequest: Bool? = nil,
         origin: ActivationCallOrigin = .external,
         activeRequestId: UInt64? = nil,
-        bindCurrentPidRequest: Bool = true
+        bindCurrentPidRequest: Bool = true,
+        callbackGeneration: UInt64? = nil
     ) {
         guard let controller else { return }
         WindowAdmissionTrace.record(
@@ -2119,6 +2152,7 @@ final class AXEventHandler {
                 windowId: entry.windowId,
                 bundleId: entry.managedReplacementMetadata?.bundleId,
                 reason: String(describing: source),
+                callbackGeneration: callbackGeneration,
                 axRef: entry.axRef
             )
         )
@@ -2468,53 +2502,37 @@ final class AXEventHandler {
             return .pending(token: token, axRef: nil, reason: .axWindowMissing)
         }
         if let existingEntry = controller.workspaceManager.entry(forWindowId: Int(windowId)) {
-            if CFEqual(existingEntry.axRef.element, axRef.element) {
-                guard existingEntry.token != token else {
-                    WindowAdmissionTrace.record(
-                        .init(
-                            action: .admissionAlreadyTracked,
-                            pid: existingEntry.pid,
-                            windowId: existingEntry.windowId,
-                            bundleId: resolveBundleId(existingEntry.pid),
-                            axRef: axRef
-                        )
-                    )
-                    return .alreadyTracked(existingEntry.token)
-                }
-                guard allowsTrackedIdentityReplacement,
-                      windowInfoToken == token
-                else {
-                    return .ignored(token: token, reason: .invalidIdentity)
-                }
-                guard let rekeyedEntry = rekeyManagedWindowIdentity(
-                    from: existingEntry.token,
-                    to: token,
-                    windowId: windowId,
-                    axRef: axRef
-                )
-                else {
-                    return .ignored(token: token, reason: .invalidIdentity)
-                }
-                scheduleWindowRuleReevaluationIfNeeded(targets: [.window(rekeyedEntry.token)])
+            if CFEqual(existingEntry.axRef.element, axRef.element), existingEntry.token == token {
                 WindowAdmissionTrace.record(
                     .init(
-                        action: .admissionReplaced,
-                        pid: rekeyedEntry.pid,
-                        windowId: rekeyedEntry.windowId,
-                        bundleId: resolveBundleId(rekeyedEntry.pid),
-                        competingPid: existingEntry.pid,
-                        reason: "identity_rekeyed",
+                        action: .admissionAlreadyTracked,
+                        pid: existingEntry.pid,
+                        windowId: existingEntry.windowId,
+                        bundleId: resolveBundleId(existingEntry.pid),
                         axRef: axRef
                     )
                 )
-                return .alreadyTracked(rekeyedEntry.token)
+                return .alreadyTracked(existingEntry.token)
             }
             guard allowsTrackedIdentityReplacement,
                   windowInfoToken == token
             else {
                 return .ignored(token: token, reason: .invalidIdentity)
             }
-            discardStaleManagedWindowIncarnation(existingEntry)
+            let rebindResult = rekeyManagedWindowIdentity(
+                from: existingEntry.token,
+                to: token,
+                windowId: windowId,
+                axRef: axRef
+            )
+            switch rebindResult {
+            case let .committed(rekeyedEntry):
+                return .alreadyTracked(rekeyedEntry.token)
+            case .pending:
+                return .identityRebindPending
+            case .rejected:
+                return .ignored(token: token, reason: .invalidIdentity)
+            }
         }
         let axPid = AXWindowService.processIdentifier(axRef)
         if let axPid, axPid != token.pid {
@@ -2551,17 +2569,18 @@ final class AXEventHandler {
                     appName: evaluation.facts.appName,
                     bundleId: bundleId ?? evaluation.facts.ax.bundleId,
                     workspaceName: evaluation.decision.workspaceName,
+                    rulesRevision: controller.settings.appRulesRevision,
                     input: WindowClassificationInput(
                         appName: evaluation.facts.appName,
                         ax: AXWindowFactsDTO(from: evaluation.facts.ax),
                         sizeConstraints: evaluation.facts.sizeConstraints.map(WindowSizeConstraintsDTO.init(from:)),
                         windowServer: evaluation.facts.windowServer.map(WindowServerInfoDTO.init(from:)),
                         appFullscreen: evaluation.appFullscreen,
-                        manualOverride: evaluation.manualOverride,
-                        rules: controller.settings.appRules
+                        manualOverride: evaluation.manualOverride
                     ),
                     observedDecision: WindowClassificationDecisionDTO(from: evaluation.decision)
                 ),
+                classificationRulesSnapshot: controller.settings.appRulesDiagnosticSnapshot,
                 axRef: axRef
             )
         )
@@ -2665,6 +2684,8 @@ final class AXEventHandler {
         case .alreadyTracked:
             discardCreatePlacementContext(windowId: windowId)
             finishAdmissionRetryAfterTracking(windowId: windowId)
+        case .identityRebindPending:
+            break
         case let .pending(token, axRef, reason):
             WindowAdmissionTrace.record(
                 .init(
@@ -2808,7 +2829,8 @@ final class AXEventHandler {
 
     private func handleWindowDestroyed(
         windowId: UInt32,
-        pidHint: pid_t?
+        pidHint: pid_t?,
+        callbackGeneration: UInt64? = nil
     ) {
         let observedToken = resolveWindowToken(windowId)
         let resolvedToken = resolveTrackedToken(windowId, resolvedWindowToken: observedToken)
@@ -2821,6 +2843,7 @@ final class AXEventHandler {
                 windowId: Int(windowId),
                 bundleId: resolvedToken.flatMap { resolveBundleId($0.pid) },
                 reason: resolvedToken == nil ? "unresolved_identity" : "resolved_identity",
+                callbackGeneration: callbackGeneration,
                 axRef: resolvedToken.flatMap {
                     controller?.workspaceManager.entry(for: $0)?.axRef
                 }
@@ -2834,7 +2857,8 @@ final class AXEventHandler {
                     action: .admissionDisappeared,
                     pid: resolvedToken?.pid ?? pidHint,
                     windowId: Int(windowId),
-                    reason: "destroy_without_managed_candidate"
+                    reason: "destroy_without_managed_candidate",
+                    callbackGeneration: callbackGeneration
                 )
             )
             clearFocusedTargetForDestroyedWindow(
@@ -3133,36 +3157,15 @@ final class AXEventHandler {
 
     @discardableResult
     private func rekeyManagedReplacement(from oldToken: WindowToken, to create: PreparedCreate) -> Bool {
-        let entry = rekeyManagedWindowIdentity(
+        let result = rekeyManagedWindowIdentity(
             from: oldToken,
             to: create.token,
             windowId: create.windowId,
             axRef: create.axRef,
-            managedReplacementMetadata: create.replacementMetadata
+            managedReplacementMetadata: create.replacementMetadata,
+            admissionHints: create.admissionHints
         )
-        if entry != nil {
-            WindowAdmissionTrace.record(
-                .init(
-                    action: .admissionReplaced,
-                    pid: create.token.pid,
-                    windowId: create.token.windowId,
-                    bundleId: create.bundleId,
-                    competingPid: oldToken.pid,
-                    reason: "structural_managed_replacement",
-                    outcome: "oldWindowId=\(oldToken.windowId)",
-                    axRef: create.axRef
-                )
-            )
-            _ = controller?.workspaceManager.updateAdmissionHints(create.admissionHints, for: create.token)
-            rekeyManagedReplacementFocusTransaction(
-                from: oldToken,
-                to: create.token,
-                workspaceId: create.workspaceId
-            )
-            discardCreatePlacementContext(windowId: create.windowId)
-            finishAdmissionRetryAfterTracking(windowId: create.windowId)
-        }
-        return entry != nil
+        return result.isHandled
     }
 
     private func makeManagedReplacementMetadata(
@@ -3268,7 +3271,8 @@ final class AXEventHandler {
         token: WindowToken,
         bundleId: String?,
         mode: TrackedWindowMode,
-        facts: WindowRuleFacts
+        facts: WindowRuleFacts,
+        capturedWindowServerInfoByWindowId: [Int: WindowServerInfo]? = nil
     ) -> StructuralReplacementMatch? {
         guard let controller,
               let fallbackWorkspaceId = controller.activeWorkspace()?.id
@@ -3291,10 +3295,21 @@ final class AXEventHandler {
 
         func oldLiveTokenIsInvisible(_ token: WindowToken) -> Bool {
             if visibleWindowIds == nil {
-                visibleWindowIds = Set(visibleWindowInfoProvider().map { Int($0.id) })
+                visibleWindowIds = if let capturedWindowServerInfoByWindowId {
+                    Set(capturedWindowServerInfoByWindowId.keys)
+                } else {
+                    Set(visibleWindowInfoProvider().map { Int($0.id) })
+                }
             }
             guard let visibleWindowIds, !visibleWindowIds.isEmpty else { return false }
             return !visibleWindowIds.contains(token.windowId)
+        }
+
+        func windowServerInfo(for windowId: Int) -> WindowServerInfo? {
+            if let capturedWindowServerInfoByWindowId {
+                return capturedWindowServerInfoByWindowId[windowId]
+            }
+            return UInt32(exactly: windowId).flatMap(resolveWindowInfo)
         }
 
         func recordMatch(
@@ -3355,7 +3370,7 @@ final class AXEventHandler {
                 continue
             }
             let liveMetadata = overlayWindowServerInfo(
-                UInt32(exactly: entry.windowId).flatMap(resolveWindowInfo),
+                windowServerInfo(for: entry.windowId),
                 onto: cachedMetadata
             )
             if liveMetadata != cachedMetadata,

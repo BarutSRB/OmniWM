@@ -93,7 +93,6 @@ struct WindowClassificationInput: Codable, Equatable, Sendable {
     var windowServer: WindowServerInfoDTO?
     var appFullscreen: Bool
     var manualOverride: ManualWindowOverride?
-    var rules: [AppRule]
 }
 
 struct WindowClassificationDecisionDTO: Codable, Equatable, Sendable {
