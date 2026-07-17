@@ -2,128 +2,192 @@
 
 [![Watch the demo](https://img.youtube.com/vi/WcHjGkuD2Fc/maxresdefault.jpg)](https://youtu.be/WcHjGkuD2Fc)
 
+<!-- contributors:start -->
 ## Contributors
 
 <p align="center">
   Thank you to everyone who contributed to OmniWM. Your ideas and code made a real difference.
 </p>
 
+---
+
+### 🏢 By Employer
+
 <table align="center">
   <tr>
-    <td align="center">
-      <a href="https://github.com/adelin-b" title="Adelin Berard">
-        <img src="https://github.com/adelin-b.png?size=96" width="96" alt="Adelin Berard">
+    <td align="center" valign="top">
+      <a href="https://github.com/bitkey-oss">
+        <img src="https://avatars.githubusercontent.com/u/143800766?v=4" width="72" alt="Bitkey">
       </a>
       <br>
-      <a href="https://github.com/adelin-b"><strong>Adelin Berard</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/albertilagan" title="Albert Ilagan">
-        <img src="https://github.com/albertilagan.png?size=96" width="96" alt="Albert Ilagan">
-      </a>
+      <a href="https://github.com/bitkey-oss"><strong>Bitkey</strong></a>
       <br>
-      <a href="https://github.com/albertilagan"><strong>Albert Ilagan</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/balazshevesi" title="Balazs Hevesi">
-        <img src="https://github.com/balazshevesi.png?size=96" width="96" alt="Balazs Hevesi">
-      </a>
+      <sub>━━━━━━━━</sub>
       <br>
-      <a href="https://github.com/balazshevesi"><strong>Balazs Hevesi</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/chen259456754" title="chen259456754">
-        <img src="https://github.com/chen259456754.png?size=96" width="96" alt="chen259456754">
-      </a>
-      <br>
-      <a href="https://github.com/chen259456754"><strong>chen259456754</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/nekonora" title="Filippo Zaffoni">
-        <img src="https://github.com/nekonora.png?size=96" width="96" alt="Filippo Zaffoni">
-      </a>
-      <br>
-      <a href="https://github.com/nekonora"><strong>Filippo Zaffoni</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/janhesters" title="Jan Hesters">
-        <img src="https://github.com/janhesters.png?size=96" width="96" alt="Jan Hesters">
-      </a>
-      <br>
-      <a href="https://github.com/janhesters"><strong>Jan Hesters</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/jcardama" title="Jose Cardama">
-        <img src="https://github.com/jcardama.png?size=96" width="96" alt="Jose Cardama">
-      </a>
-      <br>
-      <a href="https://github.com/jcardama"><strong>Jose Cardama</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/lgerlinski" title="Lukas Gerlinski">
-        <img src="https://github.com/lgerlinski.png?size=96" width="96" alt="Lukas Gerlinski">
-      </a>
-      <br>
-      <a href="https://github.com/lgerlinski"><strong>Lukas Gerlinski</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/zucram" title="Marcus Harlid Davin">
-        <img src="https://github.com/zucram.png?size=96" width="96" alt="Marcus Harlid Davin">
-      </a>
-      <br>
-      <a href="https://github.com/zucram"><strong>Marcus Harlid Davin</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/mkdir700" title="mkdir700">
-        <img src="https://github.com/mkdir700.png?size=96" width="96" alt="mkdir700">
-      </a>
-      <br>
-      <a href="https://github.com/mkdir700"><strong>mkdir700</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/zwo-bot" title="mm">
-        <img src="https://github.com/zwo-bot.png?size=96" width="96" alt="mm">
-      </a>
-      <br>
-      <a href="https://github.com/zwo-bot"><strong>mm</strong></a>
-    </td>
-    <td align="center">
       <a href="https://github.com/siketyan" title="Naoki Ikeguchi">
-        <img src="https://github.com/siketyan.png?size=96" width="96" alt="Naoki Ikeguchi">
+        <img src="https://github.com/siketyan.png?size=96" width="72" alt="Naoki Ikeguchi">
       </a>
       <br>
       <a href="https://github.com/siketyan"><strong>Naoki Ikeguchi</strong></a>
+      <br>
+      <sub>@siketyan</sub>
     </td>
-    <td align="center">
-      <a href="https://github.com/georgebastille" title="Rich Hanes">
-        <img src="https://github.com/georgebastille.png?size=96" width="96" alt="Rich Hanes">
+    <td align="center" valign="top">
+      <a href="https://github.com/github">
+        <img src="https://avatars.githubusercontent.com/u/9919?v=4" width="72" alt="GitHub">
       </a>
       <br>
-      <a href="https://github.com/georgebastille"><strong>Rich Hanes</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/chenhaozhenss" title="Williamufo">
-        <img src="https://github.com/chenhaozhenss.png?size=96" width="96" alt="Williamufo">
+      <a href="https://github.com/github"><strong>GitHub</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/RyanHecht" title="Ryan Hecht">
+        <img src="https://github.com/RyanHecht.png?size=96" width="72" alt="Ryan Hecht">
       </a>
       <br>
-      <a href="https://github.com/chenhaozhenss"><strong>Williamufo</strong></a>
+      <a href="https://github.com/RyanHecht"><strong>Ryan Hecht</strong></a>
+      <br>
+      <sub>@RyanHecht</sub>
     </td>
-    <td align="center">
-      <a href="https://github.com/Yang-Yiming" title="Yang-Yiming">
-        <img src="https://github.com/Yang-Yiming.png?size=96" width="96" alt="Yang-Yiming">
+    <td align="center" valign="top">
+      <a href="https://github.com/google">
+        <img src="https://avatars.githubusercontent.com/u/1342004?v=4" width="72" alt="Google">
       </a>
       <br>
-      <a href="https://github.com/Yang-Yiming"><strong>Yang-Yiming</strong></a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/zicochaos" title="Zicochaos">
-        <img src="https://github.com/Zicochaos.png?size=96" width="96" alt="Zicochaos">
+      <a href="https://github.com/google"><strong>Google</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/MuhammadKh" title="muhammadkh">
+        <img src="https://github.com/MuhammadKh.png?size=96" width="72" alt="muhammadkh">
       </a>
       <br>
-      <a href="https://github.com/zicochaos"><strong>Zicochaos</strong></a>
+      <a href="https://github.com/MuhammadKh"><strong>muhammadkh</strong></a>
+      <br>
+      <sub>@MuhammadKh</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="https://luxor.tech">
+        <img src="https://github.com/LuxorLabs.png?size=96" width="72" alt="Luxor Labs">
+      </a>
+      <br>
+      <a href="https://luxor.tech"><strong>Luxor Labs</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/albertilagan" title="Albert Ilagan">
+        <img src="https://github.com/albertilagan.png?size=96" width="72" alt="Albert Ilagan">
+      </a>
+      <br>
+      <a href="https://github.com/albertilagan"><strong>Albert Ilagan</strong></a>
+      <br>
+      <sub>@albertilagan</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="https://www.reactsquad.io">
+        <img src="https://cdn.prod.website-files.com/657d97b1704ec3bbd13b7b7f/65ae5ba5042fdf11343fdcae_reactsquad-webclipV2.png" width="72" alt="ReactSquad">
+      </a>
+      <br>
+      <a href="https://www.reactsquad.io"><strong>ReactSquad</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/janhesters" title="Jan Hesters">
+        <img src="https://github.com/janhesters.png?size=96" width="72" alt="Jan Hesters">
+      </a>
+      <br>
+      <a href="https://github.com/janhesters"><strong>Jan Hesters</strong></a>
+      <br>
+      <sub>@janhesters</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="https://www.vhf.com">
+        <img src="https://www.google.com/s2/favicons?domain=www.vhf.com&sz=96" width="72" alt="vhf">
+      </a>
+      <br>
+      <a href="https://www.vhf.com"><strong>vhf</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/lgerlinski" title="Lukas Gerlinski">
+        <img src="https://github.com/lgerlinski.png?size=96" width="72" alt="Lukas Gerlinski">
+      </a>
+      <br>
+      <a href="https://github.com/lgerlinski"><strong>Lukas Gerlinski</strong></a>
+      <br>
+      <sub>@lgerlinski</sub>
     </td>
   </tr>
 </table>
+
+### ✨ All Contributors
+
+<table align="center">
+  <tr>
+    <td nowrap>
+      <a href="https://github.com/adelin-b" title="Adelin Berard">
+        <img src="https://github.com/adelin-b.png?size=96" width="72" alt="Adelin Berard">
+      </a>
+      <a href="https://github.com/albertilagan" title="Albert Ilagan">
+        <img src="https://github.com/albertilagan.png?size=96" width="72" alt="Albert Ilagan">
+      </a>
+      <a href="https://github.com/gloomy-breaker" title="Ayaan Sandhu">
+        <img src="https://github.com/gloomy-breaker.png?size=96" width="72" alt="Ayaan Sandhu">
+      </a>
+      <a href="https://github.com/balazshevesi" title="Balazs Hevesi">
+        <img src="https://github.com/balazshevesi.png?size=96" width="72" alt="Balazs Hevesi">
+      </a>
+      <a href="https://github.com/chen259456754" title="chen259456754">
+        <img src="https://github.com/chen259456754.png?size=96" width="72" alt="chen259456754">
+      </a>
+      <a href="https://github.com/nekonora" title="Filippo Zaffoni">
+        <img src="https://github.com/nekonora.png?size=96" width="72" alt="Filippo Zaffoni">
+      </a>
+      <a href="https://github.com/janhesters" title="Jan Hesters">
+        <img src="https://github.com/janhesters.png?size=96" width="72" alt="Jan Hesters">
+      </a>
+      <a href="https://github.com/jcardama" title="Jose Cardama">
+        <img src="https://github.com/jcardama.png?size=96" width="72" alt="Jose Cardama">
+      </a>
+      <a href="https://github.com/lgerlinski" title="Lukas Gerlinski">
+        <img src="https://github.com/lgerlinski.png?size=96" width="72" alt="Lukas Gerlinski">
+      </a>
+      <a href="https://github.com/zucram" title="Marcus Harlid Davin">
+        <img src="https://github.com/zucram.png?size=96" width="72" alt="Marcus Harlid Davin">
+      </a>
+      <a href="https://github.com/mkdir700" title="mkdir700">
+        <img src="https://github.com/mkdir700.png?size=96" width="72" alt="mkdir700">
+      </a>
+      <a href="https://github.com/zwo-bot" title="mm">
+        <img src="https://github.com/zwo-bot.png?size=96" width="72" alt="mm">
+      </a>
+      <a href="https://github.com/MuhammadKh" title="muhammadkh">
+        <img src="https://github.com/MuhammadKh.png?size=96" width="72" alt="muhammadkh">
+      </a>
+      <a href="https://github.com/siketyan" title="Naoki Ikeguchi">
+        <img src="https://github.com/siketyan.png?size=96" width="72" alt="Naoki Ikeguchi">
+      </a>
+      <a href="https://github.com/georgebastille" title="Rich Hanes">
+        <img src="https://github.com/georgebastille.png?size=96" width="72" alt="Rich Hanes">
+      </a>
+      <a href="https://github.com/RyanHecht" title="Ryan Hecht">
+        <img src="https://github.com/RyanHecht.png?size=96" width="72" alt="Ryan Hecht">
+      </a>
+      <a href="https://github.com/chenhaozhenss" title="Williamufo">
+        <img src="https://github.com/chenhaozhenss.png?size=96" width="72" alt="Williamufo">
+      </a>
+      <a href="https://github.com/Yang-Yiming" title="Yang-Yiming">
+        <img src="https://github.com/Yang-Yiming.png?size=96" width="72" alt="Yang-Yiming">
+      </a>
+      <a href="https://github.com/zicochaos" title="Zicochaos">
+        <img src="https://github.com/zicochaos.png?size=96" width="72" alt="Zicochaos">
+      </a>
+    </td>
+  </tr>
+</table>
+<!-- contributors:end -->
+
+
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-26.0%2B-green?logo=apple&logoColor=white" alt="macOS">
@@ -138,11 +202,11 @@
   <a href="https://trendshift.io/repositories/16758?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-16758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/16758/monthly?language=Swift" alt="BarutSRB%2FOmniWM | Trendshift" width="250" height="55"/></a>
 </p>
 
-Small demo, not fully showing everything, gif recorded at 30fps due to size, some stuff is now more refined and better as some gifs might be outdated, features shown:
+
 - Real quake/sticky terminal using ghostty's libghostty
-- Best-effort macOS native-tab replacement support
+- macOS native tab support
 - IPC/CLI
-- Scrathpad/Sticky windows of any app
+- Scrathpad/Sticky windows for any app
 - Niri Overview
 - Unified command palette for windows and app menus
 - App menu anywhere
@@ -155,7 +219,6 @@ Small demo, not fully showing everything, gif recorded at 30fps due to size, som
 
 ## Known Limitations
 
-- **Gestures/Trackpad** - Magic Mouse and trackpad gestures have not been locally validated without matching hardware, but no issues have been reported.
 - **Dwindle group restore** - Group membership and tab order are runtime layout state and are not restored after OmniWM restarts.
 
 ## Performance & Trust
