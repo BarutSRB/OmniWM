@@ -25,6 +25,9 @@ final class EventInterpreter: EventIntakeSink {
         case let .activationFactsResolved(facts):
             controller.axEventHandler.handleActivationFactsResolved(facts)
 
+        case let .focusedAdmissionRetryFactRequestSuperseded(execution):
+            controller.axEventHandler.finishFocusedAdmissionRetryExecution(execution)
+
         case .activeSpaceChanged:
             controller.serviceLifecycleManager.handleActiveSpaceDidChange()
 

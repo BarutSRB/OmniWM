@@ -6,6 +6,8 @@ import ApplicationServices
 @testable import OmniWM
 import XCTest
 
+private let axBoundaryObserverCallback: AXObserverCallback = { _, _, _, _ in }
+
 private final class AXBoundaryCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var storage = 0
@@ -20,6 +22,28 @@ private final class AXBoundaryCounter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storage
+    }
+}
+
+private final class AXBoundaryValueBox<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ value: Value) {
+        storage = value
+    }
+
+    var value: Value {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
     }
 }
 
@@ -44,7 +68,7 @@ private final class AXBoundaryConcurrencyProbe: @unchecked Sendable {
 
 private final class AXRebindCacheBox: @unchecked Sendable {
     var windows: ThreadGuardedValue<[Int: AXUIElement]>?
-    var subscriptions: ThreadGuardedValue<[Int: AXUIElement]>?
+    var subscriptions: ThreadGuardedValue<[Int: AppAXWindowSubscription]>?
 }
 
 private actor AXBoundaryAsyncGate {
@@ -70,6 +94,888 @@ private actor AXBoundaryAsyncGate {
 
 @MainActor
 final class AXFullRescanBoundaryTests: XCTestCase {
+    func testNotificationInstallationOwnershipMatrix() throws {
+        struct Scenario {
+            let name: String
+            let ownsLifecycle: Bool
+            let addResults: [AXError]
+            let hasSubscription: Bool
+            let newlyInstalled: AppAXWindowNotificationSet
+            let removed: [AppAXWindowNotification]
+        }
+
+        let windowId = 71_001
+        let element = AXUIElementCreateApplication(71_002)
+        let scenarios = [
+            Scenario(
+                name: "exact owned",
+                ownsLifecycle: true,
+                addResults: [],
+                hasSubscription: true,
+                newlyInstalled: [],
+                removed: []
+            ),
+            Scenario(
+                name: "adopt existing",
+                ownsLifecycle: false,
+                addResults: [.notificationAlreadyRegistered, .notificationAlreadyRegistered],
+                hasSubscription: true,
+                newlyInstalled: [],
+                removed: []
+            ),
+            Scenario(
+                name: "preserve adopted bit on later failure",
+                ownsLifecycle: false,
+                addResults: [.notificationAlreadyRegistered, .cannotComplete],
+                hasSubscription: false,
+                newlyInstalled: [],
+                removed: []
+            ),
+            Scenario(
+                name: "rollback only newly installed bit",
+                ownsLifecycle: false,
+                addResults: [.success, .cannotComplete],
+                hasSubscription: false,
+                newlyInstalled: [],
+                removed: [.destroyed]
+            ),
+            Scenario(
+                name: "install exact refcon",
+                ownsLifecycle: false,
+                addResults: [.success, .success],
+                hasSubscription: true,
+                newlyInstalled: .lifecycle,
+                removed: []
+            )
+        ]
+
+        for scenario in scenarios {
+            var addIndex = 0
+            var refconWindowIds: [Int?] = []
+            var removed: [AppAXWindowNotification] = []
+            let owned = scenario.ownsLifecycle
+                ? AppAXWindowSubscription(
+                    windowId: windowId,
+                    element: element,
+                    notifications: .lifecycle
+                )
+                : nil
+
+            let result = try AppAXContext.installWindowNotifications(
+                element: element,
+                windowId: windowId,
+                ownedSubscription: owned,
+                addNotification: { _, refcon in
+                    refconWindowIds.append(AppAXContext.destroyNotificationWindowId(from: refcon))
+                    guard addIndex < scenario.addResults.count else {
+                        XCTFail("Unexpected add for \(scenario.name)")
+                        return .failure
+                    }
+                    defer { addIndex += 1 }
+                    return scenario.addResults[addIndex]
+                },
+                removeNotification: {
+                    removed.append($0)
+                    return .success
+                }
+            )
+
+            XCTAssertEqual(result.subscription != nil, scenario.hasSubscription, scenario.name)
+            XCTAssertEqual(result.subscription?.windowId, scenario.hasSubscription ? windowId : nil, scenario.name)
+            XCTAssertEqual(
+                result.subscription?.notifications,
+                scenario.hasSubscription ? .lifecycle : nil,
+                scenario.name
+            )
+            XCTAssertEqual(result.newlyInstalled, scenario.newlyInstalled, scenario.name)
+            XCTAssertEqual(refconWindowIds, Array(repeating: windowId, count: scenario.addResults.count), scenario.name)
+            XCTAssertEqual(removed, scenario.removed, scenario.name)
+            XCTAssertTrue(result.pendingRemovals.isEmpty, scenario.name)
+        }
+    }
+
+    func testReplacementRemovalFailureFlowsThroughPendingLedgerAndRetry() throws {
+        let element = AXUIElementCreateApplication(71_003)
+        let oldWindowId = 71_004
+        let newWindowId = 71_005
+        var registrations = Dictionary(
+            uniqueKeysWithValues: AppAXWindowNotification.allCases.map { ($0, oldWindowId) }
+        )
+        var removalFails = true
+        let addNotification: (AppAXWindowNotification, UnsafeMutableRawPointer?) -> AXError = {
+            notification,
+            refcon in
+            guard registrations[notification] == nil else { return .notificationAlreadyRegistered }
+            registrations[notification] = AppAXContext.destroyNotificationWindowId(from: refcon)
+            return .success
+        }
+        let removeNotification: (AppAXWindowNotification) -> AXError = { notification in
+            guard !removalFails else { return .cannotComplete }
+            registrations[notification] = nil
+            return .success
+        }
+
+        let failed = try AppAXContext.installWindowNotifications(
+            element: element,
+            windowId: newWindowId,
+            ownedSubscription: nil,
+            addNotification: addNotification,
+            removeNotification: removeNotification,
+            alreadyRegisteredPolicy: .replace
+        )
+
+        XCTAssertNil(failed.subscription)
+        XCTAssertEqual(failed.pendingRemovals.map(\.notification), [.destroyed])
+        XCTAssertTrue(failed.pendingRemovals.first.map {
+            CFEqual($0.element, element)
+        } == true)
+        XCTAssertEqual(registrations[.destroyed], oldWindowId)
+
+        removalFails = false
+        for pending in failed.pendingRemovals {
+            XCTAssertEqual(removeNotification(pending.notification), .success)
+        }
+        let retried = try AppAXContext.installWindowNotifications(
+            element: element,
+            windowId: newWindowId,
+            ownedSubscription: nil,
+            addNotification: addNotification,
+            removeNotification: removeNotification,
+            alreadyRegisteredPolicy: .replace
+        )
+
+        XCTAssertEqual(retried.subscription?.windowId, newWindowId)
+        XCTAssertEqual(retried.subscription?.notifications, .lifecycle)
+        XCTAssertEqual(registrations[.destroyed], newWindowId)
+        XCTAssertEqual(registrations[.miniaturized], newWindowId)
+    }
+
+    func testRebindStageRejectsCrossIdAlreadyRegisteredCallbacksWithoutDeletingOwner() throws {
+        let element = AXUIElementCreateApplication(71_036)
+        let firstWindowId = 71_037
+        let secondWindowId = 71_038
+        var registrations: [AppAXWindowNotification: Int] = [:]
+        var removed: [AppAXWindowNotification] = []
+        let addNotification: (AppAXWindowNotification, UnsafeMutableRawPointer?) -> AXError = {
+            notification,
+            refcon in
+            guard registrations[notification] == nil else {
+                return .notificationAlreadyRegistered
+            }
+            registrations[notification] = AppAXContext.destroyNotificationWindowId(from: refcon)
+            return .success
+        }
+        let removeNotification: (AppAXWindowNotification) -> AXError = { notification in
+            removed.append(notification)
+            registrations[notification] = nil
+            return .success
+        }
+
+        let first = try AppAXContext.installWindowNotifications(
+            element: element,
+            windowId: firstWindowId,
+            ownedSubscription: nil,
+            addNotification: addNotification,
+            removeNotification: removeNotification,
+            alreadyRegisteredPolicy: .reject
+        )
+        let second = try AppAXContext.installWindowNotifications(
+            element: element,
+            windowId: secondWindowId,
+            ownedSubscription: nil,
+            addNotification: addNotification,
+            removeNotification: removeNotification,
+            alreadyRegisteredPolicy: .reject
+        )
+
+        XCTAssertEqual(first.subscription?.windowId, firstWindowId)
+        XCTAssertEqual(first.newlyInstalled, .lifecycle)
+        XCTAssertNil(second.subscription)
+        XCTAssertEqual(second.newlyInstalled, [])
+        XCTAssertTrue(second.pendingRemovals.isEmpty)
+        XCTAssertEqual(registrations[.destroyed], firstWindowId)
+        XCTAssertEqual(registrations[.miniaturized], firstWindowId)
+        XCTAssertTrue(removed.isEmpty)
+
+        guard let firstSubscription = first.subscription else {
+            return XCTFail("Expected initial subscription")
+        }
+        XCTAssertTrue(
+            AppAXContext.removeOwnedWindowNotifications(
+                firstSubscription,
+                removeNotification: removeNotification
+            ).isEmpty
+        )
+        let retry = try AppAXContext.installWindowNotifications(
+            element: element,
+            windowId: secondWindowId,
+            ownedSubscription: nil,
+            addNotification: addNotification,
+            removeNotification: removeNotification,
+            alreadyRegisteredPolicy: .reject
+        )
+        XCTAssertEqual(retry.subscription?.windowId, secondWindowId)
+        XCTAssertEqual(retry.newlyInstalled, .lifecycle)
+        XCTAssertEqual(registrations[.destroyed], secondWindowId)
+        XCTAssertEqual(registrations[.miniaturized], secondWindowId)
+    }
+
+    func testRebindRetagRequiresExactSourceOwnerAndClearsSourceAlias() throws {
+        let pid: pid_t = 71_066
+        let oldWindow = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 71_067)
+        let newWindow = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 71_068)
+        let sourceSubscription = AppAXWindowSubscription(
+            windowId: oldWindow.windowId,
+            element: newWindow.element,
+            notifications: .lifecycle
+        )
+        let unrelatedSubscription = AppAXWindowSubscription(
+            windowId: 71_069,
+            element: newWindow.element,
+            notifications: .lifecycle
+        )
+
+        XCTAssertEqual(
+            AppAXContext.rebindSubscriptionOwnership(
+                sourceSubscription,
+                oldWindowId: oldWindow.windowId,
+                newWindowId: newWindow.windowId
+            ),
+            .source
+        )
+        XCTAssertEqual(
+            AppAXContext.rebindSubscriptionOwnership(
+                unrelatedSubscription,
+                oldWindowId: oldWindow.windowId,
+                newWindowId: newWindow.windowId
+            ),
+            .conflict
+        )
+
+        try $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([oldWindow.windowId: newWindow.element])
+            let subscriptions = ThreadGuardedValue([Int: AppAXWindowSubscription]())
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+            }
+            let destinationSubscription = AppAXWindowSubscription(
+                windowId: newWindow.windowId,
+                element: newWindow.element,
+                notifications: .lifecycle
+            )
+            let cleanup = try AppAXContext.commitWindowRebindCache(
+                oldWindow: oldWindow,
+                newWindow: newWindow,
+                destinationSubscription: destinationSubscription,
+                retireOldWindowState: true,
+                binding: AppAXWindowRebindBinding(
+                    destinationWindowElement: nil,
+                    destinationSubscription: nil,
+                    stagedSubscription: destinationSubscription,
+                    newlyInstalledNotifications: .lifecycle,
+                    requiresRetag: true,
+                    hasLifecycleObserver: true
+                ),
+                windows: windows,
+                subscribedWindows: subscriptions,
+                job: RunLoopJob()
+            )
+
+            XCTAssertTrue(cleanup.subscriptions.isEmpty)
+            XCTAssertNil(windows[oldWindow.windowId])
+            XCTAssertTrue(windows[newWindow.windowId].map {
+                CFEqual($0, newWindow.element)
+            } == true)
+        }
+    }
+
+    func testCancellationAfterFirstNotificationRetainsFailedRollback() {
+        let windowId = 71_010
+        let element = AXUIElementCreateApplication(71_011)
+        var cancellationChecks = 0
+        var added: [AppAXWindowNotification] = []
+        var removed: [AppAXWindowNotification] = []
+        var pending: [AppAXPendingNotificationRemoval] = []
+
+        XCTAssertThrowsError(
+            try AppAXContext.installWindowNotifications(
+                element: element,
+                windowId: windowId,
+                ownedSubscription: nil,
+                addNotification: { notification, _ in
+                    added.append(notification)
+                    return .success
+                },
+                removeNotification: { notification in
+                    removed.append(notification)
+                    return .cannotComplete
+                },
+                checkCancellation: {
+                    cancellationChecks += 1
+                    if cancellationChecks == 2 {
+                        throw CancellationError()
+                    }
+                },
+                recordPendingRemovals: { pending.append(contentsOf: $0) }
+            )
+        ) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+
+        XCTAssertEqual(added, [.destroyed])
+        XCTAssertEqual(removed, [.destroyed])
+        XCTAssertEqual(pending.map(\.notification), [.destroyed])
+        XCTAssertTrue(pending.first.map { CFEqual($0.element, element) } == true)
+    }
+
+    func testAuthoritativeBindingPrunesOrphanStateAndPreservesExactWorldTarget() throws {
+        let pid: pid_t = getpid()
+        let exactWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid),
+            windowId: 71_015
+        )
+        let orphanWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(.max),
+            windowId: 71_016
+        )
+        let exactSubscription = AppAXWindowSubscription(
+            windowId: exactWindow.windowId,
+            element: exactWindow.element,
+            notifications: .lifecycle
+        )
+        let orphanSubscription = AppAXWindowSubscription(
+            windowId: orphanWindow.windowId,
+            element: orphanWindow.element,
+            notifications: .lifecycle
+        )
+        var observerStorage: AXObserver?
+        XCTAssertEqual(AXObserverCreate(pid, axBoundaryObserverCallback, &observerStorage), .success)
+        let createdObserver = try XCTUnwrap(observerStorage)
+
+        try $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([
+                exactWindow.windowId: exactWindow.element,
+                orphanWindow.windowId: orphanWindow.element
+            ])
+            let subscriptions = ThreadGuardedValue([
+                exactWindow.windowId: exactSubscription,
+                orphanWindow.windowId: orphanSubscription
+            ])
+            let pending = ThreadGuardedValue([
+                AppAXPendingNotificationRemoval(
+                    element: orphanWindow.element,
+                    notification: .destroyed
+                )
+            ])
+            let observer = ThreadGuardedValue<AXObserver?>(createdObserver)
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+                pending.destroy()
+                observer.destroy()
+            }
+            let epoch = LockedGenerationEpoch()
+
+            let result = try AppAXContext.performWindowBinding(
+                [exactWindow.windowId: exactWindow],
+                bindingGeneration: epoch.advance(),
+                pruningUnboundState: true,
+                timeoutSeconds: 0,
+                windows: windows,
+                windowBindingEpoch: epoch,
+                axObserver: observer,
+                subscribedWindows: subscriptions,
+                pendingNotificationRemovals: pending,
+                job: RunLoopJob()
+            )
+
+            XCTAssertEqual(result, .retryRequired)
+            XCTAssertTrue(windows[exactWindow.windowId].map {
+                CFEqual($0, exactWindow.element)
+            } == true)
+            XCTAssertTrue(subscriptions[exactWindow.windowId].map {
+                CFEqual($0.element, exactWindow.element)
+            } == true)
+            XCTAssertNil(windows[orphanWindow.windowId])
+            XCTAssertNil(subscriptions[orphanWindow.windowId])
+            XCTAssertEqual(
+                Set(pending.value.map(\.notification)),
+                Set(AppAXWindowNotification.allCases)
+            )
+            XCTAssertTrue(pending.value.allSatisfy {
+                CFEqual($0.element, orphanWindow.element)
+            })
+        }
+    }
+
+    func testIncrementalBindingDoesNotPruneUnrelatedObservedState() throws {
+        let pid: pid_t = 71_017
+        let target = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 71_018)
+        let observed = AXWindowRef(element: AXUIElementCreateApplication(pid + 1), windowId: 71_019)
+        let staleTargetObservation = AXUIElementCreateApplication(pid + 2)
+
+        try $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([
+                observed.windowId: observed.element,
+                target.windowId: staleTargetObservation
+            ])
+            let subscriptions = ThreadGuardedValue([
+                observed.windowId: AppAXWindowSubscription(
+                    windowId: observed.windowId,
+                    element: observed.element,
+                    notifications: .lifecycle
+                )
+            ])
+            let pending = ThreadGuardedValue([AppAXPendingNotificationRemoval]())
+            let observer = ThreadGuardedValue<AXObserver?>(nil)
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+                pending.destroy()
+                observer.destroy()
+            }
+            let epoch = LockedGenerationEpoch()
+
+            let result = try AppAXContext.performWindowBinding(
+                [target.windowId: target],
+                bindingGeneration: epoch.advance(),
+                pruningUnboundState: false,
+                timeoutSeconds: 0,
+                windows: windows,
+                windowBindingEpoch: epoch,
+                axObserver: observer,
+                subscribedWindows: subscriptions,
+                pendingNotificationRemovals: pending,
+                job: RunLoopJob()
+            )
+
+            XCTAssertEqual(result, .bound)
+            XCTAssertTrue(windows[observed.windowId].map { CFEqual($0, observed.element) } == true)
+            XCTAssertNotNil(subscriptions[observed.windowId])
+            XCTAssertTrue(windows[target.windowId].map { CFEqual($0, target.element) } == true)
+        }
+    }
+
+    func testStaleEnumerationPublishDoesNotCancelNewerWorldBinding() throws {
+        let pid: pid_t = 71_062
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 71_063)
+        let observation = AXUIElementCreateApplication(pid + 1)
+
+        try $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([Int: AXUIElement]())
+            let subscriptions = ThreadGuardedValue([Int: AppAXWindowSubscription]())
+            let pending = ThreadGuardedValue([AppAXPendingNotificationRemoval]())
+            let observer = ThreadGuardedValue<AXObserver?>(nil)
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+                pending.destroy()
+                observer.destroy()
+            }
+            let epoch = LockedGenerationEpoch()
+            let enumerationGeneration = epoch.current()
+            let bindingGeneration = epoch.advance()
+
+            XCTAssertFalse(
+                AppAXContext.replaceEnumeratedWindowCache(
+                    with: [window.windowId: observation],
+                    windows: windows,
+                    bindingGeneration: enumerationGeneration,
+                    windowBindingEpoch: epoch
+                )
+            )
+            let result = try AppAXContext.performWindowBinding(
+                [window.windowId: window],
+                bindingGeneration: bindingGeneration,
+                pruningUnboundState: false,
+                timeoutSeconds: 0,
+                windows: windows,
+                windowBindingEpoch: epoch,
+                axObserver: observer,
+                subscribedWindows: subscriptions,
+                pendingNotificationRemovals: pending,
+                job: RunLoopJob()
+            )
+
+            XCTAssertEqual(result, .bound)
+            XCTAssertTrue(epoch.isCurrent(bindingGeneration))
+            XCTAssertTrue(windows[window.windowId].map { CFEqual($0, window.element) } == true)
+        }
+    }
+
+    func testDuplicateEnumerationWindowIdKeepsOnlyFinalElement() {
+        let windowId = 71_016
+        let firstElement = AXUIElementCreateApplication(71_017)
+        let finalElement = AXUIElementCreateApplication(71_018)
+        let geometry = WindowAdmissionGeometryEvidence(
+            isSizeSettable: true,
+            frame: CGRect(x: 10, y: 20, width: 800, height: 600)
+        )
+        var windows: [AXEnumeratedWindow] = []
+        AppAXContext.recordFinalEnumeratedWindow(
+            AXEnumeratedWindow(
+                axRef: AXWindowRef(element: firstElement, windowId: windowId),
+                axPid: 71_017,
+                role: nil,
+                subrole: nil,
+                admissionGeometry: geometry
+            ),
+            in: &windows,
+            isFirstOccurrence: true
+        )
+        AppAXContext.recordFinalEnumeratedWindow(
+            AXEnumeratedWindow(
+                axRef: AXWindowRef(element: finalElement, windowId: windowId),
+                axPid: 71_018,
+                role: nil,
+                subrole: nil,
+                admissionGeometry: geometry
+            ),
+            in: &windows,
+            isFirstOccurrence: false
+        )
+
+        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(windows.first?.axPid, 71_018)
+        XCTAssertTrue(windows.first.map { CFEqual($0.axRef.element, finalElement) } == true)
+    }
+
+    func testFrameGenerationCannotABAAfterRemovalAndReuse() {
+        let generations = LockedWindowGenerationMap()
+        let windowId = 71_024
+        let first = generations.nextGeneration(for: windowId)
+        generations.invalidateAndRemove(windowId)
+        let replacement = generations.nextGeneration(for: windowId)
+
+        XCTAssertNotEqual(first, replacement)
+        XCTAssertFalse(generations.isCurrent(first, for: windowId))
+        XCTAssertTrue(generations.isCurrent(replacement, for: windowId))
+    }
+
+    func testAuthoritativeFrameStateRetentionPrunesOnlyOrphans() {
+        let generations = LockedWindowGenerationMap()
+        let suppression = LockedWindowIdSet()
+        let retainedWindowId = 71_064
+        let orphanWindowId = 71_065
+        let retainedGeneration = generations.nextGeneration(for: retainedWindowId)
+        let orphanGeneration = generations.nextGeneration(for: orphanWindowId)
+        suppression.insert(retainedWindowId)
+        suppression.insert(orphanWindowId)
+
+        generations.retainOnly([retainedWindowId])
+        suppression.retainOnly([retainedWindowId])
+        let replacementGeneration = generations.nextGeneration(for: orphanWindowId)
+
+        XCTAssertTrue(generations.isCurrent(retainedGeneration, for: retainedWindowId))
+        XCTAssertFalse(generations.isCurrent(orphanGeneration, for: orphanWindowId))
+        XCTAssertNotEqual(orphanGeneration, replacementGeneration)
+        XCTAssertTrue(generations.isCurrent(replacementGeneration, for: orphanWindowId))
+        XCTAssertTrue(suppression.contains(retainedWindowId))
+        XCTAssertFalse(suppression.contains(orphanWindowId))
+    }
+
+    func testRefreshedDifferentElementInvalidatesFrameRequest() {
+        let generations = LockedWindowGenerationMap()
+        let windowId = 71_025
+        let cachedElement = AXUIElementCreateApplication(71_026)
+        let replacementElement = AXUIElementCreateApplication(71_027)
+        let requestGeneration = generations.nextGeneration(for: windowId)
+
+        XCTAssertFalse(
+            AppAXContext.acceptsRefreshedFrameElement(
+                cachedElement: cachedElement,
+                refreshedElement: replacementElement,
+                windowId: windowId,
+                requestGeneration: requestGeneration,
+                generations: generations
+            )
+        )
+        XCTAssertFalse(generations.isCurrent(requestGeneration, for: windowId))
+    }
+
+    func testRefreshedSameElementKeepsFrameRequestCurrent() {
+        let generations = LockedWindowGenerationMap()
+        let windowId = 71_028
+        let element = AXUIElementCreateApplication(71_029)
+        let requestGeneration = generations.nextGeneration(for: windowId)
+
+        XCTAssertTrue(
+            AppAXContext.acceptsRefreshedFrameElement(
+                cachedElement: element,
+                refreshedElement: element,
+                windowId: windowId,
+                requestGeneration: requestGeneration,
+                generations: generations
+            )
+        )
+        XCTAssertTrue(generations.isCurrent(requestGeneration, for: windowId))
+    }
+
+    func testFrameWriteUsesExpectedElementWithoutAppCacheEntry() {
+        let pid: pid_t = 71_031
+        let windowId = 71_032
+        let expectedWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid),
+            windowId: windowId
+        )
+        let target = CGRect(x: 10, y: 20, width: 640, height: 480)
+        let generations = LockedWindowGenerationMap()
+        let generation = generations.nextGeneration(for: windowId)
+        let request = AppAXFrameWriteRequest(
+            requestId: 1,
+            pid: pid,
+            windowId: windowId,
+            expectedWindow: expectedWindow,
+            frame: target,
+            currentFrameHint: nil,
+            generation: generation,
+            verify: true
+        )
+        var writtenElements: [AXUIElement] = []
+        var refreshed = false
+
+        let result = applyFrameWriteRequest(
+            request,
+            pid: pid,
+            generations: generations,
+            writeFrame: { window, frame, _, _ in
+                writtenElements.append(window.element)
+                return AXFrameWriteResult(
+                    targetFrame: frame,
+                    observedFrame: frame,
+                    writeOrder: .sizeThenPosition,
+                    sizeError: .success,
+                    positionError: .success,
+                    failureReason: nil
+                )
+            },
+            refreshWindow: { _, _ in
+                refreshed = true
+                return nil
+            }
+        )
+
+        XCTAssertNil(result.writeResult.failureReason)
+        XCTAssertEqual(writtenElements.count, 1)
+        XCTAssertTrue(writtenElements.first.map { CFEqual($0, expectedWindow.element) } == true)
+        XCTAssertFalse(refreshed)
+    }
+
+    func testFrameRefreshMismatchNeverWritesReplacementElement() {
+        let pid: pid_t = 71_033
+        let windowId = 71_034
+        let expectedWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid),
+            windowId: windowId
+        )
+        let replacementWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid + 1),
+            windowId: windowId
+        )
+        let target = CGRect(x: 10, y: 20, width: 640, height: 480)
+        let generations = LockedWindowGenerationMap()
+        let generation = generations.nextGeneration(for: windowId)
+        let request = AppAXFrameWriteRequest(
+            requestId: 2,
+            pid: pid,
+            windowId: windowId,
+            expectedWindow: expectedWindow,
+            frame: target,
+            currentFrameHint: nil,
+            generation: generation,
+            verify: true
+        )
+        var writtenElements: [AXUIElement] = []
+
+        let result = applyFrameWriteRequest(
+            request,
+            pid: pid,
+            generations: generations,
+            writeFrame: { window, frame, hint, _ in
+                writtenElements.append(window.element)
+                return .skipped(
+                    targetFrame: frame,
+                    currentFrameHint: hint,
+                    failureReason: .staleElement
+                )
+            },
+            refreshWindow: { _, _ in replacementWindow }
+        )
+
+        XCTAssertEqual(result.writeResult.failureReason, .cancelled)
+        XCTAssertEqual(writtenElements.count, 1)
+        XCTAssertTrue(writtenElements.first.map { CFEqual($0, expectedWindow.element) } == true)
+        XCTAssertFalse(writtenElements.contains { CFEqual($0, replacementWindow.element) })
+        XCTAssertFalse(generations.isCurrent(generation, for: windowId))
+    }
+
+    func testRapidBindingSupersessionReturnsSupersededWithoutPublishing() throws {
+        let pid: pid_t = 71_058
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 71_059)
+
+        try $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([Int: AXUIElement]())
+            let subscriptions = ThreadGuardedValue([Int: AppAXWindowSubscription]())
+            let pending = ThreadGuardedValue([AppAXPendingNotificationRemoval]())
+            let observer = ThreadGuardedValue<AXObserver?>(nil)
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+                pending.destroy()
+                observer.destroy()
+            }
+            let epoch = LockedGenerationEpoch()
+            let staleGeneration = epoch.advance()
+            _ = epoch.advance()
+
+            let result = try AppAXContext.performWindowBinding(
+                [window.windowId: window],
+                bindingGeneration: staleGeneration,
+                pruningUnboundState: false,
+                timeoutSeconds: 0,
+                windows: windows,
+                windowBindingEpoch: epoch,
+                axObserver: observer,
+                subscribedWindows: subscriptions,
+                pendingNotificationRemovals: pending,
+                job: RunLoopJob()
+            )
+
+            XCTAssertEqual(result, .superseded)
+            XCTAssertTrue(windows.value.isEmpty)
+            XCTAssertTrue(subscriptions.value.isEmpty)
+        }
+    }
+
+    func testCrossIdentityBindingReturnsSupersededAndPreservesPublishedOwner() throws {
+        let pid: pid_t = getpid()
+        let oldWindowId = 71_060
+        let newWindow = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 71_061)
+        let oldSubscription = AppAXWindowSubscription(
+            windowId: oldWindowId,
+            element: newWindow.element,
+            notifications: .lifecycle
+        )
+        var observerStorage: AXObserver?
+        XCTAssertEqual(AXObserverCreate(pid, axBoundaryObserverCallback, &observerStorage), .success)
+        let createdObserver = try XCTUnwrap(observerStorage)
+
+        try $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([newWindow.windowId: newWindow.element])
+            let subscriptions = ThreadGuardedValue([oldWindowId: oldSubscription])
+            let pending = ThreadGuardedValue([AppAXPendingNotificationRemoval]())
+            let observer = ThreadGuardedValue<AXObserver?>(createdObserver)
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+                pending.destroy()
+                observer.destroy()
+            }
+            let epoch = LockedGenerationEpoch()
+
+            let result = try AppAXContext.performWindowBinding(
+                [newWindow.windowId: newWindow],
+                bindingGeneration: epoch.advance(),
+                pruningUnboundState: false,
+                timeoutSeconds: 0,
+                windows: windows,
+                windowBindingEpoch: epoch,
+                axObserver: observer,
+                subscribedWindows: subscriptions,
+                pendingNotificationRemovals: pending,
+                job: RunLoopJob()
+            )
+
+            XCTAssertEqual(result, .superseded)
+            XCTAssertTrue(subscriptions[oldWindowId].map {
+                CFEqual($0.element, newWindow.element)
+            } == true)
+            XCTAssertNil(subscriptions[newWindow.windowId])
+        }
+    }
+
+    func testExactRemovalPreservesInterposedSameIdIncarnation() {
+        let pid: pid_t = 71_049
+        let windowId = 71_050
+        let retired = AXWindowRef(
+            element: AXUIElementCreateApplication(pid),
+            windowId: windowId
+        )
+        let interposed = AXWindowRef(
+            element: AXUIElementCreateApplication(pid + 1),
+            windowId: windowId
+        )
+
+        $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([windowId: interposed.element])
+            let subscription = AppAXWindowSubscription(
+                windowId: windowId,
+                element: interposed.element,
+                notifications: .lifecycle
+            )
+            let subscriptions = ThreadGuardedValue([windowId: subscription])
+            let pending = ThreadGuardedValue([AppAXPendingNotificationRemoval]())
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+                pending.destroy()
+            }
+
+            let outcome = AppAXContext.removeExactWindowState(
+                expectedWindow: retired,
+                windows: windows,
+                subscribedWindows: subscriptions,
+                pendingNotificationRemovals: pending
+            )
+
+            XCTAssertFalse(outcome.removedCachedWindow)
+            XCTAssertFalse(outcome.removedSubscription)
+            XCTAssertTrue(windows[windowId].map { CFEqual($0, interposed.element) } == true)
+            XCTAssertTrue(subscriptions[windowId].map { CFEqual($0.element, interposed.element) } == true)
+            XCTAssertTrue(pending.value.isEmpty)
+        }
+    }
+
+    func testExactRemovalDistinguishesSubscriptionOnlyDivergence() {
+        let pid: pid_t = 71_051
+        let windowId = 71_052
+        let cached = AXUIElementCreateApplication(pid)
+        let subscribed = AXWindowRef(
+            element: AXUIElementCreateApplication(pid + 1),
+            windowId: windowId
+        )
+
+        $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+            let windows = ThreadGuardedValue([windowId: cached])
+            let subscription = AppAXWindowSubscription(
+                windowId: windowId,
+                element: subscribed.element,
+                notifications: .lifecycle
+            )
+            let subscriptions = ThreadGuardedValue([windowId: subscription])
+            let pending = ThreadGuardedValue([AppAXPendingNotificationRemoval]())
+            defer {
+                windows.destroy()
+                subscriptions.destroy()
+                pending.destroy()
+            }
+
+            let outcome = AppAXContext.removeExactWindowState(
+                expectedWindow: subscribed,
+                windows: windows,
+                subscribedWindows: subscriptions,
+                pendingNotificationRemovals: pending
+            )
+
+            XCTAssertFalse(outcome.removedCachedWindow)
+            XCTAssertTrue(outcome.removedSubscription)
+            XCTAssertTrue(windows[windowId].map { CFEqual($0, cached) } == true)
+            XCTAssertNil(subscriptions[windowId])
+            XCTAssertEqual(Set(pending.value.map(\.notification)), Set(AppAXWindowNotification.allCases))
+        }
+    }
+
     func testFullRescanRoutesEvidenceAndPreservedStateToPersistentContexts() {
         XCTAssertEqual(
             AXManager.fullRescanEnumerationRoute(
@@ -572,82 +1478,6 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         XCTAssertEqual(maximumActive, 1)
     }
 
-    func testFrameSuccessCallbackRejectsStaleResults() throws {
-        let ledger = AXFrameApplicationLedger()
-        let pid: pid_t = 72_003
-        let windowId = 72_004
-        let firstTarget = CGRect(x: 10, y: 20, width: 800, height: 600)
-        let secondTarget = CGRect(x: 30, y: 40, width: 900, height: 700)
-        let firstRequest = try XCTUnwrap(
-            ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                frame: firstTarget,
-                isRetry: false,
-                terminalObserver: nil
-            ).request
-        )
-        let secondRequest = try XCTUnwrap(
-            ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                frame: secondTarget,
-                isRetry: false,
-                terminalObserver: nil
-            ).request
-        )
-        var acceptedWindowIds: [Int] = []
-
-        _ = ledger.handleFrameApplyResults([successfulResult(for: firstRequest)]) {
-            acceptedWindowIds.append($0.windowId)
-        }
-        XCTAssertTrue(acceptedWindowIds.isEmpty)
-
-        _ = ledger.handleFrameApplyResults([successfulResult(for: secondRequest)]) {
-            acceptedWindowIds.append($0.windowId)
-        }
-        XCTAssertEqual(acceptedWindowIds, [windowId])
-    }
-
-    func testIncarnationResetRejectsOldResultAndForcesSameFrameWrite() throws {
-        let ledger = AXFrameApplicationLedger()
-        let oldPID: pid_t = 72_005
-        let newPID: pid_t = 72_006
-        let windowId = 72_007
-        let target = CGRect(x: 10, y: 20, width: 800, height: 600)
-        let oldRequest = try XCTUnwrap(
-            ledger.prepareFrameApplication(
-                pid: oldPID,
-                windowId: windowId,
-                frame: target,
-                isRetry: false,
-                terminalObserver: nil
-            ).request
-        )
-        _ = ledger.removeWindowState(windowId: windowId)
-        ledger.forceApplyNextFrame(for: windowId)
-        let newRequest = try XCTUnwrap(
-            ledger.prepareFrameApplication(
-                pid: newPID,
-                windowId: windowId,
-                frame: target,
-                isRetry: false,
-                terminalObserver: nil
-            ).request
-        )
-        var accepted: [AXFrameApplyResult] = []
-
-        _ = ledger.handleFrameApplyResults([successfulResult(for: oldRequest)]) {
-            accepted.append($0)
-        }
-        XCTAssertTrue(accepted.isEmpty)
-
-        _ = ledger.handleFrameApplyResults([successfulResult(for: newRequest)]) {
-            accepted.append($0)
-        }
-        XCTAssertEqual(accepted.map(\.pid), [newPID])
-    }
-
     func testGenerationMoveInvalidatesLateOldWindowResult() {
         let generations = LockedWindowGenerationMap()
         let oldWindowId = 72_017
@@ -690,6 +1520,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         let pid: pid_t = 72_008
         let windowId = 72_009
         let target = CGRect(x: 10, y: 20, width: 800, height: 600)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
         manager.recordParkCommand(for: windowId)
 
         manager.handleFrameApplyResults([
@@ -697,6 +1528,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
                 requestId: 999,
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: window,
                 targetFrame: target,
                 currentFrameHint: nil,
                 writeResult: AXFrameWriteResult(
@@ -714,22 +1546,41 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         manager.cleanup()
     }
 
-    private func successfulResult(for request: AXFrameApplicationRequest) -> AXFrameApplyResult {
-        AXFrameApplyResult(
-            requestId: request.requestId,
-            pid: request.pid,
-            windowId: request.windowId,
-            targetFrame: request.frame,
-            currentFrameHint: request.currentFrameHint,
-            writeResult: AXFrameWriteResult(
-                targetFrame: request.frame,
-                observedFrame: request.frame,
-                writeOrder: .sizeThenPosition,
-                sizeError: .success,
-                positionError: .success,
-                failureReason: nil
-            )
+    func testManagedWindowBindingRetryBackoffIsBounded() async {
+        XCTAssertEqual(AXManager.managedWindowBindingRetryDelay(afterFailure: 1), .milliseconds(100))
+        XCTAssertEqual(AXManager.managedWindowBindingRetryDelay(afterFailure: 2), .milliseconds(250))
+        XCTAssertEqual(AXManager.managedWindowBindingRetryDelay(afterFailure: 3), .milliseconds(500))
+        XCTAssertNil(AXManager.managedWindowBindingRetryDelay(afterFailure: 4))
+
+        let manager = AXManager()
+        defer { manager.cleanup() }
+        let pid: pid_t = 910_321
+        let windowId = 910_322
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
+        let entry = WindowState(
+            token: WindowToken(pid: pid, windowId: windowId),
+            axRef: window,
+            workspaceId: UUID(),
+            mode: .tiling,
+            managedReplacementMetadata: nil,
+            ruleEffects: .none,
+            admissionHints: .none
         )
+        let retries = expectation(description: "bounded binding retries")
+        retries.expectedFulfillmentCount = 3
+        var retryCount = 0
+        manager.managedWindowBindingRetryDelayProvider = {
+            $0 <= 3 ? .zero : nil
+        }
+        manager.onManagedWindowBindingFailed = { [weak manager] in
+            retryCount += 1
+            manager?.reconcileManagedWindowBindings([entry])
+            retries.fulfill()
+        }
+
+        manager.bindManagedWindows([entry])
+        await fulfillment(of: [retries], timeout: 1)
+        XCTAssertEqual(retryCount, 3)
     }
 
     private func candidate(
@@ -793,11 +1644,58 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
             XCTAssertTrue(error is RunLoopTimeoutError)
         }
 
-        XCTAssertEqual(started.wait(timeout: .now()), .success)
+        XCTAssertEqual(started.wait(timeout: .now() + 1), .success)
         XCTAssertEqual(finished.wait(timeout: .now()), .timedOut)
         release.signal()
         XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
         XCTAssertEqual(cacheMutation.value, 0)
+        thread.runInLoopAsync { _ in
+            CFRunLoopStop(CFRunLoopGetCurrent())
+        }
+    }
+
+    func testTimedOutSuccessfulBodyRunsUndeliveredSuccessExactlyOnce() async {
+        let ready = DispatchSemaphore(value: 0)
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let undelivered = DispatchSemaphore(value: 0)
+        let hookCount = AXBoundaryCounter()
+        let deliveredValue = AXBoundaryValueBox<Int?>(nil)
+        let thread = Thread {
+            let port = NSMachPort()
+            RunLoop.current.add(port, forMode: .default)
+            ready.signal()
+            CFRunLoopRun()
+        }
+        thread.start()
+        XCTAssertEqual(ready.wait(timeout: .now() + 1), .success)
+
+        do {
+            _ = try await thread.runInLoop(
+                timeout: .milliseconds(250),
+                onUndeliveredSuccess: { value in
+                    hookCount.increment()
+                    deliveredValue.value = value
+                    undelivered.signal()
+                }
+            ) { _ in
+                defer { finished.signal() }
+                started.signal()
+                release.wait()
+                return 469_091
+            }
+            XCTFail("Expected timeout")
+        } catch {
+            XCTAssertTrue(error is RunLoopTimeoutError)
+        }
+
+        XCTAssertEqual(started.wait(timeout: .now() + 1), .success)
+        release.signal()
+        XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(undelivered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(hookCount.value, 1)
+        XCTAssertEqual(deliveredValue.value, 469_091)
         thread.runInLoopAsync { _ in
             CFRunLoopStop(CFRunLoopGetCurrent())
         }
@@ -824,7 +1722,13 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
         let thread = Thread {
             $appThreadToken.withValue(AppThreadToken(pid: pid)) {
                 cacheBox.windows = ThreadGuardedValue([oldWindowId: oldWindow.element])
-                cacheBox.subscriptions = ThreadGuardedValue([oldWindowId: oldWindow.element])
+                cacheBox.subscriptions = ThreadGuardedValue([
+                    oldWindowId: AppAXWindowSubscription(
+                        windowId: oldWindowId,
+                        element: oldWindow.element,
+                        notifications: .lifecycle
+                    )
+                ])
                 let port = NSMachPort()
                 RunLoop.current.add(port, forMode: .default)
                 ready.signal()
@@ -845,7 +1749,7 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
                     if windows[newWindowId] == nil,
                        subscriptions[newWindowId] == nil,
                        windows[oldWindowId].map({ CFEqual($0, oldWindow.element) }) == true,
-                       subscriptions[oldWindowId].map({ CFEqual($0, oldWindow.element) }) == true
+                       subscriptions[oldWindowId].map({ CFEqual($0.element, oldWindow.element) }) == true
                     {
                         unchanged.increment()
                     }
@@ -856,8 +1760,24 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
                 _ = try AppAXContext.commitWindowRebindCache(
                     oldWindow: oldWindow,
                     newWindow: newWindow,
+                    destinationSubscription: AppAXWindowSubscription(
+                        windowId: newWindowId,
+                        element: newWindow.element,
+                        notifications: .lifecycle
+                    ),
                     retireOldWindowState: true,
-                    hasObserver: true,
+                    binding: AppAXWindowRebindBinding(
+                        destinationWindowElement: nil,
+                        destinationSubscription: nil,
+                        stagedSubscription: AppAXWindowSubscription(
+                            windowId: newWindowId,
+                            element: newWindow.element,
+                            notifications: .lifecycle
+                        ),
+                        newlyInstalledNotifications: .lifecycle,
+                        requiresRetag: false,
+                        hasLifecycleObserver: true
+                    ),
                     windows: windows,
                     subscribedWindows: subscriptions,
                     job: job
@@ -869,7 +1789,7 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
             XCTAssertTrue(error is RunLoopTimeoutError)
         }
 
-        XCTAssertEqual(started.wait(timeout: .now()), .success)
+        XCTAssertEqual(started.wait(timeout: .now() + 1), .success)
         XCTAssertEqual(finished.wait(timeout: .now()), .timedOut)
         release.signal()
         XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
@@ -881,39 +1801,153 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
         }
     }
 
-    func testRebindCommitWaitsForSubscriptionCleanup() async throws {
+    func testRebindCachePublishesWithoutLifecycleObserver() async throws {
         let ready = DispatchSemaphore(value: 0)
-        let started = DispatchSemaphore(value: 0)
-        let release = DispatchSemaphore(value: 0)
-        let completed = DispatchSemaphore(value: 0)
+        let cacheBox = AXRebindCacheBox()
+        let pid: pid_t = 469_110
+        let oldWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid),
+            windowId: 469_111
+        )
+        let newWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid + 1),
+            windowId: 469_112
+        )
         let thread = Thread {
-            let port = NSMachPort()
-            RunLoop.current.add(port, forMode: .default)
-            ready.signal()
-            CFRunLoopRun()
+            $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+                cacheBox.windows = ThreadGuardedValue([oldWindow.windowId: oldWindow.element])
+                cacheBox.subscriptions = ThreadGuardedValue([:])
+                let port = NSMachPort()
+                RunLoop.current.add(port, forMode: .default)
+                ready.signal()
+                CFRunLoopRun()
+            }
         }
         thread.start()
         XCTAssertEqual(ready.wait(timeout: .now() + 1), .success)
-        nonisolated(unsafe) let appThread = thread
 
-        let completion = Task {
-            try await AppAXContext.awaitWindowRebindCleanup(
-                thread: appThread,
-                timeout: .seconds(2)
-            ) { job in
-                started.signal()
-                release.wait()
-                try job.checkCancellation()
+        let committed = try await thread.runInLoop(timeout: .seconds(1)) { job in
+            guard let windows = cacheBox.windows,
+                  let subscriptions = cacheBox.subscriptions
+            else {
+                return false
             }
-            completed.signal()
+            let cleanup = try AppAXContext.commitWindowRebindCache(
+                oldWindow: oldWindow,
+                newWindow: newWindow,
+                destinationSubscription: nil,
+                retireOldWindowState: true,
+                binding: AppAXWindowRebindBinding(
+                    destinationWindowElement: nil,
+                    destinationSubscription: nil,
+                    stagedSubscription: nil,
+                    newlyInstalledNotifications: [],
+                    requiresRetag: false,
+                    hasLifecycleObserver: false
+                ),
+                windows: windows,
+                subscribedWindows: subscriptions,
+                job: job
+            )
+            return cleanup.subscriptions.isEmpty
+                && windows[oldWindow.windowId] == nil
+                && subscriptions[oldWindow.windowId] == nil
+                && windows[newWindow.windowId].map({ CFEqual($0, newWindow.element) }) == true
+                && subscriptions[newWindow.windowId] == nil
         }
 
-        XCTAssertEqual(started.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(completed.wait(timeout: .now()), .timedOut)
-        release.signal()
-        try await completion.value
-        XCTAssertEqual(completed.wait(timeout: .now()), .success)
-        appThread.runInLoopAsync { _ in
+        XCTAssertTrue(committed)
+        thread.runInLoopAsync { _ in
+            cacheBox.windows?.destroy()
+            cacheBox.subscriptions?.destroy()
+            CFRunLoopStop(CFRunLoopGetCurrent())
+        }
+    }
+
+    func testRebindCachePreservesInterposedSourceIncarnation() async throws {
+        let ready = DispatchSemaphore(value: 0)
+        let cacheBox = AXRebindCacheBox()
+        let pid: pid_t = 469_120
+        let oldWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid),
+            windowId: 469_121
+        )
+        let interposedSource = AXWindowRef(
+            element: AXUIElementCreateApplication(pid + 1),
+            windowId: oldWindow.windowId
+        )
+        let newWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(pid + 2),
+            windowId: 469_122
+        )
+        let interposedSubscription = AppAXWindowSubscription(
+            windowId: interposedSource.windowId,
+            element: interposedSource.element,
+            notifications: .lifecycle
+        )
+        let destinationSubscription = AppAXWindowSubscription(
+            windowId: newWindow.windowId,
+            element: newWindow.element,
+            notifications: .lifecycle
+        )
+        let thread = Thread {
+            $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+                cacheBox.windows = ThreadGuardedValue([
+                    oldWindow.windowId: interposedSource.element
+                ])
+                cacheBox.subscriptions = ThreadGuardedValue([
+                    oldWindow.windowId: interposedSubscription
+                ])
+                let port = NSMachPort()
+                RunLoop.current.add(port, forMode: .default)
+                ready.signal()
+                CFRunLoopRun()
+            }
+        }
+        thread.start()
+        XCTAssertEqual(ready.wait(timeout: .now() + 1), .success)
+
+        let preserved = try await thread.runInLoop(timeout: .seconds(1)) { job in
+            guard let windows = cacheBox.windows,
+                  let subscriptions = cacheBox.subscriptions
+            else {
+                return false
+            }
+            let cleanup = try AppAXContext.commitWindowRebindCache(
+                oldWindow: oldWindow,
+                newWindow: newWindow,
+                destinationSubscription: destinationSubscription,
+                retireOldWindowState: true,
+                binding: AppAXWindowRebindBinding(
+                    destinationWindowElement: nil,
+                    destinationSubscription: nil,
+                    stagedSubscription: destinationSubscription,
+                    newlyInstalledNotifications: .lifecycle,
+                    requiresRetag: false,
+                    hasLifecycleObserver: true
+                ),
+                windows: windows,
+                subscribedWindows: subscriptions,
+                job: job
+            )
+            return cleanup.subscriptions.isEmpty
+                && windows[oldWindow.windowId].map({
+                    CFEqual($0, interposedSource.element)
+                }) == true
+                && subscriptions[oldWindow.windowId].map({
+                    CFEqual($0.element, interposedSource.element)
+                        && $0.notifications == .lifecycle
+                }) == true
+                && windows[newWindow.windowId].map({ CFEqual($0, newWindow.element) }) == true
+                && subscriptions[newWindow.windowId].map({
+                    CFEqual($0.element, destinationSubscription.element)
+                }) == true
+        }
+
+        XCTAssertTrue(preserved)
+        thread.runInLoopAsync { _ in
+            cacheBox.windows?.destroy()
+            cacheBox.subscriptions?.destroy()
             CFRunLoopStop(CFRunLoopGetCurrent())
         }
     }

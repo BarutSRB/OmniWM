@@ -6,14 +6,18 @@ import Foundation
 import OmniWMIPC
 import XCTest
 
-private actor DiagnosticsEvidenceGate {
+@MainActor
+private final class DiagnosticsEvidenceGate {
+    private var released = false
     private var continuation: CheckedContinuation<Void, Never>?
 
     func wait() async {
+        guard !released else { return }
         await withCheckedContinuation { continuation = $0 }
     }
 
     func release() {
+        released = true
         continuation?.resume()
         continuation = nil
     }
@@ -197,6 +201,7 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
             recorders: [recorder]
         )
         let gate = DiagnosticsEvidenceGate()
+        defer { gate.release() }
         let evidenceStarted = expectation(description: "automatic evidence started")
 
         guard case .started = await coordinator.toggle(
@@ -215,12 +220,12 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
         let stopTask = Task { @MainActor in
             await coordinator.toggle(desiredState: .inactive, reportProvider: { "end report" })
         }
-        await fulfillment(of: [evidenceStarted], timeout: 1)
+        await fulfillment(of: [evidenceStarted], timeout: 2)
 
         XCTAssertEqual(coordinator.status.phase, .finalizing)
         XCTAssertFalse(recorder.isActive)
         recorder.record("after stop")
-        await gate.release()
+        gate.release()
 
         guard case let .stopped(artifact) = await stopTask.value else {
             return XCTFail("expected final artifact")

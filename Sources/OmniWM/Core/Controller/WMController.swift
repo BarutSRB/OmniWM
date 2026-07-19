@@ -1606,7 +1606,9 @@ final class WMController {
             preferredMonitor: monitor
         ) {
             axManager.forceApplyNextFrame(for: entry.windowId)
-            axManager.applyFramesParallel([(entry.pid, entry.windowId, frame)])
+            axManager.applyFramesParallel([
+                .init(pid: entry.pid, window: entry.axRef, frame: frame)
+            ])
         }
 
         focusWindow(entry.token)
@@ -1655,7 +1657,9 @@ final class WMController {
                     )
                 {
                     axManager.forceApplyNextFrame(for: entry.windowId)
-                    axManager.applyFramesParallel([(entry.pid, entry.windowId, targetFrame)])
+                    axManager.applyFramesParallel([
+                        .init(pid: entry.pid, window: entry.axRef, frame: targetFrame)
+                    ])
                 }
             }
             return true
@@ -2174,8 +2178,13 @@ final class WMController {
                 axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
                 if let existingEntry {
                     affectedWorkspaceIds.insert(existingEntry.workspaceId)
-                    cleanupScratchpadWindowResourcesIfNeeded(for: token)
+                    let removesScratchpadResources = workspaceManager.isScratchpadToken(token)
+                        || workspaceManager.hiddenState(for: token)?.isScratchpad == true
                     _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
+                    axManager.removeWindowState(pid: token.pid, expectedWindow: existingEntry.axRef)
+                    if removesScratchpadResources {
+                        cleanupScratchpadWindowResources(for: token)
+                    }
                     relayoutNeeded = true
                 } else if evaluation.decision.disposition != .undecided {
                     axEventHandler.discardCreatePlacementContext(for: token.windowId)
@@ -2351,6 +2360,11 @@ final class WMController {
             }
         }
 
+        let evaluatedPIDs = Set(tokensToReevaluate.map(\.pid))
+        axManager.bindManagedWindows(
+            workspaceManager.allEntries().filter { evaluatedPIDs.contains($0.pid) }
+        )
+
         if relayoutNeeded {
             layoutRefreshController.requestRelayout(
                 reason: .windowRuleReevaluation,
@@ -2454,8 +2468,13 @@ final class WMController {
             existingEntry: entry
         ) else {
             axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
-            cleanupScratchpadWindowResourcesIfNeeded(for: token)
+            let removesScratchpadResources = workspaceManager.isScratchpadToken(token)
+                || workspaceManager.hiddenState(for: token)?.isScratchpad == true
             _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
+            axManager.removeWindowState(pid: token.pid, expectedWindow: entry.axRef)
+            if removesScratchpadResources {
+                cleanupScratchpadWindowResources(for: token)
+            }
             layoutRefreshController.requestRelayout(
                 reason: .windowRuleReevaluation,
                 affectedWorkspaceIds: [entry.workspaceId]
@@ -2674,7 +2693,7 @@ final class WMController {
         }
 
         let rescuePlan = restorePlanner.planFloatingRescue(candidates)
-        var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+        var frameUpdates: [AXFrameApplicationTarget] = []
         var visibleJobs: [(pid: pid_t, windowId: Int)] = []
         var rescuedEntries: [WindowState] = []
 
@@ -2696,7 +2715,9 @@ final class WMController {
                 axManager.markWindowActive(operation.windowId)
             }
             axManager.forceApplyNextFrame(for: operation.windowId)
-            frameUpdates.append((operation.pid, operation.windowId, operation.targetFrame))
+            frameUpdates.append(
+                .init(pid: entry.pid, window: entry.axRef, frame: operation.targetFrame)
+            )
             rescuedEntries.append(entry)
         }
 

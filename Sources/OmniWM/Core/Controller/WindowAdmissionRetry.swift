@@ -156,6 +156,7 @@ extension AXEventHandler {
               relation != .bindsIdentity || !state.exhausted
         else {
             state.task?.cancel()
+            admissionRetryStateByWindowId[windowId] = nil
             return nil
         }
         return state
@@ -184,7 +185,35 @@ extension AXEventHandler {
         schedule: AdmissionRetrySchedule,
         windowId: UInt32
     ) -> Bool? {
-        guard var state, state.task != nil || state.exhausted else { return nil }
+        guard var state else { return nil }
+        if state.exhausted {
+            state.expectedToken = schedule.expectedToken
+            state.axRef = schedule.axRef
+            state.reason = schedule.reason
+            state.trigger = schedule.trigger
+            admissionRetryStateByWindowId[windowId] = state
+            return false
+        }
+        switch state.executionPhase {
+        case .waiting:
+            guard state.task != nil else { return nil }
+        case .running:
+            guard schedule.trigger.priority >= state.trigger.priority else { return true }
+            state.task?.cancel()
+            let attempt = schedule.trigger.priority == state.trigger.priority
+                ? state.attempt + 1
+                : state.attempt
+            guard attempt <= Self.createdWindowRetryLimit else {
+                exhaustAdmissionRetry(state: state, schedule: schedule, windowId: windowId)
+                return false
+            }
+            scheduleAdmissionRetryTask(
+                schedule: schedule,
+                windowId: windowId,
+                attempt: attempt
+            )
+            return true
+        }
         state.expectedToken = schedule.expectedToken
         state.axRef = schedule.axRef
         state.reason = schedule.reason
@@ -226,6 +255,7 @@ extension AXEventHandler {
             generation: generation,
             trigger: schedule.trigger,
             exhausted: true,
+            executionPhase: .waiting,
             task: nil
         )
         discardCreatePlacementContext(windowId: windowId)
@@ -266,6 +296,7 @@ extension AXEventHandler {
             generation: generation,
             trigger: schedule.trigger,
             exhausted: false,
+            executionPhase: .waiting,
             task: nil
         )
         state.task = makeAdmissionRetryTask(windowId: windowId, generation: generation)
@@ -289,9 +320,15 @@ extension AXEventHandler {
                   var state = self.admissionRetryStateByWindowId[windowId],
                   state.generation == generation
             else { return }
-            state.task = nil
+            let executionOwner = self.nextAdmissionRetryExecutionOwner
+            self.nextAdmissionRetryExecutionOwner &+= 1
+            state.executionPhase = .running(executionOwner)
             self.admissionRetryStateByWindowId[windowId] = state
-            self.resumeAdmissionRetry(windowId: windowId, state: state)
+            self.resumeAdmissionRetry(
+                windowId: windowId,
+                state: state,
+                executionOwner: executionOwner
+            )
         }
     }
 
@@ -327,13 +364,79 @@ extension AXEventHandler {
     func retryAdmissionAfterFrameChange(windowId: UInt32) -> Bool {
         guard var state = admissionRetryStateByWindowId[windowId] else { return false }
         state.task?.cancel()
+        let executionOwner = nextAdmissionRetryExecutionOwner
+        nextAdmissionRetryExecutionOwner &+= 1
+        state.executionPhase = .running(executionOwner)
         state.task = nil
         admissionRetryStateByWindowId[windowId] = state
-        resumeAdmissionRetry(windowId: windowId, state: state)
+        resumeAdmissionRetry(
+            windowId: windowId,
+            state: state,
+            executionOwner: executionOwner
+        )
         return true
     }
 
     func finishAdmissionRetryAfterTracking(windowId: UInt32) {
+        finishAdmissionRetry(windowId: windowId)
+    }
+
+    func finishAdmissionRetryAfterCollision(
+        windowId: UInt32,
+        token: WindowToken,
+        axRef: AXWindowRef
+    ) {
+        guard let state = admissionRetryStateByWindowId[windowId],
+              state.expectedToken.map({ $0 == token }) ?? true,
+              state.axRef.map({ CFEqual($0.element, axRef.element) }) ?? true
+        else {
+            return
+        }
+        if case .identityRebind = state.trigger { return }
+        finishAdmissionRetry(windowId: windowId)
+    }
+
+    func ownsFocusedAdmissionRetryExecution(_ execution: FocusedAdmissionRetryExecution) -> Bool {
+        guard let state = admissionRetryStateByWindowId[execution.windowId],
+              state.generation == execution.generation,
+              state.executionPhase == .running(execution.executionOwner),
+              case let .focused(token, _, _, _) = state.trigger,
+              token.windowId == Int(execution.windowId)
+        else {
+            return false
+        }
+        return true
+    }
+
+    func ownsFocusedAdmissionRetryExecution(
+        _ execution: FocusedAdmissionRetryExecution,
+        matching facts: ActivationFacts
+    ) -> Bool {
+        guard ownsFocusedAdmissionRetryExecution(execution),
+              let state = admissionRetryStateByWindowId[execution.windowId],
+              case let .focused(token, source, observationGeneration, callbackGeneration) = state.trigger
+        else {
+            return false
+        }
+        return facts.origin == .retry
+            && facts.pid == token.pid
+            && facts.source == source
+            && facts.observationGeneration == observationGeneration
+            && facts.callbackGeneration == callbackGeneration
+    }
+
+    @discardableResult
+    func finishFocusedAdmissionRetryExecution(_ execution: FocusedAdmissionRetryExecution) -> Bool {
+        guard ownsFocusedAdmissionRetryExecution(execution),
+              let state = admissionRetryStateByWindowId.removeValue(forKey: execution.windowId)
+        else {
+            return false
+        }
+        state.task?.cancel()
+        return true
+    }
+
+    private func finishAdmissionRetry(windowId: UInt32) {
         guard let state = admissionRetryStateByWindowId.removeValue(forKey: windowId) else { return }
         state.task?.cancel()
         guard case let .focused(token, source, observationGeneration, callbackGeneration) = state.trigger else {
@@ -432,7 +535,6 @@ extension AXEventHandler {
             state.task?.cancel()
         }
         admissionRetryStateByWindowId.removeAll()
-        nextAdmissionRetryGeneration = 1
     }
 
     private func admissionIncarnationRelation(
@@ -457,7 +559,11 @@ extension AXEventHandler {
         }
     }
 
-    private func resumeAdmissionRetry(windowId: UInt32, state: AdmissionRetryState) {
+    private func resumeAdmissionRetry(
+        windowId: UInt32,
+        state: AdmissionRetryState,
+        executionOwner: UInt64
+    ) {
         switch state.trigger {
         case .create:
             processCreatedWindow(windowId: windowId)
@@ -469,13 +575,22 @@ extension AXEventHandler {
                 retryTrigger: state.trigger
             )
         case let .focused(token, source, observationGeneration, callbackGeneration):
-            handleAppActivation(
+            let execution = FocusedAdmissionRetryExecution(
+                windowId: windowId,
+                generation: state.generation,
+                executionOwner: executionOwner
+            )
+            let factRequestIssued = handleAppActivation(
                 pid: token.pid,
                 source: source,
                 origin: .retry,
                 causalObservationGeneration: observationGeneration,
-                callbackGeneration: callbackGeneration
+                callbackGeneration: callbackGeneration,
+                focusedAdmissionRetryExecution: execution
             )
+            if !factRequestIssued {
+                finishFocusedAdmissionRetryExecution(execution)
+            }
         case let .identityRebind(
             oldWindow,
             newWindow,
@@ -491,6 +606,7 @@ extension AXEventHandler {
                     to: newWindow,
                     windowId: windowId,
                     retryGeneration: state.generation,
+                    executionOwner: executionOwner,
                     managedReplacementMetadata: managedReplacementMetadata,
                     admissionHints: admissionHints,
                     sizeConstraints: sizeConstraints
@@ -500,17 +616,50 @@ extension AXEventHandler {
             activeState.task = task
             admissionRetryStateByWindowId[windowId] = activeState
         case let .ruleReevaluation(token, axRef):
-            Task { @MainActor [weak self] in
+            let task = Task { @MainActor [weak self] in
                 guard let self, let controller = self.controller else { return }
                 let outcome = await controller.reevaluateWindowRules(for: [.window(token)])
-                if outcome.stale {
-                    _ = self.scheduleTrackedTilingPromotionRetry(
-                        token: token,
-                        axRef: axRef,
-                        reason: state.reason
-                    )
-                }
+                self.finishRuleReevaluationRetry(
+                    windowId: windowId,
+                    generation: state.generation,
+                    executionOwner: executionOwner,
+                    token: token,
+                    axRef: axRef,
+                    reason: state.reason,
+                    stale: outcome.stale
+                )
             }
+            var activeState = state
+            activeState.task = task
+            admissionRetryStateByWindowId[windowId] = activeState
+        }
+    }
+
+    private func finishRuleReevaluationRetry(
+        windowId: UInt32,
+        generation: UInt64,
+        executionOwner: UInt64,
+        token: WindowToken,
+        axRef: AXWindowRef,
+        reason: WindowAdmissionPendingReason,
+        stale: Bool
+    ) {
+        guard var state = admissionRetryStateByWindowId[windowId],
+              state.generation == generation,
+              state.executionPhase == .running(executionOwner),
+              case let .ruleReevaluation(retryToken, retryAXRef) = state.trigger,
+              retryToken == token,
+              CFEqual(retryAXRef.element, axRef.element)
+        else {
+            return
+        }
+        state.task = nil
+        state.executionPhase = .waiting
+        if stale {
+            admissionRetryStateByWindowId[windowId] = state
+            _ = scheduleTrackedTilingPromotionRetry(token: token, axRef: axRef, reason: reason)
+        } else {
+            admissionRetryStateByWindowId[windowId] = nil
         }
     }
 }

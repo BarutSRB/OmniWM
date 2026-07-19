@@ -35,7 +35,8 @@ final class WindowClassificationRegressionTests: XCTestCase {
     func testObservedDecisionDoesNotDefineExpectedBehavior() throws {
         let url = try XCTUnwrap(WindowClassificationFixtureLoader.fixtureURLs().first)
         var fixture = try WindowClassificationFixtureLoader.load(url)
-        fixture.observation.observedDecision.disposition = "floating"
+        fixture.observation.observedDecision.disposition =
+            fixture.expectedDecision.disposition == "managed" ? "floating" : "managed"
         let got = WindowClassificationReproducer.recompute(
             fixture.observation.input,
             rules: fixture.rules

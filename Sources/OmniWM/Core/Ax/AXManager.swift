@@ -14,6 +14,22 @@ private struct IndexedAsyncValue<Value: Sendable>: Sendable {
     let value: Value
 }
 
+struct AXFrameApplicationTarget: Sendable {
+    let pid: pid_t
+    let expectedWindow: AXWindowRef
+    let frame: CGRect
+
+    var windowId: Int {
+        expectedWindow.windowId
+    }
+
+    init(pid: pid_t, window: AXWindowRef, frame: CGRect) {
+        self.pid = pid
+        expectedWindow = window
+        self.frame = frame
+    }
+}
+
 func boundedFullRescanMap<Input: Sendable, Output: Sendable>(
     _ inputs: [Input],
     maxConcurrent: Int,
@@ -139,6 +155,10 @@ final class AXManager {
     var isWindowParked: ((Int) -> Bool)?
     var onTerminalFrameRefusal: ((AXFrameTerminalRefusal) -> Void)?
     var onFrameApplySucceeded: ((Int) -> Void)?
+    var onManagedWindowBindingFailed: (() -> Void)?
+    var managedWindowBindingRetryDelayProvider: (Int) -> Duration? = {
+        AXManager.managedWindowBindingRetryDelay(afterFailure: $0)
+    }
 
     private let frameLedger = AXFrameApplicationLedger()
     private var framesByPidBuffer: [pid_t: [AXFrameApplicationRequest]] = [:]
@@ -146,6 +166,14 @@ final class AXManager {
     private var pendingFrameRetryTasksByWindowId: [Int: Task<Void, Never>] = [:]
     private var pendingFrameRetryGenerationByWindowId: [Int: UInt64] = [:]
     private var nextFrameRetryGeneration: UInt64 = 1
+    private struct ManagedWindowBindingRetryState {
+        let generation: UInt64
+        var failures: Int
+        var task: Task<Void, Never>?
+    }
+
+    private var nextManagedWindowBindingGeneration: UInt64 = 1
+    private var managedWindowBindingRetryStateByPID: [pid_t: ManagedWindowBindingRetryState] = [:]
 
     /// Window IDs belonging to inactive workspaces — checked LIVE in applyFramesParallel.
     private(set) var inactiveWorkspaceWindowIds: Set<Int> = []
@@ -189,6 +217,7 @@ final class AXManager {
                 )
             }
             Task { @MainActor in
+                self?.clearManagedWindowBindingRetry(for: pid)
                 self?.onAppTerminated?(pid)
                 if let context = AppAXContext.contexts[pid] {
                     context.destroy()
@@ -420,6 +449,7 @@ final class AXManager {
             guard (try? await acknowledgement.destinationContext.commitWindowRebindAsync(
                 oldWindow: oldWindow.axRef,
                 newWindow: newWindow.axRef,
+                binding: acknowledgement.destinationBinding,
                 retireOldWindowState: acknowledgement.oldContext === acknowledgement.destinationContext
             )) == true else {
                 return false
@@ -431,17 +461,11 @@ final class AXManager {
             ) else {
                 return false
             }
-            if acknowledgement.oldContext === acknowledgement.destinationContext {
-                acknowledgement.destinationContext.finalizeWindowRebind(
-                    from: oldWindow.token.windowId,
-                    to: newWindow.token.windowId
-                )
-            }
             if acknowledgement.oldContext !== acknowledgement.destinationContext {
                 if let oldContext = acknowledgement.oldContext,
                    (try? await oldContext.removeWindowStateAsync(
-                       windowId: oldWindow.token.windowId
-                   )) != true
+                       expectedWindow: oldWindow.axRef
+                   )) == nil
                 {
                     return false
                 }
@@ -453,15 +477,28 @@ final class AXManager {
             ) else {
                 return false
             }
-            acknowledgement.destinationContext.cancelFrameJob(for: newWindow.token.windowId)
         }
         return true
     }
 
     func commitFrameApplicationStateForRebind(
         from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity
+        to newWindow: AXManagedWindowIdentity,
+        acknowledgement: AXManagedWindowRebindAcknowledgement? = nil
     ) {
+        if let acknowledgement {
+            if acknowledgement.oldContext === acknowledgement.destinationContext {
+                acknowledgement.destinationContext.prepareWindowRebind(
+                    from: oldWindow.token.windowId,
+                    to: newWindow.token.windowId
+                )
+            } else {
+                acknowledgement.oldContext?.prepareWindowRemoval(for: oldWindow.token.windowId)
+                acknowledgement.oldContext?.invalidateWindowIdentity()
+                acknowledgement.destinationContext.prepareWindowRemoval(for: newWindow.token.windowId)
+                acknowledgement.destinationContext.invalidateWindowIdentity()
+            }
+        }
         let oldWindowId = oldWindow.token.windowId
         let newWindowId = newWindow.token.windowId
         let isIncarnationReplacement = oldWindow.token.pid != newWindow.token.pid
@@ -537,9 +574,28 @@ final class AXManager {
         clearSkyLightLivePosition(for: windowId)
     }
 
-    func removeWindowState(pid: pid_t, windowId: Int) {
-        AppAXContext.contexts[pid]?.removeWindowState(windowId: windowId)
+    func removeWindowState(pid: pid_t, expectedWindow: AXWindowRef) {
+        let windowId = expectedWindow.windowId
+        AppAXContext.contexts[pid]?.prepareWindowRemoval(for: windowId)
+        let deliveries = takeRemovedWindowLedgerState(pid: pid, windowId: windowId)
+        AppAXContext.contexts[pid]?.removeWindowState(expectedWindow: expectedWindow)
+        for delivery in deliveries {
+            delivery.deliver()
+        }
+    }
 
+    func removeWindowLedgerState(pid: pid_t, windowId: Int) {
+        if let context = AppAXContext.contexts[pid] {
+            context.prepareWindowRemoval(for: windowId)
+            context.invalidateWindowIdentity()
+        }
+        let deliveries = takeRemovedWindowLedgerState(pid: pid, windowId: windowId)
+        for delivery in deliveries {
+            delivery.deliver()
+        }
+    }
+
+    private func takeRemovedWindowLedgerState(pid: pid_t, windowId: Int) -> [AXFrameTerminalDelivery] {
         let deliveries = frameLedger.removeWindowState(windowId: windowId)
         cancelPendingFrameRetry(for: windowId)
         inactiveWorkspaceWindowIds.remove(windowId)
@@ -548,9 +604,7 @@ final class AXManager {
         lastParkCommandSeqByWindowId.removeValue(forKey: windowId)
         lastFrameResultSeqByWindowId.removeValue(forKey: windowId)
 
-        for delivery in deliveries {
-            delivery.deliver()
-        }
+        return deliveries
     }
 
     func cleanup() {
@@ -564,6 +618,10 @@ final class AXManager {
         }
 
         cancelAllPendingFrameState()
+        for state in managedWindowBindingRetryStateByPID.values {
+            state.task?.cancel()
+        }
+        managedWindowBindingRetryStateByPID.removeAll()
 
         AppAXContext.shutdownAll()
     }
@@ -600,6 +658,128 @@ final class AXManager {
         return []
     }
 
+    func ensureContext(for app: NSRunningApplication) async -> Bool {
+        guard shouldTrack(app) else { return false }
+        return (try? await AppAXContext.getOrCreate(app)) != nil
+    }
+
+    func bindManagedWindows(_ entries: [WindowState]) {
+        let windowsByPID = managedWindowsByPID(entries)
+        for (pid, windows) in windowsByPID {
+            submitManagedWindowBindings(
+                pid: pid,
+                windows: windows,
+                authoritative: false,
+                resetsRetryBudget: true
+            )
+        }
+    }
+
+    func reconcileManagedWindowBindings(_ entries: [WindowState]) {
+        let windowsByPID = managedWindowsByPID(entries)
+        let contextPIDs = Set(AppAXContext.contexts.keys)
+        for pid in Set(managedWindowBindingRetryStateByPID.keys)
+            where !contextPIDs.contains(pid) && windowsByPID[pid] == nil
+        {
+            clearManagedWindowBindingRetry(for: pid)
+        }
+        for pid in contextPIDs.union(windowsByPID.keys) {
+            let windows = windowsByPID[pid] ?? [:]
+            AppAXContext.contexts[pid]?.retainFrameState(only: Set(windows.keys))
+            submitManagedWindowBindings(
+                pid: pid,
+                windows: windows,
+                authoritative: true,
+                resetsRetryBudget: false
+            )
+        }
+    }
+
+    nonisolated static func managedWindowBindingRetryDelay(afterFailure failure: Int) -> Duration? {
+        switch failure {
+        case 1: .milliseconds(100)
+        case 2: .milliseconds(250)
+        case 3: .milliseconds(500)
+        default: nil
+        }
+    }
+
+    private func managedWindowsByPID(_ entries: [WindowState]) -> [pid_t: [Int: AXWindowRef]] {
+        var windowsByPID: [pid_t: [Int: AXWindowRef]] = [:]
+        windowsByPID.reserveCapacity(min(entries.count, 8))
+        for entry in entries {
+            windowsByPID[entry.pid, default: [:]][entry.windowId] = entry.axRef
+        }
+        return windowsByPID
+    }
+
+    private func submitManagedWindowBindings(
+        pid: pid_t,
+        windows: [Int: AXWindowRef],
+        authoritative: Bool,
+        resetsRetryBudget: Bool
+    ) {
+        let previousState = managedWindowBindingRetryStateByPID[pid]
+        previousState?.task?.cancel()
+        let generation = nextManagedWindowBindingGeneration
+        nextManagedWindowBindingGeneration &+= 1
+        managedWindowBindingRetryStateByPID[pid] = .init(
+            generation: generation,
+            failures: resetsRetryBudget ? 0 : previousState?.failures ?? 0,
+            task: nil
+        )
+        guard let context = AppAXContext.contexts[pid] else {
+            handleManagedWindowBindingResult(.retryRequired, pid: pid, generation: generation)
+            return
+        }
+        let completion: @MainActor @Sendable (AppAXWindowBindingResult) -> Void = { [weak self] in
+            self?.handleManagedWindowBindingResult($0, pid: pid, generation: generation)
+        }
+        if authoritative {
+            context.reconcileWindowBindings(windows, timeoutSeconds: perAppTimeout, completion: completion)
+        } else {
+            context.bindWindows(windows, timeoutSeconds: perAppTimeout, completion: completion)
+        }
+    }
+
+    private func handleManagedWindowBindingResult(
+        _ result: AppAXWindowBindingResult,
+        pid: pid_t,
+        generation: UInt64
+    ) {
+        guard var state = managedWindowBindingRetryStateByPID[pid],
+              state.generation == generation
+        else { return }
+        guard case .retryRequired = result else {
+            clearManagedWindowBindingRetry(for: pid)
+            return
+        }
+        state.failures += 1
+        guard let delay = managedWindowBindingRetryDelayProvider(state.failures) else {
+            managedWindowBindingRetryStateByPID[pid] = state
+            return
+        }
+        state.task = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self,
+                  var state = self.managedWindowBindingRetryStateByPID[pid],
+                  state.generation == generation
+            else { return }
+            state.task = nil
+            self.managedWindowBindingRetryStateByPID[pid] = state
+            self.onManagedWindowBindingFailed?()
+        }
+        managedWindowBindingRetryStateByPID[pid] = state
+    }
+
+    private func clearManagedWindowBindingRetry(for pid: pid_t) {
+        managedWindowBindingRetryStateByPID.removeValue(forKey: pid)?.task?.cancel()
+    }
+
     func requestPermission() -> Bool {
         if AccessibilityPermissionMonitor.shared.isGranted { return true }
 
@@ -607,11 +787,6 @@ final class AXManager {
         _ = AXIsProcessTrustedWithOptions(options)
 
         return AccessibilityPermissionMonitor.shared.isGranted
-    }
-
-    func currentWindowsAsync() async -> [(AXWindowRef, pid_t, Int)] {
-        guard let snapshot = try? await fullRescanEnumerationSnapshot() else { return [] }
-        return snapshot.windows.map { ($0.axRef, $0.pid, $0.windowId) }
     }
 
     func fullRescanEnumerationSnapshot(
@@ -1016,7 +1191,7 @@ final class AXManager {
     ) async throws -> Set<pid_t> {
         try Task.checkCancellation()
         var failedPIDs: Set<pid_t> = []
-        try await Self.forEachOneShotPromotionBatch(candidates) { pid, candidates in
+        try await Self.forEachOneShotPromotionBatch(candidates) { pid, _ in
             try Task.checkCancellation()
             guard let app = appsByPID[pid] else {
                 failedPIDs.insert(pid)
@@ -1033,16 +1208,6 @@ final class AXManager {
                     return
                 }
                 callbackGeneration = context.callbackGeneration
-                guard try await context.bindWindowsAsync(
-                    candidates.map(\.axRef),
-                    timeoutSeconds: perAppTimeout
-                ) else {
-                    failedPIDs.insert(pid)
-                    if !hadContext {
-                        AppAXContext.contexts[pid]?.destroy()
-                    }
-                    return
-                }
             } catch is CancellationError {
                 if !hadContext {
                     AppAXContext.contexts[pid]?.destroy()
@@ -1084,7 +1249,7 @@ final class AXManager {
     }
 
     func applyFramesParallel(
-        _ frames: [(pid: pid_t, windowId: Int, frame: CGRect)],
+        _ frames: [AXFrameApplicationTarget],
         terminalObserver: FrameApplicationTerminalObserver? = nil,
         verify: Bool = true
     ) {
@@ -1092,7 +1257,7 @@ final class AXManager {
     }
 
     private func enqueueFrameApplications(
-        _ frames: [(pid: pid_t, windowId: Int, frame: CGRect)],
+        _ frames: [AXFrameApplicationTarget],
         isRetry: Bool,
         verify: Bool = true,
         terminalObserver: FrameApplicationTerminalObserver? = nil
@@ -1128,7 +1293,7 @@ final class AXManager {
     }
 
     private func enqueueFrameApplicationsUsingBuffer(
-        _ frames: [(pid: pid_t, windowId: Int, frame: CGRect)],
+        _ frames: [AXFrameApplicationTarget],
         isRetry: Bool,
         verify: Bool,
         terminalObserver: FrameApplicationTerminalObserver?,
@@ -1137,13 +1302,17 @@ final class AXManager {
         framesByPid.reserveCapacity(min(frames.count, 8))
         var deferredDeliveries: [AXFrameTerminalDelivery] = []
 
-        for (pid, windowId, frame) in frames {
+        for target in frames {
+            let pid = target.pid
+            let windowId = target.windowId
+            let frame = target.frame
             if inactiveWorkspaceWindowIds.contains(windowId) {
                 continue
             }
             let decision = frameLedger.prepareFrameApplication(
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: target.expectedWindow,
                 frame: frame,
                 isRetry: isRetry,
                 verify: verify,
@@ -1169,6 +1338,7 @@ final class AXManager {
                             requestId: $0.requestId,
                             pid: pid,
                             windowId: $0.windowId,
+                            expectedWindow: $0.expectedWindow,
                             targetFrame: $0.frame,
                             currentFrameHint: $0.currentFrameHint,
                             writeResult: .skipped(
@@ -1368,7 +1538,12 @@ final class AXManager {
                 outcome: "outcome=retry-scheduled",
                 target: retry.frame
             )
-            scheduleFrameRetry(pid: retry.pid, windowId: retry.windowId, frame: retry.frame)
+            scheduleFrameRetry(
+                pid: retry.pid,
+                windowId: retry.windowId,
+                expectedWindow: retry.expectedWindow,
+                frame: retry.frame
+            )
         }
         for delivery in outcome.deliveries {
             delivery.deliver()
@@ -1393,7 +1568,12 @@ final class AXManager {
         onFrameApplySucceeded?(result.windowId)
     }
 
-    private func scheduleFrameRetry(pid: pid_t, windowId: Int, frame: CGRect) {
+    private func scheduleFrameRetry(
+        pid: pid_t,
+        windowId: Int,
+        expectedWindow: AXWindowRef,
+        frame: CGRect
+    ) {
         cancelPendingFrameRetry(for: windowId)
         let generation = nextFrameRetryGeneration
         nextFrameRetryGeneration &+= 1
@@ -1405,7 +1585,19 @@ final class AXManager {
             guard !self.frameLedger.hasPendingFrameWrite(for: currentWindowId) else { return }
             self.pendingFrameRetryGenerationByWindowId.removeValue(forKey: currentWindowId)
             self.pendingFrameRetryTasksByWindowId.removeValue(forKey: currentWindowId)
-            self.enqueueFrameApplications([(pid, currentWindowId, frame)], isRetry: true)
+            self.enqueueFrameApplications(
+                [
+                    AXFrameApplicationTarget(
+                        pid: pid,
+                        window: AXWindowRef(
+                            element: expectedWindow.element,
+                            windowId: currentWindowId
+                        ),
+                        frame: frame
+                    )
+                ],
+                isRetry: true
+            )
         }
     }
 

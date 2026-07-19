@@ -57,6 +57,11 @@ extension AXEventHandler {
                     axRef: trackedEntry.axRef
                 )
             )
+            finishAdmissionRetryAfterCollision(
+                windowId: candidate.windowId,
+                token: candidate.token,
+                axRef: candidate.axRef
+            )
             return
         }
         WindowAdmissionTrace.record(
@@ -103,6 +108,9 @@ extension AXEventHandler {
         }
 
         let liveTrackedEntry = controller.workspaceManager.entry(for: trackedToken) ?? trackedEntry
+        controller.axManager.bindManagedWindows(
+            controller.workspaceManager.entries(forPid: liveTrackedEntry.pid)
+        )
         if let floatingTargetFrame,
            shouldApplyFloatingCreateFrameImmediately(for: liveTrackedEntry.workspaceId)
         {
@@ -155,7 +163,10 @@ extension AXEventHandler {
         else {
             return
         }
-        _ = await controller.axManager.windowsForApp(app)
+        guard await controller.axManager.ensureContext(for: app),
+              !Task.isCancelled
+        else { return }
+        controller.axManager.bindManagedWindows(controller.workspaceManager.entries(forPid: pid))
     }
 
     private func schedulePostCreateLifecycleVerification(for token: WindowToken) {
@@ -288,7 +299,8 @@ extension AXEventHandler {
         plannedSeq: UInt64
     ) {
         guard let controller,
-              controller.workspaceManager.entry(for: token)?.workspaceId == workspaceId,
+              let entry = controller.workspaceManager.entry(for: token),
+              entry.workspaceId == workspaceId,
               controller.workspaceManager.isSeqCurrent(
                   plannedSeq,
                   for: workspaceId,
@@ -300,6 +312,8 @@ extension AXEventHandler {
         }
 
         controller.axManager.forceApplyNextFrame(for: windowId)
-        controller.axManager.applyFramesParallel([(pid, windowId, targetFrame)])
+        controller.axManager.applyFramesParallel([
+            .init(pid: pid, window: entry.axRef, frame: targetFrame)
+        ])
     }
 }

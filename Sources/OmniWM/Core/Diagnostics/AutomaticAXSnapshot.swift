@@ -150,13 +150,14 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
             windowsIndex: appAttributes.firstIndex(of: kAXWindowsAttribute as String),
             deadline: deadline
         )
-        let resolvedWindowId = if ProcessInfo.processInfo.systemUptime < deadline,
-                                  let windowElement
-        {
-            windowId(for: windowElement)
-        } else {
-            request.windowId
-        }
+        let resolvedWindowId = request.windowId ?? {
+            guard ProcessInfo.processInfo.systemUptime < deadline,
+                  let windowElement
+            else {
+                return nil
+            }
+            return windowId(for: windowElement)
+        }()
 
         var windowRead: AutomaticAXSnapshotRead?
         if let windowElement, ProcessInfo.processInfo.systemUptime < deadline {
@@ -254,7 +255,15 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
         resolveWindowId: (AXUIElement) -> Int?
     ) -> AXUIElement? {
         guard let windowId else { return focusedWindow }
-        return windows.prefix(arrayLimit).first { resolveWindowId($0) == windowId } ?? focusedWindow
+        if let window = windows.prefix(arrayLimit).first(where: { resolveWindowId($0) == windowId }) {
+            return window
+        }
+        guard let focusedWindow,
+              resolveWindowId(focusedWindow) == windowId
+        else {
+            return nil
+        }
+        return focusedWindow
     }
 
     static func withMessagingTimeout<T>(

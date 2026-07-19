@@ -149,6 +149,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
         let directory = try makeDiagnosticsDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let gate = TraceFinalizationGate()
+        defer { gate.release() }
         let evidenceStarted = expectation(description: "automatic evidence started")
         let coordinator = RuntimeTraceCaptureCoordinator(
             diagnosticsDirectory: directory,
@@ -182,7 +183,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
         let finalization = Task { @MainActor in
             await coordinator.toggle(desiredState: .inactive, reportProvider: { "unused" })
         }
-        await fulfillment(of: [evidenceStarted], timeout: 1)
+        await fulfillment(of: [evidenceStarted], timeout: 2)
 
         XCTAssertEqual(try Data(contentsOf: partial), partialData)
         XCTAssertFalse(
@@ -190,7 +191,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
                 .contains { $0.hasPrefix(".omniwm-trace-") && $0.hasSuffix(".tmp") }
         )
 
-        await gate.release()
+        gate.release()
         guard case let .stopped(artifact) = await finalization.value else {
             return XCTFail("expected capture to finalize")
         }
@@ -332,6 +333,65 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
     }
 
     @MainActor
+    func testDiagnosticAttachmentPreservesMultichunkBinaryEvidence() async throws {
+        let directory = try makeDiagnosticsDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let selected = directory.appendingPathComponent("selected-binary.trace", isDirectory: false)
+        var payload = Data(repeating: 0, count: 2 * 64 * 1024 + 17)
+        payload[payload.startIndex] = 0xFF
+        payload[payload.index(before: payload.endIndex)] = 0xA5
+        try payload.write(to: selected)
+        let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: directory)
+
+        let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(selected))
+        let output = try Data(contentsOf: result.url)
+
+        XCTAssertTrue(result.includedEvidence)
+        XCTAssertEqual(Data(output.suffix(payload.count)), payload)
+        XCTAssertNil(output.range(of: selectedEvidenceTruncationMarker))
+    }
+
+    @MainActor
+    func testDiagnosticAttachmentIncludesExactlyEightMiBWithoutTruncationMarker() async throws {
+        let directory = try makeDiagnosticsDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let selected = directory.appendingPathComponent("selected-exact-limit.trace", isDirectory: false)
+        let payload = Data(repeating: 0xA5, count: selectedEvidenceLimit)
+        try payload.write(to: selected)
+        let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: directory)
+
+        let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(selected))
+        let output = try Data(contentsOf: result.url)
+
+        XCTAssertTrue(result.includedEvidence)
+        XCTAssertEqual(Data(output.suffix(payload.count)), payload)
+        XCTAssertNil(output.range(of: selectedEvidenceTruncationMarker))
+    }
+
+    @MainActor
+    func testDiagnosticAttachmentTruncatesEightMiBPlusOneWithOneMarker() async throws {
+        let directory = try makeDiagnosticsDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let selected = directory.appendingPathComponent("selected-over-limit.trace", isDirectory: false)
+        var payload = Data(repeating: 0xA5, count: selectedEvidenceLimit)
+        payload.append(0x5A)
+        try payload.write(to: selected)
+        let controller = WMController(settings: makeSettingsStore(), diagnosticsDirectory: directory)
+
+        let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(selected))
+        let output = try Data(contentsOf: result.url)
+        let markerRange = try XCTUnwrap(output.range(of: selectedEvidenceTruncationMarker))
+        let evidenceStart = markerRange.lowerBound - selectedEvidenceLimit
+
+        XCTAssertTrue(result.includedEvidence)
+        XCTAssertEqual(
+            output.subdata(in: evidenceStart ..< markerRange.lowerBound),
+            Data(payload.prefix(selectedEvidenceLimit))
+        )
+        XCTAssertEqual(markerRange.upperBound, output.endIndex)
+    }
+
+    @MainActor
     func testMissingSelectedEvidenceProducesFreshOnlyAttachment() async throws {
         let directory = try makeDiagnosticsDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -416,9 +476,18 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
             autosaveEnabled: false
         )
     }
+
+    private var selectedEvidenceLimit: Int {
+        8 * 1024 * 1024
+    }
+
+    private var selectedEvidenceTruncationMarker: Data {
+        Data("\n\n== Selected Diagnostic Evidence Truncated ==\n".utf8)
+    }
 }
 
-private actor TraceFinalizationGate {
+@MainActor
+private final class TraceFinalizationGate {
     private var continuation: CheckedContinuation<Void, Never>?
     private var released = false
 
@@ -428,11 +497,10 @@ private actor TraceFinalizationGate {
     }
 
     func release() {
+        released = true
         if let continuation {
             continuation.resume()
             self.continuation = nil
-        } else {
-            released = true
         }
     }
 }

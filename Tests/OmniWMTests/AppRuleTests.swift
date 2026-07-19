@@ -150,6 +150,32 @@ final class AppRuleTests: XCTestCase {
         XCTAssertEqual(draft.makeRule(), rule)
     }
 
+    func testSelectingBundledApplicationReplacesOnlyApplicationIdentityMatchers() {
+        var draft = populatedDraft()
+        let expectedId = draft.id
+
+        draft.selectApplication(bundleId: "com.example.Bundled", appName: "Bundled")
+
+        XCTAssertEqual(draft.id, expectedId)
+        XCTAssertEqual(draft.bundleId, "com.example.Bundled")
+        XCTAssertFalse(draft.appNameMatcherEnabled)
+        XCTAssertEqual(draft.appNameSubstring, "")
+        assertUnrelatedSelectionState(draft)
+    }
+
+    func testSelectingBundlelessApplicationReplacesOnlyApplicationIdentityMatchers() {
+        var draft = populatedDraft()
+        let expectedId = draft.id
+
+        draft.selectApplication(bundleId: nil, appName: "Bundleless")
+
+        XCTAssertEqual(draft.id, expectedId)
+        XCTAssertEqual(draft.bundleId, "")
+        XCTAssertTrue(draft.appNameMatcherEnabled)
+        XCTAssertEqual(draft.appNameSubstring, "Bundleless")
+        assertUnrelatedSelectionState(draft)
+    }
+
     func testInitialColumnWidthPercentConversionHandlesFractionsAndExtremeValues() {
         let proportion = 0.5555
         let percent = AppRuleInitialColumnWidthPercent.percent(from: proportion)
@@ -184,5 +210,47 @@ final class AppRuleTests: XCTestCase {
         changed.initialColumnWidth = .infinity
         XCTAssertNotEqual(changed, rhs)
         XCTAssertFalse(changed.represents(rule))
+    }
+
+    private func populatedDraft() -> AppRuleDraft {
+        var draft = AppRuleDraft(bundleId: "com.example.Previous")
+        draft.layoutAction = .float
+        draft.assignToWorkspaceEnabled = true
+        draft.assignToWorkspace = "work"
+        draft.initialColumnWidthEnabled = true
+        draft.initialColumnWidth = 0.7
+        draft.minWidthEnabled = true
+        draft.minWidth = 640
+        draft.minHeightEnabled = true
+        draft.minHeight = 480
+        draft.appNameMatcherEnabled = true
+        draft.appNameSubstring = "Previous"
+        draft.titleMatcherMode = .regex
+        draft.titleSubstring = "unchanged substring"
+        draft.titleRegex = "^Document"
+        draft.axRoleEnabled = true
+        draft.axRole = "AXWindow"
+        draft.axSubroleEnabled = true
+        draft.axSubrole = "AXStandardWindow"
+        return draft
+    }
+
+    private func assertUnrelatedSelectionState(_ draft: AppRuleDraft) {
+        XCTAssertEqual(draft.layoutAction, .float)
+        XCTAssertTrue(draft.assignToWorkspaceEnabled)
+        XCTAssertEqual(draft.assignToWorkspace, "work")
+        XCTAssertTrue(draft.initialColumnWidthEnabled)
+        XCTAssertEqual(draft.initialColumnWidth, 0.7)
+        XCTAssertTrue(draft.minWidthEnabled)
+        XCTAssertEqual(draft.minWidth, 640)
+        XCTAssertTrue(draft.minHeightEnabled)
+        XCTAssertEqual(draft.minHeight, 480)
+        XCTAssertEqual(draft.titleMatcherMode, .regex)
+        XCTAssertEqual(draft.titleSubstring, "unchanged substring")
+        XCTAssertEqual(draft.titleRegex, "^Document")
+        XCTAssertTrue(draft.axRoleEnabled)
+        XCTAssertEqual(draft.axRole, "AXWindow")
+        XCTAssertTrue(draft.axSubroleEnabled)
+        XCTAssertEqual(draft.axSubrole, "AXStandardWindow")
     }
 }

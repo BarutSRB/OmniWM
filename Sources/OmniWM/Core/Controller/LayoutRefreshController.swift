@@ -1777,6 +1777,7 @@ import QuartzCore
         }
 
         let retainedEntries = controller.workspaceManager.allEntries()
+        controller.axManager.reconcileManagedWindowBindings(retainedEntries)
         controller.axEventHandler.pruneIdentityAliases(
             retainingWindowIds: Set(retainedEntries.map(\.windowId))
                 .union(controller.axEventHandler.activeAdmissionRetryWindowIds)
@@ -2459,7 +2460,7 @@ import QuartzCore
     @discardableResult
     func restoreWorkspaceInactiveFloatingWindows(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) -> Int {
         guard let controller else { return 0 }
-        var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+        var frameUpdates: [AXFrameApplicationTarget] = []
         var visibleJobs: [(pid: pid_t, windowId: Int)] = []
 
         for workspaceId in activeWorkspaceIds {
@@ -2470,7 +2471,7 @@ import QuartzCore
                 visibleJobs.append((entry.pid, entry.windowId))
                 controller.axManager.markWindowActive(entry.windowId)
                 controller.axManager.forceApplyNextFrame(for: entry.windowId)
-                frameUpdates.append((entry.pid, entry.windowId, frame))
+                frameUpdates.append(.init(pid: entry.pid, window: entry.axRef, frame: frame))
             }
         }
 
@@ -3520,7 +3521,9 @@ import QuartzCore
                 }
                 controller.axManager.unsuppressFrameWrites(frameEntry)
                 controller.axManager.forceApplyNextFrame(for: entry.windowId)
-                controller.axManager.applyFramesParallel([(entry.pid, entry.windowId, frame)])
+                controller.axManager.applyFramesParallel([
+                    .init(pid: entry.pid, window: entry.axRef, frame: frame)
+                ])
                 acceptedPostLayoutAction(
                     onSuccess,
                     workspaceIds: [controller.workspaceManager.workspace(for: entry.token) ?? entry.workspaceId]
@@ -3539,7 +3542,7 @@ import QuartzCore
             controller.axManager.unsuppressFrameWrites(frameEntry)
             controller.axManager.forceApplyNextFrame(for: entry.windowId)
             controller.axManager.applyFramesParallel(
-                [(entry.pid, entry.windowId, frame)],
+                [.init(pid: entry.pid, window: entry.axRef, frame: frame)],
                 terminalObserver: { [weak self] result in
                     self?.completePendingRevealTransaction(
                         with: result,
@@ -3839,9 +3842,14 @@ final class LayoutDiffExecutor {
             }
         }
 
-        var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
+        var frameUpdates: [AXFrameApplicationTarget] = []
         frameUpdates.reserveCapacity(diff.frameChanges.count)
-        var revealFrameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect, transactionId: UInt64)] = []
+        var revealFrameUpdates: [(
+            pid: pid_t,
+            window: AXWindowRef,
+            frame: CGRect,
+            transactionId: UInt64
+        )] = []
         revealFrameUpdates.reserveCapacity(pendingRevealTransactionIdsByToken.count)
         var deferredRevealFrameUpdates: [DeferredRevealFrameUpdate] = []
         deferredRevealFrameUpdates.reserveCapacity(diff.deferredHides.count)
@@ -3858,7 +3866,7 @@ final class LayoutDiffExecutor {
                 controller.axManager.forceApplyNextFrame(for: entry.windowId)
             }
             if let transactionId = pendingRevealTransactionIdsByToken[change.token] {
-                revealFrameUpdates.append((entry.pid, entry.windowId, change.frame, transactionId))
+                revealFrameUpdates.append((entry.pid, entry.axRef, change.frame, transactionId))
             } else {
                 if isDeferredReveal(change.token) {
                     controller.axManager.forceApplyNextFrame(for: entry.windowId)
@@ -3880,7 +3888,7 @@ final class LayoutDiffExecutor {
                 if forceNativeFullscreenRestoreApply {
                     controller.axManager.forceApplyNextFrame(for: entry.windowId)
                 }
-                frameUpdates.append((entry.pid, entry.windowId, change.frame))
+                frameUpdates.append(.init(pid: entry.pid, window: entry.axRef, frame: change.frame))
             }
         }
 
@@ -3899,13 +3907,15 @@ final class LayoutDiffExecutor {
             revealTransactionIdsByWindowId.reserveCapacity(revealFrameUpdates.count)
             for update in revealFrameUpdates {
                 refreshController.refreshPendingRevealTransactionPlannedSeq(
-                    forWindowId: update.windowId,
+                    forWindowId: update.window.windowId,
                     transactionId: update.transactionId
                 )
-                revealTransactionIdsByWindowId[update.windowId] = update.transactionId
+                revealTransactionIdsByWindowId[update.window.windowId] = update.transactionId
             }
             controller.axManager.applyFramesParallel(
-                revealFrameUpdates.map { ($0.pid, $0.windowId, $0.frame) },
+                revealFrameUpdates.map {
+                    .init(pid: $0.pid, window: $0.window, frame: $0.frame)
+                },
                 terminalObserver: { [weak refreshController, revealTransactionIdsByWindowId] result in
                     guard let refreshController,
                           let transactionId = revealTransactionIdsByWindowId[result.windowId]
@@ -3943,7 +3953,7 @@ final class LayoutDiffExecutor {
                 continue
             }
             controller.axManager.applyFramesParallel(
-                [(update.pid, update.windowId, update.frame)],
+                [.init(pid: entry.pid, window: entry.axRef, frame: update.frame)],
                 terminalObserver: { [weak refreshController] result in
                     refreshController?.dwindleHandler.completePendingGroupRevealTransaction(
                         with: result,
@@ -3955,7 +3965,7 @@ final class LayoutDiffExecutor {
     }
 
     private func applyFrameUpdates(
-        _ frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)],
+        _ frameUpdates: [AXFrameApplicationTarget],
         isAnimationTick: Bool,
         controller: WMController
     ) {

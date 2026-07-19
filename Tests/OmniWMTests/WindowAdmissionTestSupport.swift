@@ -5,6 +5,7 @@ import AppKit
 import ApplicationServices
 import Foundation
 @testable import OmniWM
+import XCTest
 
 @MainActor
 enum WindowAdmissionTestSupport {
@@ -46,16 +47,28 @@ enum WindowAdmissionTestSupport {
     }
 
     static func drainLayoutRefreshes(_ controller: WMController) async {
-        while true {
-            if let task = controller.layoutRefreshController.layoutState.activeRefreshTask {
-                await task.value
-                continue
-            }
-            if controller.layoutRefreshController.layoutState.pendingRefresh == nil {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            guard !Task.isCancelled else {
+                XCTFail("layout refresh drain cancelled")
                 return
             }
-            await Task.yield()
+            let state = controller.layoutRefreshController.layoutState
+            if state.activeRefreshTask == nil,
+               state.activeRefresh == nil,
+               state.pendingRefresh == nil
+            {
+                return
+            }
+            do {
+                try await clock.sleep(for: .milliseconds(5))
+            } catch {
+                XCTFail("layout refresh drain cancelled")
+                return
+            }
         }
+        XCTFail("layout refresh drain exceeded five seconds")
     }
 
     static func axRef(for token: WindowToken) -> AXWindowRef {
@@ -83,13 +96,14 @@ enum WindowAdmissionTestSupport {
     static func frameRequest(
         _ ledger: AXFrameApplicationLedger,
         pid: pid_t,
-        windowId: Int,
+        window: AXWindowRef,
         frame: CGRect,
         isRetry: Bool = false
     ) -> AXFrameApplicationRequest? {
         ledger.prepareFrameApplication(
             pid: pid,
-            windowId: windowId,
+            windowId: window.windowId,
+            expectedWindow: window,
             frame: frame,
             isRetry: isRetry,
             terminalObserver: nil
@@ -105,6 +119,7 @@ enum WindowAdmissionTestSupport {
             requestId: request.requestId,
             pid: request.pid,
             windowId: request.windowId,
+            expectedWindow: request.expectedWindow,
             targetFrame: request.frame,
             currentFrameHint: request.currentFrameHint,
             writeResult: AXFrameWriteResult(
@@ -123,6 +138,7 @@ enum WindowAdmissionTestSupport {
             requestId: request.requestId,
             pid: request.pid,
             windowId: request.windowId,
+            expectedWindow: request.expectedWindow,
             targetFrame: request.frame,
             currentFrameHint: request.currentFrameHint,
             writeResult: AXFrameWriteResult(

@@ -4,6 +4,22 @@
 import ApplicationServices
 import Foundation
 
+enum ManagedWindowDestroyDisposition {
+    case current
+    case stale
+    case waitingIdentityRebindTarget(
+        retryGeneration: UInt64,
+        oldWindow: AXManagedWindowIdentity,
+        newWindow: AXManagedWindowIdentity
+    )
+    case pendingIdentityRebindTarget(
+        retryGeneration: UInt64,
+        executionOwner: UInt64,
+        oldWindow: AXManagedWindowIdentity,
+        newWindow: AXManagedWindowIdentity
+    )
+}
+
 extension AXEventHandler {
     func isAdmissionQuarantined(windowId: Int, axRef: AXWindowRef) -> Bool {
         guard let quarantine = admissionQuarantineByWindowId[windowId] else { return false }
@@ -103,6 +119,93 @@ extension AXEventHandler {
     func focusedWindowToken(for pid: pid_t) -> WindowToken? {
         guard let axRef = resolveFocusedAXWindowRef(pid: pid) else { return nil }
         return canonicalObservedWindowToken(pid: pid, axRef: axRef)
+    }
+
+    func managedWindowDestroyDisposition(
+        windowId: Int,
+        axRef: AXWindowRef
+    ) -> ManagedWindowDestroyDisposition {
+        if let entry = controller?.workspaceManager.entry(forWindowId: windowId),
+           CFEqual(entry.axRef.element, axRef.element)
+        {
+            return .current
+        }
+        if let admissionWindowId = UInt32(exactly: windowId),
+           let state = admissionRetryStateByWindowId[admissionWindowId],
+           !state.exhausted,
+           case let .identityRebind(oldWindow, newWindow, _, _, _) = state.trigger,
+           newWindow.token.windowId == windowId,
+           !CFEqual(oldWindow.axRef.element, newWindow.axRef.element),
+           CFEqual(newWindow.axRef.element, axRef.element)
+        {
+            switch state.executionPhase {
+            case .waiting:
+                return .waitingIdentityRebindTarget(
+                    retryGeneration: state.generation,
+                    oldWindow: oldWindow,
+                    newWindow: newWindow
+                )
+            case let .running(executionOwner):
+                return .pendingIdentityRebindTarget(
+                    retryGeneration: state.generation,
+                    executionOwner: executionOwner,
+                    oldWindow: oldWindow,
+                    newWindow: newWindow
+                )
+            }
+        }
+        return isCurrentAXIncarnation(windowId: windowId, axRef: axRef) ? .current : .stale
+    }
+
+    func cancelDestroyedWaitingManagedWindowIdentityRebind(
+        windowId: UInt32,
+        retryGeneration: UInt64,
+        oldWindow: AXManagedWindowIdentity,
+        newWindow: AXManagedWindowIdentity,
+        axRef: AXWindowRef
+    ) -> Bool {
+        guard let state = admissionRetryStateByWindowId[windowId],
+              !state.exhausted,
+              state.generation == retryGeneration,
+              state.executionPhase == .waiting,
+              case let .identityRebind(retryOld, retryNew, _, _, _) = state.trigger,
+              retryOld.token == oldWindow.token,
+              retryNew.token == newWindow.token,
+              CFEqual(retryOld.axRef.element, oldWindow.axRef.element),
+              CFEqual(retryNew.axRef.element, newWindow.axRef.element),
+              CFEqual(newWindow.axRef.element, axRef.element)
+        else {
+            return false
+        }
+        cancelCreatedWindowRetry(windowId: windowId)
+        return true
+    }
+
+    func deferDestroyedPendingManagedWindowIdentityRebind(
+        windowId: UInt32,
+        retryGeneration: UInt64,
+        executionOwner: UInt64,
+        oldWindow: AXManagedWindowIdentity,
+        newWindow: AXManagedWindowIdentity,
+        axRef: AXWindowRef
+    ) -> Bool {
+        guard var state = admissionRetryStateByWindowId[windowId],
+              !state.exhausted,
+              state.generation == retryGeneration,
+              state.executionPhase == .running(executionOwner),
+              !state.identityRebindTargetDestroyed,
+              case let .identityRebind(retryOld, retryNew, _, _, _) = state.trigger,
+              retryOld.token == oldWindow.token,
+              retryNew.token == newWindow.token,
+              CFEqual(retryOld.axRef.element, oldWindow.axRef.element),
+              CFEqual(retryNew.axRef.element, newWindow.axRef.element),
+              CFEqual(newWindow.axRef.element, axRef.element)
+        else {
+            return false
+        }
+        state.identityRebindTargetDestroyed = true
+        admissionRetryStateByWindowId[windowId] = state
+        return true
     }
 
     func isCurrentAXIncarnation(windowId: Int, axRef: AXWindowRef) -> Bool {

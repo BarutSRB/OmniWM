@@ -15,9 +15,10 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         let target = CGRect(x: 20, y: 30, width: 640, height: 480)
         let observed = CGRect(x: 0, y: 0, width: 1, height: 1)
         let failure = AXFrameWriteFailureReason.sizeWriteFailed(.attributeUnsupported)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
 
         let firstRequest = try XCTUnwrap(
-            WindowAdmissionTestSupport.frameRequest(ledger, pid: pid, windowId: windowId, frame: target)
+            WindowAdmissionTestSupport.frameRequest(ledger, pid: pid, window: window, frame: target)
         )
         let firstOutcome = ledger.handleFrameApplyResults([
             WindowAdmissionTestSupport.frameResult(
@@ -26,12 +27,14 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
                 failure: failure
             )
         ])
-        XCTAssertEqual(firstOutcome.retries, [AXFrameRetryRequest(pid: pid, windowId: windowId, frame: target)])
+        XCTAssertEqual(firstOutcome.retries, [
+            AXFrameRetryRequest(pid: pid, windowId: windowId, expectedWindow: window, frame: target)
+        ])
         XCTAssertTrue(firstOutcome.terminalRefusals.isEmpty)
 
         let retryRequest = try XCTUnwrap(
             WindowAdmissionTestSupport.frameRequest(
-                ledger, pid: pid, windowId: windowId, frame: target, isRetry: true
+                ledger, pid: pid, window: window, frame: target, isRetry: true
             )
         )
         let retryOutcome = ledger.handleFrameApplyResults([
@@ -63,10 +66,12 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         let windowId = 467_402
         let firstTarget = CGRect(x: 20, y: 30, width: 640, height: 480)
         let secondTarget = CGRect(x: 40, y: 50, width: 800, height: 600)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
         let firstRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: window,
                 frame: firstTarget,
                 isRetry: false,
                 terminalObserver: nil
@@ -76,6 +81,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
             ledger.prepareFrameApplication(
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: window,
                 frame: secondTarget,
                 isRetry: false,
                 terminalObserver: nil
@@ -96,15 +102,56 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         XCTAssertEqual(acceptedWindowIds, [windowId])
     }
 
+    func testFrameLedgerRejectsResultFromDifferentExpectedWindowIdentity() throws {
+        let ledger = AXFrameApplicationLedger()
+        let pid: pid_t = 467_303
+        let windowId = 467_403
+        let target = CGRect(x: 20, y: 30, width: 640, height: 480)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
+        let request = try XCTUnwrap(
+            WindowAdmissionTestSupport.frameRequest(ledger, pid: pid, window: window, frame: target)
+        )
+        let validResult = WindowAdmissionTestSupport.successfulFrameResult(request: request)
+        let forgedResult = AXFrameApplyResult(
+            requestId: request.requestId,
+            pid: request.pid,
+            windowId: request.windowId,
+            expectedWindow: AXWindowRef(
+                element: AXUIElementCreateApplication(pid + 1),
+                windowId: windowId
+            ),
+            targetFrame: request.frame,
+            currentFrameHint: request.currentFrameHint,
+            writeResult: validResult.writeResult
+        )
+        var acceptedWindowIds: [Int] = []
+
+        _ = ledger.handleFrameApplyResults(
+            [forgedResult],
+            onAcceptedSuccess: { acceptedWindowIds.append($0.windowId) }
+        )
+        XCTAssertTrue(acceptedWindowIds.isEmpty)
+        XCTAssertTrue(ledger.hasPendingFrameWrite(for: windowId))
+
+        _ = ledger.handleFrameApplyResults(
+            [validResult],
+            onAcceptedSuccess: { acceptedWindowIds.append($0.windowId) }
+        )
+        XCTAssertEqual(acceptedWindowIds, [windowId])
+    }
+
     func testFrameLedgerRejectsOldIncarnationResultAfterStateRemoval() throws {
         let ledger = AXFrameApplicationLedger()
         let pid: pid_t = 467_304
         let windowId = 467_404
         let target = CGRect(x: 20, y: 30, width: 640, height: 480)
+        let oldWindow = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
+        let newWindow = AXWindowRef(element: AXUIElementCreateApplication(pid + 1), windowId: windowId)
         let oldRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: oldWindow,
                 frame: target,
                 isRetry: false,
                 terminalObserver: nil
@@ -115,6 +162,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
             ledger.prepareFrameApplication(
                 pid: pid + 1,
                 windowId: windowId,
+                expectedWindow: newWindow,
                 frame: target,
                 isRetry: false,
                 terminalObserver: nil

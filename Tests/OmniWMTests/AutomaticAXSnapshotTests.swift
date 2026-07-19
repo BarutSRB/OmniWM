@@ -2,6 +2,7 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import ApplicationServices
+import Dispatch
 import Foundation
 @testable import OmniWM
 import XCTest
@@ -46,7 +47,7 @@ final class AutomaticAXSnapshotTests: XCTestCase {
         XCTAssertFalse(resolvedWindowId)
     }
 
-    func testFocusedWindowIsUsedWhenExactWindowIdentityIsUnavailable() {
+    func testFocusedWindowIsUsedWhenItResolvesToRequestedIdentity() {
         let focused = AXUIElementCreateApplication(91_022)
         let other = AXUIElementCreateApplication(91_023)
 
@@ -54,10 +55,25 @@ final class AutomaticAXSnapshotTests: XCTestCase {
             windowId: 22,
             focusedWindow: focused,
             windows: [other]
-        ) { _ in 11 }
+        ) { element in
+            CFEqual(element, focused) ? 22 : 11
+        }
 
         XCTAssertNotNil(selected)
         XCTAssertTrue(selected.map { CFEqual($0, focused) } == true)
+    }
+
+    func testFocusedWindowIsNotSubstitutedWhenIdentityDoesNotMatch() {
+        let focused = AXUIElementCreateApplication(91_024)
+        let other = AXUIElementCreateApplication(91_025)
+
+        let selected = AutomaticAXSnapshotCollector.selectWindowElement(
+            windowId: 22,
+            focusedWindow: focused,
+            windows: [other]
+        ) { _ in 11 }
+
+        XCTAssertNil(selected)
     }
 
     func testMessagingTimeoutIsRestoredWhenSnapshotReadThrows() {
@@ -87,8 +103,24 @@ final class AutomaticAXSnapshotTests: XCTestCase {
     }
 
     func testOverallTimeoutProducesEncodableSnapshot() async throws {
+        let gate = AutomaticSnapshotCaptureGate()
+        let watchdog = Task {
+            do {
+                try await Task.sleep(for: .seconds(2))
+            } catch {
+                return false
+            }
+            gate.release()
+            return true
+        }
+        defer {
+            watchdog.cancel()
+            gate.release()
+        }
+        let started = expectation(description: "snapshot capture started")
         let collector = AutomaticAXSnapshotCollector(overallTimeoutSeconds: 0.01) { request in
-            Thread.sleep(forTimeInterval: 0.1)
+            started.fulfill()
+            gate.wait()
             return AutomaticAXSnapshot(
                 generatedAt: Date().ISO8601Format(),
                 reason: request.reason,
@@ -105,10 +137,15 @@ final class AutomaticAXSnapshotTests: XCTestCase {
             windowId: 91_002
         )
 
-        let snapshot = await collector.capture(request)
+        let capture = Task { await collector.capture(request) }
+        await fulfillment(of: [started], timeout: 2)
+        let snapshot = await capture.value
+        watchdog.cancel()
+        let watchdogFired = await watchdog.value
         let encoded = collector.encoded(snapshot)
         let decoded = try JSONDecoder().decode(AutomaticAXSnapshot.self, from: Data(encoded.utf8))
 
+        XCTAssertFalse(watchdogFired, "snapshot capture exceeded the watchdog deadline")
         XCTAssertEqual(decoded.status, "timed_out")
         XCTAssertEqual(decoded.reason, "timeout_test")
         XCTAssertEqual(decoded.windowId, 91_002)
@@ -129,5 +166,32 @@ final class AutomaticAXSnapshotTests: XCTestCase {
         XCTAssertNotEqual(decoded.status, "captured")
         XCTAssertEqual(decoded.pid, Int32.max)
         XCTAssertEqual(decoded.windowId, Int.max)
+    }
+}
+
+private final class AutomaticSnapshotCaptureGate: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var released = false
+
+    func wait() {
+        lock.lock()
+        if released {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        semaphore.wait()
+    }
+
+    func release() {
+        lock.lock()
+        guard !released else {
+            lock.unlock()
+            return
+        }
+        released = true
+        lock.unlock()
+        semaphore.signal()
     }
 }

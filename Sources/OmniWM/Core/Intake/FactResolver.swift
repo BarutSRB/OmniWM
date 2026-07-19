@@ -18,6 +18,7 @@ struct ActivationFacts: Sendable {
     let requestedAtSeq: UInt64
     let focusedWindow: FocusedWindowFact?
     let callbackGeneration: UInt64?
+    let focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution?
 
     init(
         pid: pid_t,
@@ -26,7 +27,8 @@ struct ActivationFacts: Sendable {
         observationGeneration: UInt64,
         requestedAtSeq: UInt64,
         focusedWindow: FocusedWindowFact?,
-        callbackGeneration: UInt64? = nil
+        callbackGeneration: UInt64? = nil,
+        focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution? = nil
     ) {
         self.pid = pid
         self.source = source
@@ -35,6 +37,7 @@ struct ActivationFacts: Sendable {
         self.requestedAtSeq = requestedAtSeq
         self.focusedWindow = focusedWindow
         self.callbackGeneration = callbackGeneration
+        self.focusedAdmissionRetryExecution = focusedAdmissionRetryExecution
     }
 }
 
@@ -52,36 +55,42 @@ final class FactResolver {
         let observationGeneration: UInt64
         let requestedAtSeq: UInt64
         let callbackGeneration: UInt64?
+        let focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution?
     }
 
     var factProvider: ((pid_t) -> FocusedWindowFact?)?
+    var deferredFactProvider: ((pid_t) async -> FocusedWindowFact?)?
 
     private var resolverThread: Thread?
     private var inFlightActivationPids: Set<pid_t> = []
     private var pendingActivationRequestsByPid: [pid_t: ActivationFactRequest] = [:]
     private var inFlightConstraintTokens: Set<WindowToken> = []
 
+    @discardableResult
     func resolveActivationFacts(
         pid: pid_t,
         source: ActivationEventSource,
         origin: ActivationCallOrigin,
         observationGeneration: UInt64,
-        callbackGeneration: UInt64? = nil
-    ) {
+        callbackGeneration: UInt64? = nil,
+        focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution? = nil
+    ) -> Bool {
         let request = ActivationFactRequest(
             pid: pid,
             source: source,
             origin: origin,
             observationGeneration: observationGeneration,
             requestedAtSeq: EventIntake.currentSeq(),
-            callbackGeneration: callbackGeneration
+            callbackGeneration: callbackGeneration,
+            focusedAdmissionRetryExecution: focusedAdmissionRetryExecution
         )
-        resolveActivationFacts(request)
+        return resolveActivationFacts(request)
     }
 
-    private func resolveActivationFacts(_ request: ActivationFactRequest) {
+    @discardableResult
+    private func resolveActivationFacts(_ request: ActivationFactRequest) -> Bool {
         if let factProvider {
-            EventIntake.post(
+            return EventIntake.post(
                 .activationFactsResolved(
                     ActivationFacts(
                         pid: request.pid,
@@ -90,39 +99,60 @@ final class FactResolver {
                         observationGeneration: request.observationGeneration,
                         requestedAtSeq: request.requestedAtSeq,
                         focusedWindow: factProvider(request.pid),
-                        callbackGeneration: request.callbackGeneration
+                        callbackGeneration: request.callbackGeneration,
+                        focusedAdmissionRetryExecution: request.focusedAdmissionRetryExecution
                     )
                 )
             )
-            return
         }
         if inFlightActivationPids.contains(request.pid) {
+            if let superseded = pendingActivationRequestsByPid[request.pid]?.focusedAdmissionRetryExecution,
+               superseded != request.focusedAdmissionRetryExecution
+            {
+                EventIntake.post(.focusedAdmissionRetryFactRequestSuperseded(superseded))
+            }
             pendingActivationRequestsByPid[request.pid] = request
-            return
+            return true
         }
         inFlightActivationPids.insert(request.pid)
+        if let deferredFactProvider {
+            Task { @MainActor in
+                let focusedWindow = await deferredFactProvider(request.pid)
+                completeActivationFactRequest(request, focusedWindow: focusedWindow)
+            }
+            return true
+        }
         nonisolated(unsafe) let thread = AppAXContext.contexts[request.pid]?.axThread ?? sharedResolverThread()
         Task { @MainActor in
             let focusedWindow = (try? await thread.runInLoop { _ in
                 Self.readFocusedWindowFact(pid: request.pid)
             }) ?? nil
-            inFlightActivationPids.remove(request.pid)
-            EventIntake.post(
-                .activationFactsResolved(
-                    ActivationFacts(
-                        pid: request.pid,
-                        source: request.source,
-                        origin: request.origin,
-                        observationGeneration: request.observationGeneration,
-                        requestedAtSeq: request.requestedAtSeq,
-                        focusedWindow: focusedWindow,
-                        callbackGeneration: request.callbackGeneration
-                    )
+            completeActivationFactRequest(request, focusedWindow: focusedWindow)
+        }
+        return true
+    }
+
+    private func completeActivationFactRequest(
+        _ request: ActivationFactRequest,
+        focusedWindow: FocusedWindowFact?
+    ) {
+        inFlightActivationPids.remove(request.pid)
+        EventIntake.post(
+            .activationFactsResolved(
+                ActivationFacts(
+                    pid: request.pid,
+                    source: request.source,
+                    origin: request.origin,
+                    observationGeneration: request.observationGeneration,
+                    requestedAtSeq: request.requestedAtSeq,
+                    focusedWindow: focusedWindow,
+                    callbackGeneration: request.callbackGeneration,
+                    focusedAdmissionRetryExecution: request.focusedAdmissionRetryExecution
                 )
             )
-            if let pendingRequest = pendingActivationRequestsByPid.removeValue(forKey: request.pid) {
-                resolveActivationFacts(pendingRequest)
-            }
+        )
+        if let pendingRequest = pendingActivationRequestsByPid.removeValue(forKey: request.pid) {
+            _ = resolveActivationFacts(pendingRequest)
         }
     }
 

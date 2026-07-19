@@ -1229,6 +1229,10 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         AXFrameApplyResult(
             pid: token.pid,
             windowId: token.windowId,
+            expectedWindow: AXWindowRef(
+                element: AXUIElementCreateApplication(token.pid),
+                windowId: token.windowId
+            ),
             targetFrame: frame,
             currentFrameHint: nil,
             writeResult: AXFrameWriteResult(

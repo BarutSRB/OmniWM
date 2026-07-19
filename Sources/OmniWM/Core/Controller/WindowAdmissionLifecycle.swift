@@ -80,6 +80,12 @@ enum ManagedWindowIdentityRebindResult {
     }
 }
 
+struct FocusedAdmissionRetryExecution: Equatable, Sendable {
+    let windowId: UInt32
+    let generation: UInt64
+    let executionOwner: UInt64
+}
+
 struct AdmissionRetryState {
     var expectedToken: WindowToken?
     var axRef: AXWindowRef?
@@ -88,7 +94,14 @@ struct AdmissionRetryState {
     var generation: UInt64
     var trigger: AdmissionRetryTrigger
     var exhausted: Bool
+    var executionPhase: AdmissionRetryExecutionPhase = .waiting
+    var identityRebindTargetDestroyed = false
     var task: Task<Void, Never>?
+}
+
+enum AdmissionRetryExecutionPhase: Equatable {
+    case waiting
+    case running(UInt64)
 }
 
 struct AdmissionRetrySchedule {
@@ -177,7 +190,8 @@ struct WindowIdentityAliasHistory {
     }
 
     func contains(_ lhs: AXWindowRef, and rhs: AXWindowRef) -> Bool {
-        contains(lhs) && contains(rhs)
+        current?.contains(lhs) == true && current?.contains(rhs) == true
+            || previous?.contains(lhs) == true && previous?.contains(rhs) == true
     }
 
     mutating func remove(pid: pid_t) {

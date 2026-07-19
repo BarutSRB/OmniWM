@@ -143,4 +143,82 @@ final class WindowAdmissionRetryIdentityTests: XCTestCase {
         XCTAssertTrue(CFEqual(restarted.axRef?.element, replacementAXRef.element))
         controller.axEventHandler.cancelCreatedWindowRetry(windowId: windowId)
     }
+
+    func testPairwiseAliasMatchingRequiresReferencesFromTheSameGeneration() {
+        let windowId = 467_983
+        let previousFirst = AXWindowRef(
+            element: AXUIElementCreateApplication(467_984),
+            windowId: windowId
+        )
+        let previousSecond = AXWindowRef(
+            element: AXUIElementCreateApplication(467_985),
+            windowId: windowId
+        )
+        let currentFirst = AXWindowRef(
+            element: AXUIElementCreateApplication(467_986),
+            windowId: windowId
+        )
+        let currentSecond = AXWindowRef(
+            element: AXUIElementCreateApplication(467_987),
+            windowId: windowId
+        )
+        var history = WindowIdentityAliasHistory()
+        history.commit(.init(pids: [], axRefs: [previousFirst, previousSecond]))
+        history.commit(.init(pids: [], axRefs: [currentFirst, currentSecond]))
+
+        XCTAssertTrue(history.contains(previousFirst, and: previousSecond))
+        XCTAssertTrue(history.contains(currentFirst, and: currentSecond))
+        XCTAssertFalse(history.contains(previousFirst, and: currentFirst))
+        XCTAssertTrue(history.contains(previousFirst))
+        XCTAssertTrue(history.contains(currentFirst))
+    }
+
+    func testDistinctGenerationIncarnationRestartsBeforeRetryPriority() throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        let windowId: UInt32 = 467_988
+        let priorToken = WindowToken(pid: 467_989, windowId: Int(windowId))
+        let priorAXRef = WindowAdmissionTestSupport.axRef(for: priorToken)
+        let currentToken = WindowToken(pid: 467_990, windowId: Int(windowId))
+        let currentAXRef = WindowAdmissionTestSupport.axRef(for: currentToken)
+        controller.axEventHandler.updateIdentityAliases([
+            Int(windowId): .init(pids: [priorToken.pid], axRefs: [priorAXRef])
+        ])
+        controller.axEventHandler.updateIdentityAliases([
+            Int(windowId): .init(pids: [currentToken.pid], axRefs: [currentAXRef])
+        ])
+        controller.axEventHandler.admissionRetryStateByWindowId[windowId] = AdmissionRetryState(
+            expectedToken: priorToken,
+            axRef: priorAXRef,
+            reason: .factsDeferred,
+            attempt: 4,
+            generation: 81,
+            trigger: .focused(
+                token: priorToken,
+                source: .focusedWindowChanged,
+                observationGeneration: 9,
+                callbackGeneration: nil
+            ),
+            exhausted: false,
+            executionPhase: .running(17),
+            task: Task {}
+        )
+        defer { controller.axEventHandler.cancelCreatedWindowRetry(windowId: windowId) }
+
+        XCTAssertTrue(
+            controller.axEventHandler.scheduleCandidateAdmissionRetry(
+                windowId: windowId,
+                pid: currentToken.pid,
+                axRef: currentAXRef,
+                reason: .degenerateGeometry
+            )
+        )
+
+        let restarted = try XCTUnwrap(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
+        XCTAssertEqual(restarted.attempt, 1)
+        XCTAssertNotEqual(restarted.generation, 81)
+        XCTAssertEqual(restarted.expectedToken, currentToken)
+        guard case .candidate = restarted.trigger else {
+            return XCTFail("Expected current-incarnation candidate retry")
+        }
+    }
 }

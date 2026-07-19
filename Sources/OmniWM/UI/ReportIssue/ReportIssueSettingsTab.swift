@@ -434,17 +434,17 @@ extension ReportIssueSettingsTab {
 
     private func startRecording() {
         Task {
-            switch await controller.toggleTraceCaptureForUI(desiredState: .active) {
+            let outcome = await controller.toggleTraceCaptureForUI(desiredState: .active)
+            switch outcome {
             case .started:
                 model.recordingStarted()
                 await refreshAvailableEvidence()
-                traceStatus = .success("Recording started")
-            case .noChange:
-                traceStatus = .failure("A recording is already running")
-            case .stopped,
+            case .noChange,
+                 .stopped,
                  .writeFailed:
-                traceStatus = .failure("Unexpected recording state")
+                break
             }
+            traceStatus = diagnosticsRecordingStartStatus(for: outcome)
         }
     }
 

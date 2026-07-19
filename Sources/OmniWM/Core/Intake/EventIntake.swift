@@ -7,6 +7,7 @@ import os
 
 enum IntakeEvent: Sendable {
     case activationFactsResolved(ActivationFacts)
+    case focusedAdmissionRetryFactRequestSuperseded(FocusedAdmissionRetryExecution)
     case activeSpaceChanged
     case appActivated(pid: pid_t)
     case appDeactivated(pid: pid_t)

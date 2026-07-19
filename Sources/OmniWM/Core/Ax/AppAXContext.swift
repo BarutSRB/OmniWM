@@ -34,62 +34,193 @@ final class LockedWindowIdSet: @unchecked Sendable {
         }
         lock.unlock()
     }
+
+    func retainOnly(_ retainedIds: Set<Int>) {
+        lock.lock()
+        ids.formIntersection(retainedIds)
+        lock.unlock()
+    }
 }
 
 final class LockedWindowGenerationMap: @unchecked Sendable {
     private let lock = NSLock()
-    private var generations: [Int: Int] = [:]
+    private var nextGeneration: UInt64 = 1
+    private var generations: [Int: UInt64] = [:]
 
-    func nextGeneration(for id: Int) -> Int {
+    func nextGeneration(for id: Int) -> UInt64 {
         lock.lock()
         defer { lock.unlock() }
-        let next = (generations[id] ?? 0) + 1
-        generations[id] = next
-        return next
+        let generation = nextGeneration
+        nextGeneration &+= 1
+        generations[id] = generation
+        return generation
     }
 
-    func isCurrent(_ generation: Int, for id: Int) -> Bool {
+    func isCurrent(_ generation: UInt64, for id: Int) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return generations[id] == generation
     }
 
-    func remove(_ id: Int) {
+    func invalidateAndRemove(_ id: Int) {
         lock.lock()
+        nextGeneration &+= 1
         generations.removeValue(forKey: id)
         lock.unlock()
     }
 
     func invalidateAndMoveValue(from oldId: Int, to newId: Int) {
         lock.lock()
-        let generation = max(generations[oldId] ?? 0, generations[newId] ?? 0) + 1
+        let generation = nextGeneration
+        nextGeneration &+= 1
         if oldId != newId {
             generations.removeValue(forKey: oldId)
         }
         generations[newId] = generation
         lock.unlock()
     }
+
+    func retainOnly(_ retainedIds: Set<Int>) {
+        lock.lock()
+        generations = generations.filter { retainedIds.contains($0.key) }
+        lock.unlock()
+    }
 }
 
-struct AppAXWindowRebindBinding: Sendable {
-    let addedSubscription: Bool
+final class LockedGenerationEpoch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+
+    func advance() -> UInt64 {
+        lock.lock()
+        generation &+= 1
+        let currentGeneration = generation
+        lock.unlock()
+        return currentGeneration
+    }
+
+    func isCurrent(_ expectedGeneration: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == expectedGeneration
+    }
+
+    func current() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation
+    }
+
+    func performIfCurrent<T>(
+        _ expectedGeneration: UInt64,
+        _ body: () throws -> T
+    ) rethrows -> T? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard generation == expectedGeneration else { return nil }
+        return try body()
+    }
+}
+
+struct AppAXWindowNotificationSet: OptionSet, Sendable {
+    let rawValue: UInt8
+
+    static let destroyed = Self(rawValue: 1 << 0)
+    static let miniaturized = Self(rawValue: 1 << 1)
+    static let lifecycle: Self = [.destroyed, .miniaturized]
+}
+
+enum AppAXWindowNotification: CaseIterable, Hashable, Sendable {
+    case destroyed
+    case miniaturized
+
+    var ownership: AppAXWindowNotificationSet {
+        switch self {
+        case .destroyed: .destroyed
+        case .miniaturized: .miniaturized
+        }
+    }
+
+    var name: CFString {
+        switch self {
+        case .destroyed: kAXUIElementDestroyedNotification as CFString
+        case .miniaturized: kAXWindowMiniaturizedNotification as CFString
+        }
+    }
+}
+
+enum AppAXAlreadyRegisteredPolicy: Sendable {
+    case adopt
+    case reject
+    case replace
+}
+
+enum AppAXWindowRebindSubscriptionOwnership: Equatable, Sendable {
+    case unowned
+    case destination
+    case source
+    case conflict
+}
+
+struct AppAXWindowSubscription: @unchecked Sendable {
+    let windowId: Int
+    let element: AXUIElement
+    var notifications: AppAXWindowNotificationSet
+
+    func owns(_ notification: AppAXWindowNotification) -> Bool {
+        notifications.contains(notification.ownership)
+    }
+}
+
+struct AppAXPendingNotificationRemoval: @unchecked Sendable {
+    let element: AXUIElement
+    let notification: AppAXWindowNotification
+}
+
+struct AppAXWindowNotificationInstallResult: @unchecked Sendable {
+    let subscription: AppAXWindowSubscription?
+    let newlyInstalled: AppAXWindowNotificationSet
+    let pendingRemovals: [AppAXPendingNotificationRemoval]
+}
+
+struct AppAXWindowRebindBinding: @unchecked Sendable {
+    let destinationWindowElement: AXUIElement?
+    let destinationSubscription: AppAXWindowSubscription?
+    let stagedSubscription: AppAXWindowSubscription?
+    let newlyInstalledNotifications: AppAXWindowNotificationSet
+    let requiresRetag: Bool
+    let hasLifecycleObserver: Bool
 }
 
 struct AppAXSubscriptionCleanup: @unchecked Sendable {
-    let elements: [AXUIElement]
+    let subscriptions: [AppAXWindowSubscription]
 }
+
+struct AppAXWindowStateRemovalOutcome: Sendable {
+    let removedCachedWindow: Bool
+    let removedSubscription: Bool
+}
+
+enum AppAXWindowBindingResult: Equatable, Sendable {
+    case bound
+    case superseded
+    case retryRequired
+}
+
+private struct AppAXWindowBindingSuperseded: Error {}
 
 private func axCallbackObserverKey(_ observer: AXObserver) -> UInt {
     UInt(bitPattern: Unmanaged.passUnretained(observer).toOpaque())
 }
 
-private struct AppAXFrameWriteRequest: Sendable {
+struct AppAXFrameWriteRequest: Sendable {
     let requestId: AXFrameRequestId
     let pid: pid_t
     let windowId: Int
+    let expectedWindow: AXWindowRef
     let frame: CGRect
     let currentFrameHint: CGRect?
-    let generation: Int
+    let generation: UInt64
     let verify: Bool
 }
 
@@ -124,10 +255,12 @@ final class AppAXContext {
 
     private var activeFrameBatchJobs: [UUID: RunLoopJob] = [:]
     private let frameWriteGenerations = LockedWindowGenerationMap()
+    private let windowBindingEpoch = LockedGenerationEpoch()
     let suppressedFrameWindowIds = LockedWindowIdSet()
     private let axObserver: ThreadGuardedValue<AXObserver?>
     private let focusedWindowObserver: ThreadGuardedValue<AXObserver?>
-    private let subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>
+    private let subscribedWindows: ThreadGuardedValue<[Int: AppAXWindowSubscription]>
+    private let pendingNotificationRemovals: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>
     private let axObserverCallbackKey: UInt?
     private let focusedWindowObserverCallbackKey: UInt?
     let callbackGeneration: UInt64
@@ -144,7 +277,8 @@ final class AppAXContext {
         _ windows: ThreadGuardedValue<[Int: AXUIElement]>,
         _ observer: ThreadGuardedValue<AXObserver?>,
         _ focusedWindowObserver: ThreadGuardedValue<AXObserver?>,
-        _ subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>,
+        _ subscribedWindows: ThreadGuardedValue<[Int: AppAXWindowSubscription]>,
+        _ pendingNotificationRemovals: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>,
         _ axObserverCallbackKey: UInt?,
         _ focusedWindowObserverCallbackKey: UInt?,
         _ callbackGeneration: UInt64,
@@ -157,6 +291,7 @@ final class AppAXContext {
         axObserver = observer
         self.focusedWindowObserver = focusedWindowObserver
         self.subscribedWindows = subscribedWindows
+        self.pendingNotificationRemovals = pendingNotificationRemovals
         self.axObserverCallbackKey = axObserverCallbackKey
         self.focusedWindowObserverCallbackKey = focusedWindowObserverCallbackKey
         self.callbackGeneration = callbackGeneration
@@ -272,7 +407,10 @@ final class AppAXContext {
                     let guardedWindows = ThreadGuardedValue([Int: AXUIElement]())
                     let guardedObserver = ThreadGuardedValue(observer)
                     let guardedFocusedWindowObserver = ThreadGuardedValue(focusObserver)
-                    let guardedSubscribedWindows = ThreadGuardedValue([Int: AXUIElement]())
+                    let guardedSubscribedWindows = ThreadGuardedValue([Int: AppAXWindowSubscription]())
+                    let guardedPendingNotificationRemovals = ThreadGuardedValue(
+                        [AppAXPendingNotificationRemoval]()
+                    )
                     let observerCallbackKey = observer.map(axCallbackObserverKey)
                     let focusedWindowObserverCallbackKey = focusObserver.map(axCallbackObserverKey)
                     let currentThread = Thread.current
@@ -287,6 +425,7 @@ final class AppAXContext {
                             guardedObserver,
                             guardedFocusedWindowObserver,
                             guardedSubscribedWindows,
+                            guardedPendingNotificationRemovals,
                             observerCallbackKey,
                             focusedWindowObserverCallbackKey,
                             callbackGeneration,
@@ -395,73 +534,384 @@ final class AppAXContext {
         }
     }
 
+    nonisolated static func installWindowNotifications(
+        element: AXUIElement,
+        windowId: Int,
+        ownedSubscription: AppAXWindowSubscription?,
+        addNotification: (AppAXWindowNotification, UnsafeMutableRawPointer?) -> AXError,
+        removeNotification: (AppAXWindowNotification) -> AXError,
+        alreadyRegisteredPolicy: AppAXAlreadyRegisteredPolicy = .adopt,
+        checkCancellation: () throws -> Void = {},
+        recordPendingRemovals: ([AppAXPendingNotificationRemoval]) -> Void = { _ in }
+    ) throws -> AppAXWindowNotificationInstallResult {
+        func failure(
+            pendingRemovals: [AppAXPendingNotificationRemoval] = []
+        ) -> AppAXWindowNotificationInstallResult {
+            .init(subscription: nil, newlyInstalled: [], pendingRemovals: pendingRemovals)
+        }
+
+        guard let refcon = destroyNotificationRefcon(for: windowId) else {
+            return failure()
+        }
+        let exactOwnership = ownedSubscription.flatMap { subscription in
+            subscription.windowId == windowId && CFEqual(subscription.element, element)
+                ? subscription
+                : nil
+        }
+        if ownedSubscription != nil, exactOwnership == nil {
+            return failure()
+        }
+        var installed = exactOwnership?.notifications ?? []
+        var newlyInstalled: AppAXWindowNotificationSet = []
+
+        func rollbackNewlyInstalledNotifications() -> [AppAXPendingNotificationRemoval] {
+            var pending: [AppAXPendingNotificationRemoval] = []
+            for rollbackNotification in AppAXWindowNotification.allCases.reversed()
+                where newlyInstalled.contains(rollbackNotification.ownership)
+            {
+                let rollbackResult = removeNotification(rollbackNotification)
+                if rollbackResult != .success, rollbackResult != .notificationNotRegistered {
+                    pending.append(
+                        .init(element: element, notification: rollbackNotification)
+                    )
+                }
+            }
+            return pending
+        }
+
+        func cancelInstallation(_ error: Error) throws -> Never {
+            recordPendingRemovals(rollbackNewlyInstalledNotifications())
+            throw error
+        }
+
+        for notification in AppAXWindowNotification.allCases where !installed.contains(notification.ownership) {
+            do {
+                try checkCancellation()
+            } catch {
+                try cancelInstallation(error)
+            }
+            var result = addNotification(notification, refcon)
+            if result == .notificationAlreadyRegistered {
+                switch alreadyRegisteredPolicy {
+                case .adopt:
+                    installed.insert(notification.ownership)
+                    continue
+                case .reject:
+                    return failure(pendingRemovals: rollbackNewlyInstalledNotifications())
+                case .replace:
+                    break
+                }
+                let removeResult = removeNotification(notification)
+                if removeResult != .success, removeResult != .notificationNotRegistered {
+                    var pendingRemovals = [
+                        AppAXPendingNotificationRemoval(element: element, notification: notification)
+                    ]
+                    pendingRemovals.append(contentsOf: rollbackNewlyInstalledNotifications())
+                    return failure(pendingRemovals: pendingRemovals)
+                }
+                do {
+                    try checkCancellation()
+                } catch {
+                    try cancelInstallation(error)
+                }
+                result = addNotification(notification, refcon)
+            }
+            guard result == .success else {
+                var pendingRemovals: [AppAXPendingNotificationRemoval] = []
+                if result == .notificationAlreadyRegistered {
+                    pendingRemovals.append(.init(element: element, notification: notification))
+                }
+                pendingRemovals.append(contentsOf: rollbackNewlyInstalledNotifications())
+                return failure(pendingRemovals: pendingRemovals)
+            }
+            installed.insert(notification.ownership)
+            newlyInstalled.insert(notification.ownership)
+        }
+
+        do {
+            try checkCancellation()
+        } catch {
+            try cancelInstallation(error)
+        }
+
+        return .init(
+            subscription: .init(windowId: windowId, element: element, notifications: installed),
+            newlyInstalled: newlyInstalled,
+            pendingRemovals: []
+        )
+    }
+
+    nonisolated static func removeOwnedWindowNotifications(
+        _ subscription: AppAXWindowSubscription,
+        removeNotification: (AppAXWindowNotification) -> AXError
+    ) -> [AppAXPendingNotificationRemoval] {
+        var pending: [AppAXPendingNotificationRemoval] = []
+        for notification in AppAXWindowNotification.allCases where subscription.owns(notification) {
+            let result = removeNotification(notification)
+            if result != .success, result != .notificationNotRegistered {
+                pending.append(.init(element: subscription.element, notification: notification))
+            }
+        }
+        return pending
+    }
+
     private nonisolated static func addWindowNotifications(
         observer: AXObserver,
         element: AXUIElement,
-        windowId: Int
-    ) -> Bool {
-        guard let refcon = destroyNotificationRefcon(for: windowId) else { return false }
-        let destroyResult = AXObserverAddNotification(
-            observer,
-            element,
-            kAXUIElementDestroyedNotification as CFString,
-            refcon
+        windowId: Int,
+        ownedSubscription: AppAXWindowSubscription?,
+        alreadyRegisteredPolicy: AppAXAlreadyRegisteredPolicy = .adopt,
+        checkCancellation: () throws -> Void,
+        recordPendingRemovals: ([AppAXPendingNotificationRemoval]) -> Void
+    ) throws -> AppAXWindowNotificationInstallResult {
+        let result = try installWindowNotifications(
+            element: element,
+            windowId: windowId,
+            ownedSubscription: ownedSubscription,
+            addNotification: { notification, refcon in
+                AXObserverAddNotification(observer, element, notification.name, refcon)
+            },
+            removeNotification: { notification in
+                AXObserverRemoveNotification(observer, element, notification.name)
+            },
+            alreadyRegisteredPolicy: alreadyRegisteredPolicy,
+            checkCancellation: checkCancellation,
+            recordPendingRemovals: recordPendingRemovals
         )
-        guard destroyResult == .success else {
-            FallbackFiringRecorder.shared.note(.ax, "destroySubscribeFailed")
-            return false
+        if result.subscription == nil {
+            FallbackFiringRecorder.shared.note(.ax, "windowSubscribeFailed")
         }
-        let miniaturizeResult = AXObserverAddNotification(
-            observer,
-            element,
-            kAXWindowMiniaturizedNotification as CFString,
-            refcon
-        )
-        guard miniaturizeResult == .success else {
-            AXObserverRemoveNotification(
-                observer,
-                element,
-                kAXUIElementDestroyedNotification as CFString
-            )
-            FallbackFiringRecorder.shared.note(.ax, "miniaturizeSubscribeFailed")
-            return false
-        }
-        return true
+        return result
     }
 
     private nonisolated static func removeWindowNotifications(
         observer: AXObserver,
-        element: AXUIElement
+        subscription: AppAXWindowSubscription
+    ) -> [AppAXPendingNotificationRemoval] {
+        removeOwnedWindowNotifications(subscription) { notification in
+            AXObserverRemoveNotification(observer, subscription.element, notification.name)
+        }
+    }
+
+    private nonisolated static func appendPendingNotificationRemovals(
+        _ additions: [AppAXPendingNotificationRemoval],
+        to state: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>
     ) {
-        AXObserverRemoveNotification(
-            observer,
-            element,
-            kAXUIElementDestroyedNotification as CFString
-        )
-        AXObserverRemoveNotification(
-            observer,
-            element,
-            kAXWindowMiniaturizedNotification as CFString
+        guard !additions.isEmpty else { return }
+        var pending = state.value
+        for addition in additions where !pending.contains(where: {
+            $0.notification == addition.notification && CFEqual($0.element, addition.element)
+        }) {
+            pending.append(addition)
+        }
+        state.value = pending
+    }
+
+    private nonisolated static func drainPendingNotificationRemovals(
+        _ state: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>,
+        observer: AXObserver,
+        checkCancellation: () throws -> Void
+    ) throws {
+        var remaining: [AppAXPendingNotificationRemoval] = []
+        for removal in state.value {
+            try checkCancellation()
+            let result = AXObserverRemoveNotification(
+                observer,
+                removal.element,
+                removal.notification.name
+            )
+            if result != .success, result != .notificationNotRegistered {
+                remaining.append(removal)
+            }
+        }
+        state.value = remaining
+    }
+
+    nonisolated static func hasPendingNotificationRemoval(
+        for element: AXUIElement,
+        in pending: [AppAXPendingNotificationRemoval]
+    ) -> Bool {
+        pending.contains { CFEqual($0.element, element) }
+    }
+
+    private nonisolated static func ownedSubscription(
+        for element: AXUIElement,
+        windowId: Int,
+        in subscriptions: [Int: AppAXWindowSubscription]
+    ) -> AppAXWindowSubscription? {
+        if let direct = subscriptions[windowId], CFEqual(direct.element, element) {
+            return direct
+        }
+        return subscriptions.values.first {
+            CFEqual($0.element, element)
+        }
+    }
+
+    nonisolated static func rebindSubscriptionOwnership(
+        _ subscription: AppAXWindowSubscription?,
+        oldWindowId: Int,
+        newWindowId: Int
+    ) -> AppAXWindowRebindSubscriptionOwnership {
+        guard let subscription else { return .unowned }
+        if subscription.windowId == newWindowId { return .destination }
+        if subscription.windowId == oldWindowId { return .source }
+        return .conflict
+    }
+
+    private nonisolated static func sameSubscription(
+        _ lhs: AppAXWindowSubscription?,
+        _ rhs: AppAXWindowSubscription?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            true
+        case let (lhs?, rhs?):
+            lhs.windowId == rhs.windowId
+                && lhs.notifications == rhs.notifications
+                && CFEqual(lhs.element, rhs.element)
+        default:
+            false
+        }
+    }
+
+    private nonisolated static func sameElement(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            true
+        case let (lhs?, rhs?):
+            CFEqual(lhs, rhs)
+        default:
+            false
+        }
+    }
+
+    private nonisolated static func stageSubscriptionRemoval(
+        _ subscription: AppAXWindowSubscription,
+        in state: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>
+    ) {
+        appendPendingNotificationRemovals(
+            AppAXWindowNotification.allCases.compactMap { notification in
+                subscription.owns(notification)
+                    ? AppAXPendingNotificationRemoval(
+                        element: subscription.element,
+                        notification: notification
+                    )
+                    : nil
+            },
+            to: state
         )
     }
 
-    private nonisolated static func removeMissingWindowSubscription(
-        windowId: Int,
-        existingElement: AXUIElement?,
-        observer: AXObserver?,
-        subscribedElement: AXUIElement?
+    nonisolated static func removeExactWindowState(
+        expectedWindow: AXWindowRef,
+        windows: ThreadGuardedValue<[Int: AXUIElement]>,
+        subscribedWindows: ThreadGuardedValue<[Int: AppAXWindowSubscription]>,
+        pendingNotificationRemovals: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>
+    ) -> AppAXWindowStateRemovalOutcome {
+        let windowId = expectedWindow.windowId
+        let cachedElement = windows[windowId]
+        let subscription = subscribedWindows[windowId]
+        let removesCachedWindow = cachedElement.map {
+            CFEqual($0, expectedWindow.element)
+        } == true
+        let removesSubscription = subscription.map {
+            CFEqual($0.element, expectedWindow.element)
+        } == true
+        if removesSubscription, let subscription {
+            stageSubscriptionRemoval(subscription, in: pendingNotificationRemovals)
+            subscribedWindows[windowId] = nil
+        }
+        if removesCachedWindow {
+            windows[windowId] = nil
+        }
+        return .init(
+            removedCachedWindow: removesCachedWindow,
+            removedSubscription: removesSubscription
+        )
+    }
+
+    nonisolated static func hasConflictingWindowIdentity(
+        for element: AXUIElement,
+        destinationWindowId: Int,
+        permittedSourceWindowId: Int?,
+        windows: [Int: AXUIElement],
+        subscriptions: [Int: AppAXWindowSubscription]
     ) -> Bool {
+        windows.contains { windowId, candidate in
+            windowId != destinationWindowId
+                && windowId != permittedSourceWindowId
+                && CFEqual(candidate, element)
+        } || subscriptions.contains { windowId, subscription in
+            (windowId != destinationWindowId && windowId != permittedSourceWindowId)
+                && CFEqual(subscription.element, element)
+        }
+    }
+
+    private nonisolated static func cleanUpUnpublishedWindowRebind(
+        _ binding: AppAXWindowRebindBinding,
+        additionalSubscriptions: [AppAXWindowSubscription] = [],
+        observer: AXObserver,
+        subscribedWindows: ThreadGuardedValue<[Int: AppAXWindowSubscription]>,
+        pendingNotificationRemovals: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>
+    ) {
+        func removeIfUnadopted(_ unpublished: AppAXWindowSubscription) {
+            var removable = unpublished
+            if let current = ownedSubscription(
+                for: unpublished.element,
+                windowId: unpublished.windowId,
+                in: subscribedWindows.value
+            ) {
+                removable.notifications.subtract(current.notifications)
+            }
+            guard !removable.notifications.isEmpty else { return }
+            appendPendingNotificationRemovals(
+                removeWindowNotifications(observer: observer, subscription: removable),
+                to: pendingNotificationRemovals
+            )
+        }
+
+        if !binding.newlyInstalledNotifications.isEmpty,
+           var stagedSubscription = binding.stagedSubscription
+        {
+            stagedSubscription.notifications = binding.newlyInstalledNotifications
+            removeIfUnadopted(stagedSubscription)
+        }
+        for subscription in additionalSubscriptions {
+            removeIfUnadopted(subscription)
+        }
+    }
+
+    private nonisolated static func shouldRemoveMissingWindow(windowId: Int) -> Bool {
         if let uintWindowId = UInt32(exactly: windowId),
            AXWindowService.hasPinnedAXElement(for: uintWindowId)
         {
             return false
         }
-
-        let element = subscribedElement ?? existingElement
-        if let observer, let element {
-            AppAXContext.removeWindowNotifications(observer: observer, element: element)
-        }
         return true
+    }
+
+    nonisolated static func replaceEnumeratedWindowCache(
+        with newWindows: [Int: AXUIElement],
+        windows: ThreadGuardedValue<[Int: AXUIElement]>,
+        bindingGeneration: UInt64,
+        windowBindingEpoch: LockedGenerationEpoch
+    ) -> Bool {
+        windowBindingEpoch.performIfCurrent(bindingGeneration) {
+            windows.value = newWindows
+        } != nil
+    }
+
+    nonisolated static func recordFinalEnumeratedWindow(
+        _ window: AXEnumeratedWindow,
+        in windows: inout [AXEnumeratedWindow],
+        isFirstOccurrence: Bool
+    ) {
+        let windowId = window.axRef.windowId
+        if isFirstOccurrence {
+            windows.append(window)
+        } else if let index = windows.firstIndex(where: { $0.axRef.windowId == windowId }) {
+            windows[index] = window
+        }
     }
 
     func getWindowsAsync(
@@ -498,18 +948,26 @@ final class AppAXContext {
             includeTitle: includeTitle
         )
         let enumerationCallbackGeneration = callbackGeneration
-        let (results, deadWindowIds) = try await appThread.runInLoop(timeout: timeout) { [
+        let enumerationBindingGeneration = windowBindingEpoch.current()
+        let results = try await appThread.runInLoop(timeout: timeout) { [
             pid,
             axApp,
             windows,
             axObserver,
-            subscribedWindows,
+            pendingNotificationRemovals,
+            windowBindingEpoch,
             inspectionContext,
-            enumerationCallbackGeneration
-        ] job -> (
-            [AXEnumeratedWindow],
-            [Int]
-        ) in
+            enumerationCallbackGeneration,
+            enumerationBindingGeneration
+        ] job -> [AXEnumeratedWindow] in
+            let observer = axObserver.value
+            if let observer {
+                try AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: { try job.checkCancellation() }
+                )
+            }
             let windowElements = try AXWindowEnumerationInspector.applicationWindowElements(
                 axApp.value,
                 deadline: deadline,
@@ -563,50 +1021,23 @@ final class AppAXContext {
                     )
                 )
                 newWindows[windowId] = element
-                seenIds.insert(windowId)
-                results.append(enumeratedWindow)
+                let isFirstOccurrence = seenIds.insert(windowId).inserted
+                AppAXContext.recordFinalEnumeratedWindow(
+                    enumeratedWindow,
+                    in: &results,
+                    isFirstOccurrence: isFirstOccurrence
+                )
             }
 
-            try job.checkCancellation()
-            for enumeratedWindow in results {
-                let windowId = enumeratedWindow.axRef.windowId
-                let element = enumeratedWindow.axRef.element
-                if let subscribedElement = subscribedWindows[windowId],
-                   !CFEqual(subscribedElement, element),
-                   let observer = axObserver.value
-                {
-                    try job.checkCancellation()
-                    AppAXContext.removeWindowNotifications(observer: observer, element: subscribedElement)
-                    try job.checkCancellation()
-                    subscribedWindows[windowId] = nil
-                }
-                if subscribedWindows[windowId] == nil, let observer = axObserver.value {
-                    try job.checkCancellation()
-                    if AppAXContext.addWindowNotifications(
-                        observer: observer,
-                        element: element,
-                        windowId: windowId
-                    ) {
-                        try job.checkCancellation()
-                        subscribedWindows[windowId] = element
-                    }
-                }
-            }
-
-            var deadIds: [Int] = []
             let existingWindowIds = Array(windows.value.keys)
             for existingId in existingWindowIds where !seenIds.contains(existingId) {
                 let existingElement = windows[existingId]
                 try job.checkCancellation()
-                let didRemoveSubscription = AppAXContext.removeMissingWindowSubscription(
-                    windowId: existingId,
-                    existingElement: existingElement,
-                    observer: axObserver.value,
-                    subscribedElement: subscribedWindows[existingId]
+                let shouldRemove = AppAXContext.shouldRemoveMissingWindow(
+                    windowId: existingId
                 )
                 try job.checkCancellation()
-                if didRemoveSubscription {
-                    subscribedWindows[existingId] = nil
+                if shouldRemove {
                     WindowAdmissionTrace.record(
                         .init(
                             action: .admissionDisappeared,
@@ -619,14 +1050,26 @@ final class AppAXContext {
                             }
                         )
                     )
-                    deadIds.append(existingId)
                 } else if let existingElement {
                     newWindows[existingId] = existingElement
                 }
             }
 
-            try job.checkCancellation()
-            windows.value = newWindows
+            try job.performUnlessCancelled {
+                guard AppAXContext.replaceEnumeratedWindowCache(
+                    with: newWindows,
+                    windows: windows,
+                    bindingGeneration: enumerationBindingGeneration,
+                    windowBindingEpoch: windowBindingEpoch
+                ) else { throw CancellationError() }
+            }
+            if let observer {
+                try AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: { try job.checkCancellation() }
+                )
+            }
             WindowAdmissionTrace.record(
                 .init(
                     action: .enumerationCompleted,
@@ -635,12 +1078,7 @@ final class AppAXContext {
                     callbackGeneration: enumerationCallbackGeneration
                 )
             )
-            return (results, deadIds)
-        }
-
-        for deadWindowId in deadWindowIds {
-            frameWriteGenerations.remove(deadWindowId)
-            unsuppressFrameWrites(for: [deadWindowId])
+            return results
         }
 
         return results
@@ -650,301 +1088,721 @@ final class AppAXContext {
         _ = frameWriteGenerations.nextGeneration(for: windowId)
     }
 
-    func bindWindow(_ window: AXWindowRef) -> Bool {
-        guard let thread else { return false }
-        _ = frameWriteGenerations.nextGeneration(for: window.windowId)
-        nonisolated(unsafe) let appThread = thread
-        appThread.runInLoopAsync { [windows, axObserver, subscribedWindows] job in
-            guard !job.isCancelled else { return }
-            AXUIElementSetMessagingTimeout(window.element, 0.5)
-            defer { AXUIElementSetMessagingTimeout(window.element, 0) }
-            try? AppAXContext.bindWindowElement(
-                window,
-                windows: windows,
-                observer: axObserver.value,
-                subscribedWindows: subscribedWindows,
-                checkCancellation: { try job.checkCancellation() }
-            )
-        }
-        return true
+    func invalidateWindowIdentity() {
+        _ = windowBindingEpoch.advance()
     }
 
-    func bindWindowsAsync(
-        _ boundWindows: [AXWindowRef],
-        timeoutSeconds: TimeInterval = 0.5
-    ) async throws -> Bool {
-        guard !boundWindows.isEmpty else { return true }
-        guard let thread else { return false }
-        for window in boundWindows {
-            _ = frameWriteGenerations.nextGeneration(for: window.windowId)
+    nonisolated static func preservesCrossIdentitySubscription(
+        _ subscription: AppAXWindowSubscription?,
+        for window: AXWindowRef
+    ) -> Bool {
+        subscription.map {
+            $0.windowId != window.windowId && CFEqual($0.element, window.element)
+        } == true
+    }
+
+    nonisolated static func resolvedWindowBindingResult(
+        hasObserver: Bool,
+        readyCount: Int,
+        targetCount: Int,
+        retryRequired: Bool
+    ) -> AppAXWindowBindingResult {
+        if retryRequired { return .retryRequired }
+        if !hasObserver || readyCount == targetCount { return .bound }
+        return .superseded
+    }
+
+    func bindWindows(
+        _ boundWindows: [Int: AXWindowRef],
+        timeoutSeconds: TimeInterval = 0.5,
+        completion: @escaping @MainActor @Sendable (AppAXWindowBindingResult) -> Void
+    ) {
+        updateWindowBindings(
+            boundWindows,
+            pruningUnboundState: false,
+            timeoutSeconds: timeoutSeconds,
+            completion: completion
+        )
+    }
+
+    func reconcileWindowBindings(
+        _ boundWindows: [Int: AXWindowRef],
+        timeoutSeconds: TimeInterval = 0.5,
+        completion: @escaping @MainActor @Sendable (AppAXWindowBindingResult) -> Void
+    ) {
+        updateWindowBindings(
+            boundWindows,
+            pruningUnboundState: true,
+            timeoutSeconds: timeoutSeconds,
+            completion: completion
+        )
+    }
+
+    private func updateWindowBindings(
+        _ boundWindows: [Int: AXWindowRef],
+        pruningUnboundState: Bool,
+        timeoutSeconds: TimeInterval,
+        completion: @escaping @MainActor @Sendable (AppAXWindowBindingResult) -> Void
+    ) {
+        guard pruningUnboundState || !boundWindows.isEmpty else {
+            completion(.bound)
+            return
         }
+        guard let thread else {
+            completion(.retryRequired)
+            return
+        }
+        let bindingGeneration = windowBindingEpoch.advance()
         nonisolated(unsafe) let appThread = thread
-        let timeout = Duration.milliseconds(Int64(timeoutSeconds * 1_000))
-        return try await appThread.runInLoop(timeout: timeout) { [windows, axObserver, subscribedWindows] job in
-            for window in boundWindows {
-                try job.checkCancellation()
-                AXUIElementSetMessagingTimeout(window.element, Float(timeoutSeconds))
-                do {
-                    defer { AXUIElementSetMessagingTimeout(window.element, 0) }
-                    try AppAXContext.bindWindowElement(
-                        window,
-                        windows: windows,
-                        observer: axObserver.value,
-                        subscribedWindows: subscribedWindows,
-                        checkCancellation: { try job.checkCancellation() }
+        appThread.runInLoopAsync { [
+            windows,
+            axObserver,
+            subscribedWindows,
+            pendingNotificationRemovals,
+            windowBindingEpoch
+        ] job in
+            let result: AppAXWindowBindingResult
+            do {
+                result = try AppAXContext.performWindowBinding(
+                    boundWindows,
+                    bindingGeneration: bindingGeneration,
+                    pruningUnboundState: pruningUnboundState,
+                    timeoutSeconds: timeoutSeconds,
+                    windows: windows,
+                    windowBindingEpoch: windowBindingEpoch,
+                    axObserver: axObserver,
+                    subscribedWindows: subscribedWindows,
+                    pendingNotificationRemovals: pendingNotificationRemovals,
+                    job: job
+                )
+            } catch is AppAXWindowBindingSuperseded {
+                result = .superseded
+            } catch is CancellationError {
+                result = .superseded
+            } catch {
+                result = .retryRequired
+            }
+            scheduleOnMainRunLoop {
+                completion(result)
+            }
+        }
+    }
+
+    nonisolated static func performWindowBinding(
+        _ boundWindows: [Int: AXWindowRef],
+        bindingGeneration: UInt64,
+        pruningUnboundState: Bool,
+        timeoutSeconds: TimeInterval,
+        windows: ThreadGuardedValue<[Int: AXUIElement]>,
+        windowBindingEpoch: LockedGenerationEpoch,
+        axObserver: ThreadGuardedValue<AXObserver?>,
+        subscribedWindows: ThreadGuardedValue<[Int: AppAXWindowSubscription]>,
+        pendingNotificationRemovals: ThreadGuardedValue<[AppAXPendingNotificationRemoval]>,
+        job: RunLoopJob
+    ) throws -> AppAXWindowBindingResult {
+        guard windowBindingEpoch.isCurrent(bindingGeneration) else {
+            return .superseded
+        }
+        let observer = axObserver.value
+        var retryRequired = false
+        if let observer {
+            try drainPendingNotificationRemovals(
+                pendingNotificationRemovals,
+                observer: observer,
+                checkCancellation: { try job.checkCancellation() }
+            )
+            retryRequired = retryRequired || !pendingNotificationRemovals.value.isEmpty
+        }
+        if pruningUnboundState {
+            try job.performUnlessCancelled {
+                guard windowBindingEpoch.performIfCurrent(bindingGeneration, {
+                    for (windowId, subscription) in subscribedWindows.value where boundWindows[windowId].map({
+                        CFEqual($0.element, subscription.element)
+                    }) != true {
+                        if observer != nil {
+                            stageSubscriptionRemoval(subscription, in: pendingNotificationRemovals)
+                        }
+                        subscribedWindows[windowId] = nil
+                    }
+                    for (windowId, element) in windows.value where boundWindows[windowId].map({
+                        CFEqual($0.element, element)
+                    }) != true {
+                        windows[windowId] = nil
+                    }
+                    return true
+                }) == true else {
+                    throw AppAXWindowBindingSuperseded()
+                }
+            }
+            if let observer {
+                try drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: { try job.checkCancellation() }
+                )
+                retryRequired = !pendingNotificationRemovals.value.isEmpty
+            }
+        }
+        var stagedSubscriptions: [Int: (
+            subscription: AppAXWindowSubscription,
+            newlyInstalled: AppAXWindowNotificationSet
+        )] = [:]
+        var subscriptionReadyCount = 0
+        var committedSubscriptions = false
+        defer {
+            if !committedSubscriptions, let observer {
+                for staged in stagedSubscriptions.values where !staged.newlyInstalled.isEmpty {
+                    var rollback = staged.subscription
+                    rollback.notifications = staged.newlyInstalled
+                    appendPendingNotificationRemovals(
+                        removeWindowNotifications(observer: observer, subscription: rollback),
+                        to: pendingNotificationRemovals
                     )
                 }
+            }
+        }
+        if let observer {
+            for window in boundWindows.values {
+                try job.checkCancellation()
+                guard windowBindingEpoch.isCurrent(bindingGeneration) else {
+                    throw AppAXWindowBindingSuperseded()
+                }
+                guard !hasPendingNotificationRemoval(
+                    for: window.element,
+                    in: pendingNotificationRemovals.value
+                ) else {
+                    retryRequired = true
+                    continue
+                }
+                let ownedSubscription = ownedSubscription(
+                    for: window.element,
+                    windowId: window.windowId,
+                    in: subscribedWindows.value
+                )
+                if preservesCrossIdentitySubscription(ownedSubscription, for: window) {
+                    continue
+                }
+                if ownedSubscription?.notifications == .lifecycle {
+                    subscriptionReadyCount += 1
+                    continue
+                }
+                AXUIElementSetMessagingTimeout(window.element, Float(timeoutSeconds))
+                defer { AXUIElementSetMessagingTimeout(window.element, 0) }
+                let installation = try addWindowNotifications(
+                    observer: observer,
+                    element: window.element,
+                    windowId: window.windowId,
+                    ownedSubscription: ownedSubscription,
+                    alreadyRegisteredPolicy: ownedSubscription == nil ? .replace : .adopt,
+                    checkCancellation: { try job.checkCancellation() },
+                    recordPendingRemovals: {
+                        appendPendingNotificationRemovals($0, to: pendingNotificationRemovals)
+                    }
+                )
+                appendPendingNotificationRemovals(
+                    installation.pendingRemovals,
+                    to: pendingNotificationRemovals
+                )
+                guard let subscription = installation.subscription else {
+                    retryRequired = true
+                    continue
+                }
+                stagedSubscriptions[window.windowId] = (
+                    subscription,
+                    installation.newlyInstalled
+                )
+                subscriptionReadyCount += 1
                 try job.checkCancellation()
             }
-            return true
         }
+        try job.performUnlessCancelled {
+            guard windowBindingEpoch.performIfCurrent(bindingGeneration, {
+                for window in boundWindows.values {
+                    if let previous = subscribedWindows[window.windowId],
+                       !CFEqual(previous.element, window.element)
+                    {
+                        stageSubscriptionRemoval(previous, in: pendingNotificationRemovals)
+                        subscribedWindows[window.windowId] = nil
+                    }
+                    if let staged = stagedSubscriptions[window.windowId] {
+                        subscribedWindows[window.windowId] = staged.subscription
+                    }
+                    windows[window.windowId] = window.element
+                }
+                return true
+            }) == true else {
+                throw AppAXWindowBindingSuperseded()
+            }
+        }
+        committedSubscriptions = true
+        if let observer {
+            try drainPendingNotificationRemovals(
+                pendingNotificationRemovals,
+                observer: observer,
+                checkCancellation: { try job.checkCancellation() }
+            )
+            retryRequired = retryRequired || !pendingNotificationRemovals.value.isEmpty
+        }
+        return resolvedWindowBindingResult(
+            hasObserver: observer != nil,
+            readyCount: subscriptionReadyCount,
+            targetCount: boundWindows.count,
+            retryRequired: retryRequired
+        )
     }
 
     func rebindWindowAsync(
-        oldWindowId _: Int,
+        oldWindowId: Int,
         newWindow: AXWindowRef,
         timeoutSeconds: TimeInterval = 0.5
     ) async throws -> AppAXWindowRebindBinding? {
         guard let thread else { return nil }
         nonisolated(unsafe) let appThread = thread
         let timeout = Duration.milliseconds(Int64(timeoutSeconds * 1_000))
-        return try await appThread.runInLoop(timeout: timeout) { [axObserver, subscribedWindows] job in
+        return try await appThread.runInLoop(
+            timeout: timeout,
+            onUndeliveredSuccess: { [
+                axObserver,
+                subscribedWindows,
+                pendingNotificationRemovals
+            ] binding in
+                guard let binding,
+                      let observer = axObserver.value
+                else {
+                    return
+                }
+                AppAXContext.cleanUpUnpublishedWindowRebind(
+                    binding,
+                    observer: observer,
+                    subscribedWindows: subscribedWindows,
+                    pendingNotificationRemovals: pendingNotificationRemovals
+                )
+            }
+        ) { [
+            windows,
+            axObserver,
+            subscribedWindows,
+            pendingNotificationRemovals
+        ] job in
+            let observer = axObserver.value
+            if let observer {
+                try AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: { try job.checkCancellation() }
+                )
+            }
+            let destinationWindowElement = windows[newWindow.windowId]
+            let destinationSubscription = subscribedWindows[newWindow.windowId]
+            func result(
+                stagedSubscription: AppAXWindowSubscription? = nil,
+                newlyInstalledNotifications: AppAXWindowNotificationSet = [],
+                requiresRetag: Bool = false,
+                hasLifecycleObserver: Bool
+            ) -> AppAXWindowRebindBinding {
+                .init(
+                    destinationWindowElement: destinationWindowElement,
+                    destinationSubscription: destinationSubscription,
+                    stagedSubscription: stagedSubscription,
+                    newlyInstalledNotifications: newlyInstalledNotifications,
+                    requiresRetag: requiresRetag,
+                    hasLifecycleObserver: hasLifecycleObserver
+                )
+            }
+            guard let observer else {
+                try job.checkCancellation()
+                return result(hasLifecycleObserver: false)
+            }
+            guard !AppAXContext.hasPendingNotificationRemoval(
+                for: newWindow.element,
+                in: pendingNotificationRemovals.value
+            ) else {
+                return nil
+            }
+            let ownedSubscription = AppAXContext.ownedSubscription(
+                for: newWindow.element,
+                windowId: newWindow.windowId,
+                in: subscribedWindows.value
+            )
+            switch AppAXContext.rebindSubscriptionOwnership(
+                ownedSubscription,
+                oldWindowId: oldWindowId,
+                newWindowId: newWindow.windowId
+            ) {
+            case .source:
+                try job.checkCancellation()
+                return result(requiresRetag: true, hasLifecycleObserver: true)
+            case .conflict:
+                return nil
+            case .unowned,
+                 .destination:
+                break
+            }
+            if let ownedSubscription, ownedSubscription.notifications == .lifecycle {
+                try job.checkCancellation()
+                return result(hasLifecycleObserver: true)
+            }
             AXUIElementSetMessagingTimeout(newWindow.element, Float(timeoutSeconds))
             defer { AXUIElementSetMessagingTimeout(newWindow.element, 0) }
-            return try AppAXContext.bindWindowElementForRebind(
-                newWindow,
-                observer: axObserver.value,
-                subscribedWindows: subscribedWindows,
-                checkCancellation: { try job.checkCancellation() }
+            let installation = try AppAXContext.addWindowNotifications(
+                observer: observer,
+                element: newWindow.element,
+                windowId: newWindow.windowId,
+                ownedSubscription: ownedSubscription,
+                alreadyRegisteredPolicy: ownedSubscription == nil ? .reject : .adopt,
+                checkCancellation: { try job.checkCancellation() },
+                recordPendingRemovals: {
+                    AppAXContext.appendPendingNotificationRemovals(
+                        $0,
+                        to: pendingNotificationRemovals
+                    )
+                }
+            )
+            AppAXContext.appendPendingNotificationRemovals(
+                installation.pendingRemovals,
+                to: pendingNotificationRemovals
+            )
+            guard let subscription = installation.subscription else { return nil }
+            return result(
+                stagedSubscription: subscription,
+                newlyInstalledNotifications: installation.newlyInstalled,
+                hasLifecycleObserver: true
             )
         }
     }
 
     func rollbackWindowRebind(_ binding: AppAXWindowRebindBinding, newWindow: AXWindowRef) {
-        guard binding.addedSubscription, let thread else { return }
+        guard !binding.newlyInstalledNotifications.isEmpty,
+              let thread
+        else {
+            return
+        }
         nonisolated(unsafe) let appThread = thread
-        appThread.runInLoopAsync { [axObserver] _ in
+        appThread.runInLoopAsync { [
+            axObserver,
+            subscribedWindows,
+            pendingNotificationRemovals
+        ] _ in
             guard let observer = axObserver.value else { return }
-            AppAXContext.removeWindowNotifications(observer: observer, element: newWindow.element)
+            AppAXContext.cleanUpUnpublishedWindowRebind(
+                binding,
+                observer: observer,
+                subscribedWindows: subscribedWindows,
+                pendingNotificationRemovals: pendingNotificationRemovals
+            )
         }
     }
 
     func commitWindowRebindAsync(
         oldWindow: AXWindowRef,
         newWindow: AXWindowRef,
+        binding: AppAXWindowRebindBinding,
         retireOldWindowState: Bool,
         timeoutSeconds: TimeInterval = 0.5
     ) async throws -> Bool {
         guard let thread else { return false }
         nonisolated(unsafe) let appThread = thread
         let timeout = Duration.milliseconds(Int64(timeoutSeconds * 1_000))
-        let cleanup = try await appThread.runInLoop(timeout: timeout) { [windows, axObserver, subscribedWindows] job in
-            try AppAXContext.commitWindowRebindCache(
+        return try await appThread.runInLoop(timeout: timeout) { [
+            windows,
+            axObserver,
+            subscribedWindows,
+            pendingNotificationRemovals
+        ] job in
+            let observer = axObserver.value
+            var additionalUnpublishedSubscriptions: [AppAXWindowSubscription] = []
+            var committedCache = false
+            defer {
+                if !committedCache, let observer {
+                    AppAXContext.cleanUpUnpublishedWindowRebind(
+                        binding,
+                        additionalSubscriptions: additionalUnpublishedSubscriptions,
+                        observer: observer,
+                        subscribedWindows: subscribedWindows,
+                        pendingNotificationRemovals: pendingNotificationRemovals
+                    )
+                }
+            }
+            if binding.hasLifecycleObserver {
+                guard observer != nil else { return false }
+                guard !AppAXContext.hasPendingNotificationRemoval(
+                    for: newWindow.element,
+                    in: pendingNotificationRemovals.value
+                ) else {
+                    return false
+                }
+            }
+            if let observer {
+                try AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: { try job.checkCancellation() }
+                )
+            }
+            if binding.hasLifecycleObserver {
+                guard !AppAXContext.hasPendingNotificationRemoval(
+                    for: newWindow.element,
+                    in: pendingNotificationRemovals.value
+                ) else {
+                    return false
+                }
+            }
+            guard AppAXContext.sameElement(
+                windows[newWindow.windowId],
+                binding.destinationWindowElement
+            ), AppAXContext.sameSubscription(
+                subscribedWindows[newWindow.windowId],
+                binding.destinationSubscription
+            ) else {
+                return false
+            }
+            let permittedSourceWindowId = binding.requiresRetag ? oldWindow.windowId : nil
+            guard !AppAXContext.hasConflictingWindowIdentity(
+                for: newWindow.element,
+                destinationWindowId: newWindow.windowId,
+                permittedSourceWindowId: permittedSourceWindowId,
+                windows: windows.value,
+                subscriptions: subscribedWindows.value
+            ) else {
+                return false
+            }
+
+            let destinationSubscription: AppAXWindowSubscription?
+            if binding.hasLifecycleObserver {
+                guard let observer else { return false }
+                if binding.requiresRetag {
+                    let sourceSubscription = AppAXContext.ownedSubscription(
+                        for: newWindow.element,
+                        windowId: oldWindow.windowId,
+                        in: subscribedWindows.value
+                    )
+                    guard let sourceSubscription,
+                          sourceSubscription.windowId == oldWindow.windowId
+                    else {
+                        return false
+                    }
+                    AppAXContext.stageSubscriptionRemoval(
+                        sourceSubscription,
+                        in: pendingNotificationRemovals
+                    )
+                    subscribedWindows[sourceSubscription.windowId] = nil
+                    try AppAXContext.drainPendingNotificationRemovals(
+                        pendingNotificationRemovals,
+                        observer: observer,
+                        checkCancellation: { try job.checkCancellation() }
+                    )
+                    guard !AppAXContext.hasPendingNotificationRemoval(
+                        for: newWindow.element,
+                        in: pendingNotificationRemovals.value
+                    ) else {
+                        return false
+                    }
+                }
+                let installation = try AppAXContext.addWindowNotifications(
+                    observer: observer,
+                    element: newWindow.element,
+                    windowId: newWindow.windowId,
+                    ownedSubscription: nil,
+                    alreadyRegisteredPolicy: .adopt,
+                    checkCancellation: { try job.checkCancellation() },
+                    recordPendingRemovals: {
+                        AppAXContext.appendPendingNotificationRemovals(
+                            $0,
+                            to: pendingNotificationRemovals
+                        )
+                    }
+                )
+                AppAXContext.appendPendingNotificationRemovals(
+                    installation.pendingRemovals,
+                    to: pendingNotificationRemovals
+                )
+                guard let subscription = installation.subscription else { return false }
+                destinationSubscription = subscription
+                if !installation.newlyInstalled.isEmpty {
+                    var installed = subscription
+                    installed.notifications = installation.newlyInstalled
+                    additionalUnpublishedSubscriptions.append(installed)
+                }
+            } else {
+                destinationSubscription = nil
+            }
+
+            let cleanup = try AppAXContext.commitWindowRebindCache(
                 oldWindow: oldWindow,
                 newWindow: newWindow,
+                destinationSubscription: destinationSubscription,
                 retireOldWindowState: retireOldWindowState,
-                hasObserver: axObserver.value != nil,
+                binding: binding,
                 windows: windows,
                 subscribedWindows: subscribedWindows,
                 job: job
             )
-        }
-        if !cleanup.elements.isEmpty {
-            try await AppAXContext.awaitWindowRebindCleanup(
-                thread: appThread,
-                timeout: timeout
-            ) { [axObserver] job in
-                guard let observer = axObserver.value else {
-                    throw AXWindowEnumerationError.contextUnavailable
-                }
-                for element in cleanup.elements {
-                    try job.checkCancellation()
-                    do {
-                        AXUIElementSetMessagingTimeout(element, Float(timeoutSeconds))
-                        defer { AXUIElementSetMessagingTimeout(element, 0) }
-                        AppAXContext.removeWindowNotifications(observer: observer, element: element)
-                    }
-                    try job.checkCancellation()
-                }
+            committedCache = true
+            for subscription in cleanup.subscriptions {
+                AppAXContext.stageSubscriptionRemoval(
+                    subscription,
+                    in: pendingNotificationRemovals
+                )
             }
-        }
-        return true
-    }
-
-    nonisolated static func awaitWindowRebindCleanup(
-        thread: Thread,
-        timeout: Duration,
-        _ body: @Sendable @escaping (RunLoopJob) throws -> Void
-    ) async throws {
-        try await thread.runInLoop(timeout: timeout) { job in
-            try body(job)
+            if let observer {
+                try AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: { try job.checkCancellation() }
+                )
+            }
+            return true
         }
     }
 
     nonisolated static func commitWindowRebindCache(
         oldWindow: AXWindowRef,
         newWindow: AXWindowRef,
+        destinationSubscription: AppAXWindowSubscription?,
         retireOldWindowState: Bool,
-        hasObserver: Bool,
+        binding: AppAXWindowRebindBinding,
         windows: ThreadGuardedValue<[Int: AXUIElement]>,
-        subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>,
+        subscribedWindows: ThreadGuardedValue<[Int: AppAXWindowSubscription]>,
         job: RunLoopJob
     ) throws -> AppAXSubscriptionCleanup {
         try job.performUnlessCancelled {
+            guard sameElement(windows[newWindow.windowId], binding.destinationWindowElement),
+                  sameSubscription(
+                      subscribedWindows[newWindow.windowId],
+                      binding.destinationSubscription
+                  )
+            else {
+                throw AXWindowEnumerationError.subscriptionFailed
+            }
             let oldWindowId = oldWindow.windowId
             let newWindowId = newWindow.windowId
             let previousDestinationSubscription = subscribedWindows[newWindowId]
-            var retiredSubscriptions: [AXUIElement] = []
+            var retiredSubscriptions: [AppAXWindowSubscription] = []
             if let previousDestinationSubscription,
-               !CFEqual(previousDestinationSubscription, newWindow.element)
+               !CFEqual(previousDestinationSubscription.element, newWindow.element)
             {
                 retiredSubscriptions.append(previousDestinationSubscription)
             }
             if retireOldWindowState,
                oldWindowId != newWindowId,
                let oldSubscription = subscribedWindows[oldWindowId],
-               !CFEqual(oldSubscription, newWindow.element),
-               !retiredSubscriptions.contains(where: { CFEqual($0, oldSubscription) })
+               CFEqual(oldSubscription.element, oldWindow.element),
+               !CFEqual(oldSubscription.element, newWindow.element),
+               !retiredSubscriptions.contains(where: {
+                   CFEqual($0.element, oldSubscription.element)
+               })
             {
                 retiredSubscriptions.append(oldSubscription)
             }
 
             windows[newWindowId] = newWindow.element
-            subscribedWindows[newWindowId] = hasObserver ? newWindow.element : nil
+            subscribedWindows[newWindowId] = destinationSubscription
             if retireOldWindowState, oldWindowId != newWindowId {
-                subscribedWindows[oldWindowId] = nil
-                windows[oldWindowId] = nil
+                if subscribedWindows[oldWindowId].map({
+                    CFEqual($0.element, oldWindow.element)
+                }) == true {
+                    subscribedWindows[oldWindowId] = nil
+                }
+                if windows[oldWindowId].map({
+                    CFEqual($0, oldWindow.element)
+                        || (binding.requiresRetag && CFEqual($0, newWindow.element))
+                }) == true {
+                    windows[oldWindowId] = nil
+                }
             }
-            return AppAXSubscriptionCleanup(elements: retiredSubscriptions)
+            return AppAXSubscriptionCleanup(subscriptions: retiredSubscriptions)
         }
     }
 
-    func finalizeWindowRebind(from oldWindowId: Int, to newWindowId: Int) {
+    func prepareWindowRebind(from oldWindowId: Int, to newWindowId: Int) {
         frameWriteGenerations.invalidateAndMoveValue(from: oldWindowId, to: newWindowId)
         suppressedFrameWindowIds.moveIfPresent(from: oldWindowId, to: newWindowId)
+        _ = windowBindingEpoch.advance()
     }
 
-    private nonisolated static func bindWindowElement(
-        _ window: AXWindowRef,
-        windows: ThreadGuardedValue<[Int: AXUIElement]>,
-        observer: AXObserver?,
-        subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>,
-        checkCancellation: () throws -> Void
-    ) throws {
-        let windowId = window.windowId
-        let subscribedElement = subscribedWindows[windowId]
-        let replacesSubscription = subscribedElement.map { !CFEqual($0, window.element) } == true
-        if replacesSubscription, let subscribedElement, let observer {
-            try checkCancellation()
-            removeWindowNotifications(observer: observer, element: subscribedElement)
-            try checkCancellation()
-        }
-
-        let needsSubscription = subscribedElement == nil || replacesSubscription
-        let didAddSubscription: Bool
-        if needsSubscription, let observer {
-            try checkCancellation()
-            didAddSubscription = addWindowNotifications(
-                observer: observer,
-                element: window.element,
-                windowId: windowId
-            )
-            try checkCancellation()
-        } else {
-            didAddSubscription = false
-        }
-
-        try checkCancellation()
-        windows[windowId] = window.element
-        if replacesSubscription {
-            subscribedWindows[windowId] = nil
-        }
-        if didAddSubscription {
-            subscribedWindows[windowId] = window.element
-        }
+    func prepareWindowRemoval(for windowId: Int) {
+        frameWriteGenerations.invalidateAndRemove(windowId)
+        suppressedFrameWindowIds.remove(windowId)
     }
 
-    private nonisolated static func bindWindowElementForRebind(
-        _ window: AXWindowRef,
-        observer: AXObserver?,
-        subscribedWindows: ThreadGuardedValue<[Int: AXUIElement]>,
-        checkCancellation: () throws -> Void
-    ) throws -> AppAXWindowRebindBinding? {
-        let windowId = window.windowId
-        let subscribedElement = subscribedWindows[windowId]
-        if subscribedElement.map({ CFEqual($0, window.element) }) == true {
-            try checkCancellation()
-            return AppAXWindowRebindBinding(addedSubscription: false)
-        }
+    func retainFrameState(only windowIds: Set<Int>) {
+        frameWriteGenerations.retainOnly(windowIds)
+        suppressedFrameWindowIds.retainOnly(windowIds)
+    }
 
-        var addedSubscription = false
-        var acknowledgedSubscription = false
-        defer {
-            if addedSubscription, !acknowledgedSubscription, let observer {
-                removeWindowNotifications(observer: observer, element: window.element)
-            }
+    nonisolated static func acceptsRefreshedFrameElement(
+        cachedElement: AXUIElement,
+        refreshedElement: AXUIElement,
+        windowId: Int,
+        requestGeneration: UInt64,
+        generations: LockedWindowGenerationMap
+    ) -> Bool {
+        guard generations.isCurrent(requestGeneration, for: windowId) else { return false }
+        guard CFEqual(cachedElement, refreshedElement) else {
+            _ = generations.nextGeneration(for: windowId)
+            return false
         }
-
-        if let observer {
-            try checkCancellation()
-            guard addWindowNotifications(
-                observer: observer,
-                element: window.element,
-                windowId: windowId
-            ) else {
-                return nil
-            }
-            addedSubscription = true
-            try checkCancellation()
-        }
-        acknowledgedSubscription = true
-        return AppAXWindowRebindBinding(addedSubscription: addedSubscription)
+        return generations.isCurrent(requestGeneration, for: windowId)
     }
 
     func removeWindowStateAsync(
-        windowId: Int,
+        expectedWindow: AXWindowRef,
         timeoutSeconds: TimeInterval = 0.5
-    ) async throws -> Bool {
-        guard let thread else { return false }
+    ) async throws -> AppAXWindowStateRemovalOutcome {
+        guard let thread else {
+            return .init(removedCachedWindow: false, removedSubscription: false)
+        }
         nonisolated(unsafe) let appThread = thread
         let timeout = Duration.milliseconds(Int64(timeoutSeconds * 1_000))
-        let removed = try await appThread.runInLoop(timeout: timeout) { [windows, axObserver, subscribedWindows] job in
-            try job.checkCancellation()
-            let existingElement = windows.value[windowId]
-            if let element = subscribedWindows[windowId] ?? existingElement,
-               let observer = axObserver.value
-            {
-                AXUIElementSetMessagingTimeout(element, Float(timeoutSeconds))
-                defer { AXUIElementSetMessagingTimeout(element, 0) }
-                AppAXContext.removeWindowNotifications(observer: observer, element: element)
+        return try await appThread.runInLoop(timeout: timeout) { [
+            windows,
+            axObserver,
+            subscribedWindows,
+            pendingNotificationRemovals
+        ] job in
+            let outcome = try job.performUnlessCancelled {
+                let outcome = AppAXContext.removeExactWindowState(
+                    expectedWindow: expectedWindow,
+                    windows: windows,
+                    subscribedWindows: subscribedWindows,
+                    pendingNotificationRemovals: pendingNotificationRemovals
+                )
+                return outcome
             }
-            try job.checkCancellation()
-            subscribedWindows[windowId] = nil
-            windows[windowId] = nil
-            return true
+            if let observer = axObserver.value {
+                try AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: { try job.checkCancellation() }
+                )
+            }
+            return outcome
         }
-        if removed {
-            cancelFrameJob(for: windowId)
-            unsuppressFrameWrites(for: [windowId])
-        }
-        return removed
     }
 
-    func removeWindowState(windowId: Int) {
-        cancelFrameJob(for: windowId)
-        unsuppressFrameWrites(for: [windowId])
+    func removeWindowState(expectedWindow: AXWindowRef) {
         guard let thread else { return }
         nonisolated(unsafe) let appThread = thread
 
-        appThread.runInLoopAsync { [windows, axObserver, subscribedWindows] _ in
-            let existingElement = windows.value[windowId]
-            if let element = subscribedWindows[windowId] ?? existingElement,
-               let observer = axObserver.value
-            {
-                AppAXContext.removeWindowNotifications(observer: observer, element: element)
+        appThread.runInLoopAsync { [
+            windows,
+            axObserver,
+            subscribedWindows,
+            pendingNotificationRemovals
+        ] _ in
+            _ = AppAXContext.removeExactWindowState(
+                expectedWindow: expectedWindow,
+                windows: windows,
+                subscribedWindows: subscribedWindows,
+                pendingNotificationRemovals: pendingNotificationRemovals
+            )
+            if let observer = axObserver.value {
+                try? AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: observer,
+                    checkCancellation: {}
+                )
             }
-            subscribedWindows[windowId] = nil
-            windows[windowId] = nil
         }
     }
 
@@ -974,6 +1832,7 @@ final class AppAXContext {
                         requestId: $0.requestId,
                         pid: $0.pid,
                         windowId: $0.windowId,
+                        expectedWindow: $0.expectedWindow,
                         targetFrame: $0.frame,
                         currentFrameHint: $0.currentFrameHint,
                         writeResult: .skipped(
@@ -992,6 +1851,7 @@ final class AppAXContext {
                 requestId: $0.requestId,
                 pid: $0.pid,
                 windowId: $0.windowId,
+                expectedWindow: $0.expectedWindow,
                 frame: $0.frame,
                 currentFrameHint: $0.currentFrameHint,
                 generation: frameWriteGenerations.nextGeneration(for: $0.windowId),
@@ -1003,7 +1863,7 @@ final class AppAXContext {
         let batchId = UUID()
         let currentPid = pid
 
-        let batchJob = appThread.runInLoopAsync { [self, axApp, windows] job in
+        let batchJob = appThread.runInLoopAsync { [self, axApp] job in
             let latencyActive = AXWriteLatencyTrace.shared.isActive
             let batchStart = latencyActive ? CACurrentMediaTime() : 0
             var slowestWriteMs = 0.0
@@ -1036,6 +1896,7 @@ final class AppAXContext {
                             requestId: request.requestId,
                             pid: request.pid,
                             windowId: request.windowId,
+                            expectedWindow: request.expectedWindow,
                             targetFrame: request.frame,
                             currentFrameHint: request.currentFrameHint,
                             writeResult: .skipped(
@@ -1053,6 +1914,7 @@ final class AppAXContext {
                             requestId: request.requestId,
                             pid: request.pid,
                             windowId: request.windowId,
+                            expectedWindow: request.expectedWindow,
                             targetFrame: request.frame,
                             currentFrameHint: request.currentFrameHint,
                             writeResult: .skipped(
@@ -1070,6 +1932,7 @@ final class AppAXContext {
                             requestId: request.requestId,
                             pid: request.pid,
                             windowId: request.windowId,
+                            expectedWindow: request.expectedWindow,
                             targetFrame: request.frame,
                             currentFrameHint: request.currentFrameHint,
                             writeResult: .skipped(
@@ -1086,7 +1949,6 @@ final class AppAXContext {
                     applyFrameWriteRequest(
                         request,
                         pid: currentPid,
-                        windows: windows,
                         generations: generations
                     )
                 )
@@ -1144,18 +2006,34 @@ final class AppAXContext {
         activeFrameBatchJobs = [:]
 
         nonisolated(unsafe) let appThread = thread
-        appThread?.runInLoopAsync { [windows, axApp, axObserver, focusedWindowObserver, subscribedWindows] _ in
+        appThread?.runInLoopAsync { [
+            windows,
+            axApp,
+            axObserver,
+            focusedWindowObserver,
+            subscribedWindows,
+            pendingNotificationRemovals
+        ] _ in
             let subscribed = subscribedWindows.valueIfExists ?? [:]
             if let obs = axObserver.valueIfExists.flatMap({ $0 }) {
-                for (_, element) in subscribed {
-                    AppAXContext.removeWindowNotifications(observer: obs, element: element)
+                for (_, subscription) in subscribed {
+                    _ = AppAXContext.removeWindowNotifications(
+                        observer: obs,
+                        subscription: subscription
+                    )
                 }
+                try? AppAXContext.drainPendingNotificationRemovals(
+                    pendingNotificationRemovals,
+                    observer: obs,
+                    checkCancellation: {}
+                )
                 CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
             }
             if let focusObs = focusedWindowObserver.valueIfExists.flatMap({ $0 }) {
                 CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(focusObs), .defaultMode)
             }
             subscribedWindows.destroy()
+            pendingNotificationRemovals.destroy()
             axObserver.destroy()
             focusedWindowObserver.destroy()
             windows.destroy()
@@ -1174,82 +2052,55 @@ final class AppAXContext {
     }
 }
 
-private func applyFrameWriteRequest(
+func applyFrameWriteRequest(
     _ request: AppAXFrameWriteRequest,
     pid: pid_t,
-    windows: ThreadGuardedValue<[Int: AXUIElement]>,
-    generations: LockedWindowGenerationMap
+    generations: LockedWindowGenerationMap,
+    writeFrame: (AXWindowRef, CGRect, CGRect?, Bool) -> AXFrameWriteResult = {
+        AXWindowService.setFrame($0, frame: $1, currentFrameHint: $2, verify: $3)
+    },
+    refreshWindow: (UInt32, pid_t) -> AXWindowRef? = {
+        AXWindowService.axWindowRef(for: $0, pid: $1)
+    }
 ) -> AXFrameApplyResult {
     let targetFrame = request.frame
     let currentFrameHint = request.currentFrameHint
     let windowId = request.windowId
 
+    let expectedWindow = request.expectedWindow
     guard generations.isCurrent(request.generation, for: windowId) else {
         return cancelledFrameApplyResult(for: request)
     }
-
-    if let element = windows[windowId] {
-        let axRef = AXWindowRef(element: element, windowId: windowId)
-        guard generations.isCurrent(request.generation, for: windowId) else {
-            return cancelledFrameApplyResult(for: request)
-        }
-        let initialResult = AXWindowService.setFrame(
-            axRef,
-            frame: targetFrame,
-            currentFrameHint: currentFrameHint,
-            verify: request.verify
-        )
-        guard generations.isCurrent(request.generation, for: windowId) else {
-            return cancelledFrameApplyResult(for: request)
-        }
-        if initialResult.shouldRetryAfterRefresh,
-           generations.isCurrent(request.generation, for: windowId),
-           let refreshedAXRef = AXWindowService.axWindowRef(for: UInt32(windowId), pid: pid)
-        {
-            windows[windowId] = refreshedAXRef.element
-            guard generations.isCurrent(request.generation, for: windowId) else {
-                return cancelledFrameApplyResult(for: request)
-            }
-            let retryResult = AXWindowService.setFrame(
-                refreshedAXRef,
-                frame: targetFrame,
-                currentFrameHint: currentFrameHint,
-                verify: request.verify
-            )
-            guard generations.isCurrent(request.generation, for: windowId) else {
-                return cancelledFrameApplyResult(for: request)
-            }
-            return AXFrameApplyResult(
-                requestId: request.requestId,
-                pid: pid,
-                windowId: windowId,
-                targetFrame: targetFrame,
-                currentFrameHint: currentFrameHint,
-                writeResult: retryResult
-            )
-        }
-        return AXFrameApplyResult(
-            requestId: request.requestId,
-            pid: pid,
-            windowId: windowId,
-            targetFrame: targetFrame,
-            currentFrameHint: currentFrameHint,
-            writeResult: initialResult
-        )
+    let initialResult = writeFrame(
+        expectedWindow,
+        targetFrame,
+        currentFrameHint,
+        request.verify
+    )
+    guard generations.isCurrent(request.generation, for: windowId) else {
+        return cancelledFrameApplyResult(for: request)
     }
-
-    if generations.isCurrent(request.generation, for: windowId),
-       let refreshedAXRef = AXWindowService.axWindowRef(for: UInt32(windowId), pid: pid)
+    if initialResult.shouldRetryAfterRefresh,
+       generations.isCurrent(request.generation, for: windowId),
+       let refreshedAXRef = refreshWindow(UInt32(windowId), pid)
     {
-        windows[windowId] = refreshedAXRef.element
+        guard AppAXContext.acceptsRefreshedFrameElement(
+            cachedElement: expectedWindow.element,
+            refreshedElement: refreshedAXRef.element,
+            windowId: windowId,
+            requestGeneration: request.generation,
+            generations: generations
+        ) else {
+            return cancelledFrameApplyResult(for: request)
+        }
         guard generations.isCurrent(request.generation, for: windowId) else {
             return cancelledFrameApplyResult(for: request)
         }
-        let refreshedResult = AXWindowService.setFrame(
+        let retryResult = writeFrame(
             refreshedAXRef,
-            frame: targetFrame,
-            currentFrameHint: currentFrameHint,
-            verify: request.verify
+            targetFrame,
+            currentFrameHint,
+            request.verify
         )
         guard generations.isCurrent(request.generation, for: windowId) else {
             return cancelledFrameApplyResult(for: request)
@@ -1258,9 +2109,10 @@ private func applyFrameWriteRequest(
             requestId: request.requestId,
             pid: pid,
             windowId: windowId,
+            expectedWindow: expectedWindow,
             targetFrame: targetFrame,
             currentFrameHint: currentFrameHint,
-            writeResult: refreshedResult
+            writeResult: retryResult
         )
     }
 
@@ -1268,13 +2120,10 @@ private func applyFrameWriteRequest(
         requestId: request.requestId,
         pid: pid,
         windowId: windowId,
+        expectedWindow: expectedWindow,
         targetFrame: targetFrame,
         currentFrameHint: currentFrameHint,
-        writeResult: .skipped(
-            targetFrame: targetFrame,
-            currentFrameHint: currentFrameHint,
-            failureReason: .cacheMiss
-        )
+        writeResult: initialResult
     )
 }
 
@@ -1283,6 +2132,7 @@ private func cancelledFrameApplyResult(for request: AppAXFrameWriteRequest) -> A
         requestId: request.requestId,
         pid: request.pid,
         windowId: request.windowId,
+        expectedWindow: request.expectedWindow,
         targetFrame: request.frame,
         currentFrameHint: request.currentFrameHint,
         writeResult: .skipped(

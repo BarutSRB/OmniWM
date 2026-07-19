@@ -228,6 +228,18 @@ struct AppRuleDraft: Identifiable, Equatable {
         AppRuleDraft(rule: makeRule(id: rule.id)) == AppRuleDraft(rule: rule)
     }
 
+    mutating func selectApplication(bundleId: String?, appName: String) {
+        if let bundleId {
+            self.bundleId = bundleId
+            appNameMatcherEnabled = false
+            appNameSubstring = ""
+        } else {
+            self.bundleId = ""
+            appNameMatcherEnabled = true
+            appNameSubstring = appName
+        }
+    }
+
     func makeRule(id: UUID? = nil) -> AppRule {
         AppRule(
             id: id ?? self.id,

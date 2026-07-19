@@ -49,7 +49,6 @@ enum AXFrameWriteFailureReason: Equatable, Sendable {
     case sizeWriteFailed(AXError)
     case positionWriteFailed(AXError)
     case staleElement
-    case cacheMiss
     case contextUnavailable
     case readbackFailed
     case verificationMismatch
@@ -66,8 +65,6 @@ enum AXFrameWriteFailureReason: Equatable, Sendable {
             "positionWriteFailed(raw=\(error.rawValue))"
         case .staleElement:
             "staleElement"
-        case .cacheMiss:
-            "cacheMiss"
         case .contextUnavailable:
             "contextUnavailable"
         case .readbackFailed:
@@ -95,7 +92,7 @@ struct AXFrameWriteResult: Equatable, Sendable {
     }
 
     var shouldRetryAfterRefresh: Bool {
-        failureReason == .staleElement || failureReason == .cacheMiss
+        failureReason == .staleElement
     }
 
     static func skipped(
@@ -119,15 +116,27 @@ struct AXFrameApplicationRequest: Equatable, Sendable {
     let requestId: AXFrameRequestId
     let pid: pid_t
     let windowId: Int
+    let expectedWindow: AXWindowRef
     let frame: CGRect
     let currentFrameHint: CGRect?
     var verify = true
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.requestId == rhs.requestId
+            && lhs.pid == rhs.pid
+            && lhs.windowId == rhs.windowId
+            && sameAXWindowIdentity(lhs.expectedWindow, rhs.expectedWindow)
+            && lhs.frame == rhs.frame
+            && lhs.currentFrameHint == rhs.currentFrameHint
+            && lhs.verify == rhs.verify
+    }
 }
 
 struct AXFrameApplyResult: Equatable, Sendable {
     let requestId: AXFrameRequestId
     let pid: pid_t
     let windowId: Int
+    let expectedWindow: AXWindowRef
     let targetFrame: CGRect
     let currentFrameHint: CGRect?
     let writeResult: AXFrameWriteResult
@@ -136,6 +145,7 @@ struct AXFrameApplyResult: Equatable, Sendable {
         requestId: AXFrameRequestId = 0,
         pid: pid_t,
         windowId: Int,
+        expectedWindow: AXWindowRef,
         targetFrame: CGRect,
         currentFrameHint: CGRect?,
         writeResult: AXFrameWriteResult
@@ -143,6 +153,7 @@ struct AXFrameApplyResult: Equatable, Sendable {
         self.requestId = requestId
         self.pid = pid
         self.windowId = windowId
+        self.expectedWindow = expectedWindow
         self.targetFrame = targetFrame
         self.currentFrameHint = currentFrameHint
         self.writeResult = writeResult
@@ -163,11 +174,29 @@ struct AXFrameApplyResult: Equatable, Sendable {
             requestId: requestId,
             pid: pid,
             windowId: windowId,
+            expectedWindow: AXWindowRef(
+                element: expectedWindow.element,
+                windowId: windowId
+            ),
             targetFrame: targetFrame,
             currentFrameHint: currentFrameHint,
             writeResult: writeResult
         )
     }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.requestId == rhs.requestId
+            && lhs.pid == rhs.pid
+            && lhs.windowId == rhs.windowId
+            && sameAXWindowIdentity(lhs.expectedWindow, rhs.expectedWindow)
+            && lhs.targetFrame == rhs.targetFrame
+            && lhs.currentFrameHint == rhs.currentFrameHint
+            && lhs.writeResult == rhs.writeResult
+    }
+}
+
+func sameAXWindowIdentity(_ lhs: AXWindowRef, _ rhs: AXWindowRef) -> Bool {
+    lhs.windowId == rhs.windowId && CFEqual(lhs.element, rhs.element)
 }
 
 enum AXWindowHeuristicReason: String, Sendable {

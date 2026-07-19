@@ -113,8 +113,9 @@ final class DurableParkTests: XCTestCase {
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         _ = controller.workspaceManager.focusWorkspace(named: "1")
 
+        let axRef = AXWindowRef(element: AXUIElementCreateApplication(954_001), windowId: 954_101)
         let token = controller.workspaceManager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(954_001), windowId: 954_101),
+            axRef,
             pid: 954_001, windowId: 954_101, to: workspaceId
         )
         controller.workspaceManager.setHiddenState(
@@ -131,6 +132,7 @@ final class DurableParkTests: XCTestCase {
         let acceptedResult = AXFrameApplyResult(
             pid: token.pid,
             windowId: token.windowId,
+            expectedWindow: axRef,
             targetFrame: stragglerFrame,
             currentFrameHint: nil,
             writeResult: AXFrameWriteResult(
@@ -159,8 +161,9 @@ final class DurableParkTests: XCTestCase {
         _ = controller.workspaceManager.focusWorkspace(named: "1")
         controller.niriLayoutHandler.enableNiriLayout()
 
+        let axRef = AXWindowRef(element: AXUIElementCreateApplication(955_001), windowId: 955_101)
         let token = controller.workspaceManager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(955_001), windowId: 955_101),
+            axRef,
             pid: 955_001, windowId: 955_101, to: workspaceId
         )
         _ = controller.niriEngine?.addWindow(token: token, to: workspaceId, afterSelection: nil)
@@ -185,6 +188,7 @@ final class DurableParkTests: XCTestCase {
             AXFrameApplyResult(
                 pid: token.pid,
                 windowId: token.windowId,
+                expectedWindow: axRef,
                 targetFrame: stragglerFrame,
                 currentFrameHint: nil,
                 writeResult: AXFrameWriteResult(
@@ -258,7 +262,7 @@ final class DurableParkTests: XCTestCase {
         axManager.markParkPending(for: 42, pid: 953_001)
         XCTAssertTrue(axManager.pendingParkWindowIds.contains(42))
 
-        axManager.removeWindowState(pid: 953_001, windowId: 42)
+        axManager.removeWindowLedgerState(pid: 953_001, windowId: 42)
         XCTAssertFalse(axManager.pendingParkWindowIds.contains(42))
     }
 

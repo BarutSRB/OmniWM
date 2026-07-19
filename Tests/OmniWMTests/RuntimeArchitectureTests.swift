@@ -2135,12 +2135,14 @@ final class RuntimeArchitectureTests: XCTestCase {
         let ledger = AXFrameApplicationLedger()
         let firstFrame = CGRect(x: 10, y: 20, width: 300, height: 200)
         let secondFrame = CGRect(x: 40, y: 50, width: 360, height: 240)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
         var firstResults: [AXFrameApplyResult] = []
         var secondResults: [AXFrameApplyResult] = []
 
         let firstDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: firstFrame,
             isRetry: false
         ) { result in
@@ -2150,6 +2152,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         let secondDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: secondFrame,
             isRetry: false
         ) { result in
@@ -2185,10 +2188,12 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAXFrameLedgerRekeysPendingRequestBeforeCompletion() throws {
         let ledger = AXFrameApplicationLedger()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
         var results: [AXFrameApplyResult] = []
         let decision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: frame,
             isRetry: false
         ) { result in
@@ -2214,10 +2219,13 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAXFrameLedgerRetriesRekeyCancelledOldIdCompletion() throws {
         let ledger = AXFrameApplicationLedger()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
+        let rekeyedWindow = AXWindowRef(element: window.element, windowId: 20)
         var results: [AXFrameApplyResult] = []
         let firstDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: frame,
             isRetry: false
         ) { result in
@@ -2226,24 +2234,18 @@ final class RuntimeArchitectureTests: XCTestCase {
         let firstRequest = try XCTUnwrap(firstDecision.request)
 
         ledger.rekeyWindowState(oldWindowId: 10, newWindowId: 20)
-        let cancelledOldCompletion = Self.frameResult(
-            requestId: firstRequest.requestId,
-            pid: firstRequest.pid,
-            windowId: firstRequest.windowId,
-            targetFrame: firstRequest.frame,
-            currentFrameHint: firstRequest.currentFrameHint,
-            failureReason: .cancelled
-        )
+        let cancelledOldCompletion = Self.frameResult(for: firstRequest, failureReason: .cancelled)
         let cancelledOutcome = ledger.handleFrameApplyResults([cancelledOldCompletion])
 
         XCTAssertTrue(cancelledOutcome.deliveries.isEmpty)
         XCTAssertEqual(cancelledOutcome.retries, [
-            AXFrameRetryRequest(pid: getpid(), windowId: 20, frame: frame)
+            AXFrameRetryRequest(pid: getpid(), windowId: 20, expectedWindow: rekeyedWindow, frame: frame)
         ])
 
         let retryDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 20,
+            expectedWindow: rekeyedWindow,
             frame: frame,
             isRetry: true,
             terminalObserver: nil
@@ -2264,10 +2266,12 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAXFrameLedgerTransfersObserverToRetryRequest() throws {
         let ledger = AXFrameApplicationLedger()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
         var results: [AXFrameApplyResult] = []
         let firstDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: frame,
             isRetry: false
         ) { result in
@@ -2276,16 +2280,17 @@ final class RuntimeArchitectureTests: XCTestCase {
         let firstRequest = try XCTUnwrap(firstDecision.request)
 
         let failedOutcome = ledger.handleFrameApplyResults([
-            Self.frameResult(for: firstRequest, failureReason: .cacheMiss)
+            Self.frameResult(for: firstRequest, failureReason: .staleElement)
         ])
         XCTAssertTrue(failedOutcome.deliveries.isEmpty)
         XCTAssertEqual(failedOutcome.retries, [
-            AXFrameRetryRequest(pid: getpid(), windowId: 10, frame: frame)
+            AXFrameRetryRequest(pid: getpid(), windowId: 10, expectedWindow: window, frame: frame)
         ])
 
         let retryDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: frame,
             isRetry: true,
             terminalObserver: nil
@@ -2312,11 +2317,13 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAXFrameLedgerTransfersObserverToSameTargetNonRetryReplacement() throws {
         let ledger = AXFrameApplicationLedger()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
         var firstResults: [AXFrameApplyResult] = []
         var secondResults: [AXFrameApplyResult] = []
         let firstDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: frame,
             isRetry: false
         ) { result in
@@ -2325,15 +2332,16 @@ final class RuntimeArchitectureTests: XCTestCase {
         let firstRequest = try XCTUnwrap(firstDecision.request)
 
         let failedOutcome = ledger.handleFrameApplyResults([
-            Self.frameResult(for: firstRequest, failureReason: .cacheMiss)
+            Self.frameResult(for: firstRequest, failureReason: .staleElement)
         ])
         XCTAssertEqual(failedOutcome.retries, [
-            AXFrameRetryRequest(pid: getpid(), windowId: 10, frame: frame)
+            AXFrameRetryRequest(pid: getpid(), windowId: 10, expectedWindow: window, frame: frame)
         ])
 
         let secondDecision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: frame,
             isRetry: false
         ) { result in
@@ -2357,10 +2365,13 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAXFrameLedgerOldIdCancelAndSuppressDoNotDestroyRekeyedState() throws {
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
         let cancelLedger = AXFrameApplicationLedger()
+        let cancelWindow = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
+        let rekeyedCancelWindow = AXWindowRef(element: cancelWindow.element, windowId: 20)
         var cancelResults: [AXFrameApplyResult] = []
         let cancelDecision = cancelLedger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: cancelWindow,
             frame: frame,
             isRetry: false,
             terminalObserver: { result in
@@ -2378,13 +2389,20 @@ final class RuntimeArchitectureTests: XCTestCase {
             cancelLedger.handleFrameApplyResults([
                 Self.frameResult(for: cancelRequest, failureReason: .cancelled)
             ]).retries,
-            [AXFrameRetryRequest(pid: getpid(), windowId: 20, frame: frame)]
+            [AXFrameRetryRequest(
+                pid: getpid(),
+                windowId: 20,
+                expectedWindow: rekeyedCancelWindow,
+                frame: frame
+            )]
         )
 
         let suppressLedger = AXFrameApplicationLedger()
+        let suppressWindow = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 30)
         let suppressDecision = suppressLedger.prepareFrameApplication(
             pid: getpid(),
             windowId: 30,
+            expectedWindow: suppressWindow,
             frame: frame,
             isRetry: false,
             terminalObserver: nil
@@ -2401,10 +2419,12 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAXFrameLedgerLiveIdCancelSuppressAndRemoveClearRekeyedState() throws {
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
         let cancelLedger = AXFrameApplicationLedger()
+        let cancelWindow = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
         var cancelResults: [AXFrameApplyResult] = []
         let cancelDecision = cancelLedger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: cancelWindow,
             frame: frame,
             isRetry: false,
             terminalObserver: { result in
@@ -2426,9 +2446,11 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
 
         let suppressLedger = AXFrameApplicationLedger()
+        let suppressWindow = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 30)
         let suppressDecision = suppressLedger.prepareFrameApplication(
             pid: getpid(),
             windowId: 30,
+            expectedWindow: suppressWindow,
             frame: frame,
             isRetry: false,
             terminalObserver: nil
@@ -2440,10 +2462,12 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertFalse(suppressLedger.hasPendingFrameWrite(for: 40))
 
         let removeLedger = AXFrameApplicationLedger()
+        let removeWindow = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 50)
         var removeResults: [AXFrameApplyResult] = []
         let removeDecision = removeLedger.prepareFrameApplication(
             pid: getpid(),
             windowId: 50,
+            expectedWindow: removeWindow,
             frame: frame,
             isRetry: false,
             terminalObserver: { result in
@@ -2469,10 +2493,13 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAXFrameLedgerOldWindowRemoveDoesNotRemoveRekeyedPendingState() throws {
         let ledger = AXFrameApplicationLedger()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let window = AXWindowRef(element: AXUIElementCreateApplication(getpid()), windowId: 10)
+        let rekeyedWindow = AXWindowRef(element: window.element, windowId: 20)
         var results: [AXFrameApplyResult] = []
         let decision = ledger.prepareFrameApplication(
             pid: getpid(),
             windowId: 10,
+            expectedWindow: window,
             frame: frame,
             isRetry: false,
             terminalObserver: { result in
@@ -2492,7 +2519,7 @@ final class RuntimeArchitectureTests: XCTestCase {
             ledger.handleFrameApplyResults([
                 Self.frameResult(for: request, failureReason: .cancelled)
             ]).retries,
-            [AXFrameRetryRequest(pid: getpid(), windowId: 20, frame: frame)]
+            [AXFrameRetryRequest(pid: getpid(), windowId: 20, expectedWindow: rekeyedWindow, frame: frame)]
         )
     }
 
@@ -2514,13 +2541,51 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testManagedRetirementRemovesWorldBeforeTerminalFrameObserverDelivery() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
+        let pid: pid_t = 765_011
+        let windowId = 765_111
+        let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
+        let token = controller.workspaceManager.addWindow(
+            window,
+            pid: pid,
+            windowId: windowId,
+            to: workspaceId
+        )
+        var terminalResults: [AXFrameApplyResult] = []
+        var worldOwnersDuringDelivery: [WindowToken?] = []
+
+        controller.axManager.applyFramesParallel([
+            .init(
+                pid: pid,
+                window: window,
+                frame: CGRect(x: 10, y: 20, width: 300, height: 200)
+            )
+        ]) { result in
+            terminalResults.append(result)
+            worldOwnersDuringDelivery.append(
+                controller.workspaceManager.entry(forWindowId: windowId)?.token
+            )
+        }
+        XCTAssertTrue(terminalResults.isEmpty)
+
+        controller.axEventHandler.handleRemoved(token: token)
+
+        XCTAssertEqual(terminalResults.map(\.writeResult.failureReason), [.cancelled])
+        XCTAssertEqual(worldOwnersDuringDelivery, [nil])
+        XCTAssertNil(controller.workspaceManager.entry(forWindowId: windowId))
+    }
+
+    @MainActor
     func testLayoutInvalidationCancelsPendingAXFrameObserverThroughControllerWiring() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_001
         let windowId = 765_101
+        let axRef = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
         let token = controller.workspaceManager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            axRef,
             pid: pid,
             windowId: windowId,
             to: workspaceId
@@ -2528,7 +2593,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         var terminalResults: [AXFrameApplyResult] = []
 
         controller.axManager.applyFramesParallel(
-            [(pid, windowId, CGRect(x: 10, y: 20, width: 300, height: 200))]
+            [.init(pid: pid, window: axRef, frame: CGRect(x: 10, y: 20, width: 300, height: 200))]
         ) { result in
             terminalResults.append(result)
         }
@@ -2552,8 +2617,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_002
         let windowId = 765_102
+        let axRef = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
         let token = controller.workspaceManager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            axRef,
             pid: pid,
             windowId: windowId,
             to: workspaceId
@@ -2561,7 +2627,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         var terminalResults: [AXFrameApplyResult] = []
 
         controller.axManager.applyFramesParallel(
-            [(pid, windowId, CGRect(x: 10, y: 20, width: 300, height: 200))]
+            [.init(pid: pid, window: axRef, frame: CGRect(x: 10, y: 20, width: 300, height: 200))]
         ) { result in
             terminalResults.append(result)
         }
@@ -2580,8 +2646,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_008
         let windowId = 765_108
+        let axRef = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
         let token = controller.workspaceManager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            axRef,
             pid: pid,
             windowId: windowId,
             to: workspaceId
@@ -2589,7 +2656,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         var terminalResults: [AXFrameApplyResult] = []
 
         controller.axManager.applyFramesParallel(
-            [(pid, windowId, CGRect(x: 10, y: 20, width: 300, height: 200))]
+            [.init(pid: pid, window: axRef, frame: CGRect(x: 10, y: 20, width: 300, height: 200))]
         ) { result in
             terminalResults.append(result)
         }
@@ -2608,8 +2675,9 @@ final class RuntimeArchitectureTests: XCTestCase {
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         let pid: pid_t = 765_003
         let windowId = 765_103
+        let axRef = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
         let token = controller.workspaceManager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            axRef,
             pid: pid,
             windowId: windowId,
             to: workspaceId
@@ -2617,7 +2685,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         var terminalResults: [AXFrameApplyResult] = []
 
         controller.axManager.applyFramesParallel(
-            [(pid, windowId, CGRect(x: 10, y: 20, width: 300, height: 200))]
+            [.init(pid: pid, window: axRef, frame: CGRect(x: 10, y: 20, width: 300, height: 200))]
         ) { result in
             terminalResults.append(result)
         }
@@ -2684,6 +2752,7 @@ final class RuntimeArchitectureTests: XCTestCase {
                 requestId: 1,
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: staleEntry.axRef,
                 targetFrame: targetFrame,
                 currentFrameHint: nil
             ),
@@ -2743,6 +2812,7 @@ final class RuntimeArchitectureTests: XCTestCase {
                 requestId: 1,
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: entry.axRef,
                 targetFrame: targetFrame,
                 currentFrameHint: nil
             ),
@@ -2795,6 +2865,7 @@ final class RuntimeArchitectureTests: XCTestCase {
                 requestId: 1,
                 pid: pid,
                 windowId: windowId,
+                expectedWindow: entry.axRef,
                 targetFrame: targetFrame,
                 currentFrameHint: nil
             ),
@@ -4730,6 +4801,7 @@ final class RuntimeArchitectureTests: XCTestCase {
             requestId: request.requestId,
             pid: request.pid,
             windowId: request.windowId,
+            expectedWindow: request.expectedWindow,
             targetFrame: request.frame,
             currentFrameHint: request.currentFrameHint,
             failureReason: failureReason
@@ -4740,6 +4812,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         requestId: AXFrameRequestId,
         pid: pid_t,
         windowId: Int,
+        expectedWindow: AXWindowRef,
         targetFrame: CGRect,
         currentFrameHint: CGRect?,
         failureReason: AXFrameWriteFailureReason? = nil
@@ -4748,6 +4821,7 @@ final class RuntimeArchitectureTests: XCTestCase {
             requestId: requestId,
             pid: pid,
             windowId: windowId,
+            expectedWindow: expectedWindow,
             targetFrame: targetFrame,
             currentFrameHint: currentFrameHint,
             writeResult: AXFrameWriteResult(

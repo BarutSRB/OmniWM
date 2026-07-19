@@ -88,13 +88,7 @@ struct RuleApplicationSection: View {
     }
 
     private func selectApp(_ app: RunningAppInfo) {
-        if let bundleId = app.bundleId {
-            draft.bundleId = bundleId
-        } else {
-            draft.bundleId = ""
-            draft.appNameMatcherEnabled = true
-            draft.appNameSubstring = app.appName
-        }
+        draft.selectApplication(bundleId: app.bundleId, appName: app.appName)
         isPickerExpanded = false
     }
 

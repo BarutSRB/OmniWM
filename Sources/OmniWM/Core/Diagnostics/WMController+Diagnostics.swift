@@ -71,6 +71,8 @@ private enum SelectedEvidenceReadError: Error {
 
 private enum DiagnosticAttachmentWriter {
     private static let evidenceChunkSize = 64 * 1024
+    private static let evidencePayloadLimit = 8 * 1024 * 1024
+    private static let evidenceTruncationMarker = "\n\n== Selected Diagnostic Evidence Truncated ==\n"
 
     static func prepare(
         report: String,
@@ -154,15 +156,26 @@ private enum DiagnosticAttachmentWriter {
             throw SelectedEvidenceReadError.unavailable
         }
         defer { try? input.close() }
-        while true {
+        var remaining = evidencePayloadLimit
+        while remaining > 0 {
             let chunk: Data?
             do {
-                chunk = try input.read(upToCount: evidenceChunkSize)
+                chunk = try input.read(upToCount: min(evidenceChunkSize, remaining))
             } catch {
                 throw SelectedEvidenceReadError.unavailable
             }
             guard let chunk, !chunk.isEmpty else { return }
             try output.write(contentsOf: chunk)
+            remaining -= chunk.count
+        }
+        let probe: Data?
+        do {
+            probe = try input.read(upToCount: 1)
+        } catch {
+            throw SelectedEvidenceReadError.unavailable
+        }
+        if let probe, !probe.isEmpty {
+            try output.write(contentsOf: Data(evidenceTruncationMarker.utf8))
         }
     }
 

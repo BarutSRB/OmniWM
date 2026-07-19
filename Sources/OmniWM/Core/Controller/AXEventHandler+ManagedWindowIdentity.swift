@@ -58,6 +58,7 @@ extension AXEventHandler {
                 from: oldWindow,
                 to: newWindow
             )
+            bindCurrentManagedWindows(afterRebinding: oldWindow, to: newWindow)
         }
         finishManagedWindowIdentityRebind(
             from: oldWindow,
@@ -75,17 +76,25 @@ extension AXEventHandler {
         to newWindow: AXManagedWindowIdentity,
         windowId: UInt32,
         retryGeneration: UInt64,
+        executionOwner: UInt64,
         managedReplacementMetadata: ManagedReplacementMetadata?,
         admissionHints: ManagedWindowAdmissionHints?,
         sizeConstraints: WindowSizeConstraints? = nil
     ) async {
         guard let controller else { return }
+        var requiresBindingRefresh = false
+        defer {
+            if requiresBindingRefresh {
+                bindCurrentManagedWindows(afterRebinding: oldWindow, to: newWindow)
+            }
+        }
         guard controller.hasStartedServices else {
             retryManagedWindowIdentityRebind(
                 from: oldWindow,
                 to: newWindow,
                 windowId: windowId,
                 retryGeneration: retryGeneration,
+                executionOwner: executionOwner,
                 managedReplacementMetadata: managedReplacementMetadata,
                 admissionHints: admissionHints,
                 sizeConstraints: sizeConstraints
@@ -101,6 +110,7 @@ extension AXEventHandler {
                     to: newWindow,
                     windowId: windowId,
                     retryGeneration: retryGeneration,
+                    executionOwner: executionOwner,
                     managedReplacementMetadata: managedReplacementMetadata,
                     admissionHints: admissionHints,
                     sizeConstraints: sizeConstraints
@@ -118,6 +128,7 @@ extension AXEventHandler {
                     to: newWindow,
                     windowId: windowId,
                     retryGeneration: retryGeneration,
+                    executionOwner: executionOwner,
                     managedReplacementMetadata: managedReplacementMetadata,
                     admissionHints: admissionHints,
                     sizeConstraints: sizeConstraints
@@ -132,6 +143,7 @@ extension AXEventHandler {
             to: newWindow,
             windowId: windowId,
             retryGeneration: retryGeneration,
+            executionOwner: executionOwner,
             acknowledgement: acknowledgement
         ) else {
             if let acknowledgement {
@@ -142,7 +154,8 @@ extension AXEventHandler {
             }
             retireStaleManagedWindowIdentityRebind(
                 windowId: windowId,
-                retryGeneration: retryGeneration
+                retryGeneration: retryGeneration,
+                executionOwner: executionOwner
             )
             controller.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
             return
@@ -162,15 +175,40 @@ extension AXEventHandler {
             }
             retireStaleManagedWindowIdentityRebind(
                 windowId: windowId,
-                retryGeneration: retryGeneration
+                retryGeneration: retryGeneration,
+                executionOwner: executionOwner
             )
             controller.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
             return
         }
         controller.axManager.commitFrameApplicationStateForRebind(
             from: oldWindow,
-            to: newWindow
+            to: newWindow,
+            acknowledgement: acknowledgement
         )
+        requiresBindingRefresh = true
+        guard currentManagedWindowIdentityRebindEntry(
+            from: oldWindow,
+            to: newWindow,
+            windowId: windowId,
+            retryGeneration: retryGeneration,
+            executionOwner: executionOwner,
+            acknowledgement: acknowledgement
+        ) != nil else {
+            if let acknowledgement {
+                controller.axManager.rollbackWindowRebind(
+                    acknowledgement,
+                    newWindow: newWindow
+                )
+            }
+            retireStaleManagedWindowIdentityRebind(
+                windowId: windowId,
+                retryGeneration: retryGeneration,
+                executionOwner: executionOwner
+            )
+            controller.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
+            return
+        }
         if let sizeConstraints {
             controller.workspaceManager.setCachedConstraints(sizeConstraints, for: newWindow.token)
         }
@@ -187,7 +225,8 @@ extension AXEventHandler {
         guard finalized else {
             retireStaleManagedWindowIdentityRebind(
                 windowId: windowId,
-                retryGeneration: retryGeneration
+                retryGeneration: retryGeneration,
+                executionOwner: executionOwner
             )
             controller.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
             return
@@ -197,11 +236,13 @@ extension AXEventHandler {
             to: newWindow,
             windowId: windowId,
             retryGeneration: retryGeneration,
+            executionOwner: executionOwner,
             acknowledgement: acknowledgement
         ) else {
             retireStaleManagedWindowIdentityRebind(
                 windowId: windowId,
-                retryGeneration: retryGeneration
+                retryGeneration: retryGeneration,
+                executionOwner: executionOwner
             )
             controller.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
             return
@@ -216,11 +257,27 @@ extension AXEventHandler {
         )
     }
 
+    private func bindCurrentManagedWindows(
+        afterRebinding oldWindow: AXManagedWindowIdentity,
+        to newWindow: AXManagedWindowIdentity
+    ) {
+        guard let controller else { return }
+        controller.axManager.bindManagedWindows(
+            controller.workspaceManager.entries(forPid: oldWindow.token.pid)
+        )
+        if oldWindow.token.pid != newWindow.token.pid {
+            controller.axManager.bindManagedWindows(
+                controller.workspaceManager.entries(forPid: newWindow.token.pid)
+            )
+        }
+    }
+
     private func isCurrentManagedWindowIdentityRebind(
         from oldWindow: AXManagedWindowIdentity,
         to newWindow: AXManagedWindowIdentity,
         windowId: UInt32,
         retryGeneration: UInt64,
+        executionOwner: UInt64,
         acknowledgement: AXManagedWindowRebindAcknowledgement?
     ) -> Bool {
         guard let controller,
@@ -229,6 +286,8 @@ extension AXEventHandler {
               newWindow.token.windowId == Int(windowId),
               let state = admissionRetryStateByWindowId[windowId],
               state.generation == retryGeneration,
+              state.executionPhase == .running(executionOwner),
+              !state.identityRebindTargetDestroyed,
               case let .identityRebind(retryOld, retryNew, _, _, _) = state.trigger,
               retryOld.token == oldWindow.token,
               retryNew.token == newWindow.token,
@@ -264,6 +323,7 @@ extension AXEventHandler {
         to newWindow: AXManagedWindowIdentity,
         windowId: UInt32,
         retryGeneration: UInt64,
+        executionOwner: UInt64,
         acknowledgement: AXManagedWindowRebindAcknowledgement?
     ) -> WindowState? {
         guard let controller,
@@ -272,6 +332,8 @@ extension AXEventHandler {
               newWindow.token.windowId == Int(windowId),
               let state = admissionRetryStateByWindowId[windowId],
               state.generation == retryGeneration,
+              state.executionPhase == .running(executionOwner),
+              !state.identityRebindTargetDestroyed,
               case let .identityRebind(retryOld, retryNew, _, _, _) = state.trigger,
               retryOld.token == oldWindow.token,
               retryNew.token == newWindow.token,
@@ -301,26 +363,36 @@ extension AXEventHandler {
         to newWindow: AXManagedWindowIdentity,
         windowId: UInt32,
         retryGeneration: UInt64,
+        executionOwner: UInt64,
         managedReplacementMetadata: ManagedReplacementMetadata?,
         admissionHints: ManagedWindowAdmissionHints?,
         sizeConstraints: WindowSizeConstraints?
     ) {
         guard let controller else { return }
+        guard var state = admissionRetryStateByWindowId[windowId],
+              state.generation == retryGeneration,
+              state.executionPhase == .running(executionOwner)
+        else {
+            return
+        }
+        if state.identityRebindTargetDestroyed {
+            cancelCreatedWindowRetry(windowId: windowId)
+            controller.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
+            return
+        }
         if controller.hasStartedServices,
            !isManagedWindowIdentityRebindTargetAlive(pid: newWindow.token.pid)
         {
             retireStaleManagedWindowIdentityRebind(
                 windowId: windowId,
-                retryGeneration: retryGeneration
+                retryGeneration: retryGeneration,
+                executionOwner: executionOwner
             )
-            return
-        }
-        guard var state = admissionRetryStateByWindowId[windowId],
-              state.generation == retryGeneration
-        else {
+            controller.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
             return
         }
         state.task = nil
+        state.executionPhase = .waiting
         admissionRetryStateByWindowId[windowId] = state
         _ = scheduleManagedWindowIdentityRebind(
             from: oldWindow,
@@ -340,9 +412,13 @@ extension AXEventHandler {
 
     private func retireStaleManagedWindowIdentityRebind(
         windowId: UInt32,
-        retryGeneration: UInt64
+        retryGeneration: UInt64,
+        executionOwner: UInt64
     ) {
-        guard admissionRetryStateByWindowId[windowId]?.generation == retryGeneration else {
+        guard let state = admissionRetryStateByWindowId[windowId],
+              state.generation == retryGeneration,
+              state.executionPhase == .running(executionOwner)
+        else {
             return
         }
         cancelCreatedWindowRetry(windowId: windowId)

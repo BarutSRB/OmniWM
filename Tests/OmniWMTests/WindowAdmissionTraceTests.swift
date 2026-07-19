@@ -72,14 +72,15 @@ final class WindowAdmissionTraceTests: XCTestCase {
         recorder.record(.init(action: .processLaunched, pid: pid))
 
         let records = recorder.recordsSnapshot()
-        XCTAssertEqual(records[0].processGeneration, 1)
-        XCTAssertEqual(records[1].endpointGeneration, 1)
-        XCTAssertEqual(records[3].windowGeneration, 1)
-        XCTAssertEqual(records[4].windowGeneration, 1)
-        XCTAssertEqual(records[6].windowGeneration, 2)
-        XCTAssertEqual(records[9].endpointGeneration, 2)
-        XCTAssertEqual(records[11].processGeneration, 2)
-        XCTAssertEqual(records[9].callbackGeneration, 4)
+        let recordsByIndex = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($0.offset, $0.element) })
+        XCTAssertEqual(recordsByIndex[0]?.processGeneration, 1)
+        XCTAssertEqual(recordsByIndex[1]?.endpointGeneration, 1)
+        XCTAssertEqual(recordsByIndex[3]?.windowGeneration, 1)
+        XCTAssertEqual(recordsByIndex[4]?.windowGeneration, 1)
+        XCTAssertEqual(recordsByIndex[6]?.windowGeneration, 2)
+        XCTAssertEqual(recordsByIndex[9]?.endpointGeneration, 2)
+        XCTAssertEqual(recordsByIndex[11]?.processGeneration, 2)
+        XCTAssertEqual(recordsByIndex[9]?.callbackGeneration, 4)
     }
 
     func testReusedOrDestroyedWindowCannotRemainFinalizationTarget() {
@@ -395,6 +396,46 @@ final class WindowAdmissionTraceTests: XCTestCase {
         let target = try XCTUnwrap(recorder.finalizationTarget(excludingPID: 99))
         XCTAssertEqual(target.pid, 8_221)
         XCTAssertEqual(target.windowId, 8_231)
+    }
+
+    func testSuccessfulEmptyEnumerationClearsCurrentFailure() {
+        let recorder = WindowAdmissionTrace(capacity: 8)
+        let pid: pid_t = 8_234
+        recorder.beginCapture()
+        recorder.record(.init(action: .enumerationFailed, pid: pid, reason: "timeout"))
+
+        recorder.record(.init(action: .enumerationCompleted, pid: pid, count: 0))
+
+        XCTAssertNil(recorder.finalizationTarget(excludingPID: 99))
+    }
+
+    func testEmptyEnumerationTargetRequiresPositiveCurrentCompletion() throws {
+        let recorder = WindowAdmissionTrace(capacity: 16)
+        let pid: pid_t = 8_235
+        recorder.beginCapture()
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 1))
+        recorder.record(
+            .init(action: .enumerationEmpty, pid: pid, reason: "old_empty", callbackGeneration: 1)
+        )
+        recorder.record(.init(action: .endpointCreated, pid: pid, callbackGeneration: 2))
+        recorder.record(
+            .init(action: .enumerationEmpty, pid: pid, reason: "current_empty", callbackGeneration: 2)
+        )
+
+        recorder.record(
+            .init(action: .enumerationCompleted, pid: pid, count: 1, callbackGeneration: 1)
+        )
+        XCTAssertEqual(recorder.finalizationTarget(excludingPID: 99)?.reason, "current_empty")
+
+        recorder.record(
+            .init(action: .enumerationCompleted, pid: pid, count: 0, callbackGeneration: 2)
+        )
+        XCTAssertEqual(recorder.finalizationTarget(excludingPID: 99)?.action, .enumerationEmpty)
+
+        recorder.record(
+            .init(action: .enumerationCompleted, pid: pid, count: 1, callbackGeneration: 2)
+        )
+        XCTAssertNil(recorder.finalizationTarget(excludingPID: 99))
     }
 
     func testProcessTerminationClearsEveryFinalizationTargetForPID() {

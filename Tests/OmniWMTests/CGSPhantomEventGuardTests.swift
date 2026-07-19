@@ -55,6 +55,7 @@ final class CGSPhantomEventGuardTests: XCTestCase {
         )
 
         let entryAfter = try XCTUnwrap(controller.workspaceManager.entry(for: token))
+        XCTAssertTrue(CFEqual(entryAfter.axRef.element, entryBefore.axRef.element))
         XCTAssertEqual(entryAfter.workspaceId, entryBefore.workspaceId)
         XCTAssertEqual(entryAfter.mode, entryBefore.mode)
         XCTAssertEqual(entryAfter.hiddenState, entryBefore.hiddenState)
@@ -86,6 +87,20 @@ final class CGSPhantomEventGuardTests: XCTestCase {
         XCTAssertFalse(trace.contains("create_retry_scheduled"))
         XCTAssertNil(controller.axEventHandler.pendingCreatePlacementContext(for: Int(windowId)))
         XCTAssertNil(controller.workspaceManager.entry(forWindowId: Int(windowId)))
+        XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
+    }
+
+    func testCGSDestroyForUnmanagedWindowDoesNotScheduleFullRescan() {
+        let controller = Self.controller()
+        let windowId: UInt32 = 944_101
+        controller.axEventHandler.windowInfoProvider = { _ in nil }
+
+        controller.axEventHandler.handleCGSEvent(
+            .destroyed(windowId: windowId, spaceId: 0)
+        )
+
+        XCTAssertNil(controller.layoutRefreshController.layoutState.activeRefresh)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
         XCTAssertEqual(controller.workspaceManager.invariantViolationCountsDump(), "clean")
     }
 

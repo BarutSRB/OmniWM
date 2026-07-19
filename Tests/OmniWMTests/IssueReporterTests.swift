@@ -339,6 +339,7 @@ final class IssueReporterTests: XCTestCase {
 
     func testSubmittingPhasePreventsDuplicateSubmission() async {
         let gate = IssueAttachmentGate()
+        defer { gate.release() }
         let started = expectation(description: "attachment preparation started")
         let attachment = URL(fileURLWithPath: "/tmp/omniwm-diagnostics.log")
         var opened: [URL] = []
@@ -355,24 +356,22 @@ final class IssueReporterTests: XCTestCase {
         model.actual = "Body"
 
         let firstSubmission = Task { @MainActor in await model.submit() }
-        await fulfillment(of: [started], timeout: 1)
+        await fulfillment(of: [started], timeout: 2)
         XCTAssertEqual(model.phase, .submitting)
 
         let duplicateSubmission = Task { @MainActor in await model.submit() }
-        for _ in 0 ..< 3 {
-            await Task.yield()
-        }
-        let preparationCount = await gate.waitCount()
+        await duplicateSubmission.value
+        let preparationCount = gate.waitCount()
         XCTAssertEqual(preparationCount, 1)
 
-        await gate.release()
+        gate.release()
         await firstSubmission.value
-        await duplicateSubmission.value
         XCTAssertEqual(opened.count, 1)
     }
 
     func testSubmitUsesContentValidatedBeforeAttachmentPreparation() async throws {
         let gate = IssueAttachmentGate()
+        defer { gate.release() }
         let started = expectation(description: "attachment preparation started")
         let attachment = URL(fileURLWithPath: "/tmp/omniwm-diagnostics.log")
         var opened: [URL] = []
@@ -389,10 +388,10 @@ final class IssueReporterTests: XCTestCase {
         model.actual = "Original behavior"
 
         let submission = Task { @MainActor in await model.submit() }
-        await fulfillment(of: [started], timeout: 1)
+        await fulfillment(of: [started], timeout: 2)
         model.title = ""
         model.actual = "Edited during submission"
-        await gate.release()
+        gate.release()
         await submission.value
 
         let openedURL = try XCTUnwrap(opened.first)
@@ -578,12 +577,15 @@ private final class FakeIssueEngine: IssueRewriting {
     }
 }
 
-private actor IssueAttachmentGate {
+@MainActor
+private final class IssueAttachmentGate {
     private var continuations: [CheckedContinuation<Void, Never>] = []
     private var count = 0
+    private var released = false
 
     func wait() async {
         count += 1
+        guard !released else { return }
         await withCheckedContinuation { continuations.append($0) }
     }
 
@@ -592,6 +594,7 @@ private actor IssueAttachmentGate {
     }
 
     func release() {
+        released = true
         continuations.forEach { $0.resume() }
         continuations.removeAll(keepingCapacity: true)
     }

@@ -136,6 +136,7 @@ enum AXWindowEnumerationError: Error, Sendable {
     case applicationUnavailable(AXError)
     case contextUnavailable
     case invalidApplicationWindows
+    case subscriptionFailed
     case timedOut
 }
 

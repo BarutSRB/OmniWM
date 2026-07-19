@@ -34,6 +34,8 @@ extension AXEventHandler {
             .map { controller.settings.layoutType(for: $0.name) } ?? .defaultLayout
         let ownsLiveFocus = controller.workspaceManager.focusedToken == token
             || controller.workspaceManager.nonManagedFocusToken == token
+        let removesScratchpadResources = controller.workspaceManager.isScratchpadToken(token)
+            || controller.workspaceManager.hiddenState(for: token)?.isScratchpad == true
         let policy = retirementPolicy(for: reason)
 
         var oldFrames: [WindowToken: CGRect] = [:]
@@ -50,10 +52,12 @@ extension AXEventHandler {
         cancelPostCreateLifecycleVerification(for: token)
         cancelSameAppCloseProbe(matchingFocusedToken: token, reason: policy.traceReason)
         clearManagedFocusState(matching: token, workspaceId: workspaceId)
-        controller.axManager.removeWindowState(pid: token.pid, windowId: token.windowId)
-        controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
-        controller.clearManualWindowOverride(for: token)
         _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
+        controller.axManager.removeWindowState(pid: token.pid, expectedWindow: entry.axRef)
+        if removesScratchpadResources {
+            controller.cleanupScratchpadWindowResources(for: token)
+        }
+        controller.clearManualWindowOverride(for: token)
         if policy.removesIdentityAliases {
             identityAliasesByWindowId.removeValue(forKey: token.windowId)
         }

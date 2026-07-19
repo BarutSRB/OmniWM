@@ -22,14 +22,15 @@ struct WindowAdmissionFinalizationTargets {
 
     mutating func update(
         action: WindowAdmissionTraceAction,
-        candidate: WindowAdmissionFinalizationTarget
+        candidate: WindowAdmissionFinalizationTarget,
+        count: Int?
     ) {
         terminal = enriched(terminal, with: candidate)
         pending = enriched(pending, with: candidate)
         external = enriched(external, with: candidate)
         managed = enriched(managed, with: candidate)
         assign(action: action, candidate: candidate)
-        resolve(action: action, candidate: candidate)
+        resolve(action: action, candidate: candidate, count: count)
     }
 
     private mutating func assign(
@@ -60,7 +61,8 @@ struct WindowAdmissionFinalizationTargets {
 
     private mutating func resolve(
         action: WindowAdmissionTraceAction,
-        candidate: WindowAdmissionFinalizationTarget
+        candidate: WindowAdmissionFinalizationTarget,
+        count: Int?
     ) {
         switch action {
         case .admissionTracked,
@@ -73,13 +75,16 @@ struct WindowAdmissionFinalizationTargets {
             terminal = removing(candidate, from: terminal)
             pending = candidate
         case .enumerationCompleted:
-            clearResolvedEnumerationTargets(with: candidate)
+            clearResolvedEnumerationTargets(with: candidate, count: count)
         default:
             break
         }
     }
 
-    private mutating func clearResolvedEnumerationTargets(with candidate: WindowAdmissionFinalizationTarget) {
+    private mutating func clearResolvedEnumerationTargets(
+        with candidate: WindowAdmissionFinalizationTarget,
+        count: Int?
+    ) {
         if let current = terminal,
            current.pid == candidate.pid,
            current.windowId == nil,
@@ -87,13 +92,18 @@ struct WindowAdmissionFinalizationTargets {
         {
             terminal = nil
         }
-        if let current = pending,
-           current.pid == candidate.pid,
-           current.windowId == nil,
-           current.action == .enumerationFailed,
-           sameContext(current, candidate)
-        {
+        guard let current = pending,
+              current.pid == candidate.pid,
+              current.windowId == nil,
+              sameContext(current, candidate)
+        else { return }
+        switch current.action {
+        case .enumerationFailed:
             pending = nil
+        case .enumerationEmpty where count.map({ $0 > 0 }) == true:
+            pending = nil
+        default:
+            break
         }
     }
 

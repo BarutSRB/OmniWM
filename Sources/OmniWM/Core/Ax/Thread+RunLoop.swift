@@ -70,6 +70,7 @@ extension Thread {
 
     func runInLoop<T: Sendable>(
         timeout: Duration = .seconds(2),
+        onUndeliveredSuccess: @Sendable @escaping (T) -> Void = { _ in },
         _ body: @Sendable @escaping (RunLoopJob) throws -> T
     ) async throws -> T {
         try Task.checkCancellation()
@@ -104,6 +105,7 @@ extension Thread {
                         let value = try body(job)
                         timeoutTask.cancel()
                         guard let continuation = state.takeContinuation(orStore: .success(value)) else {
+                            onUndeliveredSuccess(value)
                             return
                         }
                         continuation.resume(returning: value)

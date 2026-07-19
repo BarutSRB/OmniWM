@@ -11,6 +11,19 @@ enum DiagnosticsActionStatus: Equatable {
     case failure(String)
 }
 
+func diagnosticsRecordingStartStatus(for outcome: TraceCaptureOutcome) -> DiagnosticsActionStatus {
+    switch outcome {
+    case .started:
+        .success("Recording started")
+    case .noChange:
+        .failure("A recording is already running")
+    case .stopped:
+        .failure("Unexpected recording state")
+    case let .writeFailed(reason):
+        .failure(reason)
+    }
+}
+
 struct DiagnosticsSettingsTab: View {
     @Bindable var controller: WMController
     let navigation: SettingsNavigationModel
@@ -277,15 +290,8 @@ struct DiagnosticsSettingsTab: View {
 
     private func startRecording() {
         Task {
-            switch await controller.toggleTraceCaptureForUI(desiredState: .active) {
-            case .started:
-                reportSuccess("Recording started", into: $traceStatus)
-            case .noChange:
-                traceStatus = .failure("A recording is already running")
-            case .stopped,
-                 .writeFailed:
-                traceStatus = .failure("Unexpected recording state")
-            }
+            let outcome = await controller.toggleTraceCaptureForUI(desiredState: .active)
+            traceStatus = diagnosticsRecordingStartStatus(for: outcome)
         }
     }
 
@@ -302,10 +308,6 @@ struct DiagnosticsSettingsTab: View {
                 traceStatus = .failure("Unexpected recording state")
             }
         }
-    }
-
-    private func reportSuccess(_ message: String, into status: Binding<DiagnosticsActionStatus>) {
-        status.wrappedValue = .success(message)
     }
 
     private func revealFolder() {

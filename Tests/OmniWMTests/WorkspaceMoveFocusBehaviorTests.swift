@@ -113,6 +113,47 @@ final class WorkspaceMoveFocusBehaviorTests: XCTestCase {
         }
     }
 
+    func testNiriAdjacentWindowMoveUpHonorsFollowSetting() throws {
+        for followsFocus in [false, true] {
+            let fixture = try makeFixture(layouts: [.niri, .niri], followsFocus: followsFocus)
+            let sourceWorkspaceId = try XCTUnwrap(fixture.workspaceIds.last)
+            let destinationWorkspaceId = try XCTUnwrap(fixture.workspaceIds.first)
+            XCTAssertNotEqual(sourceWorkspaceId, destinationWorkspaceId)
+            XCTAssertTrue(
+                fixture.controller.workspaceManager.setActiveWorkspace(
+                    sourceWorkspaceId,
+                    on: fixture.monitor.id
+                )
+            )
+            let moved = try addManagedWindow(
+                pid: 488_004,
+                windowId: followsFocus ? 62 : 61,
+                to: sourceWorkspaceId,
+                fixture: fixture
+            )
+            try select(moved, in: sourceWorkspaceId, fixture: fixture)
+
+            try withBlockedLayoutRefreshes(fixture) {
+                fixture.controller.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(direction: .up)
+
+                XCTAssertTrue(fixture.controller.workspaceManager.entries(in: sourceWorkspaceId).isEmpty)
+                XCTAssertEqual(
+                    fixture.controller.workspaceManager.workspace(for: moved.id),
+                    destinationWorkspaceId
+                )
+                XCTAssertEqual(
+                    fixture.controller.workspaceManager.lastFocusedToken(in: destinationWorkspaceId),
+                    moved.id
+                )
+                try assertCompletion(
+                    fixture,
+                    activeWorkspaceId: followsFocus ? destinationWorkspaceId : sourceWorkspaceId,
+                    expectedFocusToken: followsFocus ? moved.id : nil
+                )
+            }
+        }
+    }
+
     func testNiriAdjacentColumnMoveHonorsFollowSetting() throws {
         for followsFocus in [false, true] {
             let fixture = try makeFixture(layouts: [.niri], followsFocus: followsFocus)

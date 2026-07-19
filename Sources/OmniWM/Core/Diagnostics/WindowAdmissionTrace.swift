@@ -635,7 +635,7 @@ final class WindowAdmissionTrace: RuntimeTraceRecording, @unchecked Sendable {
             endpointGeneration: record.endpointGeneration,
             callbackGeneration: event.callbackGeneration
         )
-        state.finalizationTargets.update(action: event.action, candidate: candidate)
+        state.finalizationTargets.update(action: event.action, candidate: candidate, count: event.count)
     }
 
     private func windowLifecycleEventMatchesOwner(
