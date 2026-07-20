@@ -201,6 +201,64 @@ final class WorkspaceBarDataSourceTests: XCTestCase {
         XCTAssertNotNil(controller.workspaceManager.entry(for: token))
     }
 
+    func testWorkspaceBarFocusUsesIdentityForDuplicateDisplayNames() throws {
+        let settings = makeSettingsStore()
+        let displayName = "🚀"
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "1", displayName: displayName),
+            WorkspaceConfiguration(name: "2", displayName: displayName)
+        ]
+        let controller = WMController(
+            settings: settings,
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, _, _ in },
+                raiseWindow: { _ in }
+            )
+        )
+        let monitor = makeMonitor(displayId: 47_001)
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        let sourceWorkspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: false)
+        )
+        let targetWorkspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+
+        let projection = WorkspaceBarDataSource.workspaceBarProjection(
+            for: monitor,
+            options: WorkspaceBarProjectionOptions(
+                deduplicateAppIcons: false,
+                hideEmptyWorkspaces: false,
+                showFloatingWindows: false,
+                excludedBundleIDs: []
+            ),
+            workspaceManager: controller.workspaceManager,
+            appInfoCache: controller.appInfoCache,
+            focusedToken: nil,
+            settings: settings
+        )
+        let sourceItem = try XCTUnwrap(projection.items.first { $0.rawName == "1" })
+        let targetItem = try XCTUnwrap(projection.items.first { $0.rawName == "2" })
+
+        XCTAssertEqual(sourceItem.name, displayName)
+        XCTAssertEqual(targetItem.name, displayName)
+        XCTAssertEqual(sourceItem.rawName, "1")
+        XCTAssertEqual(targetItem.rawName, "2")
+        XCTAssertNotEqual(sourceItem.rawName, targetItem.rawName)
+        XCTAssertEqual(sourceItem.id, sourceWorkspaceId)
+        XCTAssertEqual(targetItem.id, targetWorkspaceId)
+        XCTAssertNotEqual(sourceItem.id, targetItem.id)
+        controller.focusWorkspaceFromBar(id: targetItem.id)
+        XCTAssertEqual(controller.workspaceManager.activeWorkspace(on: monitor.id)?.id, targetWorkspaceId)
+
+        let unknownWorkspaceId = UUID()
+        XCTAssertNil(controller.workspaceManager.descriptor(for: unknownWorkspaceId))
+        XCTAssertFalse(controller.windowActionHandler.focusWorkspaceFromBar(id: unknownWorkspaceId))
+        XCTAssertEqual(controller.workspaceManager.activeWorkspace(on: monitor.id)?.id, targetWorkspaceId)
+    }
+
     private func project(
         _ fixture: Fixture,
         deduplicate: Bool = false,

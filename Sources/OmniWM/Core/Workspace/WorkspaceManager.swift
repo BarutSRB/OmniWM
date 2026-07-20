@@ -1961,10 +1961,7 @@ final class WorkspaceManager {
     func focusWorkspace(named name: String) -> (workspace: WorkspaceDescriptor, monitor: Monitor)? {
         ensureVisibleWorkspaces()
         guard let workspaceId = workspaceId(for: name, createIfMissing: false) else { return nil }
-        guard let targetMonitor = monitorForWorkspace(workspaceId) else { return nil }
-        guard setActiveWorkspace(workspaceId, on: targetMonitor.id) else { return nil }
-        guard let workspace = descriptor(for: workspaceId) else { return nil }
-        return (workspace, targetMonitor)
+        return focusWorkspace(id: workspaceId)
     }
 
     func focusWorkspace(id workspaceId: WorkspaceDescriptor.ID) -> (workspace: WorkspaceDescriptor, monitor: Monitor)? {

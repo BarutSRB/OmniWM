@@ -680,18 +680,7 @@ final class WindowActionHandler {
         }
 
         guard let result = controller.workspaceManager.focusWorkspace(named: name) else { return false }
-
-        let focusedToken = controller.resolveAndSetWorkspaceFocusToken(for: result.workspace.id)
-        if let focusedToken {
-            _ = prepareDwindleNavigationTarget(focusedToken, workspaceId: result.workspace.id)
-        }
-        controller.layoutRefreshController
-            .commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
-                if let focusedToken {
-                    controller?.focusWindow(focusedToken)
-                }
-            }
-        return true
+        return completeWorkspaceFocusFromBar(result)
     }
 
     @discardableResult
@@ -702,7 +691,13 @@ final class WindowActionHandler {
         }
 
         guard let result = controller.workspaceManager.focusWorkspace(id: workspaceId) else { return false }
+        return completeWorkspaceFocusFromBar(result)
+    }
 
+    private func completeWorkspaceFocusFromBar(
+        _ result: (workspace: WorkspaceDescriptor, monitor: Monitor)
+    ) -> Bool {
+        guard let controller else { return false }
         let focusedToken = controller.resolveAndSetWorkspaceFocusToken(for: result.workspace.id)
         if let focusedToken {
             _ = prepareDwindleNavigationTarget(focusedToken, workspaceId: result.workspace.id)
