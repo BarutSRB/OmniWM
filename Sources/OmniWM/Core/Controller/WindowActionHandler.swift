@@ -500,10 +500,20 @@ final class WindowActionHandler {
                 )
             )
         }
-        controller.layoutRefreshController
-            .commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
-                controller?.focusWindow(token)
+        let focusTarget: LayoutRefreshController.PostLayoutAction = { [weak controller] in
+            guard let controller,
+                  controller.activeWorkspace()?.id == workspaceId,
+                  controller.workspaceManager.entry(for: token)?.workspaceId == workspaceId
+            else {
+                return
             }
+            controller.focusWindow(token)
+        }
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            reason: .workspaceTransition,
+            postLayoutInvalidated: focusTarget,
+            postLayout: focusTarget
+        )
         return true
     }
 

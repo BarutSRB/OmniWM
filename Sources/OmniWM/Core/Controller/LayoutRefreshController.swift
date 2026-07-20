@@ -1000,12 +1000,14 @@ import QuartzCore
         affectedWorkspaces: Set<WorkspaceDescriptor.ID> = [],
         reason: RefreshReason = .workspaceTransition,
         postLayoutGateWorkspaceIds: Set<WorkspaceDescriptor.ID>? = nil,
+        postLayoutInvalidated: PostLayoutAction? = nil,
         postLayout: PostLayoutAction? = nil
     ) {
         requestImmediateRelayout(
             reason: reason,
             affectedWorkspaceIds: affectedWorkspaces,
             postLayout: postLayout,
+            postLayoutInvalidated: postLayoutInvalidated,
             postLayoutGateWorkspaceIds: postLayoutGateWorkspaceIds
         )
     }
@@ -3973,7 +3975,6 @@ final class LayoutDiffExecutor {
     ) {
         guard !frameUpdates.isEmpty else { return }
         let axManager = controller.axManager
-
         guard isAnimationTick else {
             for update in frameUpdates where axManager.skyLightLivePosition(for: update.windowId) != nil {
                 axManager.forceApplyNextFrame(for: update.windowId)
