@@ -31,6 +31,10 @@ Bug fixes, documentation improvements, performance work, focused cleanups, featu
 - Add screenshots, recordings, or CLI examples when they help explain the change.
 - Update documentation when behavior, workflows, or interfaces change.
 
+## Trace Files
+
+Include a trace file when possible, especially with bug reports. It records OmniWM activity and state around the problem. Open **Settings → Troubleshooting**, click **Start Recording**, reproduce the bug, then click **Stop & Save Recording** and attach the saved `.log` file.
+
 ## Basic Workflow
 
 1. Fork the repository.
