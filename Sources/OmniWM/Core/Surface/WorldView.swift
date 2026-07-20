@@ -160,6 +160,14 @@ struct WorldView {
         if let borderFrameResolver {
             return borderFrameResolver(entry.windowId)
         }
+        if let cached = cachedBorderFrame(for: entry) {
+            return cached
+        }
+        BorderOpMetricsRecorder.shared.noteBoundsQueryFallback()
+        return observedWindowBounds(windowId: entry.windowId)
+    }
+
+    func cachedBorderFrame(for entry: WindowState) -> CGRect? {
         if let pending = controller.axManager.pendingFrameWrite(for: entry.windowId) {
             return pending
         }
@@ -168,8 +176,7 @@ struct WorldView {
         {
             return applied
         }
-        BorderOpMetricsRecorder.shared.noteBoundsQueryFallback()
-        return observedWindowBounds(windowId: entry.windowId)
+        return nil
     }
 
     func observedWindowBounds(windowId: Int) -> CGRect? {

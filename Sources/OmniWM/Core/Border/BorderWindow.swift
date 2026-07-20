@@ -53,11 +53,11 @@ final class BorderWindow {
     private var isVisible = false
     private var lastOrderedTargetWid: UInt32 = 0
     private var lastConfiguredScale: CGFloat = 0
-    private var currentCornerRadius: CGFloat = 9.0
+    private var currentCornerRadii = WindowCornerRadii(uniform: 9.0)
     private var cachedScale: CGFloat = 0
     private var cachedScaleScreenFrame: CGRect = .null
 
-    private let defaultCornerRadius: CGFloat = 9.0
+    private let defaultCornerRadii = WindowCornerRadii(uniform: 9.0)
     private let orderingLevel: Int32 = 3
 
     init(config: BorderConfig, operations: Operations = .live) {
@@ -73,19 +73,19 @@ final class BorderWindow {
         }
         isVisible = false
         lastOrderedTargetWid = 0
-        currentCornerRadius = defaultCornerRadius
+        currentCornerRadii = defaultCornerRadii
     }
 
     @discardableResult
     func update(
         frame targetFrame: CGRect,
         targetWid: UInt32,
-        cornerRadius: CGFloat = 9.0,
+        cornerRadii: WindowCornerRadii = WindowCornerRadii(uniform: 9.0),
         forceOrdering: Bool = false
     ) -> Bool {
         BorderOpMetricsRecorder.shared.noteUpdate()
         let scale = backingScale(for: targetFrame)
-        let resolvedCornerRadius = max(cornerRadius, 0)
+        let resolvedCornerRadii = cornerRadii.nonnegative
 
         var frame = targetFrame.roundedToPhysicalPixels(scale: scale)
         appliedFrame = frame
@@ -111,11 +111,11 @@ final class BorderWindow {
             reshapeWindow(frame: frame)
             needsRedraw = true
         }
-        if currentCornerRadius != resolvedCornerRadius {
+        if currentCornerRadii != resolvedCornerRadii {
             needsRedraw = true
         }
         currentFrame = frame
-        currentCornerRadius = resolvedCornerRadius
+        currentCornerRadii = resolvedCornerRadii
 
         if needsRedraw {
             draw(frame: frame)
@@ -173,19 +173,14 @@ final class BorderWindow {
         BorderOpMetricsRecorder.shared.noteRedraw()
 
         let borderWidth = config.width
-        let cornerRadius = currentCornerRadius
-        let outerRadius = cornerRadius + borderWidth
+        let cornerRadii = currentCornerRadii
+        let outerRadii = cornerRadii.adding(borderWidth)
 
         context.saveGState()
         context.clear(frame)
 
         let innerRect = frame.insetBy(dx: borderWidth, dy: borderWidth)
-        let innerPath = CGPath(
-            roundedRect: innerRect,
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        )
+        let innerPath = Self.roundedRectPath(in: innerRect, radii: cornerRadii)
 
         let clipPath = CGMutablePath()
         clipPath.addRect(frame)
@@ -195,18 +190,51 @@ final class BorderWindow {
 
         context.setFillColor(config.color.cgColor)
 
-        let outerPath = CGPath(
-            roundedRect: frame,
-            cornerWidth: outerRadius,
-            cornerHeight: outerRadius,
-            transform: nil
-        )
+        let outerPath = Self.roundedRectPath(in: frame, radii: outerRadii)
         context.addPath(outerPath)
         context.fillPath()
 
         context.restoreGState()
         context.flush()
         operations.flushWindow(wid)
+    }
+
+    static func roundedRectPath(in rect: CGRect, radii: WindowCornerRadii) -> CGPath {
+        let path = CGMutablePath()
+        guard rect.width > 0, rect.height > 0, !rect.isInfinite, !rect.isNull else { return path }
+        let radii = radii.normalized(to: rect.size)
+
+        path.move(to: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - radii.bottomRight, y: rect.minY))
+        path.addArc(
+            tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
+            tangent2End: CGPoint(x: rect.maxX, y: rect.minY + radii.bottomRight),
+            radius: radii.bottomRight
+        )
+
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radii.topRight))
+        path.addArc(
+            tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
+            tangent2End: CGPoint(x: rect.maxX - radii.topRight, y: rect.maxY),
+            radius: radii.topRight
+        )
+
+        path.addLine(to: CGPoint(x: rect.minX + radii.topLeft, y: rect.maxY))
+        path.addArc(
+            tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
+            tangent2End: CGPoint(x: rect.minX, y: rect.maxY - radii.topLeft),
+            radius: radii.topLeft
+        )
+
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radii.bottomLeft))
+        path.addArc(
+            tangent1End: CGPoint(x: rect.minX, y: rect.minY),
+            tangent2End: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY),
+            radius: radii.bottomLeft
+        )
+
+        path.closeSubpath()
+        return path
     }
 
     private func move(relativeTo targetWid: UInt32, needsOrdering: Bool) {

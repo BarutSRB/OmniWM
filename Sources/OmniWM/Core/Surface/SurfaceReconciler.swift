@@ -5,9 +5,13 @@ import CoreGraphics
 import Foundation
 
 struct DesiredBorderSurface: Equatable {
-    var windowId: Int
+    var token: WindowToken
     var frame: CGRect
     var config: BorderConfig
+
+    var windowId: Int {
+        token.windowId
+    }
 }
 
 struct DesiredBarSurface: Equatable {
@@ -26,6 +30,11 @@ struct DesiredSurfaceScene: Equatable {
 }
 
 enum SurfaceDerivation {
+    private enum BorderFramePolicy {
+        case complete
+        case animation(previous: DesiredBorderSurface?)
+    }
+
     @MainActor
     static func derive(world: WorldView) -> DesiredSurfaceScene {
         guard world.hasStartedServices else { return .empty }
@@ -38,6 +47,22 @@ enum SurfaceDerivation {
 
     @MainActor
     static func deriveBorder(world: WorldView) -> DesiredBorderSurface? {
+        deriveBorder(world: world, framePolicy: .complete)
+    }
+
+    @MainActor
+    static func deriveAnimationBorder(
+        world: WorldView,
+        previous: DesiredBorderSurface?
+    ) -> DesiredBorderSurface? {
+        deriveBorder(world: world, framePolicy: .animation(previous: previous))
+    }
+
+    @MainActor
+    private static func deriveBorder(
+        world: WorldView,
+        framePolicy: BorderFramePolicy
+    ) -> DesiredBorderSurface? {
         let config = world.borderConfig
         guard config.enabled else { return nil }
         guard let token = world.renderableFocusToken else { return nil }
@@ -54,25 +79,59 @@ enum SurfaceDerivation {
             else {
                 return nil
             }
-            guard let frame = world.borderFrame(for: entry),
-                  frame.width > 0, frame.height > 0
+            guard let frame = borderFrame(
+                for: token,
+                entry: entry,
+                world: world,
+                policy: framePolicy
+            ),
+                frame.width > 0, frame.height > 0
             else {
                 return nil
             }
-            return DesiredBorderSurface(windowId: entry.windowId, frame: frame, config: config)
+            return DesiredBorderSurface(token: entry.token, frame: frame, config: config)
         }
 
         guard world.isNonManagedFocusActive else { return nil }
-        guard let frame = world.observedWindowBounds(windowId: token.windowId) else { return nil }
-        return DesiredBorderSurface(windowId: token.windowId, frame: frame, config: config)
+        guard let frame = borderFrame(
+            for: token,
+            entry: nil,
+            world: world,
+            policy: framePolicy
+        ) else {
+            return nil
+        }
+        return DesiredBorderSurface(token: token, frame: frame, config: config)
+    }
+
+    @MainActor
+    private static func borderFrame(
+        for token: WindowToken,
+        entry: WindowState?,
+        world: WorldView,
+        policy: BorderFramePolicy
+    ) -> CGRect? {
+        switch policy {
+        case .complete:
+            if let entry {
+                return world.borderFrame(for: entry)
+            }
+            return world.observedWindowBounds(windowId: token.windowId)
+        case let .animation(previous):
+            if let entry, let cached = world.cachedBorderFrame(for: entry) {
+                return cached
+            }
+            guard previous?.token == token else { return nil }
+            return previous?.frame
+        }
     }
 }
 
 @MainActor
 final class SurfaceReconciler {
     private weak var controller: WMController?
-    private var reconcileScheduled = false
-    private var forceOrderingOnNextReconcile = false
+    private(set) var reconcileScheduled = false
+    private(set) var forceOrderingOnNextReconcile = false
     private let borderApplier = BorderSurfaceApplier()
     private(set) var appliedScene = DesiredSurfaceScene.empty
 
@@ -98,11 +157,28 @@ final class SurfaceReconciler {
     }
 
     func reconcileNow() {
-        runReconcile(deriveBars: true)
+        runFullReconcile()
     }
 
     func reconcileAnimationTick() {
-        runReconcile(deriveBars: false)
+        guard let controller else { return }
+        let world = WorldView(controller: controller)
+        let desiredBorder = world.hasStartedServices
+            ? SurfaceDerivation.deriveAnimationBorder(world: world, previous: appliedScene.border)
+            : nil
+        let outcome = borderApplier.apply(
+            desiredBorder,
+            forceOrdering: false,
+            refreshCornerRadii: false
+        )
+        appliedScene.border = outcome.didApply ? desiredBorder : nil
+    }
+
+    func handleVerifiedFrameApplySuccess(_ result: AXFrameApplyResult) {
+        guard let controller else { return }
+        let token = WindowToken(pid: result.pid, windowId: result.windowId)
+        guard controller.workspaceManager.renderableFocusToken == token else { return }
+        noteWorldChanged()
     }
 
     func cleanup() {
@@ -115,36 +191,43 @@ final class SurfaceReconciler {
         reconcileNow()
     }
 
-    private func runReconcile(deriveBars: Bool) {
+    private func runFullReconcile() {
         reconcileScheduled = false
         let forceOrdering = forceOrderingOnNextReconcile
         forceOrderingOnNextReconcile = false
         guard let controller else { return }
         let world = WorldView(controller: controller)
-        var desired: DesiredSurfaceScene
-        if deriveBars {
-            desired = SurfaceDerivation.derive(world: world)
-            desired.bars = world.barSurfaces()
-        } else {
-            desired = appliedScene
-            desired.border = world.hasStartedServices ? SurfaceDerivation.deriveBorder(world: world) : nil
+        var desired = SurfaceDerivation.derive(world: world)
+        desired.bars = world.barSurfaces()
+        let refreshCornerRadii = desired.border.map {
+            !controller.axManager.hasPendingFrameWrite(for: $0.windowId)
+        } ?? true
+        let outcome = applyFull(
+            desired,
+            on: controller,
+            forceOrdering: forceOrdering,
+            refreshCornerRadii: refreshCornerRadii
+        )
+        if outcome.needsCornerRadiiRetry {
+            noteWorldChanged()
         }
-        apply(desired, on: controller, forceOrdering: forceOrdering, applyBars: deriveBars)
     }
 
-    private func apply(
+    private func applyFull(
         _ desired: DesiredSurfaceScene,
         on controller: WMController,
         forceOrdering: Bool,
-        applyBars: Bool
-    ) {
-        if applyBars {
-            controller.workspaceBarManager.apply(desired.bars)
-            if desired.bars != appliedScene.bars {
-                controller.publishWorkspaceDataChanged()
-            }
+        refreshCornerRadii: Bool
+    ) -> BorderSurfaceApplyResult {
+        controller.workspaceBarManager.apply(desired.bars)
+        if desired.bars != appliedScene.bars {
+            controller.publishWorkspaceDataChanged()
         }
-        borderApplier.apply(desired.border, forceOrdering: forceOrdering)
+        let borderOutcome = borderApplier.apply(
+            desired.border,
+            forceOrdering: forceOrdering,
+            refreshCornerRadii: refreshCornerRadii
+        )
         if desired.tabRails != appliedScene.tabRails || forceOrdering {
             controller.tabRailManager.updateRails(desired.tabRails, forceOrdering: forceOrdering)
         }
@@ -152,5 +235,9 @@ final class SurfaceReconciler {
             controller.nativeFullscreenPlaceholderManager.apply(desired.placeholders)
         }
         appliedScene = desired
+        if !borderOutcome.didApply {
+            appliedScene.border = nil
+        }
+        return borderOutcome
     }
 }

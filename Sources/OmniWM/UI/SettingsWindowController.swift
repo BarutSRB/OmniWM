@@ -10,6 +10,7 @@ final class SettingsWindowController {
 
     private let presenter = HostedWindowPresenter()
     private let navigation = SettingsNavigationModel()
+    private let windowCornerPreferences = GlobalWindowCornerPreferences()
 
     func show(
         settings: SettingsStore,
@@ -17,6 +18,7 @@ final class SettingsWindowController {
         updateCoordinator: (any AppUpdateCoordinating)? = nil,
         section: SettingsSection? = nil
     ) {
+        windowCornerPreferences.refresh()
         if let section {
             navigation.section = section
         }
@@ -30,6 +32,7 @@ final class SettingsWindowController {
             SettingsView(
                 settings: settings,
                 controller: controller,
+                windowCornerPreferences: windowCornerPreferences,
                 updateCoordinator: updateCoordinator,
                 navigation: navigation
             )

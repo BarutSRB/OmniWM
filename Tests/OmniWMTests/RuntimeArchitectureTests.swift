@@ -1831,6 +1831,226 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testAnimationLayoutPlanDoesNotScheduleFullSurfaceReconcile() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
+        controller.surfaceReconciler.reconcileNow()
+
+        let animationPlan = WorkspaceLayoutPlan(
+            workspaceId: workspaceId,
+            monitor: Self.layoutMonitorSnapshot(monitor),
+            sessionPatch: WorkspaceSessionPatch(
+                workspaceId: workspaceId,
+                plannedSeq: controller.workspaceManager.worldSeq
+            ),
+            diff: WorkspaceLayoutDiff(),
+            isAnimationTick: true
+        )
+
+        XCTAssertNotNil(controller.layoutRefreshController.executeLayoutPlanReturningAcceptedSeq(animationPlan))
+        XCTAssertFalse(controller.surfaceReconciler.reconcileScheduled)
+
+        var fullPlan = animationPlan
+        fullPlan.isAnimationTick = false
+        XCTAssertNotNil(controller.layoutRefreshController.executeLayoutPlanReturningAcceptedSeq(fullPlan))
+        XCTAssertTrue(controller.surfaceReconciler.reconcileScheduled)
+        controller.surfaceReconciler.reconcileNow()
+    }
+
+    @MainActor
+    func testAnimationSurfaceReconcilePreservesPendingFullWorkAndOrdering() {
+        let controller = Self.controller()
+        controller.surfaceReconciler.noteRestackOccurred()
+
+        controller.surfaceReconciler.reconcileAnimationTick()
+
+        XCTAssertTrue(controller.surfaceReconciler.reconcileScheduled)
+        XCTAssertTrue(controller.surfaceReconciler.forceOrderingOnNextReconcile)
+
+        controller.surfaceReconciler.reconcileNow()
+
+        XCTAssertFalse(controller.surfaceReconciler.reconcileScheduled)
+        XCTAssertFalse(controller.surfaceReconciler.forceOrderingOnNextReconcile)
+    }
+
+    @MainActor
+    func testAnimationBorderDerivationReusesNonManagedFrameWithoutBoundsQuery() throws {
+        let controller = Self.controller()
+        controller.hasStartedServices = true
+        controller.settings.bordersEnabled = true
+        let token = WindowToken(pid: 765_019, windowId: 765_119)
+        _ = controller.workspaceManager.enterNonManagedFocus(target: token)
+        let previous = DesiredBorderSurface(
+            token: token,
+            frame: CGRect(x: 20, y: 30, width: 400, height: 300),
+            config: BorderConfig.from(settings: controller.settings)
+        )
+        var boundsQueryCount = 0
+        let world = WorldView(controller: controller, borderFrameResolver: { _ in
+            boundsQueryCount += 1
+            return nil
+        })
+
+        let derived = try XCTUnwrap(
+            SurfaceDerivation.deriveAnimationBorder(world: world, previous: previous)
+        )
+
+        XCTAssertEqual(derived, previous)
+        XCTAssertEqual(boundsQueryCount, 0)
+    }
+
+    @MainActor
+    func testVerifiedFrameApplySuccessUsesCurrentFullWindowToken() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_020), windowId: 765_120),
+            pid: 765_020,
+            windowId: 765_120,
+            to: workspaceId
+        )
+        XCTAssertTrue(controller.workspaceManager.setManagedFocus(token, in: workspaceId))
+        controller.surfaceReconciler.reconcileNow()
+        let frame = CGRect(x: 20, y: 30, width: 400, height: 300)
+        let reusedWindowIdResult = Self.frameResult(
+            requestId: 1,
+            pid: token.pid + 1,
+            windowId: token.windowId,
+            expectedWindow: AXWindowRef(
+                element: AXUIElementCreateApplication(token.pid + 1),
+                windowId: token.windowId
+            ),
+            targetFrame: frame,
+            currentFrameHint: nil
+        )
+
+        controller.surfaceReconciler.handleVerifiedFrameApplySuccess(reusedWindowIdResult)
+
+        XCTAssertFalse(controller.surfaceReconciler.reconcileScheduled)
+
+        let focusedResult = Self.frameResult(
+            requestId: 2,
+            pid: token.pid,
+            windowId: token.windowId,
+            expectedWindow: AXWindowRef(
+                element: AXUIElementCreateApplication(token.pid),
+                windowId: token.windowId
+            ),
+            targetFrame: frame,
+            currentFrameHint: nil
+        )
+
+        controller.surfaceReconciler.handleVerifiedFrameApplySuccess(focusedResult)
+        controller.surfaceReconciler.handleVerifiedFrameApplySuccess(focusedResult)
+
+        XCTAssertTrue(controller.surfaceReconciler.reconcileScheduled)
+        controller.surfaceReconciler.reconcileNow()
+    }
+
+    @MainActor
+    func testServiceLifecycleForwardsOnlyObservedFrameSuccesses() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_021), windowId: 765_121),
+            pid: 765_021,
+            windowId: 765_121,
+            to: workspaceId
+        )
+        XCTAssertTrue(controller.workspaceManager.setManagedFocus(token, in: workspaceId))
+        controller.surfaceReconciler.reconcileNow()
+        let frame = CGRect(x: 20, y: 30, width: 400, height: 300)
+        let expectedWindow = AXWindowRef(
+            element: AXUIElementCreateApplication(token.pid),
+            windowId: token.windowId
+        )
+        let animationResult = AXFrameApplyResult(
+            requestId: 1,
+            pid: token.pid,
+            windowId: token.windowId,
+            expectedWindow: expectedWindow,
+            targetFrame: frame,
+            currentFrameHint: nil,
+            writeResult: AXFrameWriteResult(
+                targetFrame: frame,
+                observedFrame: nil,
+                writeOrder: .sizeThenPosition,
+                sizeError: .success,
+                positionError: .success,
+                failureReason: nil
+            )
+        )
+
+        controller.serviceLifecycleManager.handleFrameApplySucceeded(animationResult)
+
+        XCTAssertFalse(controller.surfaceReconciler.reconcileScheduled)
+
+        let unconfirmedResult = AXFrameApplyResult(
+            requestId: 2,
+            pid: token.pid,
+            windowId: token.windowId,
+            expectedWindow: expectedWindow,
+            targetFrame: frame,
+            currentFrameHint: nil,
+            writeResult: AXFrameWriteResult(
+                targetFrame: frame,
+                observedFrame: frame.offsetBy(dx: 20, dy: 0),
+                writeOrder: .sizeThenPosition,
+                sizeError: .success,
+                positionError: .success,
+                failureReason: .verificationMismatch
+            )
+        )
+
+        controller.serviceLifecycleManager.handleFrameApplySucceeded(unconfirmedResult)
+
+        XCTAssertFalse(controller.surfaceReconciler.reconcileScheduled)
+
+        let verifiedResult = Self.frameResult(
+            requestId: 3,
+            pid: token.pid,
+            windowId: token.windowId,
+            expectedWindow: expectedWindow,
+            targetFrame: frame,
+            currentFrameHint: nil
+        )
+        controller.serviceLifecycleManager.handleFrameApplySucceeded(verifiedResult)
+
+        XCTAssertTrue(controller.surfaceReconciler.reconcileScheduled)
+        controller.surfaceReconciler.reconcileNow()
+    }
+
+    @MainActor
+    func testAXManagerAcceptedFrameCallbackCarriesFullResult() {
+        let controller = Self.controller()
+        let frame = CGRect(x: 20, y: 30, width: 400, height: 300)
+        let result = Self.frameResult(
+            requestId: 3,
+            pid: 765_022,
+            windowId: 765_122,
+            expectedWindow: AXWindowRef(
+                element: AXUIElementCreateApplication(765_022),
+                windowId: 765_122
+            ),
+            targetFrame: frame,
+            currentFrameHint: nil
+        )
+        var received: AXFrameApplyResult?
+        controller.axManager.onFrameApplySucceeded = { received = $0 }
+
+        controller.axManager.handleAcceptedFrameApplySuccess(result)
+
+        XCTAssertEqual(received, result)
+    }
+
+    @MainActor
     func testLayoutPlanAcceptedSeqIncludesAnimationDirectiveFocusMutation() throws {
         let controller = Self.controller()
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))

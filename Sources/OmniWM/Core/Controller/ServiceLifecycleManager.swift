@@ -113,8 +113,8 @@ final class ServiceLifecycleManager {
         controller.axManager.onTerminalFrameRefusal = { [weak controller] refusal in
             controller?.axEventHandler.handleTerminalFrameRefusal(refusal)
         }
-        controller.axManager.onFrameApplySucceeded = { [weak controller] windowId in
-            controller?.axEventHandler.clearTerminalFrameFailure(windowId: windowId)
+        controller.axManager.onFrameApplySucceeded = { [weak self] result in
+            self?.handleFrameApplySucceeded(result)
         }
         controller.axManager.onManagedWindowBindingFailed = { [weak controller] in
             controller?.layoutRefreshController.requestFullRescan(reason: .staleFullRescan)
@@ -136,6 +136,13 @@ final class ServiceLifecycleManager {
         performStartupRefresh()
         startSecureInputMonitor()
         startLockScreenObserver()
+    }
+
+    func handleFrameApplySucceeded(_ result: AXFrameApplyResult) {
+        guard let controller else { return }
+        controller.axEventHandler.clearTerminalFrameFailure(windowId: result.windowId)
+        guard result.writeResult.observedFrame != nil, result.confirmedFrame != nil else { return }
+        controller.surfaceReconciler.handleVerifiedFrameApplySuccess(result)
     }
 
     private func startLockScreenObserver() {

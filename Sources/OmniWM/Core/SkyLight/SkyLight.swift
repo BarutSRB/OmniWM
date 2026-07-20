@@ -15,6 +15,82 @@ enum DisplaySpacesMode: Equatable, Sendable {
     case unavailable
 }
 
+struct WindowCornerRadii: Equatable, Sendable {
+    var topLeft: CGFloat
+    var topRight: CGFloat
+    var bottomLeft: CGFloat
+    var bottomRight: CGFloat
+
+    init(topLeft: CGFloat, topRight: CGFloat, bottomLeft: CGFloat, bottomRight: CGFloat) {
+        self.topLeft = topLeft
+        self.topRight = topRight
+        self.bottomLeft = bottomLeft
+        self.bottomRight = bottomRight
+    }
+
+    init(uniform radius: CGFloat) {
+        self.init(topLeft: radius, topRight: radius, bottomLeft: radius, bottomRight: radius)
+    }
+
+    static let zero = WindowCornerRadii(uniform: 0)
+
+    func adding(_ value: CGFloat) -> WindowCornerRadii {
+        WindowCornerRadii(
+            topLeft: topLeft + value,
+            topRight: topRight + value,
+            bottomLeft: bottomLeft + value,
+            bottomRight: bottomRight + value
+        )
+    }
+
+    func normalized(to size: CGSize) -> WindowCornerRadii {
+        let radii = nonnegative
+        guard size.width > 0, size.height > 0 else { return .zero }
+
+        var scale: CGFloat = 1
+        scale = min(scale, ratio(limit: size.width, sum: radii.topLeft + radii.topRight))
+        scale = min(scale, ratio(limit: size.width, sum: radii.bottomLeft + radii.bottomRight))
+        scale = min(scale, ratio(limit: size.height, sum: radii.topLeft + radii.bottomLeft))
+        scale = min(scale, ratio(limit: size.height, sum: radii.topRight + radii.bottomRight))
+        guard scale < 1 else { return radii }
+
+        return WindowCornerRadii(
+            topLeft: radii.topLeft * scale,
+            topRight: radii.topRight * scale,
+            bottomLeft: radii.bottomLeft * scale,
+            bottomRight: radii.bottomRight * scale
+        )
+    }
+
+    var nonnegative: WindowCornerRadii {
+        WindowCornerRadii(
+            topLeft: Self.nonnegative(topLeft),
+            topRight: Self.nonnegative(topRight),
+            bottomLeft: Self.nonnegative(bottomLeft),
+            bottomRight: Self.nonnegative(bottomRight)
+        )
+    }
+
+    private func ratio(limit: CGFloat, sum: CGFloat) -> CGFloat {
+        sum > 0 ? limit / sum : 1
+    }
+
+    private static func nonnegative(_ value: CGFloat) -> CGFloat {
+        value.isFinite ? max(value, 0) : 0
+    }
+}
+
+enum WindowCornerSource: Equatable, Sendable {
+    case resolved
+    case raw
+}
+
+struct WindowCornerSample: Equatable, Sendable {
+    let radii: WindowCornerRadii
+    let observedSize: CGSize
+    let source: WindowCornerSource
+}
+
 struct ManagedDisplaySpaces: Sendable {
     let displayIdentifier: String
     let spaceIds: [UInt64]
@@ -37,7 +113,10 @@ final class SkyLight {
     private typealias WindowQueryResultCopyWindowsFunc = @convention(c) (CFTypeRef) -> CFTypeRef?
     private typealias WindowIteratorGetCountFunc = @convention(c) (CFTypeRef) -> Int32
     private typealias WindowIteratorAdvanceFunc = @convention(c) (CFTypeRef) -> Bool
-    private typealias WindowIteratorGetCornerRadiiFunc = @convention(c) (CFTypeRef) -> CFArray?
+    private typealias WindowIteratorGetCornerRadiiFunc = @convention(c) (
+        CFTypeRef,
+        CFIndex
+    ) -> Unmanaged<CFArray>?
     private typealias WindowIteratorGetBoundsFunc = @convention(c) (CFTypeRef) -> CGRect
     private typealias WindowIteratorGetWindowIDFunc = @convention(c) (CFTypeRef) -> UInt32
     private typealias WindowIteratorGetPIDFunc = @convention(c) (CFTypeRef) -> Int32
@@ -123,6 +202,7 @@ final class SkyLight {
     private let windowIteratorGetCount: WindowIteratorGetCountFunc
     private let windowIteratorAdvance: WindowIteratorAdvanceFunc
     private let windowIteratorGetCornerRadii: WindowIteratorGetCornerRadiiFunc
+    private let windowIteratorGetResolvedCornerRadii: WindowIteratorGetCornerRadiiFunc?
     private let windowIteratorGetBounds: WindowIteratorGetBoundsFunc
     private let windowIteratorGetWindowID: WindowIteratorGetWindowIDFunc
     private let windowIteratorGetPID: WindowIteratorGetPIDFunc
@@ -188,6 +268,12 @@ final class SkyLight {
             return unsafeBitCast(pointer, to: T.self)
         }
 
+        func resolveOptional<T>(_ symbol: String, as _: T.Type) -> T? {
+            guard let pointer = dlsym(lib, symbol) else { return nil }
+            capability.append(symbol)
+            return unsafeBitCast(pointer, to: T.self)
+        }
+
         mainConnectionID = resolve("SLSMainConnectionID", as: MainConnectionIDFunc.self)
         windowQueryWindows = resolve("SLSWindowQueryWindows", as: WindowQueryWindowsFunc.self)
         windowQueryResultCopyWindows = resolve(
@@ -198,6 +284,10 @@ final class SkyLight {
         windowIteratorAdvance = resolve("SLSWindowIteratorAdvance", as: WindowIteratorAdvanceFunc.self)
         windowIteratorGetCornerRadii = resolve(
             "SLSWindowIteratorGetCornerRadii",
+            as: WindowIteratorGetCornerRadiiFunc.self
+        )
+        windowIteratorGetResolvedCornerRadii = resolveOptional(
+            "SLSWindowIteratorGetResolvedCornerRadii",
             as: WindowIteratorGetCornerRadiiFunc.self
         )
         windowIteratorGetBounds = resolve("SLSWindowIteratorGetBounds", as: WindowIteratorGetBoundsFunc.self)
@@ -260,10 +350,29 @@ final class SkyLight {
         capabilitySymbols
     }
 
-    func cornerRadius(forWindowId wid: Int) -> CGFloat? {
+    var resolvedCornerRadiiAvailable: Bool {
+        windowIteratorGetResolvedCornerRadii != nil
+    }
+
+    func cornerSample(forWindowId wid: Int) -> WindowCornerSample? {
         queryWindowIterator(forWindowId: wid) { iterator in
-            cornerRadius(from: iterator)
+            cornerSample(from: iterator)
         }
+    }
+
+    func diagnosticCornerSamples(
+        forWindowId wid: Int
+    ) -> (resolved: WindowCornerSample?, raw: WindowCornerSample?) {
+        queryWindowIterator(forWindowId: wid) { iterator in
+            let observedSize = windowIteratorGetBounds(iterator).size
+            let resolved = windowIteratorGetResolvedCornerRadii?(iterator, 0)?.takeRetainedValue()
+            let raw = windowIteratorGetCornerRadii(iterator, 0)?.takeRetainedValue()
+            return Self.diagnosticCornerSamples(
+                resolved: resolved,
+                raw: raw,
+                observedSize: observedSize
+            )
+        } ?? (nil, nil)
     }
 
     private func queryWindowIterator<T>(forWindowId wid: Int, _ read: (CFTypeRef) -> T?) -> T? {
@@ -287,21 +396,81 @@ final class SkyLight {
         return read(iterator)
     }
 
-    private func cornerRadius(from iterator: CFTypeRef) -> CGFloat? {
-        guard let radii = windowIteratorGetCornerRadii(iterator),
-              CFArrayGetCount(radii) > 0
+    private func cornerSample(from iterator: CFTypeRef) -> WindowCornerSample? {
+        let observedSize = windowIteratorGetBounds(iterator).size
+        let resolved = windowIteratorGetResolvedCornerRadii?(iterator, 0)?.takeRetainedValue()
+        if let sample = Self.cornerSample(resolved: resolved, raw: nil, observedSize: observedSize) {
+            return sample
+        }
+        let raw = windowIteratorGetCornerRadii(iterator, 0)?.takeRetainedValue()
+        return Self.cornerSample(resolved: nil, raw: raw, observedSize: observedSize)
+    }
+
+    static func cornerSample(
+        resolved: CFArray?,
+        raw: CFArray?,
+        observedSize: CGSize
+    ) -> WindowCornerSample? {
+        guard observedSize.width.isFinite,
+              observedSize.height.isFinite,
+              observedSize.width > 0,
+              observedSize.height > 0
         else {
             return nil
         }
+        if let radii = parseCornerRadii(resolved) {
+            return WindowCornerSample(radii: radii, observedSize: observedSize, source: .resolved)
+        }
+        guard let radii = parseCornerRadii(raw) else { return nil }
+        return WindowCornerSample(radii: radii, observedSize: observedSize, source: .raw)
+    }
 
-        var radius: Int32 = 0
-        let value = CFArrayGetValueAtIndex(radii, 0)
-        guard CFNumberGetValue(unsafeBitCast(value, to: CFNumber.self), .sInt32Type, &radius) else {
-            return nil
+    static func diagnosticCornerSamples(
+        resolved: CFArray?,
+        raw: CFArray?,
+        observedSize: CGSize
+    ) -> (resolved: WindowCornerSample?, raw: WindowCornerSample?) {
+        (
+            resolved: cornerSample(resolved: resolved, raw: nil, observedSize: observedSize),
+            raw: cornerSample(resolved: nil, raw: raw, observedSize: observedSize)
+        )
+    }
+
+    static func parseCornerRadii(_ values: CFArray?) -> WindowCornerRadii? {
+        guard let values else { return nil }
+        let count = CFArrayGetCount(values)
+        guard count == 1 || count == 4 else { return nil }
+
+        func radius(at index: CFIndex) -> CGFloat? {
+            let pointer = CFArrayGetValueAtIndex(values, index)
+            let value = unsafeBitCast(pointer, to: CFTypeRef.self)
+            guard CFGetTypeID(value) == CFNumberGetTypeID() else { return nil }
+            var radius = 0.0
+            guard CFNumberGetValue(unsafeDowncast(value, to: CFNumber.self), .doubleType, &radius),
+                  radius.isFinite,
+                  radius >= 0
+            else {
+                return nil
+            }
+            return CGFloat(radius)
         }
 
-        guard radius >= 0 else { return nil }
-        return CGFloat(radius)
+        guard let topLeft = radius(at: 0) else { return nil }
+        if count == 1 {
+            return WindowCornerRadii(uniform: topLeft)
+        }
+        guard let topRight = radius(at: 1),
+              let bottomRight = radius(at: 2),
+              let bottomLeft = radius(at: 3)
+        else {
+            return nil
+        }
+        return WindowCornerRadii(
+            topLeft: topLeft,
+            topRight: topRight,
+            bottomLeft: bottomLeft,
+            bottomRight: bottomRight
+        )
     }
 
     @discardableResult

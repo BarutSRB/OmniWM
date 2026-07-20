@@ -335,19 +335,38 @@ enum PrivateAPIHealthDiagnostics {
     private static func sampleWindowTests(_ sample: WindowServerInfo?) -> [PrivateAPISelfTest] {
         guard let sample else {
             return [
+                test("SLSWindowIteratorGetResolvedCornerRadii", .inconclusive, "no foreign sample window"),
                 test("SLSWindowIteratorGetCornerRadii", .inconclusive, "no foreign sample window"),
                 test("SLSCopySpacesForWindows", .inconclusive, "no foreign sample window")
             ]
         }
         let sky = SkyLight.shared
-        let radius = sky.cornerRadius(forWindowId: Int(sample.id))
+        let cornerSamples = sky.diagnosticCornerSamples(forWindowId: Int(sample.id))
         let spaces = sky.spacesForWindow(sample.id)
-        return [
+        let detail: (WindowCornerSample?) -> String = { cornerSample in
+            cornerSample.map {
+                "radii=\($0.radii.topLeft),\($0.radii.topRight),\($0.radii.bottomLeft),\($0.radii.bottomRight) size=\($0.observedSize.width)x\($0.observedSize.height)"
+            } ?? "nil (window may have square corners)"
+        }
+        let resolvedTest: PrivateAPISelfTest = if !sky.resolvedCornerRadiiAvailable {
+            test("SLSWindowIteratorGetResolvedCornerRadii", .inconclusive, "symbol unavailable")
+        } else if let resolved = cornerSamples.resolved {
+            test("SLSWindowIteratorGetResolvedCornerRadii", .works, detail(resolved))
+        } else {
             test(
-                "SLSWindowIteratorGetCornerRadii",
-                radius != nil ? .works : .inconclusive,
-                radius.map { "radius=\($0)" } ?? "nil (window may have square corners)"
-            ),
+                "SLSWindowIteratorGetResolvedCornerRadii",
+                .inconclusive,
+                "returned no usable value"
+            )
+        }
+        let rawTest = if let raw = cornerSamples.raw {
+            test("SLSWindowIteratorGetCornerRadii", .works, detail(raw))
+        } else {
+            test("SLSWindowIteratorGetCornerRadii", .inconclusive, "returned no usable value")
+        }
+        return [
+            resolvedTest,
+            rawTest,
             test("SLSCopySpacesForWindows", spaces.isEmpty ? .inconclusive : .works, "spaces=\(spaces.count)")
         ]
     }

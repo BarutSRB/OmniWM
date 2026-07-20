@@ -6,6 +6,7 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
+    @Bindable var windowCornerPreferences: GlobalWindowCornerPreferences
     let updateCoordinator: (any AppUpdateCoordinating)?
     let navigation: SettingsNavigationModel
     @State private var selectedSection: SettingsSection = .general
@@ -21,6 +22,7 @@ struct SettingsView: View {
                 section: selectedSection,
                 settings: settings,
                 controller: controller,
+                windowCornerPreferences: windowCornerPreferences,
                 updateCoordinator: updateCoordinator,
                 navigation: navigation
             )
@@ -42,6 +44,7 @@ struct SettingsView: View {
 struct GeneralSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
+    @Bindable var windowCornerPreferences: GlobalWindowCornerPreferences
     let updateCoordinator: (any AppUpdateCoordinating)?
 
     @State private var selectedGapMonitor: Monitor.ID?
@@ -68,6 +71,8 @@ struct GeneralSettingsTab: View {
 
                 Toggle("Enable Animations", isOn: animationsEnabled)
                 SettingsCaption("Turns OmniWM-authored animations on or off live without relaunching.")
+
+                AppWindowCornerSettings(preferences: windowCornerPreferences)
             }
 
             Section("Status Bar") {

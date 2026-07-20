@@ -7,6 +7,7 @@ struct SettingsDetailView: View {
     let section: SettingsSection
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
+    @Bindable var windowCornerPreferences: GlobalWindowCornerPreferences
     let updateCoordinator: (any AppUpdateCoordinating)?
     let navigation: SettingsNavigationModel
 
@@ -25,6 +26,7 @@ struct SettingsDetailView: View {
             GeneralSettingsTab(
                 settings: settings,
                 controller: controller,
+                windowCornerPreferences: windowCornerPreferences,
                 updateCoordinator: updateCoordinator
             )
         case .diagnostics:

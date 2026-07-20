@@ -154,7 +154,7 @@ final class AXManager {
     var onAppTerminated: ((pid_t) -> Void)?
     var isWindowParked: ((Int) -> Bool)?
     var onTerminalFrameRefusal: ((AXFrameTerminalRefusal) -> Void)?
-    var onFrameApplySucceeded: ((Int) -> Void)?
+    var onFrameApplySucceeded: ((AXFrameApplyResult) -> Void)?
     var onManagedWindowBindingFailed: (() -> Void)?
     var managedWindowBindingRetryDelayProvider: (Int) -> Duration? = {
         AXManager.managedWindowBindingRetryDelay(afterFailure: $0)
@@ -1565,7 +1565,7 @@ final class AXManager {
         if isWindowParked?(result.windowId) == true {
             markParkPending(for: result.windowId, pid: result.pid)
         }
-        onFrameApplySucceeded?(result.windowId)
+        onFrameApplySucceeded?(result)
     }
 
     private func scheduleFrameRetry(

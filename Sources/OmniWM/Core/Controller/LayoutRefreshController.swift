@@ -606,7 +606,9 @@ import QuartzCore
             focusSeqAccepted: true,
             suppressWindowActivation: suppressWindowActivation
         )
-        controller.surfaceReconciler.noteWorldChanged()
+        if !plan.isAnimationTick {
+            controller.surfaceReconciler.noteWorldChanged()
+        }
         return AcceptedSeq(
             after: controller.workspaceManager.worldSeq,
             domains: .layoutCommit.union(.focusCommit)
