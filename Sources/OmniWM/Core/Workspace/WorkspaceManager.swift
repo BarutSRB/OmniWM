@@ -1967,6 +1967,14 @@ final class WorkspaceManager {
         return (workspace, targetMonitor)
     }
 
+    func focusWorkspace(id workspaceId: WorkspaceDescriptor.ID) -> (workspace: WorkspaceDescriptor, monitor: Monitor)? {
+        ensureVisibleWorkspaces()
+        guard let targetMonitor = monitorForWorkspace(workspaceId) else { return nil }
+        guard setActiveWorkspace(workspaceId, on: targetMonitor.id) else { return nil }
+        guard let workspace = descriptor(for: workspaceId) else { return nil }
+        return (workspace, targetMonitor)
+    }
+
     func applySettings() {
         invalidateSettingsProjectionCaches()
         invalidateWorkspaceProjectionCaches()
