@@ -2,6 +2,7 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import AppKit
+import CoreHID
 import IOKit
 @testable import OmniWM
 import XCTest
@@ -10,6 +11,19 @@ import XCTest
 final class MultitouchLifecycleTests: XCTestCase {
     private let deviceA = FakeMultitouchBackend.device(pointer: 0xA1, registryId: 101)
     private let deviceB = FakeMultitouchBackend.device(pointer: 0xB1, registryId: 202)
+
+    func testProductionTopologyCriteriaUsesDigitizerDeviceUsages() throws {
+        let criteria = MultitouchGestureSource.topologyCriteria
+        XCTAssertEqual(criteria.count, 1)
+        let criterion = try XCTUnwrap(criteria.first)
+        XCTAssertNil(criterion.primaryUsage)
+        XCTAssertEqual(
+            criterion.deviceUsages,
+            [.digitizers(.touchPad), .digitizers(.multiplePointDigitizer)]
+        )
+        XCTAssertNil(criterion.vendorID)
+        XCTAssertNil(criterion.productID)
+    }
 
     func testNilEnumerationNeverBecomesRunning() async {
         let harness = makeHarness([FakeMultitouchBackend.failedEnumeration(.unavailable)])
@@ -196,13 +210,15 @@ final class MultitouchLifecycleTests: XCTestCase {
         await runNext(harness)
         XCTAssertEqual(harness.source.diagnosticsSnapshot().state, .running)
         XCTAssertEqual(harness.backend.callCount(.enumerate), 2)
-        XCTAssertEqual(harness.backend.callCount(.register(101)), 1)
+        XCTAssertEqual(harness.backend.callCount(.register(101)), 2)
+        XCTAssertEqual(harness.backend.callCount(.stop(101)), 1)
         XCTAssertEqual(harness.sleeper.requestedDurations.last, .milliseconds(250))
 
         await runNext(harness)
         XCTAssertEqual(harness.source.diagnosticsSnapshot().registeredDeviceCount, 2)
-        XCTAssertEqual(harness.backend.callCount(.register(101)), 2)
+        XCTAssertEqual(harness.backend.callCount(.register(101)), 3)
         XCTAssertEqual(harness.backend.callCount(.register(202)), 1)
+        XCTAssertEqual(harness.backend.callCount(.stop(101)), 2)
         await shutdown(harness)
     }
 
@@ -243,13 +259,15 @@ final class MultitouchLifecycleTests: XCTestCase {
         await shutdown(harness)
     }
 
-    func testDuplicateTopologySignalsCoalesceWithoutDuplicateRegistration() async {
+    func testDuplicateTopologySignalsForceOneReplacementPerEpisode() async {
         let harness = makeHarness([
+            FakeMultitouchBackend.enumeration([deviceA]),
             FakeMultitouchBackend.enumeration([deviceA]),
             FakeMultitouchBackend.enumeration([deviceA])
         ])
         harness.source.startLifecycle()
         await runNext(harness)
+        let initialGeneration = harness.source.diagnosticsSnapshot().activeGeneration
 
         harness.source.receiveTopologySignal(.arrival)
         harness.source.receiveTopologySignal(.removal)
@@ -259,9 +277,19 @@ final class MultitouchLifecycleTests: XCTestCase {
         harness.sleeper.resumeNext()
         await drainMultitouchTasks()
 
+        let replacementGeneration = harness.source.diagnosticsSnapshot().activeGeneration
+        XCTAssertNotEqual(replacementGeneration, initialGeneration)
         XCTAssertEqual(harness.backend.callCount(.enumerate), 2)
-        XCTAssertEqual(harness.backend.callCount(.register(101)), 1)
-        XCTAssertEqual(harness.backend.callCount(.stop(101)), 0)
+        XCTAssertEqual(harness.backend.callCount(.register(101)), 2)
+        XCTAssertEqual(harness.backend.callCount(.stop(101)), 1)
+
+        harness.source.receiveTopologySignal(.removal)
+        await runNext(harness)
+
+        XCTAssertEqual(harness.source.diagnosticsSnapshot().activeGeneration, replacementGeneration)
+        XCTAssertEqual(harness.backend.callCount(.enumerate), 3)
+        XCTAssertEqual(harness.backend.callCount(.register(101)), 2)
+        XCTAssertEqual(harness.backend.callCount(.stop(101)), 1)
         await shutdown(harness)
     }
 
@@ -526,6 +554,14 @@ final class MultitouchLifecycleTests: XCTestCase {
     }
 
     func testTopologyObserverExhaustionIsBoundedAndWakeRearmsIt() async {
+        await assertTopologyObserverRearms(for: .wake)
+    }
+
+    func testTopologyObserverExhaustionIsBoundedAndUnlockRearmsIt() async {
+        await assertTopologyObserverRearms(for: .unlock)
+    }
+
+    private func assertTopologyObserverRearms(for reason: MultitouchGestureSource.RevalidationReason) async {
         let backend = FakeMultitouchBackend()
         backend.enumerations = [FakeMultitouchBackend.enumeration([deviceA])]
         let lifecycleSleeper = ManualMultitouchSleeper()
@@ -550,7 +586,7 @@ final class MultitouchLifecycleTests: XCTestCase {
         XCTAssertEqual(source.diagnosticsSnapshot().topologyObserverState, .exhausted)
         XCTAssertEqual(topologyMonitor.sleeper.pendingCount, 0)
 
-        source.requestRevalidation(.wake)
+        source.requestRevalidation(reason)
         await drainMultitouchTasks()
         XCTAssertEqual(topologyMonitor.streamCount, 8)
         XCTAssertEqual(source.diagnosticsSnapshot().topologyObserverState, .retrying(1))

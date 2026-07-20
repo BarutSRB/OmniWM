@@ -173,15 +173,23 @@ final class MultitouchGestureSource {
         var registered: Bool
     }
 
+    private enum EpisodeReplacementState {
+        case notRequested
+        case pending
+        case completed
+    }
+
     nonisolated(unsafe) weak static var shared: MultitouchGestureSource?
 
     var onSnapshot: ((MouseEventHandler.GestureEventSnapshot) -> Void)?
     var onSourceWillReplace: (() -> Void)?
 
     private static var nextRegistrationGeneration: UInt = 0
-    private static let topologyCriteria = [
-        HIDDeviceManager.DeviceMatchingCriteria(primaryUsage: .digitizers(.touchPad)),
-        HIDDeviceManager.DeviceMatchingCriteria(primaryUsage: .digitizers(.multiplePointDigitizer))
+    static let topologyCriteria = [
+        HIDDeviceManager.DeviceMatchingCriteria(deviceUsages: [
+            .digitizers(.touchPad),
+            .digitizers(.multiplePointDigitizer)
+        ])
     ]
 
     private let operations: LifecycleOperations?
@@ -204,7 +212,7 @@ final class MultitouchGestureSource {
     private var nextRetryDelay: Duration?
     private var retryExhausted = false
     private var wakeSettlingArmed = false
-    private var lifecycleReplacementPending = false
+    private var episodeReplacementState: EpisodeReplacementState = .notRequested
     private var revalidationSchedule: UInt64 = 0
 
     private var state: LifecycleState = .stopped
@@ -307,14 +315,15 @@ final class MultitouchGestureSource {
             retryEpisode &+= 1
             retryAttempt = 0
             retryExhausted = false
-            lifecycleReplacementPending = false
+            episodeReplacementState = .notRequested
         }
         let introducedWakeSettling = (reason == .wake || reason == .unlock)
             && !episodeReasons.contains(.wake)
             && !episodeReasons.contains(.unlock)
         episodeReasons.insert(reason)
-        if introducedWakeSettling {
-            lifecycleReplacementPending = true
+        let requestsReplacement = reason == .wake || reason == .unlock || reason == .arrival || reason == .removal
+        if requestsReplacement, episodeReplacementState == .notRequested {
+            episodeReplacementState = .pending
         }
         if introducedWakeSettling, retryAttempt == 0, revalidationTask != nil, !wakeSettlingArmed {
             revalidationTask?.cancel()
@@ -355,7 +364,7 @@ final class MultitouchGestureSource {
         nextRetryDelay = nil
         retryExhausted = false
         wakeSettlingArmed = false
-        lifecycleReplacementPending = false
+        episodeReplacementState = .notRequested
         invalidateActiveGeneration()
         let cleanedUp = teardownRegistrations(resetGestureState: true)
         topologyObserverState = .stopped
@@ -505,7 +514,7 @@ final class MultitouchGestureSource {
                 if !Task.isCancelled {
                     episodeActive = false
                     retryExhausted = true
-                    lifecycleReplacementPending = false
+                    episodeReplacementState = .notRequested
                     state = activeGeneration == 0 ? .exhausted : .running
                 }
                 return
@@ -531,7 +540,7 @@ final class MultitouchGestureSource {
                 episodeActive = false
                 wakeSettlingArmed = false
                 retryExhausted = true
-                lifecycleReplacementPending = false
+                episodeReplacementState = .notRequested
                 state = activeGeneration == 0 ? .exhausted : .running
                 return
             }
@@ -555,7 +564,7 @@ final class MultitouchGestureSource {
 
         let discoveredIds = Set(enumeration.devices.map(\.registryId))
         let registeredIds = Set(registrations.map(\.device.registryId))
-        let forceReplacement = lifecycleReplacementPending
+        let forceReplacement = episodeReplacementState == .pending
         let awaitingTopologyChange = episodeReasons.contains(.arrival) || episodeReasons.contains(.removal)
         let topologyConverged = !awaitingTopologyChange || discoveredIds != episodeBaselineDeviceIds
         if activeGeneration != 0, discoveredIds == registeredIds, !forceReplacement {
@@ -613,7 +622,9 @@ final class MultitouchGestureSource {
         registrations = candidates
         deviceList = enumeration.list
         activeGeneration = generation
-        lifecycleReplacementPending = false
+        if episodeReplacementState == .pending {
+            episodeReplacementState = .completed
+        }
         state = .running
         return true
     }
@@ -692,7 +703,7 @@ final class MultitouchGestureSource {
         nextRetryDelay = nil
         retryExhausted = false
         wakeSettlingArmed = false
-        lifecycleReplacementPending = false
+        episodeReplacementState = .notRequested
     }
 
     private func cancelRevalidation() {
@@ -706,7 +717,7 @@ final class MultitouchGestureSource {
         nextRetryDelay = nil
         retryExhausted = false
         wakeSettlingArmed = false
-        lifecycleReplacementPending = false
+        episodeReplacementState = .notRequested
     }
 
     private static var liveTopologyMonitoringOperations: TopologyMonitoringOperations {
