@@ -231,12 +231,28 @@ final class MouseEventHandler {
             name: state.eventTap != nil ? "mouse.tap.installed" : "mouse.tap.failed"
         )
 
-        let source = MultitouchGestureSource()
+        if !installMultitouchSource(MultitouchGestureSource()) {
+            FallbackFiringRecorder.shared.note(.input, "multitouchSourceCleanupBlocked")
+        }
+    }
+
+    @discardableResult
+    func installMultitouchSource(_ source: MultitouchGestureSource) -> Bool {
+        if let current = multitouchSource, current !== source {
+            guard current.shutdown() else { return false }
+        }
         source.onSnapshot = { [weak self] snapshot in
             self?.receiveTapGestureEvent(snapshot)
         }
-        source.start()
+        source.onSourceWillReplace = { [weak self] in
+            self?.resetForMultitouchSourceReplacement()
+        }
         multitouchSource = source
+        guard source.startLifecycle() else {
+            multitouchSource = nil
+            return false
+        }
+        return true
     }
 
     func cleanup() {
@@ -257,20 +273,18 @@ final class MouseEventHandler {
             CGEvent.tapEnable(tap: tap, enable: false)
             state.eventTap = nil
         }
-        multitouchSource?.stop()
-        multitouchSource = nil
+        if multitouchSource?.shutdown() != false {
+            multitouchSource = nil
+        }
         MouseEventHandler._instance = nil
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "mouse.moveTap.removed")
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "mouse.tap.removed")
         controller?.eventIntake.removePendingMouseEvents()
-        resetGestureState()
-        clearGestureLatches()
+        resetForMultitouchSourceReplacement()
     }
 
-    func restartMultitouch() {
-        abortActiveGestureIfNeeded()
-        clearGestureLatches()
-        multitouchSource?.restart()
+    func requestMultitouchRevalidation(_ reason: MultitouchGestureSource.RevalidationReason) {
+        multitouchSource?.requestRevalidation(reason)
     }
 
     private func clearGestureLatches() {
@@ -278,8 +292,19 @@ final class MouseEventHandler {
         state.consumeTrackpadScrollUntilAllTouchesLift = false
     }
 
-    func stopMultitouch() {
-        multitouchSource?.stop()
+    func suspendMultitouchForSleep() {
+        multitouchSource?.suspendForSleep()
+    }
+
+    var multitouchDiagnosticsSnapshot: MultitouchGestureSource.DiagnosticsSnapshot? {
+        multitouchSource?.diagnosticsSnapshot()
+    }
+
+    func resetForMultitouchSourceReplacement() {
+        resetGestureState()
+        state.workspaceSwipeTracker.reset()
+        clearGestureLatches()
+        state.suppressTrackpadMomentumScroll = false
     }
 
     func dispatchMouseMoved(

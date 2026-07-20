@@ -106,6 +106,10 @@ struct OwnedSurfaceSnapshot: Sendable, Equatable {
 
 @MainActor
 enum InputDiagnostics {
+    static func multitouchHealth(_ controller: WMController) -> String {
+        controller.mouseEventHandler.multitouchDiagnosticsSnapshot?.formatted() ?? "sourceState=absent"
+    }
+
     static func inputHealth(_ controller: WMController) -> InputHealthSnapshot {
         let counters = InputTapHealth.counters
         return InputHealthSnapshot(

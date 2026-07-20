@@ -16,6 +16,7 @@ enum RuntimeDiagnosticsReport {
             section("Space Topology", controller.workspaceManager.spaceTopology.debugSummary),
             focusedWindowSection(controller),
             section("Input / Hotkey Health", InputDiagnostics.inputHealth(controller).formatted()),
+            section("Multitouch Source", InputDiagnostics.multitouchHealth(controller)),
             section("Owned Windows / Surface", InputDiagnostics.ownedSurfaces(controller).formatted()),
             section("Interaction Monitor Writes", InteractionMonitorWriteRecorder.shared.dump()),
             section("Reconcile Snapshot", controller.workspaceManager.reconcileSnapshotDump()),
