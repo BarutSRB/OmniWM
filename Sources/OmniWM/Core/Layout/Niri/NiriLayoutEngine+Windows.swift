@@ -275,6 +275,18 @@ extension NiriLayoutEngine {
             visibilityWasCorrected = true
         }
 
+        if !removedTokens.isEmpty,
+           clampViewportToRemainingContent(
+               in: workspaceId,
+               state: &state,
+               motion: motion,
+               workingFrame: workingFrame,
+               gaps: gaps
+           )
+        {
+            viewportNeedsRecalc = true
+        }
+
         return NiriRemovalResult(
             removedTokens: removedTokens,
             removedNodeIds: removedNodeIds.union(batchRemovedNodeIds),
@@ -498,6 +510,42 @@ extension NiriLayoutEngine {
         guard !cols.isEmpty else { return nil }
         let idx = activeIndex.clamped(to: 0 ... (cols.count - 1))
         return fallbackSelectionInColumn(cols[idx], excluding: removedNodeIds)
+    }
+
+    /// Removal shrinks the strip, but none of the per-branch fixups re-check the viewport against the
+    /// remaining content: a close landing right of the active column (focus-follows-mouse refocuses the
+    /// neighbor before the destroy event arrives) skips every recalculation, and a stale
+    /// `activatePrevColumnOnRemoval` offset can restore a position past the new content edge. Clamp the
+    /// settled view origin so the viewport never straddles space the surviving columns no longer occupy.
+    private func clampViewportToRemainingContent(
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        motion: MotionSnapshot,
+        workingFrame: CGRect,
+        gaps: CGFloat
+    ) -> Bool {
+        let cols = columns(in: workspaceId)
+        guard !cols.isEmpty else { return false }
+
+        for col in cols where col.cachedWidth <= 0 {
+            col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
+        }
+
+        let activeIdx = state.activeColumnIndex.clamped(to: 0 ... (cols.count - 1))
+        state.activeColumnIndex = activeIdx
+
+        let viewStart = state.viewPosPixels(columns: cols, gap: gaps)
+        let contentEdge = state.totalWidth(columns: cols, gap: gaps) - workingFrame.width + gaps
+        let clampedStart = viewStart.clamped(to: min(-gaps, contentEdge) ... max(-gaps, contentEdge))
+        guard abs(clampedStart - viewStart) > 0.5 else { return false }
+
+        let activeX = state.columnX(at: activeIdx, columns: cols, gap: gaps)
+        state.animateToOffset(
+            clampedStart - activeX,
+            motion: motion,
+            scale: displayScale(in: workspaceId)
+        )
+        return true
     }
 
     @discardableResult
