@@ -1740,6 +1740,7 @@ final class MouseEventHandler {
         }
         if let selectedWindow {
             rememberViewportFocusAnchor(selectedWindow, engine: engine, wsId: wsId)
+            focusViewportSelectionAfterGesture(selectedWindow)
         }
         if controller.workspaceManager.animationDriver.hasMotion(in: wsId) {
             controller.layoutRefreshController.startScrollAnimation(for: wsId)
@@ -1864,6 +1865,16 @@ final class MouseEventHandler {
         let selectedWindow = windows[activeTileIndex]
         state.selectedNodeId = selectedWindow.id
         return selectedWindow
+    }
+
+    // Applies AX focus to the column the gesture snapped to (issue #479). Runs only once per
+    // gesture at touch release — never per frame — and routes through the managed-focus request
+    // path so the resulting AX focus echo is classified as our own intent, not a user action.
+    private func focusViewportSelectionAfterGesture(_ window: NiriWindow) {
+        guard let controller else { return }
+        guard !controller.hasFrontmostOwnedWindow else { return }
+        guard controller.workspaceManager.focusedToken != window.token else { return }
+        controller.focusWindow(window.token, origin: .pointerHover)
     }
 
     private func rememberViewportFocusAnchor(
