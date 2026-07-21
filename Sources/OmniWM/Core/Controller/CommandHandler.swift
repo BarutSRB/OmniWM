@@ -281,7 +281,7 @@ final class CommandHandler {
         var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         let motion = controller.motionPolicy.snapshot()
         let workingFrame = controller.insetWorkingFrame(for: monitor)
-        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let gaps = controller.innerGap(for: monitor)
 
         let previousWindow = controller.workspaceManager.withEngineMutationScope { () -> NiriWindow? in
             if let currentId = state.selectedNodeId {
@@ -543,7 +543,7 @@ final class CommandHandler {
             return
         }
 
-        let gap = CGFloat(controller.workspaceManager.gaps)
+        let gap = controller.innerGap(for: monitor)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let motion = controller.motionPolicy.snapshot()
         guard let newNode = controller.workspaceManager.withEngineMutationScope(label: "focus_navigation", {

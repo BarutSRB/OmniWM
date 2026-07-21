@@ -449,7 +449,7 @@ enum StructuralMutationOutcome: Equatable {
             hasCompletedInitialRefresh: controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh,
             useScrollAnimationPath: useScrollAnimationPath,
             removalSeed: removalSeed,
-            gap: CGFloat(controller.workspaceManager.gaps),
+            gap: controller.innerGap(for: monitor),
             outerGaps: controller.workspaceManager.outerGaps,
             displayRefreshRate: controller.layoutRefreshController.layoutState
                 .refreshRateByDisplay[monitor.displayId] ?? 60.0,
@@ -1333,7 +1333,7 @@ enum StructuralMutationOutcome: Equatable {
         var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         controller.workspaceManager.withEngineMutationScope {
             if let monitor = controller.workspaceManager.monitor(for: workspaceId) {
-                let gap = CGFloat(controller.workspaceManager.gaps)
+                let gap = controller.innerGap(for: monitor)
                 engine.ensureSelectionVisible(
                     node: target,
                     in: workspaceId,
@@ -1414,7 +1414,7 @@ enum StructuralMutationOutcome: Equatable {
         }
 
         guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
-        let gap = CGFloat(controller.workspaceManager.gaps)
+        let gap = controller.innerGap(for: monitor)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
 
         let newNode = controller.workspaceManager.withEngineMutationScope { () -> NiriNode? in
@@ -1817,7 +1817,7 @@ enum StructuralMutationOutcome: Equatable {
             }
 
             if options.ensureVisible, let monitor = controller.workspaceManager.monitor(for: workspaceId) {
-                let gap = CGFloat(controller.workspaceManager.gaps)
+                let gap = controller.innerGap(for: monitor)
                 let workingFrame = controller.insetWorkingFrame(for: monitor)
                 engine.ensureSelectionVisible(
                     node: node,
@@ -1883,7 +1883,7 @@ enum StructuralMutationOutcome: Equatable {
             return
         }
 
-        let gap = CGFloat(controller.workspaceManager.gaps)
+        let gap = controller.innerGap(for: monitor)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let orientation = engine.monitor(for: monitor.id)?.orientation
             ?? controller.settings.effectiveOrientation(for: monitor)
@@ -1971,7 +1971,7 @@ enum StructuralMutationOutcome: Equatable {
 
         let workspaceId = entry.workspaceId
         let workingFrame = controller.insetWorkingFrame(for: monitor)
-        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let gaps = controller.innerGap(for: monitor)
         let context = NiriOperationContext(
             controller: controller,
             engine: engine,
@@ -2136,7 +2136,7 @@ enum StructuralMutationOutcome: Equatable {
         guard let controller, let engine = controller.niriEngine else { return }
         guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
         let workingFrame = controller.insetWorkingFrame(for: monitor)
-        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let gaps = controller.innerGap(for: monitor)
         var targetState = controller.workspaceManager.niriViewportState(for: workspaceId)
 
         var consumed = false
@@ -2442,7 +2442,7 @@ enum StructuralMutationOutcome: Equatable {
         guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return }
         let motion = controller.motionPolicy.snapshot()
         let workingFrame = controller.insetWorkingFrame(for: monitor)
-        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let gaps = controller.innerGap(for: monitor)
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
             perform(engine, wsId, motion, &state, monitor, workingFrame, gaps)
         }
@@ -2465,7 +2465,7 @@ enum StructuralMutationOutcome: Equatable {
         guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { return }
         let motion = controller.motionPolicy.snapshot()
         let workingFrame = controller.insetWorkingFrame(for: monitor)
-        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let gaps = controller.innerGap(for: monitor)
         controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
             perform(engine, workspaceId, motion, &state, monitor, workingFrame, gaps)
         }

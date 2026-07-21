@@ -377,6 +377,7 @@ final class IPCQueryRouter {
             hasNotch: include("has-notch", in: fields) ? monitor.hasNotch : nil,
             orientation: include("orientation", in: fields)
                 ? ipcDisplayOrientation(from: controller.settings.effectiveOrientation(for: monitor)) : nil,
+            innerGap: include("inner-gap", in: fields) ? Double(gaps.innerGap) : nil,
             outerGapLeft: include("outer-gap-left", in: fields) ? Double(gaps.outerGapLeft) : nil,
             outerGapRight: include("outer-gap-right", in: fields) ? Double(gaps.outerGapRight) : nil,
             outerGapTop: include("outer-gap-top", in: fields) ? Double(gaps.outerGapTop) : nil,

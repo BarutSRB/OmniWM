@@ -472,7 +472,7 @@ final class WindowActionHandler {
                     }
 
                     let cols = engine.columns(in: workspaceId)
-                    let gap = CGFloat(controller.workspaceManager.gaps)
+                    let gap = controller.innerGap(for: monitor)
                     let settings = engine.effectiveSettings(in: workspaceId)
                     let workingFrame = controller.insetWorkingFrame(for: monitor)
                     targetState.transitionToColumn(

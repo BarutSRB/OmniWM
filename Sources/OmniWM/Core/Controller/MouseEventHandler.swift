@@ -646,7 +646,7 @@ final class MouseEventHandler {
             return
         }
         let workingFrame = controller.insetWorkingFrame(for: monitor)
-        let gaps = CGFloat(controller.workspaceManager.gaps)
+        let gaps = controller.innerGap(for: monitor)
         controller.workspaceManager.withNiriViewportState(for: workspaceId) { viewportState in
             engine.interactiveResizeEnd(
                 motion: controller.motionPolicy.snapshot(),
@@ -790,7 +790,7 @@ final class MouseEventHandler {
                let monitor = controller.workspaceManager.monitor(for: wsId)
             {
                 let workingFrame = controller.insetWorkingFrame(for: monitor)
-                let gaps = CGFloat(controller.workspaceManager.gaps)
+                let gaps = controller.innerGap(for: monitor)
 
                 let isInsertMode = modifiers.contains(.maskShift)
                 var moveStarted = false
@@ -967,7 +967,7 @@ final class MouseEventHandler {
                         targetWindowId: nodeId,
                         position: insertPosition,
                         in: wsId,
-                        gaps: CGFloat(controller.workspaceManager.gaps)
+                        gaps: controller.innerGap(for: wsId)
                     ) {
                         state.dragGhostController?.showSwapTarget(frame: dropFrame)
                     }
@@ -1005,8 +1005,8 @@ final class MouseEventHandler {
         }
 
         let gaps = LayoutGaps(
-            horizontal: CGFloat(controller.workspaceManager.gaps),
-            vertical: CGFloat(controller.workspaceManager.gaps),
+            horizontal: controller.innerGap(for: monitor),
+            vertical: controller.innerGap(for: monitor),
             outer: controller.workspaceManager.outerGaps
         )
         let insetFrame = controller.insetWorkingFrame(for: monitor)
@@ -1039,7 +1039,7 @@ final class MouseEventHandler {
                 let wsId = move.workspaceId
                 if let monitor = controller.workspaceManager.monitor(for: wsId) {
                     let workingFrame = controller.insetWorkingFrame(for: monitor)
-                    let gaps = CGFloat(controller.workspaceManager.gaps)
+                    let gaps = controller.innerGap(for: monitor)
                     let movedToken = move.windowHandle.id
                     var didEnd = false
                     controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
@@ -1643,7 +1643,7 @@ final class MouseEventHandler {
     ) {
         guard let controller else { return }
         let insetFrame = controller.insetWorkingFrame(for: monitor)
-        let gap = CGFloat(controller.workspaceManager.gaps)
+        let gap = controller.innerGap(for: monitor)
         let step = ticks > 0 ? 1 : -1
         let motion = controller.motionPolicy.snapshot()
 
@@ -1713,7 +1713,7 @@ final class MouseEventHandler {
 
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let columns = engine.columns(in: wsId)
-        let gap = CGFloat(controller.workspaceManager.gaps)
+        let gap = controller.innerGap(for: monitor)
         let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
             .backingScaleFactor ?? 2.0
 

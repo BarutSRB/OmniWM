@@ -62,4 +62,14 @@ enum MonitorSettingsStore {
     static func remove<T: MonitorSettingsType>(for monitorName: String, from settings: inout [T]) {
         settings.removeAll { $0.monitorName == monitorName }
     }
+
+    static func remove<T: MonitorSettingsType>(matching item: T, from settings: inout [T]) {
+        settings.removeAll { existing in
+            if let displayId = item.monitorDisplayId {
+                return existing.monitorDisplayId == displayId ||
+                    (existing.monitorDisplayId == nil && existing.monitorName == item.monitorName)
+            }
+            return existing.monitorDisplayId == nil && existing.monitorName == item.monitorName
+        }
+    }
 }

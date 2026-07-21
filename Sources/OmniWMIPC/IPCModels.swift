@@ -2316,6 +2316,7 @@ public struct IPCDisplayQuerySnapshot: Codable, Equatable, Sendable {
     public let visibleFrame: IPCRect?
     public let hasNotch: Bool?
     public let orientation: IPCDisplayOrientation?
+    public let innerGap: Double?
     public let outerGapLeft: Double?
     public let outerGapRight: Double?
     public let outerGapTop: Double?
@@ -2331,6 +2332,7 @@ public struct IPCDisplayQuerySnapshot: Codable, Equatable, Sendable {
         visibleFrame: IPCRect? = nil,
         hasNotch: Bool? = nil,
         orientation: IPCDisplayOrientation? = nil,
+        innerGap: Double? = nil,
         outerGapLeft: Double? = nil,
         outerGapRight: Double? = nil,
         outerGapTop: Double? = nil,
@@ -2345,6 +2347,7 @@ public struct IPCDisplayQuerySnapshot: Codable, Equatable, Sendable {
         self.visibleFrame = visibleFrame
         self.hasNotch = hasNotch
         self.orientation = orientation
+        self.innerGap = innerGap
         self.outerGapLeft = outerGapLeft
         self.outerGapRight = outerGapRight
         self.outerGapTop = outerGapTop

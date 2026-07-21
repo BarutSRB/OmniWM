@@ -4,6 +4,7 @@
 import CoreGraphics
 import Foundation
 @testable import OmniWM
+import OmniWMIPC
 import XCTest
 
 final class GapSettingsTests: XCTestCase {
@@ -36,6 +37,7 @@ final class GapSettingsTests: XCTestCase {
         let json = Data(#"{"id":"\#(UUID().uuidString)","monitorName":"Built-in","outerGapTop":20}"#.utf8)
         let decoded = try JSONDecoder().decode(MonitorGapSettings.self, from: json)
         XCTAssertEqual(decoded.outerGapTop, 20)
+        XCTAssertNil(decoded.innerGap)
         XCTAssertNil(decoded.outerGapLeft)
         XCTAssertNil(decoded.outerGapRight)
         XCTAssertNil(decoded.outerGapBottom)
@@ -45,6 +47,7 @@ final class GapSettingsTests: XCTestCase {
         let original = MonitorGapSettings(
             monitorName: "Built-in",
             monitorDisplayId: 7,
+            innerGap: 6,
             outerGapTop: 20,
             outerGapBottom: 12
         )
@@ -75,21 +78,217 @@ final class GapSettingsTests: XCTestCase {
         settings.outerGapRight = 12
         settings.outerGapTop = 46
         settings.outerGapBottom = 12
+        settings.gapSize = 16
 
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
 
         let globalOnly = settings.resolvedGapSettings(for: monitor)
+        XCTAssertEqual(globalOnly.innerGap, 16)
         XCTAssertEqual(globalOnly.outerGapTop, 46)
         XCTAssertEqual(globalOnly.outerGapLeft, 12)
 
         settings.updateGapSettings(
-            MonitorGapSettings(monitorName: "Built-in", monitorDisplayId: 1, outerGapTop: 20)
+            MonitorGapSettings(monitorName: "Built-in", monitorDisplayId: 1, innerGap: 6, outerGapTop: 20)
         )
 
         let resolved = settings.resolvedGapSettings(for: monitor)
+        XCTAssertEqual(resolved.innerGap, 6)
         XCTAssertEqual(resolved.outerGapTop, 20)
         XCTAssertEqual(resolved.outerGapLeft, 12)
         XCTAssertEqual(resolved.outerGapBottom, 12)
+    }
+
+    @MainActor
+    func testResolvedInnerGapMatchesRuntimeBoundsAndPreservesExplicitZero() {
+        let settings = makeSettingsStore()
+        let monitor = makeMonitor(displayId: 1, name: "Built-in")
+
+        settings.gapSize = 100
+        XCTAssertEqual(settings.resolvedGapSettings(for: monitor).innerGap, 64)
+
+        settings.updateGapSettings(
+            MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, innerGap: -10)
+        )
+        XCTAssertEqual(settings.resolvedGapSettings(for: monitor).innerGap, 0)
+
+        settings.updateGapSettings(
+            MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, innerGap: 0)
+        )
+        XCTAssertEqual(settings.gapSettings(for: monitor)?.innerGap, 0)
+    }
+
+    @MainActor
+    func testClearingFinalGapOverrideRemovesMonitorRecord() {
+        let settings = makeSettingsStore()
+        let monitor = makeMonitor(displayId: 1, name: "Built-in")
+        var override = MonitorGapSettings(
+            monitorName: monitor.name,
+            monitorDisplayId: monitor.displayId,
+            innerGap: 6,
+            outerGapTop: 20
+        )
+
+        settings.updateGapSettings(override)
+        override.innerGap = nil
+        settings.updateGapSettings(override)
+        XCTAssertNil(settings.gapSettings(for: monitor)?.innerGap)
+        XCTAssertEqual(settings.gapSettings(for: monitor)?.outerGapTop, 20)
+
+        override.outerGapTop = nil
+        settings.updateGapSettings(override)
+        XCTAssertNil(settings.gapSettings(for: monitor))
+        XCTAssertTrue(settings.toExport().monitorGapSettings.isEmpty)
+    }
+
+    @MainActor
+    func testApplyingExportDropsEmptyLegacyGapRecords() {
+        let settings = makeSettingsStore()
+        let monitor = makeMonitor(displayId: 1, name: "Built-in")
+        var export = SettingsExport.defaults()
+        export.monitorGapSettings = [
+            MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId)
+        ]
+
+        settings.applyExport(export, monitors: [monitor])
+
+        XCTAssertNil(settings.gapSettings(for: monitor))
+        XCTAssertTrue(settings.toExport().monitorGapSettings.isEmpty)
+    }
+
+    @MainActor
+    func testDwindleGeneralGapUsesDisplayOverrideWithoutChangingSpecificGapPrecedence() {
+        let settings = makeSettingsStore()
+        let monitor = makeMonitor(displayId: 1, name: "Built-in")
+        settings.gapSize = 16
+        settings.dwindleUseGlobalGaps = true
+        settings.updateGapSettings(
+            MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, innerGap: 24)
+        )
+
+        let generalResolved = settings.resolvedDwindleSettings(for: monitor)
+        XCTAssertEqual(generalResolved.innerGap, 24)
+
+        let controller = WMController(settings: settings)
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.dwindleLayoutHandler.enableDwindleLayout()
+        controller.dwindleLayoutHandler.withDwindleContext { engine, _ in
+            XCTAssertEqual(engine.settings.innerGap, 24)
+        }
+
+        settings.updateDwindleSettings(
+            MonitorDwindleSettings(
+                monitorName: monitor.name,
+                monitorDisplayId: monitor.displayId,
+                useGlobalGaps: false,
+                innerGap: 6
+            )
+        )
+        XCTAssertEqual(settings.resolvedDwindleSettings(for: monitor).innerGap, 6)
+    }
+
+    @MainActor
+    func testDisplaysQueryProjectsOnlyRequestedResolvedInnerGap() throws {
+        let settings = makeSettingsStore()
+        let monitor = makeMonitor(displayId: 1, name: "Built-in")
+        settings.updateGapSettings(
+            MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, innerGap: 6)
+        )
+        let controller = WMController(settings: settings)
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        let router = IPCQueryRouter(controller: controller, appVersion: nil, sessionToken: "gap-tests")
+
+        XCTAssertTrue(IPCAutomationManifest.displayFieldCatalog.contains("inner-gap"))
+        let projected = try XCTUnwrap(
+            router.displaysResult(IPCQueryRequest(name: .displays, fields: ["id", "inner-gap"])).displays.first
+        )
+        XCTAssertEqual(projected.innerGap, 6)
+        XCTAssertNotNil(projected.id)
+        XCTAssertNil(projected.outerGapLeft)
+
+        let omitted = try XCTUnwrap(
+            router.displaysResult(IPCQueryRequest(name: .displays, fields: ["id"])).displays.first
+        )
+        XCTAssertNil(omitted.innerGap)
+    }
+
+    @MainActor
+    func testNiriLayoutRoutesInnerGapByWorkspaceDisplay() throws {
+        try assertLayoutRoutesInnerGapByWorkspaceDisplay(.niri)
+    }
+
+    @MainActor
+    func testDwindleLayoutRoutesInnerGapByWorkspaceDisplay() throws {
+        try assertLayoutRoutesInnerGapByWorkspaceDisplay(.dwindle)
+    }
+
+    @MainActor
+    private func assertLayoutRoutesInnerGapByWorkspaceDisplay(_ layout: LayoutType) throws {
+        let settings = makeSettingsStore()
+        let left = makeMonitor(displayId: 1, name: "Left", originX: 0)
+        let right = makeMonitor(displayId: 2, name: "Right", originX: 1440)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(
+                name: "1",
+                monitorAssignment: .specificDisplay(OutputId(from: left)),
+                layoutType: layout
+            ),
+            WorkspaceConfiguration(
+                name: "2",
+                monitorAssignment: .specificDisplay(OutputId(from: right)),
+                layoutType: layout
+            )
+        ]
+        settings.updateGapSettings(
+            MonitorGapSettings(monitorName: left.name, monitorDisplayId: left.displayId, innerGap: 4)
+        )
+        settings.updateGapSettings(
+            MonitorGapSettings(monitorName: right.name, monitorDisplayId: right.displayId, innerGap: 24)
+        )
+        let controller = WMController(settings: settings)
+        controller.workspaceManager.applyMonitorConfigurationChange([left, right])
+        controller.workspaceManager.applySettings()
+        if layout == .niri {
+            controller.niriLayoutHandler.enableNiriLayout()
+            controller.syncMonitorsToNiriEngine()
+        } else {
+            controller.dwindleLayoutHandler.enableDwindleLayout()
+        }
+        let leftWorkspace = try XCTUnwrap(controller.workspaceManager.workspaceId(named: "1"))
+        let rightWorkspace = try XCTUnwrap(controller.workspaceManager.workspaceId(named: "2"))
+        XCTAssertTrue(controller.workspaceManager.setActiveWorkspace(leftWorkspace, on: left.id))
+        XCTAssertTrue(controller.workspaceManager.setActiveWorkspace(rightWorkspace, on: right.id))
+
+        let leftTokens = [
+            addWindow(pid: 101, windowId: 201, to: leftWorkspace, controller: controller),
+            addWindow(pid: 102, windowId: 202, to: leftWorkspace, controller: controller)
+        ]
+        let rightTokens = [
+            addWindow(pid: 103, windowId: 203, to: rightWorkspace, controller: controller),
+            addWindow(pid: 104, windowId: 204, to: rightWorkspace, controller: controller)
+        ]
+        let plans = controller.workspaceManager.withBatchedLayoutBuild {
+            if layout == .niri {
+                controller.niriLayoutHandler.layoutWithNiriEngine(
+                    activeWorkspaces: [leftWorkspace, rightWorkspace]
+                )
+            } else {
+                controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+                    activeWorkspaces: [leftWorkspace, rightWorkspace]
+                )
+            }
+        }
+        let leftPlan = try XCTUnwrap(plans.first { $0.workspaceId == leftWorkspace })
+        let rightPlan = try XCTUnwrap(plans.first { $0.workspaceId == rightWorkspace })
+        let leftFrames = try leftTokens.map { token in
+            try XCTUnwrap(leftPlan.diff.frameChanges.first { $0.token == token }?.frame)
+        }
+        let rightFrames = try rightTokens.map { token in
+            try XCTUnwrap(rightPlan.diff.frameChanges.first { $0.token == token }?.frame)
+        }
+
+        XCTAssertEqual(separation(between: leftFrames[0], and: leftFrames[1]), 4, accuracy: 0.5)
+        XCTAssertEqual(separation(between: rightFrames[0], and: rightFrames[1]), 24, accuracy: 0.5)
     }
 
     func testDwindleApplyGapsEdgesAreFlush() {
@@ -136,14 +335,36 @@ final class GapSettingsTests: XCTestCase {
         )
     }
 
-    private func makeMonitor(displayId: CGDirectDisplayID, name: String) -> Monitor {
+    private func makeMonitor(displayId: CGDirectDisplayID, name: String, originX: CGFloat = 0) -> Monitor {
         Monitor(
             id: .init(displayId: displayId),
             displayId: displayId,
-            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            frame: CGRect(x: originX, y: 0, width: 1440, height: 900),
+            visibleFrame: CGRect(x: originX, y: 0, width: 1440, height: 900),
             hasNotch: false,
             name: name
+        )
+    }
+
+    private func separation(between first: CGRect, and second: CGRect) -> CGFloat {
+        max(
+            max(first.minX, second.minX) - min(first.maxX, second.maxX),
+            max(first.minY, second.minY) - min(first.maxY, second.maxY)
+        )
+    }
+
+    @MainActor
+    private func addWindow(
+        pid: pid_t,
+        windowId: Int,
+        to workspaceId: WorkspaceDescriptor.ID,
+        controller: WMController
+    ) -> WindowToken {
+        controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            pid: pid,
+            windowId: windowId,
+            to: workspaceId
         )
     }
 
@@ -151,6 +372,9 @@ final class GapSettingsTests: XCTestCase {
     private func makeSettingsStore() -> SettingsStore {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMGapTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
         return SettingsStore(
             persistence: SettingsFilePersistence(
                 directory: root.appendingPathComponent("config", isDirectory: true),

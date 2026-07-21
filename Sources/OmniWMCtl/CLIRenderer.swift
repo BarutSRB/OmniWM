@@ -322,7 +322,8 @@ enum CLIRenderer {
     }
 
     private static func formattedDisplays(_ payload: IPCDisplaysQueryResult, format: CLIOutputFormat) -> String {
-        let rows = payload.displays.map { display in
+        var headers = ["ID", "NAME", "MAIN", "CURRENT", "ORIENTATION", "ACTIVE WORKSPACE", "FRAME"]
+        var rows = payload.displays.map { display in
             [
                 display.id ?? "-",
                 display.name ?? "-",
@@ -334,11 +335,43 @@ enum CLIRenderer {
             ]
         }
 
-        return formatRows(
-            headers: ["ID", "NAME", "MAIN", "CURRENT", "ORIENTATION", "ACTIVE WORKSPACE", "FRAME"],
-            rows: rows,
-            format: format
+        appendDisplayColumn("INNER GAP", values: payload.displays.map(\.innerGap), headers: &headers, rows: &rows)
+        appendDisplayColumn("OUTER LEFT", values: payload.displays.map(\.outerGapLeft), headers: &headers, rows: &rows)
+        appendDisplayColumn(
+            "OUTER RIGHT",
+            values: payload.displays.map(\.outerGapRight),
+            headers: &headers,
+            rows: &rows
         )
+        appendDisplayColumn("OUTER TOP", values: payload.displays.map(\.outerGapTop), headers: &headers, rows: &rows)
+        appendDisplayColumn(
+            "OUTER BOTTOM",
+            values: payload.displays.map(\.outerGapBottom),
+            headers: &headers,
+            rows: &rows
+        )
+
+        return formatRows(headers: headers, rows: rows, format: format)
+    }
+
+    private static func appendDisplayColumn(
+        _ header: String,
+        values: [Double?],
+        headers: inout [String],
+        rows: inout [[String]]
+    ) {
+        guard values.contains(where: { $0 != nil }) else { return }
+        headers.append(header)
+        for index in rows.indices {
+            rows[index].append(values[index].map { gapValueDescription($0) } ?? "-")
+        }
+    }
+
+    private static func gapValueDescription(_ value: Double) -> String {
+        guard value.isFinite else { return String(value) }
+        return value == value.rounded()
+            ? String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), value)
+            : String(value)
     }
 
     private static func formattedRules(_ payload: IPCRulesQueryResult, format: CLIOutputFormat) -> String {

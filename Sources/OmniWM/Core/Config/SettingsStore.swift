@@ -843,7 +843,7 @@ final class SettingsStore {
             monitors: monitors
         )
         monitorGapSettings = SettingsStore.reboundMonitorSettings(
-            export.monitorGapSettings,
+            export.monitorGapSettings.filter(\.hasOverrides),
             monitors: monitors
         )
 
@@ -1233,14 +1233,23 @@ final class SettingsStore {
     }
 
     func resolvedDwindleSettings(for monitor: Monitor) -> ResolvedDwindleSettings {
-        resolvedDwindleSettings(override: dwindleSettings(for: monitor))
+        resolvedDwindleSettings(
+            override: dwindleSettings(for: monitor),
+            sharedInnerGap: resolvedGapSettings(for: monitor).innerGap
+        )
     }
 
     func resolvedDwindleSettings(for monitorName: String) -> ResolvedDwindleSettings {
-        resolvedDwindleSettings(override: dwindleSettings(for: monitorName))
+        resolvedDwindleSettings(
+            override: dwindleSettings(for: monitorName),
+            sharedInnerGap: resolvedInnerGap(gapSettings(for: monitorName)?.innerGap)
+        )
     }
 
-    private func resolvedDwindleSettings(override: MonitorDwindleSettings?) -> ResolvedDwindleSettings {
+    private func resolvedDwindleSettings(
+        override: MonitorDwindleSettings?,
+        sharedInnerGap: CGFloat
+    ) -> ResolvedDwindleSettings {
         let useGlobalGaps = override?.useGlobalGaps ?? dwindleUseGlobalGaps
         return ResolvedDwindleSettings(
             smartSplit: override?.smartSplit ?? dwindleSmartSplit,
@@ -1248,7 +1257,7 @@ final class SettingsStore {
             splitWidthMultiplier: CGFloat(override?.splitWidthMultiplier ?? dwindleSplitWidthMultiplier),
             singleWindowFit: override?.singleWindowFit ?? dwindleSingleWindowFit,
             useGlobalGaps: useGlobalGaps,
-            innerGap: useGlobalGaps ? CGFloat(gapSize) : CGFloat(override?.innerGap ?? gapSize)
+            innerGap: useGlobalGaps ? sharedInnerGap : CGFloat(override?.innerGap ?? gapSize)
         )
     }
 
@@ -1261,7 +1270,11 @@ final class SettingsStore {
     }
 
     func updateGapSettings(_ settings: MonitorGapSettings) {
-        MonitorSettingsStore.update(settings, in: &monitorGapSettings)
+        if settings.hasOverrides {
+            MonitorSettingsStore.update(settings, in: &monitorGapSettings)
+        } else {
+            MonitorSettingsStore.remove(matching: settings, from: &monitorGapSettings)
+        }
     }
 
     func removeGapSettings(for monitor: Monitor) {
@@ -1275,11 +1288,16 @@ final class SettingsStore {
     func resolvedGapSettings(for monitor: Monitor) -> ResolvedGapSettings {
         let override = gapSettings(for: monitor)
         return ResolvedGapSettings(
+            innerGap: resolvedInnerGap(override?.innerGap),
             outerGapLeft: CGFloat(override?.outerGapLeft ?? outerGapLeft),
             outerGapRight: CGFloat(override?.outerGapRight ?? outerGapRight),
             outerGapTop: CGFloat(override?.outerGapTop ?? outerGapTop),
             outerGapBottom: CGFloat(override?.outerGapBottom ?? outerGapBottom)
         )
+    }
+
+    private func resolvedInnerGap(_ override: Double?) -> CGFloat {
+        CGFloat(min(64, max(0, override ?? gapSize)))
     }
 
     nonisolated static let defaultColumnWidthPresets: [Double] = BuiltInSettingsDefaults.niriColumnWidthPresets
