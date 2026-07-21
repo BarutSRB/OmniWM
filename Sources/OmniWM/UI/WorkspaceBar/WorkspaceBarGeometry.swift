@@ -11,7 +11,7 @@ struct WorkspaceBarSplitLayout: Equatable {
 struct WorkspaceBarGeometry: Equatable {
     static let notchGap: CGFloat = 8
     static let minimumSplitSideSpace: CGFloat = 60
-    static let minimumActiveIslandWidth: CGFloat = 40
+    static let minimumIslandWidth: CGFloat = 40
     static func statsButtonAnchor(buttonFrame: CGRect) -> CGPoint {
         CGPoint(x: buttonFrame.midX, y: buttonFrame.minY)
     }
@@ -45,7 +45,9 @@ struct WorkspaceBarGeometry: Equatable {
         monitor: Monitor,
         resolved: ResolvedBarSettings
     ) -> CGRect {
-        let width = max(fittingWidth, 300)
+        // The island hugs its measured content: SwiftUI draws the bar against the panel's
+        // leading edge, so a panel wider than the content offsets the visible bar from centre.
+        let width = max(fittingWidth, Self.minimumIslandWidth)
         var x = monitor.frame.midX - width / 2
         var y = originY(for: monitor)
 
@@ -84,7 +86,7 @@ struct WorkspaceBarGeometry: Equatable {
             availableActive
         )
         let y = originY(for: monitor)
-        let activeSize = max(activeWidth, Self.minimumActiveIslandWidth)
+        let activeSize = max(activeWidth, Self.minimumIslandWidth)
         var active = if activeSize <= zoneWidth {
             CGRect(x: activeAnchor - zoneWidth / 2 - activeSize / 2, y: y, width: activeSize, height: barHeight)
         } else {
