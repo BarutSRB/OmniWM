@@ -346,6 +346,10 @@ final class IntentLedger {
         entries.last { $0.kind.isFocusWindow }?.issuedAtSeq
     }
 
+    func newestFocusIntentId() -> IntentID? {
+        entries.last { $0.kind.isFocusWindow }?.id
+    }
+
     func openIntents(pid: pid_t) -> [Intent] {
         entries.filter { $0.phase == .pending && $0.kind.targetPid == pid }
     }

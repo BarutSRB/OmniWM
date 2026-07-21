@@ -424,6 +424,7 @@ final class WindowActionHandler {
     @discardableResult
     func navigateToWindowInternal(token: WindowToken, workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let controller,
+              let handle = controller.workspaceManager.handle(for: token),
               let entry = controller.workspaceManager.entry(for: token),
               entry.workspaceId == workspaceId
         else {
@@ -500,19 +501,30 @@ final class WindowActionHandler {
                 )
             )
         }
+        let newestFocusIntentId = controller.intentLedger.newestFocusIntentId()
         let focusTarget: LayoutRefreshController.PostLayoutAction = { [weak controller] in
             guard let controller,
                   controller.activeWorkspace()?.id == workspaceId,
-                  controller.workspaceManager.entry(for: token)?.workspaceId == workspaceId
+                  controller.workspaceManager.handle(for: handle.id) === handle,
+                  controller.workspaceManager.entry(for: handle)?.workspaceId == workspaceId
             else {
                 return
             }
-            controller.focusWindow(token)
+            controller.focusWindow(handle.id)
+        }
+        let focusTargetIfStillCurrent: LayoutRefreshController.PostLayoutAction = { [weak controller] in
+            guard let controller,
+                  controller.intentLedger.newestFocusIntentId() == newestFocusIntentId
+            else {
+                return
+            }
+            focusTarget()
         }
         controller.layoutRefreshController.commitWorkspaceTransition(
             reason: .workspaceTransition,
-            postLayoutInvalidated: focusTarget,
-            postLayout: focusTarget
+            postLayoutGateWorkspaceIds: [workspaceId],
+            postLayout: focusTarget,
+            postLayoutInvalidated: focusTargetIfStillCurrent
         )
         return true
     }

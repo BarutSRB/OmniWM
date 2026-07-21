@@ -1000,8 +1000,8 @@ import QuartzCore
         affectedWorkspaces: Set<WorkspaceDescriptor.ID> = [],
         reason: RefreshReason = .workspaceTransition,
         postLayoutGateWorkspaceIds: Set<WorkspaceDescriptor.ID>? = nil,
-        postLayoutInvalidated: PostLayoutAction? = nil,
-        postLayout: PostLayoutAction? = nil
+        postLayout: PostLayoutAction? = nil,
+        postLayoutInvalidated: PostLayoutAction? = nil
     ) {
         requestImmediateRelayout(
             reason: reason,

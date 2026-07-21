@@ -1843,8 +1843,8 @@ final class RuntimeArchitectureTests: XCTestCase {
         controller.layoutRefreshController.commitWorkspaceTransition(
             affectedWorkspaces: [workspaceId],
             postLayoutGateWorkspaceIds: [workspaceId],
-            postLayoutInvalidated: { ranInvalidatedAction = true },
-            postLayout: { ranCurrentAction = true }
+            postLayout: { ranCurrentAction = true },
+            postLayoutInvalidated: { ranInvalidatedAction = true }
         )
         controller.workspaceManager.invalidateLayout(for: [workspaceId])
 
@@ -1860,6 +1860,44 @@ final class RuntimeArchitectureTests: XCTestCase {
 
         XCTAssertFalse(ranCurrentAction)
         XCTAssertTrue(ranInvalidatedAction)
+    }
+
+    @MainActor
+    func testWorkspaceTransitionTrailingClosureRemainsPostLayoutAction() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let blocker = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .workspaceTransition,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        defer {
+            blocker.cancel()
+            controller.layoutRefreshController.layoutState.activeRefreshTask = nil
+            controller.layoutRefreshController.layoutState.activeRefresh = nil
+            controller.layoutRefreshController.layoutState.pendingRefresh = nil
+        }
+        var ranPostLayout = false
+
+        controller.layoutRefreshController.commitWorkspaceTransition(
+            affectedWorkspaces: [workspaceId]
+        ) {
+            ranPostLayout = true
+        }
+        let action = try XCTUnwrap(
+            controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
+        )
+        action.runIfCurrent(using: controller.workspaceManager)
+
+        XCTAssertTrue(ranPostLayout)
     }
 
     @MainActor

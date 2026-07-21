@@ -110,7 +110,225 @@ final class NiriFocusPreviousTests: XCTestCase {
     }
 
     func testCommandFocusPreviousJumpsToWindowOnAnotherWorkspace() throws {
-        let controller = makeController()
+        var frontedTokens: [WindowToken] = []
+        let fixture = try makeCommandFixture { pid, windowId, _ in
+            frontedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+        }
+        let blocker = blockLayoutRefresh(fixture.controller, workspaceId: fixture.workspaceB)
+        defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
+
+        let result = fixture.controller.commandHandler.handleHotkeyCommand(.focusPrevious)
+
+        XCTAssertEqual(result, .executed)
+        XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.workspaceA)
+        XCTAssertEqual(
+            fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceA).selectedNodeId,
+            fixture.nodeA.id
+        )
+        XCTAssertEqual(
+            fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceB).selectedNodeId,
+            fixture.nodeB.id
+        )
+        XCTAssertTrue(frontedTokens.isEmpty)
+        let postLayout = try XCTUnwrap(
+            fixture.controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
+        )
+        XCTAssertTrue(postLayout.isCurrent(using: fixture.controller.workspaceManager))
+        postLayout.runIfCurrent(using: fixture.controller.workspaceManager)
+        XCTAssertEqual(frontedTokens, [fixture.tokenA])
+    }
+
+    func testCommandFocusPreviousCompletesAfterTargetLayoutInvalidation() throws {
+        var frontedTokens: [WindowToken] = []
+        let fixture = try makeCommandFixture { pid, windowId, _ in
+            frontedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+        }
+        let blocker = blockLayoutRefresh(fixture.controller, workspaceId: fixture.workspaceB)
+        defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
+
+        XCTAssertEqual(
+            fixture.controller.commandHandler.handleHotkeyCommand(.focusPrevious),
+            .executed
+        )
+        let postLayout = try XCTUnwrap(
+            fixture.controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
+        )
+        fixture.controller.workspaceManager.invalidateLayout(for: [fixture.workspaceA])
+
+        XCTAssertFalse(postLayout.isCurrent(using: fixture.controller.workspaceManager))
+        postLayout.runIfCurrent(using: fixture.controller.workspaceManager)
+        XCTAssertEqual(frontedTokens, [fixture.tokenA])
+    }
+
+    func testNewerSameWorkspaceManagedFocusRejectsInvalidatedFocusPrevious() throws {
+        var frontedTokens: [WindowToken] = []
+        let fixture = try makeCommandFixture { pid, windowId, _ in
+            frontedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+        }
+        let blocker = blockLayoutRefresh(fixture.controller, workspaceId: fixture.workspaceB)
+        defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
+        let newerToken = addWindow(
+            pid: 447_003,
+            windowId: 447_103,
+            to: fixture.workspaceA,
+            controller: fixture.controller
+        )
+
+        XCTAssertEqual(
+            fixture.controller.commandHandler.handleHotkeyCommand(.focusPrevious),
+            .executed
+        )
+        let postLayout = try XCTUnwrap(
+            fixture.controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
+        )
+        fixture.controller.focusWindow(newerToken)
+
+        XCTAssertFalse(postLayout.isCurrent(using: fixture.controller.workspaceManager))
+        postLayout.runIfCurrent(using: fixture.controller.workspaceManager)
+        XCTAssertEqual(frontedTokens, [newerToken])
+        XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.token, newerToken)
+    }
+
+    func testCommandFocusPreviousSurvivesUnrelatedMonitorInvalidation() throws {
+        var frontedTokens: [WindowToken] = []
+        let controller = makeController { pid, windowId, _ in
+            frontedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+        }
+        let primary = Monitor(
+            id: .init(displayId: 447),
+            displayId: 447,
+            frame: CGRect(x: 0, y: 0, width: 1600, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1600, height: 900),
+            hasNotch: false,
+            name: "Primary"
+        )
+        let secondary = Monitor(
+            id: .init(displayId: 448),
+            displayId: 448,
+            frame: CGRect(x: 1600, y: 0, width: 1600, height: 900),
+            visibleFrame: CGRect(x: 1600, y: 0, width: 1600, height: 900),
+            hasNotch: false,
+            name: "Secondary"
+        )
+        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map { configuration in
+            var configuration = configuration
+            configuration.monitorAssignment = ["6", "7"].contains(configuration.name)
+                ? .specificDisplay(OutputId(from: secondary))
+                : .specificDisplay(OutputId(from: primary))
+            return configuration
+        }
+        controller.workspaceManager.applyMonitorConfigurationChange([primary, secondary])
+        controller.workspaceManager.applySettings()
+        let workspaceA = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let workspaceB = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
+        )
+        let unrelatedWorkspace = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "6", createIfMissing: true)
+        )
+        XCTAssertTrue(controller.workspaceManager.setActiveWorkspace(workspaceB, on: primary.id))
+        XCTAssertTrue(controller.workspaceManager.setActiveWorkspace(unrelatedWorkspace, on: secondary.id))
+        _ = controller.workspaceManager.setInteractionMonitor(primary.id)
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+        let tokenA = addWindow(pid: 447_011, windowId: 447_111, to: workspaceA, controller: controller)
+        let tokenB = addWindow(pid: 447_012, windowId: 447_112, to: workspaceB, controller: controller)
+        let nodeA = engine.addWindow(token: tokenA, to: workspaceA, afterSelection: nil)
+        let nodeB = engine.addWindow(token: tokenB, to: workspaceB, afterSelection: nil)
+        nodeA.lastFocusedTime = timestamp(1)
+        nodeB.lastFocusedTime = timestamp(2)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: nodeB.id,
+            focusedToken: tokenB,
+            in: workspaceB,
+            onMonitor: primary.id
+        )
+        let blocker = blockLayoutRefresh(controller, workspaceId: workspaceB)
+        defer { unblockLayoutRefresh(controller, blocker: blocker) }
+
+        XCTAssertEqual(controller.commandHandler.handleHotkeyCommand(.focusPrevious), .executed)
+        let postLayout = try XCTUnwrap(
+            controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
+        )
+        XCTAssertEqual(Set(postLayout.workspaceSeqs.keys), [workspaceA])
+        controller.workspaceManager.invalidateLayout(for: [unrelatedWorkspace])
+
+        XCTAssertTrue(postLayout.isCurrent(using: controller.workspaceManager))
+        postLayout.runIfCurrent(using: controller.workspaceManager)
+        XCTAssertEqual(frontedTokens, [tokenA])
+    }
+
+    func testCommandFocusPreviousRejectsReusedTargetToken() throws {
+        var frontedTokens: [WindowToken] = []
+        let fixture = try makeCommandFixture { pid, windowId, _ in
+            frontedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+        }
+        let blocker = blockLayoutRefresh(fixture.controller, workspaceId: fixture.workspaceB)
+        defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
+        let originalHandle = try XCTUnwrap(
+            fixture.controller.workspaceManager.handle(for: fixture.tokenA)
+        )
+
+        XCTAssertEqual(
+            fixture.controller.commandHandler.handleHotkeyCommand(.focusPrevious),
+            .executed
+        )
+        let postLayout = try XCTUnwrap(
+            fixture.controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
+        )
+        XCTAssertNotNil(
+            fixture.controller.workspaceManager.removeWindow(
+                pid: fixture.tokenA.pid,
+                windowId: fixture.tokenA.windowId
+            )
+        )
+        let replacementToken = addWindow(
+            pid: fixture.tokenA.pid,
+            windowId: fixture.tokenA.windowId,
+            to: fixture.workspaceA,
+            controller: fixture.controller
+        )
+        let replacementHandle = try XCTUnwrap(
+            fixture.controller.workspaceManager.handle(for: replacementToken)
+        )
+
+        XCTAssertFalse(replacementHandle === originalHandle)
+        postLayout.runIfCurrent(using: fixture.controller.workspaceManager)
+        XCTAssertTrue(frontedTokens.isEmpty)
+    }
+
+    private func makeEngineFixture() -> EngineFixture {
+        let engine = NiriLayoutEngine()
+        let workspaceA = WorkspaceDescriptor.ID()
+        let workspaceB = WorkspaceDescriptor.ID()
+        let windowA1 = engine.addWindow(token: token(1), to: workspaceA, afterSelection: nil)
+        let windowA2 = engine.addWindow(token: token(2), to: workspaceA, afterSelection: windowA1.id)
+        let windowB = engine.addWindow(token: token(3), to: workspaceB, afterSelection: nil)
+        return EngineFixture(
+            engine: engine,
+            workspaceA: workspaceA,
+            workspaceB: workspaceB,
+            windowA1: windowA1,
+            windowA2: windowA2,
+            windowB: windowB
+        )
+    }
+
+    private struct CommandFixture {
+        let controller: WMController
+        let workspaceA: WorkspaceDescriptor.ID
+        let workspaceB: WorkspaceDescriptor.ID
+        let tokenA: WindowToken
+        let nodeA: NiriWindow
+        let nodeB: NiriWindow
+    }
+
+    private func makeCommandFixture(
+        focusSpecificWindow: @escaping (pid_t, UInt32, AXUIElement) -> Void
+    ) throws -> CommandFixture {
+        let controller = makeController(focusSpecificWindow: focusSpecificWindow)
         let workspaceA = try XCTUnwrap(
             controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
         )
@@ -132,33 +350,19 @@ final class NiriFocusPreviousTests: XCTestCase {
             in: workspaceB,
             onMonitor: controller.workspaceManager.monitorId(for: workspaceB)
         )
-
-        let result = controller.commandHandler.handleHotkeyCommand(.focusPrevious)
-
-        XCTAssertEqual(result, .executed)
-        XCTAssertEqual(controller.activeWorkspace()?.id, workspaceA)
-        XCTAssertEqual(controller.workspaceManager.niriViewportState(for: workspaceA).selectedNodeId, nodeA.id)
-        XCTAssertEqual(controller.workspaceManager.niriViewportState(for: workspaceB).selectedNodeId, nodeB.id)
-    }
-
-    private func makeEngineFixture() -> EngineFixture {
-        let engine = NiriLayoutEngine()
-        let workspaceA = WorkspaceDescriptor.ID()
-        let workspaceB = WorkspaceDescriptor.ID()
-        let windowA1 = engine.addWindow(token: token(1), to: workspaceA, afterSelection: nil)
-        let windowA2 = engine.addWindow(token: token(2), to: workspaceA, afterSelection: windowA1.id)
-        let windowB = engine.addWindow(token: token(3), to: workspaceB, afterSelection: nil)
-        return EngineFixture(
-            engine: engine,
+        return CommandFixture(
+            controller: controller,
             workspaceA: workspaceA,
             workspaceB: workspaceB,
-            windowA1: windowA1,
-            windowA2: windowA2,
-            windowB: windowB
+            tokenA: tokenA,
+            nodeA: nodeA,
+            nodeB: nodeB
         )
     }
 
-    private func makeController() -> WMController {
+    private func makeController(
+        focusSpecificWindow: @escaping (pid_t, UInt32, AXUIElement) -> Void = { _, _, _ in }
+    ) -> WMController {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMNiriFocusPreviousTests-\(UUID().uuidString)", isDirectory: true)
         let settings = SettingsStore(
@@ -177,10 +381,38 @@ final class NiriFocusPreviousTests: XCTestCase {
             settings: settings,
             windowFocusOperations: WindowFocusOperations(
                 activateApp: { _ in },
-                focusSpecificWindow: { _, _, _ in },
+                focusSpecificWindow: focusSpecificWindow,
                 raiseWindow: { _ in }
             )
         )
+    }
+
+    private func blockLayoutRefresh(
+        _ controller: WMController,
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> Task<Void, Never> {
+        let blocker = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .workspaceTransition,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        return blocker
+    }
+
+    private func unblockLayoutRefresh(
+        _ controller: WMController,
+        blocker: Task<Void, Never>
+    ) {
+        blocker.cancel()
+        controller.layoutRefreshController.layoutState.activeRefreshTask = nil
+        controller.layoutRefreshController.layoutState.activeRefresh = nil
+        controller.layoutRefreshController.layoutState.pendingRefresh = nil
     }
 
     private func addWindow(
