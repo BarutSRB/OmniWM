@@ -367,6 +367,89 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testPointerHoverManagedFocusConfirmationPreservesSettledNiriViewport() throws {
+        let fixture = try Self.managedNiriActivationFixture(
+            origin: .pointerHover,
+            pid: 765_710,
+            windowId: 765_810
+        )
+        let controller = fixture.controller
+        let workspaceId = fixture.entry.workspaceId
+        let engine = try XCTUnwrap(controller.niriEngine)
+        var now = ContinuousClock().now
+        controller.intentLedger.clock = { now }
+
+        for index in 1 ..< 3 {
+            let pid = pid_t(765_710 + index)
+            let windowId = 765_810 + index
+            let token = controller.workspaceManager.addWindow(
+                AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+                pid: pid,
+                windowId: windowId,
+                to: workspaceId
+            )
+            _ = engine.addWindow(token: token, to: workspaceId, afterSelection: nil)
+        }
+        for column in engine.columns(in: workspaceId) {
+            column.cachedWidth = 700
+        }
+
+        let node = try XCTUnwrap(engine.findNode(for: fixture.entry.token, in: workspaceId))
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = node.id
+            state.activeColumnIndex = 0
+            state.jumpOffset(to: 300)
+        }
+        XCTAssertFalse(controller.workspaceManager.animationDriver.hasMotion(in: workspaceId))
+
+        controller.axEventHandler.handleManagedAppActivation(
+            entry: fixture.entry,
+            isWorkspaceActive: true,
+            appFullscreen: false,
+            activeRequestId: fixture.requestId
+        )
+
+        XCTAssertEqual(
+            controller.workspaceManager.niriViewportState(for: workspaceId).viewOffset,
+            300,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(controller.workspaceManager.animationDriver.hasMotion(in: workspaceId))
+
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.jumpOffset(to: 300)
+        }
+        controller.axEventHandler.handleManagedAppActivation(
+            entry: fixture.entry,
+            isWorkspaceActive: true,
+            appFullscreen: false
+        )
+
+        XCTAssertEqual(
+            controller.workspaceManager.niriViewportState(for: workspaceId).viewOffset,
+            300,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(controller.workspaceManager.animationDriver.hasMotion(in: workspaceId))
+
+        now = now.advanced(by: .seconds(2))
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.jumpOffset(to: 300)
+        }
+        controller.axEventHandler.handleManagedAppActivation(
+            entry: fixture.entry,
+            isWorkspaceActive: true,
+            appFullscreen: false
+        )
+
+        XCTAssertNotEqual(
+            controller.workspaceManager.niriViewportState(for: workspaceId).viewOffset,
+            300,
+            accuracy: 0.001
+        )
+    }
+
+    @MainActor
     func testKeyboardManagedFocusStillMovesMouseToFocusedWindowOnActivationConfirm() throws {
         let fixture = try Self.managedNiriActivationFixture(
             origin: .keyboardOrProgrammatic,

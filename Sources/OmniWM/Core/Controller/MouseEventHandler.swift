@@ -1564,7 +1564,12 @@ final class MouseEventHandler {
             )
         default:
             if let engine = controller?.niriEngine {
-                finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine, timestamp: timestamp)
+                finalizeOrCancelCommittedGesture(
+                    using: lockedContext,
+                    engine: engine,
+                    shouldFocusSelection: allowFlick,
+                    timestamp: timestamp
+                )
             } else {
                 cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
             }
@@ -1696,6 +1701,7 @@ final class MouseEventHandler {
     func finalizeOrCancelCommittedGesture(
         using lockedContext: State.LockedGestureContext,
         engine: NiriLayoutEngine,
+        shouldFocusSelection: Bool,
         timestamp: TimeInterval? = nil
     ) {
         guard let controller else { return }
@@ -1740,7 +1746,9 @@ final class MouseEventHandler {
         }
         if let selectedWindow {
             rememberViewportFocusAnchor(selectedWindow, engine: engine, wsId: wsId)
-            focusViewportSelectionAfterGesture(selectedWindow)
+            if shouldFocusSelection {
+                focusViewportSelectionAfterGesture(selectedWindow)
+            }
         }
         if controller.workspaceManager.animationDriver.hasMotion(in: wsId) {
             controller.layoutRefreshController.startScrollAnimation(for: wsId)
@@ -1777,7 +1785,11 @@ final class MouseEventHandler {
                 state.suppressTrackpadMomentumScroll = true
             } else if let lockedContext = state.lockedGestureContext {
                 if let engine = controller?.niriEngine {
-                    finalizeOrCancelCommittedGesture(using: lockedContext, engine: engine)
+                    finalizeOrCancelCommittedGesture(
+                        using: lockedContext,
+                        engine: engine,
+                        shouldFocusSelection: false
+                    )
                 } else {
                     cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
                 }
@@ -1867,9 +1879,6 @@ final class MouseEventHandler {
         return selectedWindow
     }
 
-    // Applies AX focus to the column the gesture snapped to (issue #479). Runs only once per
-    // gesture at touch release — never per frame — and routes through the managed-focus request
-    // path so the resulting AX focus echo is classified as our own intent, not a user action.
     private func focusViewportSelectionAfterGesture(_ window: NiriWindow) {
         guard let controller else { return }
         guard !controller.hasFrontmostOwnedWindow else { return }

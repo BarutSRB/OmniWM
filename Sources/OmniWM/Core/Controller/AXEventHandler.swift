@@ -2260,6 +2260,7 @@ final class AXEventHandler {
             activeRequest = nil
         }
         let shouldConfirmRequest = confirmRequest ?? true
+        let focusObservation = controller.intentLedger.classifyFocusObservation(token: entry.token)
 
         if shouldConfirmRequest {
             if let request = activeRequest,
@@ -2349,7 +2350,14 @@ final class AXEventHandler {
                 let preferredFrame = node.renderedFrame ?? node.frame
                 preferredMouseFrame = preferredFrame
                 var state = controller.workspaceManager.niriViewportState(for: wsId)
-                let preserveActiveViewport = controller.workspaceManager.animationDriver.hasMotion(in: wsId)
+                let preservesPointerViewport = switch focusObservation {
+                case let .echoOf(intent),
+                     let .lateEcho(intent):
+                    !intent.origin.allowsMouseToFocusedWarp
+                case .external: false
+                }
+                let preserveViewport = controller.workspaceManager.animationDriver.hasMotion(in: wsId)
+                    || preservesPointerViewport
                 let preserveReplacementViewport = isProtectedManagedReplacementFocus(
                     token: entry.token,
                     workspaceId: wsId
@@ -2364,7 +2372,7 @@ final class AXEventHandler {
                             axFocus: false,
                             startAnimation: false
                         )
-                        : preserveActiveViewport
+                        : preserveViewport
                         ? .init(
                             ensureVisible: false,
                             preserveViewportAnchor: true,
