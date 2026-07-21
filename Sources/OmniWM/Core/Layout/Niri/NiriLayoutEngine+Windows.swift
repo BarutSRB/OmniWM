@@ -275,8 +275,8 @@ extension NiriLayoutEngine {
             visibilityWasCorrected = true
         }
 
-        if !removedTokens.isEmpty,
-           clampViewportToRemainingContent(
+        if !removedColumnIndicesBefore.isEmpty,
+           correctViewportAfterColumnRemoval(
                in: workspaceId,
                state: &state,
                motion: motion,
@@ -512,12 +512,7 @@ extension NiriLayoutEngine {
         return fallbackSelectionInColumn(cols[idx], excluding: removedNodeIds)
     }
 
-    /// Removal shrinks the strip, but none of the per-branch fixups re-check the viewport against the
-    /// remaining content: a close landing right of the active column (focus-follows-mouse refocuses the
-    /// neighbor before the destroy event arrives) skips every recalculation, and a stale
-    /// `activatePrevColumnOnRemoval` offset can restore a position past the new content edge. Clamp the
-    /// settled view origin so the viewport never straddles space the surviving columns no longer occupy.
-    private func clampViewportToRemainingContent(
+    func correctViewportAfterColumnRemoval(
         in workspaceId: WorkspaceDescriptor.ID,
         state: inout ViewportState,
         motion: MotionSnapshot,
@@ -527,23 +522,114 @@ extension NiriLayoutEngine {
         let cols = columns(in: workspaceId)
         guard !cols.isEmpty else { return false }
 
-        for col in cols where col.cachedWidth <= 0 {
-            col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
+        let monitor = monitorForWorkspace(workspaceId)
+        let orientation = monitor?.orientation ?? .horizontal
+        let sizeKeyPath: KeyPath<NiriContainer, CGFloat>
+        let viewportSpan: CGFloat
+        switch orientation {
+        case .horizontal:
+            sizeKeyPath = \.cachedWidth
+            viewportSpan = workingFrame.width
+            for col in cols where col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
+            }
+        case .vertical:
+            sizeKeyPath = \.cachedHeight
+            viewportSpan = workingFrame.height
+            for col in cols where col.cachedHeight <= 0 {
+                col.resolveAndCacheHeight(workingAreaHeight: workingFrame.height, gaps: gaps)
+            }
         }
 
         let activeIdx = state.activeColumnIndex.clamped(to: 0 ... (cols.count - 1))
         state.activeColumnIndex = activeIdx
+        let activePosition = state.containerPosition(
+            at: activeIdx,
+            containers: cols,
+            gap: gaps,
+            sizeKeyPath: sizeKeyPath
+        )
+        let viewStart = activePosition + state.viewOffset
+        let settings = effectiveSettings(in: workspaceId)
+        let scale = displayScale(in: workspaceId)
+        if settings.centerFocusedColumn == .always
+            || (cols.count == 1 && settings.alwaysCenterSingleColumn)
+        {
+            let targetOffset = state.computeVisibleOffset(
+                containerIndex: activeIdx,
+                containers: cols,
+                gap: gaps,
+                viewportSpan: viewportSpan,
+                sizeKeyPath: sizeKeyPath,
+                currentViewStart: viewStart,
+                centerMode: settings.centerFocusedColumn,
+                alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
+                scale: scale,
+                workingArea: workingFrame,
+                viewFrame: monitor?.frame,
+                orientation: orientation
+            )
+            let targetStart = activePosition + targetOffset
+            guard abs(targetStart - viewStart) > 0.5 else { return false }
+            state.animateToOffset(targetOffset, motion: motion, scale: scale)
+            return true
+        }
 
-        let viewStart = state.viewPosPixels(columns: cols, gap: gaps)
-        let contentEdge = state.totalWidth(columns: cols, gap: gaps) - workingFrame.width + gaps
+        let totalSpan = state.totalSpan(
+            containers: cols,
+            gap: gaps,
+            sizeKeyPath: sizeKeyPath
+        )
+        let contentEdge = totalSpan - viewportSpan + gaps
         let clampedStart = viewStart.clamped(to: min(-gaps, contentEdge) ... max(-gaps, contentEdge))
         guard abs(clampedStart - viewStart) > 0.5 else { return false }
 
-        let activeX = state.columnX(at: activeIdx, columns: cols, gap: gaps)
+        if settings.centerFocusedColumn == .onOverflow {
+            let centeredOffset = state.computeVisibleOffset(
+                containerIndex: activeIdx,
+                containers: cols,
+                gap: gaps,
+                viewportSpan: viewportSpan,
+                sizeKeyPath: sizeKeyPath,
+                currentViewStart: viewStart,
+                centerMode: .always,
+                scale: scale,
+                workingArea: workingFrame,
+                viewFrame: monitor?.frame,
+                orientation: orientation
+            )
+            let centeredStart = activePosition + centeredOffset
+            let activeSpan = cols[activeIdx][keyPath: sizeKeyPath]
+            let previousPairOverflows = activeIdx > 0
+                && cols[activeIdx - 1][keyPath: sizeKeyPath] + activeSpan + gaps * 3 > viewportSpan
+            let nextPairOverflows = activeIdx + 1 < cols.count
+                && activeSpan + cols[activeIdx + 1][keyPath: sizeKeyPath] + gaps * 3 > viewportSpan
+            if previousPairOverflows || nextPairOverflows,
+               abs(centeredStart - viewStart) <= 0.5
+            {
+                return false
+            }
+        }
+
+        let fittedOffset = state.computeVisibleOffset(
+            containerIndex: activeIdx,
+            containers: cols,
+            gap: gaps,
+            viewportSpan: viewportSpan,
+            sizeKeyPath: sizeKeyPath,
+            currentViewStart: clampedStart,
+            centerMode: .never,
+            scale: scale,
+            workingArea: workingFrame,
+            viewFrame: monitor?.frame,
+            orientation: orientation
+        )
+        let fittedStart = activePosition + fittedOffset
+        guard abs(fittedStart - viewStart) > 0.5 else { return false }
         state.animateToOffset(
-            clampedStart - activeX,
+            fittedOffset,
             motion: motion,
-            scale: displayScale(in: workspaceId)
+            scale: scale
         )
         return true
     }

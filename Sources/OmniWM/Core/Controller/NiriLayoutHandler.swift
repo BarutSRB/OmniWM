@@ -63,6 +63,11 @@ enum StructuralMutationOutcome: Equatable {
         var existingHandleIds: Set<WindowToken>
         var wasEmptyBeforeSync: Bool
         var removalResult: NiriLayoutEngine.NiriRemovalResult
+        var externallyRemovedColumn: Bool
+
+        var removedColumn: Bool {
+            externallyRemovedColumn || !removalResult.removedColumnIndicesBefore.isEmpty
+        }
     }
 
     private struct InsertionContext {
@@ -537,7 +542,8 @@ enum StructuralMutationOutcome: Equatable {
             state: &state,
             windowTokens: windowTokens,
             currentSelection: currentSelection,
-            removedNodeIds: snapshot.removalSeed?.removedNodeIds ?? []
+            removedNodeIds: snapshot.removalSeed?.removedNodeIds ?? [],
+            externallyRemovedColumn: snapshot.removalSeed?.removedColumn == true
         )
 
         let viewOriginBeforeInsertion = currentViewOrigin(pass: pass, state: state)
@@ -612,7 +618,8 @@ enum StructuralMutationOutcome: Equatable {
         state: inout ViewportState,
         windowTokens: [WindowToken],
         currentSelection: NodeId?,
-        removedNodeIds: [NodeId]
+        removedNodeIds: [NodeId],
+        externallyRemovedColumn: Bool
     ) -> RemovalContext {
         let existingHandleIds = pass.engine.root(for: pass.wsId)?.windowIdSet ?? []
         let removedHandleIds = existingHandleIds.subtracting(Set(windowTokens))
@@ -632,7 +639,8 @@ enum StructuralMutationOutcome: Equatable {
         return RemovalContext(
             existingHandleIds: existingHandleIds,
             wasEmptyBeforeSync: wasEmptyBeforeSync,
-            removalResult: removalResult
+            removalResult: removalResult,
+            externallyRemovedColumn: externallyRemovedColumn
         )
     }
 
@@ -687,7 +695,7 @@ enum StructuralMutationOutcome: Equatable {
 
             let originalActiveIdx = state.activeColumnIndex
             let insertedBeforeActive = newColumnData.filter { $0.colIdx <= originalActiveIdx }
-            if !insertedBeforeActive.isEmpty, removal.removalResult.removedColumnIndicesBefore.isEmpty {
+            if !insertedBeforeActive.isEmpty, !removal.removedColumn {
                 let totalInsertedWidth = insertedBeforeActive.reduce(CGFloat(0)) { total, data in
                     total + data.col.cachedWidth + pass.gap
                 }
@@ -826,6 +834,20 @@ enum StructuralMutationOutcome: Equatable {
             if abs(liveOffsetDelta) > 1 {
                 viewportNeedsRecalc = true
             }
+        }
+
+        if !usesSingleWindowFit,
+           removal.externallyRemovedColumn,
+           removal.removalResult.removedColumnIndicesBefore.isEmpty,
+           pass.engine.correctViewportAfterColumnRemoval(
+               in: pass.wsId,
+               state: &state,
+               motion: motion,
+               workingFrame: pass.insetFrame,
+               gaps: pass.gap
+           )
+        {
+            viewportNeedsRecalc = true
         }
 
         let rememberedFocusToken: WindowToken?
@@ -1056,12 +1078,13 @@ enum StructuralMutationOutcome: Equatable {
         let hasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
         var directives: [AnimationDirective] = []
 
-        if !snapshot.useScrollAnimationPath {
-            if viewportNeedsRecalc, !hasNewWindowArrival {
-                directives.append(.startNiriScroll(workspaceId: pass.wsId))
-            } else if hasColumnAnimations {
-                directives.append(.startNiriScroll(workspaceId: pass.wsId))
-            }
+        if viewportNeedsRecalc,
+           !hasNewWindowArrival,
+           !snapshot.useScrollAnimationPath || state.hasPendingOffsetAnimation
+        {
+            directives.append(.startNiriScroll(workspaceId: pass.wsId))
+        } else if !snapshot.useScrollAnimationPath, hasColumnAnimations {
+            directives.append(.startNiriScroll(workspaceId: pass.wsId))
         }
 
         if let activateWindowToken {

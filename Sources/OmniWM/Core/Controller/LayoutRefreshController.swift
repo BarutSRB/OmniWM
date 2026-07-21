@@ -27,6 +27,7 @@ import QuartzCore
         var workspaceId: WorkspaceDescriptor.ID
         let layoutType: LayoutType
         let removedNodeId: NodeId?
+        let removedNiriColumn: Bool
         let niriOldFrames: [WindowToken: CGRect]
         let shouldRecoverFocus: Bool
         let allowsPreferredRecoveryToken: Bool
@@ -973,6 +974,7 @@ import QuartzCore
         workspaceId: WorkspaceDescriptor.ID,
         layoutType: LayoutType,
         removedNodeId: NodeId?,
+        removedNiriColumn: Bool,
         niriOldFrames: [WindowToken: CGRect],
         shouldRecoverFocus: Bool,
         allowsPreferredRecoveryToken: Bool = false,
@@ -988,6 +990,7 @@ import QuartzCore
                     workspaceId: workspaceId,
                     layoutType: layoutType,
                     removedNodeId: removedNodeId,
+                    removedNiriColumn: removedNiriColumn,
                     niriOldFrames: niriOldFrames,
                     shouldRecoverFocus: shouldRecoverFocus,
                     allowsPreferredRecoveryToken: allowsPreferredRecoveryToken
@@ -1237,7 +1240,7 @@ import QuartzCore
             return false
         }
 
-        var plan = try await buildFullEffectPlan()
+        var plan = try await buildFullEffectPlan(removalPayloads: refresh.windowRemovalPayloads)
         applyRefreshMetadata(refresh, to: &plan)
         try Task.checkCancellation()
         guard isCurrentRefreshGeneration(generation) else { return false }
@@ -1345,7 +1348,7 @@ import QuartzCore
         var dwindleWorkspaces: Set<WorkspaceDescriptor.ID> = []
         var focusedWorkspacesToRecover: Set<WorkspaceDescriptor.ID> = []
         var workspacesAllowingPreferredRecovery: Set<WorkspaceDescriptor.ID> = []
-        var niriRemovalSeeds: [WorkspaceDescriptor.ID: NiriWindowRemovalSeed] = [:]
+        let niriRemovalSeeds = makeNiriRemovalSeeds(from: payloads)
 
         for payload in payloads {
             switch payload.layoutType {
@@ -1353,16 +1356,7 @@ import QuartzCore
                 dwindleWorkspaces.insert(payload.workspaceId)
             case .niri,
                  .defaultLayout:
-                var removedNodeIds = niriRemovalSeeds[payload.workspaceId]?.removedNodeIds ?? []
-                if let removedNodeId = payload.removedNodeId {
-                    removedNodeIds.append(removedNodeId)
-                }
-                let existingOldFrames = niriRemovalSeeds[payload.workspaceId]?.oldFrames ?? [:]
-                let mergedOldFrames = existingOldFrames.merging(payload.niriOldFrames) { current, _ in current }
-                niriRemovalSeeds[payload.workspaceId] = NiriWindowRemovalSeed(
-                    removedNodeIds: removedNodeIds,
-                    oldFrames: mergedOldFrames
-                )
+                break
             }
 
             if payload.shouldRecoverFocus {
@@ -1425,7 +1419,7 @@ import QuartzCore
         return EffectPlan(workspacePlans: workspacePlans, effects: effects)
     }
 
-    private func buildFullEffectPlan() async throws -> EffectPlan {
+    private func buildFullEffectPlan(removalPayloads: [WindowRemovalPayload]) async throws -> EffectPlan {
         guard let controller else { return .init() }
 
         let rescanSeq = controller.workspaceManager.worldSeq
@@ -1790,8 +1784,9 @@ import QuartzCore
 
         try Task.checkCancellation()
 
-        let activeWorkspaceIds = currentActiveWorkspaceIds()
-        let (niriWorkspaces, dwindleWorkspaces) = partitionWorkspacesByLayoutType(activeWorkspaceIds)
+        let niriRemovalSeeds = makeNiriRemovalSeeds(from: removalPayloads)
+        let layoutWorkspaceIds = currentActiveWorkspaceIds().union(removalPayloads.map(\.workspaceId))
+        let (niriWorkspaces, dwindleWorkspaces) = partitionWorkspacesByLayoutType(layoutWorkspaceIds)
 
         let workspacePlans = buildWorkspacePlansInBatch {
             var plans: [WorkspaceLayoutPlan] = []
@@ -1799,7 +1794,8 @@ import QuartzCore
             if !niriWorkspaces.isEmpty {
                 plans.append(contentsOf: self.niriHandler.layoutWithNiriEngine(
                     activeWorkspaces: niriWorkspaces,
-                    useScrollAnimationPath: false
+                    useScrollAnimationPath: false,
+                    removalSeeds: niriRemovalSeeds
                 ))
             }
             if !dwindleWorkspaces.isEmpty {
@@ -2050,6 +2046,10 @@ import QuartzCore
         }
 
         let existingAffectedWorkspaceIds = pendingRefresh.affectedWorkspaceIds
+        let windowRemovalPayloads = mergeWindowRemovalPayloads(
+            pendingRefresh.windowRemovalPayloads,
+            with: refresh.windowRemovalPayloads
+        )
         let suppressesWindowActivation = pendingRefresh.suppressesWindowActivation
             || refresh.suppressesWindowActivation
 
@@ -2083,10 +2083,6 @@ import QuartzCore
             pendingRefresh = upgradedRefresh
         case (.windowRemoval, .windowRemoval):
             pendingRefresh.reason = refresh.reason
-            pendingRefresh.windowRemovalPayloads = mergeWindowRemovalPayloads(
-                pendingRefresh.windowRemovalPayloads,
-                with: refresh.windowRemovalPayloads
-            )
             pendingRefresh.postLayoutActions.append(contentsOf: refresh.postLayoutActions)
             mergeAbsorbedVisibility(into: &pendingRefresh, from: refresh)
         case (.windowRemoval, .immediateRelayout):
@@ -2189,6 +2185,7 @@ import QuartzCore
             pendingRefresh.affectedWorkspaceIds,
             refresh.affectedWorkspaceIds
         )
+        pendingRefresh.windowRemovalPayloads = windowRemovalPayloads
         pendingRefresh.suppressesWindowActivation = suppressesWindowActivation
 
         layoutState.pendingRefresh = pendingRefresh
@@ -2384,12 +2381,15 @@ import QuartzCore
             pendingRefresh.reason = refresh.reason
         }
 
-        if refresh.kind == .windowRemoval, !refresh.windowRemovalPayloads.isEmpty {
+        if !refresh.windowRemovalPayloads.isEmpty {
             pendingRefresh.windowRemovalPayloads = mergeWindowRemovalPayloads(
                 refresh.windowRemovalPayloads,
                 with: pendingRefresh.windowRemovalPayloads
             )
-            if pendingRefresh.kind != .fullRescan, pendingRefresh.kind != .windowRemoval {
+            if refresh.kind == .windowRemoval,
+               pendingRefresh.kind != .fullRescan,
+               pendingRefresh.kind != .windowRemoval
+            {
                 pendingRefresh.kind = .windowRemoval
                 pendingRefresh.reason = refresh.reason
             }

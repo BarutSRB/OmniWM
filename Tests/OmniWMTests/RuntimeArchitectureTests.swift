@@ -2340,6 +2340,7 @@ final class RuntimeArchitectureTests: XCTestCase {
                 workspaceId: workspaceId,
                 layoutType: .niri,
                 removedNodeId: nil,
+                removedNiriColumn: false,
                 niriOldFrames: [:],
                 shouldRecoverFocus: false,
                 allowsPreferredRecoveryToken: false
@@ -4486,6 +4487,149 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testNiriTrailingColumnRemovalCorrectsViewportWhenClosingWindowOwnsFocus() async throws {
+        try await Self.assertNiriTrailingColumnRemovalCorrectsViewport(focusTarget: .closing)
+    }
+
+    @MainActor
+    func testNiriTrailingColumnRemovalCorrectsViewportAfterFocusMovesToNeighbor() async throws {
+        try await Self.assertNiriTrailingColumnRemovalCorrectsViewport(focusTarget: .neighbor)
+    }
+
+    @MainActor
+    func testNiriStackedTileRemovalPreservesViewport() async throws {
+        let controller = Self.controller()
+        let monitor = Monitor(
+            id: .init(displayId: 98_801),
+            displayId: 98_801,
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 860),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 860),
+            hasNotch: false,
+            name: "Stacked Removal"
+        )
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        controller.motionPolicy.animationsEnabled = false
+        controller.workspaceManager.setGaps(to: 8)
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+
+        let tokens = Self.addNiriRuntimeWindows(
+            count: 3,
+            pidBase: 978_010,
+            windowBase: 978_110,
+            to: workspaceId,
+            controller: controller
+        )
+        let engine = try XCTUnwrap(controller.niriEngine)
+        Self.seedNiriEngineColumns(
+            tokens: tokens,
+            workspaceId: workspaceId,
+            engine: engine,
+            columnWidth: 700,
+            tabbedColumnIndex: -1
+        )
+
+        let selectedNode = try XCTUnwrap(engine.findNode(for: tokens[1], in: workspaceId))
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        state.selectedNodeId = selectedNode.id
+        state.activeColumnIndex = 1
+        XCTAssertTrue(
+            controller.workspaceManager.withEngineMutationScope(in: workspaceId) {
+                engine.consumeWindowIntoColumn(
+                    focusedColumn: engine.columns(in: workspaceId)[1],
+                    in: workspaceId,
+                    motion: .disabled,
+                    state: &state,
+                    workingFrame: monitor.visibleFrame,
+                    gaps: 8
+                )
+            }
+        )
+
+        let stackedColumns = engine.columns(in: workspaceId)
+        XCTAssertEqual(stackedColumns.count, 2)
+        XCTAssertEqual(stackedColumns[1].windowNodes.count, 2)
+        XCTAssertEqual(Set(stackedColumns[1].windowNodes.map(\.token)), Set([tokens[1], tokens[2]]))
+        let activePosition = state.columnX(at: 1, columns: stackedColumns, gap: 8)
+        state.selectedNodeId = selectedNode.id
+        state.activeColumnIndex = 1
+        state.viewOffset = -8 - activePosition
+        _ = controller.workspaceManager.applySessionPatch(
+            WorkspaceSessionPatch(
+                workspaceId: workspaceId,
+                viewportState: state,
+                plannedSeq: controller.workspaceManager.worldSeq
+            )
+        )
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: selectedNode.id,
+            focusedToken: tokens[1],
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+        let stateBeforeRemoval = controller.workspaceManager.niriViewportState(for: workspaceId)
+
+        controller.axEventHandler.handleRemoved(token: tokens[2])
+        try Self.assertScheduledNiriRemoval(
+            controller,
+            workspaceId: workspaceId,
+            removedColumn: false
+        )
+        await Self.waitForRemovalRefresh(controller, removedToken: tokens[2])
+
+        let finalColumns = engine.columns(in: workspaceId)
+        let finalState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        XCTAssertEqual(finalColumns.count, 2)
+        XCTAssertEqual(finalColumns[1].windowNodes.map(\.token), [tokens[1]])
+        XCTAssertEqual(finalState.selectedNodeId, stateBeforeRemoval.selectedNodeId)
+        XCTAssertEqual(finalState.activeColumnIndex, stateBeforeRemoval.activeColumnIndex)
+        XCTAssertEqual(finalState.viewOffset, stateBeforeRemoval.viewOffset, accuracy: 0.001)
+        XCTAssertFalse(finalState.hasPendingOffsetAnimation)
+    }
+
+    @MainActor
+    func testFullRescanMergePreservesNiriColumnRemovalPayload() throws {
+        let controller = Self.controller()
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let blocker = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .relayout,
+            reason: .layoutCommand,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        controller.layoutRefreshController.layoutState.pendingRefresh = .init(
+            kind: .fullRescan,
+            reason: .startup
+        )
+        defer { controller.layoutRefreshController.resetState() }
+
+        controller.layoutRefreshController.requestWindowRemoval(
+            workspaceId: workspaceId,
+            layoutType: .niri,
+            removedNodeId: NodeId(),
+            removedNiriColumn: true,
+            niriOldFrames: [:],
+            shouldRecoverFocus: false
+        )
+
+        let pending = try XCTUnwrap(controller.layoutRefreshController.layoutState.pendingRefresh)
+        XCTAssertEqual(pending.kind, .fullRescan)
+        XCTAssertEqual(pending.windowRemovalPayloads.count, 1)
+        XCTAssertTrue(try XCTUnwrap(pending.windowRemovalPayloads.first).removedNiriColumn)
+    }
+
+    @MainActor
     func testWindowRemovalRecordsNoLayoutInvariantViolations() async throws {
         let controller = Self.controller()
         let ws = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
@@ -5218,6 +5362,149 @@ final class RuntimeArchitectureTests: XCTestCase {
             fullscreenLayoutFrame: monitor.visibleFrame,
             scale: 1,
             orientation: monitor.autoOrientation
+        )
+    }
+
+    private enum NiriRemovalFocusTarget {
+        case closing
+        case neighbor
+    }
+
+    @MainActor
+    private static func assertScheduledNiriRemoval(
+        _ controller: WMController,
+        workspaceId: WorkspaceDescriptor.ID,
+        removedColumn: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let layoutState = controller.layoutRefreshController.layoutState
+        let payloads = (layoutState.activeRefresh?.windowRemovalPayloads ?? [])
+            + (layoutState.pendingRefresh?.windowRemovalPayloads ?? [])
+        let payload = try XCTUnwrap(
+            payloads.last { $0.workspaceId == workspaceId },
+            file: file,
+            line: line
+        )
+        XCTAssertNotNil(payload.removedNodeId, file: file, line: line)
+        XCTAssertEqual(payload.removedNiriColumn, removedColumn, file: file, line: line)
+    }
+
+    @MainActor
+    private static func assertNiriTrailingColumnRemovalCorrectsViewport(
+        focusTarget: NiriRemovalFocusTarget,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let controller = Self.controller(file: file, line: line)
+        let monitor = Monitor(
+            id: .init(displayId: 98_800),
+            displayId: 98_800,
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 860),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 860),
+            hasNotch: false,
+            name: "Trailing Removal"
+        )
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true),
+            file: file,
+            line: line
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        controller.motionPolicy.animationsEnabled = false
+        controller.workspaceManager.setGaps(to: 8)
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+
+        let tokens = Self.addNiriRuntimeWindows(
+            count: 3,
+            pidBase: 978_000,
+            windowBase: 978_100,
+            to: workspaceId,
+            controller: controller
+        )
+        let engine = try XCTUnwrap(controller.niriEngine, file: file, line: line)
+        Self.seedNiriEngineColumns(
+            tokens: tokens,
+            workspaceId: workspaceId,
+            engine: engine,
+            columnWidth: 700,
+            tabbedColumnIndex: -1
+        )
+
+        let columns = engine.columns(in: workspaceId)
+        let closingNode = try XCTUnwrap(
+            engine.findNode(for: tokens[2], in: workspaceId),
+            file: file,
+            line: line
+        )
+        let neighborNode = try XCTUnwrap(
+            engine.findNode(for: tokens[1], in: workspaceId),
+            file: file,
+            line: line
+        )
+        let selectedNode = focusTarget == .closing ? closingNode : neighborNode
+        let selectedToken = focusTarget == .closing ? tokens[2] : tokens[1]
+        let selectedColumnIndex = focusTarget == .closing ? 2 : 1
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        let totalSpan = state.totalSpan(
+            containers: columns,
+            gap: gap,
+            sizeKeyPath: \.cachedWidth
+        )
+        let trailingOrigin = totalSpan - monitor.visibleFrame.width + gap
+        let selectedColumnPosition = state.columnX(
+            at: selectedColumnIndex,
+            columns: columns,
+            gap: gap
+        )
+        state.selectedNodeId = selectedNode.id
+        state.activeColumnIndex = selectedColumnIndex
+        state.viewOffset = trailingOrigin - selectedColumnPosition
+        _ = controller.workspaceManager.applySessionPatch(
+            WorkspaceSessionPatch(
+                workspaceId: workspaceId,
+                viewportState: state,
+                plannedSeq: controller.workspaceManager.worldSeq
+            )
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            selectedToken,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: selectedNode.id,
+            focusedToken: selectedToken,
+            in: workspaceId,
+            onMonitor: monitor.id
+        )
+
+        controller.axEventHandler.handleRemoved(token: tokens[2])
+        try Self.assertScheduledNiriRemoval(
+            controller,
+            workspaceId: workspaceId,
+            removedColumn: true,
+            file: file,
+            line: line
+        )
+        await Self.waitForRemovalRefresh(controller, removedToken: tokens[2])
+
+        let finalColumns = engine.columns(in: workspaceId)
+        let finalState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        let finalOrigin = finalState.viewPosPixels(columns: finalColumns, gap: gap)
+        XCTAssertEqual(finalColumns.count, 2, file: file, line: line)
+        XCTAssertNil(engine.findNode(for: tokens[2], in: workspaceId), file: file, line: line)
+        XCTAssertEqual(finalState.selectedNodeId, neighborNode.id, file: file, line: line)
+        XCTAssertEqual(finalOrigin, -gap, accuracy: 0.001, file: file, line: line)
+        XCTAssertFalse(finalState.hasPendingOffsetAnimation, file: file, line: line)
+        XCTAssertEqual(
+            controller.workspaceManager.invariantViolationCountsDump(),
+            "clean",
+            file: file,
+            line: line
         )
     }
 

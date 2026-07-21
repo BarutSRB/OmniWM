@@ -40,9 +40,12 @@ extension AXEventHandler {
 
         var oldFrames: [WindowToken: CGRect] = [:]
         var removedNodeId: NodeId?
+        var removedNiriColumn = false
         if layoutType != .dwindle, let engine = controller.niriEngine {
             oldFrames = engine.captureWindowFrames(in: workspaceId)
-            removedNodeId = engine.findNode(for: token, in: workspaceId)?.id
+            let node = engine.findNode(for: token, in: workspaceId)
+            removedNodeId = node?.id
+            removedNiriColumn = node.flatMap { engine.column(of: $0) }?.windowNodes.count == 1
         }
 
         clearTerminalFrameFailure(windowId: token.windowId)
@@ -66,6 +69,7 @@ extension AXEventHandler {
             workspaceId: workspaceId,
             layoutType: layoutType,
             removedNodeId: removedNodeId,
+            removedNiriColumn: removedNiriColumn,
             niriOldFrames: oldFrames,
             shouldRecoverFocus: policy.shouldRecoverFocus,
             allowsPreferredRecoveryToken: policy.allowsPreferredRecoveryToken

@@ -36,6 +36,7 @@ struct WorkspaceRefreshInput {
 struct NiriWindowRemovalSeed {
     let removedNodeIds: [NodeId]
     let oldFrames: [WindowToken: CGRect]
+    let removedColumn: Bool
 }
 
 struct NiriWorkspaceSnapshot {

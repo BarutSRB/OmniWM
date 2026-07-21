@@ -5,6 +5,33 @@ import Foundation
 
 @MainActor
 extension LayoutRefreshController {
+    func makeNiriRemovalSeeds(
+        from payloads: [WindowRemovalPayload]
+    ) -> [WorkspaceDescriptor.ID: NiriWindowRemovalSeed] {
+        var seeds: [WorkspaceDescriptor.ID: NiriWindowRemovalSeed] = [:]
+        for payload in payloads {
+            switch payload.layoutType {
+            case .dwindle:
+                continue
+            case .niri,
+                 .defaultLayout:
+                let existing = seeds[payload.workspaceId]
+                var removedNodeIds = existing?.removedNodeIds ?? []
+                if let removedNodeId = payload.removedNodeId {
+                    removedNodeIds.append(removedNodeId)
+                }
+                let mergedOldFrames = (existing?.oldFrames ?? [:])
+                    .merging(payload.niriOldFrames) { current, _ in current }
+                seeds[payload.workspaceId] = NiriWindowRemovalSeed(
+                    removedNodeIds: removedNodeIds,
+                    oldFrames: mergedOldFrames,
+                    removedColumn: existing?.removedColumn == true || payload.removedNiriColumn
+                )
+            }
+        }
+        return seeds
+    }
+
     static func shouldReadmitTrackedWindow(
         entry: WindowState,
         workspaceId: WorkspaceDescriptor.ID,
