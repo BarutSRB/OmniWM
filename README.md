@@ -33,6 +33,23 @@
       <sub>@siketyan</sub>
     </td>
     <td align="center" valign="top">
+      <a href="https://github.com/epam">
+        <img src="https://avatars.githubusercontent.com/u/1589802?v=4" width="72" alt="EPAM Systems">
+      </a>
+      <br>
+      <a href="https://github.com/epam"><strong>EPAM</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/Guria" title="Aleksei Gurianov">
+        <img src="https://github.com/Guria.png?size=96" width="72" alt="Aleksei Gurianov">
+      </a>
+      <br>
+      <a href="https://github.com/Guria"><strong>Aleksei Gurianov</strong></a>
+      <br>
+      <sub>@Guria</sub>
+    </td>
+    <td align="center" valign="top">
       <a href="https://github.com/github">
         <img src="https://avatars.githubusercontent.com/u/9919?v=4" width="72" alt="GitHub">
       </a>
@@ -120,6 +137,7 @@
   </tr>
 </table>
 
+
 ### ✨ All Contributors
 
 <table align="center">
@@ -130,6 +148,9 @@
       </a>
       <a href="https://github.com/albertilagan" title="Albert Ilagan">
         <img src="https://github.com/albertilagan.png?size=96" width="72" alt="Albert Ilagan">
+      </a>
+      <a href="https://github.com/Guria" title="Aleksei Gurianov">
+        <img src="https://github.com/Guria.png?size=96" width="72" alt="Aleksei Gurianov">
       </a>
       <a href="https://github.com/gloomy-breaker" title="Ayaan Sandhu">
         <img src="https://github.com/gloomy-breaker.png?size=96" width="72" alt="Ayaan Sandhu">
@@ -142,6 +163,9 @@
       </a>
       <a href="https://github.com/nekonora" title="Filippo Zaffoni">
         <img src="https://github.com/nekonora.png?size=96" width="72" alt="Filippo Zaffoni">
+      </a>
+      <a href="https://github.com/henry-p" title="Henry Perschk">
+        <img src="https://github.com/henry-p.png?size=96" width="72" alt="Henry Perschk">
       </a>
       <a href="https://github.com/janhesters" title="Jan Hesters">
         <img src="https://github.com/janhesters.png?size=96" width="72" alt="Jan Hesters">
@@ -167,8 +191,14 @@
       <a href="https://github.com/siketyan" title="Naoki Ikeguchi">
         <img src="https://github.com/siketyan.png?size=96" width="72" alt="Naoki Ikeguchi">
       </a>
+      <a href="https://github.com/t1dotdev" title="Panuphong Burakitphachai">
+        <img src="https://github.com/t1dotdev.png?size=96" width="72" alt="Panuphong Burakitphachai">
+      </a>
       <a href="https://github.com/georgebastille" title="Rich Hanes">
         <img src="https://github.com/georgebastille.png?size=96" width="72" alt="Rich Hanes">
+      </a>
+      <a href="https://github.com/1Pio" title="rPio">
+        <img src="https://github.com/1Pio.png?size=96" width="72" alt="rPio">
       </a>
       <a href="https://github.com/RyanHecht" title="Ryan Hecht">
         <img src="https://github.com/RyanHecht.png?size=96" width="72" alt="Ryan Hecht">
