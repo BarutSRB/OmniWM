@@ -466,17 +466,35 @@ final class WorkspaceDeletionEngineCleanupTests: XCTestCase {
         _ = engine.calculateLayout(for: workspaceA, screen: screen)
         _ = engine.calculateLayout(for: workspaceB, screen: screen)
         XCTAssertTrue(
-            engine.interactiveResizeBegin(token: tokenA1, edges: .right, startLocation: .zero, in: workspaceA)
+            engine.interactiveResizeBegin(
+                token: tokenA1,
+                edges: .right,
+                startLocation: .zero,
+                in: workspaceA,
+                innerGap: engine.settings.innerGap
+            )
         )
         XCTAssertFalse(
-            engine.interactiveResizeBegin(token: tokenB1, edges: .right, startLocation: .zero, in: workspaceB)
+            engine.interactiveResizeBegin(
+                token: tokenB1,
+                edges: .right,
+                startLocation: .zero,
+                in: workspaceB,
+                innerGap: engine.settings.innerGap
+            )
         )
 
         engine.removeLayout(for: workspaceA)
 
         XCTAssertNil(engine.interactiveResize)
         XCTAssertTrue(
-            engine.interactiveResizeBegin(token: tokenB1, edges: .right, startLocation: .zero, in: workspaceB)
+            engine.interactiveResizeBegin(
+                token: tokenB1,
+                edges: .right,
+                startLocation: .zero,
+                in: workspaceB,
+                innerGap: engine.settings.innerGap
+            )
         )
     }
 

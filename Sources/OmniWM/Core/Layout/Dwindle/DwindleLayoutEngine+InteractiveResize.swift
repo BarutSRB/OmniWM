@@ -9,6 +9,7 @@ struct DwindleInteractiveResize {
     let workspaceId: WorkspaceDescriptor.ID
     let edges: ResizeEdge
     let startMouseLocation: CGPoint
+    let innerGap: CGFloat
 
     let horizontalSplitId: DwindleNodeId?
     let horizontalChildId: DwindleNodeId?
@@ -28,7 +29,8 @@ extension DwindleLayoutEngine {
         token: WindowToken,
         edges: ResizeEdge,
         startLocation: CGPoint,
-        in workspaceId: WorkspaceDescriptor.ID
+        in workspaceId: WorkspaceDescriptor.ID,
+        innerGap: CGFloat
     ) -> Bool {
         guard interactiveResize == nil else { return false }
         guard let leaf = findNode(for: token, in: workspaceId), leaf.isLeaf, !leaf.isFullscreen else { return false }
@@ -42,6 +44,7 @@ extension DwindleLayoutEngine {
             workspaceId: workspaceId,
             edges: edges,
             startMouseLocation: startLocation,
+            innerGap: innerGap,
             horizontalSplitId: horizontal?.split.id,
             horizontalChildId: horizontal?.child.id,
             horizontalOriginRatio: horizontal?.split.splitRatio,
@@ -137,7 +140,11 @@ extension DwindleLayoutEngine {
             return false
         }
 
-        let newRatio = clampedRatioRespectingMinimums(originRatio + 2 * delta / axisLength, for: match.split)
+        let newRatio = clampedRatioRespectingMinimums(
+            originRatio + 2 * delta / axisLength,
+            for: match.split,
+            innerGap: resize.innerGap
+        )
         guard newRatio != match.split.splitRatio else { return false }
         match.split.kind = .split(orientation: axis, ratio: newRatio)
         return true

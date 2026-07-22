@@ -878,17 +878,20 @@ final class MouseEventHandler {
         else { return false }
 
         let edges = resizeEdges(for: location, in: frame)
-        let monitor = controller.workspaceManager.monitor(for: wsId)
-        if let monitor {
-            controller.dwindleLayoutHandler.refreshEngineConstraints(workspaceId: wsId, monitor: monitor)
-        }
-        guard engine.interactiveResizeBegin(token: token, edges: edges, startLocation: location, in: wsId) else {
+        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
+        controller.dwindleLayoutHandler.refreshEngineConstraints(workspaceId: wsId, monitor: monitor)
+        let innerGap = controller.settings.resolvedDwindleSettings(for: monitor).innerGap
+        guard engine.interactiveResizeBegin(
+            token: token,
+            edges: edges,
+            startLocation: location,
+            in: wsId,
+            innerGap: innerGap
+        ) else {
             return false
         }
 
-        if let monitor {
-            controller.layoutRefreshController.stopDwindleAnimation(for: monitor.displayId)
-        }
+        controller.layoutRefreshController.stopDwindleAnimation(for: monitor.displayId)
         engine.cancelAnimations(in: wsId)
         state.isResizing = true
         state.activeInteractionButton = button

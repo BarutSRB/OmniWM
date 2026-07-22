@@ -19,9 +19,11 @@ final class DwindleMinimumSizeTests: XCTestCase {
 
     private func makeTwoWindowEngine(
         firstMinWidth: CGFloat = 1,
-        secondMinWidth: CGFloat = 1
+        secondMinWidth: CGFloat = 1,
+        innerGap: CGFloat = 8
     ) -> (DwindleLayoutEngine, WorkspaceDescriptor.ID, WindowToken, WindowToken) {
         let engine = DwindleLayoutEngine()
+        engine.settings.innerGap = innerGap
         let ws = WorkspaceDescriptor.ID()
         let first = WindowToken(pid: 1, windowId: 1)
         let second = WindowToken(pid: 2, windowId: 2)
@@ -61,7 +63,15 @@ final class DwindleMinimumSizeTests: XCTestCase {
         let (engine, ws, first, second) = makeTwoWindowEngine(secondMinWidth: 300)
         let start = CGPoint(x: 500, y: 400)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: first, edges: [.right], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: first,
+                edges: [.right],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 5000, y: start.y)))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.392, accuracy: 1e-6)
 
@@ -71,6 +81,25 @@ final class DwindleMinimumSizeTests: XCTestCase {
         XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y)))
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
         XCTAssertTrue(engine.interactiveResizeEnd())
+    }
+
+    func testInteractiveDragUsesCapturedGap() {
+        let (engine, ws, first, _) = makeTwoWindowEngine(secondMinWidth: 300, innerGap: 4)
+        let start = CGPoint(x: 500, y: 400)
+
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: first,
+                edges: [.right],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
+        engine.settings.innerGap = 24
+
+        XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 5000, y: start.y)))
+        XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.396, accuracy: 1e-6)
     }
 
     func testInfeasibleMinsDegradeProportionallyAndResizeStops() {

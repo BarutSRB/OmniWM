@@ -23,7 +23,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         _ = engine.calculateLayout(for: ws, screen: screen)
         XCTAssertEqual(engine.root(for: ws)?.splitOrientation, .horizontal)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: left, edges: [.right], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: left,
+                edges: [.right],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y)))
 
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
@@ -37,7 +45,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         _ = engine.addWindow(token: right, to: ws, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: ws, screen: screen)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: left, edges: [.right], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: left,
+                edges: [.right],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 5000, y: start.y)))
 
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.9, accuracy: 1e-6)
@@ -53,7 +69,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         _ = engine.calculateLayout(for: ws, screen: screen)
         XCTAssertEqual(engine.root(for: ws)?.splitOrientation, .vertical)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: bottom, edges: [.top], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: bottom,
+                edges: [.top],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x, y: start.y + 80)))
 
         XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
@@ -76,7 +100,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         XCTAssertEqual(verticalSplit?.splitOrientation, .vertical)
         XCTAssertEqual(horizontalSplit?.splitOrientation, .horizontal)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: leaf1, edges: [.right, .top], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: leaf1,
+                edges: [.right, .top],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         XCTAssertTrue(
             engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y + 80))
         )
@@ -93,7 +125,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         _ = engine.addWindow(token: right, to: ws, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: ws, screen: screen)
 
-        XCTAssertFalse(engine.interactiveResizeBegin(token: left, edges: [.left], startLocation: start, in: ws))
+        XCTAssertFalse(
+            engine.interactiveResizeBegin(
+                token: left,
+                edges: [.left],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         XCTAssertNil(engine.interactiveResize)
     }
 
@@ -105,7 +145,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         _ = engine.addWindow(token: right, to: ws, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: ws, screen: screen)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: left, edges: [.right], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: left,
+                edges: [.right],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         XCTAssertFalse(engine.interactiveResizeEnd())
         XCTAssertNil(engine.interactiveResize)
     }
@@ -118,7 +166,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         _ = engine.addWindow(token: right, to: ws, activeWindowFrame: nil)
         _ = engine.calculateLayout(for: ws, screen: screen)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: left, edges: [.right], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: left,
+                edges: [.right],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
         engine.removeWindow(token: left, from: ws)
 
         XCTAssertFalse(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y)))
@@ -139,7 +195,15 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         XCTAssertEqual(innerSplit?.splitOrientation, .horizontal)
         XCTAssertNotEqual(innerSplit?.id, engine.root(for: ws)?.id)
 
-        XCTAssertTrue(engine.interactiveResizeBegin(token: leaf1, edges: [.right], startLocation: start, in: ws))
+        XCTAssertTrue(
+            engine.interactiveResizeBegin(
+                token: leaf1,
+                edges: [.right],
+                startLocation: start,
+                in: ws,
+                innerGap: engine.settings.innerGap
+            )
+        )
 
         engine.removeWindow(token: outer, from: ws)
         let collapsedRoot = engine.root(for: ws)

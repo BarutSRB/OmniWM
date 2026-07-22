@@ -984,6 +984,20 @@ final class DwindleLayoutEngine {
         boundaryEdges: ResizeEdge,
         cached: Bool
     ) -> CGSize {
+        computeMinSizeForSubtree(
+            node,
+            boundaryEdges: boundaryEdges,
+            cached: cached,
+            innerGap: settings.innerGap
+        )
+    }
+
+    private func computeMinSizeForSubtree(
+        _ node: DwindleNode,
+        boundaryEdges: ResizeEdge,
+        cached: Bool,
+        innerGap: CGFloat
+    ) -> CGSize {
         if cached, let cachedMin = node.cachedMinSize {
             return cachedMin
         }
@@ -993,7 +1007,7 @@ final class DwindleLayoutEngine {
         case let .leaf(tile):
             if let tile {
                 var minSize = minimumSize(for: tile)
-                let inset = settings.innerGap / 2
+                let inset = innerGap / 2
                 if !boundaryEdges.contains(.left) { minSize.width += inset }
                 if !boundaryEdges.contains(.right) { minSize.width += inset }
                 if !boundaryEdges.contains(.top) { minSize.height += inset }
@@ -1010,8 +1024,18 @@ final class DwindleLayoutEngine {
             }
 
             let childEdges = splitChildBoundaryEdges(boundaryEdges, orientation: orientation)
-            let firstMin = computeMinSizeForSubtree(first, boundaryEdges: childEdges.first, cached: cached)
-            let secondMin = computeMinSizeForSubtree(second, boundaryEdges: childEdges.second, cached: cached)
+            let firstMin = computeMinSizeForSubtree(
+                first,
+                boundaryEdges: childEdges.first,
+                cached: cached,
+                innerGap: innerGap
+            )
+            let secondMin = computeMinSizeForSubtree(
+                second,
+                boundaryEdges: childEdges.second,
+                cached: cached,
+                innerGap: innerGap
+            )
 
             switch orientation {
             case .horizontal:
@@ -1063,7 +1087,7 @@ final class DwindleLayoutEngine {
         return edges
     }
 
-    private func feasibleRatioRange(for split: DwindleNode) -> ClosedRange<CGFloat>? {
+    private func feasibleRatioRange(for split: DwindleNode, innerGap: CGFloat) -> ClosedRange<CGFloat>? {
         guard case let .split(orientation, _) = split.kind,
               let rect = split.cachedFrame,
               let first = split.firstChild(),
@@ -1073,8 +1097,18 @@ final class DwindleLayoutEngine {
         }
 
         let childEdges = splitChildBoundaryEdges(tilingBoundaryEdges(of: split), orientation: orientation)
-        let firstMinSize = computeMinSizeForSubtree(first, boundaryEdges: childEdges.first, cached: false)
-        let secondMinSize = computeMinSizeForSubtree(second, boundaryEdges: childEdges.second, cached: false)
+        let firstMinSize = computeMinSizeForSubtree(
+            first,
+            boundaryEdges: childEdges.first,
+            cached: false,
+            innerGap: innerGap
+        )
+        let secondMinSize = computeMinSizeForSubtree(
+            second,
+            boundaryEdges: childEdges.second,
+            cached: false,
+            innerGap: innerGap
+        )
 
         let firstMin: CGFloat
         let secondMin: CGFloat
@@ -1102,7 +1136,15 @@ final class DwindleLayoutEngine {
     }
 
     func clampedRatioRespectingMinimums(_ ratio: CGFloat, for split: DwindleNode) -> CGFloat {
-        guard let range = feasibleRatioRange(for: split) else {
+        clampedRatioRespectingMinimums(ratio, for: split, innerGap: settings.innerGap)
+    }
+
+    func clampedRatioRespectingMinimums(
+        _ ratio: CGFloat,
+        for split: DwindleNode,
+        innerGap: CGFloat
+    ) -> CGFloat {
+        guard let range = feasibleRatioRange(for: split, innerGap: innerGap) else {
             return split.splitRatio ?? settings.clampedRatio(ratio)
         }
         return min(max(ratio, range.lowerBound), range.upperBound)
