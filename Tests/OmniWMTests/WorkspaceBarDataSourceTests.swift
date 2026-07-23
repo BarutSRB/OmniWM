@@ -108,6 +108,9 @@ final class WorkspaceBarDataSourceTests: XCTestCase {
             mode: .tiling,
             to: fixture
         )
+        // Focus elsewhere so the empty policy, not the active-workspace carve-out, decides.
+        _ = try XCTUnwrap(fixture.workspaceManager.workspaceId(for: "2", createIfMissing: true))
+        _ = fixture.workspaceManager.focusWorkspace(named: "2")
 
         let visibleEmptyProjection = project(
             fixture,
@@ -127,6 +130,37 @@ final class WorkspaceBarDataSourceTests: XCTestCase {
         )
         XCTAssertFalse(hiddenEmptyProjection.items.contains { $0.id == fixture.workspaceId })
         XCTAssertEqual(fixture.workspaceManager.entry(for: token)?.workspaceId, fixture.workspaceId)
+    }
+
+    func testActiveWorkspaceStaysOnBarWhileEmptyWorkspacesAreHidden() throws {
+        let fixture = try makeFixture()
+        let occupiedId = try XCTUnwrap(
+            fixture.workspaceManager.workspaceId(for: "2", createIfMissing: true)
+        )
+        _ = addWindow(
+            token: WindowToken(pid: 47_001, windowId: 47_101),
+            bundleId: "com.example.retained",
+            mode: .tiling,
+            workspaceId: occupiedId,
+            workspaceManager: fixture.workspaceManager
+        )
+        let idleId = try XCTUnwrap(
+            fixture.workspaceManager.workspaceId(for: "3", createIfMissing: true)
+        )
+        // The fixture focuses "1", which holds no windows.
+        XCTAssertEqual(fixture.workspaceManager.activeWorkspace(on: fixture.monitor.id)?.id, fixture.workspaceId)
+
+        let projection = project(
+            fixture,
+            hideEmptyWorkspaces: true,
+            excludedBundleIDs: []
+        )
+
+        let activeItem = try XCTUnwrap(projection.items.first { $0.id == fixture.workspaceId })
+        XCTAssertTrue(activeItem.isFocused)
+        XCTAssertTrue(activeItem.windows.isEmpty)
+        XCTAssertTrue(projection.items.contains { $0.id == occupiedId })
+        XCTAssertFalse(projection.items.contains { $0.id == idleId })
     }
 
     func testExcludedScratchpadSuppressesOnlyItsBarPill() throws {
