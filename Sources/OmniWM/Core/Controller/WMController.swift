@@ -954,6 +954,7 @@ final class WMController {
             force: force
         )
         refreshHotkeyFailureSnapshots()
+        refreshDiagnosticsIssues()
     }
 
     private func refreshHotkeyFailureSnapshots() {
