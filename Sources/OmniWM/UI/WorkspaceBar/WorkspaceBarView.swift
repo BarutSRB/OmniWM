@@ -346,6 +346,8 @@ private struct WorkspaceItemView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
         .frame(height: itemHeight)
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .onTapGesture(perform: onFocusWorkspace)
         .background {
             if item.isFocused || isHovered {
                 RoundedRectangle(cornerRadius: cornerRadius)
