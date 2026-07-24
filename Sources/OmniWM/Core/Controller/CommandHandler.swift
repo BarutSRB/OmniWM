@@ -262,6 +262,26 @@ final class CommandHandler {
             engine: engine,
             fallbackWorkspaceId: wsId
         )
+        if let anchor {
+            _ = controller.workspaceManager.rememberFocus(
+                anchor.token,
+                in: anchor.workspaceId
+            )
+            if let nodeId = anchor.nodeId {
+                controller.workspaceManager.withEngineMutationScope {
+                    engine.updateFocusTimestamp(for: nodeId, in: anchor.workspaceId)
+                }
+            }
+            if let target = controller.workspaceManager.mostRecentlyFocusedTiledToken(excluding: anchor.token),
+               let targetWorkspaceId = controller.workspaceManager.entry(for: target)?.workspaceId,
+               controller.windowActionHandler.navigateToWindowInternal(
+                   token: target,
+                   workspaceId: targetWorkspaceId
+               )
+            {
+                return
+            }
+        }
         if focusGloballyPreviousNiriWindowIfNeeded(
             controller: controller,
             engine: engine,
@@ -334,10 +354,11 @@ final class CommandHandler {
     private func focusGloballyPreviousNiriWindowIfNeeded(
         controller: WMController,
         engine: NiriLayoutEngine,
-        anchor: (workspaceId: WorkspaceDescriptor.ID, nodeId: NodeId)?
+        anchor: FocusHistoryAnchor?
     ) -> Bool {
         guard let anchor,
-              let target = engine.findMostRecentlyFocusedWindow(excluding: anchor.nodeId, in: nil),
+              let nodeId = anchor.nodeId,
+              let target = engine.findMostRecentlyFocusedWindow(excluding: nodeId, in: nil),
               let targetWorkspaceId = controller.workspaceManager.entry(for: target.token)?.workspaceId,
               targetWorkspaceId != anchor.workspaceId
         else {
@@ -345,8 +366,8 @@ final class CommandHandler {
         }
 
         controller.workspaceManager.withEngineMutationScope {
-            engine.updateFocusTimestamp(for: anchor.nodeId, in: anchor.workspaceId)
-            engine.activateWindow(anchor.nodeId, in: anchor.workspaceId)
+            engine.updateFocusTimestamp(for: nodeId, in: anchor.workspaceId)
+            engine.activateWindow(nodeId, in: anchor.workspaceId)
         }
         controller.windowActionHandler.navigateToWindowInternal(
             token: target.token,
@@ -359,23 +380,41 @@ final class CommandHandler {
         controller: WMController,
         engine: NiriLayoutEngine,
         fallbackWorkspaceId: WorkspaceDescriptor.ID
-    ) -> (workspaceId: WorkspaceDescriptor.ID, nodeId: NodeId)? {
+    ) -> FocusHistoryAnchor? {
         let frontmostPid = frontmostAppPidProvider?()
             ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
         let observedToken = frontmostFocusedWindowTokenProvider?()
             ?? frontmostPid.flatMap { controller.axEventHandler.focusedWindowToken(for: $0) }
 
         if let observedToken,
-           let entry = controller.workspaceManager.entry(for: observedToken),
-           let node = engine.findNode(for: observedToken, in: entry.workspaceId)
+           let entry = controller.workspaceManager.entry(for: observedToken)
         {
-            return (entry.workspaceId, node.id)
+            return FocusHistoryAnchor(
+                workspaceId: entry.workspaceId,
+                token: observedToken,
+                nodeId: engine.findNode(for: observedToken, in: entry.workspaceId)?.id
+            )
         }
 
         let selectedNodeId = controller.workspaceManager
             .niriViewportState(for: fallbackWorkspaceId)
             .selectedNodeId
-        return selectedNodeId.map { (fallbackWorkspaceId, $0) }
+        guard let selectedNodeId,
+              let node = engine.findNode(by: selectedNodeId, in: fallbackWorkspaceId) as? NiriWindow
+        else {
+            return nil
+        }
+        return FocusHistoryAnchor(
+            workspaceId: fallbackWorkspaceId,
+            token: node.token,
+            nodeId: node.id
+        )
+    }
+
+    private struct FocusHistoryAnchor {
+        let workspaceId: WorkspaceDescriptor.ID
+        let token: WindowToken
+        let nodeId: NodeId?
     }
 
     private func focusDownOrLeftInNiri() {

@@ -953,7 +953,6 @@ enum ActionCatalog {
              .setColumnWidth,
              .setWindowWidth,
              .setWindowHeight,
-             .focusPrevious,
              .focusDownOrLeft,
              .focusUpOrRight,
              .focusWindowInColumn,
@@ -971,6 +970,7 @@ enum ActionCatalog {
             .niri
 
         case .focus,
+             .focusPrevious,
              .moveWindowDown,
              .moveWindowUp,
              .focusWindowDownOrTop,
