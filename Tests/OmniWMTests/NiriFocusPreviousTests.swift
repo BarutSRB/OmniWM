@@ -138,6 +138,33 @@ final class NiriFocusPreviousTests: XCTestCase {
         XCTAssertEqual(frontedTokens, [fixture.tokenA])
     }
 
+    func testCommandFocusPreviousUsesFrontmostManagedWindowWhenSelectionIsStale() throws {
+        var frontedTokens: [WindowToken] = []
+        let fixture = try makeCommandFixture { pid, windowId, _ in
+            frontedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+        }
+        let blocker = blockLayoutRefresh(fixture.controller, workspaceId: fixture.workspaceB)
+        defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
+        fixture.controller.commandHandler.frontmostAppPidProvider = { fixture.tokenA.pid }
+        fixture.controller.commandHandler.frontmostFocusedWindowTokenProvider = { fixture.tokenA }
+
+        XCTAssertEqual(
+            fixture.controller.commandHandler.handleHotkeyCommand(.focusPrevious),
+            .executed
+        )
+        XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.workspaceB)
+        XCTAssertGreaterThan(
+            fixture.nodeA.lastFocusedTime ?? .distantPast,
+            fixture.nodeB.lastFocusedTime ?? .distantPast
+        )
+
+        let postLayout = try XCTUnwrap(
+            fixture.controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
+        )
+        postLayout.runIfCurrent(using: fixture.controller.workspaceManager)
+        XCTAssertEqual(frontedTokens, [fixture.nodeB.token])
+    }
+
     func testCommandFocusPreviousCompletesAfterTargetLayoutInvalidation() throws {
         var frontedTokens: [WindowToken] = []
         let fixture = try makeCommandFixture { pid, windowId, _ in
