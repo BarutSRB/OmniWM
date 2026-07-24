@@ -863,7 +863,7 @@ final class WorkspaceManager {
 
     func mostRecentlyFocusedTiledToken(excluding token: WindowToken) -> WindowToken? {
         world.focus.tiledFocusHistory.first { candidate in
-            candidate != token && windowMode(for: candidate) == .tiling && entry(for: candidate) != nil
+            candidate != token && (windowMode(for: candidate) ?? .tiling) == .tiling && entry(for: candidate) != nil
         }
     }
 

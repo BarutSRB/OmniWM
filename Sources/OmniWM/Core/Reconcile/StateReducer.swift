@@ -257,9 +257,7 @@ enum StateReducer {
 
         case let .focusRemembered(token, workspaceId, mode, _):
             var focusSession = currentSnapshot.focusSession
-            let remembered = focusSession.rememberFocus(token, in: workspaceId, mode: mode)
-            let recorded = mode == .tiling && focusSession.recordTiledFocus(token)
-            if remembered || recorded {
+            if focusSession.rememberFocus(token, in: workspaceId, mode: mode) {
                 plan.focusSession = focusSession
             }
 
@@ -478,7 +476,7 @@ enum StateReducer {
         }
         focusSession.focusedToken = token
         focusSession.pendingManagedFocus = .empty
-        if mode == .tiling {
+        if mode != .floating {
             _ = focusSession.recordTiledFocus(token)
         }
         if focusSession.interactionMonitorId != monitorId {

@@ -281,6 +281,14 @@ final class CommandHandler {
             {
                 return
             }
+            if anchor.representsCurrentFocus {
+                _ = focusGloballyPreviousNiriWindowIfNeeded(
+                    controller: controller,
+                    engine: engine,
+                    anchor: anchor
+                )
+                return
+            }
         }
         if focusGloballyPreviousNiriWindowIfNeeded(
             controller: controller,
@@ -392,7 +400,19 @@ final class CommandHandler {
             return FocusHistoryAnchor(
                 workspaceId: entry.workspaceId,
                 token: observedToken,
-                nodeId: engine.findNode(for: observedToken, in: entry.workspaceId)?.id
+                nodeId: engine.findNode(for: observedToken, in: entry.workspaceId)?.id,
+                representsCurrentFocus: true
+            )
+        }
+
+        if let token = controller.workspaceManager.focusedToken,
+           let entry = controller.workspaceManager.entry(for: token)
+        {
+            return FocusHistoryAnchor(
+                workspaceId: entry.workspaceId,
+                token: token,
+                nodeId: engine.findNode(for: token, in: entry.workspaceId)?.id,
+                representsCurrentFocus: true
             )
         }
 
@@ -407,7 +427,8 @@ final class CommandHandler {
         return FocusHistoryAnchor(
             workspaceId: fallbackWorkspaceId,
             token: node.token,
-            nodeId: node.id
+            nodeId: node.id,
+            representsCurrentFocus: false
         )
     }
 
@@ -415,6 +436,7 @@ final class CommandHandler {
         let workspaceId: WorkspaceDescriptor.ID
         let token: WindowToken
         let nodeId: NodeId?
+        let representsCurrentFocus: Bool
     }
 
     private func focusDownOrLeftInNiri() {
