@@ -569,10 +569,13 @@ final class WorkspaceNavigationHandler {
     func switchWorkspace(rawWorkspaceID: String) {
         guard let controller else { return }
         let currentWorkspace = controller.activeWorkspace()
-        if let currentWorkspace,
-           currentWorkspace.name == rawWorkspaceID
-        {
-            return
+        if let currentWorkspace, currentWorkspace.name == rawWorkspaceID {
+            // Mouse Warp can move the interaction monitor without transferring keyboard focus.
+            let nativeFocusWorkspaceId = controller.workspaceManager.nativeManagedFocusToken
+                .flatMap { controller.workspaceManager.workspace(for: $0) }
+            if nativeFocusWorkspaceId == nil || nativeFocusWorkspaceId == currentWorkspace.id {
+                return
+            }
         }
 
         if let currentWorkspace {

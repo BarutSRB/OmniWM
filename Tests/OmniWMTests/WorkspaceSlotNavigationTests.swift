@@ -60,6 +60,130 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         XCTAssertEqual(fixture.manager.activeWorkspace(on: fixture.monitorA.id)?.id, fixture.workspace3)
     }
 
+    func testWorkspaceShortcutTransfersFocusAfterMouseWarp() throws {
+        var focusedWindowIds: [UInt32] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in }
+            )
+        )
+        let controller = fixture.controller
+        let manager = fixture.manager
+        controller.settings.mouseWarpEnabled = true
+        controller.settings.mouseWarpMargin = 2
+        controller.settings.cursorContainmentEnabled = false
+        controller.settings.monitorRoutingMode = .macOS
+        controller.setFocusFollowsMouse(false)
+        controller.setMoveMouseToFocusedWindow(false)
+
+        let browser = addFocusedWindow(to: fixture.workspace2, in: fixture, pid: 473_002, windowId: 12)
+        let terminal = addFocusedWindow(to: fixture.workspace1, in: fixture)
+        controller.layoutRefreshController.resetState()
+        let visibleWorkspaces = manager.activeVisibleWorkspaceMap()
+
+        let warpHandler = controller.mouseWarpHandler
+        var warpCalls = 0
+        warpHandler.activeDisplayBounds = { _ in .infinite }
+        warpHandler.warpCursor = { _ in
+            warpCalls += 1
+            return .success
+        }
+        warpHandler.postMouseMovedEvent = { _ in }
+        defer {
+            warpHandler.resetTransientState()
+            controller.layoutRefreshController.resetState()
+        }
+
+        controller.mouseEventHandler.dispatchMouseMoved(at: CGPoint(
+            x: fixture.monitorA.frame.maxX - 1,
+            y: fixture.monitorA.frame.midY
+        ))
+
+        XCTAssertEqual(warpCalls, 1)
+        XCTAssertEqual(manager.interactionMonitorId, fixture.monitorB.id)
+        XCTAssertEqual(controller.activeWorkspace()?.id, fixture.workspace2)
+        XCTAssertEqual(manager.nativeManagedFocusToken, terminal)
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+
+        let blocker = Task { @MainActor in }
+        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .workspaceTransition,
+            affectedWorkspaceIds: [fixture.workspace1]
+        )
+
+        XCTAssertEqual(controller.commandHandler.performCommand(.switchWorkspace(1)), .executed)
+        let actions = try XCTUnwrap(
+            controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions
+        )
+        XCTAssertEqual(actions.count, 1)
+        for action in actions {
+            XCTAssertTrue(action.isCurrent(using: manager))
+            action.runIfCurrent(using: manager)
+        }
+
+        XCTAssertEqual(focusedWindowIds, [UInt32(browser.windowId)])
+        let request = try XCTUnwrap(controller.intentLedger.activeManagedRequest)
+        XCTAssertEqual(request.token, browser)
+        XCTAssertEqual(request.workspaceId, fixture.workspace2)
+        XCTAssertEqual(manager.activeVisibleWorkspaceMap(), visibleWorkspaces)
+    }
+
+    func testWorkspaceShortcutIsNoOpWhenWorkspaceHasNativeFocus() throws {
+        let fixture = try makeFixture()
+        let terminal = addFocusedWindow(to: fixture.workspace1, in: fixture)
+        fixture.controller.layoutRefreshController.resetState()
+        defer { fixture.controller.layoutRefreshController.resetState() }
+
+        fixture.navigation.switchWorkspace(index: 0)
+
+        XCTAssertEqual(fixture.manager.nativeManagedFocusToken, terminal)
+        XCTAssertNil(fixture.controller.intentLedger.activeManagedRequest)
+        XCTAssertNil(fixture.controller.layoutRefreshController.layoutState.pendingRefresh)
+        XCTAssertNil(fixture.controller.layoutRefreshController.layoutState.activeRefreshTask)
+    }
+
+    func testWorkspaceShortcutIsNoOpWhenNoManagedWindowHasNativeFocus() throws {
+        var focusedWindowIds: [UInt32] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in }
+            )
+        )
+        let controller = fixture.controller
+        let manager = fixture.manager
+        _ = addFocusedWindow(to: fixture.workspace1, in: fixture)
+        XCTAssertTrue(manager.recordExternalFocus(pid: 473_900, windowId: 90))
+        XCTAssertNil(manager.nativeManagedFocusToken)
+        controller.layoutRefreshController.resetState()
+        defer { controller.layoutRefreshController.resetState() }
+
+        fixture.navigation.switchWorkspace(index: 0)
+
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+        XCTAssertTrue(manager.nativeFocusOwner.isExternal)
+        XCTAssertNil(controller.intentLedger.activeManagedRequest)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.activeRefreshTask)
+
+        XCTAssertTrue(manager.clearNativeFocusOwner())
+        XCTAssertEqual(manager.nativeFocusOwner, .none)
+        controller.layoutRefreshController.resetState()
+
+        fixture.navigation.switchWorkspace(index: 0)
+
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+        XCTAssertEqual(manager.nativeFocusOwner, .none)
+        XCTAssertNil(controller.intentLedger.activeManagedRequest)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
+        XCTAssertNil(controller.layoutRefreshController.layoutState.activeRefreshTask)
+    }
+
     func testMoveFocusedWindowToSlotUsesInteractionMonitorOrder() throws {
         let fixture = try makeFixture()
         defer { fixture.controller.layoutRefreshController.resetState() }
@@ -104,11 +228,16 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         XCTAssertEqual(fixture.manager.workspace(for: token), fixture.workspace1)
     }
 
-    private func addFocusedWindow(to workspaceId: WorkspaceDescriptor.ID, in fixture: Fixture) -> WindowToken {
+    private func addFocusedWindow(
+        to workspaceId: WorkspaceDescriptor.ID,
+        in fixture: Fixture,
+        pid: pid_t = 473_001,
+        windowId: Int = 11
+    ) -> WindowToken {
         let token = fixture.manager.addWindow(
-            AXWindowRef(element: AXUIElementCreateApplication(473_001), windowId: 11),
-            pid: 473_001,
-            windowId: 11,
+            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            pid: pid,
+            windowId: windowId,
             to: workspaceId
         )
         fixture.manager.withEngineMutationScope(in: workspaceId) {
@@ -119,7 +248,13 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         return token
     }
 
-    private func makeFixture() throws -> Fixture {
+    private func makeFixture(
+        windowFocusOperations: WindowFocusOperations = WindowFocusOperations(
+            activateApp: { _ in },
+            focusSpecificWindow: { _, _, _ in },
+            raiseWindow: { _ in }
+        )
+    ) throws -> Fixture {
         let monitorA = makeMonitor(displayId: 473_100, name: "A", frame: CGRect(x: 0, y: 0, width: 1000, height: 800))
         let monitorB = makeMonitor(
             displayId: 473_101,
@@ -164,11 +299,7 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         ]
         let controller = WMController(
             settings: settings,
-            windowFocusOperations: WindowFocusOperations(
-                activateApp: { _ in },
-                focusSpecificWindow: { _, _, _ in },
-                raiseWindow: { _ in }
-            )
+            windowFocusOperations: windowFocusOperations
         )
         let niriEngine = NiriLayoutEngine()
         niriEngine.animationClock = controller.animationClock
