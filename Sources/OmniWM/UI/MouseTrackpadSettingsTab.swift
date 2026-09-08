@@ -23,6 +23,7 @@ struct MouseTrackpadSettingsTab: View {
         Form {
             niriColumnScrollingSection
             workspaceSwipeSection
+            overviewGestureSection
             trackpadDirectionSection
             mouseMoveAndResizeSection
             focusFollowsMouseSection
@@ -127,6 +128,24 @@ struct MouseTrackpadSettingsTab: View {
                             "Opens System Settings. Select More Gestures, then turn off Mission Control."
                         )
                 }
+            }
+        }
+    }
+
+    private var overviewGestureSection: some View {
+        Section("Overview Gesture") {
+            Toggle("Enable Overview Gesture", isOn: $settings.overviewGestureEnabled)
+            Picker("Gesture Fingers", selection: $settings.overviewGestureFingerCount) {
+                Text("3 Fingers").tag(OverviewGestureFingerCount.three)
+                Text("4 Fingers").tag(OverviewGestureFingerCount.four)
+            }
+            .disabled(!settings.overviewGestureEnabled)
+            SettingsCaption(
+                "Swipe up to open Overview. Lift all fingers before repeating. Use a finger count not already assigned to another vertical gesture."
+            )
+            if settings.overviewGestureEnabled, missionControlGestureProbe.status == .enabled {
+                SettingsCaption("Disable the matching Mission Control gesture in macOS Trackpad settings.")
+                Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
             }
         }
     }

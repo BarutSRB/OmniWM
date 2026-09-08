@@ -449,9 +449,10 @@ final class SettingsStore {
         didSet {
             guard oldValue != scrollGestureEnabled else { return }
             if !isApplyingExport,
-               (oldValue || workspaceSwipeEnabled) != (scrollGestureEnabled || workspaceSwipeEnabled)
+               (oldValue || workspaceSwipeEnabled || overviewGestureEnabled) !=
+               trackpadGesturesEnabled
             {
-                onTrackpadGestureAvailabilityChanged?(scrollGestureEnabled || workspaceSwipeEnabled)
+                onTrackpadGestureAvailabilityChanged?(trackpadGesturesEnabled)
             }
             scheduleSave()
         }
@@ -496,9 +497,10 @@ final class SettingsStore {
         didSet {
             guard oldValue != workspaceSwipeEnabled else { return }
             if !isApplyingExport,
-               (scrollGestureEnabled || oldValue) != (scrollGestureEnabled || workspaceSwipeEnabled)
+               (scrollGestureEnabled || oldValue || overviewGestureEnabled) !=
+               trackpadGesturesEnabled
             {
-                onTrackpadGestureAvailabilityChanged?(scrollGestureEnabled || workspaceSwipeEnabled)
+                onTrackpadGestureAvailabilityChanged?(trackpadGesturesEnabled)
             }
             scheduleSave()
         }
@@ -510,6 +512,26 @@ final class SettingsStore {
 
     var workspaceSwipeAxis = SettingsStore.defaultExport.workspaceSwipeAxis {
         didSet { scheduleSave() }
+    }
+
+    var overviewGestureEnabled = SettingsStore.defaultExport.overviewGestureEnabled {
+        didSet {
+            guard oldValue != overviewGestureEnabled else { return }
+            if !isApplyingExport,
+               (scrollGestureEnabled || workspaceSwipeEnabled || oldValue) != trackpadGesturesEnabled
+            {
+                onTrackpadGestureAvailabilityChanged?(trackpadGesturesEnabled)
+            }
+            scheduleSave()
+        }
+    }
+
+    var overviewGestureFingerCount = SettingsStore.defaultExport.overviewGestureFingerCount {
+        didSet { scheduleSave() }
+    }
+
+    var trackpadGesturesEnabled: Bool {
+        scrollGestureEnabled || workspaceSwipeEnabled || overviewGestureEnabled
     }
 
     var workspaceSwipeAxisLockedToVertical: Bool {
@@ -836,6 +858,8 @@ final class SettingsStore {
             workspaceSwipeEnabled: workspaceSwipeEnabled,
             workspaceSwipeFingerCount: workspaceSwipeFingerCount,
             workspaceSwipeAxis: workspaceSwipeAxis,
+            overviewGestureEnabled: overviewGestureEnabled,
+            overviewGestureFingerCount: overviewGestureFingerCount,
             statusBarShowWorkspaceName: statusBarShowWorkspaceName,
             statusBarShowAppNames: statusBarShowAppNames,
             statusBarUseWorkspaceId: statusBarUseWorkspaceId,
@@ -863,11 +887,11 @@ final class SettingsStore {
 
     func applyExport(_ export: SettingsExport) {
         let baseline = SettingsStore.defaultExport
-        let trackpadGesturesWereAvailable = scrollGestureEnabled || workspaceSwipeEnabled
+        let trackpadGesturesWereAvailable = trackpadGesturesEnabled
         isApplyingExport = true
         defer {
             isApplyingExport = false
-            let trackpadGesturesAreAvailable = scrollGestureEnabled || workspaceSwipeEnabled
+            let trackpadGesturesAreAvailable = trackpadGesturesEnabled
             if trackpadGesturesWereAvailable != trackpadGesturesAreAvailable {
                 onTrackpadGestureAvailabilityChanged?(trackpadGesturesAreAvailable)
             }
@@ -998,6 +1022,8 @@ final class SettingsStore {
         workspaceSwipeEnabled = export.workspaceSwipeEnabled
         workspaceSwipeFingerCount = export.workspaceSwipeFingerCount
         workspaceSwipeAxis = export.workspaceSwipeAxis
+        overviewGestureEnabled = export.overviewGestureEnabled
+        overviewGestureFingerCount = export.overviewGestureFingerCount
         statusBarShowWorkspaceName = export.statusBarShowWorkspaceName
         statusBarShowAppNames = export.statusBarShowAppNames
         statusBarUseWorkspaceId = export.statusBarUseWorkspaceId

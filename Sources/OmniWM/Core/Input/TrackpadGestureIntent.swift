@@ -4,29 +4,40 @@
 import CoreGraphics
 
 enum TrackpadGestureMode: Equatable {
+    case overview
     case columnScroll
     case workspaceSwitch(axis: WorkspaceSwipeAxis)
 }
 
 enum TrackpadGestureIntent {
+    private static let overviewSwipeTriggerUnits: CGFloat = 24.0
+
+    static func overviewTriggered(translation: CGPoint) -> Bool {
+        translation.y >= overviewSwipeTriggerUnits && translation.y > abs(translation.x)
+    }
+
     struct Config: Equatable {
         var columnScrollEnabled: Bool
         var columnScrollFingerCount: Int
         var workspaceSwipeEnabled: Bool
         var workspaceSwipeFingerCount: Int
         var workspaceSwipeAxis: WorkspaceSwipeAxis
+        var overviewEnabled: Bool = false
+        var overviewFingerCount: Int = 4
     }
 
     static let workspaceSwipeTriggerUnits: CGFloat = 140.0
     static let workspaceSwipeReleaseVelocityFloor: Double = 800.0
 
     static func allowsGestureStart(_ config: Config, fingerCount: Int) -> Bool {
-        (config.columnScrollEnabled && fingerCount == config.columnScrollFingerCount)
+        (config.overviewEnabled && fingerCount == config.overviewFingerCount)
+            || (config.columnScrollEnabled && fingerCount == config.columnScrollFingerCount)
             || (config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount)
     }
 
     static func hasCandidateMode(_ config: Config, fingerCount: Int, columnContextAvailable: Bool) -> Bool {
-        (config.columnScrollEnabled && fingerCount == config.columnScrollFingerCount && columnContextAvailable)
+        (config.overviewEnabled && fingerCount == config.overviewFingerCount)
+            || (config.columnScrollEnabled && fingerCount == config.columnScrollFingerCount && columnContextAvailable)
             || (config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount)
     }
 
@@ -42,20 +53,22 @@ enum TrackpadGestureIntent {
         let columnCandidate = config.columnScrollEnabled
             && fingerCount == config.columnScrollFingerCount
             && columnContextAvailable
+        let workspaceCandidate = config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount
+        let workspaceAxis = columnCandidate
+            ? (columnScrollAxis == .horizontal ? WorkspaceSwipeAxis.vertical : .horizontal)
+            : config.workspaceSwipeAxis
+        if config.overviewEnabled, fingerCount == config.overviewFingerCount,
+           dominantAxis == .vertical, cumulativeY > 0,
+           !(columnCandidate && columnScrollAxis == .vertical),
+           !(workspaceCandidate && workspaceAxis == .vertical)
+        {
+            return .overview
+        }
         if columnCandidate, dominantAxis == columnScrollAxis {
             return .columnScroll
         }
-        guard config.workspaceSwipeEnabled, fingerCount == config.workspaceSwipeFingerCount else { return nil }
-        let axis = if columnCandidate {
-            switch columnScrollAxis {
-            case .horizontal: WorkspaceSwipeAxis.vertical
-            case .vertical: WorkspaceSwipeAxis.horizontal
-            }
-        } else {
-            config.workspaceSwipeAxis
-        }
-        guard axis == dominantAxis else { return nil }
-        return .workspaceSwitch(axis: axis)
+        guard workspaceCandidate, workspaceAxis == dominantAxis else { return nil }
+        return .workspaceSwitch(axis: workspaceAxis)
     }
 
     static func isNextWorkspace(

@@ -179,6 +179,7 @@ final class MouseEventHandler {
             let columnScrollCandidate: Bool
             let columnScrollAxis: WorkspaceSwipeAxis
             let workspaceAxis: WorkspaceSwipeAxis?
+            let overviewCandidate: Bool
         }
 
         enum GesturePhase {
@@ -434,7 +435,7 @@ final class MouseEventHandler {
 
     func reconcileMultitouchSource() {
         guard let controller, controller.hasStartedServices else { return }
-        let shouldRun = controller.settings.scrollGestureEnabled || controller.settings.workspaceSwipeEnabled
+        let shouldRun = controller.settings.trackpadGesturesEnabled
         if shouldRun {
             if let multitouchSource {
                 if !multitouchSource.startLifecycle() {
@@ -861,7 +862,7 @@ final class MouseEventHandler {
         }
 
         guard let controller, controller.isEnabled,
-              controller.settings.scrollGestureEnabled || controller.settings.workspaceSwipeEnabled
+              controller.settings.trackpadGesturesEnabled
         else {
             return false
         }
@@ -908,11 +909,13 @@ final class MouseEventHandler {
     private var trackpadGestureConfig: TrackpadGestureIntent.Config? {
         guard let settings = controller?.settings else { return nil }
         return TrackpadGestureIntent.Config(
-            columnScrollEnabled: settings.scrollGestureEnabled,
+            columnScrollEnabled: settings.scrollGestureEnabled && controller?.isOverviewOpen() != true,
             columnScrollFingerCount: settings.gestureFingerCount.rawValue,
-            workspaceSwipeEnabled: settings.workspaceSwipeEnabled,
+            workspaceSwipeEnabled: settings.workspaceSwipeEnabled && controller?.isOverviewOpen() != true,
             workspaceSwipeFingerCount: settings.workspaceSwipeFingerCount.rawValue,
-            workspaceSwipeAxis: settings.effectiveWorkspaceSwipeAxis
+            workspaceSwipeAxis: settings.effectiveWorkspaceSwipeAxis,
+            overviewEnabled: settings.overviewGestureEnabled && controller?.isOverviewOpen() != true,
+            overviewFingerCount: settings.overviewGestureFingerCount.rawValue
         )
     }
 
@@ -2343,7 +2346,11 @@ final class MouseEventHandler {
                 finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
                 return
             }
+            let wasOverviewCandidate = state.lockedGestureContext?.overviewCandidate == true
             abortActiveGestureIfNeeded()
+            if wasOverviewCandidate {
+                state.suppressGestureStartUntilAllTouchesLift = true
+            }
             return
         }
 
@@ -2356,20 +2363,23 @@ final class MouseEventHandler {
             )
             return
         }
-        processActiveGestureFrame(average: averageTouchPosition, timestamp: snapshot.timestamp)
+        processActiveGestureFrame(
+            average: averageTouchPosition,
+            timestamp: snapshot.timestamp
+        )
     }
 
     private func gestureFramePreconditionsSatisfied(at location: CGPoint) -> Bool {
         guard let controller else { return false }
         guard controller.isEnabled,
-              controller.settings.scrollGestureEnabled || controller.settings.workspaceSwipeEnabled
+              controller.settings.trackpadGesturesEnabled
         else {
             abortActiveGestureIfNeeded()
             return false
         }
         if controller.isOverviewOpen() {
-            cancelActiveMouseInteraction()
             abortActiveGestureIfNeeded()
+            state.suppressGestureStartUntilAllTouchesLift = true
             return false
         }
         if shouldBlockOwnWindowInput(at: location) {
@@ -2451,7 +2461,8 @@ final class MouseEventHandler {
             fingerCount: fingerCount,
             columnScrollCandidate: columnScrollCandidate,
             columnScrollAxis: columnScrollAxis,
-            workspaceAxis: workspaceAxis
+            workspaceAxis: workspaceAxis,
+            overviewCandidate: config.overviewEnabled && fingerCount == config.overviewFingerCount
         )
     }
 
@@ -2494,7 +2505,8 @@ final class MouseEventHandler {
             let distanceSquared = metrics.cumulativeX * metrics.cumulativeX
                 + metrics.cumulativeY * metrics.cumulativeY
             let thresholdSquared = niriTouchpadGestureRecognitionThreshold * niriTouchpadGestureRecognitionThreshold
-            guard distanceSquared >= thresholdSquared else {
+            guard distanceSquared >= thresholdSquared
+            else {
                 state.gestureLastAverageX = average.x
                 state.gestureLastAverageY = average.y
                 return
@@ -2520,6 +2532,7 @@ final class MouseEventHandler {
         if let axis = lockedContext.workspaceAxis {
             config.workspaceSwipeAxis = axis
         }
+        config.overviewEnabled = config.overviewEnabled && lockedContext.overviewCandidate
         guard let mode = TrackpadGestureIntent.resolveMode(
             config,
             fingerCount: lockedContext.fingerCount,
@@ -2545,6 +2558,20 @@ final class MouseEventHandler {
     ) {
         guard let controller else { return }
         switch state.activeGestureMode {
+        case .overview:
+            guard controller.settings.overviewGestureEnabled else {
+                abortActiveGestureIfNeeded()
+                return
+            }
+            guard TrackpadGestureIntent.overviewTriggered(
+                translation: CGPoint(x: metrics.cumulativeX, y: metrics.cumulativeY)
+            )
+            else { return }
+            state.suppressGestureStartUntilAllTouchesLift = true
+            state.consumeTrackpadScrollUntilAllTouchesLift = true
+            state.suppressTrackpadMomentumScroll = true
+            resetGestureState(settleViewportGesture: false)
+            controller.windowActionHandler.toggleOverview()
         case .columnScroll:
             guard let engine = controller.niriEngine else {
                 abortActiveGestureIfNeeded()
@@ -2602,6 +2629,8 @@ final class MouseEventHandler {
             return
         }
         switch state.activeGestureMode {
+        case .overview:
+            state.suppressTrackpadMomentumScroll = true
         case let .workspaceSwitch(axis):
             finalizeWorkspaceSwipe(
                 monitorId: lockedContext.monitorId,
@@ -2858,7 +2887,9 @@ final class MouseEventHandler {
 
     private func abortActiveGestureIfNeeded() {
         if state.gesturePhase == .committed {
-            if case .workspaceSwitch = state.activeGestureMode {
+            if state.activeGestureMode == .overview {
+                state.suppressTrackpadMomentumScroll = true
+            } else if case .workspaceSwitch = state.activeGestureMode {
                 state.suppressTrackpadMomentumScroll = true
             } else if let lockedContext = state.lockedGestureContext {
                 if let engine = controller?.niriEngine {

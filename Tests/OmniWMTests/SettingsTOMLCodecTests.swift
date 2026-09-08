@@ -486,6 +486,43 @@ final class SettingsTOMLCodecTests: XCTestCase {
         XCTAssertThrowsError(try SettingsTOMLCodec.decode(malformed))
     }
 
+    func testOverviewGestureSettingsRoundTripAndExistingConfigDefaults() throws {
+        var export = SettingsExport.defaults()
+        export.overviewGestureEnabled = true
+        export.overviewGestureFingerCount = .three
+        let encoded = try SettingsTOMLCodec.encode(export)
+        let decoded = try SettingsTOMLCodec.decode(encoded)
+        XCTAssertTrue(decoded.overviewGestureEnabled)
+        XCTAssertEqual(decoded.overviewGestureFingerCount, .three)
+
+        let oldConfig = String(decoding: encoded, as: UTF8.self)
+            .split(separator: "\n")
+            .filter { !$0.hasPrefix("overviewGesture") }
+            .joined(separator: "\n")
+        let defaults = try SettingsTOMLCodec.decode(Data(oldConfig.utf8))
+        XCTAssertFalse(defaults.overviewGestureEnabled)
+        XCTAssertEqual(defaults.overviewGestureFingerCount, .four)
+    }
+
+    @MainActor
+    func testOverviewOnlyGestureAvailabilityFollowsEnablement() {
+        let settings = makeSettingsStore()
+        settings.scrollGestureEnabled = false
+        settings.workspaceSwipeEnabled = false
+        var changes: [Bool] = []
+        settings.onTrackpadGestureAvailabilityChanged = { changes.append($0) }
+        settings.overviewGestureEnabled = true
+        XCTAssertTrue(settings.trackpadGesturesEnabled)
+        settings.overviewGestureEnabled = false
+        XCTAssertFalse(settings.trackpadGesturesEnabled)
+        XCTAssertEqual(changes, [true, false])
+    }
+
+    func testOverviewGestureRejectsUnsupportedFingerCount() throws {
+        let data = try defaultsWithReplacements(("overviewGestureFingerCount = 4", "overviewGestureFingerCount = 2"))
+        XCTAssertThrowsError(try SettingsTOMLCodec.decode(data))
+    }
+
     func testWorkspaceSwipeSettingsRoundTrip() throws {
         let defaults = SettingsExport.defaults()
         XCTAssertFalse(defaults.workspaceSwipeEnabled)

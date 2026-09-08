@@ -208,6 +208,8 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var workspaceSwipeEnabled: Bool
         var workspaceSwipeFingerCount: GestureFingerCount
         var workspaceSwipeAxis: WorkspaceSwipeAxis
+        var overviewGestureEnabled: Bool?
+        var overviewGestureFingerCount: OverviewGestureFingerCount?
     }
 
     struct StatusBar: Codable, Equatable {
@@ -394,7 +396,9 @@ extension CanonicalTOMLConfig {
             trackpadScrollStyle: export.trackpadScrollStyle,
             workspaceSwipeEnabled: export.workspaceSwipeEnabled,
             workspaceSwipeFingerCount: export.workspaceSwipeFingerCount,
-            workspaceSwipeAxis: export.workspaceSwipeAxis
+            workspaceSwipeAxis: export.workspaceSwipeAxis,
+            overviewGestureEnabled: export.overviewGestureEnabled,
+            overviewGestureFingerCount: export.overviewGestureFingerCount
         )
         statusBar = StatusBar(
             showWorkspaceName: export.statusBarShowWorkspaceName,
@@ -529,6 +533,8 @@ extension CanonicalTOMLConfig {
             workspaceSwipeEnabled: gestures.workspaceSwipeEnabled,
             workspaceSwipeFingerCount: gestures.workspaceSwipeFingerCount,
             workspaceSwipeAxis: gestures.workspaceSwipeAxis,
+            overviewGestureEnabled: gestures.overviewGestureEnabled ?? false,
+            overviewGestureFingerCount: gestures.overviewGestureFingerCount ?? .four,
             statusBarShowWorkspaceName: statusBar.showWorkspaceName,
             statusBarShowAppNames: statusBar.showAppNames,
             statusBarUseWorkspaceId: statusBar.useWorkspaceId,

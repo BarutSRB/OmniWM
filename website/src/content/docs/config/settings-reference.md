@@ -226,6 +226,11 @@ Mouse and trackpad gestures.
 | `workspaceSwipeEnabled` | boolean | `false` | Trackpad swipe switches to the next/previous workspace. |
 | `workspaceSwipeFingerCount` | integer | `3` | Workspace-swipe finger count: `2`, `3`, or `4`. |
 | `workspaceSwipeAxis` | string | `"vertical"` | Workspace-swipe axis: `horizontal` or `vertical`. |
+| `overviewGestureEnabled` | boolean | `false` | Enable upward swipes to open Overview. |
+| `overviewGestureFingerCount` | integer | `4` | Overview gesture finger count: `3` or `4`. |
+
+Swipe up with the configured finger count to open Overview. Downward swipes do not close it; use the existing Overview controls. Direction is independent of `invertDirection`. Lift all fingers before another action. Overview cannot claim vertical swipes already used by column scrolling or workspace switching with the same finger count. Disable the matching macOS Mission Control gesture to avoid interception.
+
 
 ## statusBar
 
