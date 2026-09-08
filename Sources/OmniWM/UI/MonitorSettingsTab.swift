@@ -210,7 +210,7 @@ struct MonitorSettingsTab: View {
             Section("Monitor Roles") {
                 ForEach(Array(settings.monitorRanking.enumerated()), id: \.element) { index, entry in
                     RankedMonitorRow(
-                        role: MonitorRanking.roleName(forRank: index),
+                        role: rankedMonitorRoleLabel(at: index),
                         label: rankedMonitorLabel(for: entry),
                         isConnected: MonitorRanking.isConnected(entry, monitors: connectedMonitors),
                         canMoveUp: index > 0,
@@ -322,6 +322,14 @@ struct MonitorSettingsTab: View {
     private func presentRequestedMonitorSetupIfNeeded() {
         guard navigation.consumeMonitorSetupPresentationRequest() else { return }
         isMonitorSetupPresented = true
+    }
+
+    /// The role the entry holds right now. Disconnected and duplicate entries hold none, so the label
+    /// follows the connected order that `MonitorRanking.roleOrder` uses rather than the list position.
+    private func rankedMonitorRoleLabel(at index: Int) -> String {
+        let ranks = MonitorRanking.effectiveRanks(ranking: settings.monitorRanking, monitors: connectedMonitors)
+        guard ranks.indices.contains(index), let rank = ranks[index] else { return "No role" }
+        return MonitorRanking.roleName(forRank: rank)
     }
 
     private var addableRankingEntries: [OutputId] {

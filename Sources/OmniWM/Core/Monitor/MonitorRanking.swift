@@ -29,14 +29,34 @@ enum MonitorRanking {
         return [main] + sortedMonitors.filter { $0.id != main.id }
     }
 
-    /// Resolves a ranking entry by display identity first, then by a unique case-insensitive name
-    /// match so hand-written entries with only a name still work.
+    /// Resolves a ranking entry by display identity. An entry without a display UUID may also match
+    /// a unique case-insensitive name, so hand-written entries with only a name still work. An entry
+    /// that carries a UUID never falls back to its name: a stale UUID must not promote a different
+    /// display of the same model into a role.
     static func resolve(_ entry: OutputId, in monitors: [Monitor]) -> Monitor? {
         if let monitor = entry.resolveMonitor(in: monitors) {
             return monitor
         }
+        guard entry.displayUUID == nil else { return nil }
         let byName = monitors.filter { Monitor.namesMatch($0.name, entry.name) }
         return byName.count == 1 ? byName[0] : nil
+    }
+
+    /// The role index each ranking entry holds at runtime, in ranking order. Entries whose display is
+    /// disconnected, or that duplicate an earlier entry, hold no role, so the connected entries after
+    /// them move up exactly as `roleOrder` moves them.
+    static func effectiveRanks(ranking: [OutputId], monitors: [Monitor]) -> [Int?] {
+        var seen: Set<Monitor.ID> = []
+        var ranks: [Int?] = []
+        for entry in ranking {
+            guard let monitor = resolve(entry, in: monitors), !seen.contains(monitor.id) else {
+                ranks.append(nil)
+                continue
+            }
+            seen.insert(monitor.id)
+            ranks.append(seen.count - 1)
+        }
+        return ranks
     }
 
     static func isConnected(_ entry: OutputId, monitors: [Monitor]) -> Bool {
