@@ -13,14 +13,14 @@ enum NiriMonitorPlaneGeometry {
         var clampedFrame = frame
         switch orientation {
         case .horizontal:
-            let minX = screenClampRect.minX - clampedFrame.width + 1
-            let maxX = screenClampRect.maxX - 1
+            let minX = (screenClampRect.minX - clampedFrame.width + 1).rounded(.up)
+            let maxX = (screenClampRect.maxX - 1).rounded(.down)
             if maxX >= minX {
                 clampedFrame.origin.x = min(max(clampedFrame.origin.x, minX), maxX)
             }
         case .vertical:
-            let minY = screenClampRect.minY - clampedFrame.height + 1
-            let maxY = screenClampRect.maxY - 1
+            let minY = (screenClampRect.minY + 1).rounded(.up) - clampedFrame.height
+            let maxY = (screenClampRect.maxY + clampedFrame.height - 1).rounded(.down) - clampedFrame.height
             if maxY >= minY {
                 clampedFrame.origin.y = min(max(clampedFrame.origin.y, minY), maxY)
             }

@@ -25,6 +25,83 @@ final class NiriScrollVisibilityTests: XCTestCase {
         let orientation: Monitor.Orientation
     }
 
+    func testPlaneClampRetainsNativeContactAfterWholePointFlooring() {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 2560, height: 1440),
+            CGRect(x: 0, y: 0, width: 1800, height: 1169),
+            CGRect(x: -2560, y: -1440, width: 2560, height: 1440)
+        ]
+        for screen in screens {
+            for span: CGFloat in [2272, 2272.5, 1547, 1547.5] {
+                for scale: CGFloat in [1, 2] {
+                    for orientation: Monitor.Orientation in [.horizontal, .vertical] {
+                        for offset: CGFloat in [-10000, 10000] {
+                            let horizontal = orientation == .horizontal
+                            let frame = CGRect(
+                                x: screen.minX + (horizontal ? offset : 17),
+                                y: screen.minY + (horizontal ? 17 : offset),
+                                width: horizontal ? span : screen.width - 34,
+                                height: horizontal ? screen.height - 64 : span
+                            ).roundedToPhysicalPixels(scale: scale)
+                            let clamped = NiriMonitorPlaneGeometry.clampedFrame(
+                                frame,
+                                screenClampRect: screen,
+                                orientation: orientation
+                            ).roundedToPhysicalPixels(scale: scale)
+                            let native = wholePointFlooredNativeFrame(clamped, screen: screen)
+                            let contact = horizontal
+                                ? min(native.maxX, screen.maxX) - max(native.minX, screen.minX)
+                                : min(native.maxY, screen.maxY) - max(native.minY, screen.minY)
+                            let context = "screen=\(screen) span=\(span) scale=\(scale) orientation=\(orientation) offset=\(offset)"
+
+                            XCTAssertGreaterThanOrEqual(contact, 1, context)
+                            XCTAssertLessThanOrEqual(contact, 2, context)
+                            XCTAssertEqual(clamped.size, frame.size, context)
+                            XCTAssertEqual(
+                                horizontal ? clamped.minY : clamped.minX,
+                                horizontal ? frame.minY : frame.minX,
+                                context
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testPlaneClampPreservesInteriorAndPartiallyVisibleFrames() {
+        let screen = CGRect(x: -2560, y: -1440, width: 2560, height: 1440)
+        for orientation: Monitor.Orientation in [.horizontal, .vertical] {
+            for offset: CGFloat in [-200, 17, 500] {
+                let frame = CGRect(
+                    x: screen.minX + (orientation == .horizontal ? offset : 17),
+                    y: screen.minY + (orientation == .vertical ? offset : 17),
+                    width: 1547.5,
+                    height: 1127.5
+                )
+                XCTAssertEqual(
+                    NiriMonitorPlaneGeometry.clampedFrame(
+                        frame,
+                        screenClampRect: screen,
+                        orientation: orientation
+                    ),
+                    frame
+                )
+            }
+        }
+    }
+
+    private func wholePointFlooredNativeFrame(_ frame: CGRect, screen: CGRect) -> CGRect {
+        let nativeTop = (screen.maxY - frame.maxY).rounded(.down)
+        let nativeHeight = frame.height.rounded(.down)
+        return CGRect(
+            x: frame.minX.rounded(.down),
+            y: screen.maxY - nativeTop - nativeHeight,
+            width: frame.width.rounded(.down),
+            height: nativeHeight
+        )
+    }
+
     private func makeFiveColumnFixture() -> Fixture {
         let engine = NiriLayoutEngine()
         let workspaceId = WorkspaceDescriptor.ID()
