@@ -40,6 +40,37 @@ final class QuakeTerminalScreenSelectionTests: XCTestCase {
         XCTAssertTrue(controller.targetScreen(screens: [], mainScreen: screen) === screen)
     }
 
+    func testMainMonitorFollowsMonitorRankingWhenSet() {
+        let builtIn = Screen(frame: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        let dell = Screen(frame: CGRect(x: 1440, y: 0, width: 3440, height: 1440))
+        let lg = Screen(frame: CGRect(x: 4880, y: 0, width: 2560, height: 1440))
+        let monitors = [
+            makeMonitor(id: 1, frame: builtIn.frame, name: "Built-in Retina Display"),
+            makeMonitor(id: 2, frame: dell.frame, name: "DELL U3423WE"),
+            makeMonitor(id: 3, frame: lg.frame, name: "LG HDR 4K")
+        ]
+        let controller = makeController(ranking: [OutputId(from: monitors[2]), OutputId(from: monitors[1])])
+
+        XCTAssertTrue(
+            controller.targetScreen(screens: [builtIn, dell, lg], mainScreen: builtIn, monitors: monitors) === lg
+        )
+        XCTAssertTrue(
+            controller.targetScreen(
+                screens: [builtIn, dell],
+                mainScreen: builtIn,
+                monitors: Array(monitors.prefix(2))
+            ) === dell
+        )
+    }
+
+    func testMainMonitorFallsBackToFirstScreenWhenNoRankedMonitorIsConnected() {
+        let builtIn = Screen(frame: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        let monitors = [makeMonitor(id: 1, frame: builtIn.frame, name: "Built-in Retina Display")]
+        let controller = makeController(ranking: [OutputId(name: "LG HDR 4K")])
+
+        XCTAssertTrue(controller.targetScreen(screens: [builtIn], mainScreen: nil, monitors: monitors) === builtIn)
+    }
+
     func testFocusedWindowModePreservesProvidedSecondaryScreen() {
         let primary = Screen(frame: CGRect(x: 0, y: 0, width: 3440, height: 1440))
         let secondary = Screen(frame: CGRect(x: 0, y: 1440, width: 3440, height: 1440))
@@ -48,8 +79,20 @@ final class QuakeTerminalScreenSelectionTests: XCTestCase {
         XCTAssertTrue(controller.targetScreen(screens: [primary, secondary], mainScreen: primary) === secondary)
     }
 
+    private func makeMonitor(id: CGDirectDisplayID, frame: CGRect, name: String) -> Monitor {
+        return Monitor(
+            id: Monitor.ID(displayId: id),
+            displayId: id,
+            frame: frame,
+            visibleFrame: frame,
+            hasNotch: false,
+            name: name
+        )
+    }
+
     private func makeController(
         mode: QuakeTerminalMonitorMode = .mainMonitor,
+        ranking: [OutputId] = [],
         focusedWindowScreenProvider: @escaping @MainActor () -> NSScreen? = { nil }
     ) -> QuakeTerminalController {
         let root = FileManager.default.temporaryDirectory
@@ -67,6 +110,7 @@ final class QuakeTerminalScreenSelectionTests: XCTestCase {
             autosaveEnabled: false
         )
         settings.quakeTerminal.monitorMode = mode
+        settings.monitors.ranking = ranking
         return QuakeTerminalController(
             settings: settings,
             motionPolicy: MotionPolicy(),

@@ -19,6 +19,19 @@ final class MonitorConfigurationSettings {
         didSet { onChange?() }
     }
 
+    /// Ordered display preference for the Main, Secondary, and Tertiary roles.
+    /// Empty means the macOS arrangement order decides.
+    var ranking: [OutputId] = [] {
+        didSet {
+            let normalized = MonitorRanking.normalized(ranking)
+            if normalized != ranking {
+                ranking = normalized
+                return
+            }
+            onChange?()
+        }
+    }
+
     var orientationOverrides: [MonitorOrientationSettings] = [] {
         didSet { onChange?() }
     }
