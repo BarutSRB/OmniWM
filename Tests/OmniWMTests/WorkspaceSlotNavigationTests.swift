@@ -69,67 +69,98 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
                 raiseWindow: { _ in }
             )
         )
-        let controller = fixture.controller
-        let manager = fixture.manager
-        controller.settings.mouseWarpEnabled = true
-        controller.settings.mouseWarpMargin = 2
-        controller.settings.cursorContainmentEnabled = false
-        controller.settings.monitorRoutingMode = .macOS
-        controller.setFocusFollowsMouse(false)
-        controller.setMoveMouseToFocusedWindow(false)
-
-        let browser = addFocusedWindow(to: fixture.workspace2, in: fixture, pid: 473_002, windowId: 12)
-        let terminal = addFocusedWindow(to: fixture.workspace1, in: fixture)
-        controller.layoutRefreshController.resetState()
-        let visibleWorkspaces = manager.activeVisibleWorkspaceMap()
-
-        let warpHandler = controller.mouseWarpHandler
-        var warpCalls = 0
-        warpHandler.activeDisplayBounds = { _ in .infinite }
-        warpHandler.warpCursor = { _ in
-            warpCalls += 1
-            return .success
-        }
-        warpHandler.postMouseMovedEvent = { _ in }
-        defer {
-            warpHandler.resetTransientState()
-            controller.layoutRefreshController.resetState()
-        }
-
-        controller.mouseEventHandler.dispatchMouseMoved(at: CGPoint(
-            x: fixture.monitorA.frame.maxX - 1,
-            y: fixture.monitorA.frame.midY
-        ))
-
-        XCTAssertEqual(warpCalls, 1)
-        XCTAssertEqual(manager.interactionMonitorId, fixture.monitorB.id)
-        XCTAssertEqual(controller.activeWorkspace()?.id, fixture.workspace2)
-        XCTAssertEqual(manager.nativeManagedFocusToken, terminal)
+        defer { resetWarpState(in: fixture) }
+        let scenario = try warpPointerToMonitorB(in: fixture)
         XCTAssertTrue(focusedWindowIds.isEmpty)
 
-        let blocker = Task { @MainActor in }
-        controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
-        controller.layoutRefreshController.layoutState.activeRefresh = .init(
-            kind: .immediateRelayout,
-            reason: .workspaceTransition,
-            affectedWorkspaceIds: [fixture.workspace1]
-        )
+        blockLayoutRefresh(in: fixture, for: fixture.workspace1)
+        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.switchWorkspace(1)), .executed)
+        try runPendingPostLayoutActions(in: fixture)
 
-        XCTAssertEqual(controller.commandHandler.performCommand(.switchWorkspace(1)), .executed)
-        let actions = try XCTUnwrap(
-            controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions
-        )
-        XCTAssertEqual(actions.count, 1)
-        for action in actions {
-            XCTAssertTrue(action.isCurrent(using: manager))
-            action.runIfCurrent(using: manager)
-        }
+        try assertBrowserFocused(scenario, focusedWindowIds: focusedWindowIds, in: fixture)
+    }
 
-        XCTAssertEqual(focusedWindowIds, [UInt32(browser.windowId)])
-        let request = try XCTUnwrap(controller.intentLedger.activeManagedRequest)
-        XCTAssertEqual(request.token, browser)
-        XCTAssertEqual(request.workspaceId, fixture.workspace2)
-        XCTAssertEqual(manager.activeVisibleWorkspaceMap(), visibleWorkspaces)
+    func testWorkspaceSlotShortcutTransfersFocusAfterMouseWarp() throws {
+        var focusedWindowIds: [UInt32] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in }
+            )
+        )
+        defer { resetWarpState(in: fixture) }
+        let scenario = try warpPointerToMonitorB(in: fixture)
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+
+        blockLayoutRefresh(in: fixture, for: fixture.workspace1)
+        XCTAssertTrue(fixture.navigation.switchWorkspaceSlot(1))
+        try runPendingPostLayoutActions(in: fixture)
+
+        try assertBrowserFocused(scenario, focusedWindowIds: focusedWindowIds, in: fixture)
+    }
+
+    func testWorkspaceIPCCommandTransfersFocusAfterMouseWarp() throws {
+        var focusedWindowIds: [UInt32] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in }
+            )
+        )
+        defer { resetWarpState(in: fixture) }
+        let scenario = try warpPointerToMonitorB(in: fixture)
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+
+        blockLayoutRefresh(in: fixture, for: fixture.workspace1)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspace(workspaceNumber: 2)), .executed)
+        try runPendingPostLayoutActions(in: fixture)
+
+        try assertBrowserFocused(scenario, focusedWindowIds: focusedWindowIds, in: fixture)
+    }
+
+    func testWorkspaceAnywhereIPCCommandTransfersFocusAfterMouseWarp() throws {
+        var focusedWindowIds: [UInt32] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in }
+            )
+        )
+        defer { resetWarpState(in: fixture) }
+        let scenario = try warpPointerToMonitorB(in: fixture)
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+
+        blockLayoutRefresh(in: fixture, for: fixture.workspace1)
+        XCTAssertEqual(
+            fixture.router.handle(IPCCommandRequest.switchWorkspaceAnywhere(workspaceNumber: 2)),
+            .executed
+        )
+        try runPendingPostLayoutActions(in: fixture)
+
+        try assertBrowserFocused(scenario, focusedWindowIds: focusedWindowIds, in: fixture)
+    }
+
+    func testWorkspaceSlotIPCCommandTransfersFocusAfterMouseWarp() throws {
+        var focusedWindowIds: [UInt32] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in }
+            )
+        )
+        defer { resetWarpState(in: fixture) }
+        let scenario = try warpPointerToMonitorB(in: fixture)
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+
+        blockLayoutRefresh(in: fixture, for: fixture.workspace1)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspaceSlot(slotNumber: 1)), .executed)
+        try runPendingPostLayoutActions(in: fixture)
+
+        try assertBrowserFocused(scenario, focusedWindowIds: focusedWindowIds, in: fixture)
     }
 
     func testWorkspaceShortcutIsNoOpWhenWorkspaceHasNativeFocus() throws {
@@ -184,6 +215,47 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         XCTAssertNil(controller.layoutRefreshController.layoutState.activeRefreshTask)
     }
 
+    func testSlotAndIPCSwitchesAreNoOpsWhenWorkspaceHasNativeFocus() throws {
+        let fixture = try makeFixture()
+        let terminal = addFocusedWindow(to: fixture.workspace1, in: fixture)
+        fixture.controller.layoutRefreshController.resetState()
+        defer { fixture.controller.layoutRefreshController.resetState() }
+
+        assertVisibleWorkspaceSwitchesAreNoOps(in: fixture)
+
+        XCTAssertEqual(fixture.manager.nativeManagedFocusToken, terminal)
+    }
+
+    func testSlotAndIPCSwitchesAreNoOpsWhenNoManagedWindowHasNativeFocus() throws {
+        var focusedWindowIds: [UInt32] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in }
+            )
+        )
+        let manager = fixture.manager
+        _ = addFocusedWindow(to: fixture.workspace1, in: fixture)
+        XCTAssertTrue(manager.recordExternalFocus(pid: 473_900, windowId: 90))
+        XCTAssertNil(manager.nativeManagedFocusToken)
+        fixture.controller.layoutRefreshController.resetState()
+        defer { fixture.controller.layoutRefreshController.resetState() }
+
+        assertVisibleWorkspaceSwitchesAreNoOps(in: fixture)
+
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+        XCTAssertTrue(manager.nativeFocusOwner.isExternal)
+
+        XCTAssertTrue(manager.clearNativeFocusOwner())
+        XCTAssertEqual(manager.nativeFocusOwner, .none)
+
+        assertVisibleWorkspaceSwitchesAreNoOps(in: fixture)
+
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+        XCTAssertEqual(manager.nativeFocusOwner, .none)
+    }
+
     func testMoveFocusedWindowToSlotUsesInteractionMonitorOrder() throws {
         let fixture = try makeFixture()
         defer { fixture.controller.layoutRefreshController.resetState() }
@@ -226,6 +298,106 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         XCTAssertEqual(fixture.router.handle(IPCCommandRequest.moveToWorkspaceSlot(slotNumber: 9)), .notFound)
         XCTAssertEqual(fixture.router.handle(IPCCommandRequest.moveToWorkspaceSlot(slotNumber: 1)), .executed)
         XCTAssertEqual(fixture.manager.workspace(for: token), fixture.workspace1)
+    }
+
+    private struct WarpScenario {
+        let browser: WindowToken
+        let terminal: WindowToken
+        let visibleWorkspaces: [Monitor.ID: WorkspaceDescriptor.ID]
+    }
+
+    private func warpPointerToMonitorB(in fixture: Fixture) throws -> WarpScenario {
+        let controller = fixture.controller
+        let manager = fixture.manager
+        controller.settings.mouseWarpEnabled = true
+        controller.settings.mouseWarpMargin = 2
+        controller.settings.cursorContainmentEnabled = false
+        controller.settings.monitorRoutingMode = .macOS
+        controller.setFocusFollowsMouse(false)
+        controller.setMoveMouseToFocusedWindow(false)
+
+        let browser = addFocusedWindow(to: fixture.workspace2, in: fixture, pid: 473_002, windowId: 12)
+        let terminal = addFocusedWindow(to: fixture.workspace1, in: fixture)
+        controller.layoutRefreshController.resetState()
+        let visibleWorkspaces = manager.activeVisibleWorkspaceMap()
+
+        let warpHandler = controller.mouseWarpHandler
+        var warpCalls = 0
+        warpHandler.activeDisplayBounds = { _ in .infinite }
+        warpHandler.warpCursor = { _ in
+            warpCalls += 1
+            return .success
+        }
+        warpHandler.postMouseMovedEvent = { _ in }
+
+        controller.mouseEventHandler.dispatchMouseMoved(at: CGPoint(
+            x: fixture.monitorA.frame.maxX - 1,
+            y: fixture.monitorA.frame.midY
+        ))
+
+        XCTAssertEqual(warpCalls, 1)
+        XCTAssertEqual(manager.interactionMonitorId, fixture.monitorB.id)
+        XCTAssertEqual(controller.activeWorkspace()?.id, fixture.workspace2)
+        XCTAssertEqual(manager.nativeManagedFocusToken, terminal)
+        return WarpScenario(browser: browser, terminal: terminal, visibleWorkspaces: visibleWorkspaces)
+    }
+
+    private func resetWarpState(in fixture: Fixture) {
+        fixture.controller.mouseWarpHandler.resetTransientState()
+        fixture.controller.layoutRefreshController.resetState()
+    }
+
+    private func blockLayoutRefresh(in fixture: Fixture, for workspaceId: WorkspaceDescriptor.ID) {
+        let blocker = Task { @MainActor in }
+        fixture.controller.layoutRefreshController.layoutState.activeRefreshTask = blocker
+        fixture.controller.layoutRefreshController.layoutState.activeRefresh = .init(
+            kind: .immediateRelayout,
+            reason: .workspaceTransition,
+            affectedWorkspaceIds: [workspaceId]
+        )
+    }
+
+    private func runPendingPostLayoutActions(in fixture: Fixture) throws {
+        let actions = try XCTUnwrap(
+            fixture.controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions
+        )
+        XCTAssertEqual(actions.count, 1)
+        for action in actions {
+            XCTAssertTrue(action.isCurrent(using: fixture.manager))
+            action.runIfCurrent(using: fixture.manager)
+        }
+    }
+
+    private func assertBrowserFocused(
+        _ scenario: WarpScenario,
+        focusedWindowIds: [UInt32],
+        in fixture: Fixture
+    ) throws {
+        XCTAssertEqual(focusedWindowIds, [UInt32(scenario.browser.windowId)])
+        let request = try XCTUnwrap(fixture.controller.intentLedger.activeManagedRequest)
+        XCTAssertEqual(request.token, scenario.browser)
+        XCTAssertEqual(request.workspaceId, fixture.workspace2)
+        XCTAssertEqual(fixture.manager.activeVisibleWorkspaceMap(), scenario.visibleWorkspaces)
+    }
+
+    private func assertNoSwitchQueued(in fixture: Fixture) {
+        XCTAssertNil(fixture.controller.intentLedger.activeManagedRequest)
+        XCTAssertNil(fixture.controller.layoutRefreshController.layoutState.pendingRefresh)
+        XCTAssertNil(fixture.controller.layoutRefreshController.layoutState.activeRefreshTask)
+    }
+
+    private func assertVisibleWorkspaceSwitchesAreNoOps(in fixture: Fixture) {
+        XCTAssertFalse(fixture.navigation.switchWorkspaceSlot(1))
+        assertNoSwitchQueued(in: fixture)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspace(workspaceNumber: 1)), .noChange)
+        assertNoSwitchQueued(in: fixture)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspaceSlot(slotNumber: 1)), .noChange)
+        assertNoSwitchQueued(in: fixture)
+        XCTAssertEqual(
+            fixture.router.handle(IPCCommandRequest.switchWorkspaceAnywhere(workspaceNumber: 1)),
+            .noChange
+        )
+        assertNoSwitchQueued(in: fixture)
     }
 
     private func addFocusedWindow(

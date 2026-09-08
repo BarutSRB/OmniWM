@@ -566,16 +566,23 @@ final class WorkspaceNavigationHandler {
         switchWorkspace(rawWorkspaceID: rawWorkspaceID)
     }
 
-    func switchWorkspace(rawWorkspaceID: String) {
-        guard let controller else { return }
+    // Mouse Warp can move the interaction monitor without transferring keyboard focus.
+    func canSkipSwitch(toVisibleWorkspace workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let controller else { return true }
+        let nativeFocusWorkspaceId = controller.workspaceManager.nativeManagedFocusToken
+            .flatMap { controller.workspaceManager.workspace(for: $0) }
+        return nativeFocusWorkspaceId == nil || nativeFocusWorkspaceId == workspaceId
+    }
+
+    @discardableResult
+    func switchWorkspace(rawWorkspaceID: String) -> Bool {
+        guard let controller else { return false }
         let currentWorkspace = controller.activeWorkspace()
-        if let currentWorkspace, currentWorkspace.name == rawWorkspaceID {
-            // Mouse Warp can move the interaction monitor without transferring keyboard focus.
-            let nativeFocusWorkspaceId = controller.workspaceManager.nativeManagedFocusToken
-                .flatMap { controller.workspaceManager.workspace(for: $0) }
-            if nativeFocusWorkspaceId == nil || nativeFocusWorkspaceId == currentWorkspace.id {
-                return
-            }
+        if let currentWorkspace,
+           currentWorkspace.name == rawWorkspaceID,
+           canSkipSwitch(toVisibleWorkspace: currentWorkspace.id)
+        {
+            return false
         }
 
         if let currentWorkspace {
@@ -588,16 +595,17 @@ final class WorkspaceNavigationHandler {
         ),
             controller.workspaceManager.monitorForWorkspace(targetWorkspaceId) != nil
         else {
-            return
+            return false
         }
 
-        guard let result = controller.workspaceManager.focusWorkspace(named: rawWorkspaceID) else { return }
+        guard let result = controller.workspaceManager.focusWorkspace(named: rawWorkspaceID) else { return false }
 
         commitWorkspaceTransitionFocusHandoff(
             targetWorkspaceId: result.workspace.id,
             monitor: result.monitor,
             startScrollAnimation: false
         )
+        return true
     }
 
     func switchWorkspaceRelative(
@@ -642,9 +650,11 @@ final class WorkspaceNavigationHandler {
         guard let controller,
               let monitorId = interactionMonitorId(for: controller),
               let targetWorkspace = workspaceSlot(slot),
-              let currentWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitorId),
-              currentWorkspace.id != targetWorkspace.id
+              let currentWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitorId)
         else { return false }
+        if currentWorkspace.id == targetWorkspace.id, canSkipSwitch(toVisibleWorkspace: targetWorkspace.id) {
+            return false
+        }
         return activateWorkspaceInOrder(targetWorkspace, from: currentWorkspace.id, on: monitorId)
     }
 
@@ -700,12 +710,13 @@ final class WorkspaceNavigationHandler {
         }
     }
 
-    func focusWorkspaceAnywhere(rawWorkspaceID: String) {
-        guard let controller else { return }
+    @discardableResult
+    func focusWorkspaceAnywhere(rawWorkspaceID: String) -> Bool {
+        guard let controller else { return false }
         let currentWorkspace = controller.activeWorkspace()
 
-        guard let targetWsId = controller.workspaceManager.workspaceId(named: rawWorkspaceID) else { return }
-        guard let targetMonitor = controller.workspaceManager.monitorForWorkspace(targetWsId) else { return }
+        guard let targetWsId = controller.workspaceManager.workspaceId(named: rawWorkspaceID) else { return false }
+        guard let targetMonitor = controller.workspaceManager.monitorForWorkspace(targetWsId) else { return false }
 
         if let currentWorkspace {
             saveNiriViewportState(for: currentWorkspace.id)
@@ -719,7 +730,7 @@ final class WorkspaceNavigationHandler {
             }
         }
 
-        guard controller.workspaceManager.setActiveWorkspace(targetWsId, on: targetMonitor.id) else { return }
+        guard controller.workspaceManager.setActiveWorkspace(targetWsId, on: targetMonitor.id) else { return false }
 
         controller.syncMonitorsToNiriEngine()
 
@@ -728,6 +739,7 @@ final class WorkspaceNavigationHandler {
             monitor: targetMonitor,
             startScrollAnimation: false
         )
+        return true
     }
 
     func workspaceBackAndForth() {
