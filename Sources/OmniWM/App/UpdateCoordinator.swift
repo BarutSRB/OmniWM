@@ -170,9 +170,10 @@ final class UpdateCoordinator: AppUpdateCoordinating {
     init(
         settings: SettingsStore,
         runtimeState: RuntimeStateStore = RuntimeStateStore(),
-        releaseService: any GitHubReleaseFetching = GitHubReleaseService(
-            userAgent: "OmniWM/\(Bundle.main.appVersion ?? "unknown")"
-        ),
+        // Keep nested autoclosures out of the default argument's interpolation context.
+        releaseService: any GitHubReleaseFetching = {
+            GitHubReleaseService(userAgent: "OmniWM/\(Bundle.main.appVersion ?? "unknown")")
+        }(),
         currentVersionProvider: @escaping () -> ReleaseVersion? = { Bundle.main.releaseVersion },
         currentVersionStringProvider: @escaping () -> String = { Bundle.main.appVersion ?? "Unknown" },
         nowProvider: @escaping () -> Date = Date.init,
