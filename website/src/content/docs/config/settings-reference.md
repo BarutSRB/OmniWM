@@ -116,7 +116,7 @@ Optional table that ranks displays for OmniWM's monitor roles. Omit it to keep t
 | --- | --- | --- | --- |
 | `ranking` | array of tables | unset | Displays in preference order, written as `[[monitors.ranking]]` rows. The highest-ranked connected display is Main, the next connected one is Secondary, the third is Tertiary, and unranked displays follow in the default order. |
 
-Each row requires `name`; `displayUUID` and `displayId` are optional identity fields that Settings records automatically. Matching uses the UUID first, then the display-ID/name fallback, and finally a case-insensitive name match when it identifies exactly one connected display. A row whose display is disconnected is skipped, so a docked external display can outrank the built-in display while the built-in display becomes Main again when undocked.
+Each row requires `name`; `displayUUID` and `displayId` are optional identity fields that Settings records automatically. A row with a `displayUUID` matches only that display. A row without one falls back to the display-ID/name pair, and then to a case-insensitive name match when it identifies exactly one connected display. A row whose display is disconnected is skipped, so a docked external display can outrank the built-in display while the built-in display becomes Main again when undocked.
 
 ```toml
 [[monitors.ranking]]

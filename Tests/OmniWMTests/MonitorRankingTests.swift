@@ -73,6 +73,30 @@ final class MonitorRankingTests: XCTestCase {
         XCTAssertEqual(MonitorRanking.resolve(OutputId(from: twin), in: [builtIn, dell, twin])?.displayId, 4)
     }
 
+    func testResolveDoesNotFallBackToNameWhenEntryUUIDIsStale() {
+        let stale = OutputId(displayUUID: "99999999-9999-9999-9999-999999999999", name: "DELL U3423WE")
+
+        XCTAssertNil(MonitorRanking.resolve(stale, in: [builtIn, dell, lg]))
+        XCTAssertEqual(
+            MonitorRanking.roleOrder(ranking: [stale, OutputId(from: lg)], sortedMonitors: [builtIn, dell, lg])
+                .map(\.displayId),
+            [3, 1, 2]
+        )
+    }
+
+    func testEffectiveRanksSkipDisconnectedAndDuplicateEntries() {
+        let ranking = [OutputId(from: lg), OutputId(from: dell), OutputId(from: dell), OutputId(from: builtIn)]
+
+        XCTAssertEqual(
+            MonitorRanking.effectiveRanks(ranking: ranking, monitors: [builtIn, dell]),
+            [nil, 0, nil, 1]
+        )
+        XCTAssertEqual(
+            MonitorRanking.effectiveRanks(ranking: ranking, monitors: [builtIn, dell, lg]),
+            [0, 1, nil, 2]
+        )
+    }
+
     // MARK: - Description resolution
 
     func testMainAndSecondaryFollowRanking() {
