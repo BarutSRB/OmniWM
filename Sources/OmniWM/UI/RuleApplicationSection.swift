@@ -8,7 +8,7 @@ struct RuleApplicationSection: View {
     let controller: WMController
 
     @State private var runningApps: [RunningAppInfo] = []
-    @State private var isPickerExpanded = false
+    @State private var isPickerPresented = false
     @State private var selectedAppId: RunningAppInfo.ID?
 
     var body: some View {
@@ -21,32 +21,40 @@ struct RuleApplicationSection: View {
                     .foregroundStyle(.red)
             }
 
-            DisclosureGroup("Pick from running apps", isExpanded: $isPickerExpanded) {
-                if runningApps.isEmpty {
-                    SettingsCaption("No running apps found")
-                } else {
-                    List(selection: $selectedAppId) {
-                        ForEach(runningApps) { app in
-                            RunningAppRow(app: app)
-                                .tag(app.id)
+            Button("Pick from running apps") {
+                refreshRunningApps()
+                isPickerPresented = true
+            }
+            .buttonStyle(.bordered)
+            .popover(isPresented: $isPickerPresented, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Running Apps")
+                        .font(.headline)
+
+                    if runningApps.isEmpty {
+                        SettingsCaption("No running apps found")
+                    } else {
+                        ScrollView(.vertical) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(runningApps) { app in
+                                    Button {
+                                        selectApp(app)
+                                    } label: {
+                                        RunningAppRow(app: app)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
                         }
-                    }
-                    .frame(maxHeight: 200)
-                    .onChange(of: selectedAppId) { _, selectedAppId in
-                        guard let selectedAppId,
-                              let app = runningApps.first(where: { $0.id == selectedAppId })
-                        else { return }
-                        selectApp(app)
+                        .frame(height: 280)
+                        .scrollIndicators(.visible)
                     }
                 }
-            }
-            .onAppear {
-                refreshRunningApps()
-                isPickerExpanded = draft.bundleId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            .onChange(of: isPickerExpanded) { _, isExpanded in
-                if isExpanded {
-                    refreshRunningApps()
+                .padding(12)
+                .frame(width: 420)
+                .onExitCommand {
+                    isPickerPresented = false
                 }
             }
 
@@ -88,8 +96,9 @@ struct RuleApplicationSection: View {
     }
 
     private func selectApp(_ app: RunningAppInfo) {
+        selectedAppId = app.id
         draft.selectApplication(bundleId: app.bundleId, appName: app.appName)
-        isPickerExpanded = false
+        isPickerPresented = false
     }
 
     private func refreshRunningApps() {
