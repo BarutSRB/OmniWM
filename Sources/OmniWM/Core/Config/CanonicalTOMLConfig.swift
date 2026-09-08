@@ -9,6 +9,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var focus: Focus
     var mouseWarp: MouseWarp
     var routing: Routing
+    var monitors: Monitors?
     var gaps: Gaps
     var niri: Niri
     var dwindle: Dwindle
@@ -54,6 +55,11 @@ struct CanonicalTOMLConfig: Codable, Equatable {
 
     struct Scratchpads: Codable, Equatable {
         var labels: [String: String]
+    }
+
+    /// Optional table; omitted from the file while the ranking is empty.
+    struct Monitors: Codable, Equatable {
+        var ranking: [OutputId]
     }
 
     struct MouseWarp: Codable, Equatable {
@@ -257,6 +263,7 @@ extension CanonicalTOMLConfig {
         focus = try container.decode(Focus.self, forKey: .focus)
         mouseWarp = try container.decode(MouseWarp.self, forKey: .mouseWarp)
         routing = try container.decode(Routing.self, forKey: .routing)
+        monitors = try container.decodeIfPresent(Monitors.self, forKey: .monitors)
         gaps = try container.decode(Gaps.self, forKey: .gaps)
         niri = try container.decode(Niri.self, forKey: .niri)
         dwindle = try container.decode(Dwindle.self, forKey: .dwindle)
@@ -313,6 +320,7 @@ extension CanonicalTOMLConfig {
             constrainToArrangement: export.cursorContainmentEnabled
         )
         routing = Routing(mode: export.monitorRoutingMode, arrangements: export.monitorArrangements)
+        monitors = export.monitorRanking.isEmpty ? nil : Monitors(ranking: export.monitorRanking)
         gaps = Gaps(
             size: export.gapSize,
             fullscreenUsesOuterGaps: export.fullscreenUsesOuterGaps,
@@ -451,6 +459,7 @@ extension CanonicalTOMLConfig {
             cursorContainmentEnabled: mouseWarp.constrainToArrangement,
             monitorRoutingMode: routing.mode,
             monitorArrangements: routing.arrangements,
+            monitorRanking: monitors?.ranking ?? [],
             gapSize: gaps.size,
             outerGapLeft: gaps.outer.left,
             outerGapRight: gaps.outer.right,

@@ -618,6 +618,8 @@ The setup assistant opens automatically when OmniWM first sees multiple displays
 
 Custom arrangements are remembered for each set of connected displays, so home and work can keep different positions for the same laptop display. Reconnecting a saved set restores its arrangement automatically. If there is no exact match, OmniWM inherits the smallest saved arrangement containing every connected display; an uncovered set or an invalid grid follows macOS. Editing, resetting, or finishing setup saves only the connected set, leaving any larger arrangement unchanged. Simply connecting displays or opening Settings does not save an arrangement. Workspace assignments and other per-monitor settings remain separate.
 
+Workspace homes can be **Main**, **Secondary**, **Tertiary**, or a specific display. By default Main is the display with the macOS menu bar and Secondary and Tertiary are the next displays in arrangement order. The **Monitor Roles** list in **Settings > Monitors** lets you rank displays instead: the highest-ranked connected display is Main, then Secondary, then Tertiary, and disconnected entries are skipped, so two external displays can hold fixed roles at your desk while the built-in display takes over when you unplug. The Quake terminal's **Main Monitor** option follows the same ranking.
+
 ### Layout Modes
 
 OmniWM offers two layout engines that you can switch between per workspace:

@@ -108,6 +108,28 @@ monitorName = "DELL U2720Q"
 
 For no saved arrangements, use `arrangements = []` inside `[routing]` and omit the array-of-table entries. The example UUIDs above are illustrative; use the identities recorded for your displays by **Settings > Monitors**.
 
+## monitors
+
+Optional table that ranks displays for OmniWM's monitor roles. Omit it to keep the default roles: **Main** is the display with the macOS menu bar, and **Secondary** and **Tertiary** are the next displays in arrangement order.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ranking` | array of tables | unset | Displays in preference order, written as `[[monitors.ranking]]` rows. The highest-ranked connected display is Main, the next connected one is Secondary, the third is Tertiary, and unranked displays follow in the default order. |
+
+Each row requires `name`; `displayUUID` and `displayId` are optional identity fields that Settings records automatically. Matching uses the UUID first, then the display-ID/name fallback, and finally a case-insensitive name match when it identifies exactly one connected display. A row whose display is disconnected is skipped, so a docked external display can outrank the built-in display while the built-in display becomes Main again when undocked.
+
+```toml
+[[monitors.ranking]]
+displayUUID = "3EFD184C-D5D3-40EF-AF27-14C4222A467B"
+name = "DELL U2720Q"
+
+[[monitors.ranking]]
+displayUUID = "8D575171-D0DD-43BB-9FEF-356E6B7C917D"
+name = "Built-in Retina Display"
+```
+
+Workspaces whose home is Main, Secondary, or Tertiary follow this ranking, and so does the Quake terminal's `mainMonitor` mode. The `is-main` field and selector in `omniwmctl` keep reporting the macOS main display.
+
 ## gaps
 
 Gaps between tiled windows and screen edges (points).
@@ -326,7 +348,7 @@ Array of workspace definitions.
 | `id` | string (UUID) | Stable identity; keep it unchanged when editing. |
 | `name` | string | Workspace name; numeric names define the ordering and number-key targets. |
 | `displayName` *(optional)* | string | Label shown in the bar instead of `name` (emoji welcome). |
-| `monitorAssignment` | table | `type` = `main`, `secondary`, or `specificDisplay` (the latter carries an `output` value identifying the display). |
+| `monitorAssignment` | table | `type` = `main`, `secondary`, `tertiary`, or `specificDisplay` (the latter carries an `output` value identifying the display). The role types resolve through the [`monitors`](#monitors) ranking. |
 | `layoutType` | string | `default` (follow `general.defaultLayoutType`), `niri`, or `dwindle`. |
 
 Default: nine workspaces named `1`–`9`, all Niri — `1`–`5` and `8`–`9` on the main monitor, `6` (shown as ❤️) and `7` (shown as 🚀) on the secondary, matching the default `Option + 1`–`9` bindings.

@@ -71,7 +71,8 @@ struct MonitorSetupGuide: View {
             routingMode: settings.monitorRoutingMode,
             arrangements: settings.monitorArrangements,
             mouseWarpEnabled: settings.mouseWarpEnabled,
-            workspaceConfigurations: settings.workspaceConfigurations
+            workspaceConfigurations: settings.workspaceConfigurations,
+            monitorRanking: settings.monitorRanking
         ))
         _draftMonitors = State(initialValue: sortedMonitors)
         _liveMonitors = State(initialValue: sortedMonitors)
@@ -587,7 +588,8 @@ struct MonitorSetupGuide: View {
             routingMode: settings.monitorRoutingMode,
             arrangements: settings.monitorArrangements,
             mouseWarpEnabled: draft.mouseWarpEnabled,
-            workspaceConfigurations: settings.workspaceConfigurations
+            workspaceConfigurations: settings.workspaceConfigurations,
+            monitorRanking: settings.monitorRanking
         )
         selectedMonitor = monitors.first?.id
         confirmedMacOSArrangement = false

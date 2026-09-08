@@ -207,6 +207,50 @@ struct MonitorSettingsTab: View {
                 }
             }
 
+            Section("Monitor Roles") {
+                ForEach(Array(settings.monitorRanking.enumerated()), id: \.element) { index, entry in
+                    RankedMonitorRow(
+                        role: MonitorRanking.roleName(forRank: index),
+                        label: rankedMonitorLabel(for: entry),
+                        isConnected: MonitorRanking.isConnected(entry, monitors: connectedMonitors),
+                        canMoveUp: index > 0,
+                        canMoveDown: index < settings.monitorRanking.count - 1,
+                        moveUp: {
+                            setMonitorRanking(MonitorRanking.moving(settings.monitorRanking, from: index, by: -1))
+                        },
+                        moveDown: {
+                            setMonitorRanking(MonitorRanking.moving(settings.monitorRanking, from: index, by: 1))
+                        },
+                        remove: {
+                            setMonitorRanking(MonitorRanking.removing(settings.monitorRanking, at: index))
+                        }
+                    )
+                }
+
+                Menu("Add Monitor") {
+                    ForEach(addableRankingEntries, id: \.self) { entry in
+                        Button(rankedMonitorLabel(for: entry)) {
+                            setMonitorRanking(settings.monitorRanking + [entry])
+                        }
+                    }
+                }
+                .disabled(addableRankingEntries.isEmpty)
+
+                if settings.monitorRanking.isEmpty {
+                    SettingsCaption(
+                        "Main is the display with the macOS menu bar; Secondary and Tertiary are the next displays "
+                            + "in arrangement order. Add displays here to choose the order yourself: the "
+                            + "highest-ranked connected display becomes Main, then Secondary, then Tertiary."
+                    )
+                } else {
+                    SettingsCaption(
+                        "Workspaces assigned to Main, Secondary, or Tertiary follow this order using only the "
+                            + "displays that are connected. Unranked displays follow after the ranked ones, and the "
+                            + "Quake terminal's Main Monitor option uses the same Main."
+                    )
+                }
+            }
+
             Section("Cross-Monitor Behavior") {
                 Toggle("Focus Across Monitor at Edge", isOn: $settings.focusCrossesMonitorAtEdge)
                 Toggle("Move Window Across Monitor at Edge", isOn: $settings.moveCrossesMonitorAtEdge)
@@ -280,6 +324,22 @@ struct MonitorSettingsTab: View {
         isMonitorSetupPresented = true
     }
 
+    private var addableRankingEntries: [OutputId] {
+        MonitorRanking.addable(connected: connectedMonitors, ranking: settings.monitorRanking)
+    }
+
+    private func rankedMonitorLabel(for entry: OutputId) -> String {
+        guard let monitor = MonitorRanking.resolve(entry, in: connectedMonitors),
+              let label = displayLabels[monitor.id]
+        else { return entry.name }
+        return label.badgeText.map { "\(label.name) \($0)" } ?? label.name
+    }
+
+    private func setMonitorRanking(_ ranking: [OutputId]) {
+        settings.monitorRanking = ranking
+        controller.updateWorkspaceConfig()
+    }
+
     private func refreshConnectedMonitors() {
         let monitors = Monitor.current()
         connectedMonitors = monitors
@@ -351,6 +411,46 @@ struct MonitorSettingsTab: View {
         case .down: row += 1
         }
         placeRouting(monitorID, column: column, row: row)
+    }
+}
+
+private struct RankedMonitorRow: View {
+    let role: String
+    let label: String
+    let isConnected: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let moveUp: () -> Void
+    let moveDown: () -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(role)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 80, alignment: .leading)
+            Text(label)
+            if !isConnected {
+                Text("(Disconnected)")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(action: moveUp) {
+                Image(systemName: "chevron.up")
+            }
+            .disabled(!canMoveUp)
+            .accessibilityLabel("Move \(label) Up")
+            Button(action: moveDown) {
+                Image(systemName: "chevron.down")
+            }
+            .disabled(!canMoveDown)
+            .accessibilityLabel("Move \(label) Down")
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "minus.circle")
+            }
+            .accessibilityLabel("Remove \(label)")
+        }
+        .buttonStyle(.borderless)
     }
 }
 

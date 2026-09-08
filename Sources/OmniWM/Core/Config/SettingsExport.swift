@@ -27,6 +27,7 @@ struct SettingsExport: Equatable {
     var cursorContainmentEnabled: Bool
     var monitorRoutingMode: MonitorRoutingMode
     var monitorArrangements: [MonitorArrangement]
+    var monitorRanking: [OutputId]
     var gapSize: Double
     var outerGapLeft: Double
     var outerGapRight: Double
@@ -160,6 +161,7 @@ extension SettingsExport {
             cursorContainmentEnabled: false,
             monitorRoutingMode: .macOS,
             monitorArrangements: [],
+            monitorRanking: [],
             gapSize: 16,
             outerGapLeft: 0,
             outerGapRight: 0,

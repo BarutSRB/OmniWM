@@ -13,6 +13,7 @@ final class WorkspaceManager {
         let topologyProfile: TopologyProfile
         let configuredWorkspaceNames: Set<String>
         let monitorDescriptionByWorkspaceName: [String: MonitorDescription]
+        let monitorRanking: [OutputId]
     }
 
     private(set) var monitors: [Monitor] = Monitor.current() {
@@ -1693,7 +1694,8 @@ final class WorkspaceManager {
             sortedMonitors: sortedMonitors(),
             topologyProfile: currentTopologyProfile(),
             configuredWorkspaceNames: configuredWorkspaceNameSet(),
-            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName()
+            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName(),
+            monitorRanking: settings.monitorRanking
         )
     }
 
@@ -1707,7 +1709,8 @@ final class WorkspaceManager {
             sortedMonitors: sortedMonitors,
             topologyProfile: TopologyProfile(sortedMonitors: sortedMonitors),
             configuredWorkspaceNames: configuredWorkspaceNameSet(),
-            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName()
+            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName(),
+            monitorRanking: settings.monitorRanking
         )
     }
 
@@ -3517,7 +3520,7 @@ final class WorkspaceManager {
     ) -> Monitor? {
         guard let workspace = descriptor(for: workspaceId) else { return nil }
         guard let description = configuredMonitorDescription(for: workspace.name, context: context) else { return nil }
-        return description.resolveMonitor(sortedMonitors: context.sortedMonitors)
+        return description.resolveMonitor(sortedMonitors: context.sortedMonitors, ranking: context.monitorRanking)
     }
 
     private func homeMonitorId(for workspaceId: WorkspaceDescriptor.ID) -> Monitor.ID? {

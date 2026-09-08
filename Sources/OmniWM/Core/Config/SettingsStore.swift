@@ -106,6 +106,17 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var monitorRanking = SettingsStore.defaultExport.monitorRanking {
+        didSet {
+            let normalized = MonitorRanking.normalized(monitorRanking)
+            if normalized != monitorRanking {
+                monitorRanking = normalized
+                return
+            }
+            scheduleSave()
+        }
+    }
+
     func applyMonitorSetup(
         routingSettings: [MonitorRoutingSettings],
         monitors: [Monitor],
@@ -756,6 +767,7 @@ final class SettingsStore {
             cursorContainmentEnabled: cursorContainmentEnabled,
             monitorRoutingMode: monitorRoutingMode,
             monitorArrangements: monitorArrangements,
+            monitorRanking: monitorRanking,
             gapSize: gapSize,
             outerGapLeft: outerGapLeft,
             outerGapRight: outerGapRight,
@@ -886,6 +898,7 @@ final class SettingsStore {
         cursorContainmentEnabled = export.cursorContainmentEnabled
         monitorRoutingMode = export.monitorRoutingMode
         monitorArrangements = export.monitorArrangements
+        monitorRanking = MonitorRanking.normalized(export.monitorRanking)
         gapSize = export.gapSize
         outerGapLeft = export.outerGapLeft
         outerGapRight = export.outerGapRight
