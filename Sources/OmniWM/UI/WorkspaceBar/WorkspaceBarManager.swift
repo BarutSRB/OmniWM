@@ -239,6 +239,7 @@ final class WorkspaceBarManager {
         primary.panel.orderFrontRegardless()
     }
 
+    /// Updates an existing monitor bar from its latest snapshot and panel state.
     private func updateBarForMonitor(
         _ monitor: Monitor,
         snapshot: WorkspaceBarSnapshot,
@@ -289,6 +290,7 @@ final class WorkspaceBarManager {
         return true
     }
 
+    /// Creates and configures one panel hosting a specific workspace bar island.
     private func makeIslandPanel(
         slice: WorkspaceBarIslandSlice,
         showsSystemStatsButton: Bool,
@@ -324,6 +326,7 @@ final class WorkspaceBarManager {
         )
     }
 
+    /// Wires a bar slice to controller actions and monitor-specific callbacks.
     private func makeBarView(
         model: WorkspaceBarModel,
         slice: WorkspaceBarIslandSlice,
@@ -705,6 +708,7 @@ final class WorkspaceBarManager {
         suppressesManagedFocusRecovery: false
     )
 
+    /// Creates a nonactivating transparent panel suitable for workspace bar content.
     static func defaultPanel() -> WorkspaceBarPanel {
         let panel = WorkspaceBarPanel(
             contentRect: .zero,
@@ -728,6 +732,7 @@ final class WorkspaceBarManager {
         return panel
     }
 
+    /// Removes every managed workspace bar panel.
     func cleanup() {
         removeAllBars()
     }

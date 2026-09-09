@@ -1267,6 +1267,7 @@ final class WMController {
             || ipcApplicationBridge?.hasSubscribers(for: .layoutChanged) == true
     }
 
+    /// Refreshes status output and publishes all IPC events derived from workspace data.
     func publishWorkspaceDataChanged() {
         if statusBarRefreshIsEnabled {
             refreshStatusBar()
@@ -1287,6 +1288,7 @@ final class WMController {
         return !isWorkspaceBarSuppressedByNativeFullscreen(on: monitor, resolved: effective)
     }
 
+    /// Applies enablement, manual hiding, and reveal-modifier policy without fullscreen suppression.
     private func isWorkspaceBarConfiguredVisible(on monitor: Monitor, resolved: ResolvedBarSettings) -> Bool {
         guard resolved.enabled, !hiddenWorkspaceBarMonitorIds.contains(monitor.id) else { return false }
         return settings.workspaceBarRevealModifier == .off || isWorkspaceBarRevealHeld

@@ -12,6 +12,7 @@ final class SettingsMigrationTests: XCTestCase {
         let configDirectory: URL
         let dotfilesDirectory: URL
 
+        /// Deletes all temporary directories owned by this fixture.
         func remove() {
             try? FileManager.default.removeItem(at: root)
         }
@@ -207,6 +208,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.export.monitorArrangements.only?.id, arrangement.id)
     }
 
+    /// Verifies disconnected legacy routing rows survive conversion to the current arrangement schema.
     func testVersionTwoMigrationPreservesRoutingWithDisconnectedRows() throws {
         let data = try versionTwoData(routingRows: """
         [[monitorRoutingOverrides]]
@@ -267,6 +269,7 @@ final class SettingsMigrationTests: XCTestCase {
     }
 
     @MainActor
+    /// Verifies invalid legacy routing structures are rejected without modifying their persisted bytes.
     func testVersionTwoRoutingMigrationRejectsMissingMalformedArraysAndRowsWithoutChangingBytes() throws {
         let valid = String(decoding: try versionTwoData(), as: UTF8.self)
         let inputs = [
@@ -301,6 +304,7 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    /// Verifies conflicting legacy and arrangement routing is rejected without rewriting persisted bytes.
     @MainActor
     func testVersionTwoRoutingMigrationRejectsExistingArrangementsWithoutChangingBytes() throws {
         let fixture = try makeFixture("conflicting-routing-arrangements")
@@ -371,6 +375,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: settingsURL(in: fixture)), rewritten)
     }
 
+    /// Verifies explicit slot-one bindings take precedence over migrated unsuffixed aliases.
     func testExplicitSlotOneBindingsWinOverLegacyAliases() throws {
         var data = try legacyFixtureData(named: "v0.6.3-custom")
         data = addingHotkey(id: "assignFocusedWindowToScratchpad.1", binding: "Option+L", to: data)
@@ -476,6 +481,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(unknownPaths.filter { $0.hasSuffix(".futureHotkeySetting") }.count, 1)
     }
 
+    /// Verifies migration does not replace a version-two binding already present in older settings.
     func testVersionOneMigrationPreservesAnAlreadyPresentVersionTwoBinding() throws {
         let data = addingHotkey(
             id: "closeFocusedWindow",
@@ -498,6 +504,7 @@ final class SettingsMigrationTests: XCTestCase {
         )
     }
 
+    /// Verifies unknown and duplicate legacy hotkey actions remain migration errors.
     func testVersionZeroMigrationStillRejectsUnknownAndDuplicateHotkeys() throws {
         let fixture = try legacyFixtureData(named: "v0.6.3-custom")
         let unknown = addingHotkey(id: "retired.action", binding: "Unassigned", to: fixture)
@@ -511,6 +518,7 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    /// Verifies malformed legacy triggers, types, and values remain migration errors.
     func testVersionZeroMigrationStillRejectsMalformedTriggersTypesAndValues() throws {
         let fixture = String(decoding: try legacyFixtureData(named: "v0.6.3-custom"), as: UTF8.self)
         let retiredFixture = String(decoding: try legacyFixtureData(named: "v0.6.2-custom"), as: UTF8.self)
@@ -580,6 +588,7 @@ final class SettingsMigrationTests: XCTestCase {
     }
 
     @MainActor
+    /// Verifies malformed version-one files remain unchanged and do not produce migration backups.
     func testMalformedVersionOneFilesAreRejectedWithoutChangingBytesOrCreatingBackups() throws {
         let valid = try legacyFixtureData(named: "v0.6.4-custom")
         let validText = String(decoding: valid, as: UTF8.self)
@@ -631,6 +640,7 @@ final class SettingsMigrationTests: XCTestCase {
     }
 
     @MainActor
+    /// Verifies supported legacy settings migrate while older directional-resize data stays unchanged.
     func testVersion062MigrationSucceedsWhileVersion060DirectionalResizeIsLeftUntouched() throws {
         let version062 = try legacyFixtureData(named: "v0.6.2-custom")
         let supported = try SettingsTOMLCodec.decodeForLoad(version062)
@@ -910,6 +920,7 @@ final class SettingsMigrationTests: XCTestCase {
     }
 
     @MainActor
+    /// Verifies a matching migration backup is reused and repeated loading makes no further changes.
     func testMatchingMigrationBackupIsReusedAndSecondLoadIsIdempotent() throws {
         let fixture = try makeFixture("idempotent")
         defer { fixture.remove() }
@@ -940,6 +951,7 @@ final class SettingsMigrationTests: XCTestCase {
     }
 
     @MainActor
+    /// Verifies live migration emits one notice and ignores the resulting canonical file write.
     func testLiveMigrationNotifiesOnceAndSuppressesCanonicalSelfWrite() async throws {
         let fixture = try makeFixture("live")
         defer { fixture.remove() }
@@ -1315,6 +1327,7 @@ final class SettingsMigrationTests: XCTestCase {
         try XCTUnwrap(hotkeySections(in: data).first { hotkeyID(in: $0) == id })
     }
 
+    /// Removes one hotkey table from encoded fixture data by action ID.
     private func removingHotkey(id: String, from data: Data) throws -> Data {
         var sections = String(decoding: data, as: UTF8.self).components(separatedBy: "[[hotkeys]]")
         let index = try XCTUnwrap(sections.indices.dropFirst().first { hotkeyID(in: sections[$0]) == id })
@@ -1322,6 +1335,7 @@ final class SettingsMigrationTests: XCTestCase {
         return Data(sections.joined(separator: "[[hotkeys]]").utf8)
     }
 
+    /// Rewrites fixture data to model the older directional-resize hotkey representation.
     private func version060DirectionalResizeData(from data: Data) throws -> Data {
         var text = String(decoding: data, as: UTF8.self)
         let replacements = [
@@ -1415,11 +1429,13 @@ final class SettingsMigrationTests: XCTestCase {
         return Fixture(root: root, configDirectory: configDirectory, dotfilesDirectory: dotfilesDirectory)
     }
 
+    /// Creates settings persistence rooted in a temporary migration fixture.
     @MainActor
     private func makePersistence(in fixture: Fixture) -> SettingsFilePersistence {
         SettingsFilePersistence(directory: fixture.configDirectory, startWatching: false, deferSaves: false)
     }
 
+    /// Returns the canonical settings file location within a temporary fixture.
     private func settingsURL(in fixture: Fixture) -> URL {
         fixture.configDirectory.appendingPathComponent(SettingsFilePersistence.fileName, isDirectory: false)
     }

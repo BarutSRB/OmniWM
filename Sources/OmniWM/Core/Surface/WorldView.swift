@@ -76,14 +76,17 @@ struct WorldView {
         }
     }
 
+    /// Delegates whether a managed window is currently eligible for display.
     func isManagedWindowDisplayable(_ token: WindowToken) -> Bool {
         controller.isManagedWindowDisplayable(token)
     }
 
+    /// Reports whether a workspace is currently visible on any monitor.
     func isWorkspaceVisible(_ workspaceId: WorkspaceDescriptor.ID) -> Bool {
         controller.workspaceManager.visibleWorkspaceIds().contains(workspaceId)
     }
 
+    /// Combines desired tab rails from the niri and dwindle layout handlers.
     func tabRailInfos() -> [TabRailInfo] {
         var infos = controller.niriLayoutHandler.desiredTabRailInfos()
         infos.append(contentsOf: controller.dwindleLayoutHandler.desiredTabRailInfos())

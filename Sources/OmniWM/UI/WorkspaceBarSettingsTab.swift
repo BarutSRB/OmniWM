@@ -361,6 +361,7 @@ private struct MonitorBarSettingsSection: View {
         )
     }
 
+    /// Mutates this monitor's overrides, persists them, and refreshes workspace bars.
     private func updateSetting(_ update: (inout MonitorBarSettings) -> Void) {
         var ms = monitorSettings
         update(&ms)

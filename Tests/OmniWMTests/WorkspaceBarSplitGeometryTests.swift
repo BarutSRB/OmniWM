@@ -7,6 +7,7 @@ import Foundation
 import XCTest
 
 final class WorkspaceBarSplitGeometryTests: XCTestCase {
+    /// Creates a monitor fixture with configurable visible top edge and notch geometry.
     private func makeMonitor(
         frame: CGRect = CGRect(x: 0, y: 0, width: 1512, height: 982),
         visibleTop: CGFloat = 950,

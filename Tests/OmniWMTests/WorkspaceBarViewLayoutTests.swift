@@ -95,6 +95,7 @@ final class WorkspaceBarViewLayoutTests: XCTestCase {
         XCTAssertFalse(clone.showsBackground)
     }
 
+    /// Verifies presentation distinguishes fully hidden apps from groups with some visible windows.
     func testWindowPresentationDistinguishesAppHiddenAndPartialGroups() {
         let hiddenWindow = makeWindowItem(
             appName: "Mail",
@@ -476,6 +477,7 @@ final class WorkspaceBarViewLayoutTests: XCTestCase {
         )
     }
 
+    /// Creates a window-group item with controllable visibility and focus counts.
     private func makeWindowItem(
         appName: String,
         windowCount: Int,
@@ -512,6 +514,7 @@ final class WorkspaceBarViewLayoutTests: XCTestCase {
         )
     }
 
+    /// Creates the notched monitor fixture used by split-island layout tests.
     private func splitMonitor() -> Monitor {
         Monitor(
             id: Monitor.ID(displayId: 7_001),

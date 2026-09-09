@@ -7,6 +7,7 @@ import XCTest
 final class HiddenBarPanelGeometryTests: XCTestCase {
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
 
+    /// Creates a monitor fixture with independently configurable screen and notch geometry.
     private func monitor(
         frame: CGRect = CGRect(x: 0, y: 0, width: 1440, height: 900),
         visibleFrame: CGRect = CGRect(x: 0, y: 0, width: 1440, height: 875),

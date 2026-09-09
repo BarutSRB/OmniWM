@@ -21,6 +21,7 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         XCTAssertFalse(decoded.workspaceBarHideInNativeFullscreen)
     }
 
+    /// Verifies nondefault fullscreen visibility settings survive encoding and decoding.
     func testNonDefaultRoundTrip() throws {
         var export = SettingsExport.defaults()
         export.workspaceBarHideInNativeFullscreen = true
@@ -32,6 +33,7 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         XCTAssertTrue(decoded.workspaceBarHideInNativeFullscreen)
     }
 
+    /// Verifies decoding rejects settings that omit the required fullscreen-hiding key.
     func testMissingKeyRejectsDecode() throws {
         let toml = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
         let withoutKey = toml
@@ -86,6 +88,7 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
     }
 
     @MainActor
+    /// Verifies fullscreen auto-hide preserves layout space reserved by the configured bar.
     func testAutoHideDoesNotReleaseReservedLayoutSpace() {
         let settings = makeSettingsStore()
         settings.workspaceBarEnabled = true

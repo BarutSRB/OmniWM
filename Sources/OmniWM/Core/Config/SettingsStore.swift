@@ -745,6 +745,7 @@ final class SettingsStore {
         persistence.settingsWritesBlocked
     }
 
+    /// Creates the settings file from current values when no persisted file exists.
     func ensureSettingsFileAvailable() throws {
         guard !FileManager.default.fileExists(atPath: settingsFileURL.path) else { return }
         if let notice = try persistence.saveImmediately(toExport()) {
@@ -752,6 +753,7 @@ final class SettingsStore {
         }
     }
 
+    /// Persists pending configuration and runtime state immediately, honoring autosave mode.
     func flushNow() {
         if autosaveEnabled {
             persistence.flushNow()
@@ -1167,14 +1169,17 @@ final class SettingsStore {
         MonitorSettingsStore.get(for: monitor, in: monitorBarSettings)
     }
 
+    /// Stores workspace bar overrides for the identified monitor.
     func updateBarSettings(_ settings: MonitorBarSettings, for monitor: Monitor) {
         MonitorSettingsStore.update(settings, for: monitor, in: &monitorBarSettings)
     }
 
+    /// Removes all workspace bar overrides associated with a monitor.
     func removeBarSettings(for monitor: Monitor) {
         MonitorSettingsStore.remove(for: monitor, from: &monitorBarSettings)
     }
 
+    /// Resolves a monitor's workspace bar overrides against global defaults.
     func resolvedBarSettings(for monitor: Monitor) -> ResolvedBarSettings {
         resolvedBarSettings(override: barSettings(for: monitor))
     }

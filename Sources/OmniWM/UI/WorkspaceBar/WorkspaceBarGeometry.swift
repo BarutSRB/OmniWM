@@ -94,6 +94,7 @@ struct WorkspaceBarGeometry: Equatable {
         )
     }
 
+    /// Fits active and optional secondary islands into the available regions beside the notch.
     func splitFrame(
         activeWidth: CGFloat,
         secondaryWidth: CGFloat?,
