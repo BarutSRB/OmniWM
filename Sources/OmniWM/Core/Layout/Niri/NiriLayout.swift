@@ -57,6 +57,7 @@ extension NiriLayoutEngine {
         scale: CGFloat = 2.0,
         workingArea: WorkingAreaContext? = nil,
         orientation: Monitor.Orientation,
+        isSettled: Bool = false,
         excludedTokens: Set<WindowToken>? = nil
     ) -> [WindowToken: CGRect] {
         calculateLayoutWithVisibility(
@@ -68,6 +69,7 @@ extension NiriLayoutEngine {
             scale: scale,
             workingArea: workingArea,
             orientation: orientation,
+            isSettled: isSettled,
             excludedTokens: excludedTokens
         ).frames
     }
@@ -86,6 +88,7 @@ extension NiriLayoutEngine {
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext] = [],
         viewOffsetOverride: CGFloat? = nil,
         settledVisibilityOffset: CGFloat? = nil,
+        isSettled: Bool = false,
         excludedTokens: Set<WindowToken>? = nil
     ) -> LayoutResult {
         var frames: [WindowToken: CGRect] = [:]
@@ -106,6 +109,7 @@ extension NiriLayoutEngine {
             hiddenPlacementMonitors: hiddenPlacementMonitors,
             viewOffsetOverride: viewOffsetOverride,
             settledVisibilityOffset: settledVisibilityOffset,
+            isSettled: isSettled,
             excludedTokens: excludedTokens
         )
         return LayoutResult(frames: frames, hiddenHandles: hiddenHandles)
@@ -127,6 +131,7 @@ extension NiriLayoutEngine {
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext] = [],
         viewOffsetOverride: CGFloat? = nil,
         settledVisibilityOffset: CGFloat? = nil,
+        isSettled: Bool = false,
         excludedTokens: Set<WindowToken>? = nil
     ) {
         if let excludedTokens {
@@ -256,6 +261,22 @@ extension NiriLayoutEngine {
         case .horizontal: workingFrame.width * 0.25
         case .vertical: workingFrame.height * 0.25
         }
+        let settledContentFrame: CGRect? = if isSettled {
+            switch orientation {
+            case .horizontal:
+                workingFrame.insetBy(
+                    dx: ((workingFrame.width - containerSpans[activeIdx]) / 2).clamped(to: 0 ... primaryGap),
+                    dy: 0
+                )
+            case .vertical:
+                workingFrame.insetBy(
+                    dx: 0,
+                    dy: ((workingFrame.height - containerSpans[activeIdx]) / 2).clamped(to: 0 ... primaryGap)
+                )
+            }
+        } else {
+            nil
+        }
 
         for idx in 0 ..< projectedColumns.count {
             let projectedColumn = projectedColumns[idx]
@@ -309,7 +330,19 @@ extension NiriLayoutEngine {
             let renderedContainerRect: CGRect
             switch visibilityState {
             case .visible:
-                renderedContainerRect = visibilityRect
+                if let settledContentFrame,
+                   idx != activeIdx,
+                   projectedColumn.windows.allSatisfy({ $0.sizingMode == .normal && $0.id != state.selectedNodeId })
+                {
+                    renderedContainerRect = settledRenderedContainerRect(
+                        visibilityRect,
+                        contentFrame: settledContentFrame,
+                        screenFrame: viewFrame,
+                        orientation: orientation
+                    )
+                } else {
+                    renderedContainerRect = visibilityRect
+                }
                 if projectedColumn.column.isTabbed, projectedColumn.windows.count > 1 {
                     let parkEdge = hiddenEdge(
                         for: visibilityRect,
@@ -355,6 +388,38 @@ extension NiriLayoutEngine {
                 orientation: orientation
             )
         }
+    }
+
+    private func settledRenderedContainerRect(
+        _ rect: CGRect,
+        contentFrame: CGRect,
+        screenFrame: CGRect,
+        orientation: Monitor.Orientation
+    ) -> CGRect {
+        var frame = rect
+        switch orientation {
+        case .horizontal:
+            if frame.maxX <= contentFrame.minX {
+                frame.origin.x += screenFrame.minX - frame.maxX
+            } else if frame.minX >= contentFrame.maxX {
+                frame.origin.x += screenFrame.maxX - frame.minX
+            } else {
+                return frame
+            }
+        case .vertical:
+            if frame.maxY <= contentFrame.minY {
+                frame.origin.y += screenFrame.minY - frame.maxY
+            } else if frame.minY >= contentFrame.maxY {
+                frame.origin.y += screenFrame.maxY - frame.minY
+            } else {
+                return frame
+            }
+        }
+        return NiriMonitorPlaneGeometry.clampedFrame(
+            frame,
+            screenClampRect: screenFrame,
+            orientation: orientation
+        )
     }
 
     private func canonicalContainerRect(

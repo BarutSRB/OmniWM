@@ -256,6 +256,7 @@ extension NiriLayoutEngine {
         animationTime: TimeInterval? = nil,
         viewOffsetOverride: CGFloat? = nil,
         settledVisibilityOffset: CGFloat? = nil,
+        isSettled: Bool = false,
         excludedTokens: Set<WindowToken>? = nil
     ) -> LayoutResult {
         let area = workingArea ?? WorkingAreaContext(
@@ -283,6 +284,7 @@ extension NiriLayoutEngine {
             hiddenPlacementMonitors: hiddenPlacementMonitors,
             viewOffsetOverride: viewOffsetOverride,
             settledVisibilityOffset: settledVisibilityOffset,
+            isSettled: isSettled,
             excludedTokens: excludedTokens
         )
     }
@@ -296,6 +298,7 @@ extension NiriLayoutEngine {
         animationTime: TimeInterval? = nil,
         viewOffsetOverride: CGFloat? = nil,
         settledVisibilityOffset: CGFloat? = nil,
+        isSettled: Bool = false,
         excludedTokens: Set<WindowToken>? = nil
     ) -> (frames: [WindowToken: CGRect], hiddenHandles: [WindowToken: HideSide]) {
         framePool.removeAll(keepingCapacity: true)
@@ -328,6 +331,7 @@ extension NiriLayoutEngine {
             hiddenPlacementMonitors: hiddenPlacementMonitors,
             viewOffsetOverride: viewOffsetOverride,
             settledVisibilityOffset: settledVisibilityOffset,
+            isSettled: isSettled,
             excludedTokens: excludedTokens
         )
 

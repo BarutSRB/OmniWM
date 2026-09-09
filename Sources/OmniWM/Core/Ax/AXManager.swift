@@ -2238,6 +2238,7 @@ final class AXManager {
                 expectedWindow: target.expectedWindow,
                 frame: target.frame,
                 currentFrameHint: frameLedger.lastAppliedFrame(for: windowId),
+                components: .position,
                 verify: true,
                 traceRequestId: traceRequestId
             )
@@ -2347,6 +2348,7 @@ final class AXManager {
                 expectedWindow: pending.request.expectedWindow,
                 frame: pending.request.frame,
                 currentFrameHint: pending.request.currentFrameHint,
+                components: pending.request.components,
                 verify: true,
                 traceRequestId: FrameEffectTraceContext.isCurrentCapture(
                     identifier: pending.request.traceRequestId

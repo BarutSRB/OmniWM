@@ -580,6 +580,14 @@ enum StructuralMutationOutcome: Equatable {
         settlesAnimation: Bool
     ) -> WorkspaceLayoutPlan {
         let sampledAnimationTime = settlesAnimation ? nil : animationTime
+        let isSettled = settlesAnimation || (animationTime == nil && controller.map {
+            !hasPendingNiriAnimationWork(
+                state: snapshot.viewportState,
+                driver: $0.workspaceManager.animationDriver,
+                engine: engine,
+                workspaceId: snapshot.workspaceId
+            )
+        } == true)
         let gaps = LayoutGaps(
             horizontal: snapshot.gap,
             vertical: snapshot.gap
@@ -609,6 +617,7 @@ enum StructuralMutationOutcome: Equatable {
                 in: snapshot.workspaceId,
                 semanticOffset: snapshot.viewportState.viewOffset
             ),
+            isSettled: isSettled,
             excludedTokens: snapshot.excludedTokens
         )
 
@@ -621,7 +630,8 @@ enum StructuralMutationOutcome: Equatable {
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
             reassertHidden: animationTime == nil || settlesAnimation,
             excludedTokens: snapshot.excludedTokens,
-            pendingParkWindowIds: controller?.axManager.pendingParkWindowIds ?? []
+            pendingParkWindowIds: controller?.axManager.pendingParkWindowIds ?? [],
+            settledContext: isSettled ? (snapshot.monitor, snapshot.viewportState) : nil
         )
         if let axManager = controller?.axManager {
             for index in diff.frameChanges.indices {
@@ -1237,6 +1247,15 @@ enum StructuralMutationOutcome: Equatable {
         viewportNeedsRecalc: Bool,
         snapshot: NiriWorkspaceSnapshot
     ) -> WorkspaceLayoutPlan {
+        let isSettled = !(motion.animationsEnabled && snapshot.removalSeed?.oldFrames.isEmpty == false)
+            && controller.map {
+                !hasPendingNiriAnimationWork(
+                    state: state,
+                    driver: $0.workspaceManager.animationDriver,
+                    engine: pass.engine,
+                    workspaceId: pass.wsId
+                )
+            } == true
         let gaps = LayoutGaps(
             horizontal: pass.gap,
             vertical: pass.gap
@@ -1264,6 +1283,7 @@ enum StructuralMutationOutcome: Equatable {
                     storeOffset: $0.workspaceManager.niriViewportState(for: pass.wsId).viewOffset
                 )
             },
+            isSettled: isSettled,
             excludedTokens: snapshot.excludedTokens
         )
 
@@ -1312,7 +1332,8 @@ enum StructuralMutationOutcome: Equatable {
             workspaceId: pass.wsId,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
             reassertHidden: true,
-            excludedTokens: snapshot.excludedTokens
+            excludedTokens: snapshot.excludedTokens,
+            settledContext: isSettled ? (snapshot.monitor, state) : nil
         )
         let startsAnimation = directives.contains {
             if case .startNiriScroll = $0 { return true }
@@ -1354,7 +1375,8 @@ enum StructuralMutationOutcome: Equatable {
         canRestoreHiddenWorkspaceWindows: Bool,
         reassertHidden: Bool,
         excludedTokens: Set<WindowToken> = [],
-        pendingParkWindowIds: Set<Int> = []
+        pendingParkWindowIds: Set<Int> = [],
+        settledContext: (monitor: LayoutMonitorSnapshot, state: ViewportState)? = nil
     ) -> WorkspaceLayoutDiff {
         var diff = WorkspaceLayoutDiff()
         for window in windows {
@@ -1404,18 +1426,47 @@ enum StructuralMutationOutcome: Equatable {
             }
 
             guard let frame = frames[token] else { continue }
-            let forceApply = if let node = engine.findNode(for: token, in: workspaceId) {
-                node.sizingMode == .fullscreen
-            } else {
-                false
-            }
-            diff.frameChanges.append(
-                LayoutFrameChange(
-                    token: token,
-                    frame: frame,
-                    forceApply: forceApply
-                )
+            let node = engine.findNode(for: token, in: workspaceId)
+            var change = LayoutFrameChange(
+                token: token,
+                frame: frame,
+                forceApply: node?.sizingMode == .fullscreen
             )
+            if let settledContext,
+               settledContext.monitor.orientation == .horizontal,
+               frame.minX < settledContext.monitor.frame.minX,
+               let node, node.sizingMode == .normal,
+               node.id != settledContext.state.selectedNodeId,
+               let column = engine.column(of: node),
+               engine.columnIndex(of: column, in: workspaceId) != settledContext.state.activeColumnIndex,
+               let axManager = controller?.axManager,
+               axManager.animationFrameComponents(for: token.windowId, targetFrame: frame) == .position,
+               let nativeFrame = axManager.lastAppliedFrame(for: token.windowId)
+            {
+                let screenFrame = settledContext.monitor.frame
+                let anchor = NiriMonitorPlaneGeometry.clampedFrame(
+                    frame.offsetBy(dx: screenFrame.minX - frame.maxX, dy: 0),
+                    screenClampRect: screenFrame,
+                    orientation: .horizontal
+                )
+                if frame.minX == anchor.minX {
+                    let nativePlacement = CGRect(
+                        x: screenFrame.minX - nativeFrame.width,
+                        y: frame.maxY - nativeFrame.height,
+                        width: nativeFrame.width,
+                        height: nativeFrame.height
+                    )
+                    change = change.writing(
+                        NiriMonitorPlaneGeometry.clampedFrame(
+                            nativePlacement,
+                            screenClampRect: screenFrame,
+                            orientation: .horizontal
+                        ),
+                        components: .position
+                    )
+                }
+            }
+            diff.frameChanges.append(change)
         }
         return diff
     }

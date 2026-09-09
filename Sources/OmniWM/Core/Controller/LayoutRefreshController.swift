@@ -2632,7 +2632,6 @@ import QuartzCore
             for: frame,
             monitor: monitor,
             side: side,
-            pid: entry.pid,
             reason: reason,
             hiddenPlacementMonitors: hiddenPlacementMonitors
         ) else {
@@ -2831,12 +2830,11 @@ import QuartzCore
         for frame: CGRect,
         monitor: Monitor,
         side: HideSide,
-        pid: pid_t,
         reason: HideReason,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
     ) -> CGPoint? {
         guard let controller else { return nil }
-        let baseReveal = Self.hiddenEdgeReveal(isZoomApp: isZoomApp(pid))
+        let baseReveal = Self.hiddenWindowEdgeRevealEpsilon
         let hiddenPlacementMonitor = HiddenPlacementMonitorContext(monitor)
         let resolvedHiddenPlacementMonitors = hiddenPlacementMonitors
             ?? controller.workspaceManager.monitors.map(HiddenPlacementMonitorContext.init)
