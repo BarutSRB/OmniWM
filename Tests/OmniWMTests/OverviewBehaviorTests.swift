@@ -57,6 +57,27 @@ private actor OverviewThumbnailCaptureGate {
 final class OverviewBehaviorTests: XCTestCase {
     private let screenFrame = CGRect(x: 0, y: 0, width: 1000, height: 800)
 
+    func testClosingThumbnailTracksLiveFrameWithoutMovingItsOverviewPosition() throws {
+        let fixture = makeProjectionFixture()
+        var layout = projectedLayout(fixture: fixture, scale: 1, query: "")
+        layout.scrollOffset = -120
+        let handle = try XCTUnwrap(fixture.rowHandles.first?.first)
+        let overviewFrame = try XCTUnwrap(layout.window(for: handle)).overviewFrame
+        let monitorFrame = CGRect(x: 1000, y: -900, width: 1000, height: 800)
+
+        for x: CGFloat in [1300, 1100] {
+            let liveFrame = CGRect(x: x, y: -800, width: 600, height: 500)
+            layout.updateOriginalFrames([handle.id: liveFrame], monitorFrame: monitorFrame)
+            let window = try XCTUnwrap(layout.window(for: handle))
+
+            XCTAssertEqual(window.interpolatedFrame(progress: 1), overviewFrame)
+            XCTAssertEqual(
+                window.interpolatedFrame(progress: 0).offsetBy(dx: 0, dy: -layout.scrollOffset),
+                liveFrame.offsetBy(dx: -monitorFrame.minX, dy: -monitorFrame.minY)
+            )
+        }
+    }
+
     func testRevealPreservesAlreadyVisibleOffset() {
         let layout = makeGeometryLayout()
 

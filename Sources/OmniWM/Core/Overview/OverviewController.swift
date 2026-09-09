@@ -744,6 +744,9 @@ final class OverviewController {
         let resolvedTargetWindow = reason == .selection ? targetWindow : nil
         pendingDismissReason = reason
         pendingFocusTargetWindow = resolvedTargetWindow
+        if let resolvedTargetWindow {
+            wmController?.windowActionHandler.prepareWindowFromOverview(resolvedTargetWindow)
+        }
         pendingPostCloseHandoffValidity = currentPostCloseHandoffValidity()
 
         state = .closing(targetWindow: resolvedTargetWindow)
@@ -1489,6 +1492,25 @@ final class OverviewController {
         generation: UInt64,
         sequence: UInt64
     ) {
+        if case let .closing(targetWindow?) = state,
+           let wmController,
+           let entry = wmController.workspaceManager.entry(for: targetWindow),
+           wmController.activeWorkspace()?.id == entry.workspaceId,
+           isNiriLayout(workspaceId: entry.workspaceId),
+           let monitor = wmController.workspaceManager.monitor(for: entry.workspaceId),
+           monitor.displayId == displayId,
+           let frames = wmController.niriEngine?.captureWindowFrames(in: entry.workspaceId),
+           var layout = layoutsByMonitor[monitor.id]
+        {
+            layout.updateOriginalFrames(frames, monitorFrame: monitor.frame)
+            layoutsByMonitor[monitor.id] = layout
+            windowsByDisplayId[displayId]?.updateLayout(
+                layout,
+                state: state,
+                searchQuery: searchQuery,
+                selectedWindowHandle: selectedWindowHandle
+            )
+        }
         windowsByDisplayId[displayId]?.updateAnimationProgress(
             progress,
             generation: generation,

@@ -141,14 +141,32 @@ final class WindowActionHandler {
         overviewControllerStorage?.isOpen == true
     }
 
+    func prepareWindowFromOverview(_ handle: WindowHandle) {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: handle),
+              controller.activeWorkspace()?.id == entry.workspaceId,
+              controller.workspaceManager.activeLayoutKind(for: entry.workspaceId) == .niri
+        else { return }
+        navigateToWindowInternal(
+            token: handle.id,
+            workspaceId: entry.workspaceId,
+            motion: controller.motionPolicy.snapshot(),
+            focusAfterLayout: false
+        )
+    }
+
     func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
         guard controller.workspaceManager.entry(for: handle) != nil else { return }
-        navigateToWindowInternal(
-            token: handle.id,
-            workspaceId: workspaceId,
-            motion: controller.activeWorkspace()?.id == workspaceId ? controller.motionPolicy.snapshot() : .disabled
-        )
+        if controller.activeWorkspace()?.id == workspaceId,
+           controller.workspaceManager.activeLayoutKind(for: workspaceId) == .niri,
+           let node = controller.niriEngine?.findNode(for: handle.id, in: workspaceId),
+           controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == node.id
+        {
+            controller.focusWindow(handle.id)
+        } else {
+            navigateToWindowInternal(token: handle.id, workspaceId: workspaceId)
+        }
     }
 
     func closeWindow(handle: WindowHandle) -> Bool {
@@ -715,7 +733,8 @@ final class WindowActionHandler {
     func navigateToWindowInternal(
         token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID,
-        motion: MotionSnapshot = .disabled
+        motion: MotionSnapshot = .disabled,
+        focusAfterLayout: Bool = true
     ) -> Bool {
         guard let controller,
               let handle = controller.workspaceManager.handle(for: token),
@@ -797,6 +816,14 @@ final class WindowActionHandler {
                     plannedSeq: controller.workspaceManager.worldSeq
                 )
             )
+        }
+        if !focusAfterLayout {
+            controller.layoutRefreshController.requestImmediateRelayout(
+                reason: .overviewMutation,
+                affectedWorkspaceIds: [workspaceId]
+            )
+            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+            return true
         }
         let newestFocusIntentId = controller.intentLedger.newestFocusIntentId()
         let focusTarget: LayoutRefreshController.PostLayoutAction = { [weak controller] in
