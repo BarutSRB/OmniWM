@@ -214,13 +214,13 @@ struct AdmissionRetryState {
     var attempt: Int
     var generation: UInt64
     var trigger: AdmissionRetryTrigger
-    var identityRebindSource: ManagedWindowIdentityRebindSource? = nil
-    var focusedAdmissionContinuation: FocusedAdmissionRetryContinuation? = nil
+    var identityRebindSource: ManagedWindowIdentityRebindSource?
+    var focusedAdmissionContinuation: FocusedAdmissionRetryContinuation?
     var exhausted: Bool
     var executionPhase: AdmissionRetryExecutionPhase = .waiting
     var identityRebindTargetDestroyed = false
     var preparedSubscriptionRetainCount = 0
-    var focusedAdmissionReplayExecutionOwner: UInt64? = nil
+    var focusedAdmissionReplayExecutionOwner: UInt64?
     var task: Task<Void, Never>?
 }
 
@@ -245,7 +245,7 @@ struct AdmissionRetrySchedule {
     let axRef: AXWindowRef?
     let reason: WindowAdmissionPendingReason
     let trigger: AdmissionRetryTrigger
-    var identityRebindSource: ManagedWindowIdentityRebindSource? = nil
+    var identityRebindSource: ManagedWindowIdentityRebindSource?
     let focusedAdmissionContinuation: FocusedAdmissionRetryContinuation?
     let preparedSubscriptionRetainCount: Int
 }

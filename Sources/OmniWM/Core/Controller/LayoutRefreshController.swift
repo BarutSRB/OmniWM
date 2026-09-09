@@ -1071,7 +1071,7 @@ import QuartzCore
         let layoutWorkspaceIds = affectedWorkspaceIds.isEmpty && emptyScopeUsesActiveWorkspaces
             ? activeWorkspaceIds
             : liveLayoutWorkspaceIds(affectedWorkspaceIds, controller: controller)
-        if (!affectedWorkspaceIds.isEmpty || !emptyScopeUsesActiveWorkspaces),
+        if !affectedWorkspaceIds.isEmpty || !emptyScopeUsesActiveWorkspaces,
            layoutWorkspaceIds.isEmpty
         {
             var effects = EffectPlanEffects()

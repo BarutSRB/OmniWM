@@ -13,8 +13,8 @@ struct RestorePlanner {
 
     struct EventPlan: Equatable {
         var refreshRestoreIntents: Bool = false
-        var interactionMonitorId: Monitor.ID? = nil
-        var previousInteractionMonitorId: Monitor.ID? = nil
+        var interactionMonitorId: Monitor.ID?
+        var previousInteractionMonitorId: Monitor.ID?
         var notes: [String] = []
     }
 
@@ -37,8 +37,8 @@ struct RestorePlanner {
         var newMonitors: [Monitor] = []
         var visibleAssignments: [Monitor.ID: WorkspaceDescriptor.ID] = [:]
         var disconnectedVisibleWorkspaceCache: [MonitorRestoreKey: WorkspaceDescriptor.ID] = [:]
-        var interactionMonitorId: Monitor.ID? = nil
-        var previousInteractionMonitorId: Monitor.ID? = nil
+        var interactionMonitorId: Monitor.ID?
+        var previousInteractionMonitorId: Monitor.ID?
         var refreshRestoreIntents: Bool = false
         var notes: [String] = []
     }

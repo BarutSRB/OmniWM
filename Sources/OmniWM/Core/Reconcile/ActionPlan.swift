@@ -38,15 +38,15 @@ enum ViewportPlan: Equatable {
 }
 
 struct ActionPlan: Equatable {
-    var lifecyclePhase: WindowLifecyclePhase? = nil
-    var observedState: ObservedWindowState? = nil
-    var desiredState: DesiredWindowState? = nil
-    var restoreIntent: RestoreIntent? = nil
-    var focusSession: FocusSessionSnapshot? = nil
-    var viewport: ViewportPlan? = nil
-    var restoreRefresh: RestoreRefreshPlan? = nil
-    var topologyTransition: TopologyTransitionPlan? = nil
-    var persistedHydration: PersistedHydrationMutation? = nil
+    var lifecyclePhase: WindowLifecyclePhase?
+    var observedState: ObservedWindowState?
+    var desiredState: DesiredWindowState?
+    var restoreIntent: RestoreIntent?
+    var focusSession: FocusSessionSnapshot?
+    var viewport: ViewportPlan?
+    var restoreRefresh: RestoreRefreshPlan?
+    var topologyTransition: TopologyTransitionPlan?
+    var persistedHydration: PersistedHydrationMutation?
     var notes: [String] = []
 
     var isEmpty: Bool {

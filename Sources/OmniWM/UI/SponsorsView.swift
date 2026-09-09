@@ -784,8 +784,7 @@ struct GlowingAvatarView: View {
 
             if let image = avatarImage {
                 Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .resizable().scaledToFill()
                     .frame(width: ringSize - 12, height: ringSize - 12)
                     .clipShape(Circle())
             } else {

@@ -154,7 +154,7 @@ final class OverviewInputHandler {
                let charactersIgnoringModifiers,
                let character = charactersIgnoringModifiers.first,
                charactersIgnoringModifiers.count == 1,
-               (character.isLetter || character.isNumber || character == " ")
+               character.isLetter || character.isNumber || character == " "
             {
                 return .init(action: .appendToSearch(String(character)), shouldConsume: true)
             }

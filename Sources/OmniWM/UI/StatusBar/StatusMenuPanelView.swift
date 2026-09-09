@@ -58,7 +58,7 @@ struct StatusMenuControlHoverAction: Sendable {
 }
 
 extension EnvironmentValues {
-    @Entry var statusMenuFocus: FocusState<StatusMenuFocusItem?>.Binding? = nil
+    @Entry var statusMenuFocus: FocusState<StatusMenuFocusItem?>.Binding?
     @Entry var statusMenuControlHover = StatusMenuControlHoverAction(handler: { _ in })
 }
 

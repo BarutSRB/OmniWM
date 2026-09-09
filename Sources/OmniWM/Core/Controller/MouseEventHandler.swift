@@ -1769,8 +1769,8 @@ final class MouseEventHandler {
         if state.nativeTitleBarDrag == nil,
            state.awaitsNativeTitleBarDragTarget,
            state.moveTap == nil,
-           (state.nativeTitleBarDragFallbackReleased
-               || pressedMouseButtonsProvider() & MouseButton.left.pressedMask != 0),
+           state.nativeTitleBarDragFallbackReleased
+           || pressedMouseButtonsProvider() & MouseButton.left.pressedMask != 0,
            state.nativeTitleBarDragFallbackToken == entry.token,
            entry.mode == .tiling,
            let controller

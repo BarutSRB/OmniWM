@@ -1477,8 +1477,8 @@ final class OverviewController {
             wmController?.workspaceManager.handle(for: handle.id) === handle ? handle : nil
         }
         let handoff: PostCloseHandoff?
-        if (dismissReason.shouldRestorePreviousApplication
-            || dismissReason == .selection && resolvedTargetWindow == nil),
+        if dismissReason.shouldRestorePreviousApplication
+            || dismissReason == .selection && resolvedTargetWindow == nil,
             let previousFrontmostApplicationPID
         {
             handoff = .activateApplication(previousFrontmostApplicationPID)

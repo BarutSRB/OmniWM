@@ -147,7 +147,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private(set) var ghosttySurface: ghostty_surface_t?
     private var retainedCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     private var markedText: NSMutableAttributedString = NSMutableAttributedString()
-    private var keyTextAccumulator: [String]? = nil
+    private var keyTextAccumulator: [String]?
     private var lastPerformKeyEvent: TimeInterval?
     private var lastAppliedSurfacePixelSize: GhosttySurfacePixelSize?
     private var lastAppliedContentScale: CGFloat?

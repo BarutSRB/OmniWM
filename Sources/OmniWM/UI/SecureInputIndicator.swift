@@ -115,8 +115,7 @@ struct SecureInputIndicatorView: View {
                 .padding(16)
             } else {
                 Image(systemName: "lock.shield.fill")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .resizable().scaledToFit()
                     .padding(10)
             }
         }

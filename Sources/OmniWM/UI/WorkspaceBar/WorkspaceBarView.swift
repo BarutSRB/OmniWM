@@ -1013,12 +1013,10 @@ private struct AppIconImage: View {
         Group {
             if let icon {
                 Image(nsImage: icon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .resizable().scaledToFit()
             } else {
                 Image(systemName: "app.dashed")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .resizable().scaledToFit()
             }
         }
     }

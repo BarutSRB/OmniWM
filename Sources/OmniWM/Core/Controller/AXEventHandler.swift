@@ -1114,7 +1114,7 @@ final class AXEventHandler {
 
     func drainDeferredCreatedWindows(
         spaceIdsForWindow: (UInt32) -> [UInt64] = { SkyLight.shared.spacesForWindow($0) }
-    ) async {
+    ) {
         guard !deferredCreatedWindowOrder.isEmpty else { return }
 
         let deferredWindowIds = deferredCreatedWindowOrder
@@ -1656,7 +1656,7 @@ final class AXEventHandler {
             )
         }
 
-        if pid == getpid(), (controller.hasFrontmostOwnedWindow || controller.hasVisibleOwnedWindow) {
+        if pid == getpid(), controller.hasFrontmostOwnedWindow || controller.hasVisibleOwnedWindow {
             if let activeRequest = controller.intentLedger.activeManagedRequest, activeRequest.token.pid == pid {
                 _ = controller.cancelManagedFocusRequest(activeRequest)
             }
