@@ -32,12 +32,16 @@ let package = Package(
             name: "OmniWMIPC",
             path: "Sources/OmniWMIPC",
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .treatAllWarnings(as: .error)
             ]
         ),
         .target(
             name: "OmniWMMenuBarAssertion",
-            path: "Sources/OmniWMMenuBarAssertion"
+            path: "Sources/OmniWMMenuBarAssertion",
+            cSettings: [
+                .treatAllWarnings(as: .error)
+            ]
         ),
         .target(
             name: "OmniWM",
@@ -54,6 +58,7 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .treatAllWarnings(as: .error),
                 .interoperabilityMode(.C),
                 .unsafeFlags(["-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "FoundationModels"])
             ],
@@ -76,7 +81,8 @@ let package = Package(
             dependencies: ["OmniWM"],
             path: "Sources/OmniWMApp",
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .treatAllWarnings(as: .error)
             ]
         ),
         .executableTarget(
@@ -84,7 +90,8 @@ let package = Package(
             dependencies: ["OmniWMIPC"],
             path: "Sources/OmniWMCtl",
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .treatAllWarnings(as: .error)
             ]
         ),
         .testTarget(
@@ -95,7 +102,8 @@ let package = Package(
                 .copy("Fixtures")
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .treatAllWarnings(as: .error)
             ]
         )
     ]

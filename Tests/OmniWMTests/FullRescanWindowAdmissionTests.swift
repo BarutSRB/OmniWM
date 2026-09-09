@@ -414,7 +414,7 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
             )
         }
 
-        await controller.axEventHandler.drainDeferredCreatedWindows()
+        controller.axEventHandler.drainDeferredCreatedWindows()
 
         let retainedState = try XCTUnwrap(
             controller.axEventHandler.admissionRetryStateByWindowId[windowId]
@@ -1259,14 +1259,14 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
             )
         }
 
-        await controller.axEventHandler.drainDeferredCreatedWindows { _ in [2] }
-        await controller.axEventHandler.drainDeferredCreatedWindows { _ in [2] }
+        controller.axEventHandler.drainDeferredCreatedWindows { _ in [2] }
+        controller.axEventHandler.drainDeferredCreatedWindows { _ in [2] }
         let firstProtectedTokens =
             controller.axEventHandler.protectMissingEntriesDuringUnsettledAdmission(
                 candidates: [oldToken, unrelatedToken],
                 scope: .all
             )
-        await controller.axEventHandler.drainDeferredCreatedWindows { _ in [2] }
+        controller.axEventHandler.drainDeferredCreatedWindows { _ in [2] }
         let secondProtectedTokens =
             controller.axEventHandler.protectMissingEntriesDuringUnsettledAdmission(
                 candidates: [oldToken, unrelatedToken],

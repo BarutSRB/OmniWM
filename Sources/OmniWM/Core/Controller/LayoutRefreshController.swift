@@ -296,7 +296,7 @@ import QuartzCore
         )
     }
 
-    private func executeEffectPlan(_ plan: EffectPlan, generation: UInt64) async -> Bool {
+    private func executeEffectPlan(_ plan: EffectPlan, generation: UInt64) -> Bool {
         guard let controller else { return false }
         guard isCurrentRefreshGeneration(generation) else { return false }
 
@@ -368,7 +368,7 @@ import QuartzCore
         }
 
         if plan.effects.drainDeferredCreatedWindows {
-            await controller.axEventHandler.drainDeferredCreatedWindows()
+            controller.axEventHandler.drainDeferredCreatedWindows()
         }
 
         if plan.effects.subscribeManagedWindows {
@@ -847,12 +847,12 @@ import QuartzCore
         }
     }
 
-    private func executeScheduledRelayout(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeScheduledRelayout(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         guard !layoutState.isIncrementalRefreshInProgress else { return false }
         guard !layoutState.isImmediateLayoutInProgress else { return false }
         layoutState.isIncrementalRefreshInProgress = true
         defer { layoutState.isIncrementalRefreshInProgress = false }
-        return await executeRelayout(
+        return executeRelayout(
             refresh: refresh,
             useScrollAnimationPath: false,
             recoverFocus: true,
@@ -865,7 +865,7 @@ import QuartzCore
         useScrollAnimationPath: Bool,
         recoverFocus: Bool,
         generation: UInt64
-    ) async -> Bool {
+    ) -> Bool {
         guard let controller else { return false }
 
         if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
@@ -887,10 +887,10 @@ import QuartzCore
             }
         )
         applyRefreshMetadata(refresh, to: &plan)
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
-    private func executeVisibilityRefresh(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeVisibilityRefresh(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         guard let controller else { return false }
 
         if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
@@ -904,7 +904,7 @@ import QuartzCore
             recoverFocus: refresh.reason.recoversFocusAfterVisibilityChange
         )
         applyRefreshMetadata(refresh, to: &plan)
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
     func hideInactiveWorkspacesSync() {
@@ -918,11 +918,11 @@ import QuartzCore
         hideInactiveWorkspaces(activeWorkspaceIds: activeWorkspaceIds)
     }
 
-    private func executeImmediateRelayout(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeImmediateRelayout(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         guard !layoutState.isImmediateLayoutInProgress else { return false }
         layoutState.isImmediateLayoutInProgress = true
         defer { layoutState.isImmediateLayoutInProgress = false }
-        return await executeRelayout(
+        return executeRelayout(
             refresh: refresh,
             useScrollAnimationPath: !niriHandler.scrollAnimationByDisplay.isEmpty,
             recoverFocus: false,
@@ -930,7 +930,7 @@ import QuartzCore
         )
     }
 
-    private func executeWindowRemoval(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeWindowRemoval(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         let payloads = refresh.windowRemovalPayloads
         guard let controller else { return false }
         if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
@@ -939,7 +939,7 @@ import QuartzCore
 
         var plan = buildWindowRemovalEffectPlan(payloads: payloads)
         applyRefreshMetadata(refresh, to: &plan)
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
     func resetState() {
@@ -1016,7 +1016,7 @@ import QuartzCore
         applyRefreshMetadata(refresh, includePostLayoutActions: false, to: &plan)
         try Task.checkCancellation()
         guard isCurrentRefreshGeneration(generation) else { return false }
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
     func selectTabInNiri(
@@ -2332,13 +2332,13 @@ import QuartzCore
             case .fullRescan:
                 return try await executeFullRefresh(refresh: refresh, generation: generation)
             case .relayout:
-                return await executeScheduledRelayout(refresh: refresh, generation: generation)
+                return executeScheduledRelayout(refresh: refresh, generation: generation)
             case .immediateRelayout:
-                return await executeImmediateRelayout(refresh: refresh, generation: generation)
+                return executeImmediateRelayout(refresh: refresh, generation: generation)
             case .visibilityRefresh:
-                return await executeVisibilityRefresh(refresh: refresh, generation: generation)
+                return executeVisibilityRefresh(refresh: refresh, generation: generation)
             case .windowRemoval:
-                return await executeWindowRemoval(refresh: refresh, generation: generation)
+                return executeWindowRemoval(refresh: refresh, generation: generation)
             }
         } catch {
             return false

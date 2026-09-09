@@ -102,7 +102,7 @@ private struct FullRescanAppEnumerationResult: Sendable {
     let callbackGeneration: UInt64?
 }
 
-private struct FullRescanAppTarget: @unchecked Sendable {
+private struct FullRescanAppTarget: Sendable {
     let app: NSRunningApplication
     let route: FullRescanEnumerationRoute
     let inspectionContext: AXWindowInspectionContext

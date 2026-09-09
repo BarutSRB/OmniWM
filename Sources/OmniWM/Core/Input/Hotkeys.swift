@@ -266,13 +266,11 @@ final class HotkeyCenter {
         }
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            unregisterCommandHotkeys()
-            stopHyperTriggerTap()
-            restoreCapsLockHyperRemap()
-            removeCarbonEventHandler()
-        }
+    isolated deinit {
+        unregisterCommandHotkeys()
+        stopHyperTriggerTap()
+        restoreCapsLockHyperRemap()
+        removeCarbonEventHandler()
     }
 
     func start() {
