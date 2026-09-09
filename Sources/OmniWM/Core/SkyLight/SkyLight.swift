@@ -152,11 +152,6 @@ final class SkyLight {
         UnsafeMutablePointer<UInt32>
     ) -> CGError
     private typealias ReleaseWindowFunc = @convention(c) (Int32, UInt32) -> CGError
-    private typealias WindowContextCreateFunc = @convention(c) (
-        Int32,
-        UInt32,
-        CFDictionary?
-    ) -> Unmanaged<CGContext>?
     private typealias SetWindowShapeFunc = @convention(c) (Int32, UInt32, Float, Float, CFTypeRef) -> CGError
     private typealias SetWindowResolutionFunc = @convention(c) (Int32, UInt32, Float) -> CGError
     private typealias SetWindowOpacityFunc = @convention(c) (Int32, UInt32, Int32) -> CGError
@@ -259,7 +254,6 @@ final class SkyLight {
     private let unregisterNotifyProcFunc: UnregisterNotifyProcFunc
     private let newWindow: NewWindowFunc
     private let releaseWindow: ReleaseWindowFunc
-    private let windowContextCreate: WindowContextCreateFunc
     private let setWindowShape: SetWindowShapeFunc
     private let setWindowResolution: SetWindowResolutionFunc
     private let setWindowOpacity: SetWindowOpacityFunc
@@ -370,7 +364,6 @@ final class SkyLight {
         unregisterNotifyProcFunc = resolve("SLSRemoveNotifyProc", as: UnregisterNotifyProcFunc.self)
         newWindow = resolve("SLSNewWindow", as: NewWindowFunc.self)
         releaseWindow = resolve("SLSReleaseWindow", as: ReleaseWindowFunc.self)
-        windowContextCreate = resolve("SLWindowContextCreate", as: WindowContextCreateFunc.self)
         setWindowShape = resolve("SLSSetWindowShape", as: SetWindowShapeFunc.self)
         setWindowResolution = resolve("SLSSetWindowResolution", as: SetWindowResolutionFunc.self)
         setWindowOpacity = resolve("SLSSetWindowOpacity", as: SetWindowOpacityFunc.self)
@@ -1233,12 +1226,6 @@ final class SkyLight {
         if releaseWindow(cid, wid) != .success {
             FallbackFiringRecorder.shared.note(.skylight, "releaseWindowFailed")
         }
-    }
-
-    func createWindowContext(for wid: UInt32) -> CGContext? {
-        let cid = getMainConnectionID()
-        guard cid != 0 else { return nil }
-        return windowContextCreate(cid, wid, nil)?.takeRetainedValue()
     }
 
     @discardableResult

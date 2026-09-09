@@ -28,6 +28,31 @@ private final class OverviewPostCloseHandoffScheduler {
     }
 }
 
+private actor OverviewThumbnailCaptureGate {
+    private var captureContinuation: CheckedContinuation<CGImage?, Never>?
+    private var startedContinuation: CheckedContinuation<Void, Never>?
+    private var started = false
+
+    func capture() async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            captureContinuation = continuation
+            started = true
+            startedContinuation?.resume()
+            startedContinuation = nil
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { startedContinuation = $0 }
+    }
+
+    func complete(with image: CGImage) {
+        captureContinuation?.resume(returning: image)
+        captureContinuation = nil
+    }
+}
+
 @MainActor
 final class OverviewBehaviorTests: XCTestCase {
     private let screenFrame = CGRect(x: 0, y: 0, width: 1000, height: 800)
@@ -1536,6 +1561,76 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(frameReads, 0)
         XCTAssertEqual(captureStarts, 0)
     }
+
+    #if DEBUG
+        func testDismissedOverviewRejectsLateThumbnailCaptureResult() async throws {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+            let overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: fixture.environment
+            )
+            overview.prepareOpenState()
+            overview.onAnimationComplete(state: .open)
+            let windowId = try XCTUnwrap(fixture.handles.first).windowId
+            let image = try makeThumbnailImage()
+            await overview.startThumbnailCaptureForTests(windowId: windowId) { image }.value
+            XCTAssertTrue(overview.thumbnailCache[windowId] === image)
+
+            let gate = OverviewThumbnailCaptureGate()
+            let pendingCapture = overview.startThumbnailCaptureForTests(windowId: windowId) {
+                await gate.capture()
+            }
+            await gate.waitUntilStarted()
+            overview.dismiss(animated: false)
+            XCTAssertTrue(pendingCapture.isCancelled)
+            XCTAssertTrue(overview.thumbnailCache.isEmpty)
+
+            await gate.complete(with: image)
+            await pendingCapture.value
+            XCTAssertTrue(overview.thumbnailCache.isEmpty)
+        }
+
+        func testReplacedOverviewCaptureCannotOverwriteNewThumbnail() async throws {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+            let overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: fixture.environment
+            )
+            overview.prepareOpenState()
+            overview.onAnimationComplete(state: .open)
+            let windowId = try XCTUnwrap(fixture.handles.first).windowId
+            let oldImage = try makeThumbnailImage()
+            let newImage = try makeThumbnailImage()
+            let gate = OverviewThumbnailCaptureGate()
+            let oldCapture = overview.startThumbnailCaptureForTests(windowId: windowId) {
+                await gate.capture()
+            }
+            await gate.waitUntilStarted()
+
+            await overview.startThumbnailCaptureForTests(windowId: windowId) { newImage }.value
+            XCTAssertTrue(oldCapture.isCancelled)
+            XCTAssertTrue(overview.thumbnailCache[windowId] === newImage)
+
+            await gate.complete(with: oldImage)
+            await oldCapture.value
+            XCTAssertTrue(overview.thumbnailCache[windowId] === newImage)
+        }
+
+        private func makeThumbnailImage() throws -> CGImage {
+            let context = try XCTUnwrap(CGContext(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            return try XCTUnwrap(context.makeImage())
+        }
+    #endif
 
     private func makeGeometryLayout(scale: CGFloat = 1) -> OverviewLayout {
         var layout = OverviewLayout()

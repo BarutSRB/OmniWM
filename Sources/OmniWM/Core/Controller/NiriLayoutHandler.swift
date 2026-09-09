@@ -1735,42 +1735,45 @@ enum StructuralMutationOutcome: Equatable {
         }
 
         guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
-        let gap = controller.innerGap(for: monitor)
-        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let geometry = controller.niriInteractionGeometry(for: monitor)
         let orientation = resolvedOrientation(
             for: wsId,
             monitor: monitor,
             engine: engine
         )
+        let options = NodeActivationOptions(
+            activateWindow: false,
+            ensureVisible: false,
+            layoutRefresh: false,
+            axFocus: false
+        )
 
+        var targetIsSuppressed = false
         let newNode = controller.workspaceManager.withEngineMutationScope { () -> NiriNode? in
-            return engine.focusTarget(
+            guard let node = engine.focusTarget(
                 direction: direction,
                 currentSelection: currentNode,
                 in: wsId,
                 motion: controller.motionPolicy.snapshot(),
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gap,
+                workingFrame: geometry.workingFrame,
+                gaps: geometry.innerGap,
                 orientation: orientation
-            )
+            ) else { return nil }
+            if let windowNode = node as? NiriWindow {
+                targetIsSuppressed = controller.isManagedWindowSuppressedByMacOSHide(windowNode.token)
+            }
+            if !targetIsSuppressed {
+                prepareNodeActivation(node, in: wsId, state: &state, options: options)
+            }
+            return node
         }
         guard let newNode else { return false }
-        if let windowNode = newNode as? NiriWindow,
-           controller.isManagedWindowSuppressedByMacOSHide(windowNode.token)
-        {
+        if targetIsSuppressed {
             requestLayoutCommandRelayout(in: wsId)
             return false
         }
-        activateNode(
-            newNode, in: wsId, state: &state,
-            options: .init(
-                activateWindow: false,
-                ensureVisible: false,
-                layoutRefresh: false,
-                axFocus: false
-            )
-        )
+        completeNodeActivation(newNode, in: wsId, state: state, options: options)
         _ = controller.workspaceManager.applySessionPatch(
             .init(
                 workspaceId: wsId,
@@ -2177,46 +2180,69 @@ enum StructuralMutationOutcome: Equatable {
         state: inout ViewportState,
         options: NodeActivationOptions = NodeActivationOptions()
     ) {
+        guard let controller, controller.niriEngine != nil else { return }
+        controller.workspaceManager.withEngineMutationScope {
+            prepareNodeActivation(node, in: workspaceId, state: &state, options: options)
+        }
+        completeNodeActivation(node, in: workspaceId, state: state, options: options)
+    }
+
+    private func prepareNodeActivation(
+        _ node: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        options: NodeActivationOptions
+    ) {
         guard let controller, let engine = controller.niriEngine else { return }
 
         state.selectedNodeId = node.id
-        controller.workspaceManager.withEngineMutationScope {
-            let usesSingleWindowFit = engine.singleWindowLayoutContext(in: workspaceId) != nil
-            if usesSingleWindowFit {
-                if state.activeColumnIndex != 0 || state.viewOffset != 0
-                    || state.activatePrevColumnOnRemoval != nil || state.viewOffsetToRestore != nil
-                {
-                    resetViewportForSingleWindowFit(state: &state)
-                }
-            } else if !options.ensureVisible, !options.preserveViewportAnchor {
-                rebaseViewportAnchor(to: node, in: workspaceId, state: &state)
-            }
-
-            if options.activateWindow {
-                engine.activateWindow(node.id, in: workspaceId)
-            }
-
-            if !usesSingleWindowFit,
-               options.ensureVisible,
-               let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        let usesSingleWindowFit = engine.singleWindowLayoutContext(in: workspaceId) != nil
+        if usesSingleWindowFit {
+            if state.activeColumnIndex != 0 || state.viewOffset != 0
+                || state.activatePrevColumnOnRemoval != nil || state.viewOffsetToRestore != nil
             {
-                let gap = controller.innerGap(for: monitor)
-                let workingFrame = controller.insetWorkingFrame(for: monitor)
-                engine.ensureSelectionVisible(
-                    node: node,
-                    in: workspaceId,
-                    motion: controller.motionPolicy.snapshot(),
-                    state: &state,
-                    workingFrame: workingFrame,
-                    gaps: gap,
-                    orientation: resolvedOrientation(
-                        for: workspaceId,
-                        monitor: monitor,
-                        engine: engine
-                    )
-                )
+                resetViewportForSingleWindowFit(state: &state)
             }
+        } else if !options.ensureVisible, !options.preserveViewportAnchor {
+            rebaseViewportAnchor(to: node, in: workspaceId, state: &state)
         }
+
+        if options.activateWindow {
+            engine.activateWindow(node.id, in: workspaceId)
+        }
+
+        if !usesSingleWindowFit,
+           options.ensureVisible,
+           let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        {
+            let geometry = controller.niriInteractionGeometry(for: monitor)
+            engine.ensureSelectionVisible(
+                node: node,
+                in: workspaceId,
+                motion: controller.motionPolicy.snapshot(),
+                state: &state,
+                workingFrame: geometry.workingFrame,
+                gaps: geometry.innerGap,
+                orientation: resolvedOrientation(
+                    for: workspaceId,
+                    monitor: monitor,
+                    engine: engine
+                )
+            )
+        }
+
+        if options.updateTimestamp, let windowNode = node as? NiriWindow {
+            engine.updateFocusTimestamp(for: windowNode.id, in: workspaceId)
+        }
+    }
+
+    private func completeNodeActivation(
+        _ node: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: ViewportState,
+        options: NodeActivationOptions
+    ) {
+        guard let controller else { return }
 
         let focusedToken = (node as? NiriWindow)?.token
         _ = controller.workspaceManager.commitWorkspaceSelection(
@@ -2225,12 +2251,6 @@ enum StructuralMutationOutcome: Equatable {
             in: workspaceId,
             onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
         )
-
-        if options.updateTimestamp, let windowNode = node as? NiriWindow {
-            controller.workspaceManager.withEngineMutationScope {
-                engine.updateFocusTimestamp(for: windowNode.id, in: workspaceId)
-            }
-        }
 
         if options.layoutRefresh {
             let focusToken = options.axFocus ? (node as? NiriWindow)?.token : nil

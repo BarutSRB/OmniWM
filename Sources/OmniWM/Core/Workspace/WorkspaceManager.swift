@@ -20,7 +20,6 @@ final class WorkspaceManager {
     }
 
     private var _monitorsById: [Monitor.ID: Monitor] = [:]
-    private var _monitorsByName: [String: [Monitor]] = [:]
     let settings: SettingsStore
 
     private var workspacesById: [WorkspaceDescriptor.ID: WorkspaceDescriptor] = [:]
@@ -1615,14 +1614,6 @@ final class WorkspaceManager {
         _cachedSortedMonitors = nil
         _cachedTopologyProfile = nil
         _monitorsById = Dictionary(uniqueKeysWithValues: monitors.map { ($0.id, $0) })
-        var byName: [String: [Monitor]] = [:]
-        for monitor in monitors {
-            byName[monitor.name, default: []].append(monitor)
-        }
-        for key in byName.keys {
-            byName[key] = Monitor.sortedByPosition(byName[key] ?? [])
-        }
-        _monitorsByName = byName
         invalidateWorkspaceProjectionCaches()
     }
 
