@@ -152,6 +152,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var lastAppliedSurfacePixelSize: GhosttySurfacePixelSize?
     private var lastAppliedContentScale: CGFloat?
     private var lastAppliedDisplayId: UInt32?
+    private var occlusionHandlerForTests: ((Bool) -> Void)?
 
     private let resizeEdgeThreshold: CGFloat = 8.0
 
@@ -197,6 +198,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         self.ghosttySurface = surface
         self.retainedCallbackContext = retainedContext
+        updateSurfaceOcclusion()
 
         if let layer {
             let scale = layer.contentsScale
@@ -211,6 +213,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             userInfo: nil
         )
         addTrackingArea(trackingArea)
+    }
+
+    init(occlusionHandlerForTests: @escaping (Bool) -> Void) {
+        self.occlusionHandlerForTests = occlusionHandlerForTests
+        super.init(frame: .zero)
+        updateSurfaceOcclusion()
     }
 
     required init?(coder: NSCoder) {
@@ -246,6 +254,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             object: nil
         )
         NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeScreenNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        updateSurfaceOcclusion()
         guard let window else { return }
         updateDisplayState()
 
@@ -261,6 +271,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             name: NSWindow.didChangeScreenNotification,
             object: window
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidChangeOcclusionState(_:)),
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: window
+        )
     }
 
     @objc private func windowDidChangeBackingProperties(_ notification: Notification) {
@@ -269,6 +285,19 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     @objc private func windowDidChangeScreen(_ notification: Notification) {
         updateDisplayState()
+    }
+
+    @objc private func windowDidChangeOcclusionState(_ notification: Notification) {
+        updateSurfaceOcclusion()
+    }
+
+    private func updateSurfaceOcclusion() {
+        let visible = window?.occlusionState.contains(.visible) == true
+        if let occlusionHandlerForTests {
+            occlusionHandlerForTests(visible)
+        } else if let surface = ghosttySurface {
+            ghostty_surface_set_occlusion(surface, visible)
+        }
     }
 
     private func updateDisplayState() {

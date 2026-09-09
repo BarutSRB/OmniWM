@@ -5,7 +5,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-struct RuntimeQuakeTerminalFrame: Codable, Equatable {
+struct RuntimeQuakeTerminalFrame: Codable, Equatable, Sendable {
     var x: Double
     var y: Double
     var width: Double
@@ -30,7 +30,7 @@ struct RuntimeQuakeTerminalFrame: Codable, Equatable {
     }
 }
 
-struct IssueDraft: Codable, Equatable {
+struct IssueDraft: Codable, Equatable, Sendable {
     var title: String = ""
     var actual: String = ""
     var expected: String = ""
@@ -49,7 +49,7 @@ enum MonitorSetupStatus: String, Codable, Equatable, Sendable {
     case completed
 }
 
-struct RuntimeState: Codable, Equatable {
+struct RuntimeState: Codable, Equatable, Sendable {
     var windowRestoreCatalog: PersistedWindowRestoreCatalog?
     var updaterLastCheckedAt: Date?
     var updaterSkippedReleaseTag: String?
@@ -71,44 +71,80 @@ final class RuntimeStateStore {
     let directoryURL: URL
     let fileURL: URL
 
+    private struct PendingSave: Sendable {
+        let revision: UInt64
+        let state: RuntimeState
+    }
+
     private let deferSaves: Bool
+    private let saveQueue = DispatchQueue(label: "OmniWM.RuntimeStateStore", qos: .utility)
+    private let writeState: @Sendable (RuntimeState, URL) throws -> Void
     private var state: RuntimeState
-    private var pendingState: RuntimeState?
-    private var saveScheduled = false
+    private var pendingSave: PendingSave?
+    private var saveRevision: UInt64 = 0
+    private var saveTask: Task<Void, Never>?
 
     init(
         directory: URL = RuntimeStateStore.defaultDirectoryURL,
-        deferSaves: Bool = true
+        deferSaves: Bool = true,
+        writeState: @escaping @Sendable (RuntimeState, URL) throws -> Void = RuntimeStateStore.writeState
     ) {
         directoryURL = directory
         fileURL = directory.appendingPathComponent(Self.fileName, isDirectory: false)
         self.deferSaves = deferSaves
+        self.writeState = writeState
         state = Self.readState(from: directory.appendingPathComponent(Self.fileName, isDirectory: false))
     }
 
     func scheduleSave() {
+        saveRevision &+= 1
+        pendingSave = PendingSave(revision: saveRevision, state: state)
         if !deferSaves {
-            pendingState = nil
-            write(state)
+            flushNow()
             return
         }
-
-        pendingState = state
-        guard !saveScheduled else { return }
-        saveScheduled = true
-
-        Task { @MainActor [weak self] in
-            await Task.yield()
+        guard saveTask == nil else { return }
+        saveTask = Task { [weak self] in
             guard let self else { return }
-            saveScheduled = false
-            flushNow()
+            defer { saveTask = nil }
+            while let pendingSave {
+                let write = writeState
+                let url = fileURL
+                let result: Result<Void, Error> = await withCheckedContinuation { continuation in
+                    saveQueue.async {
+                        continuation.resume(returning: Result { try write(pendingSave.state, url) })
+                    }
+                }
+                if !completeSave(pendingSave, result: result), self.pendingSave?.revision == pendingSave.revision {
+                    return
+                }
+            }
         }
     }
 
     func flushNow() {
-        guard let state = pendingState else { return }
-        pendingState = nil
-        write(state)
+        guard let pendingSave else { return }
+        let write = writeState
+        let url = fileURL
+        let result = saveQueue.sync { Result { try write(pendingSave.state, url) } }
+        _ = completeSave(pendingSave, result: result)
+    }
+
+    func waitForPendingSave() async {
+        await saveTask?.value
+    }
+
+    private func completeSave(_ save: PendingSave, result: Result<Void, Error>) -> Bool {
+        switch result {
+        case .success:
+            if pendingSave?.revision == save.revision {
+                pendingSave = nil
+            }
+            return true
+        case let .failure(error):
+            Log.config.error("Failed to save \(fileURL.path): \(error.localizedDescription)")
+            return false
+        }
     }
 
     var windowRestoreCatalog: PersistedWindowRestoreCatalog? {
@@ -202,22 +238,15 @@ final class RuntimeStateStore {
         }
     }
 
-    private func write(_ state: RuntimeState) {
-        do {
-            try writeState(state)
-        } catch {
-            report("Failed to save \(fileURL.path): \(error.localizedDescription)")
-        }
-    }
-
-    private func writeState(_ state: RuntimeState) throws {
+    nonisolated static func writeState(_ state: RuntimeState, to fileURL: URL) throws {
+        let directoryURL = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        try Self.applyPermissions(S_IRWXU, to: directoryURL)
+        try applyPermissions(S_IRWXU, to: directoryURL)
         let data = try JSONEncoder().encode(state)
-        try Self.writePrivateData(data, to: fileURL)
+        try writePrivateData(data, to: fileURL)
     }
 
-    private static func writePrivateData(_ data: Data, to fileURL: URL) throws {
+    private nonisolated static func writePrivateData(_ data: Data, to fileURL: URL) throws {
         let directoryURL = fileURL.deletingLastPathComponent()
         let tempURL = directoryURL.appendingPathComponent(".\(fileName).\(UUID().uuidString).tmp", isDirectory: false)
 
@@ -231,7 +260,7 @@ final class RuntimeStateStore {
         }
     }
 
-    private static func applyPermissions(_ permissions: mode_t, to url: URL) throws {
+    private nonisolated static func applyPermissions(_ permissions: mode_t, to url: URL) throws {
         let result = url.withUnsafeFileSystemRepresentation { path -> CInt in
             guard let path else { return -1 }
             return Darwin.chmod(path, permissions)
@@ -242,7 +271,7 @@ final class RuntimeStateStore {
         }
     }
 
-    private static func replaceItem(at destinationURL: URL, with sourceURL: URL) throws {
+    private nonisolated static func replaceItem(at destinationURL: URL, with sourceURL: URL) throws {
         let result = sourceURL.withUnsafeFileSystemRepresentation { sourcePath -> CInt in
             guard let sourcePath else { return -1 }
             return destinationURL.withUnsafeFileSystemRepresentation { destinationPath -> CInt in
@@ -268,9 +297,5 @@ final class RuntimeStateStore {
             Log.config.error("Failed to load \(url.path): \(error.localizedDescription)")
             return RuntimeState()
         }
-    }
-
-    private func report(_ message: String) {
-        Log.config.error(message)
     }
 }

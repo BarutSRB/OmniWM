@@ -2463,6 +2463,12 @@ final class WMController {
                 workspaceManager.setFloatingState(floatingState, for: token)
             }
             _ = workspaceManager.setWindowMode(.tiling, for: token)
+            if workspaceManager.isScratchpadToken(token) {
+                cleanupScratchpadWindowResources(for: token)
+                if workspaceManager.hiddenState(for: token)?.isScratchpad == true {
+                    workspaceManager.setHiddenState(nil, for: token)
+                }
+            }
             return true
 
         case (.tiling, .tiling),
