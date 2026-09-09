@@ -168,6 +168,17 @@ final class SettingsMigrationTests: XCTestCase {
         gridColumn = 0
         gridRow = 0
         """)
+        let fixtureText = String(decoding: data, as: UTF8.self)
+        for key in [
+            "transparentBackground",
+            "solidBlackBackground",
+            "showItemBackgrounds",
+            "showAccentHighlights",
+            "inactiveIconOpacity"
+        ] {
+            XCTAssertFalse(fixtureText.contains("\(key) ="), key)
+        }
+
         let result = try SettingsTOMLCodec.decodeForLoad(data)
         let report = try XCTUnwrap(result.migration)
         let migratedData = try XCTUnwrap(result.migratedData)
@@ -175,7 +186,18 @@ final class SettingsMigrationTests: XCTestCase {
 
         XCTAssertEqual(report.fromVersion, 2)
         XCTAssertEqual(report.toVersion, 4)
-        XCTAssertEqual(report.defaultedPaths, ["routing.arrangements"])
+        XCTAssertEqual(report.defaultedPaths, [
+            "routing.arrangements",
+            "workspaceBar.transparentBackground",
+            "workspaceBar.solidBlackBackground",
+            "workspaceBar.showItemBackgrounds",
+            "workspaceBar.showAccentHighlights"
+        ])
+        XCTAssertFalse(result.export.workspaceBarTransparentBackground)
+        XCTAssertFalse(result.export.workspaceBarSolidBlackBackground)
+        XCTAssertTrue(result.export.workspaceBarShowItemBackgrounds)
+        XCTAssertTrue(result.export.workspaceBarShowAccentHighlights)
+        XCTAssertNil(result.export.workspaceBarInactiveIconOpacity)
         XCTAssertTrue(report.addedHotkeyIDs.isEmpty)
         XCTAssertTrue(report.mappedHotkeys.isEmpty)
         XCTAssertTrue(report.retiredHotkeys.isEmpty)
@@ -264,12 +286,23 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertTrue(result.export.monitorArrangements.isEmpty)
         XCTAssertEqual(result.migration?.fromVersion, 2)
         XCTAssertEqual(result.migration?.toVersion, 4)
-        XCTAssertEqual(result.migration?.defaultedPaths, ["routing.arrangements"])
+        XCTAssertEqual(result.migration?.defaultedPaths, [
+            "routing.arrangements",
+            "workspaceBar.transparentBackground",
+            "workspaceBar.solidBlackBackground",
+            "workspaceBar.showItemBackgrounds",
+            "workspaceBar.showAccentHighlights"
+        ])
+        XCTAssertFalse(result.export.workspaceBarTransparentBackground)
+        XCTAssertFalse(result.export.workspaceBarSolidBlackBackground)
+        XCTAssertTrue(result.export.workspaceBarShowItemBackgrounds)
+        XCTAssertTrue(result.export.workspaceBarShowAccentHighlights)
+        XCTAssertNil(result.export.workspaceBarInactiveIconOpacity)
         XCTAssertEqual(result.export.monitorRoutingMode, .custom)
     }
 
-    @MainActor
     /// Verifies invalid legacy routing structures are rejected without modifying their persisted bytes.
+    @MainActor
     func testVersionTwoRoutingMigrationRejectsMissingMalformedArraysAndRowsWithoutChangingBytes() throws {
         let valid = String(decoding: try versionTwoData(), as: UTF8.self)
         let inputs = [
@@ -587,8 +620,8 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
-    @MainActor
     /// Verifies malformed version-one files remain unchanged and do not produce migration backups.
+    @MainActor
     func testMalformedVersionOneFilesAreRejectedWithoutChangingBytesOrCreatingBackups() throws {
         let valid = try legacyFixtureData(named: "v0.6.4-custom")
         let validText = String(decoding: valid, as: UTF8.self)
@@ -639,8 +672,8 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
-    @MainActor
     /// Verifies supported legacy settings migrate while older directional-resize data stays unchanged.
+    @MainActor
     func testVersion062MigrationSucceedsWhileVersion060DirectionalResizeIsLeftUntouched() throws {
         let version062 = try legacyFixtureData(named: "v0.6.2-custom")
         let supported = try SettingsTOMLCodec.decodeForLoad(version062)
@@ -919,8 +952,8 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertTrue(secondSection.contains("extensionMarker = \"second\""))
     }
 
-    @MainActor
     /// Verifies a matching migration backup is reused and repeated loading makes no further changes.
+    @MainActor
     func testMatchingMigrationBackupIsReusedAndSecondLoadIsIdempotent() throws {
         let fixture = try makeFixture("idempotent")
         defer { fixture.remove() }
@@ -950,8 +983,8 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: migrationBackupURL(in: fixture, index: 1).path))
     }
 
-    @MainActor
     /// Verifies live migration emits one notice and ignores the resulting canonical file write.
+    @MainActor
     func testLiveMigrationNotifiesOnceAndSuppressesCanonicalSelfWrite() async throws {
         let fixture = try makeFixture("live")
         defer { fixture.remove() }
@@ -1357,12 +1390,24 @@ final class SettingsMigrationTests: XCTestCase {
         return Data(text.utf8)
     }
 
-    /// Builds version-two TOML fixture data with optional routing rows.
+    /// Builds version-two TOML fixture data without version-four workspace-bar keys and with optional routing rows.
     private func versionTwoData(routingRows: String = "") throws -> Data {
         var export = SettingsExport.defaults()
         export.monitorRoutingMode = .custom
         export.gapSize = 27
-        let canonical = String(decoding: try SettingsTOMLCodec.encode(export), as: UTF8.self)
+        let versionFourWorkspaceBarKeys = [
+            "transparentBackground",
+            "solidBlackBackground",
+            "showItemBackgrounds",
+            "showAccentHighlights",
+            "inactiveIconOpacity"
+        ]
+        let current = String(decoding: try SettingsTOMLCodec.encode(export), as: UTF8.self)
+        let canonical = current.components(separatedBy: "\n")
+            .filter { line in
+                !versionFourWorkspaceBarKeys.contains { line.hasPrefix("\($0) =") }
+            }
+            .joined(separator: "\n")
             .replacingOccurrences(of: "schemaVersion = 4", with: "schemaVersion = 2")
             .replacingOccurrences(of: "arrangements = []\n", with: "")
         if routingRows.isEmpty {
