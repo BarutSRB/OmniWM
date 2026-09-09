@@ -14,6 +14,7 @@ class BorderLayerPanel: NSPanel {
     private let gradientMaskLayer = CAShapeLayer()
     let containerLayer = CALayer()
 
+    /// Creates a transparent, nonactivating panel for the border surface.
     init(frame: CGRect) {
         super.init(
             contentRect: frame.integral,
@@ -85,18 +86,22 @@ class BorderLayerPanel: NSPanel {
         contentView = view
     }
 
+    /// Border panels never accept keyboard focus.
     override var canBecomeKey: Bool {
         false
     }
 
+    /// Border panels never become the application main window.
     override var canBecomeMain: Bool {
         false
     }
 
+    /// Leaves the overlay frame unconstrained by AppKit screen geometry.
     override func constrainFrameRect(_ frameRect: NSRect, to _: NSScreen?) -> NSRect {
         frameRect
     }
 
+    /// Positions the panel and its layer tree around the screen-space surface.
     func applyFrame(_ targetFrame: CGRect) {
         let panelFrame = targetFrame.integral
         let layerFrame = targetFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
@@ -118,6 +123,7 @@ class BorderLayerPanel: NSPanel {
         CATransaction.commit()
     }
 
+    /// Atomically gates all retained drawing content during panel teardown.
     func setContentVisible(_ visible: Bool) {
         let hidden = !visible
         guard contentView?.isHidden != hidden
@@ -134,6 +140,7 @@ class BorderLayerPanel: NSPanel {
         CATransaction.commit()
     }
 
+    /// Updates the border annulus, optional gradient, and glow band mask.
     func updateBorder(
         surfaceFrame: CGRect,
         targetFrame: CGRect,
@@ -208,6 +215,7 @@ class BorderLayerPanel: NSPanel {
         CATransaction.commit()
     }
 
+    /// Rebuilds the concentric band falloff for the current surface geometry.
     private func updateGlowBands(
         ringFrame: CGRect,
         cornerRadii: WindowCornerRadii,
@@ -243,6 +251,7 @@ class BorderLayerPanel: NSPanel {
         }
     }
 
+    /// Reuses or trims mask layers to match the requested band count.
     private func ensureGlowBandCount(_ count: Int) {
         while glowBandLayers.count < count {
             let band = CAShapeLayer()

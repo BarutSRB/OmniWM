@@ -1409,6 +1409,7 @@ final class MouseEventHandler {
         controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
     }
 
+    /// Returns the focused tiled window when the pointer is over its border ring.
     func focusedBorderResizeToken(
         at location: CGPoint,
         in workspaceId: WorkspaceDescriptor.ID,

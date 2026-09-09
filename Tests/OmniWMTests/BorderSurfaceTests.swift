@@ -105,6 +105,7 @@ final class BorderSurfaceTests: XCTestCase {
             )
         }
 
+        /// Rasterizes the complete retained layer tree for pixel assertions.
         func rasterize(_ panel: RecordingLayerPanel) throws {
             let context = try XCTUnwrap(Self.makeContext(size: panel.containerLayer.bounds.size))
             panel.containerLayer.render(in: context)
@@ -471,6 +472,7 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    /// Confirms glow content is cleared before retained-panel reuse.
     func testLayerBorderPreservesSurfaceLifecycle() throws {
         let recorder = BorderOperationsRecorder()
         let configRedWithGlow = BorderConfig(
@@ -726,6 +728,7 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    /// Confirms gradient glow expands only the private overlay surface.
     func testGradientAndGlowExpandOnlyOverlayAndKeepRingGeometry() throws {
         let recorder = BorderOperationsRecorder()
         recorder.backingScale = 1
@@ -768,6 +771,7 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    /// Confirms both user-facing gradient directions map to layer coordinates.
     func testGradientDirectionsMatchTheUnflippedLayerCoordinateSpace() throws {
         for direction in BorderGradientDirection.allCases {
             let config = BorderConfig(
@@ -801,6 +805,7 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    /// Confirms style changes redraw without changing target geometry.
     func testStyleChangeRedrawsWithoutChangingTargetOrLayoutClearance() throws {
         let recorder = BorderOperationsRecorder()
         recorder.backingScale = 1

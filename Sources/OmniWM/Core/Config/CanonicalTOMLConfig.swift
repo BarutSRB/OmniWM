@@ -288,6 +288,7 @@ extension CanonicalTOMLConfig {
 }
 
 extension CanonicalTOMLConfig {
+    /// Converts the validated settings export into canonical TOML structure.
     init(export: SettingsExport) {
         schemaVersion = SettingsTOMLCodec.currentSchemaVersion
         general = General(
@@ -440,6 +441,7 @@ extension CanonicalTOMLConfig {
         monitorGapOverrides = export.monitorGapSettings
     }
 
+    /// Converts canonical TOML structure back into the settings export model.
     func toSettingsExport() -> SettingsExport {
         return SettingsExport(
             hotkeysEnabled: general.hotkeysEnabled,

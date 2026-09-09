@@ -18,6 +18,7 @@ struct BorderConfig: Equatable {
     var gradient: BorderGradient?
     var glow: BorderGlow?
 
+    /// Creates border geometry and optional appearance effects.
     init(
         enabled: Bool = true,
         width: CGFloat = 5.0,
@@ -37,6 +38,7 @@ struct BorderConfig: Equatable {
         self.glow = glow
     }
 
+    /// Builds the render configuration from the live settings store.
     @MainActor static func from(settings: SettingsStore) -> BorderConfig {
         return BorderConfig(
             enabled: settings.bordersEnabled,
@@ -47,12 +49,14 @@ struct BorderConfig: Equatable {
         )
     }
 
+    /// Returns width-based layout clearance without glow padding.
     static func layoutClearance(enabled: Bool, width: CGFloat, scale: CGFloat) -> CGFloat {
         guard enabled else { return 0 }
         let effectiveScale = max(scale, 1)
         return ceil(max(0, width) * effectiveScale) / effectiveScale
     }
 
+    /// Resolves physical-pixel target, ring, and private overlay frames.
     func resolvedGeometry(
         for targetFrame: CGRect,
         scale: CGFloat
@@ -70,6 +74,7 @@ struct BorderConfig: Equatable {
         )
     }
 
+    /// Returns the physical-pixel-aligned overlay padding for a glow.
     static func renderPadding(glow: BorderGlow?, scale: CGFloat) -> CGFloat {
         guard glow?.enabled == true else { return 0 }
         let effectiveScale = max(scale, 1)

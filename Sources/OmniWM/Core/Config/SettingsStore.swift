@@ -749,6 +749,7 @@ final class SettingsStore {
         runtimeState.flushNow()
     }
 
+    /// Creates a serializable snapshot of the current settings.
     func toExport() -> SettingsExport {
         SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
@@ -871,6 +872,7 @@ final class SettingsStore {
         )
     }
 
+    /// Applies a validated settings snapshot while preserving safe prior values.
     func applyExport(_ export: SettingsExport) {
         let baseline = SettingsStore.defaultExport
         let previousBorderGradient = borderGradient
@@ -1393,11 +1395,13 @@ final class SettingsStore {
         min(12.0, max(1.0, width))
     }
 
+    /// Clamps a finite color component into the supported unit interval.
     static func validatedColorComponent(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(1.0, max(0.0, value))
     }
 
+    /// Validates gradient structure and clamps its finite color components.
     static func validatedBorderGradient(
         _ gradient: BorderGradient?,
         fallback: BorderGradient?
@@ -1413,6 +1417,7 @@ final class SettingsStore {
         return gradient
     }
 
+    /// Validates the supported glow radius and opacity ranges.
     static func validatedBorderGlow(
         _ glow: BorderGlow?,
         fallback: BorderGlow?
@@ -1429,10 +1434,12 @@ final class SettingsStore {
         return glow
     }
 
+    /// Reports whether every component of a settings color is finite.
     private static func isFinite(_ color: SettingsColor) -> Bool {
         color.red.isFinite && color.green.isFinite && color.blue.isFinite && color.alpha.isFinite
     }
 
+    /// Returns a settings color with all components clamped to valid values.
     private static func validatedColor(_ color: SettingsColor) -> SettingsColor {
         SettingsColor(
             red: validatedColorComponent(color.red),

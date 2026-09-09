@@ -8,6 +8,7 @@ import XCTest
 final class BorderAppearanceTests: XCTestCase {
     // MARK: - Legacy defaults
 
+    /// Confirms legacy settings omit optional border effects by default.
     func testLegacyDefaultsKeepOptionalEffectsDisabled() {
         let defaults = SettingsExport.defaults()
 
@@ -17,6 +18,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(defaults.borderWidth, 5)
     }
 
+    /// Confirms absent optional effects produce a solid border configuration.
     func testAbsentGradientAndGlowProduceSolidConfig() {
         let config = BorderConfig(enabled: true, width: 4, color: solidRed)
 
@@ -26,6 +28,7 @@ final class BorderAppearanceTests: XCTestCase {
 
     // MARK: - Codable round-trips
 
+    /// Confirms gradient and glow values survive Codable round trips.
     func testGradientAndGlowRoundTripAsCodableValues() throws {
         let gradient = BorderGradient(
             enabled: true,
@@ -42,6 +45,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(decoded.glow, glow)
     }
 
+    /// Confirms absent optional effects survive Codable round trips.
     func testNilGradientAndGlowRoundTrip() throws {
         let payload = CodableBorderAppearance(gradient: nil, glow: nil)
         let data = try JSONEncoder().encode(payload)
@@ -51,6 +55,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertNil(decoded.glow)
     }
 
+    /// Confirms enabled gradient and glow values survive TOML round trips.
     func testGradientAndGlowRoundTripThroughTOML() throws {
         var export = SettingsExport.defaults()
         export.borderGradient = BorderGradient(
@@ -71,6 +76,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(decoded.borderGlow, export.borderGlow)
     }
 
+    /// Confirms legacy TOML omits absent optional effect tables.
     func testAbsentGradientAndGlowRemainAbsentInTOML() throws {
         let data = try SettingsTOMLCodec.encode(.defaults())
         let toml = String(decoding: data, as: UTF8.self)
@@ -82,6 +88,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertNil(decoded.borderGlow)
     }
 
+    /// Confirms every supported gradient direction is Codable.
     func testGradientDirectionRoundTrip() throws {
         for direction in BorderGradientDirection.allCases {
             let gradient = BorderGradient(
@@ -98,6 +105,7 @@ final class BorderAppearanceTests: XCTestCase {
 
     // MARK: - Validation
 
+    /// Confirms invalid glow values use the prior valid configuration.
     func testInvalidGlowFallsBackWithoutPartialMutation() {
         let fallback = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
         let invalid = BorderGlow(enabled: true, radius: 64, opacity: 2)
@@ -105,6 +113,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(SettingsStore.validatedBorderGlow(invalid, fallback: fallback), fallback)
     }
 
+    /// Confirms non-finite gradient colors use the prior valid configuration.
     func testInvalidGradientFallsBackWithoutPartialMutation() {
         let fallback = BorderGradient.default
         let invalid = BorderGradient(
@@ -117,6 +126,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(SettingsStore.validatedBorderGradient(invalid, fallback: fallback), fallback)
     }
 
+    /// Confirms a non-finite glow radius is rejected safely.
     func testNaNGlowRadiusFallsBack() {
         let fallback = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
         let invalid = BorderGlow(enabled: true, radius: .nan, opacity: 0.5)
@@ -124,6 +134,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(SettingsStore.validatedBorderGlow(invalid, fallback: fallback), fallback)
     }
 
+    /// Confirms a non-finite glow opacity is rejected safely.
     func testNaNGlowOpacityFallsBack() {
         let fallback = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
         let invalid = BorderGlow(enabled: true, radius: 8, opacity: .nan)
@@ -131,6 +142,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(SettingsStore.validatedBorderGlow(invalid, fallback: fallback), fallback)
     }
 
+    /// Confirms a non-finite gradient endpoint is rejected safely.
     func testNaNGradientEndColorFallsBack() {
         let fallback = BorderGradient.default
         let invalid = BorderGradient(
@@ -143,6 +155,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(SettingsStore.validatedBorderGradient(invalid, fallback: fallback), fallback)
     }
 
+    /// Confirms finite gradient color components are clamped to unit range.
     func testValidGradientClampsComponentsToUnitRange() {
         let wide = BorderGradient(
             enabled: true,
@@ -158,6 +171,7 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(result?.start.alpha, 1)
     }
 
+    /// Confirms glow validation accepts documented boundary values.
     func testValidGlowAtBoundaryValues() {
         let zero = BorderGlow(enabled: true, radius: 0, opacity: 0)
         let max = BorderGlow(enabled: true, radius: 32, opacity: 1)
@@ -166,53 +180,63 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(SettingsStore.validatedBorderGlow(max, fallback: nil), max)
     }
 
+    /// Confirms a missing gradient remains absent during validation.
     func testNilGradientPassesThroughValidation() {
         XCTAssertNil(SettingsStore.validatedBorderGradient(nil, fallback: .default))
     }
 
+    /// Confirms a missing glow remains absent during validation.
     func testNilGlowPassesThroughValidation() {
         XCTAssertNil(SettingsStore.validatedBorderGlow(nil, fallback: .default))
     }
 
     // MARK: - Render padding
 
+    /// Confirms disabled glow does not expand the overlay surface.
     func testDisabledGlowProducesZeroPadding() {
         let glow = BorderGlow(enabled: false, radius: 16, opacity: 0.5)
         XCTAssertEqual(BorderConfig.renderPadding(glow: glow, scale: 2), 0)
     }
 
+    /// Confirms absent glow does not expand the overlay surface.
     func testNilGlowProducesZeroPadding() {
         XCTAssertEqual(BorderConfig.renderPadding(glow: nil, scale: 2), 0)
     }
 
+    /// Confirms zero-radius glow does not expand the overlay surface.
     func testZeroRadiusGlowProducesZeroPadding() {
         let glow = BorderGlow(enabled: true, radius: 0, opacity: 0.6)
         XCTAssertEqual(BorderConfig.renderPadding(glow: glow, scale: 1), 0)
     }
 
+    /// Confirms render padding uses the documented falloff multiplier.
     func testRenderPaddingUsesOnePointFiveMultiplier() {
         let glow = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
         // ceil(8 * 1.5 * 1) / 1 = 12
         XCTAssertEqual(BorderConfig.renderPadding(glow: glow, scale: 1), 12)
     }
 
+    /// Confirms render padding remains physical-pixel aligned at 2x scale.
     func testRenderPaddingAtRetinaScale() {
         let glow = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
         // ceil(8 * 1.5 * 2) / 2 = ceil(24) / 2 = 12
         XCTAssertEqual(BorderConfig.renderPadding(glow: glow, scale: 2), 12)
     }
 
+    /// Confirms maximum supported radius produces bounded padding.
     func testRenderPaddingAtMaxRadius() {
         let glow = BorderGlow(enabled: true, radius: 32, opacity: 1)
         // ceil(32 * 1.5 * 1) / 1 = 48
         XCTAssertEqual(BorderConfig.renderPadding(glow: glow, scale: 1), 48)
     }
 
+    /// Confirms negative radius cannot create overlay padding.
     func testRenderPaddingClampsNegativeRadius() {
         let glow = BorderGlow(enabled: true, radius: -5, opacity: 0.6)
         XCTAssertEqual(BorderConfig.renderPadding(glow: glow, scale: 1), 0)
     }
 
+    /// Confirms oversized radius is capped at the supported maximum.
     func testRenderPaddingCapsAtMaxRadius() {
         let glow = BorderGlow(enabled: true, radius: 100, opacity: 0.6)
         // Clamped to 32, then ceil(32 * 1.5) = 48
@@ -221,6 +245,7 @@ final class BorderAppearanceTests: XCTestCase {
 
     // MARK: - Layout clearance unaffected by glow
 
+    /// Confirms glow does not alter width-based layout clearance.
     func testLayoutClearanceIgnoresGlow() {
         let withGlow = BorderConfig(
             enabled: true,
@@ -243,6 +268,7 @@ final class BorderAppearanceTests: XCTestCase {
 
     // MARK: - Resolved geometry
 
+    /// Confirms ring geometry excludes the outward glow padding.
     func testResolvedGeometryRingFrameExcludesGlowPadding() {
         let config = BorderConfig(
             enabled: true,
@@ -263,6 +289,7 @@ final class BorderAppearanceTests: XCTestCase {
         )
     }
 
+    /// Confirms solid borders retain zero glow padding.
     func testResolvedGeometryWithoutGlowHasZeroPadding() {
         let config = BorderConfig(enabled: true, width: 4, color: solidRed)
         let target = CGRect(x: 10, y: 20, width: 100, height: 80)

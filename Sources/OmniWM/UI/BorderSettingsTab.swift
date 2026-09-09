@@ -7,6 +7,7 @@ struct BorderSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
 
+    /// Renders controls for solid, gradient, and glow border appearance.
     var body: some View {
         Form {
             Section("Window Borders") {
@@ -75,6 +76,7 @@ struct BorderSettingsTab: View {
         .formStyle(.grouped)
     }
 
+    /// Binds gradient enablement to the live settings model.
     private var gradientEnabledBinding: Binding<Bool> {
         Binding(
             get: { settings.borderGradient?.enabled == true },
@@ -87,6 +89,7 @@ struct BorderSettingsTab: View {
         )
     }
 
+    /// Binds the selected gradient direction to the live settings model.
     private var gradientDirectionBinding: Binding<BorderGradientDirection> {
         Binding(
             get: { settings.borderGradient?.direction ?? .topLeftToBottomRight },
@@ -99,6 +102,7 @@ struct BorderSettingsTab: View {
         )
     }
 
+    /// Binds the gradient start color to validated settings.
     private var gradientStartBinding: Binding<Color> {
         Binding(
             get: { swiftUIColor(settings.borderGradient?.start ?? BorderGradient.default.start) },
@@ -112,6 +116,7 @@ struct BorderSettingsTab: View {
         )
     }
 
+    /// Binds the gradient end color to validated settings.
     private var gradientEndBinding: Binding<Color> {
         Binding(
             get: { swiftUIColor(settings.borderGradient?.end ?? BorderGradient.default.end) },
@@ -125,6 +130,7 @@ struct BorderSettingsTab: View {
         )
     }
 
+    /// Binds glow enablement to the live settings model.
     private var glowEnabledBinding: Binding<Bool> {
         Binding(
             get: { settings.borderGlow?.enabled == true },
@@ -137,6 +143,7 @@ struct BorderSettingsTab: View {
         )
     }
 
+    /// Binds glow radius changes to the live settings model.
     private var glowRadiusBinding: Binding<Double> {
         Binding(
             get: { settings.borderGlow?.radius ?? BorderGlow.default.radius },
@@ -149,6 +156,7 @@ struct BorderSettingsTab: View {
         )
     }
 
+    /// Binds glow opacity changes to the live settings model.
     private var glowOpacityBinding: Binding<Double> {
         Binding(
             get: { settings.borderGlow?.opacity ?? BorderGlow.default.opacity },
@@ -161,10 +169,12 @@ struct BorderSettingsTab: View {
         )
     }
 
+    /// Converts a persisted settings color into a SwiftUI color.
     private func swiftUIColor(_ color: SettingsColor) -> Color {
         Color(red: color.red, green: color.green, blue: color.blue, opacity: color.alpha)
     }
 
+    /// Binds the legacy solid border color to validated settings.
     private var colorBinding: Binding<Color> {
         Binding(
             get: {
@@ -185,6 +195,7 @@ struct BorderSettingsTab: View {
 }
 
 private extension BorderGradientDirection {
+    /// Provides the user-facing label for a gradient direction.
     var label: String {
         switch self {
         case .topLeftToBottomRight:
