@@ -7,6 +7,7 @@ import Foundation
 import XCTest
 
 final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
+    /// Creates a monitor fixture with controllable notch and translated-screen geometry.
     private func makeMonitor(
         frame: CGRect = CGRect(x: 0, y: 0, width: 1512, height: 982),
         visibleTop: CGFloat = 950,
@@ -29,6 +30,7 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         )
     }
 
+    /// Creates resolved bar settings while exposing appearance values relevant to this test suite.
     private func makeResolved(
         notchMode: WorkspaceBarNotchMode = .fillLeftOfNotch,
         position: WorkspaceBarPosition = .overlappingMenuBar,
@@ -64,6 +66,7 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         )
     }
 
+    /// Verifies fill left of notch frame covers menu bar to notch.
     func testFillLeftOfNotchFrameCoversMenuBarToNotch() throws {
         let monitor = makeMonitor()
         let resolved = makeResolved(notchMode: .fillLeftOfNotch)
@@ -83,6 +86,7 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         XCTAssertEqual(frame.minY, monitor.frame.maxY - 32)
     }
 
+    /// Verifies fill left of notch frame uses virtual midpoint without notch.
     func testFillLeftOfNotchFrameUsesVirtualMidpointWithoutNotch() throws {
         let monitor = makeMonitor(hasNotch: false, notchRange: nil)
         let resolved = makeResolved(notchMode: .fillLeftOfNotch)
@@ -99,6 +103,7 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         XCTAssertEqual(geometry.reservedTopInset, 0)
     }
 
+    /// Verifies fill left of notch frame with translated monitor.
     func testFillLeftOfNotchFrameWithTranslatedMonitor() throws {
         // Monitor with non-zero origin (e.g., external display)
         let monitor = makeMonitor(
@@ -123,6 +128,7 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         XCTAssertEqual(frame.minY, monitor.frame.maxY - 100)
     }
 
+    /// Verifies fill left of notch ignores custom height.
     func testFillLeftOfNotchIgnoresCustomHeight() throws {
         let monitor = makeMonitor()
         let resolved = makeResolved(
@@ -152,6 +158,7 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         XCTAssertEqual(geometry.reservedTopInset, 0)
     }
 
+    /// Verifies fill left of notch with split mode ignored.
     func testFillLeftOfNotchWithSplitModeIgnored() throws {
         // When notch mode is split, fillLeftOfNotch should not apply
         let monitor = makeMonitor()

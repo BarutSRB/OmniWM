@@ -355,6 +355,7 @@ final class WorkspaceBarManager {
         )
     }
 
+    /// Refreshes an existing panel and hosted view after appearance settings change.
     private func refreshBarAppearance(instance: MonitorBarInstance) {
         guard let settings else { return }
 
@@ -731,18 +732,21 @@ final class WorkspaceBarManager {
         removeAllBars()
     }
 
+    /// Chooses panel space behavior, intentionally excluding fullscreen auxiliary in fill mode.
     static func panelCollectionBehavior(for resolved: ResolvedBarSettings) -> NSWindow.CollectionBehavior {
         resolved.notchMode == .fillLeftOfNotch
             ? [.canJoinAllSpaces, .stationary]
             : [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
     }
 
+    /// Places fill-mode panels above menu-bar content and preserves the normal level otherwise.
     static func panelLevel(for resolved: ResolvedBarSettings) -> NSWindow.Level {
         resolved.notchMode == .fillLeftOfNotch
             ? NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
             : resolved.windowLevel.nsWindowLevel
     }
 
+    /// Applies resolved level and collection behavior to an existing bar panel.
     private func applySettingsToPanel(_ panel: NSPanel, resolved: ResolvedBarSettings) {
         panel.collectionBehavior = Self.panelCollectionBehavior(for: resolved)
         panel.level = Self.panelLevel(for: resolved)

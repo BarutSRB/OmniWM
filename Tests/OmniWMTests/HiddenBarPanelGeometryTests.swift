@@ -24,6 +24,7 @@ final class HiddenBarPanelGeometryTests: XCTestCase {
         )
     }
 
+    /// Creates bar settings with geometry controls needed by hidden-panel placement tests.
     private func resolved(
         position: WorkspaceBarPosition = .belowMenuBar,
         notchMode: WorkspaceBarNotchMode = .off,

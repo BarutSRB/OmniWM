@@ -30,6 +30,7 @@ struct MonitorBarSettings: MonitorSettingsType {
     var xOffset: Double?
     var yOffset: Double?
 
+    /// Creates monitor-specific overrides; unset values inherit the corresponding global setting.
     init(
         id: UUID = UUID(),
         monitorName: String,
@@ -88,6 +89,7 @@ struct MonitorBarSettings: MonitorSettingsType {
              showItemBackgrounds, showAccentHighlights, xOffset, yOffset
     }
 
+    /// Decodes monitor overrides while leaving omitted appearance keys nil so they inherit global values.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -115,6 +117,7 @@ struct MonitorBarSettings: MonitorSettingsType {
         yOffset = try container.decodeIfPresent(Double.self, forKey: .yOffset)
     }
 
+    /// Encodes only configured monitor overrides, preserving inheritance for nil appearance values.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)

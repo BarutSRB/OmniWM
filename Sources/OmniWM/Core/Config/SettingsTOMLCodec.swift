@@ -113,6 +113,7 @@ enum SettingsTOMLCodec {
         try decodeForLoad(data).export
     }
 
+    /// Decodes persisted settings and applies each required schema migration in order.
     static func decodeForLoad(_ data: Data) throws -> SettingsTOMLDecodeResult {
         let activeHyperKeyModifiers = HyperKeyModifiers(carbonMask: KeySymbolMapper.hyperModifiers) ?? .default
         defer { KeySymbolMapper.setHyperKeyModifiers(activeHyperKeyModifiers) }
@@ -358,6 +359,7 @@ enum SettingsTOMLCodec {
         return added ? ["routing.arrangements"] : []
     }
 
+    /// Adds explicit appearance defaults when migrating version-three settings to version four.
     private static func migrateVersionThree(_ raw: inout [String: TOMLNode]) -> [String] {
         var defaultedPaths: [String] = []
         for (key, value) in [

@@ -150,6 +150,7 @@ struct SettingsExport: Equatable {
 // MARK: - Defaults & Diffing
 
 extension SettingsExport {
+    /// Creates settings defaults, including the intentionally opt-in workspace-bar appearance controls.
     static func defaults() -> SettingsExport {
         SettingsExport(
             hotkeysEnabled: true,

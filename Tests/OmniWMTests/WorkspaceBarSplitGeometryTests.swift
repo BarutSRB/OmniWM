@@ -29,6 +29,7 @@ final class WorkspaceBarSplitGeometryTests: XCTestCase {
         )
     }
 
+    /// Creates resolved geometry inputs with explicit split mode, width, position, and offset controls.
     private func makeResolved(
         notchMode: WorkspaceBarNotchMode,
         zoneWidth: Double = 180,

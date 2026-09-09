@@ -291,6 +291,7 @@ extension CanonicalTOMLConfig {
 }
 
 extension CanonicalTOMLConfig {
+    /// Builds canonical TOML sections from an export, including explicit workspace-bar appearance values.
     init(export: SettingsExport) {
         schemaVersion = SettingsTOMLCodec.currentSchemaVersion
         general = General(
@@ -446,6 +447,7 @@ extension CanonicalTOMLConfig {
         monitorGapOverrides = export.monitorGapSettings
     }
 
+    /// Exports canonical configuration while preserving workspace-bar appearance values.
     func toSettingsExport() -> SettingsExport {
         return SettingsExport(
             hotkeysEnabled: general.hotkeysEnabled,

@@ -35,6 +35,7 @@ private struct NarrowWidthLayout: Layout {
 
 @MainActor
 final class WorkspaceBarViewLayoutTests: XCTestCase {
+    /// Verifies configured and default inactive icon opacity.
     func testConfiguredAndDefaultInactiveIconOpacity() {
         let window = makeWindowItem(appName: "Notes", windowCount: 1, hiddenWindowCount: 0)
 
@@ -62,12 +63,14 @@ final class WorkspaceBarViewLayoutTests: XCTestCase {
         )
     }
 
+    /// Verifies scratchpad icon opacity defaults overrides and focus.
     func testScratchpadIconOpacityDefaultsOverridesAndFocus() {
         XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: false, configured: nil), 0.82)
         XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: false, configured: 0.31), 0.31)
         XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: true, configured: 0.31), 1)
     }
 
+    /// Verifies snapshot clone preserves appearance and transparent precedence.
     func testSnapshotClonePreservesAppearanceAndTransparentPrecedence() {
         let snapshot = WorkspaceBarSnapshot(
             projection: WorkspaceBarProjection(items: [], scratchpads: []),
@@ -521,6 +524,7 @@ final class WorkspaceBarViewLayoutTests: XCTestCase {
         )
     }
 
+    /// Creates stable split-mode settings used to verify bar view layout calculations.
     private func splitBarSettings() -> ResolvedBarSettings {
         ResolvedBarSettings(
             enabled: true,

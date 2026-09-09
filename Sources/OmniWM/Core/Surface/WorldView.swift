@@ -90,6 +90,7 @@ struct WorldView {
         return infos
     }
 
+    /// Builds desired bar surfaces using each monitor’s resolved appearance and visibility.
     func barSurfaces() -> [DesiredBarSurface] {
         guard controller.hasWorkspaceBarDataConsumers else { return [] }
         let settings = controller.settings

@@ -48,6 +48,7 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         }
     }
 
+    /// Verifies bar hides only on the display showing native fullscreen.
     @MainActor
     func testBarHidesOnlyOnTheDisplayShowingNativeFullscreen() {
         let settings = makeSettingsStore()
@@ -68,6 +69,7 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
     }
 
+    /// Verifies non fill mode with global hide disabled remains visible.
     @MainActor
     func testNonFillModeWithGlobalHideDisabledRemainsVisible() {
         let settings = makeSettingsStore()

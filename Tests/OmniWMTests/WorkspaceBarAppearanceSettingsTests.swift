@@ -6,6 +6,7 @@ import Foundation
 import XCTest
 
 final class WorkspaceBarAppearanceSettingsTests: XCTestCase {
+    /// Verifies appearance defaults and round trips.
     func testAppearanceDefaultsAndRoundTrips() throws {
         var export = SettingsExport.defaults()
         XCTAssertNil(export.workspaceBarInactiveIconOpacity)
@@ -35,6 +36,7 @@ final class WorkspaceBarAppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(decoded.workspaceBarInactiveIconOpacity, 0.25)
     }
 
+    /// Verifies version three migrates missing appearance settings to defaults.
     func testVersionThreeMigratesMissingAppearanceSettingsToDefaults() throws {
         let data = try SettingsTOMLCodec.encode(.defaults())
         let toml = String(decoding: data, as: UTF8.self)
@@ -58,6 +60,7 @@ final class WorkspaceBarAppearanceSettingsTests: XCTestCase {
         XCTAssertNil(result.export.workspaceBarInactiveIconOpacity)
     }
 
+    /// Verifies current schema rejects invalid appearance type.
     func testCurrentSchemaRejectsInvalidAppearanceType() throws {
         let data = try SettingsTOMLCodec.encode(.defaults())
         let invalid = String(decoding: data, as: UTF8.self)
@@ -65,6 +68,7 @@ final class WorkspaceBarAppearanceSettingsTests: XCTestCase {
         XCTAssertThrowsError(try SettingsTOMLCodec.decode(Data(invalid.utf8)))
     }
 
+    /// Verifies monitor appearance override round trips.
     func testMonitorAppearanceOverrideRoundTrips() throws {
         var export = SettingsExport.defaults()
         export.monitorBarSettings = [
@@ -93,6 +97,7 @@ final class WorkspaceBarAppearanceSettingsTests: XCTestCase {
         XCTAssertNil(decoded.monitorBarSettings[1].showAccentHighlights)
     }
 
+    /// Verifies resolved bar settings merges appearance override.
     @MainActor
     func testResolvedBarSettingsMergesAppearanceOverride() {
         let settings = makeSettingsStore()
@@ -137,6 +142,7 @@ final class WorkspaceBarAppearanceSettingsTests: XCTestCase {
         XCTAssertFalse(resolvedOverride.showAccentHighlights)
     }
 
+    /// Verifies resolved bar settings uses defaults when override nil.
     @MainActor
     func testResolvedBarSettingsUsesDefaultsWhenOverrideNil() {
         let settings = makeSettingsStore()
@@ -169,6 +175,7 @@ final class WorkspaceBarAppearanceSettingsTests: XCTestCase {
 }
 
 private extension WorkspaceBarAppearanceSettingsTests {
+    /// Creates an isolated settings store for appearance-resolution tests.
     @MainActor
     func makeSettingsStore() -> SettingsStore {
         SettingsStore(

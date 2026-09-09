@@ -7,6 +7,7 @@ import XCTest
 
 @MainActor
 final class WorkspaceBarPanelPolicyTests: XCTestCase {
+    /// Verifies fill mode uses above status level without fullscreen auxiliary.
     func testFillModeUsesAboveStatusLevelWithoutFullscreenAuxiliary() {
         let resolved = makeResolved(notchMode: .fillLeftOfNotch, windowLevel: .screensaver)
 
@@ -20,6 +21,7 @@ final class WorkspaceBarPanelPolicyTests: XCTestCase {
         XCTAssertFalse(behavior.contains(.fullScreenAuxiliary))
     }
 
+    /// Verifies non fill mode uses configured level and existing flags.
     func testNonFillModeUsesConfiguredLevelAndExistingFlags() {
         let resolved = makeResolved(notchMode: .off, windowLevel: .screensaver)
 
@@ -30,6 +32,7 @@ final class WorkspaceBarPanelPolicyTests: XCTestCase {
         )
     }
 
+    /// Creates resolved settings for comparing fill-mode and standard panel policies.
     private func makeResolved(
         notchMode: WorkspaceBarNotchMode,
         windowLevel: WorkspaceBarWindowLevel

@@ -17,6 +17,7 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    /// Verifies version zero fixtures migrate custom values and report exact changes.
     func testVersionZeroFixturesMigrateCustomValuesAndReportExactChanges() throws {
         let cases: [(
             name: String,
@@ -150,6 +151,7 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    /// Verifies version two migration moves routing rows and their extensions into one arrangement.
     func testVersionTwoMigrationMovesRoutingRowsAndTheirExtensionsIntoOneArrangement() throws {
         let data = try versionTwoData(routingRows: """
         [[monitorRoutingOverrides]]
@@ -253,6 +255,7 @@ final class SettingsMigrationTests: XCTestCase {
         )
     }
 
+    /// Verifies version two migration keeps empty routing empty.
     func testVersionTwoMigrationKeepsEmptyRoutingEmpty() throws {
         let result = try SettingsTOMLCodec.decodeForLoad(versionTwoData())
 
@@ -331,6 +334,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: migrationBackupURL(in: fixture, index: 1).path))
     }
 
+    /// Verifies version two routing migration backs up original bytes and reloads stable arrangement.
     @MainActor
     func testVersionTwoRoutingMigrationBacksUpOriginalBytesAndReloadsStableArrangement() throws {
         let fixture = try makeFixture("version-two-routing")
@@ -400,6 +404,7 @@ final class SettingsMigrationTests: XCTestCase {
         )
     }
 
+    /// Verifies version one fixture migrates exactly nineteen bindings and preserves custom data by id.
     func testVersionOneFixtureMigratesExactlyNineteenBindingsAndPreservesCustomDataByID() throws {
         let result = try SettingsTOMLCodec.decodeForLoad(legacyFixtureData(named: "v0.6.4-custom"))
         let migration = try XCTUnwrap(result.migration)
@@ -559,6 +564,7 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    /// Verifies current schema is encoded and future schema is rejected explicitly.
     func testCurrentSchemaIsEncodedAndFutureSchemaIsRejectedExplicitly() throws {
         let canonical = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
         XCTAssertTrue(canonical.contains("schemaVersion = 4"))
@@ -657,6 +663,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: migrationBackupURL(in: fixture).path))
     }
 
+    /// Verifies startup migration preserves original bytes before rewriting the current canonical schema.
     @MainActor
     func testStartupMigrationBacksUpExactBytesAndRewritesCanonicalVersionThree() throws {
         for name in ["v0.6.2-custom", "v0.6.3-custom"] {
@@ -689,6 +696,7 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    /// Verifies version-one migration uses the current backup slot without changing historical backups.
     @MainActor
     func testVersionOneStartupUsesPreVersionThreeBackupAndLeavesHistoricalBackupUntouched() throws {
         let fixture = try makeFixture("version-one-startup")
@@ -741,6 +749,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: historicalBackupURL), historicalBackup)
     }
 
+    /// Verifies version one startup migration preserves hyper chords with extra modifiers.
     @MainActor
     func testVersionOneStartupMigrationPreservesHyperChordsWithExtraModifiers() throws {
         defer { KeySymbolMapper.setHyperKeyModifiers(.default) }
@@ -972,6 +981,7 @@ final class SettingsMigrationTests: XCTestCase {
         assertNoCorruptFiles(in: fixture, file: #filePath, line: #line)
     }
 
+    /// Verifies migration uses secondary slot and exhaustion blocks writes.
     @MainActor
     func testMigrationUsesSecondarySlotAndExhaustionBlocksWrites() throws {
         do {
@@ -1025,6 +1035,7 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    /// Verifies unsupported future schema leaves bytes untouched and blocks writes.
     @MainActor
     func testUnsupportedFutureSchemaLeavesBytesUntouchedAndBlocksWrites() throws {
         let fixture = try makeFixture("future")
@@ -1059,6 +1070,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: settingsURL(in: fixture)), future)
     }
 
+    /// Verifies save race with future schema publishes one critical block and preserves bytes.
     @MainActor
     func testSaveRaceWithFutureSchemaPublishesOneCriticalBlockAndPreservesBytes() throws {
         let fixture = try makeFixture("future-save-race")
@@ -1098,6 +1110,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: settingsURL(in: fixture)), future)
     }
 
+    /// Verifies save race with exhausted migration backups publishes critical block and preserves bytes.
     @MainActor
     func testSaveRaceWithExhaustedMigrationBackupsPublishesCriticalBlockAndPreservesBytes() throws {
         let fixture = try makeFixture("migration-save-race")
@@ -1137,6 +1150,7 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: settingsURL(in: fixture)), legacy)
     }
 
+    /// Verifies malformed external edit clears future version block without changing live settings.
     @MainActor
     func testMalformedExternalEditClearsFutureVersionBlockWithoutChangingLiveSettings() async throws {
         let fixture = try makeFixture("future-then-malformed")
@@ -1219,6 +1233,7 @@ final class SettingsMigrationTests: XCTestCase {
         )
     }
 
+    /// Verifies migration through symlink preserves link target and permissions.
     @MainActor
     func testMigrationThroughSymlinkPreservesLinkTargetAndPermissions() throws {
         let fixture = try makeFixture("symlink")
@@ -1328,6 +1343,7 @@ final class SettingsMigrationTests: XCTestCase {
         return Data(text.utf8)
     }
 
+    /// Builds version-two TOML fixture data with optional routing rows.
     private func versionTwoData(routingRows: String = "") throws -> Data {
         var export = SettingsExport.defaults()
         export.monitorRoutingMode = .custom
@@ -1408,6 +1424,7 @@ final class SettingsMigrationTests: XCTestCase {
         fixture.configDirectory.appendingPathComponent(SettingsFilePersistence.fileName, isDirectory: false)
     }
 
+    /// Returns the expected indexed migration-backup URL for a fixture.
     private func migrationBackupURL(in fixture: Fixture, index: Int = 0) -> URL {
         fixture.configDirectory.appendingPathComponent(
             SettingsFilePersistence.migrationBackupFileNames(for: 4)[index],

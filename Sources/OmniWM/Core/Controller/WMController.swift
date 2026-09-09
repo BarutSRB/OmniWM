@@ -1280,6 +1280,7 @@ final class WMController {
         }
     }
 
+    /// Determines visibility after configured policy and native-fullscreen suppression are applied.
     func isWorkspaceBarVisible(on monitor: Monitor, resolved: ResolvedBarSettings? = nil) -> Bool {
         let effective = resolved ?? settings.resolvedBarSettings(for: monitor)
         guard isWorkspaceBarConfiguredVisible(on: monitor, resolved: effective) else { return false }
@@ -1291,6 +1292,7 @@ final class WMController {
         return settings.workspaceBarRevealModifier == .off || isWorkspaceBarRevealHeld
     }
 
+    /// Returns whether this monitor’s bar must hide for a native-fullscreen space.
     private func isWorkspaceBarSuppressedByNativeFullscreen(
         on monitor: Monitor,
         resolved: ResolvedBarSettings

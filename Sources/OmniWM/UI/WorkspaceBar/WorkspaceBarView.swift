@@ -137,6 +137,7 @@ struct WorkspaceBarSnapshot: Equatable {
     let accentColor: SettingsColor?
     let textColor: SettingsColor?
 
+    /// Captures bar content and appearance values; optional controls retain compatibility defaults.
     init(
         projection: WorkspaceBarProjection,
         showLabels: Bool,
@@ -189,6 +190,7 @@ struct WorkspaceBarSnapshot: Equatable {
         backgroundStyle != .transparent
     }
 
+    /// Returns a snapshot clone with replacement scratchpads and unchanged appearance.
     func replacingScratchpads(_ scratchpads: [WorkspaceBarScratchpadItem]) -> Self {
         Self(
             projection: WorkspaceBarProjection(items: items, scratchpads: scratchpads),
@@ -329,6 +331,7 @@ private struct WorkspaceBarContentView: View {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
     }
 
+    /// Arranges this island's workspace items and auxiliary controls over the selected bar background.
     var body: some View {
         HStack(spacing: workspaceSpacing) {
             ForEach(slice.items(in: snapshot), id: \.id) { item in
@@ -422,6 +425,7 @@ private struct WorkspaceItemView: View {
 
     @State private var isHovered = false
 
+    /// Presents a workspace's label and window icons with optional item backgrounds and focus accents.
     var body: some View {
         HStack(spacing: windowSpacing) {
             if showLabels {
@@ -538,6 +542,7 @@ private struct SystemStatsButtonView: View {
         RoundedRectangle(cornerRadius: 6, style: .continuous)
     }
 
+    /// Presents the stats-popup toggle while allowing its decorative background to be disabled.
     var body: some View {
         Button(action: onToggle) {
             Image(systemName: "gauge.with.needle")
@@ -663,6 +668,7 @@ private struct FloatingWindowsGroupView: View {
         textColor ?? .secondary
     }
 
+    /// Groups floating-window icons using the configured opacity, backgrounds, and focus accents.
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: "rectangle.on.rectangle")
@@ -738,6 +744,7 @@ private struct ScratchpadPillView: View {
         max(0, item.windows.count - shownWindows.count)
     }
 
+    /// Presents a scratchpad toggle with compactable window icons and independently controlled decoration.
     var body: some View {
         Button {
             onActivateScratchpad(item.index)
@@ -880,6 +887,7 @@ enum WorkspaceBarHiddenIndicatorStyle: Equatable {
 }
 
 enum WorkspaceBarIconOpacity {
+    /// Resolves inactive icon opacity, falling back to the established default when unset.
     static func standard(
         isFocused: Bool,
         isInFocusedWorkspace: Bool,
@@ -890,6 +898,7 @@ enum WorkspaceBarIconOpacity {
         return isInFocusedWorkspace ? 0.4 : 0.5
     }
 
+    /// Resolves scratchpad opacity while keeping focused items fully opaque.
     static func scratchpad(isFocused: Bool, configured: Double?) -> Double {
         if isFocused { return 1 }
         return configured ?? 0.82
@@ -903,6 +912,7 @@ struct WorkspaceBarWindowPresentation {
     let isInFocusedWorkspace: Bool
     let inactiveIconOpacity: Double?
 
+    /// Creates window-presentation values from resolved bar appearance settings.
     init(
         window: WorkspaceBarWindowItem,
         context: WorkspaceBarWindowContext,
@@ -1035,6 +1045,7 @@ private struct WindowIconView: View {
         accentColor ?? .accentColor
     }
 
+    /// Presents an interactive window icon with visibility badges, resolved opacity, and optional focus glow.
     var body: some View {
         let presentation = WorkspaceBarWindowPresentation(
             window: window,

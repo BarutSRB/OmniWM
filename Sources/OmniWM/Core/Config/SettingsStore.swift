@@ -761,6 +761,7 @@ final class SettingsStore {
         runtimeState.flushNow()
     }
 
+    /// Captures current settings in the stable export representation.
     func toExport() -> SettingsExport {
         SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
@@ -886,6 +887,7 @@ final class SettingsStore {
         )
     }
 
+    /// Applies an imported snapshot, including workspace-bar appearance settings, to live storage.
     func applyExport(_ export: SettingsExport) {
         let baseline = SettingsStore.defaultExport
         let trackpadGesturesWereAvailable = scrollGestureEnabled || workspaceSwipeEnabled
@@ -1177,6 +1179,7 @@ final class SettingsStore {
         resolvedBarSettings(override: barSettings(for: monitor))
     }
 
+    /// Merges optional per-monitor values over global bar defaults.
     private func resolvedBarSettings(override: MonitorBarSettings?) -> ResolvedBarSettings {
         return ResolvedBarSettings(
             enabled: override?.enabled ?? workspaceBarEnabled,

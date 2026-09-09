@@ -35,6 +35,7 @@ struct WorkspaceBarGeometry: Equatable {
     let barHeight: CGFloat
     let reservedTopInset: CGFloat
 
+    /// Resolves effective bar dimensions and reservation behavior for a monitor.
     static func resolve(
         monitor: Monitor,
         resolved: ResolvedBarSettings,
@@ -58,6 +59,7 @@ struct WorkspaceBarGeometry: Equatable {
         )
     }
 
+    /// Computes the bar frame, using menu-bar geometry for fill-left-of-notch mode.
     func frame(
         fittingWidth: CGFloat,
         monitor: Monitor,

@@ -60,6 +60,7 @@ private struct GlobalBarSettingsSection: View {
     @Bindable var controller: WMController
     @State private var pendingAppearanceSync: Task<Void, Never>?
 
+    /// Presents global bar controls and refreshes the bar when their values change.
     var body: some View {
         Section("Workspace Bar") {
             Toggle("Enable Workspace Bar", isOn: $settings.workspaceBarEnabled)
@@ -367,6 +368,7 @@ private struct MonitorBarSettingsSection: View {
         controller.updateWorkspaceBarSettings()
     }
 
+    /// Presents monitor-specific overrides alongside inherited global values and reset controls.
     var body: some View {
         let ms = monitorSettings
 

@@ -66,6 +66,7 @@ struct SettingsSliderRow: View {
     var resetAction: (() -> Void)?
     var resetHelp = "Reset to Default"
 
+    /// Builds a labeled slider and shows the reset control only when an override can be cleared.
     var body: some View {
         LabeledContent(label) {
             HStack {
