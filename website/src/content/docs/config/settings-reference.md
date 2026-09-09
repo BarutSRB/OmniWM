@@ -158,7 +158,17 @@ Border drawn around the focused window.
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Draws the focused-window border. |
 | `width` | float | `5.0` | Exterior border width in points. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
-| `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Border color (default is a cyan accent). |
+| `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Solid border color and fallback glow color. |
+| `gradient` | optional table | absent | Enables a two-color linear gradient when `enabled = true`. |
+| `gradient.enabled` | boolean | `false` | Uses the gradient instead of the solid border color. |
+| `gradient.direction` | string | `"topLeftToBottomRight"` | Either `topLeftToBottomRight` or `topRightToBottomLeft`, in the border surface's local coordinates. |
+| `gradient.start` / `gradient.end` | color tables | — | Complete endpoint colors. A present gradient table must include both colors. |
+| `glow` | optional table | absent | Adds a visual-only glow around the border. It never changes layout gaps or resize hit-testing. |
+| `glow.enabled` | boolean | `false` | Draws the glow before the border. |
+| `glow.radius` | float | `8.0` | Glow radius in points, accepted from `0` through `32`. The overlay surface expands to contain it. |
+| `glow.opacity` | float | `0.6` | Glow opacity from `0` through `1`. |
+
+Gradient and glow are composable. A missing table preserves legacy solid rendering. Non-finite or structurally invalid values preserve the previous valid appearance; finite gradient color components are clamped to `0...1`, while glow radius and opacity must remain within their documented ranges. Glow reuses the border's solid color or gradient endpoints, so a gradient border produces a spatially matching gradient glow.
 
 ## overview
 

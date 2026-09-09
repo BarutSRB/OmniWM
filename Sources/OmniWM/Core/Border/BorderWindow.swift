@@ -106,7 +106,10 @@ final class BorderWindow {
         appliedSurfaceFrame = surfaceFrame
         let localSurfaceFrame = CGRect(origin: .zero, size: surfaceFrame.size)
         let localTargetFrame = CGRect(
-            origin: CGPoint(x: geometry.width, y: geometry.width),
+            origin: CGPoint(
+                x: geometry.width + geometry.surfacePadding,
+                y: geometry.width + geometry.surfacePadding
+            ),
             size: geometry.targetFrame.size
         )
         let targetChanged = appliedTargetToken != targetToken
@@ -144,7 +147,8 @@ final class BorderWindow {
             draw(
                 surfaceFrame: localSurfaceFrame,
                 targetFrame: localTargetFrame,
-                borderWidth: geometry.width
+                borderWidth: geometry.width,
+                surfacePadding: geometry.surfacePadding
             )
         }
 
@@ -195,12 +199,33 @@ final class BorderWindow {
         operations.excludeFromScreencaptureSelection(wid)
     }
 
-    private func draw(surfaceFrame: CGRect, targetFrame: CGRect, borderWidth: CGFloat) {
+    private func draw(
+        surfaceFrame: CGRect,
+        targetFrame: CGRect,
+        borderWidth: CGFloat,
+        surfacePadding: CGFloat
+    ) {
         guard let layerPanel else { return }
+        var gradientStart: CGColor?
+        var gradientEnd: CGColor?
+        var gradientPoints: (start: CGPoint, end: CGPoint)?
+        if let gradientStyle = config.gradient, gradientStyle.enabled {
+            gradientStart = Self.cgColor(gradientStyle.start)
+            gradientEnd = Self.cgColor(gradientStyle.end)
+            gradientPoints = Self.gradientUnitPoints(for: gradientStyle.direction)
+        }
+        var glowOpacity: CGFloat = 0
+        if let glow = config.glow, glow.enabled {
+            glowOpacity = Self.component(glow.opacity)
+        }
         layerPanel.updateBorder(
             surfaceFrame: surfaceFrame, targetFrame: targetFrame,
             cornerRadii: currentCornerRadii, width: borderWidth,
-            color: Self.cgColor(config.color), scale: lastConfiguredScale
+            color: Self.cgColor(config.color), scale: lastConfiguredScale,
+            surfacePadding: surfacePadding,
+            gradientStart: gradientStart, gradientEnd: gradientEnd,
+            gradientPoints: gradientPoints,
+            glowOpacity: glowOpacity
         )
         needsRedraw = false
         BorderOpMetricsRecorder.shared.noteRedraw(rasterizedArea: surfaceFrame.width * surfaceFrame.height)
@@ -221,6 +246,19 @@ final class BorderWindow {
     private static func component(_ value: Double) -> CGFloat {
         guard value.isFinite else { return 0 }
         return CGFloat(min(max(value, 0), 1))
+    }
+
+    private static func gradientUnitPoints(
+        for direction: BorderGradientDirection
+    ) -> (start: CGPoint, end: CGPoint) {
+        // The border panel uses an unflipped NSView, so CALayer unit coordinates
+        // start at the bottom-left corner.
+        switch direction {
+        case .topLeftToBottomRight:
+            return (start: CGPoint(x: 0, y: 1), end: CGPoint(x: 1, y: 0))
+        case .topRightToBottomLeft:
+            return (start: CGPoint(x: 1, y: 1), end: CGPoint(x: 0, y: 0))
+        }
     }
 
     static func roundedRectPath(in rect: CGRect, radii: WindowCornerRadii) -> CGPath {
@@ -390,8 +428,10 @@ final class BorderWindow {
         invalidateDeferredLevel(target: nil)
         guard wid != 0 else { return }
         BorderOpMetricsRecorder.shared.noteHide()
+        layerPanel?.setContentVisible(false)
         layerPanel?.orderOut(nil)
         isVisible = false
+        needsRedraw = true
         lastOrderedTargetToken = nil
         pendingTargetLevelRetryToken = nil
         needsWindowLevelRetry = false
@@ -399,7 +439,11 @@ final class BorderWindow {
 
     func updateConfig(_ newConfig: BorderConfig) {
         guard config != newConfig else { return }
-        if config.color != newConfig.color || config.width != newConfig.width {
+        if config.color != newConfig.color
+            || config.width != newConfig.width
+            || config.gradient != newConfig.gradient
+            || config.glow != newConfig.glow
+        {
             needsRedraw = true
         }
         config = newConfig

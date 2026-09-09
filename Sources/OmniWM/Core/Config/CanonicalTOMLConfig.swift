@@ -103,6 +103,8 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var enabled: Bool
         var width: Double
         var color: Color
+        var gradient: BorderGradient?
+        var glow: BorderGlow?
 
         struct Color: Codable, Equatable {
             var red: Double
@@ -348,7 +350,9 @@ extension CanonicalTOMLConfig {
                 green: export.borderColorGreen,
                 blue: export.borderColorBlue,
                 alpha: export.borderColorAlpha
-            )
+            ),
+            gradient: export.borderGradient,
+            glow: export.borderGlow
         )
         overview = Overview(
             zoom: export.overviewZoom,
@@ -472,6 +476,8 @@ extension CanonicalTOMLConfig {
             borderColorGreen: borders.color.green,
             borderColorBlue: borders.color.blue,
             borderColorAlpha: borders.color.alpha,
+            borderGradient: borders.gradient,
+            borderGlow: borders.glow,
             overviewZoom: overview.zoom,
             overviewBackdropColor: overview.backdrop.settingsColor,
             overviewNormalBorderColor: overview.windowBorders.normal.settingsColor,
