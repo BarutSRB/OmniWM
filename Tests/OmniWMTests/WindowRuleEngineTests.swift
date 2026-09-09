@@ -330,6 +330,62 @@ final class WindowRuleEngineTests: XCTestCase {
         )
     }
 
+    func testTitleFetchAndWindowMatchingShareCombinedAppScope() {
+        let engine = WindowRuleEngine()
+        let rule = AppRule(
+            bundleId: "com.test.editor",
+            appNameSubstring: "Editor",
+            titleRegex: "^Settings$",
+            layout: .float
+        )
+        engine.rebuild(rules: [rule])
+        let cases: [(bundleId: String?, appName: String?, matches: Bool)] = [
+            ("com.test.editor", "Editor", true),
+            ("COM.TEST.EDITOR", "My EDITOR", true),
+            (nil, "Editor", false),
+            ("com.test.editor", nil, false),
+            ("com.test.other", "Editor", false),
+            ("com.test.editor", "Other App", false)
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                engine.requiresTitle(for: testCase.bundleId, appName: testCase.appName),
+                testCase.matches
+            )
+            let decision = evaluate(
+                engine,
+                facts(appName: testCase.appName, bundleId: testCase.bundleId, title: "Settings")
+            )
+            XCTAssertEqual(decision.source == .userRule(rule.id), testCase.matches)
+            let withoutTitle = evaluate(engine, facts(appName: testCase.appName, bundleId: testCase.bundleId))
+            XCTAssertEqual(withoutTitle.deferredReason == .requiredTitleMissing, testCase.matches)
+        }
+    }
+
+    func testInvalidCompiledRegexIsExcludedAndClearedOnRebuild() {
+        let engine = WindowRuleEngine()
+        var rule = AppRule(bundleId: "com.test.editor", titleRegex: "[", layout: .float)
+        engine.rebuild(rules: [rule])
+
+        XCTAssertNotNil(engine.invalidRegexMessagesByRuleId[rule.id])
+        XCTAssertFalse(engine.requiresTitle(for: rule.bundleId))
+        XCTAssertNotEqual(
+            evaluate(engine, facts(appName: "Editor", bundleId: rule.bundleId, title: "Settings")).source,
+            .userRule(rule.id)
+        )
+
+        rule.titleRegex = "^Settings$"
+        engine.rebuild(rules: [rule])
+
+        XCTAssertTrue(engine.invalidRegexMessagesByRuleId.isEmpty)
+        XCTAssertTrue(engine.requiresTitle(for: rule.bundleId))
+        XCTAssertEqual(
+            evaluate(engine, facts(appName: "Editor", bundleId: rule.bundleId, title: "Settings")).source,
+            .userRule(rule.id)
+        )
+    }
+
     func testProjectionSnapshotValidWhenAnchoredOnAppName() {
         let rule = AppRule(bundleId: "", appNameSubstring: "VMD", layout: .float)
         let snapshot = IPCRuleProjection.snapshot(from: rule, position: 1, invalidRegexMessagesByRuleId: [:])
@@ -647,6 +703,27 @@ final class WindowRuleEngineTests: XCTestCase {
 
         XCTAssertEqual(pictureInPictureDecision.disposition, .floating)
         XCTAssertEqual(pictureInPictureDecision.source, .builtInRule("browserPictureInPicture"))
+    }
+
+    func testPictureInPictureRulesPreserveFoundationAnchorMatching() {
+        let engine = WindowRuleEngine()
+        let token = WindowToken(pid: 84_068, windowId: 84_069)
+        for bundleId in ["org.mozilla.firefox", "app.zen-browser.zen"] {
+            for suffix in ["", "\n", "\r", "\r\n"] {
+                let decision = evaluate(
+                    engine,
+                    facts(
+                        appName: "Browser",
+                        bundleId: bundleId,
+                        title: "Picture-in-Picture" + suffix,
+                        windowServer: transientWindowServerInfo(token: token, parentId: 0)
+                    ),
+                    token: token
+                )
+                XCTAssertEqual(decision.disposition, .floating)
+                XCTAssertEqual(decision.source, .builtInRule("browserPictureInPicture"))
+            }
+        }
     }
 
     func testRootNonstandardSurfaceRequiresPreciseRoleAndSubroleRule() {

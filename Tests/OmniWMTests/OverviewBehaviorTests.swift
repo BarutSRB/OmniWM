@@ -186,10 +186,10 @@ final class OverviewBehaviorTests: XCTestCase {
         let first = try XCTUnwrap(layout.allWindows.first?.handle)
 
         let second = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: first, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: first, direction: .down)
         )
         let third = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: second, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: second, direction: .down)
         )
         let thirdWindow = try XCTUnwrap(layout.window(for: third))
         layout.scrollOffset = OverviewLayoutCalculator.scrollOffsetRevealing(
@@ -202,19 +202,19 @@ final class OverviewBehaviorTests: XCTestCase {
         assertVisible(thirdWindow.overviewFrame, in: layout, offset: layout.scrollOffset)
         XCTAssertTrue(layout.scrollOffset < 0)
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: third, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: third, direction: .right),
             third
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: first, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: first, direction: .left),
             first
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(in: layout, from: third, forward: true),
+            OverviewNavigation.findCycledWindow(in: layout, from: third, forward: true),
             first
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(in: layout, from: first, forward: false),
+            OverviewNavigation.findCycledWindow(in: layout, from: first, forward: false),
             third
         )
     }
@@ -228,12 +228,12 @@ final class OverviewBehaviorTests: XCTestCase {
             let rightEdge = try XCTUnwrap(row.last)
 
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: leftEdge, direction: .left),
+                OverviewNavigation.findNextWindow(in: layout, from: leftEdge, direction: .left),
                 rightEdge,
                 "left edge of workspace row \(rowIndex) must wrap to the row's right-most window"
             )
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: rightEdge, direction: .right),
+                OverviewNavigation.findNextWindow(in: layout, from: rightEdge, direction: .right),
                 leftEdge,
                 "right edge of workspace row \(rowIndex) must wrap to the row's left-most window"
             )
@@ -241,11 +241,11 @@ final class OverviewBehaviorTests: XCTestCase {
 
         let firstRow = fixture.rowHandles[0]
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: firstRow[0], direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: firstRow[0], direction: .right),
             firstRow[1]
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: firstRow[2], direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: firstRow[2], direction: .left),
             firstRow[1]
         )
     }
@@ -256,21 +256,21 @@ final class OverviewBehaviorTests: XCTestCase {
         let loneWindow = try XCTUnwrap(fixture.rowHandles[1].first)
 
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: loneWindow, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: loneWindow, direction: .right),
             loneWindow
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: loneWindow, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: loneWindow, direction: .left),
             loneWindow
         )
 
         let multiWindowRow = fixture.rowHandles[0]
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: multiWindowRow.first, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: multiWindowRow.first, direction: .left),
             multiWindowRow.last
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: multiWindowRow.last, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: multiWindowRow.last, direction: .right),
             multiWindowRow.first
         )
     }
@@ -279,13 +279,13 @@ final class OverviewBehaviorTests: XCTestCase {
         let tallDescriptor = WorkspaceDescriptor(name: "Tall")
         let shortDescriptor = WorkspaceDescriptor(name: "Short")
         let workspaces: [OverviewWorkspaceLayoutItem] = [
-            (id: tallDescriptor.id, name: tallDescriptor.name, isActive: true),
-            (id: shortDescriptor.id, name: shortDescriptor.name, isActive: false)
+            OverviewWorkspaceLayoutItem(id: tallDescriptor.id, name: tallDescriptor.name, isActive: true),
+            OverviewWorkspaceLayoutItem(id: shortDescriptor.id, name: shortDescriptor.name, isActive: false)
         ]
         var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
         let tallToken = WindowToken(pid: 1, windowId: 1)
         let tallHandle = WindowHandle(id: tallToken)
-        windows[tallHandle] = (
+        windows[tallHandle] = OverviewWindowLayoutData(
             token: tallToken,
             workspaceId: tallDescriptor.id,
             title: "Tall 1",
@@ -297,7 +297,7 @@ final class OverviewBehaviorTests: XCTestCase {
         for slot in 0 ..< 2 {
             let token = WindowToken(pid: pid_t(2 + slot), windowId: 2 + slot)
             let handle = WindowHandle(id: token)
-            windows[handle] = (
+            windows[handle] = OverviewWindowLayoutData(
                 token: token,
                 workspaceId: shortDescriptor.id,
                 title: "Short \(slot + 1)",
@@ -314,15 +314,15 @@ final class OverviewBehaviorTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: tallHandle, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: tallHandle, direction: .left),
             tallHandle
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: tallHandle, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: tallHandle, direction: .right),
             tallHandle
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: shortHandles[0], direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: shortHandles[0], direction: .right),
             shortHandles[1]
         )
     }
@@ -335,12 +335,12 @@ final class OverviewBehaviorTests: XCTestCase {
             let loneMatch = row[1]
 
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: loneMatch, direction: .right),
+                OverviewNavigation.findNextWindow(in: layout, from: loneMatch, direction: .right),
                 loneMatch,
                 "workspace row \(rowIndex)"
             )
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: loneMatch, direction: .left),
+                OverviewNavigation.findNextWindow(in: layout, from: loneMatch, direction: .left),
                 loneMatch,
                 "workspace row \(rowIndex)"
             )
@@ -348,7 +348,7 @@ final class OverviewBehaviorTests: XCTestCase {
 
         let matchingHandles = fixture.rowHandles.map { $0[1] }
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(
+            OverviewNavigation.findCycledWindow(
                 in: layout,
                 from: matchingHandles[0],
                 forward: true
@@ -356,7 +356,7 @@ final class OverviewBehaviorTests: XCTestCase {
             matchingHandles[1]
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(
+            OverviewNavigation.findCycledWindow(
                 in: layout,
                 from: matchingHandles[0],
                 forward: false
@@ -421,10 +421,10 @@ final class OverviewBehaviorTests: XCTestCase {
         assertViewportInvariant(layout, selectedHandle: selectedHandle)
 
         let second = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: first, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: first, direction: .down)
         )
         let third = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: second, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: second, direction: .down)
         )
         selectedHandle = third
         revealSelection(selectedHandle, in: &layout)
@@ -1824,7 +1824,7 @@ final class OverviewBehaviorTests: XCTestCase {
         let descriptors = ["First", "Second", "Third"].map { WorkspaceDescriptor(name: $0) }
         precondition(windowCountsPerWorkspace.count == descriptors.count)
         let workspaces = descriptors.enumerated().map { index, descriptor in
-            (id: descriptor.id, name: descriptor.name, isActive: index == 0)
+            OverviewWorkspaceLayoutItem(id: descriptor.id, name: descriptor.name, isActive: index == 0)
         }
         var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
         var rowHandles: [[WindowHandle]] = []
@@ -1837,7 +1837,7 @@ final class OverviewBehaviorTests: XCTestCase {
                 tokenSeed += 1
                 let token = WindowToken(pid: pid_t(tokenSeed), windowId: tokenSeed)
                 let handle = WindowHandle(id: token)
-                windows[handle] = (
+                windows[handle] = OverviewWindowLayoutData(
                     token: token,
                     workspaceId: descriptor.id,
                     title: "\(descriptor.name) \(slot + 1)",

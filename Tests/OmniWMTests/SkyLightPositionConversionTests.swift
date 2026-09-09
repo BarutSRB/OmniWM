@@ -17,7 +17,9 @@ final class SkyLightPositionConversionTests: XCTestCase {
 
     func testSkyLightPositionUsesConvertedRectangleOrigin() throws {
         let frame = try Self.testFrame()
-        let positions = AXManager.windowServerPositions([(windowId: 42, frame: frame)])
+        let positions = AXManager.windowServerPositions([
+            SkyLightPositionTarget(token: WindowToken(pid: 7, windowId: 42), frame: frame)
+        ])
         let position = try XCTUnwrap(positions.first)
         let convertedFrame = ScreenCoordinateSpace.toWindowServer(rect: frame)
         let pointConvertedOrigin = ScreenCoordinateSpace.toWindowServer(point: frame.origin)

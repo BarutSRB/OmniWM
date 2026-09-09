@@ -238,11 +238,3 @@ private func snapshotSortKey(_ snapshot: MonitorRestoreKey) -> (CGFloat, CGFloat
 private func monitorRestoreSortKey(_ monitor: Monitor) -> (CGFloat, CGFloat, UInt32) {
     (monitor.frame.minX, -monitor.frame.maxY, monitor.displayId)
 }
-
-private extension CGPoint {
-    func distanceSquared(to point: CGPoint) -> CGFloat {
-        let dx = x - point.x
-        let dy = y - point.y
-        return dx * dx + dy * dy
-    }
-}

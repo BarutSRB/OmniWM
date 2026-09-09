@@ -28,12 +28,14 @@ extension NiriLayoutEngine {
             return consumeOrExpelWindow(
                 node,
                 direction: step > 0 ? .right : .left,
-                in: workspaceId,
-                motion: motion,
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
                 allowEdgeWrap: allowEdgeWrap
             )
         }

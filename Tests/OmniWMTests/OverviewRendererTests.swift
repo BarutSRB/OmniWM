@@ -161,7 +161,7 @@ final class OverviewRendererTests: XCTestCase {
         let workspaceId = UUID()
         let token = WindowToken(pid: 1, windowId: 1)
         let handle = WindowHandle(id: token)
-        let data: OverviewWindowLayoutData = (
+        let data: OverviewWindowLayoutData = OverviewWindowLayoutData(
             token: token,
             workspaceId: workspaceId,
             title: "Window",
@@ -171,7 +171,7 @@ final class OverviewRendererTests: XCTestCase {
         )
 
         let layout = OverviewLayoutCalculator.calculateLayout(
-            workspaces: [(id: workspaceId, name: "Workspace", isActive: true)],
+            workspaces: [OverviewWorkspaceLayoutItem(id: workspaceId, name: "Workspace", isActive: true)],
             windows: [handle: data],
             screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
             searchQuery: "",

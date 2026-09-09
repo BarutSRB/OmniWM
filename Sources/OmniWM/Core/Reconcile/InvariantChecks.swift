@@ -8,10 +8,8 @@ enum InvariantChecks {
         var violations: [ReconcileInvariantViolation] = []
         var windowByToken: [WindowToken: ReconcileWindowSnapshot] = [:]
         var duplicateTokens: Set<WindowToken> = []
-        for window in snapshot.windows {
-            if windowByToken.updateValue(window, forKey: window.token) != nil {
-                duplicateTokens.insert(window.token)
-            }
+        for window in snapshot.windows where windowByToken.updateValue(window, forKey: window.token) != nil {
+            duplicateTokens.insert(window.token)
         }
 
         for token in duplicateTokens {

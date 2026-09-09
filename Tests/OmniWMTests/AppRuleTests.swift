@@ -204,22 +204,22 @@ final class AppRuleTests: XCTestCase {
 
     func testInitialContainerPrimarySpanPercentConversionHandlesFractionsAndExtremeValues() {
         let proportion = 0.5555
-        let percent = AppRuleInitialContainerPrimarySpanPercent.percent(from: proportion)
+        let percent = AppRulePrimarySpanPercent.percent(from: proportion)
         XCTAssertEqual(percent, 55.55, accuracy: 0.000_000_1)
         XCTAssertEqual(
-            AppRuleInitialContainerPrimarySpanPercent.proportion(from: percent),
+            AppRulePrimarySpanPercent.proportion(from: percent),
             proportion,
             accuracy: 0.000_000_1
         )
-        XCTAssertTrue(AppRuleInitialContainerPrimarySpanPercent.percent(from: .greatestFiniteMagnitude).isInfinite)
-        XCTAssertTrue(AppRuleInitialContainerPrimarySpanPercent.percent(from: .nan).isNaN)
-        XCTAssertEqual(AppRuleInitialContainerPrimarySpanPercent.percent(from: .infinity), .infinity)
-        XCTAssertEqual(AppRuleInitialContainerPrimarySpanPercent.percent(from: -.infinity), -.infinity)
-        XCTAssertEqual(AppRuleInitialContainerPrimarySpanPercent.displayText(for: proportion), "55.55")
+        XCTAssertTrue(AppRulePrimarySpanPercent.percent(from: .greatestFiniteMagnitude).isInfinite)
+        XCTAssertTrue(AppRulePrimarySpanPercent.percent(from: .nan).isNaN)
+        XCTAssertEqual(AppRulePrimarySpanPercent.percent(from: .infinity), .infinity)
+        XCTAssertEqual(AppRulePrimarySpanPercent.percent(from: -.infinity), -.infinity)
+        XCTAssertEqual(AppRulePrimarySpanPercent.displayText(for: proportion), "55.55")
 
         var invalidDraft = AppRuleDraft(bundleId: "com.test.app")
         invalidDraft.initialContainerPrimarySpanEnabled = true
-        invalidDraft.initialContainerPrimarySpan = AppRuleInitialContainerPrimarySpanPercent.proportion(from: 4.9)
+        invalidDraft.initialContainerPrimarySpan = AppRulePrimarySpanPercent.proportion(from: 4.9)
         XCTAssertEqual(invalidDraft.initialContainerPrimarySpan, 0.049, accuracy: 0.000_000_1)
         XCTAssertNotNil(invalidDraft.initialContainerPrimarySpanError)
     }

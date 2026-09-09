@@ -18,7 +18,6 @@ struct MonitorSetupPresentationPolicy {
     }
 }
 
-@preconcurrency
 @MainActor @Observable
 public final class AppBootstrapState {
     var settings: SettingsStore?
@@ -54,7 +53,6 @@ public final class AppBootstrapState {
     }
 }
 
-@preconcurrency
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     public nonisolated(unsafe) weak static var sharedBootstrap: AppBootstrapState?

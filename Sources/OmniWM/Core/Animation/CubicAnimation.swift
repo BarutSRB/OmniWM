@@ -40,69 +40,69 @@ struct CubicConfig {
     }
 
     private func solveT(for x: Double) -> Double {
-        var t = x
+        var parameter = x
         for _ in 0 ..< 8 {
-            let currentX = sampleX(t) - x
+            let currentX = sampleX(parameter) - x
             if abs(currentX) < 0.000001 {
-                return t
+                return parameter
             }
-            let derivative = sampleDerivativeX(t)
+            let derivative = sampleDerivativeX(parameter)
             if abs(derivative) < 0.000001 {
                 break
             }
-            let next = t - currentX / derivative
+            let next = parameter - currentX / derivative
             if next < 0 || next > 1 {
                 break
             }
-            t = next
+            parameter = next
         }
 
         var lower = 0.0
         var upper = 1.0
-        t = x
+        parameter = x
         for _ in 0 ..< 24 {
-            let currentX = sampleX(t)
+            let currentX = sampleX(parameter)
             if abs(currentX - x) < 0.000001 {
-                return t
+                return parameter
             }
             if currentX < x {
-                lower = t
+                lower = parameter
             } else {
-                upper = t
+                upper = parameter
             }
-            t = (lower + upper) * 0.5
+            parameter = (lower + upper) * 0.5
         }
-        return t
+        return parameter
     }
 
-    private func sampleX(_ t: Double) -> Double {
-        sampleCurve(t, a1: controlPoint1.x, a2: controlPoint2.x)
+    private func sampleX(_ parameter: Double) -> Double {
+        sampleCurve(parameter, a1: controlPoint1.x, a2: controlPoint2.x)
     }
 
-    private func sampleY(_ t: Double) -> Double {
-        sampleCurve(t, a1: controlPoint1.y, a2: controlPoint2.y)
+    private func sampleY(_ parameter: Double) -> Double {
+        sampleCurve(parameter, a1: controlPoint1.y, a2: controlPoint2.y)
     }
 
-    private func sampleDerivativeX(_ t: Double) -> Double {
-        sampleDerivative(t, a1: controlPoint1.x, a2: controlPoint2.x)
+    private func sampleDerivativeX(_ parameter: Double) -> Double {
+        sampleDerivative(parameter, a1: controlPoint1.x, a2: controlPoint2.x)
     }
 
-    private func sampleCurve(_ t: Double, a1: CGFloat, a2: CGFloat) -> Double {
+    private func sampleCurve(_ parameter: Double, a1: CGFloat, a2: CGFloat) -> Double {
         let p1 = Double(a1)
         let p2 = Double(a2)
-        let c = 3.0 * p1
-        let b = 3.0 * (p2 - p1) - c
-        let a = 1.0 - c - b
-        return ((a * t + b) * t + c) * t
+        let linearCoefficient = 3.0 * p1
+        let quadraticCoefficient = 3.0 * (p2 - p1) - linearCoefficient
+        let cubicCoefficient = 1.0 - linearCoefficient - quadraticCoefficient
+        return ((cubicCoefficient * parameter + quadraticCoefficient) * parameter + linearCoefficient) * parameter
     }
 
-    private func sampleDerivative(_ t: Double, a1: CGFloat, a2: CGFloat) -> Double {
+    private func sampleDerivative(_ parameter: Double, a1: CGFloat, a2: CGFloat) -> Double {
         let p1 = Double(a1)
         let p2 = Double(a2)
-        let c = 3.0 * p1
-        let b = 3.0 * (p2 - p1) - c
-        let a = 1.0 - c - b
-        return (3.0 * a * t + 2.0 * b) * t + c
+        let linearCoefficient = 3.0 * p1
+        let quadraticCoefficient = 3.0 * (p2 - p1) - linearCoefficient
+        let cubicCoefficient = 1.0 - linearCoefficient - quadraticCoefficient
+        return (3.0 * cubicCoefficient * parameter + 2.0 * quadraticCoefficient) * parameter + linearCoefficient
     }
 }
 

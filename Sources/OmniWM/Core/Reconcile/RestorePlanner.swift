@@ -623,11 +623,3 @@ struct RestorePlanner {
         (restoreKey.anchorPoint.x, -restoreKey.anchorPoint.y, restoreKey.displayId)
     }
 }
-
-private extension CGPoint {
-    func distanceSquared(to point: CGPoint) -> CGFloat {
-        let dx = x - point.x
-        let dy = y - point.y
-        return dx * dx + dy * dy
-    }
-}

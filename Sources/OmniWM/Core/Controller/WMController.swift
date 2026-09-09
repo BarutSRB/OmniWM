@@ -611,7 +611,11 @@ final class WMController {
             && hasStartedServices
             && !serviceLifecycleManager.isSecureInputActive
         hotkeysEnabled = shouldEnableHotkeys
-        shouldEnableHotkeys ? hotkeys.start() : hotkeys.stop()
+        if shouldEnableHotkeys {
+            hotkeys.start()
+        } else {
+            hotkeys.stop()
+        }
         refreshHotkeyFailureSnapshots()
     }
 
@@ -2331,15 +2335,13 @@ final class WMController {
             self.stackScratchpadMembers(survivors, in: index, on: workspaceId)
         }
 
-        for entry in ordered {
-            if showScratchpadWindow(
-                entry,
-                on: workspaceId,
-                monitor: monitor,
-                revealGroupId: groupId
-            ) {
-                revealed = true
-            }
+        for entry in ordered where showScratchpadWindow(
+            entry,
+            on: workspaceId,
+            monitor: monitor,
+            revealGroupId: groupId
+        ) {
+            revealed = true
         }
 
         guard revealed else {
@@ -2982,8 +2984,8 @@ final class WMController {
                 if !windows.isEmpty {
                     resolvedAnyTarget = true
                 }
-                for (axRef, _, windowId) in windows {
-                    let token = WindowToken(pid: pid, windowId: windowId)
+                for axRef in windows {
+                    let token = WindowToken(pid: pid, windowId: axRef.windowId)
                     tokensToReevaluate.insert(token)
                     liveWindowsByToken[token] = axRef
                     topLevelInventoryTokens.insert(token)

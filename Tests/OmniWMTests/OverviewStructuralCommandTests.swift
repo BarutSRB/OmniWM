@@ -1134,7 +1134,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         for monitor in workspaceManager.monitors {
             let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
             for workspace in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append((
+                workspaces.append(OverviewWorkspaceLayoutItem(
                     id: workspace.id,
                     name: workspace.name,
                     isActive: workspace.id == activeWorkspaceId
@@ -1149,7 +1149,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
                         height: 360
                     )
                     framesByToken[entry.token] = frame
-                    windowData[handle] = (
+                    windowData[handle] = OverviewWindowLayoutData(
                         token: entry.token,
                         workspaceId: entry.workspaceId,
                         title: "Window \(entry.windowId)",

@@ -706,23 +706,19 @@ extension NiriLayoutEngine {
 
         var removedHandles = Set<WindowToken>()
 
-        for window in state.root.allWindows {
-            if !currentIdSet.contains(window.token) {
-                removedHandles.insert(window.token)
-                removeWindow(token: window.token, in: workspaceId)
-            }
+        for window in state.root.allWindows where !currentIdSet.contains(window.token) {
+            removedHandles.insert(window.token)
+            removeWindow(token: window.token, in: workspaceId)
         }
 
-        for token in tokens {
-            if state.nodesByToken[token] == nil {
-                _ = addWindow(
-                    token: token,
-                    to: workspaceId,
-                    afterSelection: selectedNodeId,
-                    focusedToken: focusedToken,
-                    containerSizingState: containerSizingStates?[token]
-                )
-            }
+        for token in tokens where state.nodesByToken[token] == nil {
+            _ = addWindow(
+                token: token,
+                to: workspaceId,
+                afterSelection: selectedNodeId,
+                focusedToken: focusedToken,
+                containerSizingState: containerSizingStates?[token]
+            )
         }
 
         return removedHandles
@@ -775,11 +771,9 @@ extension NiriLayoutEngine {
             }
         }
 
-        for col in cols {
-            if col.id != column(of: removingNode)?.id {
-                if let firstWindow = col.firstChild() {
-                    return firstWindow.id
-                }
+        for col in cols where col.id != column(of: removingNode)?.id {
+            if let firstWindow = col.firstChild() {
+                return firstWindow.id
             }
         }
 

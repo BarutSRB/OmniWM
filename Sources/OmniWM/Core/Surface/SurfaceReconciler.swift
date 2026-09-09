@@ -204,7 +204,7 @@ final class SurfaceReconciler {
         Set(nativeFullscreenSlotsByWorkspace.keys)
     }
 
-    func nativeFullscreenDiagnosticsSnapshot() -> NativeFullscreenSurfaceDiagnosticsSnapshot {
+    func nativeFullscreenDiagnosticsSnapshot() -> FullscreenSurfaceDiagnosticsSnapshot {
         var acceptedSlots: [NativeFullscreenAcceptedSlotDiagnostics] = []
         acceptedSlots.reserveCapacity(nativeFullscreenSlotsByWorkspace.values.reduce(0) { $0 + $1.slots.count })
         for (workspaceId, projection) in nativeFullscreenSlotsByWorkspace {
@@ -231,10 +231,10 @@ final class SurfaceReconciler {
         for applied in appliedScene.placeholders {
             appliedCounts[applied.originalToken, default: 0] += 1
         }
-        return NativeFullscreenSurfaceDiagnosticsSnapshot(
+        return FullscreenSurfaceDiagnosticsSnapshot(
             descriptors: descriptors,
             acceptedProjections: nativeFullscreenSlotsByWorkspace.map { workspaceId, projection in
-                NativeFullscreenAcceptedProjectionDiagnostics(
+                FullscreenAcceptedProjectionDiagnostics(
                     workspaceId: workspaceId,
                     displayId: projection.displayId,
                     workingFrame: projection.displayContext.workingFrame,
@@ -250,7 +250,7 @@ final class SurfaceReconciler {
             applied: appliedScene.placeholders,
             resolutions: descriptors.map { descriptor in
                 let previous = appliedScene.placeholders.first { $0.originalToken == descriptor.originalToken }
-                return NativeFullscreenSurfaceResolutionDiagnostics(
+                return FullscreenSurfaceResolutionDiagnostics(
                     originalToken: descriptor.originalToken,
                     reason: controller.map {
                         resolvedNativeFullscreenPlaceholder(

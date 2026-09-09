@@ -155,8 +155,8 @@ extension WorkspaceManager {
     }
 }
 
-private extension WorkspaceNativeFullscreenTransition {
-    var isPending: Bool {
+extension WorkspaceNativeFullscreenTransition {
+    fileprivate var isPending: Bool {
         self == .enterRequested || self == .exitRequested
     }
 }

@@ -23,7 +23,7 @@ indirect enum SplitNode {
     var ratio: Double {
         switch self {
         case .leaf: return 0.5
-        case let .split(_, r, _, _): return r
+        case let .split(_, ratio, _, _): return ratio
         }
     }
 
@@ -90,7 +90,7 @@ indirect enum SplitNode {
 
     func contains(_ view: GhosttySurfaceView) -> Bool {
         switch self {
-        case let .leaf(v): return v === view
+        case let .leaf(leafView): return leafView === view
         case let .split(_, _, left, right): return left.contains(view) || right.contains(view)
         }
     }
@@ -343,8 +343,8 @@ enum NavigationDirection {
     case left, right, up, down
 }
 
-private func areIdentical(_ a: SplitNode, _ b: SplitNode) -> Bool {
-    switch (a, b) {
+private func areIdentical(_ lhs: SplitNode, _ rhs: SplitNode) -> Bool {
+    switch (lhs, rhs) {
     case let (.leaf(v1), .leaf(v2)):
         return v1 === v2
     case let (.split(d1, r1, l1, rr1), .split(d2, r2, l2, rr2)):

@@ -106,21 +106,25 @@ final class NiriProjectionCommandTests: XCTestCase {
 
         projected.engine.expandContainerToAvailablePrimarySpan(
             projectedColumn,
-            in: projected.workspaceId,
-            motion: .disabled,
-            state: &projectedState,
-            workingFrame: workingFrame,
-            gaps: gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: projected.workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gap,
+                orientation: .horizontal
+            ),
+            state: &projectedState
         )
         baseline.engine.expandContainerToAvailablePrimarySpan(
             baselineColumn,
-            in: baseline.workspaceId,
-            motion: .disabled,
-            state: &baselineState,
-            workingFrame: workingFrame,
-            gaps: gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: baseline.workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gap,
+                orientation: .horizontal
+            ),
+            state: &baselineState
         )
 
         XCTAssertEqual(projectedColumn.cachedWidth, baselineColumn.cachedWidth, accuracy: 0.001)
@@ -135,12 +139,14 @@ final class NiriProjectionCommandTests: XCTestCase {
             consumeFixture.engine.consumeOrExpelWindow(
                 consumeFixture.a,
                 direction: .right,
-                in: consumeFixture.workspaceId,
-                motion: .disabled,
+                context: .init(
+                    workspaceId: consumeFixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
                 state: &consumeState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal,
                 allowEdgeWrap: false
             )
         )
@@ -160,12 +166,14 @@ final class NiriProjectionCommandTests: XCTestCase {
             moveFixture.engine.moveColumn(
                 aColumn,
                 direction: .right,
-                in: moveFixture.workspaceId,
-                motion: .disabled,
-                state: &moveState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: moveFixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &moveState
             )
         )
         XCTAssertEqual(
@@ -197,12 +205,14 @@ final class NiriProjectionCommandTests: XCTestCase {
         XCTAssertTrue(
             fixture.engine.expelWindowFromColumn(
                 focusedColumn: fixture.column,
-                in: fixture.workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: fixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &state
             )
         )
         XCTAssertEqual(
@@ -230,12 +240,14 @@ final class NiriProjectionCommandTests: XCTestCase {
             projected.engine.consumeOrExpelWindow(
                 projected.b,
                 direction: .left,
-                in: projected.workspaceId,
-                motion: .enabled,
+                context: .init(
+                    workspaceId: projected.workspaceId,
+                    motion: .enabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
                 state: &projectedState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal,
                 allowEdgeWrap: false
             )
         )
@@ -243,12 +255,14 @@ final class NiriProjectionCommandTests: XCTestCase {
             baseline.engine.consumeOrExpelWindow(
                 baseline.b,
                 direction: .left,
-                in: baseline.workspaceId,
-                motion: .enabled,
+                context: .init(
+                    workspaceId: baseline.workspaceId,
+                    motion: .enabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
                 state: &baselineState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal,
                 allowEdgeWrap: false
             )
         )
@@ -300,24 +314,28 @@ final class NiriProjectionCommandTests: XCTestCase {
             projected.engine.moveColumn(
                 projectedBColumn,
                 direction: .left,
-                in: projected.workspaceId,
-                motion: .enabled,
-                state: &projectedState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: projected.workspaceId,
+                    motion: .enabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &projectedState
             )
         )
         XCTAssertTrue(
             baseline.engine.moveColumn(
                 baselineBColumn,
                 direction: .left,
-                in: baseline.workspaceId,
-                motion: .enabled,
-                state: &baselineState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: baseline.workspaceId,
+                    motion: .enabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &baselineState
             )
         )
 
@@ -978,12 +996,14 @@ final class NiriProjectionCommandTests: XCTestCase {
             window,
             into: column,
             enteringFrom: .right,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gap,
-            orientation: orientation
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gap,
+                orientation: orientation
+            ),
+            state: &state
         )
     }
 }

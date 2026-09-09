@@ -221,6 +221,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         updateSurfaceOcclusion()
     }
 
+    @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }

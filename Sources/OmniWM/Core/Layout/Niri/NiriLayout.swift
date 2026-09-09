@@ -604,50 +604,37 @@ extension NiriLayoutEngine {
         hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
     ) -> CGRect {
+        if let hiddenPlacementMonitor {
+            let orthogonalOrigin: CGFloat = switch orientation {
+            case .horizontal: canonicalRect.minY
+            case .vertical: canonicalRect.minX
+            }
+            return HiddenWindowPlacementResolver(
+                monitor: hiddenPlacementMonitor,
+                monitors: hiddenPlacementMonitors
+            ).placement(
+                for: canonicalRect.size,
+                requestedEdge: edge,
+                orthogonalOrigin: orthogonalOrigin,
+                baseReveal: 1.0,
+                orientation: orientation
+            )
+            .frame(for: canonicalRect.size)
+            .roundedToPhysicalPixels(scale: scale)
+        }
+
         switch orientation {
         case .horizontal:
-            if let hiddenPlacementMonitor {
-                return HiddenWindowPlacementResolver.placement(
-                    for: canonicalRect.size,
-                    requestedEdge: edge,
-                    orthogonalOrigin: canonicalRect.minY,
-                    baseReveal: 1.0,
-                    orientation: .horizontal,
-                    monitor: hiddenPlacementMonitor,
-                    monitors: hiddenPlacementMonitors
-                )
-                .frame(for: canonicalRect.size)
-                .roundedToPhysicalPixels(scale: scale)
-            }
-
             return hiddenColumnRect(
+                canonicalRect,
                 edge: edge,
-                width: canonicalRect.width,
-                height: canonicalRect.height,
-                screenY: canonicalRect.minY,
                 edgeFrame: viewFrame,
                 scale: scale
             ).roundedToPhysicalPixels(scale: scale)
         case .vertical:
-            if let hiddenPlacementMonitor {
-                return HiddenWindowPlacementResolver.placement(
-                    for: canonicalRect.size,
-                    requestedEdge: edge,
-                    orthogonalOrigin: canonicalRect.minX,
-                    baseReveal: 1.0,
-                    orientation: .vertical,
-                    monitor: hiddenPlacementMonitor,
-                    monitors: hiddenPlacementMonitors
-                )
-                .frame(for: canonicalRect.size)
-                .roundedToPhysicalPixels(scale: scale)
-            }
-
             return hiddenRowRect(
+                canonicalRect,
                 edge: edge,
-                width: canonicalRect.width,
-                height: canonicalRect.height,
-                screenX: canonicalRect.minX,
                 edgeFrame: viewFrame,
                 scale: scale
             ).roundedToPhysicalPixels(scale: scale)
@@ -1015,9 +1002,9 @@ extension NiriLayoutEngine {
                     let isFixed: Bool
                     let fixedValue: CGFloat?
                     switch window.height {
-                    case let .fixed(h):
+                    case let .fixed(height):
                         isFixed = true
-                        fixedValue = h
+                        fixedValue = height
                     case .auto:
                         isFixed = false
                         fixedValue = nil
@@ -1043,9 +1030,9 @@ extension NiriLayoutEngine {
                     let isFixed: Bool
                     let fixedValue: CGFloat?
                     switch window.windowWidth {
-                    case let .fixed(w):
+                    case let .fixed(width):
                         isFixed = true
-                        fixedValue = w
+                        fixedValue = width
                     case .auto:
                         isFixed = false
                         fixedValue = nil
@@ -1109,10 +1096,8 @@ extension NiriLayoutEngine {
     }
 
     private func hiddenRowRect(
+        _ rect: CGRect,
         edge: AxisHideEdge,
-        width: CGFloat,
-        height: CGFloat,
-        screenX: CGFloat,
         edgeFrame: CGRect,
         scale: CGFloat
     ) -> CGRect {
@@ -1120,19 +1105,17 @@ extension NiriLayoutEngine {
         let y: CGFloat
         switch edge {
         case .minimum:
-            y = edgeFrame.minY - height + edgeReveal
+            y = edgeFrame.minY - rect.height + edgeReveal
         case .maximum:
             y = edgeFrame.maxY - edgeReveal
         }
-        let origin = CGPoint(x: screenX, y: y)
-        return CGRect(origin: origin, size: CGSize(width: width, height: height))
+        let origin = CGPoint(x: rect.minX, y: y)
+        return CGRect(origin: origin, size: CGSize(width: rect.width, height: rect.height))
     }
 
     private func hiddenColumnRect(
+        _ rect: CGRect,
         edge: AxisHideEdge,
-        width: CGFloat,
-        height: CGFloat,
-        screenY: CGFloat,
         edgeFrame: CGRect,
         scale: CGFloat
     ) -> CGRect {
@@ -1140,11 +1123,11 @@ extension NiriLayoutEngine {
         let x: CGFloat
         switch edge {
         case .minimum:
-            x = edgeFrame.minX - width + edgeReveal
+            x = edgeFrame.minX - rect.width + edgeReveal
         case .maximum:
             x = edgeFrame.maxX - edgeReveal
         }
-        let origin = CGPoint(x: x, y: screenY)
-        return CGRect(origin: origin, size: CGSize(width: width, height: height))
+        let origin = CGPoint(x: x, y: rect.minY)
+        return CGRect(origin: origin, size: CGSize(width: rect.width, height: rect.height))
     }
 }

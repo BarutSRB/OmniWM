@@ -94,12 +94,10 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
     }
 
     @objc private func menuAction(_ sender: NSMenuItem) {
-        guard let obj = sender.representedObject,
-              CFGetTypeID(obj as CFTypeRef) == AXUIElementGetTypeID(),
+        guard let representedObject = sender.representedObject,
+              let element = AXUIElement.from(representedObject as CFTypeRef),
               let app = currentApp, !app.isTerminated
         else { return }
-
-        let element = obj as! AXUIElement
 
         if !app.isActive {
             app.activate(options: [])

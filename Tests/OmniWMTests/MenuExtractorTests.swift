@@ -18,6 +18,20 @@ private final class MenuExtractorTarget: NSObject, NSMenuDelegate {
 
 @MainActor
 final class MenuExtractorTests: XCTestCase {
+    func testMenuRootAssociationRetainsIdentityAndClears() throws {
+        let menu = NSMenu(title: "Submenu")
+        let element = AXUIElementCreateApplication(91_579)
+        XCTAssertNil(menu.axRootElement)
+
+        menu.axRootElement = element
+
+        XCTAssertTrue(try XCTUnwrap(menu.axRootElement) === element)
+
+        menu.axRootElement = nil
+
+        XCTAssertNil(menu.axRootElement)
+    }
+
     func testNestedMenuConstructionDisablesAutomaticEnabling() throws {
         let itemElement = AXUIElementCreateApplication(91_510)
         let submenuRoot = AXUIElementCreateApplication(91_511)

@@ -2590,13 +2590,13 @@ import QuartzCore
         }
     }
 
-    fileprivate enum HideOperationResolution {
+    private enum HideOperationResolution {
         case movable(WindowPositionPlan, hiddenState: HiddenState)
         case alreadyHidden(WindowPositionPlan, hiddenState: HiddenState)
         case unavailable
     }
 
-    fileprivate func resolveHideOperation(
+    private func resolveHideOperation(
         for entry: WindowState,
         monitor: Monitor,
         side: HideSide,
@@ -2842,14 +2842,16 @@ import QuartzCore
         switch reason {
         case .workspaceInactive,
              .scratchpad:
-            return HiddenWindowPlacementResolver.physicalScreenEdgeOrigin(
-                for: frame.size,
-                requestedSide: side,
-                targetY: frame.origin.y,
-                baseReveal: baseReveal,
+            return HiddenWindowPlacementResolver(
                 monitor: hiddenPlacementMonitor,
                 monitors: resolvedHiddenPlacementMonitors
-            )
+            ).placement(
+                for: frame.size,
+                requestedEdge: AxisHideEdge(encodedHideSide: side),
+                orthogonalOrigin: frame.origin.y,
+                baseReveal: baseReveal,
+                orientation: .horizontal
+            ).origin
         case .layoutTransient:
             let orientation = controller.settings.effectiveOrientation(for: monitor)
             let orthogonalOrigin: CGFloat = switch orientation {
@@ -2857,14 +2859,15 @@ import QuartzCore
             case .vertical: frame.origin.x
             }
             let requestedEdge = AxisHideEdge(encodedHideSide: side)
-            let placement = HiddenWindowPlacementResolver.placement(
+            let placement = HiddenWindowPlacementResolver(
+                monitor: hiddenPlacementMonitor,
+                monitors: resolvedHiddenPlacementMonitors
+            ).placement(
                 for: frame.size,
                 requestedEdge: requestedEdge,
                 orthogonalOrigin: orthogonalOrigin,
                 baseReveal: baseReveal,
-                orientation: orientation,
-                monitor: hiddenPlacementMonitor,
-                monitors: resolvedHiddenPlacementMonitors
+                orientation: orientation
             )
             return placement.origin
         }

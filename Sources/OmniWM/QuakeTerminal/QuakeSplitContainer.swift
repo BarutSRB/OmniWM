@@ -28,6 +28,7 @@ final class QuakeSplitContainer: NSView {
         addSubview(initialView)
     }
 
+    @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
@@ -197,6 +198,7 @@ private final class SplitDividerView: NSView {
         layer?.addSublayer(visibleDividerLayer)
     }
 
+    @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }

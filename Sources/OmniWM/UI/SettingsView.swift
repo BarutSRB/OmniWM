@@ -189,7 +189,7 @@ struct GeneralSettingsTab: View {
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
-                        onChange: { v in updateGapSetting(for: monitor) { $0.outerGapLeft = v } },
+                        onChange: { value in updateGapSetting(for: monitor) { $0.outerGapLeft = value } },
                         onReset: { updateGapSetting(for: monitor) { $0.outerGapLeft = nil } }
                     )
                     OverridableSlider(
@@ -199,7 +199,7 @@ struct GeneralSettingsTab: View {
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
-                        onChange: { v in updateGapSetting(for: monitor) { $0.outerGapRight = v } },
+                        onChange: { value in updateGapSetting(for: monitor) { $0.outerGapRight = value } },
                         onReset: { updateGapSetting(for: monitor) { $0.outerGapRight = nil } }
                     )
                     OverridableSlider(
@@ -209,7 +209,7 @@ struct GeneralSettingsTab: View {
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
-                        onChange: { v in updateGapSetting(for: monitor) { $0.outerGapTop = v } },
+                        onChange: { value in updateGapSetting(for: monitor) { $0.outerGapTop = value } },
                         onReset: { updateGapSetting(for: monitor) { $0.outerGapTop = nil } }
                     )
                     OverridableSlider(
@@ -219,7 +219,7 @@ struct GeneralSettingsTab: View {
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
-                        onChange: { v in updateGapSetting(for: monitor) { $0.outerGapBottom = v } },
+                        onChange: { value in updateGapSetting(for: monitor) { $0.outerGapBottom = value } },
                         onReset: { updateGapSetting(for: monitor) { $0.outerGapBottom = nil } }
                     )
                     OverridableToggle(

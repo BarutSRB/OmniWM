@@ -45,138 +45,82 @@ enum CLIParser {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> ParsedCLICommand {
         let normalized = normalize(arguments: arguments)
-        let filteredArguments = normalized.arguments
-
-        guard let command = filteredArguments.first else {
+        guard let command = normalized.arguments.first else {
             throw CLIParseError.usage(usageText)
         }
 
         _ = environment
         let requestId = UUID().uuidString
-        let outputFormat = normalized.outputFormat ?? CLIOutputFormat.defaultFormat(for: command)
+        let commandArguments = Array(normalized.arguments.dropFirst())
+        var outputFormat = normalized.outputFormat ?? CLIOutputFormat.defaultFormat(for: command)
+        let invocation: CLIInvocation
 
         switch command {
-        case "ping":
-            guard filteredArguments.count == 1 else {
-                throw CLIParseError.usage(usageText)
-            }
-            return ParsedCLICommand(
-                invocation: .remote(.init(id: requestId, kind: .ping)),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "version":
-            guard filteredArguments.count == 1 else {
-                throw CLIParseError.usage(usageText)
-            }
-            return ParsedCLICommand(
-                invocation: .remote(.init(id: requestId, kind: .version)),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "command":
-            return ParsedCLICommand(
-                invocation: .remote(try parseCommandRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "query":
-            return ParsedCLICommand(
-                invocation: .remote(try parseQueryRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: normalized.outputFormat ?? .json,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "rule":
-            return ParsedCLICommand(
-                invocation: .remote(try parseRuleRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "capture":
-            return ParsedCLICommand(
-                invocation: .remote(try parseCaptureRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "workspace":
-            return ParsedCLICommand(
-                invocation: .remote(try parseWorkspaceRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "window":
-            return ParsedCLICommand(
-                invocation: .remote(try parseWindowRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
         case "subscribe":
-            let format = normalized.outputFormat ?? .json
-            guard format.prefersJSON else {
-                throw CLIParseError.usage(usageText)
-            }
-            let parsed = try parseSubscriptionArguments(
-                arguments: Array(filteredArguments.dropFirst()),
-                allowExec: false
-            )
-            return ParsedCLICommand(
-                invocation: .remote(IPCRequest(id: requestId, subscribe: parsed.request)),
-                outputFormat: format,
-                expectsEventStream: true,
-                watchConfiguration: nil,
-                reconnect: parsed.reconnect
-            )
+            return try parseSubscribeCommand(id: requestId, arguments: commandArguments, outputFormat: outputFormat)
         case "watch":
-            return try parseWatchCommand(
-                id: requestId,
-                arguments: Array(filteredArguments.dropFirst()),
-                outputFormat: outputFormat
-            )
+            return try parseWatchCommand(id: requestId, arguments: commandArguments, outputFormat: outputFormat)
         case "completion":
-            return ParsedCLICommand(
-                invocation: .local(try parseCompletionCommand(arguments: Array(filteredArguments.dropFirst()))),
-                outputFormat: .text,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
+            invocation = .local(try parseCompletionCommand(arguments: commandArguments))
+            outputFormat = .text
         case "help",
              "--help",
              "-h":
-            return ParsedCLICommand(
-                invocation: .local(.help),
-                outputFormat: .text,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
+            invocation = .local(.help)
+            outputFormat = .text
+        default:
+            invocation = .remote(try parseRemoteRequest(command: command, id: requestId, arguments: commandArguments))
+        }
+
+        return ParsedCLICommand(
+            invocation: invocation,
+            outputFormat: outputFormat,
+            expectsEventStream: false,
+            watchConfiguration: nil
+        )
+    }
+
+    private static func parseRemoteRequest(command: String, id: String, arguments: [String]) throws -> IPCRequest {
+        switch command {
+        case "ping",
+             "version":
+            guard arguments.isEmpty else {
+                throw CLIParseError.usage(usageText)
+            }
+            return IPCRequest(id: id, kind: command == "ping" ? .ping : .version)
+        case "command":
+            return try parseCommandRequest(id: id, arguments: arguments)
+        case "query":
+            return try parseQueryRequest(id: id, arguments: arguments)
+        case "rule":
+            return try parseRuleRequest(id: id, arguments: arguments)
+        case "capture":
+            return try parseCaptureRequest(id: id, arguments: arguments)
+        case "workspace":
+            return try parseWorkspaceRequest(id: id, arguments: arguments)
+        case "window":
+            return try parseWindowRequest(id: id, arguments: arguments)
         default:
             throw CLIParseError.usage(usageText)
         }
+    }
+
+    private static func parseSubscribeCommand(
+        id: String,
+        arguments: [String],
+        outputFormat: CLIOutputFormat
+    ) throws -> ParsedCLICommand {
+        guard outputFormat.prefersJSON else {
+            throw CLIParseError.usage(usageText)
+        }
+        let parsed = try parseSubscriptionArguments(arguments: arguments, allowExec: false)
+        return ParsedCLICommand(
+            invocation: .remote(IPCRequest(id: id, subscribe: parsed.request)),
+            outputFormat: outputFormat,
+            expectsEventStream: true,
+            watchConfiguration: nil,
+            reconnect: parsed.reconnect
+        )
     }
 
     static func outputFormat(arguments: [String]) -> CLIOutputFormat {

@@ -162,10 +162,10 @@ struct SponsorsView: View {
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
 
-            Button(action: { openURL("https://github.com/sponsors/BarutSRB") }) {
+            Button(action: { openURL("https://github.com/sponsors/BarutSRB") }, label: {
                 Label("Become a Sponsor", systemImage: "heart.fill")
                     .font(.system(size: 13, weight: .semibold))
-            }
+            })
             .buttonStyle(OmniGlassButtonStyle(isProminent: true))
             .accessibilityLabel("Become a sponsor on GitHub")
         }
@@ -175,10 +175,10 @@ struct SponsorsView: View {
     private var footerSection: some View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
-                Button(action: { openURL("https://paypal.me/beacon2024") }) {
+                Button(action: { openURL("https://paypal.me/beacon2024") }, label: {
                     Text("Sponsor on PayPal")
                         .font(.system(size: 13, weight: .medium))
-                }
+                })
                 .buttonStyle(OmniGlassButtonStyle())
 
                 Button(action: onClose) {
@@ -233,9 +233,9 @@ struct ReservedSlotCard: View {
     ]
 
     var body: some View {
-        Button(action: { openURL("https://github.com/sponsors/BarutSRB") }) {
+        Button(action: { openURL("https://github.com/sponsors/BarutSRB") }, label: {
             cardContent
-        }
+        })
         .buttonStyle(.plain)
         .accessibilityLabel("Reserved for company sponsors — become a sponsor")
     }
@@ -650,9 +650,9 @@ struct SponsorCardView: View {
         if let githubURL {
             Button(action: {
                 NSWorkspace.shared.open(githubURL)
-            }) {
+            }, label: {
                 cardContent
-            }
+            })
             .buttonStyle(.plain)
         } else {
             cardContent

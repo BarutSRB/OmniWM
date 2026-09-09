@@ -301,12 +301,14 @@ final class NiriRemovalViewportTests: XCTestCase {
                 stackedWindow,
                 into: columns[0],
                 enteringFrom: .right,
-                in: fixture.workspaceId,
-                motion: .disabled,
-                state: &fixture.state,
-                workingFrame: fixture.workingFrame,
-                gaps: fixture.gap,
-                orientation: fixture.orientation
+                context: .init(
+                    workspaceId: fixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: fixture.workingFrame,
+                    gaps: fixture.gap,
+                    orientation: fixture.orientation
+                ),
+                state: &fixture.state
             )
         )
         for column in fixture.engine.columns(in: fixture.workspaceId) {

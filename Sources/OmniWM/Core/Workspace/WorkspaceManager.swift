@@ -809,7 +809,7 @@ final class WorkspaceManager {
         return merged
     }
 
-    private func persistedWindowRestoreCatalogBuildSnapshot() -> PersistedWindowRestoreCatalogBuildSnapshot {
+    private func persistedWindowRestoreCatalogBuildSnapshot() -> RestoreCatalogBuildSnapshot {
         let context = monitorResolutionContext()
         let topologyProfile = context.topologyProfile
         var snapshotEntries: [PersistedWindowRestoreCatalogBuildEntry] = []
@@ -848,7 +848,7 @@ final class WorkspaceManager {
             )
         }
 
-        return PersistedWindowRestoreCatalogBuildSnapshot(entries: snapshotEntries)
+        return RestoreCatalogBuildSnapshot(entries: snapshotEntries)
     }
 
     func monitor(byId id: Monitor.ID) -> Monitor? {
@@ -3546,15 +3546,9 @@ final class WorkspaceManager {
         let anchorPoint = workspace.assignedMonitorPoint
             ?? monitorIdShowingWorkspace(workspaceId).flatMap { monitor(byId: $0)?.workspaceAnchorPoint }
         guard let anchorPoint else { return context.sortedMonitors.first }
-        func distanceSquared(to point: CGPoint) -> CGFloat {
-            let dx = point.x - anchorPoint.x
-            let dy = point.y - anchorPoint.y
-            return dx * dx + dy * dy
-        }
-
         return context.sortedMonitors.min { lhs, rhs in
-            let lhsDistance = distanceSquared(to: lhs.workspaceAnchorPoint)
-            let rhsDistance = distanceSquared(to: rhs.workspaceAnchorPoint)
+            let lhsDistance = lhs.workspaceAnchorPoint.distanceSquared(to: anchorPoint)
+            let rhsDistance = rhs.workspaceAnchorPoint.distanceSquared(to: anchorPoint)
             if lhsDistance != rhsDistance {
                 return lhsDistance < rhsDistance
             }

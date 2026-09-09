@@ -176,12 +176,14 @@ final class NiriKeyboardFocusTests: XCTestCase {
                     fixture.windows[3],
                     into: column,
                     enteringFrom: .right,
-                    in: fixture.workspaceId,
-                    motion: .disabled,
-                    state: &state,
-                    workingFrame: controller.insetWorkingFrame(for: monitor),
-                    gaps: fixture.gap,
-                    orientation: .horizontal
+                    context: .init(
+                        workspaceId: fixture.workspaceId,
+                        motion: .disabled,
+                        workingFrame: controller.insetWorkingFrame(for: monitor),
+                        gaps: fixture.gap,
+                        orientation: .horizontal
+                    ),
+                    state: &state
                 )
             })
             state.activeColumnIndex = 2

@@ -380,8 +380,7 @@ extension NiriLayoutEngine {
         }
 
         let windows = column.windowNodes
-        let n = windows.count
-        let postInsertionCount = n + 1
+        let postInsertionCount = windows.count + 1
         let firstFrame = windows.first?.renderedFrame ?? windows.first?.frame
         let lastFrame = windows.last?.renderedFrame ?? windows.last?.frame
         let totalGaps = CGFloat(postInsertionCount - 1) * gaps

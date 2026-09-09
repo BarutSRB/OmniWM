@@ -44,12 +44,14 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
             window,
             into: column,
             enteringFrom: .right,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
     }
 
@@ -95,12 +97,14 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
 
         let consumed = fixture.engine.consumeWindowIntoColumn(
             focusedColumn: targetColumn,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         XCTAssertFalse(consumed)

@@ -1130,7 +1130,7 @@ final class MouseEventHandler {
             return false
         }
 
-        if button == .left, modifiers.intersection(mouseRelevantModifierFlags).isEmpty {
+        if button == .left, modifiers.isDisjoint(with: mouseRelevantModifierFlags) {
             state.awaitsNativeTitleBarDragTarget = windowIdUnderPointer == nil
             state.nativeTitleBarDragFallbackReleased = false
             let exactToken = nativeTitleBarDragCandidate(windowIdUnderPointer: windowIdUnderPointer)
@@ -2710,6 +2710,13 @@ final class MouseEventHandler {
             return
         }
 
+        let context = NiriInteractionContext(
+            workspaceId: wsId,
+            motion: motion,
+            workingFrame: geometry.workingFrame,
+            gaps: geometry.innerGap,
+            orientation: orientation
+        )
         let columns = engine.projectedColumns(in: wsId)
         var didApply = false
         var shouldStartAnimation = false
@@ -2731,12 +2738,8 @@ final class MouseEventHandler {
                       let newNode = engine.focusColumn(
                           targetColumnIndex,
                           currentSelection: currentNode,
-                          in: wsId,
-                          motion: motion,
-                          state: &vstate,
-                          workingFrame: geometry.workingFrame,
-                          gaps: geometry.innerGap,
-                          orientation: orientation
+                          context: context,
+                          state: &vstate
                       )
                 else {
                     break

@@ -770,7 +770,7 @@ final class OverviewController {
             let activeWs = workspaceManager.activeWorkspace(on: monitor.id)
 
             for ws in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append((
+                workspaces.append(OverviewWorkspaceLayoutItem(
                     id: ws.id,
                     name: wmController.settings.displayName(for: ws.name),
                     isActive: ws.id == activeWs?.id
@@ -820,7 +820,7 @@ final class OverviewController {
         for monitor in workspaceManager.monitors {
             let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
             for workspace in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append((
+                workspaces.append(OverviewWorkspaceLayoutItem(
                     id: workspace.id,
                     name: wmController.settings.displayName(for: workspace.name),
                     isActive: workspace.id == activeWorkspaceId
@@ -870,7 +870,7 @@ final class OverviewController {
             }
             let frame = engineFrames[entry.token] ?? data.frame
             if entry.token != data.token || entry.workspaceId != data.workspaceId || frame != data.frame {
-                overviewSnapshot.windows[handle] = (
+                overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
                     token: entry.token,
                     workspaceId: entry.workspaceId,
                     title: data.title,
@@ -964,7 +964,7 @@ final class OverviewController {
                 ?? .zero
             if let data = overviewSnapshot.windows[handle] {
                 if data.token != entry.token || data.workspaceId != workspaceId || data.frame != frame {
-                    overviewSnapshot.windows[handle] = (
+                    overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
                         token: entry.token,
                         workspaceId: workspaceId,
                         title: data.title,
@@ -1017,7 +1017,7 @@ final class OverviewController {
                 ?? .zero
             if let data = overviewSnapshot.windows[handle] {
                 if data.token != entry.token || data.workspaceId != workspaceId || data.frame != frame {
-                    overviewSnapshot.windows[handle] = (
+                    overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
                         token: entry.token,
                         workspaceId: workspaceId,
                         title: data.title,
@@ -1051,7 +1051,7 @@ final class OverviewController {
     ) -> OverviewWindowLayoutData {
         let title = environment.windowTitle(entry) ?? ""
         let appInfo = appInfoCache.info(for: entry.pid)
-        return (
+        return OverviewWindowLayoutData(
             token: entry.token,
             workspaceId: entry.workspaceId,
             title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
@@ -1169,7 +1169,7 @@ final class OverviewController {
         niriSnapshotsByWorkspace: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot]
     ) -> OverviewLayout {
         let localizedWindowData = overviewSnapshot.windows.mapValues { windowData in
-            (
+            OverviewWindowLayoutData(
                 token: windowData.token,
                 workspaceId: windowData.workspaceId,
                 title: windowData.title,
@@ -1698,7 +1698,7 @@ final class OverviewController {
 
     func navigateSelection(_ direction: Direction, on monitorId: Monitor.ID? = nil) {
         performSelectionNavigation(on: monitorId) { layout, currentHandle in
-            OverviewLayoutCalculator.findNextWindow(
+            OverviewNavigation.findNextWindow(
                 in: layout,
                 from: currentHandle,
                 direction: direction
@@ -1708,7 +1708,7 @@ final class OverviewController {
 
     func cycleSelection(forward: Bool, on monitorId: Monitor.ID? = nil) {
         performSelectionNavigation(on: monitorId) { layout, currentHandle in
-            OverviewLayoutCalculator.findCycledWindow(
+            OverviewNavigation.findCycledWindow(
                 in: layout,
                 from: currentHandle,
                 forward: forward
@@ -2079,7 +2079,7 @@ final class OverviewController {
     }
 }
 
-private extension OverviewController {
+extension OverviewController {
     enum DragMutationOutcome {
         case changed(StructuralMutation)
         case awaitingAdmission(StructuralMutation, OverviewDragTarget)
@@ -2186,20 +2186,20 @@ extension OverviewController {
     }
 }
 
-private extension OverviewController {
-    func cancelDrag() {
+extension OverviewController {
+    fileprivate func cancelDrag() {
         clearDragTargets()
         dragGhostController?.endDrag()
         dragSession = nil
         updateWindowDisplays()
     }
 
-    func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
+    fileprivate func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
         guard let layout = layoutsByMonitor[monitorId] else { return nil }
         return layout.resolveDragTarget(at: point, draggedHandle: dragSession?.handle)
     }
 
-    func performDragAction(session: DragSession, target: OverviewDragTarget) -> DragMutationOutcome {
+    fileprivate func performDragAction(session: DragSession, target: OverviewDragTarget) -> DragMutationOutcome {
         guard let wmController,
               visibleManagedEntry(for: session.handle) != nil
         else {
@@ -2291,7 +2291,7 @@ private extension OverviewController {
         }
     }
 
-    func completeDeferredDragMutation(
+    fileprivate func completeDeferredDragMutation(
         _ mutation: StructuralMutation,
         target: OverviewDragTarget
     ) {
@@ -2321,7 +2321,7 @@ private extension OverviewController {
         )
     }
 
-    func applyDeferredDragPlacement(
+    fileprivate func applyDeferredDragPlacement(
         _ mutation: StructuralMutation,
         target: OverviewDragTarget,
         transferGeneration: UInt64,
@@ -2415,7 +2415,7 @@ private extension OverviewController {
         wmController.layoutRefreshController.startScrollAnimation(for: mutation.destinationWorkspaceId)
     }
 
-    func finishDeferredDragMutation(
+    fileprivate func finishDeferredDragMutation(
         _ mutation: StructuralMutation,
         transferGeneration: UInt64,
         projectionGeneration: UInt64
@@ -2431,14 +2431,14 @@ private extension OverviewController {
         )
     }
 
-    func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    fileprivate func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let wmController else { return false }
         guard let name = wmController.workspaceManager.descriptor(for: workspaceId)?.name else { return false }
         let layoutType = wmController.settings.layoutType(for: name)
         return layoutType != .dwindle
     }
 
-    func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
+    fileprivate func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
         switch position {
         case .before:
             return .after

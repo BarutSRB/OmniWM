@@ -50,7 +50,7 @@ extension LayoutRefreshController {
             reason: "revealed"
         )
         controller.axManager.applyPositionsViaSkyLight(
-            plans.map { (pid: $0.entry.pid, windowId: $0.entry.windowId, frame: $0.frame) },
+            plans.map { SkyLightPositionTarget(token: $0.entry.token, frame: $0.frame) },
             allowInactive: true
         )
         let visibleFrames = plans.compactMap { plan -> AXFrameApplicationTarget? in
@@ -100,7 +100,7 @@ extension LayoutRefreshController {
 
         if !movablePlans.isEmpty {
             controller.axManager.applyPositionsViaSkyLight(
-                movablePlans.map { (pid: $0.entry.pid, windowId: $0.entry.windowId, frame: $0.frame) },
+                movablePlans.map { SkyLightPositionTarget(token: $0.entry.token, frame: $0.frame) },
                 allowInactive: true
             )
         }

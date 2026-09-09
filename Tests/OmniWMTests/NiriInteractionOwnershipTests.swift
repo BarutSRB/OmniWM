@@ -240,12 +240,14 @@ final class NiriInteractionOwnershipTests: NiriInteractionTestCase {
                 sibling,
                 into: sourceColumn,
                 enteringFrom: .down,
-                in: sourceWorkspace,
-                motion: .disabled,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: sourceWorkspace,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
+                state: &state
             )
         )
         let sourceFrame = try XCTUnwrap(layout(engine, in: sourceWorkspace)[source.token])
@@ -608,12 +610,14 @@ final class NiriInteractionOrientationTests: NiriInteractionTestCase {
                 second,
                 into: column,
                 enteringFrom: .down,
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
+                state: &state
             )
         )
         let frames = layout(engine, in: workspaceId, state: state)
@@ -811,12 +815,14 @@ final class NiriInteractionOrientationTests: NiriInteractionTestCase {
 
         engine.expandContainerToAvailablePrimarySpan(
             targetColumn,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
 
         XCTAssertEqual(targetColumn.cachedHeight, 1600, accuracy: 0.001)
@@ -859,12 +865,14 @@ final class NiriInteractionOrientationTests: NiriInteractionTestCase {
 
         engine.toggleContainerFullPrimarySpan(
             firstContainer,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
 
         XCTAssertEqual(firstContainer.cachedHeight, 1600, accuracy: 0.001)
@@ -900,12 +908,14 @@ final class NiriInteractionOrientationTests: NiriInteractionTestCase {
 
         engine.toggleContainerFullPrimarySpan(
             targetContainer,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
 
         XCTAssertEqual(targetContainer.cachedHeight, 1600, accuracy: 0.001)

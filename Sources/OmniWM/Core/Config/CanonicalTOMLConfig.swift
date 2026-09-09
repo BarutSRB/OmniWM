@@ -102,47 +102,18 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     struct Borders: Codable, Equatable {
         var enabled: Bool
         var width: Double
-        var color: Color
-
-        struct Color: Codable, Equatable {
-            var red: Double
-            var green: Double
-            var blue: Double
-            var alpha: Double
-        }
+        var color: SettingsColor
     }
 
     struct Overview: Codable, Equatable {
         var zoom: Double
-        var backdrop: Color
+        var backdrop: SettingsColor
         var windowBorders: WindowBorders
 
         struct WindowBorders: Codable, Equatable {
-            var normal: Color
-            var hovered: Color
-            var selected: Color
-        }
-
-        struct Color: Codable, Equatable {
-            var red: Double
-            var green: Double
-            var blue: Double
-            var alpha: Double
-
-            init(red: Double, green: Double, blue: Double, alpha: Double) {
-                self.red = red
-                self.green = green
-                self.blue = blue
-                self.alpha = alpha
-            }
-
-            init(_ color: SettingsColor) {
-                self.init(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
-            }
-
-            var settingsColor: SettingsColor {
-                SettingsColor(red: red, green: green, blue: blue, alpha: alpha)
-            }
+            var normal: SettingsColor
+            var hovered: SettingsColor
+            var selected: SettingsColor
         }
     }
 
@@ -167,33 +138,8 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var backgroundOpacity: Double
         var xOffset: Double
         var yOffset: Double
-        var accentColor: Color?
-        var textColor: Color?
-
-        struct Color: Codable, Equatable {
-            var red: Double
-            var green: Double
-            var blue: Double
-            var alpha: Double
-
-            init(red: Double, green: Double, blue: Double, alpha: Double) {
-                self.red = red
-                self.green = green
-                self.blue = blue
-                self.alpha = alpha
-            }
-
-            init(_ color: SettingsColor) {
-                red = color.red
-                green = color.green
-                blue = color.blue
-                alpha = color.alpha
-            }
-
-            var settingsColor: SettingsColor {
-                SettingsColor(red: red, green: green, blue: blue, alpha: alpha)
-            }
-        }
+        var accentColor: SettingsColor?
+        var textColor: SettingsColor?
     }
 
     struct Gestures: Codable, Equatable {
@@ -343,7 +289,7 @@ extension CanonicalTOMLConfig {
         borders = Borders(
             enabled: export.bordersEnabled,
             width: export.borderWidth,
-            color: Borders.Color(
+            color: SettingsColor(
                 red: export.borderColorRed,
                 green: export.borderColorGreen,
                 blue: export.borderColorBlue,
@@ -352,11 +298,11 @@ extension CanonicalTOMLConfig {
         )
         overview = Overview(
             zoom: export.overviewZoom,
-            backdrop: Overview.Color(export.overviewBackdropColor),
+            backdrop: export.overviewBackdropColor,
             windowBorders: Overview.WindowBorders(
-                normal: Overview.Color(export.overviewNormalBorderColor),
-                hovered: Overview.Color(export.overviewHoveredBorderColor),
-                selected: Overview.Color(export.overviewSelectedBorderColor)
+                normal: export.overviewNormalBorderColor,
+                hovered: export.overviewHoveredBorderColor,
+                selected: export.overviewSelectedBorderColor
             )
         )
         workspaceBar = WorkspaceBar(
@@ -380,8 +326,8 @@ extension CanonicalTOMLConfig {
             backgroundOpacity: export.workspaceBarBackgroundOpacity,
             xOffset: export.workspaceBarXOffset,
             yOffset: export.workspaceBarYOffset,
-            accentColor: export.workspaceBarAccentColor.map(WorkspaceBar.Color.init),
-            textColor: export.workspaceBarTextColor.map(WorkspaceBar.Color.init)
+            accentColor: export.workspaceBarAccentColor,
+            textColor: export.workspaceBarTextColor
         )
         gestures = Gestures(
             scrollEnabled: export.scrollGestureEnabled,
@@ -473,10 +419,10 @@ extension CanonicalTOMLConfig {
             borderColorBlue: borders.color.blue,
             borderColorAlpha: borders.color.alpha,
             overviewZoom: overview.zoom,
-            overviewBackdropColor: overview.backdrop.settingsColor,
-            overviewNormalBorderColor: overview.windowBorders.normal.settingsColor,
-            overviewHoveredBorderColor: overview.windowBorders.hovered.settingsColor,
-            overviewSelectedBorderColor: overview.windowBorders.selected.settingsColor,
+            overviewBackdropColor: overview.backdrop,
+            overviewNormalBorderColor: overview.windowBorders.normal,
+            overviewHoveredBorderColor: overview.windowBorders.hovered,
+            overviewSelectedBorderColor: overview.windowBorders.selected,
             hotkeyBindings: hotkeys,
             systemHyperTrigger: general.systemHyperTrigger,
             hyperKeyModifiers: general.hyperKeyModifiers,
@@ -501,8 +447,8 @@ extension CanonicalTOMLConfig {
             workspaceBarBackgroundOpacity: workspaceBar.backgroundOpacity,
             workspaceBarXOffset: workspaceBar.xOffset,
             workspaceBarYOffset: workspaceBar.yOffset,
-            workspaceBarAccentColor: workspaceBar.accentColor?.settingsColor,
-            workspaceBarTextColor: workspaceBar.textColor?.settingsColor,
+            workspaceBarAccentColor: workspaceBar.accentColor,
+            workspaceBarTextColor: workspaceBar.textColor,
             monitorBarSettings: monitorBarOverrides,
             appRules: appRules,
             monitorOrientationSettings: monitorOrientationOverrides,

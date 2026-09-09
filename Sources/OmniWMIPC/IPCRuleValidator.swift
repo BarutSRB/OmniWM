@@ -49,16 +49,11 @@ public struct IPCRuleValidationReport: Equatable, Sendable {
 }
 
 public enum IPCRuleValidator {
-    private static let appIdentifierPattern = try! NSRegularExpression(
-        pattern: "^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$"
-    )
-
     public static func bundleIdError(for bundleId: String) -> String? {
         let trimmed = bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let range = NSRange(trimmed.startIndex..., in: trimmed)
-        guard appIdentifierPattern.firstMatch(in: trimmed, range: range) != nil else {
+        guard trimmed.wholeMatch(of: /[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*/) != nil else {
             return "Invalid bundle ID format"
         }
         return nil

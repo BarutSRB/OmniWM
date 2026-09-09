@@ -476,15 +476,15 @@ struct MonitorDisplayLabel: Equatable {
 }
 
 enum MonitorSettingsTabModel {
-    struct RoutingEditorLayout {
-        enum Source: Equatable {
-            case exact
-            case inherited
-            case macOS
-        }
+    enum RoutingSource: Equatable {
+        case exact
+        case inherited
+        case macOS
+    }
 
+    struct RoutingEditorLayout {
         let settings: [MonitorRoutingSettings]
-        let source: Source
+        let source: RoutingSource
 
         var usesMacOSFallback: Bool {
             source == .macOS && !settings.isEmpty

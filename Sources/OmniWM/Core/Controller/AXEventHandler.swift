@@ -2368,7 +2368,7 @@ final class AXEventHandler {
         case .niri:
             if let engine = controller.niriEngine,
                let node = engine.findNode(for: entry.token, in: wsId),
-               let _ = controller.workspaceManager.monitor(for: wsId)
+               controller.workspaceManager.monitor(for: wsId) != nil
             {
                 let preferredFrame = node.renderedFrame ?? node.frame
                 preferredMouseFrame = preferredFrame
@@ -2989,7 +2989,7 @@ final class AXEventHandler {
     }
 
     private func shouldDelayManagedReplacementCreate(_ candidate: PreparedCreate) -> Bool {
-        guard let _ = managedReplacementCorrelationPolicy(for: candidate.replacementMetadata) else {
+        guard managedReplacementCorrelationPolicy(for: candidate.replacementMetadata) != nil else {
             return false
         }
 

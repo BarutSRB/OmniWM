@@ -415,7 +415,7 @@ enum PrivateAPIHealthDiagnostics {
             return test("_SLPSSetFrontProcessWithOptions", .inconclusive, "no frontmost app")
         }
         var psn = ProcessSerialNumber()
-        guard GetProcessForPID(frontPid, &psn) == noErr else {
+        guard getProcessForPID(frontPid, &psn) == noErr else {
             return test("_SLPSSetFrontProcessWithOptions", .failed, "GetProcessForPID failed")
         }
         let status = _SLPSSetFrontProcessWithOptions(&psn, 0, kCPSUserGenerated)
@@ -463,7 +463,7 @@ enum PrivateAPIHealthDiagnostics {
 
     private static func silgenAXWindowTest(_ sample: WindowServerInfo?) -> PrivateAPISelfTest {
         var psn = ProcessSerialNumber()
-        let status = GetProcessForPID(getpid(), &psn)
+        let status = getProcessForPID(getpid(), &psn)
         guard status == noErr else {
             return test("GetProcessForPID/_AXUIElementGetWindow", .failed, "GetProcessForPID status=\(status)")
         }

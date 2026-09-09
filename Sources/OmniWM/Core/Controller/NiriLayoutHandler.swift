@@ -1750,15 +1750,18 @@ enum StructuralMutationOutcome: Equatable {
 
         var targetIsSuppressed = false
         let newNode = controller.workspaceManager.withEngineMutationScope { () -> NiriNode? in
-            guard let node = engine.focusTarget(
-                direction: direction,
-                currentSelection: currentNode,
-                in: wsId,
+            let context = NiriInteractionContext(
+                workspaceId: wsId,
                 motion: controller.motionPolicy.snapshot(),
-                state: &state,
                 workingFrame: geometry.workingFrame,
                 gaps: geometry.innerGap,
                 orientation: orientation
+            )
+            guard let node = engine.focusTarget(
+                direction: direction,
+                currentSelection: currentNode,
+                context: context,
+                state: &state
             ) else { return nil }
             if let windowNode = node as? NiriWindow {
                 targetIsSuppressed = controller.isManagedWindowSuppressedByMacOSHide(windowNode.token)
@@ -1826,12 +1829,14 @@ enum StructuralMutationOutcome: Equatable {
             engine.toggleContainerPrimarySpan(
                 column,
                 forwards: forward,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             )
             recordLayoutOperation(.containerPrimarySpanChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
@@ -1848,12 +1853,14 @@ enum StructuralMutationOutcome: Equatable {
             engine.toggleWindowPrimarySpan(
                 windowNode,
                 forwards: forward,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             )
             recordLayoutOperation(.windowSizeChanged(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
@@ -1890,12 +1897,14 @@ enum StructuralMutationOutcome: Equatable {
 
             engine.toggleContainerFullPrimarySpan(
                 column,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             )
             recordLayoutOperation(.containerPrimarySpanChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
@@ -1912,12 +1921,14 @@ enum StructuralMutationOutcome: Equatable {
 
             engine.expandContainerToAvailablePrimarySpan(
                 column,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             )
             recordLayoutOperation(.containerPrimarySpanChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
@@ -1980,12 +1991,14 @@ enum StructuralMutationOutcome: Equatable {
             engine.setContainerPrimarySpan(
                 column,
                 change: change,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             )
             recordLayoutOperation(.containerPrimarySpanChanged, in: wsId)
             requestLayoutCommandRelayout(in: wsId)
@@ -2002,12 +2015,14 @@ enum StructuralMutationOutcome: Equatable {
             engine.setWindowPrimarySpan(
                 windowNode,
                 change: change,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             )
             recordLayoutOperation(.windowSizeChanged(token: windowNode.token), in: wsId)
             requestLayoutCommandRelayout(in: wsId)
@@ -2656,10 +2671,17 @@ enum StructuralMutationOutcome: Equatable {
 
             if let anchorColumn, anchorColumn.id != column.id {
                 consumed = engine.consumeWindow(
-                    movedNode, into: anchorColumn, enteringFrom: direction,
-                    in: workspaceId, motion: .disabled, state: &targetState,
-                    workingFrame: workingFrame, gaps: gaps,
-                    orientation: orientation
+                    movedNode,
+                    into: anchorColumn,
+                    enteringFrom: direction,
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: .disabled,
+                        workingFrame: workingFrame,
+                        gaps: gaps,
+                        orientation: orientation
+                    ),
+                    state: &targetState
                 )
             }
 
@@ -2700,12 +2722,14 @@ enum StructuralMutationOutcome: Equatable {
             guard ctx.engine.consumeOrExpelWindow(
                 ctx.windowNode,
                 direction: direction,
-                in: ctx.wsId,
-                motion: ctx.motion,
+                context: .init(
+                    workspaceId: ctx.wsId,
+                    motion: ctx.motion,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps,
+                    orientation: ctx.orientation
+                ),
                 state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps,
-                orientation: ctx.orientation,
                 allowEdgeWrap: false
             ) else {
                 return nil
@@ -2734,12 +2758,14 @@ enum StructuralMutationOutcome: Equatable {
             else { return nil }
             guard ctx.engine.consumeWindowIntoColumn(
                 focusedColumn: column,
-                in: ctx.wsId,
-                motion: ctx.motion,
-                state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps,
-                orientation: ctx.orientation
+                context: .init(
+                    workspaceId: ctx.wsId,
+                    motion: ctx.motion,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps,
+                    orientation: ctx.orientation
+                ),
+                state: &state
             ) else {
                 return nil
             }
@@ -2766,12 +2792,14 @@ enum StructuralMutationOutcome: Equatable {
             ).first?.token else { return nil }
             guard ctx.engine.expelWindowFromColumn(
                 focusedColumn: column,
-                in: ctx.wsId,
-                motion: ctx.motion,
-                state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps,
-                orientation: ctx.orientation
+                context: .init(
+                    workspaceId: ctx.wsId,
+                    motion: ctx.motion,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps,
+                    orientation: ctx.orientation
+                ),
+                state: &state
             ) else {
                 return nil
             }
@@ -2836,48 +2864,39 @@ enum StructuralMutationOutcome: Equatable {
             guard let column = ctx.engine.findColumn(containing: ctx.windowNode, in: ctx.wsId) else { return nil }
             let movedTokens = column.windowNodes.map(\.token)
             let oldFrames = ctx.engine.captureWindowFrames(in: ctx.wsId)
+            let interactionContext = NiriInteractionContext(
+                workspaceId: ctx.wsId,
+                motion: ctx.motion,
+                workingFrame: ctx.workingFrame,
+                gaps: ctx.gaps,
+                orientation: ctx.orientation
+            )
             let moved = switch target {
             case let .direction(direction):
                 ctx.engine.moveColumn(
                     column,
                     direction: direction,
-                    in: ctx.wsId,
-                    motion: ctx.motion,
-                    state: &state,
-                    workingFrame: ctx.workingFrame,
-                    gaps: ctx.gaps,
-                    orientation: ctx.orientation
+                    context: interactionContext,
+                    state: &state
                 )
             case .first:
                 ctx.engine.moveColumnToFirst(
                     column,
-                    in: ctx.wsId,
-                    motion: ctx.motion,
-                    state: &state,
-                    workingFrame: ctx.workingFrame,
-                    gaps: ctx.gaps,
-                    orientation: ctx.orientation
+                    context: interactionContext,
+                    state: &state
                 )
             case .last:
                 ctx.engine.moveColumnToLast(
                     column,
-                    in: ctx.wsId,
-                    motion: ctx.motion,
-                    state: &state,
-                    workingFrame: ctx.workingFrame,
-                    gaps: ctx.gaps,
-                    orientation: ctx.orientation
+                    context: interactionContext,
+                    state: &state
                 )
             case let .index(index):
                 ctx.engine.moveColumnToIndex(
                     column,
                     index,
-                    in: ctx.wsId,
-                    motion: ctx.motion,
-                    state: &state,
-                    workingFrame: ctx.workingFrame,
-                    gaps: ctx.gaps,
-                    orientation: ctx.orientation
+                    context: interactionContext,
+                    state: &state
                 )
             }
             guard moved else { return nil }
@@ -3055,12 +3074,14 @@ enum StructuralMutationOutcome: Equatable {
             didMove = engine.insertWindowInNewColumn(
                 window,
                 insertIndex: insertIndex,
-                in: wsId,
-                motion: motion,
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
                 sizingPolicy: sizingPolicy
             )
         }

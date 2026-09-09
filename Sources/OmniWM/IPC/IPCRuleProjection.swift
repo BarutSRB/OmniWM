@@ -99,13 +99,13 @@ enum IPCRuleProjection {
     private static func normalized(_ definition: IPCRuleDefinition) -> IPCRuleDefinition {
         IPCRuleDefinition(
             bundleId: definition.bundleId.trimmingCharacters(in: .whitespacesAndNewlines),
-            appNameSubstring: definition.appNameSubstring?.trimmedNonEmpty,
-            titleSubstring: definition.titleSubstring?.trimmedNonEmpty,
-            titleRegex: definition.titleRegex?.trimmedNonEmpty,
-            axRole: definition.axRole?.trimmedNonEmpty,
-            axSubrole: definition.axSubrole?.trimmedNonEmpty,
+            appNameSubstring: trimmedNonEmpty(definition.appNameSubstring),
+            titleSubstring: trimmedNonEmpty(definition.titleSubstring),
+            titleRegex: trimmedNonEmpty(definition.titleRegex),
+            axRole: trimmedNonEmpty(definition.axRole),
+            axSubrole: trimmedNonEmpty(definition.axSubrole),
             layout: definition.layout,
-            assignToWorkspace: definition.assignToWorkspace?.trimmedNonEmpty,
+            assignToWorkspace: trimmedNonEmpty(definition.assignToWorkspace),
             initialContainerPrimarySpan: definition.initialContainerPrimarySpan,
             minWidth: definition.minWidth,
             minHeight: definition.minHeight
@@ -133,11 +133,9 @@ enum IPCRuleProjection {
             .float
         }
     }
-}
 
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
         return trimmed.isEmpty ? nil : trimmed
     }
 }

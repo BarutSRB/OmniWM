@@ -121,16 +121,14 @@ extension NiriLayoutEngine {
         case .horizontal: CGPoint(x: displacement, y: 0)
         case .vertical: CGPoint(x: 0, y: displacement)
         }
-        for col in animatedColumns {
-            if !col.offsetMoveAnimCurrent(displacement, orientation: orientation) {
-                col.animateMoveFrom(
-                    displacement: movement,
-                    clock: animationClock,
-                    config: windowMovementAnimationConfig,
-                    displayRefreshRate: displayRefreshRate(in: workspaceId),
-                    animated: motion.animationsEnabled
-                )
-            }
+        for col in animatedColumns where !col.offsetMoveAnimCurrent(displacement, orientation: orientation) {
+            col.animateMoveFrom(
+                displacement: movement,
+                clock: animationClock,
+                config: windowMovementAnimationConfig,
+                displayRefreshRate: displayRefreshRate(in: workspaceId),
+                animated: motion.animationsEnabled
+            )
         }
     }
 
@@ -183,36 +181,32 @@ extension NiriLayoutEngine {
         let offset = primarySpan + gaps
 
         if activeIdx <= addedIdx {
-            for col in cols[(addedIdx + 1)...] {
-                if !col.offsetMoveAnimCurrent(-offset, orientation: orientation) {
-                    let displacement = switch orientation {
-                    case .horizontal: CGPoint(x: -offset, y: 0)
-                    case .vertical: CGPoint(x: 0, y: -offset)
-                    }
-                    col.animateMoveFrom(
-                        displacement: displacement,
-                        clock: animationClock,
-                        config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate(in: workspaceId),
-                        animated: motion.animationsEnabled
-                    )
+            for col in cols[(addedIdx + 1)...] where !col.offsetMoveAnimCurrent(-offset, orientation: orientation) {
+                let displacement = switch orientation {
+                case .horizontal: CGPoint(x: -offset, y: 0)
+                case .vertical: CGPoint(x: 0, y: -offset)
                 }
+                col.animateMoveFrom(
+                    displacement: displacement,
+                    clock: animationClock,
+                    config: windowMovementAnimationConfig,
+                    displayRefreshRate: displayRefreshRate(in: workspaceId),
+                    animated: motion.animationsEnabled
+                )
             }
         } else {
-            for col in cols[..<addedIdx] {
-                if !col.offsetMoveAnimCurrent(offset, orientation: orientation) {
-                    let displacement = switch orientation {
-                    case .horizontal: CGPoint(x: offset, y: 0)
-                    case .vertical: CGPoint(x: 0, y: offset)
-                    }
-                    col.animateMoveFrom(
-                        displacement: displacement,
-                        clock: animationClock,
-                        config: windowMovementAnimationConfig,
-                        displayRefreshRate: displayRefreshRate(in: workspaceId),
-                        animated: motion.animationsEnabled
-                    )
+            for col in cols[..<addedIdx] where !col.offsetMoveAnimCurrent(offset, orientation: orientation) {
+                let displacement = switch orientation {
+                case .horizontal: CGPoint(x: offset, y: 0)
+                case .vertical: CGPoint(x: 0, y: offset)
                 }
+                col.animateMoveFrom(
+                    displacement: displacement,
+                    clock: animationClock,
+                    config: windowMovementAnimationConfig,
+                    displayRefreshRate: displayRefreshRate(in: workspaceId),
+                    animated: motion.animationsEnabled
+                )
             }
         }
     }
@@ -397,10 +391,8 @@ extension NiriLayoutEngine {
     func tickAllWindowAnimations(in workspaceId: WorkspaceDescriptor.ID, at time: TimeInterval) -> Bool {
         guard let root = root(for: workspaceId) else { return false }
         var anyRunning = false
-        for window in root.allWindows {
-            if window.tickMoveAnimations(at: time) {
-                anyRunning = true
-            }
+        for window in root.allWindows where window.tickMoveAnimations(at: time) {
+            anyRunning = true
         }
         return anyRunning
     }
