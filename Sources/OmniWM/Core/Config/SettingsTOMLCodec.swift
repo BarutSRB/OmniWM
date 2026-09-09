@@ -5,7 +5,7 @@ import Foundation
 import TOML
 
 enum SettingsTOMLCodec {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     private static let versionOneHotkeyIDs = [
         "toggleScratchpad.1",
@@ -62,6 +62,7 @@ enum SettingsTOMLCodec {
         try encodeCanonical(export)
     }
 
+    /// Encodes canonical settings while retaining unknown keys from existing data when possible.
     static func encode(_ export: SettingsExport, preservingUnknownKeysFrom previous: Data?) throws -> Data {
         let canonicalData = try encodeCanonical(export)
         guard let previous else { return canonicalData }
@@ -98,6 +99,7 @@ enum SettingsTOMLCodec {
         return try encoder.encode(merged)
     }
 
+    /// Encodes an export in canonical key order while using its persisted hyper-key modifiers.
     private static func encodeCanonical(_ export: SettingsExport) throws -> Data {
         let activeHyperKeyModifiers = HyperKeyModifiers(carbonMask: KeySymbolMapper.hyperModifiers) ?? .default
         KeySymbolMapper.setHyperKeyModifiers(export.hyperKeyModifiers)
@@ -109,10 +111,12 @@ enum SettingsTOMLCodec {
         return try encoder.encode(canonical)
     }
 
+    /// Decodes settings data, migrating older schemas before returning the export.
     static func decode(_ data: Data) throws -> SettingsExport {
         try decodeForLoad(data).export
     }
 
+    /// Decodes persisted settings and applies each required schema migration in order.
     static func decodeForLoad(_ data: Data) throws -> SettingsTOMLDecodeResult {
         let activeHyperKeyModifiers = HyperKeyModifiers(carbonMask: KeySymbolMapper.hyperModifiers) ?? .default
         defer { KeySymbolMapper.setHyperKeyModifiers(activeHyperKeyModifiers) }
@@ -134,12 +138,14 @@ enum SettingsTOMLCodec {
 
         let versionOneReport = version == 0 ? try migrateVersionZero(&raw) : nil
         let versionTwoAddedHotkeyIDs = version <= 1 ? migrateVersionOne(&raw) : []
-        let versionThreeDefaultedPaths = try migrateVersionTwo(&raw)
+        let versionThreeDefaultedPaths = version <= 2 ? try migrateVersionTwo(&raw) : []
+        let versionFourDefaultedPaths = migrateVersionThree(&raw)
         canonicalizeMigratedHotkeys(in: &raw)
         let report = SettingsMigrationReport(
             fromVersion: version,
             toVersion: currentSchemaVersion,
-            defaultedPaths: (versionOneReport?.defaultedPaths ?? []) + versionThreeDefaultedPaths,
+            defaultedPaths: (versionOneReport?.defaultedPaths ?? []) + versionThreeDefaultedPaths +
+                versionFourDefaultedPaths,
             addedHotkeyIDs: (versionOneReport?.addedHotkeyIDs ?? []) + versionTwoAddedHotkeyIDs,
             mappedHotkeys: versionOneReport?.mappedHotkeys ?? [],
             retiredHotkeys: versionOneReport?.retiredHotkeys ?? []
@@ -284,6 +290,7 @@ enum SettingsTOMLCodec {
         )
     }
 
+    /// Maps legacy hotkey IDs, preserving explicit current bindings and removing retired actions.
     private static func migrateLegacyHotkeyEntries(
         _ entries: [TOMLNode],
         explicitCurrentIDs: Set<String>,
@@ -317,6 +324,7 @@ enum SettingsTOMLCodec {
         return result
     }
 
+    /// Adds newly introduced hotkey actions as unassigned bindings to version-one settings.
     private static func migrateVersionOne(_ raw: inout [String: TOMLNode]) -> [String] {
         defer { raw["schemaVersion"] = .integer(2) }
         guard case var .array(entries) = raw["hotkeys"] else { return [] }
@@ -326,6 +334,7 @@ enum SettingsTOMLCodec {
         return addedIDs
     }
 
+    /// Converts legacy monitor routing rows into the arrangement representation used by the current schema.
     private static func migrateVersionTwo(_ raw: inout [String: TOMLNode]) throws -> [String] {
         struct PersistedRouting: Decodable {
             let monitorRoutingOverrides: [MonitorRoutingSettings]
@@ -356,6 +365,24 @@ enum SettingsTOMLCodec {
         return added ? ["routing.arrangements"] : []
     }
 
+    /// Adds explicit appearance defaults when migrating version-three settings to version four.
+    private static func migrateVersionThree(_ raw: inout [String: TOMLNode]) -> [String] {
+        var defaultedPaths: [String] = []
+        for (key, value) in [
+            ("transparentBackground", false),
+            ("solidBlackBackground", false),
+            ("showItemBackgrounds", true),
+            ("showAccentHighlights", true)
+        ] {
+            if addMissingValue(in: &raw, table: "workspaceBar", key: key, value: .boolean(value)) {
+                defaultedPaths.append("workspaceBar.\(key)")
+            }
+        }
+        raw["schemaVersion"] = .integer(4)
+        return defaultedPaths
+    }
+
+    /// Appends absent action IDs as unassigned bindings and returns the IDs added.
     private static func appendMissingUnassignedHotkeys(
         _ ids: [String],
         to entries: inout [TOMLNode]

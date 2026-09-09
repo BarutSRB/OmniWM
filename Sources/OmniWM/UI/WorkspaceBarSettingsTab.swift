@@ -60,6 +60,7 @@ private struct GlobalBarSettingsSection: View {
     @Bindable var controller: WMController
     @State private var pendingAppearanceSync: Task<Void, Never>?
 
+    /// Presents global bar controls and refreshes the bar when their values change.
     var body: some View {
         Section("Workspace Bar") {
             Toggle("Enable Workspace Bar", isOn: $settings.workspaceBarEnabled)
@@ -228,6 +229,47 @@ private struct GlobalBarSettingsSection: View {
                     controller.updateWorkspaceBarSettings()
                 }
 
+                SettingsSliderRow(
+                    label: "Inactive Icon Opacity",
+                    value: Binding(
+                        get: { settings.workspaceBarInactiveIconOpacity ?? 0.5 },
+                        set: { settings.workspaceBarInactiveIconOpacity = $0 }
+                    ),
+                    range: 0 ... 1,
+                    step: 0.05,
+                    valueText: "\(Int((settings.workspaceBarInactiveIconOpacity ?? 0.5) * 100))%",
+                    resetAction: { settings.workspaceBarInactiveIconOpacity = nil },
+                    resetHelp: "Reset to System Default"
+                )
+                .onChange(of: settings.workspaceBarInactiveIconOpacity) { _, _ in
+                    controller.updateWorkspaceBarSettings()
+                }
+                .help("Opacity of app icons that are not focused")
+
+                Toggle("Transparent Background", isOn: $settings.workspaceBarTransparentBackground)
+                    .help("Hide the workspace bar material, tint, and border while keeping its contents interactive.")
+                    .onChange(of: settings.workspaceBarTransparentBackground) { _, _ in
+                        controller.updateWorkspaceBarSettings()
+                    }
+
+                Toggle("Show Item Backgrounds", isOn: $settings.workspaceBarShowItemBackgrounds)
+                    .help("Show material backgrounds behind workspace groups, floating windows, scratchpad, and stats.")
+                    .onChange(of: settings.workspaceBarShowItemBackgrounds) { _, _ in
+                        controller.updateWorkspaceBarSettings()
+                    }
+
+                Toggle("Solid Black Background", isOn: $settings.workspaceBarSolidBlackBackground)
+                    .help("Fill the workspace bar with fully opaque black, overriding the tint, material, and border.")
+                    .onChange(of: settings.workspaceBarSolidBlackBackground) { _, _ in
+                        controller.updateWorkspaceBarSettings()
+                    }
+
+                Toggle("Show Accent Highlights", isOn: $settings.workspaceBarShowAccentHighlights)
+                    .help("Show the focused-workspace outline and focused-icon accent glow.")
+                    .onChange(of: settings.workspaceBarShowAccentHighlights) { _, _ in
+                        controller.updateWorkspaceBarSettings()
+                    }
+
                 Toggle("Custom Accent Color", isOn: customAccentColorBinding)
 
                 if settings.workspaceBarAccentColor != nil {
@@ -319,6 +361,7 @@ private struct MonitorBarSettingsSection: View {
         )
     }
 
+    /// Mutates this monitor's overrides, persists them, and refreshes workspace bars.
     private func updateSetting(_ update: (inout MonitorBarSettings) -> Void) {
         var ms = monitorSettings
         update(&ms)
@@ -326,6 +369,7 @@ private struct MonitorBarSettingsSection: View {
         controller.updateWorkspaceBarSettings()
     }
 
+    /// Presents monitor-specific overrides alongside inherited global values and reset controls.
     var body: some View {
         let ms = monitorSettings
 
@@ -474,6 +518,54 @@ private struct MonitorBarSettingsSection: View {
                 onChange: { newValue in updateSetting { $0.backgroundOpacity = newValue } },
                 onReset: { updateSetting { $0.backgroundOpacity = nil } }
             )
+
+            OverridableSlider(
+                label: "Inactive Icon Opacity",
+                value: ms.inactiveIconOpacity,
+                globalValue: settings.workspaceBarInactiveIconOpacity ?? 0.5,
+                range: 0 ... 1,
+                step: 0.05,
+                formatter: { "\(Int($0 * 100))%" },
+                onChange: { newValue in updateSetting { $0.inactiveIconOpacity = newValue } },
+                onReset: { updateSetting { $0.inactiveIconOpacity = nil } }
+            )
+            .help("Opacity of app icons that are not focused")
+
+            OverridableToggle(
+                label: "Transparent Background",
+                value: ms.transparentBackground,
+                globalValue: settings.workspaceBarTransparentBackground,
+                onChange: { newValue in updateSetting { $0.transparentBackground = newValue } },
+                onReset: { updateSetting { $0.transparentBackground = nil } }
+            )
+            .help("Hide the workspace bar material, tint, and border while keeping its contents interactive.")
+
+            OverridableToggle(
+                label: "Solid Black Background",
+                value: ms.solidBlackBackground,
+                globalValue: settings.workspaceBarSolidBlackBackground,
+                onChange: { newValue in updateSetting { $0.solidBlackBackground = newValue } },
+                onReset: { updateSetting { $0.solidBlackBackground = nil } }
+            )
+            .help("Fill the workspace bar with fully opaque black, overriding the tint, material, and border.")
+
+            OverridableToggle(
+                label: "Show Item Backgrounds",
+                value: ms.showItemBackgrounds,
+                globalValue: settings.workspaceBarShowItemBackgrounds,
+                onChange: { newValue in updateSetting { $0.showItemBackgrounds = newValue } },
+                onReset: { updateSetting { $0.showItemBackgrounds = nil } }
+            )
+            .help("Show material backgrounds behind workspace groups, floating windows, scratchpad, and stats.")
+
+            OverridableToggle(
+                label: "Show Accent Highlights",
+                value: ms.showAccentHighlights,
+                globalValue: settings.workspaceBarShowAccentHighlights,
+                onChange: { newValue in updateSetting { $0.showAccentHighlights = newValue } },
+                onReset: { updateSetting { $0.showAccentHighlights = nil } }
+            )
+            .help("Show the focused-workspace outline and focused-icon accent glow.")
         }
     }
 }

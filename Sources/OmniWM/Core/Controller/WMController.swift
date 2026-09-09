@@ -1267,6 +1267,7 @@ final class WMController {
             || ipcApplicationBridge?.hasSubscribers(for: .layoutChanged) == true
     }
 
+    /// Refreshes status output and publishes all IPC events derived from workspace data.
     func publishWorkspaceDataChanged() {
         if statusBarRefreshIsEnabled {
             refreshStatusBar()
@@ -1280,19 +1281,27 @@ final class WMController {
         }
     }
 
+    /// Determines visibility after configured policy and native-fullscreen suppression are applied.
     func isWorkspaceBarVisible(on monitor: Monitor, resolved: ResolvedBarSettings? = nil) -> Bool {
         let effective = resolved ?? settings.resolvedBarSettings(for: monitor)
         guard isWorkspaceBarConfiguredVisible(on: monitor, resolved: effective) else { return false }
-        return !isWorkspaceBarSuppressedByNativeFullscreen(on: monitor)
+        return !isWorkspaceBarSuppressedByNativeFullscreen(on: monitor, resolved: effective)
     }
 
+    /// Applies enablement, manual hiding, and reveal-modifier policy without fullscreen suppression.
     private func isWorkspaceBarConfiguredVisible(on monitor: Monitor, resolved: ResolvedBarSettings) -> Bool {
         guard resolved.enabled, !hiddenWorkspaceBarMonitorIds.contains(monitor.id) else { return false }
         return settings.workspaceBarRevealModifier == .off || isWorkspaceBarRevealHeld
     }
 
-    private func isWorkspaceBarSuppressedByNativeFullscreen(on monitor: Monitor) -> Bool {
-        guard settings.workspaceBarHideInNativeFullscreen else { return false }
+    /// Returns whether this monitor’s bar must hide for a native-fullscreen space.
+    private func isWorkspaceBarSuppressedByNativeFullscreen(
+        on monitor: Monitor,
+        resolved: ResolvedBarSettings
+    ) -> Bool {
+        guard settings.workspaceBarHideInNativeFullscreen || resolved.notchMode == .fillLeftOfNotch else {
+            return false
+        }
         let topology = workspaceManager.spaceTopology
         guard topology.isPopulated else { return false }
         return topology.isDisplayShowingFullscreenSpace(on: monitor) == true

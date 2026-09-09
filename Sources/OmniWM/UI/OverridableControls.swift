@@ -63,7 +63,10 @@ struct SettingsSliderRow: View {
     let step: Double
     let valueText: String
     var valueWidth: CGFloat = 56
+    var resetAction: (() -> Void)?
+    var resetHelp = "Reset to Default"
 
+    /// Builds a labeled slider and shows the reset control only when an override can be cleared.
     var body: some View {
         LabeledContent(label) {
             HStack {
@@ -75,6 +78,9 @@ struct SettingsSliderRow: View {
                 .accessibilityValue(valueText)
 
                 SettingsValueText(text: valueText, width: valueWidth)
+                if let resetAction {
+                    ResetIconButton(title: resetHelp, action: resetAction)
+                }
             }
         }
     }

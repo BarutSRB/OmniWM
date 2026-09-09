@@ -350,6 +350,26 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var workspaceBarInactiveIconOpacity = SettingsStore.defaultExport.workspaceBarInactiveIconOpacity {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarTransparentBackground = SettingsStore.defaultExport.workspaceBarTransparentBackground {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarSolidBlackBackground = SettingsStore.defaultExport.workspaceBarSolidBlackBackground {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarShowItemBackgrounds = SettingsStore.defaultExport.workspaceBarShowItemBackgrounds {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarShowAccentHighlights = SettingsStore.defaultExport.workspaceBarShowAccentHighlights {
+        didSet { scheduleSave() }
+    }
+
     var workspaceBarXOffset = SettingsStore.defaultExport.workspaceBarXOffset {
         didSet { scheduleSave() }
     }
@@ -725,6 +745,7 @@ final class SettingsStore {
         persistence.settingsWritesBlocked
     }
 
+    /// Creates the settings file from current values when no persisted file exists.
     func ensureSettingsFileAvailable() throws {
         guard !FileManager.default.fileExists(atPath: settingsFileURL.path) else { return }
         if let notice = try persistence.saveImmediately(toExport()) {
@@ -732,6 +753,7 @@ final class SettingsStore {
         }
     }
 
+    /// Persists pending configuration and runtime state immediately, honoring autosave mode.
     func flushNow() {
         if autosaveEnabled {
             persistence.flushNow()
@@ -741,6 +763,7 @@ final class SettingsStore {
         runtimeState.flushNow()
     }
 
+    /// Captures current settings in the stable export representation.
     func toExport() -> SettingsExport {
         SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
@@ -806,6 +829,11 @@ final class SettingsStore {
             workspaceBarHideInNativeFullscreen: workspaceBarHideInNativeFullscreen,
             workspaceBarHeight: workspaceBarHeight,
             workspaceBarBackgroundOpacity: workspaceBarBackgroundOpacity,
+            workspaceBarInactiveIconOpacity: workspaceBarInactiveIconOpacity,
+            workspaceBarTransparentBackground: workspaceBarTransparentBackground,
+            workspaceBarSolidBlackBackground: workspaceBarSolidBlackBackground,
+            workspaceBarShowItemBackgrounds: workspaceBarShowItemBackgrounds,
+            workspaceBarShowAccentHighlights: workspaceBarShowAccentHighlights,
             workspaceBarXOffset: workspaceBarXOffset,
             workspaceBarYOffset: workspaceBarYOffset,
             workspaceBarAccentColor: workspaceBarAccentColor,
@@ -861,6 +889,7 @@ final class SettingsStore {
         )
     }
 
+    /// Applies an imported snapshot, including workspace-bar appearance settings, to live storage.
     func applyExport(_ export: SettingsExport) {
         let baseline = SettingsStore.defaultExport
         let trackpadGesturesWereAvailable = scrollGestureEnabled || workspaceSwipeEnabled
@@ -965,6 +994,11 @@ final class SettingsStore {
         workspaceBarHideInNativeFullscreen = export.workspaceBarHideInNativeFullscreen
         workspaceBarHeight = export.workspaceBarHeight
         workspaceBarBackgroundOpacity = export.workspaceBarBackgroundOpacity
+        workspaceBarInactiveIconOpacity = export.workspaceBarInactiveIconOpacity
+        workspaceBarTransparentBackground = export.workspaceBarTransparentBackground
+        workspaceBarSolidBlackBackground = export.workspaceBarSolidBlackBackground
+        workspaceBarShowItemBackgrounds = export.workspaceBarShowItemBackgrounds
+        workspaceBarShowAccentHighlights = export.workspaceBarShowAccentHighlights
         workspaceBarXOffset = export.workspaceBarXOffset
         workspaceBarYOffset = export.workspaceBarYOffset
         workspaceBarAccentColor = export.workspaceBarAccentColor
@@ -1135,18 +1169,22 @@ final class SettingsStore {
         MonitorSettingsStore.get(for: monitor, in: monitorBarSettings)
     }
 
+    /// Stores workspace bar overrides for the identified monitor.
     func updateBarSettings(_ settings: MonitorBarSettings, for monitor: Monitor) {
         MonitorSettingsStore.update(settings, for: monitor, in: &monitorBarSettings)
     }
 
+    /// Removes all workspace bar overrides associated with a monitor.
     func removeBarSettings(for monitor: Monitor) {
         MonitorSettingsStore.remove(for: monitor, from: &monitorBarSettings)
     }
 
+    /// Resolves a monitor's workspace bar overrides against global defaults.
     func resolvedBarSettings(for monitor: Monitor) -> ResolvedBarSettings {
         resolvedBarSettings(override: barSettings(for: monitor))
     }
 
+    /// Merges optional per-monitor values over global bar defaults.
     private func resolvedBarSettings(override: MonitorBarSettings?) -> ResolvedBarSettings {
         return ResolvedBarSettings(
             enabled: override?.enabled ?? workspaceBarEnabled,
@@ -1163,6 +1201,11 @@ final class SettingsStore {
             windowLevel: override?.windowLevel ?? workspaceBarWindowLevel,
             height: override?.height ?? workspaceBarHeight,
             backgroundOpacity: override?.backgroundOpacity ?? workspaceBarBackgroundOpacity,
+            inactiveIconOpacity: override?.inactiveIconOpacity ?? workspaceBarInactiveIconOpacity,
+            transparentBackground: override?.transparentBackground ?? workspaceBarTransparentBackground,
+            solidBlackBackground: override?.solidBlackBackground ?? workspaceBarSolidBlackBackground,
+            showItemBackgrounds: override?.showItemBackgrounds ?? workspaceBarShowItemBackgrounds,
+            showAccentHighlights: override?.showAccentHighlights ?? workspaceBarShowAccentHighlights,
             xOffset: override?.xOffset ?? workspaceBarXOffset,
             yOffset: override?.yOffset ?? workspaceBarYOffset,
             accentColor: workspaceBarAccentColor,

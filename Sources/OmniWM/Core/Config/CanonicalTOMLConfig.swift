@@ -165,6 +165,11 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var hideInNativeFullscreen: Bool
         var height: Double
         var backgroundOpacity: Double
+        var inactiveIconOpacity: Double?
+        var transparentBackground: Bool
+        var solidBlackBackground: Bool
+        var showItemBackgrounds: Bool
+        var showAccentHighlights: Bool
         var xOffset: Double
         var yOffset: Double
         var accentColor: Color?
@@ -286,6 +291,7 @@ extension CanonicalTOMLConfig {
 }
 
 extension CanonicalTOMLConfig {
+    /// Builds canonical TOML sections from an export, including explicit workspace-bar appearance values.
     init(export: SettingsExport) {
         schemaVersion = SettingsTOMLCodec.currentSchemaVersion
         general = General(
@@ -378,6 +384,11 @@ extension CanonicalTOMLConfig {
             hideInNativeFullscreen: export.workspaceBarHideInNativeFullscreen,
             height: export.workspaceBarHeight,
             backgroundOpacity: export.workspaceBarBackgroundOpacity,
+            inactiveIconOpacity: export.workspaceBarInactiveIconOpacity,
+            transparentBackground: export.workspaceBarTransparentBackground,
+            solidBlackBackground: export.workspaceBarSolidBlackBackground,
+            showItemBackgrounds: export.workspaceBarShowItemBackgrounds,
+            showAccentHighlights: export.workspaceBarShowAccentHighlights,
             xOffset: export.workspaceBarXOffset,
             yOffset: export.workspaceBarYOffset,
             accentColor: export.workspaceBarAccentColor.map(WorkspaceBar.Color.init),
@@ -436,6 +447,7 @@ extension CanonicalTOMLConfig {
         monitorGapOverrides = export.monitorGapSettings
     }
 
+    /// Exports canonical configuration while preserving workspace-bar appearance values.
     func toSettingsExport() -> SettingsExport {
         return SettingsExport(
             hotkeysEnabled: general.hotkeysEnabled,
@@ -499,6 +511,11 @@ extension CanonicalTOMLConfig {
             workspaceBarHideInNativeFullscreen: workspaceBar.hideInNativeFullscreen,
             workspaceBarHeight: workspaceBar.height,
             workspaceBarBackgroundOpacity: workspaceBar.backgroundOpacity,
+            workspaceBarInactiveIconOpacity: workspaceBar.inactiveIconOpacity,
+            workspaceBarTransparentBackground: workspaceBar.transparentBackground,
+            workspaceBarSolidBlackBackground: workspaceBar.solidBlackBackground,
+            workspaceBarShowItemBackgrounds: workspaceBar.showItemBackgrounds,
+            workspaceBarShowAccentHighlights: workspaceBar.showAccentHighlights,
             workspaceBarXOffset: workspaceBar.xOffset,
             workspaceBarYOffset: workspaceBar.yOffset,
             workspaceBarAccentColor: workspaceBar.accentColor?.settingsColor,

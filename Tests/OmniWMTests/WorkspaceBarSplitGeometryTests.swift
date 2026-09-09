@@ -7,6 +7,7 @@ import Foundation
 import XCTest
 
 final class WorkspaceBarSplitGeometryTests: XCTestCase {
+    /// Creates a monitor fixture with configurable visible top edge and notch geometry.
     private func makeMonitor(
         frame: CGRect = CGRect(x: 0, y: 0, width: 1512, height: 982),
         visibleTop: CGFloat = 950,
@@ -29,6 +30,7 @@ final class WorkspaceBarSplitGeometryTests: XCTestCase {
         )
     }
 
+    /// Creates resolved geometry inputs with explicit split mode, width, position, and offset controls.
     private func makeResolved(
         notchMode: WorkspaceBarNotchMode,
         zoneWidth: Double = 180,
@@ -51,6 +53,11 @@ final class WorkspaceBarSplitGeometryTests: XCTestCase {
             windowLevel: .popup,
             height: 24,
             backgroundOpacity: 0.1,
+            inactiveIconOpacity: nil,
+            transparentBackground: false,
+            solidBlackBackground: false,
+            showItemBackgrounds: true,
+            showAccentHighlights: true,
             xOffset: xOffset,
             yOffset: yOffset,
             accentColor: nil,

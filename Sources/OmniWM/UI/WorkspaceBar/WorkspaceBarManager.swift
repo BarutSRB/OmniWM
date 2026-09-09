@@ -57,6 +57,7 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
     case moveBelowMenuBar
     case splitActiveLeft
     case splitActiveRight
+    case fillLeftOfNotch
 
     var id: String {
         rawValue
@@ -72,6 +73,7 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
         case .moveBelowMenuBar: "Move Below Menu Bar"
         case .splitActiveLeft: "Split — Active Left"
         case .splitActiveRight: "Split — Active Right"
+        case .fillLeftOfNotch: "Fill Left of Notch"
         }
     }
 }
@@ -237,6 +239,7 @@ final class WorkspaceBarManager {
         primary.panel.orderFrontRegardless()
     }
 
+    /// Updates an existing monitor bar from its latest snapshot and panel state.
     private func updateBarForMonitor(
         _ monitor: Monitor,
         snapshot: WorkspaceBarSnapshot,
@@ -287,6 +290,7 @@ final class WorkspaceBarManager {
         return true
     }
 
+    /// Creates and configures one panel hosting a specific workspace bar island.
     private func makeIslandPanel(
         slice: WorkspaceBarIslandSlice,
         showsSystemStatsButton: Bool,
@@ -322,6 +326,7 @@ final class WorkspaceBarManager {
         )
     }
 
+    /// Wires a bar slice to controller actions and monitor-specific callbacks.
     private func makeBarView(
         model: WorkspaceBarModel,
         slice: WorkspaceBarIslandSlice,
@@ -353,6 +358,7 @@ final class WorkspaceBarManager {
         )
     }
 
+    /// Refreshes an existing panel and hosted view after appearance settings change.
     private func refreshBarAppearance(instance: MonitorBarInstance) {
         guard let settings else { return }
 
@@ -363,6 +369,11 @@ final class WorkspaceBarManager {
             showLabels: current.showLabels,
             showSystemStatsButton: current.showSystemStatsButton,
             backgroundOpacity: current.backgroundOpacity,
+            inactiveIconOpacity: current.inactiveIconOpacity,
+            transparentBackground: current.transparentBackground,
+            solidBlackBackground: current.solidBlackBackground,
+            showItemBackgrounds: current.showItemBackgrounds,
+            showAccentHighlights: current.showAccentHighlights,
             barHeight: current.barHeight,
             accentColor: resolved.accentColor,
             textColor: resolved.textColor
@@ -697,6 +708,7 @@ final class WorkspaceBarManager {
         suppressesManagedFocusRecovery: false
     )
 
+    /// Creates a nonactivating transparent panel suitable for workspace bar content.
     static func defaultPanel() -> WorkspaceBarPanel {
         let panel = WorkspaceBarPanel(
             contentRect: .zero,
@@ -720,11 +732,28 @@ final class WorkspaceBarManager {
         return panel
     }
 
+    /// Removes every managed workspace bar panel.
     func cleanup() {
         removeAllBars()
     }
 
+    /// Chooses panel space behavior, intentionally excluding fullscreen auxiliary in fill mode.
+    static func panelCollectionBehavior(for resolved: ResolvedBarSettings) -> NSWindow.CollectionBehavior {
+        resolved.notchMode == .fillLeftOfNotch
+            ? [.canJoinAllSpaces, .stationary]
+            : [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+    }
+
+    /// Places fill-mode panels above menu-bar content and preserves the normal level otherwise.
+    static func panelLevel(for resolved: ResolvedBarSettings) -> NSWindow.Level {
+        resolved.notchMode == .fillLeftOfNotch
+            ? NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+            : resolved.windowLevel.nsWindowLevel
+    }
+
+    /// Applies resolved level and collection behavior to an existing bar panel.
     private func applySettingsToPanel(_ panel: NSPanel, resolved: ResolvedBarSettings) {
-        panel.level = resolved.windowLevel.nsWindowLevel
+        panel.collectionBehavior = Self.panelCollectionBehavior(for: resolved)
+        panel.level = Self.panelLevel(for: resolved)
     }
 }

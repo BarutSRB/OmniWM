@@ -81,6 +81,11 @@ struct SettingsExport: Equatable {
     var workspaceBarHideInNativeFullscreen: Bool
     var workspaceBarHeight: Double
     var workspaceBarBackgroundOpacity: Double
+    var workspaceBarInactiveIconOpacity: Double?
+    var workspaceBarTransparentBackground: Bool
+    var workspaceBarSolidBlackBackground: Bool
+    var workspaceBarShowItemBackgrounds: Bool
+    var workspaceBarShowAccentHighlights: Bool
     var workspaceBarXOffset: Double
     var workspaceBarYOffset: Double
     var workspaceBarAccentColor: SettingsColor?
@@ -145,6 +150,7 @@ struct SettingsExport: Equatable {
 // MARK: - Defaults & Diffing
 
 extension SettingsExport {
+    /// Creates settings defaults, including the intentionally opt-in workspace-bar appearance controls.
     static func defaults() -> SettingsExport {
         SettingsExport(
             hotkeysEnabled: true,
@@ -208,6 +214,11 @@ extension SettingsExport {
             workspaceBarHideInNativeFullscreen: false,
             workspaceBarHeight: 24.0,
             workspaceBarBackgroundOpacity: 0.1,
+            workspaceBarInactiveIconOpacity: nil,
+            workspaceBarTransparentBackground: false,
+            workspaceBarSolidBlackBackground: false,
+            workspaceBarShowItemBackgrounds: true,
+            workspaceBarShowAccentHighlights: true,
             workspaceBarXOffset: 0.0,
             workspaceBarYOffset: 0.0,
             workspaceBarAccentColor: nil,

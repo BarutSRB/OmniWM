@@ -35,6 +35,7 @@ struct WorkspaceBarGeometry: Equatable {
     let barHeight: CGFloat
     let reservedTopInset: CGFloat
 
+    /// Resolves effective bar dimensions and reservation behavior for a monitor.
     static func resolve(
         monitor: Monitor,
         resolved: ResolvedBarSettings,
@@ -42,9 +43,13 @@ struct WorkspaceBarGeometry: Equatable {
         menuBarHeight: CGFloat? = nil
     ) -> WorkspaceBarGeometry {
         let resolvedMenuBarHeight = menuBarHeight ?? self.menuBarHeight(for: monitor)
-        let effectivePosition = effectivePosition(for: monitor, resolved: resolved)
-        let barHeight = max(0, CGFloat(resolved.height))
-        let reservedTopInset = isVisible && resolved.reserveLayoutSpace ? barHeight : 0
+        let isFill = resolved.notchMode == .fillLeftOfNotch
+        let effectivePosition = isFill ? WorkspaceBarPosition.overlappingMenuBar : effectivePosition(
+            for: monitor,
+            resolved: resolved
+        )
+        let barHeight = isFill ? resolvedMenuBarHeight : max(0, CGFloat(resolved.height))
+        let reservedTopInset = isFill ? 0 : (isVisible && resolved.reserveLayoutSpace ? barHeight : 0)
 
         return WorkspaceBarGeometry(
             effectivePosition: effectivePosition,
@@ -54,11 +59,16 @@ struct WorkspaceBarGeometry: Equatable {
         )
     }
 
+    /// Computes the bar frame, using menu-bar geometry for fill-left-of-notch mode.
     func frame(
         fittingWidth: CGFloat,
         monitor: Monitor,
         resolved: ResolvedBarSettings
     ) -> CGRect {
+        if resolved.notchMode == .fillLeftOfNotch {
+            return fillLeftOfNotchFrame(for: monitor)
+        }
+
         let width = max(fittingWidth, Self.minimumIslandWidth)
         var x = monitor.frame.midX - width / 2
         var y = originY(for: monitor)
@@ -69,6 +79,22 @@ struct WorkspaceBarGeometry: Equatable {
         return CGRect(x: x, y: y, width: width, height: barHeight)
     }
 
+    /// Covers the menu-bar band from the screen's leading edge to the notch,
+    /// hiding the app menus behind the bar.
+    private func fillLeftOfNotchFrame(for monitor: Monitor) -> CGRect {
+        let frame = monitor.frame
+        let virtualNotch = frame.midX ... frame.midX
+        let notch = monitor.hasNotch ? (monitor.notchRange ?? virtualNotch) : virtualNotch
+        let maxX = notch.lowerBound - Self.notchGap
+        return CGRect(
+            x: frame.minX,
+            y: frame.maxY - menuBarHeight,
+            width: max(0, maxX - frame.minX),
+            height: menuBarHeight
+        )
+    }
+
+    /// Fits active and optional secondary islands into the available regions beside the notch.
     func splitFrame(
         activeWidth: CGFloat,
         secondaryWidth: CGFloat?,

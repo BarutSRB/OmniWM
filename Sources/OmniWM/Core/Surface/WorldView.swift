@@ -76,20 +76,24 @@ struct WorldView {
         }
     }
 
+    /// Delegates whether a managed window is currently eligible for display.
     func isManagedWindowDisplayable(_ token: WindowToken) -> Bool {
         controller.isManagedWindowDisplayable(token)
     }
 
+    /// Reports whether a workspace is currently visible on any monitor.
     func isWorkspaceVisible(_ workspaceId: WorkspaceDescriptor.ID) -> Bool {
         controller.workspaceManager.visibleWorkspaceIds().contains(workspaceId)
     }
 
+    /// Combines desired tab rails from the niri and dwindle layout handlers.
     func tabRailInfos() -> [TabRailInfo] {
         var infos = controller.niriLayoutHandler.desiredTabRailInfos()
         infos.append(contentsOf: controller.dwindleLayoutHandler.desiredTabRailInfos())
         return infos
     }
 
+    /// Builds desired bar surfaces using each monitor’s resolved appearance and visibility.
     func barSurfaces() -> [DesiredBarSurface] {
         guard controller.hasWorkspaceBarDataConsumers else { return [] }
         let settings = controller.settings
@@ -110,6 +114,11 @@ struct WorldView {
                         showLabels: resolved.showLabels,
                         showSystemStatsButton: resolved.systemStatsButton,
                         backgroundOpacity: resolved.backgroundOpacity,
+                        inactiveIconOpacity: resolved.inactiveIconOpacity,
+                        transparentBackground: resolved.transparentBackground,
+                        solidBlackBackground: resolved.solidBlackBackground,
+                        showItemBackgrounds: resolved.showItemBackgrounds,
+                        showAccentHighlights: resolved.showAccentHighlights,
                         barHeight: geometry.barHeight,
                         accentColor: resolved.accentColor,
                         textColor: resolved.textColor

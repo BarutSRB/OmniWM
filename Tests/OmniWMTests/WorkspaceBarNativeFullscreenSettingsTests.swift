@@ -21,6 +21,7 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         XCTAssertFalse(decoded.workspaceBarHideInNativeFullscreen)
     }
 
+    /// Verifies nondefault fullscreen visibility settings survive encoding and decoding.
     func testNonDefaultRoundTrip() throws {
         var export = SettingsExport.defaults()
         export.workspaceBarHideInNativeFullscreen = true
@@ -32,6 +33,7 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         XCTAssertTrue(decoded.workspaceBarHideInNativeFullscreen)
     }
 
+    /// Verifies decoding rejects settings that omit the required fullscreen-hiding key.
     func testMissingKeyRejectsDecode() throws {
         let toml = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
         let withoutKey = toml
@@ -48,20 +50,19 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         }
     }
 
+    /// Verifies bar hides only on the display showing native fullscreen.
     @MainActor
     func testBarHidesOnlyOnTheDisplayShowingNativeFullscreen() {
         let settings = makeSettingsStore()
         settings.workspaceBarEnabled = true
+        settings.workspaceBarNotchMode = .fillLeftOfNotch
+        XCTAssertFalse(settings.workspaceBarHideInNativeFullscreen)
         let controller = WMController(settings: settings)
         let builtIn = makeMonitor(displayId: 71_001, uuid: Self.builtInUUID, name: "Built-in", originX: 0)
         let external = makeMonitor(displayId: 71_002, uuid: Self.externalUUID, name: "External", originX: 1_440)
         controller.workspaceManager.applyMonitorConfigurationChange([builtIn, external])
 
         commitTopology(on: controller, fullscreenDisplayUUID: Self.builtInUUID)
-        XCTAssertTrue(controller.isWorkspaceBarVisible(on: builtIn))
-        XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
-
-        settings.workspaceBarHideInNativeFullscreen = true
         XCTAssertFalse(controller.isWorkspaceBarVisible(on: builtIn))
         XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
 
@@ -70,7 +71,24 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
         XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
     }
 
+    /// Verifies non fill mode with global hide disabled remains visible.
     @MainActor
+    func testNonFillModeWithGlobalHideDisabledRemainsVisible() {
+        let settings = makeSettingsStore()
+        settings.workspaceBarEnabled = true
+        settings.workspaceBarNotchMode = .off
+        settings.workspaceBarHideInNativeFullscreen = false
+        let controller = WMController(settings: settings)
+        let builtIn = makeMonitor(displayId: 71_006, uuid: Self.builtInUUID, name: "Built-in", originX: 0)
+        controller.workspaceManager.applyMonitorConfigurationChange([builtIn])
+
+        commitTopology(on: controller, fullscreenDisplayUUID: Self.builtInUUID)
+
+        XCTAssertTrue(controller.isWorkspaceBarVisible(on: builtIn))
+    }
+
+    @MainActor
+    /// Verifies fullscreen auto-hide preserves layout space reserved by the configured bar.
     func testAutoHideDoesNotReleaseReservedLayoutSpace() {
         let settings = makeSettingsStore()
         settings.workspaceBarEnabled = true
