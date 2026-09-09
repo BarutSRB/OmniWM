@@ -199,6 +199,48 @@ final class NiriKeyboardFocusTests: XCTestCase {
         }
     }
 
+    func testOverviewSelectionAnimatesViewportOnlyWhenEnabledInCurrentWorkspace() throws {
+        for orientation in [Monitor.Orientation.horizontal, .vertical] {
+            for animationsEnabled in [false, true] {
+                for sameWorkspace in [false, true] {
+                    try withFixture(selection: 0, orientation: orientation) { fixture in
+                        let controller = fixture.controller
+                        let manager = controller.workspaceManager
+                        controller.motionPolicy.animationsEnabled = animationsEnabled
+                        manager.animationDriver.removeMotions(for: [fixture.workspaceId])
+                        var initialState = fixture.state
+                        initialState.jumpOffset(to: 0)
+                        manager.updateNiriViewportState(initialState, for: fixture.workspaceId)
+                        if !sameWorkspace {
+                            _ = manager.focusWorkspace(named: "2")
+                        }
+                        let target = fixture.windows[2]
+                        let handle = try XCTUnwrap(manager.handle(for: target.token))
+
+                        controller.windowActionHandler.activateWindowFromOverview(
+                            handle: handle,
+                            workspaceId: fixture.workspaceId
+                        )
+
+                        XCTAssertEqual(fixture.state.selectedNodeId, target.id)
+                        XCTAssertEqual(fixture.state.activeColumnIndex, 2)
+                        XCTAssertEqual(
+                            manager.animationDriver.hasMotion(in: fixture.workspaceId),
+                            animationsEnabled && sameWorkspace
+                        )
+                        if animationsEnabled && sameWorkspace && orientation == .horizontal {
+                            let liveOffset = try XCTUnwrap(manager.animationDriver.liveViewOffset(
+                                in: fixture.workspaceId,
+                                semanticOffset: fixture.state.viewOffset
+                            ))
+                            XCTAssertGreaterThan(abs(liveOffset - fixture.state.viewOffset), 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func testOrdinaryFocusRetainsFullFronting() throws {
         try withFixture() { fixture in
             let target = fixture.windows[2].token

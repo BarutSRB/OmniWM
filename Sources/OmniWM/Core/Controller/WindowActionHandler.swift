@@ -141,10 +141,14 @@ final class WindowActionHandler {
         overviewControllerStorage?.isOpen == true
     }
 
-    private func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
+    func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
         guard controller.workspaceManager.entry(for: handle) != nil else { return }
-        navigateToWindowInternal(token: handle.id, workspaceId: workspaceId)
+        navigateToWindowInternal(
+            token: handle.id,
+            workspaceId: workspaceId,
+            motion: controller.activeWorkspace()?.id == workspaceId ? controller.motionPolicy.snapshot() : .disabled
+        )
     }
 
     func closeWindow(handle: WindowHandle) -> Bool {
@@ -708,7 +712,11 @@ final class WindowActionHandler {
     }
 
     @discardableResult
-    func navigateToWindowInternal(token: WindowToken, workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    func navigateToWindowInternal(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot = .disabled
+    ) -> Bool {
         guard let controller,
               let handle = controller.workspaceManager.handle(for: token),
               let entry = controller.workspaceManager.entry(for: token),
@@ -768,7 +776,7 @@ final class WindowActionHandler {
                             node: niriWindow,
                             context: .init(
                                 workspaceId: workspaceId,
-                                motion: .disabled,
+                                motion: motion,
                                 workingFrame: workingFrame,
                                 gaps: gap,
                                 orientation: orientation
