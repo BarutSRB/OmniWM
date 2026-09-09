@@ -5,7 +5,7 @@ import Foundation
 import TOML
 
 enum SettingsTOMLCodec {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     private static let versionOneHotkeyIDs = [
         "toggleScratchpad.1",
@@ -134,12 +134,14 @@ enum SettingsTOMLCodec {
 
         let versionOneReport = version == 0 ? try migrateVersionZero(&raw) : nil
         let versionTwoAddedHotkeyIDs = version <= 1 ? migrateVersionOne(&raw) : []
-        let versionThreeDefaultedPaths = try migrateVersionTwo(&raw)
+        let versionThreeDefaultedPaths = version <= 2 ? try migrateVersionTwo(&raw) : []
+        let versionFourDefaultedPaths = migrateVersionThree(&raw)
         canonicalizeMigratedHotkeys(in: &raw)
         let report = SettingsMigrationReport(
             fromVersion: version,
             toVersion: currentSchemaVersion,
-            defaultedPaths: (versionOneReport?.defaultedPaths ?? []) + versionThreeDefaultedPaths,
+            defaultedPaths: (versionOneReport?.defaultedPaths ?? []) + versionThreeDefaultedPaths +
+                versionFourDefaultedPaths,
             addedHotkeyIDs: (versionOneReport?.addedHotkeyIDs ?? []) + versionTwoAddedHotkeyIDs,
             mappedHotkeys: versionOneReport?.mappedHotkeys ?? [],
             retiredHotkeys: versionOneReport?.retiredHotkeys ?? []
@@ -354,6 +356,22 @@ enum SettingsTOMLCodec {
         )
         raw["schemaVersion"] = .integer(3)
         return added ? ["routing.arrangements"] : []
+    }
+
+    private static func migrateVersionThree(_ raw: inout [String: TOMLNode]) -> [String] {
+        var defaultedPaths: [String] = []
+        for (key, value) in [
+            ("transparentBackground", false),
+            ("solidBlackBackground", false),
+            ("showItemBackgrounds", true),
+            ("showAccentHighlights", true)
+        ] {
+            if addMissingValue(in: &raw, table: "workspaceBar", key: key, value: .boolean(value)) {
+                defaultedPaths.append("workspaceBar.\(key)")
+            }
+        }
+        raw["schemaVersion"] = .integer(4)
+        return defaultedPaths
     }
 
     private static func appendMissingUnassignedHotkeys(

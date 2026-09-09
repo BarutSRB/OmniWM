@@ -350,6 +350,26 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var workspaceBarInactiveIconOpacity = SettingsStore.defaultExport.workspaceBarInactiveIconOpacity {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarTransparentBackground = SettingsStore.defaultExport.workspaceBarTransparentBackground {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarSolidBlackBackground = SettingsStore.defaultExport.workspaceBarSolidBlackBackground {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarShowItemBackgrounds = SettingsStore.defaultExport.workspaceBarShowItemBackgrounds {
+        didSet { scheduleSave() }
+    }
+
+    var workspaceBarShowAccentHighlights = SettingsStore.defaultExport.workspaceBarShowAccentHighlights {
+        didSet { scheduleSave() }
+    }
+
     var workspaceBarXOffset = SettingsStore.defaultExport.workspaceBarXOffset {
         didSet { scheduleSave() }
     }
@@ -806,6 +826,11 @@ final class SettingsStore {
             workspaceBarHideInNativeFullscreen: workspaceBarHideInNativeFullscreen,
             workspaceBarHeight: workspaceBarHeight,
             workspaceBarBackgroundOpacity: workspaceBarBackgroundOpacity,
+            workspaceBarInactiveIconOpacity: workspaceBarInactiveIconOpacity,
+            workspaceBarTransparentBackground: workspaceBarTransparentBackground,
+            workspaceBarSolidBlackBackground: workspaceBarSolidBlackBackground,
+            workspaceBarShowItemBackgrounds: workspaceBarShowItemBackgrounds,
+            workspaceBarShowAccentHighlights: workspaceBarShowAccentHighlights,
             workspaceBarXOffset: workspaceBarXOffset,
             workspaceBarYOffset: workspaceBarYOffset,
             workspaceBarAccentColor: workspaceBarAccentColor,
@@ -965,6 +990,11 @@ final class SettingsStore {
         workspaceBarHideInNativeFullscreen = export.workspaceBarHideInNativeFullscreen
         workspaceBarHeight = export.workspaceBarHeight
         workspaceBarBackgroundOpacity = export.workspaceBarBackgroundOpacity
+        workspaceBarInactiveIconOpacity = export.workspaceBarInactiveIconOpacity
+        workspaceBarTransparentBackground = export.workspaceBarTransparentBackground
+        workspaceBarSolidBlackBackground = export.workspaceBarSolidBlackBackground
+        workspaceBarShowItemBackgrounds = export.workspaceBarShowItemBackgrounds
+        workspaceBarShowAccentHighlights = export.workspaceBarShowAccentHighlights
         workspaceBarXOffset = export.workspaceBarXOffset
         workspaceBarYOffset = export.workspaceBarYOffset
         workspaceBarAccentColor = export.workspaceBarAccentColor
@@ -1163,6 +1193,11 @@ final class SettingsStore {
             windowLevel: override?.windowLevel ?? workspaceBarWindowLevel,
             height: override?.height ?? workspaceBarHeight,
             backgroundOpacity: override?.backgroundOpacity ?? workspaceBarBackgroundOpacity,
+            inactiveIconOpacity: override?.inactiveIconOpacity ?? workspaceBarInactiveIconOpacity,
+            transparentBackground: override?.transparentBackground ?? workspaceBarTransparentBackground,
+            solidBlackBackground: override?.solidBlackBackground ?? workspaceBarSolidBlackBackground,
+            showItemBackgrounds: override?.showItemBackgrounds ?? workspaceBarShowItemBackgrounds,
+            showAccentHighlights: override?.showAccentHighlights ?? workspaceBarShowAccentHighlights,
             xOffset: override?.xOffset ?? workspaceBarXOffset,
             yOffset: override?.yOffset ?? workspaceBarYOffset,
             accentColor: workspaceBarAccentColor,

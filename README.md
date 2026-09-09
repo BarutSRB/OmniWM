@@ -845,6 +845,28 @@ A visual indicator showing your workspaces:
 - Optionally hide the bar on a monitor while that monitor shows a macOS native fullscreen window, and bring it back on exit (`Hide in Native Fullscreen`); reserved tiled layout space is left untouched so windows do not shuffle around the fullscreen session
 - Exclude individual apps or choose alternate app icons across all monitors in Settings
 
+Workspace-bar appearance controls are optional and also support per-monitor overrides:
+
+- **Transparent Background** removes the outer bar material, tint, and border; icons remain clickable. It takes precedence over **Solid Black Background**.
+- **Solid Black Background** uses opaque black instead of the outer bar's material and tint.
+- **Inactive Icon Opacity** adjusts non-focused app icons. Leaving it unset preserves the standard opacity for each kind of item.
+- Disable **Show Item Backgrounds** to remove the backgrounds behind workspace groups, floating windows, scratchpads, and the stats button.
+- Disable **Show Accent Highlights** to remove focused-item accent outlines and glows without changing focus behavior.
+- **Fill Left of Notch** covers the menu-bar band from the display's left edge to the notch, or to the display midpoint when no notch is present. This deliberately covers application menus; choose another notch mode to access them again. This mode uses the menu-bar height, ignores position/offset/height controls, and does not reserve extra tiled layout space. It always hides on displays showing native fullscreen content; other modes continue to follow **Hide in Native Fullscreen**.
+
+Existing appearance stays unchanged until you opt in. For example, edit these keys inside the existing `[workspaceBar]` table (do not replace the complete configuration with this fragment):
+
+```toml
+transparentBackground = false
+solidBlackBackground = true
+inactiveIconOpacity = 0.9
+showItemBackgrounds = false
+showAccentHighlights = false
+notchMode = "fillLeftOfNotch"
+```
+
+These settings introduce configuration schema 4. Earlier supported schemas migrate automatically, preserving configured values and adding defaults for the new controls. Keep the pre-migration backup when testing this build: unmodified 0.6.8 does not understand schema 4 or `fillLeftOfNotch`, so restore its compatible configuration before downgrading.
+
 Workspace-bar icon overrides can also be configured in `settings.toml`. Quote bundle IDs so TOML treats each dotted identifier as one key:
 
 ```toml

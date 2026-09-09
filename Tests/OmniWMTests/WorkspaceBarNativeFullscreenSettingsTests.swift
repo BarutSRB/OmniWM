@@ -52,22 +52,35 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
     func testBarHidesOnlyOnTheDisplayShowingNativeFullscreen() {
         let settings = makeSettingsStore()
         settings.workspaceBarEnabled = true
+        settings.workspaceBarNotchMode = .fillLeftOfNotch
+        XCTAssertFalse(settings.workspaceBarHideInNativeFullscreen)
         let controller = WMController(settings: settings)
         let builtIn = makeMonitor(displayId: 71_001, uuid: Self.builtInUUID, name: "Built-in", originX: 0)
         let external = makeMonitor(displayId: 71_002, uuid: Self.externalUUID, name: "External", originX: 1_440)
         controller.workspaceManager.applyMonitorConfigurationChange([builtIn, external])
 
         commitTopology(on: controller, fullscreenDisplayUUID: Self.builtInUUID)
-        XCTAssertTrue(controller.isWorkspaceBarVisible(on: builtIn))
-        XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
-
-        settings.workspaceBarHideInNativeFullscreen = true
         XCTAssertFalse(controller.isWorkspaceBarVisible(on: builtIn))
         XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
 
         commitTopology(on: controller, fullscreenDisplayUUID: nil)
         XCTAssertTrue(controller.isWorkspaceBarVisible(on: builtIn))
         XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
+    }
+
+    @MainActor
+    func testNonFillModeWithGlobalHideDisabledRemainsVisible() {
+        let settings = makeSettingsStore()
+        settings.workspaceBarEnabled = true
+        settings.workspaceBarNotchMode = .off
+        settings.workspaceBarHideInNativeFullscreen = false
+        let controller = WMController(settings: settings)
+        let builtIn = makeMonitor(displayId: 71_006, uuid: Self.builtInUUID, name: "Built-in", originX: 0)
+        controller.workspaceManager.applyMonitorConfigurationChange([builtIn])
+
+        commitTopology(on: controller, fullscreenDisplayUUID: Self.builtInUUID)
+
+        XCTAssertTrue(controller.isWorkspaceBarVisible(on: builtIn))
     }
 
     @MainActor

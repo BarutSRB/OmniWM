@@ -1283,7 +1283,7 @@ final class WMController {
     func isWorkspaceBarVisible(on monitor: Monitor, resolved: ResolvedBarSettings? = nil) -> Bool {
         let effective = resolved ?? settings.resolvedBarSettings(for: monitor)
         guard isWorkspaceBarConfiguredVisible(on: monitor, resolved: effective) else { return false }
-        return !isWorkspaceBarSuppressedByNativeFullscreen(on: monitor)
+        return !isWorkspaceBarSuppressedByNativeFullscreen(on: monitor, resolved: effective)
     }
 
     private func isWorkspaceBarConfiguredVisible(on monitor: Monitor, resolved: ResolvedBarSettings) -> Bool {
@@ -1291,8 +1291,13 @@ final class WMController {
         return settings.workspaceBarRevealModifier == .off || isWorkspaceBarRevealHeld
     }
 
-    private func isWorkspaceBarSuppressedByNativeFullscreen(on monitor: Monitor) -> Bool {
-        guard settings.workspaceBarHideInNativeFullscreen else { return false }
+    private func isWorkspaceBarSuppressedByNativeFullscreen(
+        on monitor: Monitor,
+        resolved: ResolvedBarSettings
+    ) -> Bool {
+        guard settings.workspaceBarHideInNativeFullscreen || resolved.notchMode == .fillLeftOfNotch else {
+            return false
+        }
         let topology = workspaceManager.spaceTopology
         guard topology.isPopulated else { return false }
         return topology.isDisplayShowingFullscreenSpace(on: monitor) == true

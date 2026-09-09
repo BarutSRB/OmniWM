@@ -35,6 +35,63 @@ private struct NarrowWidthLayout: Layout {
 
 @MainActor
 final class WorkspaceBarViewLayoutTests: XCTestCase {
+    func testConfiguredAndDefaultInactiveIconOpacity() {
+        let window = makeWindowItem(appName: "Notes", windowCount: 1, hiddenWindowCount: 0)
+
+        XCTAssertEqual(
+            WorkspaceBarWindowPresentation(
+                window: window,
+                context: .tiled,
+                isFocused: false,
+                isInFocusedWorkspace: true,
+                inactiveIconOpacity: 0.27
+            ).iconOpacity,
+            0.27
+        )
+        XCTAssertEqual(
+            WorkspaceBarIconOpacity.standard(isFocused: false, isInFocusedWorkspace: true, configured: nil),
+            0.4
+        )
+        XCTAssertEqual(
+            WorkspaceBarIconOpacity.standard(isFocused: false, isInFocusedWorkspace: false, configured: nil),
+            0.5
+        )
+        XCTAssertEqual(
+            WorkspaceBarIconOpacity.standard(isFocused: true, isInFocusedWorkspace: false, configured: 0.27),
+            1
+        )
+    }
+
+    func testScratchpadIconOpacityDefaultsOverridesAndFocus() {
+        XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: false, configured: nil), 0.82)
+        XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: false, configured: 0.31), 0.31)
+        XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: true, configured: 0.31), 1)
+    }
+
+    func testSnapshotClonePreservesAppearanceAndTransparentPrecedence() {
+        let snapshot = WorkspaceBarSnapshot(
+            projection: WorkspaceBarProjection(items: [], scratchpads: []),
+            showLabels: true,
+            showSystemStatsButton: false,
+            backgroundOpacity: 0.6,
+            inactiveIconOpacity: 0.33,
+            transparentBackground: true,
+            solidBlackBackground: true,
+            showItemBackgrounds: false,
+            showAccentHighlights: false,
+            barHeight: 24,
+            accentColor: nil,
+            textColor: nil
+        )
+
+        let clone = snapshot.replacingScratchpads([])
+        XCTAssertEqual(clone.inactiveIconOpacity, 0.33)
+        XCTAssertFalse(clone.showItemBackgrounds)
+        XCTAssertFalse(clone.showAccentHighlights)
+        XCTAssertEqual(clone.backgroundStyle, .transparent)
+        XCTAssertFalse(clone.showsBackground)
+    }
+
     func testWindowPresentationDistinguishesAppHiddenAndPartialGroups() {
         let hiddenWindow = makeWindowItem(
             appName: "Mail",
@@ -480,6 +537,11 @@ final class WorkspaceBarViewLayoutTests: XCTestCase {
             windowLevel: .popup,
             height: 24,
             backgroundOpacity: 0.1,
+            inactiveIconOpacity: nil,
+            transparentBackground: false,
+            solidBlackBackground: false,
+            showItemBackgrounds: true,
+            showAccentHighlights: true,
             xOffset: 0,
             yOffset: 0,
             accentColor: nil,

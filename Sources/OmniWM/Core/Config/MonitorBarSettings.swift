@@ -22,6 +22,11 @@ struct MonitorBarSettings: MonitorSettingsType {
     var windowLevel: WorkspaceBarWindowLevel?
     var height: Double?
     var backgroundOpacity: Double?
+    var inactiveIconOpacity: Double?
+    var transparentBackground: Bool?
+    var solidBlackBackground: Bool?
+    var showItemBackgrounds: Bool?
+    var showAccentHighlights: Bool?
     var xOffset: Double?
     var yOffset: Double?
 
@@ -42,6 +47,11 @@ struct MonitorBarSettings: MonitorSettingsType {
         windowLevel: WorkspaceBarWindowLevel? = nil,
         height: Double? = nil,
         backgroundOpacity: Double? = nil,
+        inactiveIconOpacity: Double? = nil,
+        transparentBackground: Bool? = nil,
+        solidBlackBackground: Bool? = nil,
+        showItemBackgrounds: Bool? = nil,
+        showAccentHighlights: Bool? = nil,
         xOffset: Double? = nil,
         yOffset: Double? = nil
     ) {
@@ -61,6 +71,11 @@ struct MonitorBarSettings: MonitorSettingsType {
         self.windowLevel = windowLevel
         self.height = height
         self.backgroundOpacity = backgroundOpacity
+        self.inactiveIconOpacity = inactiveIconOpacity
+        self.transparentBackground = transparentBackground
+        self.solidBlackBackground = solidBlackBackground
+        self.showItemBackgrounds = showItemBackgrounds
+        self.showAccentHighlights = showAccentHighlights
         self.xOffset = xOffset
         self.yOffset = yOffset
     }
@@ -69,7 +84,8 @@ struct MonitorBarSettings: MonitorSettingsType {
         case id, monitorName, monitorDisplayUUID, monitorDisplayId
         case enabled, showLabels, showFloatingWindows, deduplicateAppIcons
         case hideEmptyWorkspaces, reserveLayoutSpace, notchMode, notchActiveZoneWidth, position, windowLevel
-        case height, backgroundOpacity, xOffset, yOffset
+        case height, backgroundOpacity, inactiveIconOpacity, transparentBackground, solidBlackBackground,
+             showItemBackgrounds, showAccentHighlights, xOffset, yOffset
     }
 
     init(from decoder: Decoder) throws {
@@ -90,6 +106,11 @@ struct MonitorBarSettings: MonitorSettingsType {
         windowLevel = try container.decodeIfPresent(WorkspaceBarWindowLevel.self, forKey: .windowLevel)
         height = try container.decodeIfPresent(Double.self, forKey: .height)
         backgroundOpacity = try container.decodeIfPresent(Double.self, forKey: .backgroundOpacity)
+        inactiveIconOpacity = try container.decodeIfPresent(Double.self, forKey: .inactiveIconOpacity)
+        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
+        solidBlackBackground = try container.decodeIfPresent(Bool.self, forKey: .solidBlackBackground)
+        showItemBackgrounds = try container.decodeIfPresent(Bool.self, forKey: .showItemBackgrounds)
+        showAccentHighlights = try container.decodeIfPresent(Bool.self, forKey: .showAccentHighlights)
         xOffset = try container.decodeIfPresent(Double.self, forKey: .xOffset)
         yOffset = try container.decodeIfPresent(Double.self, forKey: .yOffset)
     }
@@ -117,6 +138,11 @@ struct MonitorBarSettings: MonitorSettingsType {
         try container.encodeIfPresent(windowLevel, forKey: .windowLevel)
         try container.encodeIfPresent(height, forKey: .height)
         try container.encodeIfPresent(backgroundOpacity, forKey: .backgroundOpacity)
+        try container.encodeIfPresent(inactiveIconOpacity, forKey: .inactiveIconOpacity)
+        try container.encodeIfPresent(transparentBackground, forKey: .transparentBackground)
+        try container.encodeIfPresent(solidBlackBackground, forKey: .solidBlackBackground)
+        try container.encodeIfPresent(showItemBackgrounds, forKey: .showItemBackgrounds)
+        try container.encodeIfPresent(showAccentHighlights, forKey: .showAccentHighlights)
         try container.encodeIfPresent(xOffset, forKey: .xOffset)
         try container.encodeIfPresent(yOffset, forKey: .yOffset)
     }
@@ -137,6 +163,11 @@ struct ResolvedBarSettings {
     let windowLevel: WorkspaceBarWindowLevel
     let height: Double
     let backgroundOpacity: Double
+    let inactiveIconOpacity: Double?
+    let transparentBackground: Bool
+    let solidBlackBackground: Bool
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
     let xOffset: Double
     let yOffset: Double
     let accentColor: SettingsColor?

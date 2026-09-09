@@ -110,6 +110,11 @@ struct WorldView {
                         showLabels: resolved.showLabels,
                         showSystemStatsButton: resolved.systemStatsButton,
                         backgroundOpacity: resolved.backgroundOpacity,
+                        inactiveIconOpacity: resolved.inactiveIconOpacity,
+                        transparentBackground: resolved.transparentBackground,
+                        solidBlackBackground: resolved.solidBlackBackground,
+                        showItemBackgrounds: resolved.showItemBackgrounds,
+                        showAccentHighlights: resolved.showAccentHighlights,
                         barHeight: geometry.barHeight,
                         accentColor: resolved.accentColor,
                         textColor: resolved.textColor

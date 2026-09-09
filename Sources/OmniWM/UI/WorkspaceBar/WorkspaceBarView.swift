@@ -128,9 +128,42 @@ struct WorkspaceBarSnapshot: Equatable {
     let showLabels: Bool
     let showSystemStatsButton: Bool
     let backgroundOpacity: Double
+    let inactiveIconOpacity: Double?
+    let transparentBackground: Bool
+    let solidBlackBackground: Bool
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
     let barHeight: CGFloat
     let accentColor: SettingsColor?
     let textColor: SettingsColor?
+
+    init(
+        projection: WorkspaceBarProjection,
+        showLabels: Bool,
+        showSystemStatsButton: Bool,
+        backgroundOpacity: Double,
+        inactiveIconOpacity: Double? = nil,
+        transparentBackground: Bool = false,
+        solidBlackBackground: Bool = false,
+        showItemBackgrounds: Bool = true,
+        showAccentHighlights: Bool = true,
+        barHeight: CGFloat,
+        accentColor: SettingsColor?,
+        textColor: SettingsColor?
+    ) {
+        self.projection = projection
+        self.showLabels = showLabels
+        self.showSystemStatsButton = showSystemStatsButton
+        self.backgroundOpacity = backgroundOpacity
+        self.inactiveIconOpacity = inactiveIconOpacity
+        self.transparentBackground = transparentBackground
+        self.solidBlackBackground = solidBlackBackground
+        self.showItemBackgrounds = showItemBackgrounds
+        self.showAccentHighlights = showAccentHighlights
+        self.barHeight = barHeight
+        self.accentColor = accentColor
+        self.textColor = textColor
+    }
 
     var items: [WorkspaceBarItem] {
         projection.items
@@ -140,12 +173,33 @@ struct WorkspaceBarSnapshot: Equatable {
         projection.scratchpads
     }
 
+    enum BackgroundStyle: Equatable {
+        case transparent
+        case solidBlack
+        case material
+    }
+
+    var backgroundStyle: BackgroundStyle {
+        if transparentBackground { return .transparent }
+        if solidBlackBackground { return .solidBlack }
+        return .material
+    }
+
+    var showsBackground: Bool {
+        backgroundStyle != .transparent
+    }
+
     func replacingScratchpads(_ scratchpads: [WorkspaceBarScratchpadItem]) -> Self {
         Self(
             projection: WorkspaceBarProjection(items: items, scratchpads: scratchpads),
             showLabels: showLabels,
             showSystemStatsButton: showSystemStatsButton,
             backgroundOpacity: backgroundOpacity,
+            inactiveIconOpacity: inactiveIconOpacity,
+            transparentBackground: transparentBackground,
+            solidBlackBackground: solidBlackBackground,
+            showItemBackgrounds: showItemBackgrounds,
+            showAccentHighlights: showAccentHighlights,
             barHeight: barHeight,
             accentColor: accentColor,
             textColor: textColor
@@ -286,6 +340,9 @@ private struct WorkspaceBarContentView: View {
                     cornerRadius: cornerRadius,
                     animationsEnabled: animationsEnabled,
                     showLabels: snapshot.showLabels,
+                    showItemBackgrounds: snapshot.showItemBackgrounds,
+                    showAccentHighlights: snapshot.showAccentHighlights,
+                    inactiveIconOpacity: snapshot.inactiveIconOpacity,
                     accentColor: accentColor,
                     textColor: textColor,
                     onFocusWorkspace: { onFocusWorkspace(item) },
@@ -299,6 +356,9 @@ private struct WorkspaceBarContentView: View {
                     iconSize: iconSize,
                     itemHeight: itemHeight,
                     animationsEnabled: animationsEnabled,
+                    showItemBackgrounds: snapshot.showItemBackgrounds,
+                    showAccentHighlights: snapshot.showAccentHighlights,
+                    inactiveIconOpacity: snapshot.inactiveIconOpacity,
                     accentColor: accentColor,
                     textColor: textColor,
                     onActivateScratchpad: onActivateScratchpad
@@ -308,6 +368,8 @@ private struct WorkspaceBarContentView: View {
             if showsSystemStatsButton {
                 SystemStatsButtonView(
                     itemHeight: itemHeight,
+                    showItemBackgrounds: snapshot.showItemBackgrounds,
+                    showAccentHighlights: snapshot.showAccentHighlights,
                     accentColor: accentColor,
                     textColor: textColor,
                     onToggle: onToggleSystemStats,
@@ -316,22 +378,27 @@ private struct WorkspaceBarContentView: View {
             }
         }
         .padding(.horizontal, 4)
+        .frame(maxWidth: snapshot.backgroundStyle == .solidBlack ? .infinity : nil, alignment: .leading)
         .frame(height: itemHeight + 4)
         .background {
-            if accessibilityReduceTransparency {
-                barShape.fill(Color(NSColor.windowBackgroundColor).opacity(0.96))
-            } else {
-                barShape
-                    .fill(backgroundColor)
-                    .background(.ultraThinMaterial, in: barShape)
-            }
+            if snapshot.backgroundStyle == .solidBlack {
+                Rectangle().fill(Color.black)
+            } else if snapshot.backgroundStyle == .material {
+                if accessibilityReduceTransparency {
+                    barShape.fill(Color(NSColor.windowBackgroundColor).opacity(0.96))
+                } else {
+                    barShape
+                        .fill(backgroundColor)
+                        .background(.ultraThinMaterial, in: barShape)
+                }
 
-            barShape.strokeBorder(
-                colorSchemeContrast == .increased
-                    ? Color.primary.opacity(0.45)
-                    : Color.secondary.opacity(0.18),
-                lineWidth: colorSchemeContrast == .increased ? 1 : 0.5
-            )
+                barShape.strokeBorder(
+                    colorSchemeContrast == .increased
+                        ? Color.primary.opacity(0.45)
+                        : Color.secondary.opacity(0.18),
+                    lineWidth: colorSchemeContrast == .increased ? 1 : 0.5
+                )
+            }
         }
     }
 }
@@ -345,6 +412,9 @@ private struct WorkspaceItemView: View {
     let cornerRadius: CGFloat
     let animationsEnabled: Bool
     let showLabels: Bool
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
+    let inactiveIconOpacity: Double?
     let accentColor: Color?
     let textColor: Color?
     let onFocusWorkspace: () -> Void
@@ -357,6 +427,7 @@ private struct WorkspaceItemView: View {
             if showLabels {
                 WorkspaceLabelButton(
                     item: item,
+                    showAccentHighlights: showAccentHighlights,
                     accentColor: accentColor,
                     textColor: textColor,
                     onFocusWorkspace: onFocusWorkspace
@@ -371,6 +442,7 @@ private struct WorkspaceItemView: View {
             } else if item.windows.isEmpty {
                 WorkspaceLabelButton(
                     item: item,
+                    showAccentHighlights: showAccentHighlights,
                     accentColor: accentColor,
                     textColor: textColor,
                     onFocusWorkspace: onFocusWorkspace
@@ -385,6 +457,8 @@ private struct WorkspaceItemView: View {
                     isInFocusedWorkspace: item.isFocused,
                     context: .tiled,
                     animationsEnabled: animationsEnabled,
+                    showAccentHighlights: showAccentHighlights,
+                    inactiveIconOpacity: inactiveIconOpacity,
                     accentColor: accentColor,
                     textColor: textColor,
                     onFocusWindow: onFocusWindow
@@ -405,6 +479,9 @@ private struct WorkspaceItemView: View {
                     itemHeight: itemHeight,
                     isInFocusedWorkspace: item.isFocused,
                     animationsEnabled: animationsEnabled,
+                    showItemBackgrounds: showItemBackgrounds,
+                    showAccentHighlights: showAccentHighlights,
+                    inactiveIconOpacity: inactiveIconOpacity,
                     accentColor: accentColor,
                     textColor: textColor,
                     onFocusWindow: onFocusWindow
@@ -417,15 +494,14 @@ private struct WorkspaceItemView: View {
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
         .onTapGesture(perform: onFocusWorkspace)
         .background {
-            if item.isFocused || isHovered {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(.regularMaterial)
-                    .overlay {
-                        if item.isFocused {
-                            RoundedRectangle(cornerRadius: cornerRadius)
-                                .strokeBorder(accentColor ?? .accentColor, lineWidth: 1)
-                        }
-                    }
+            ZStack {
+                if showItemBackgrounds, item.isFocused || isHovered {
+                    RoundedRectangle(cornerRadius: cornerRadius).fill(.regularMaterial)
+                }
+                if showAccentHighlights, item.isFocused {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .strokeBorder(accentColor ?? .accentColor, lineWidth: 1)
+                }
             }
         }
         .onHover { hovering in
@@ -438,6 +514,8 @@ private struct WorkspaceItemView: View {
 @MainActor
 private struct SystemStatsButtonView: View {
     let itemHeight: CGFloat
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
     let accentColor: Color?
     let textColor: Color?
     let onToggle: () -> Void
@@ -450,7 +528,7 @@ private struct SystemStatsButtonView: View {
     }
 
     private var iconColor: Color {
-        if isHovered {
+        if isHovered, showAccentHighlights {
             return accentColor ?? .accentColor
         }
         return textColor ?? .secondary
@@ -467,11 +545,16 @@ private struct SystemStatsButtonView: View {
                 .foregroundStyle(iconColor)
                 .frame(width: buttonSize, height: buttonSize)
                 .background {
-                    buttonShape
-                        .fill(isHovered ? .regularMaterial : .thinMaterial)
-                        .overlay {
-                            buttonShape.strokeBorder(Color.secondary.opacity(isHovered ? 0.3 : 0.18), lineWidth: 0.75)
-                        }
+                    if showItemBackgrounds {
+                        buttonShape
+                            .fill(isHovered ? .regularMaterial : .thinMaterial)
+                            .overlay {
+                                buttonShape.strokeBorder(
+                                    Color.secondary.opacity(isHovered ? 0.3 : 0.18),
+                                    lineWidth: 0.75
+                                )
+                            }
+                    }
                 }
                 .contentShape(buttonShape)
                 .background(WorkspaceBarAnchorReporter(onChange: onAnchorChange))
@@ -529,6 +612,7 @@ private struct WorkspaceBarAnchorReporter: NSViewRepresentable {
 @MainActor
 private struct WorkspaceLabelButton: View {
     let item: WorkspaceBarItem
+    let showAccentHighlights: Bool
     let accentColor: Color?
     let textColor: Color?
     let onFocusWorkspace: () -> Void
@@ -538,7 +622,10 @@ private struct WorkspaceLabelButton: View {
     }
 
     private var resolvedLabelColor: Color {
-        textColor ?? (item.isFocused ? resolvedAccentColor : .secondary)
+        if let textColor {
+            return textColor
+        }
+        return item.isFocused && showAccentHighlights ? resolvedAccentColor : .secondary
     }
 
     var body: some View {
@@ -565,6 +652,9 @@ private struct FloatingWindowsGroupView: View {
     let itemHeight: CGFloat
     let isInFocusedWorkspace: Bool
     let animationsEnabled: Bool
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
+    let inactiveIconOpacity: Double?
     let accentColor: Color?
     let textColor: Color?
     let onFocusWindow: (WindowHandle) -> Void
@@ -588,6 +678,8 @@ private struct FloatingWindowsGroupView: View {
                     isInFocusedWorkspace: isInFocusedWorkspace,
                     context: .floating,
                     animationsEnabled: animationsEnabled,
+                    showAccentHighlights: showAccentHighlights,
+                    inactiveIconOpacity: inactiveIconOpacity,
                     accentColor: accentColor,
                     textColor: textColor,
                     onFocusWindow: onFocusWindow
@@ -597,12 +689,14 @@ private struct FloatingWindowsGroupView: View {
         .padding(.horizontal, 5)
         .frame(height: max(16, itemHeight - 2))
         .background {
-            Capsule(style: .continuous)
-                .fill(.thinMaterial)
-                .overlay {
-                    Capsule(style: .continuous)
-                        .strokeBorder(Color.secondary.opacity(0.24), lineWidth: 0.75)
-                }
+            if showItemBackgrounds {
+                Capsule(style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(Color.secondary.opacity(0.24), lineWidth: 0.75)
+                    }
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Floating windows")
@@ -615,6 +709,9 @@ private struct ScratchpadPillView: View {
     let iconSize: CGFloat
     let itemHeight: CGFloat
     let animationsEnabled: Bool
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
+    let inactiveIconOpacity: Double?
     let accentColor: Color?
     let textColor: Color?
     let onActivateScratchpad: (Int) -> Void
@@ -649,13 +746,21 @@ private struct ScratchpadPillView: View {
                 if item.presentation == .expanded {
                     Image(systemName: "tray.fill")
                         .font(.system(size: max(10, iconSize * 0.64), weight: .semibold))
-                        .foregroundColor(isHighlighted ? resolvedAccentColor : resolvedSecondaryTextColor)
+                        .foregroundColor(
+                            isHighlighted && showAccentHighlights
+                                ? resolvedAccentColor
+                                : resolvedSecondaryTextColor
+                        )
                         .accessibilityHidden(true)
                 }
 
                 Text(item.name)
                     .font(.system(size: max(9, iconSize * 0.6), weight: .medium))
-                    .foregroundColor(isHighlighted ? resolvedAccentColor : resolvedSecondaryTextColor)
+                    .foregroundColor(
+                        isHighlighted && showAccentHighlights
+                            ? resolvedAccentColor
+                            : resolvedSecondaryTextColor
+                    )
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(
@@ -675,7 +780,12 @@ private struct ScratchpadPillView: View {
                     ForEach(shownWindows) { window in
                         AppIconImage(icon: window.icon)
                             .frame(width: iconSize, height: iconSize)
-                            .opacity(window.isFocused ? 1 : 0.82)
+                            .opacity(
+                                WorkspaceBarIconOpacity.scratchpad(
+                                    isFocused: window.isFocused,
+                                    configured: inactiveIconOpacity
+                                )
+                            )
                             .accessibilityHidden(true)
                     }
 
@@ -698,17 +808,24 @@ private struct ScratchpadPillView: View {
         .animation(animationsEnabled ? .easeInOut(duration: 0.12) : nil, value: isHovered)
         .animation(animationsEnabled ? .easeInOut(duration: 0.15) : nil, value: isHighlighted)
         .background {
-            Capsule(style: .continuous)
-                .fill(isHighlighted ? resolvedAccentColor.opacity(0.18) : Color.secondary.opacity(0.08))
-                .background(.regularMaterial, in: Capsule(style: .continuous))
-                .overlay {
-                    Capsule(style: .continuous)
-                        .strokeBorder(
-                            item.isFocused ? resolvedAccentColor : Color.secondary
-                                .opacity(item.isVisible ? 0.36 : 0.22),
-                            lineWidth: item.isFocused ? 1.2 : 0.8
-                        )
-                }
+            if showItemBackgrounds {
+                Capsule(style: .continuous)
+                    .fill(
+                        isHighlighted && showAccentHighlights
+                            ? resolvedAccentColor.opacity(0.18)
+                            : Color.secondary.opacity(0.08)
+                    )
+                    .background(.regularMaterial, in: Capsule(style: .continuous))
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(
+                                item.isFocused && showAccentHighlights
+                                    ? resolvedAccentColor
+                                    : Color.secondary.opacity(item.isVisible ? 0.36 : 0.22),
+                                lineWidth: item.isFocused && showAccentHighlights ? 1.2 : 0.8
+                            )
+                    }
+            }
         }
         .onHover { hovering in
             isHovered = hovering
@@ -762,11 +879,43 @@ enum WorkspaceBarHiddenIndicatorStyle: Equatable {
     case partiallyHidden
 }
 
+enum WorkspaceBarIconOpacity {
+    static func standard(
+        isFocused: Bool,
+        isInFocusedWorkspace: Bool,
+        configured: Double?
+    ) -> Double {
+        if isFocused { return 1 }
+        if let configured { return configured }
+        return isInFocusedWorkspace ? 0.4 : 0.5
+    }
+
+    static func scratchpad(isFocused: Bool, configured: Double?) -> Double {
+        if isFocused { return 1 }
+        return configured ?? 0.82
+    }
+}
+
 struct WorkspaceBarWindowPresentation {
     let window: WorkspaceBarWindowItem
     let context: WorkspaceBarWindowContext
     let isFocused: Bool
     let isInFocusedWorkspace: Bool
+    let inactiveIconOpacity: Double?
+
+    init(
+        window: WorkspaceBarWindowItem,
+        context: WorkspaceBarWindowContext,
+        isFocused: Bool,
+        isInFocusedWorkspace: Bool,
+        inactiveIconOpacity: Double? = nil
+    ) {
+        self.window = window
+        self.context = context
+        self.isFocused = isFocused
+        self.isInFocusedWorkspace = isInFocusedWorkspace
+        self.inactiveIconOpacity = inactiveIconOpacity
+    }
 
     var hiddenIndicatorStyle: WorkspaceBarHiddenIndicatorStyle? {
         if window.isAppHidden {
@@ -786,13 +935,11 @@ struct WorkspaceBarWindowPresentation {
         if window.isAppHidden {
             return 0.9
         }
-        if isFocused {
-            return 1.0
-        }
-        if isInFocusedWorkspace {
-            return 0.4
-        }
-        return 0.5
+        return WorkspaceBarIconOpacity.standard(
+            isFocused: isFocused,
+            isInFocusedWorkspace: isInFocusedWorkspace,
+            configured: inactiveIconOpacity
+        )
     }
 
     var accessibilityLabel: String {
@@ -875,6 +1022,8 @@ private struct WindowIconView: View {
     let isInFocusedWorkspace: Bool
     let context: WorkspaceBarWindowContext
     let animationsEnabled: Bool
+    let showAccentHighlights: Bool
+    let inactiveIconOpacity: Double?
     let accentColor: Color?
     let textColor: Color?
     let onFocusWindow: (WindowHandle) -> Void
@@ -891,7 +1040,8 @@ private struct WindowIconView: View {
             window: window,
             context: context,
             isFocused: isFocused,
-            isInFocusedWorkspace: isInFocusedWorkspace
+            isInFocusedWorkspace: isInFocusedWorkspace,
+            inactiveIconOpacity: inactiveIconOpacity
         )
         Button {
             if window.windowCount > 1 {
@@ -963,11 +1113,11 @@ private struct WindowIconView: View {
     }
 
     private var glowRadius: CGFloat {
-        isFocused ? 4 : 0
+        isFocused && showAccentHighlights ? 4 : 0
     }
 
     private var glowOpacity: Double {
-        isFocused ? 0.5 : 0
+        isFocused && showAccentHighlights ? 0.5 : 0
     }
 }
 

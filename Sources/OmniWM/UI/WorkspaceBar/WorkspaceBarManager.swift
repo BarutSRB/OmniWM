@@ -57,6 +57,7 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
     case moveBelowMenuBar
     case splitActiveLeft
     case splitActiveRight
+    case fillLeftOfNotch
 
     var id: String {
         rawValue
@@ -72,6 +73,7 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
         case .moveBelowMenuBar: "Move Below Menu Bar"
         case .splitActiveLeft: "Split — Active Left"
         case .splitActiveRight: "Split — Active Right"
+        case .fillLeftOfNotch: "Fill Left of Notch"
         }
     }
 }
@@ -363,6 +365,11 @@ final class WorkspaceBarManager {
             showLabels: current.showLabels,
             showSystemStatsButton: current.showSystemStatsButton,
             backgroundOpacity: current.backgroundOpacity,
+            inactiveIconOpacity: current.inactiveIconOpacity,
+            transparentBackground: current.transparentBackground,
+            solidBlackBackground: current.solidBlackBackground,
+            showItemBackgrounds: current.showItemBackgrounds,
+            showAccentHighlights: current.showAccentHighlights,
             barHeight: current.barHeight,
             accentColor: resolved.accentColor,
             textColor: resolved.textColor
@@ -724,7 +731,20 @@ final class WorkspaceBarManager {
         removeAllBars()
     }
 
+    static func panelCollectionBehavior(for resolved: ResolvedBarSettings) -> NSWindow.CollectionBehavior {
+        resolved.notchMode == .fillLeftOfNotch
+            ? [.canJoinAllSpaces, .stationary]
+            : [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+    }
+
+    static func panelLevel(for resolved: ResolvedBarSettings) -> NSWindow.Level {
+        resolved.notchMode == .fillLeftOfNotch
+            ? NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+            : resolved.windowLevel.nsWindowLevel
+    }
+
     private func applySettingsToPanel(_ panel: NSPanel, resolved: ResolvedBarSettings) {
-        panel.level = resolved.windowLevel.nsWindowLevel
+        panel.collectionBehavior = Self.panelCollectionBehavior(for: resolved)
+        panel.level = Self.panelLevel(for: resolved)
     }
 }
