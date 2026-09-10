@@ -1,4 +1,4 @@
-.PHONY: format format-check lint lint-fix build run energy-profile test-skylight-live release-check verify check check-tool-versions check-swiftformat-version check-swiftlint-version
+.PHONY: format format-check lint lint-fix build run dev-install use-dev use-release energy-profile test-skylight-live release-check verify check check-tool-versions check-swiftformat-version check-swiftlint-version
 
 SWIFTFORMAT_VERSION = 0.63.0
 SWIFTLINT_VERSION = 0.65.1

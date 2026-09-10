@@ -24,7 +24,7 @@ RELEASE_BUNDLE_ID="com.barut.OmniWM"
 DEV_APP="$INSTALL_DIR/$DEV_APP_NAME.app"
 
 usage() {
-  sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 64
 }
 
