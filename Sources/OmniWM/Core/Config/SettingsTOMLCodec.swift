@@ -5,7 +5,7 @@ import Foundation
 import TOML
 
 enum SettingsTOMLCodec {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     private static let versionOneHotkeyIDs = [
         "toggleScratchpad.1",
@@ -134,12 +134,15 @@ enum SettingsTOMLCodec {
 
         let versionOneReport = version == 0 ? try migrateVersionZero(&raw) : nil
         let versionTwoAddedHotkeyIDs = version <= 1 ? migrateVersionOne(&raw) : []
-        let versionThreeDefaultedPaths = try migrateVersionTwo(&raw)
+        let versionThreeDefaultedPaths = version <= 2 ? try migrateVersionTwo(&raw) : []
+        let versionFourDefaultedPaths = migrateVersionThree(&raw)
         canonicalizeMigratedHotkeys(in: &raw)
         let report = SettingsMigrationReport(
             fromVersion: version,
             toVersion: currentSchemaVersion,
-            defaultedPaths: (versionOneReport?.defaultedPaths ?? []) + versionThreeDefaultedPaths,
+            defaultedPaths: (versionOneReport?.defaultedPaths ?? [])
+                + versionThreeDefaultedPaths
+                + versionFourDefaultedPaths,
             addedHotkeyIDs: (versionOneReport?.addedHotkeyIDs ?? []) + versionTwoAddedHotkeyIDs,
             mappedHotkeys: versionOneReport?.mappedHotkeys ?? [],
             retiredHotkeys: versionOneReport?.retiredHotkeys ?? []
@@ -354,6 +357,24 @@ enum SettingsTOMLCodec {
         )
         raw["schemaVersion"] = .integer(3)
         return added ? ["routing.arrangements"] : []
+    }
+
+    /// Version 3 to 4 adds the trackpad window move and resize gesture keys with their defaults.
+    private static func migrateVersionThree(_ raw: inout [String: TOMLNode]) -> [String] {
+        defer { raw["schemaVersion"] = .integer(4) }
+        let defaults = SettingsExport.defaults()
+        let additions: [(key: String, value: TOMLNode)] = [
+            ("windowMoveEnabled", .boolean(defaults.windowMoveGestureEnabled)),
+            ("windowMoveFingerCount", .integer(Int64(defaults.windowMoveGestureFingerCount.rawValue))),
+            ("windowResizeEnabled", .boolean(defaults.windowResizeGestureEnabled)),
+            ("windowResizeFingerCount", .integer(Int64(defaults.windowResizeGestureFingerCount.rawValue))),
+            ("windowGestureSensitivity", .float(defaults.windowGestureSensitivity))
+        ]
+        return additions.compactMap { addition in
+            addMissingValue(in: &raw, table: "gestures", key: addition.key, value: addition.value)
+                ? "gestures.\(addition.key)"
+                : nil
+        }
     }
 
     private static func appendMissingUnassignedHotkeys(

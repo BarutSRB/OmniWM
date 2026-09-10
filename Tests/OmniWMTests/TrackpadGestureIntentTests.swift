@@ -286,4 +286,156 @@ final class TrackpadGestureIntentTests: XCTestCase {
             CGFloat(-900)
         )
     }
+
+    func testWindowGestureModeClaimsFingerCountAndMoveWinsOverResize() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.windowMoveEnabled = true
+        config.windowMoveFingerCount = 4
+        config.windowResizeEnabled = true
+        config.windowResizeFingerCount = 3
+        XCTAssertEqual(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 4), .windowMove)
+        XCTAssertEqual(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 3), .windowResize)
+        XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 2))
+
+        config.windowResizeFingerCount = 4
+        XCTAssertEqual(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 4), .windowMove)
+        XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 3))
+    }
+
+    func testDisabledWindowGesturesNeverClaimTheirFingerCount() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.windowMoveFingerCount = 4
+        config.windowResizeFingerCount = 3
+        XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 4))
+        XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 3))
+        XCTAssertFalse(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: 4))
+    }
+
+    func testWindowGestureAllowsStartAndRequiresWindowContext() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.windowMoveEnabled = true
+        config.windowMoveFingerCount = 4
+        XCTAssertTrue(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: 4))
+        XCTAssertFalse(
+            TrackpadGestureIntent.hasCandidateMode(
+                config,
+                fingerCount: 4,
+                columnContextAvailable: true,
+                windowContextAvailable: false
+            )
+        )
+        XCTAssertTrue(
+            TrackpadGestureIntent.hasCandidateMode(
+                config,
+                fingerCount: 4,
+                columnContextAvailable: false,
+                windowContextAvailable: true
+            )
+        )
+    }
+
+    func testWindowGestureTakesPrecedenceOverColumnScrollAndWorkspaceSwipeForSharedCount() {
+        var config = makeConfig(columnFingers: 3, workspaceFingers: 3)
+        config.windowResizeEnabled = true
+        config.windowResizeFingerCount = 3
+
+        let horizontal = TrackpadGestureIntent.resolveMode(
+            config,
+            fingerCount: 3,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
+            columnScrollAxis: .horizontal,
+            columnContextAvailable: true,
+            windowContextAvailable: true
+        )
+        XCTAssertEqual(horizontal, .windowResize)
+
+        let vertical = TrackpadGestureIntent.resolveMode(
+            config,
+            fingerCount: 3,
+            cumulativeTranslation: CGVector(dx: 10, dy: 50),
+            columnScrollAxis: .horizontal,
+            columnContextAvailable: true,
+            windowContextAvailable: true
+        )
+        XCTAssertEqual(vertical, .windowResize)
+
+        XCTAssertFalse(
+            TrackpadGestureIntent.hasCandidateMode(config, fingerCount: 3, columnContextAvailable: true),
+            "A claimed finger count is not a column scroll candidate without a window under the cursor"
+        )
+        XCTAssertTrue(
+            TrackpadGestureIntent.hasCandidateMode(
+                config,
+                fingerCount: 3,
+                columnContextAvailable: true,
+                windowContextAvailable: true
+            )
+        )
+        XCTAssertNil(
+            TrackpadGestureIntent.resolveMode(
+                config,
+                fingerCount: 3,
+                cumulativeTranslation: CGVector(dx: 50, dy: 10),
+                columnScrollAxis: .horizontal,
+                columnContextAvailable: true,
+                windowContextAvailable: false
+            ),
+            "A claimed finger count must not fall back to column scroll when no window is under the cursor"
+        )
+    }
+
+    func testWindowGestureLeavesOtherFingerCountsToExistingGestures() {
+        var config = makeConfig(columnFingers: 3, workspaceFingers: 3)
+        config.windowMoveEnabled = true
+        config.windowMoveFingerCount = 4
+        let mode = TrackpadGestureIntent.resolveMode(
+            config,
+            fingerCount: 3,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
+            columnScrollAxis: .horizontal,
+            columnContextAvailable: true,
+            windowContextAvailable: true
+        )
+        XCTAssertEqual(mode, .columnScroll)
+    }
+
+    func testWindowGestureLocationScalesTrackpadTravelToMonitorAndClamps() {
+        let monitor = CGRect(x: 100, y: 200, width: 1600, height: 900)
+        let start = CGPoint(x: 500, y: 650)
+
+        let moved = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.2, y: 0.5),
+            currentTouch: CGPoint(x: 0.45, y: 0.4),
+            monitorFrame: monitor,
+            sensitivity: 1
+        )
+        XCTAssertEqual(moved.x, 900, accuracy: 0.001)
+        XCTAssertEqual(moved.y, 560, accuracy: 0.001)
+
+        let scaled = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.2, y: 0.5),
+            currentTouch: CGPoint(x: 0.3, y: 0.5),
+            monitorFrame: monitor,
+            sensitivity: 2
+        )
+        XCTAssertEqual(scaled.x, 820, accuracy: 0.001)
+
+        let clamped = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.9, y: 0.9),
+            currentTouch: CGPoint(x: 0.0, y: 0.0),
+            monitorFrame: monitor,
+            sensitivity: 3
+        )
+        XCTAssertEqual(clamped, CGPoint(x: monitor.minX, y: monitor.minY))
+    }
+
+    func testWindowModesReportAsWindowInteractions() {
+        XCTAssertTrue(TrackpadGestureMode.windowMove.isWindowInteraction)
+        XCTAssertTrue(TrackpadGestureMode.windowResize.isWindowInteraction)
+        XCTAssertFalse(TrackpadGestureMode.columnScroll.isWindowInteraction)
+        XCTAssertFalse(TrackpadGestureMode.workspaceSwitch(axis: .vertical).isWindowInteraction)
+    }
 }

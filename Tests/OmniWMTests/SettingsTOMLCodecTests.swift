@@ -565,6 +565,96 @@ final class SettingsTOMLCodecTests: XCTestCase {
         }
     }
 
+    func testWindowGestureDefaultsEncodeAndRoundTrip() throws {
+        let defaults = SettingsExport.defaults()
+        XCTAssertFalse(defaults.windowMoveGestureEnabled)
+        XCTAssertEqual(defaults.windowMoveGestureFingerCount, .four)
+        XCTAssertFalse(defaults.windowResizeGestureEnabled)
+        XCTAssertEqual(defaults.windowResizeGestureFingerCount, .three)
+        XCTAssertEqual(defaults.windowGestureSensitivity, 1.0)
+
+        let canonical = String(decoding: try SettingsTOMLCodec.encode(defaults), as: UTF8.self)
+        for line in [
+            "windowMoveEnabled = false",
+            "windowMoveFingerCount = 4",
+            "windowResizeEnabled = false",
+            "windowResizeFingerCount = 3",
+            "windowGestureSensitivity = 1.0"
+        ] {
+            XCTAssertTrue(canonical.contains(line), line)
+        }
+
+        var export = defaults
+        export.windowMoveGestureEnabled = true
+        export.windowMoveGestureFingerCount = .three
+        export.windowResizeGestureEnabled = true
+        export.windowResizeGestureFingerCount = .two
+        export.windowGestureSensitivity = 2.5
+        XCTAssertEqual(try SettingsTOMLCodec.decode(try SettingsTOMLCodec.encode(export)), export)
+    }
+
+    @MainActor
+    func testWindowGestureStoreMappingRoundTripsAndNormalizesSensitivity() {
+        let source = makeSettingsStore()
+        source.windowMoveGestureEnabled = true
+        source.windowMoveGestureFingerCount = .two
+        source.windowResizeGestureEnabled = true
+        source.windowResizeGestureFingerCount = .four
+        source.windowGestureSensitivity = 0.5
+
+        let destination = makeSettingsStore()
+        destination.applyExport(source.toExport())
+        XCTAssertTrue(destination.windowMoveGestureEnabled)
+        XCTAssertEqual(destination.windowMoveGestureFingerCount, .two)
+        XCTAssertTrue(destination.windowResizeGestureEnabled)
+        XCTAssertEqual(destination.windowResizeGestureFingerCount, .four)
+        XCTAssertEqual(destination.windowGestureSensitivity, 0.5)
+
+        destination.windowGestureSensitivity = .nan
+        XCTAssertEqual(destination.windowGestureSensitivity, SettingsExport.defaults().windowGestureSensitivity)
+        destination.windowGestureSensitivity = 0
+        XCTAssertEqual(destination.windowGestureSensitivity, 0.1)
+        destination.windowGestureSensitivity = 50
+        XCTAssertEqual(destination.windowGestureSensitivity, 5.0)
+    }
+
+    @MainActor
+    func testWindowGesturesToggleTrackpadGestureAvailability() {
+        let settings = makeSettingsStore()
+        settings.scrollGestureEnabled = false
+        settings.workspaceSwipeEnabled = false
+        XCTAssertFalse(settings.trackpadGesturesAvailable)
+
+        var notifications: [Bool] = []
+        settings.onTrackpadGestureAvailabilityChanged = { notifications.append($0) }
+
+        settings.windowMoveGestureEnabled = true
+        XCTAssertTrue(settings.trackpadGesturesAvailable)
+        settings.windowResizeGestureEnabled = true
+        settings.windowMoveGestureEnabled = false
+        XCTAssertTrue(settings.trackpadGesturesAvailable)
+        settings.windowResizeGestureEnabled = false
+        XCTAssertFalse(settings.trackpadGesturesAvailable)
+        XCTAssertEqual(notifications, [true, false])
+    }
+
+    @MainActor
+    func testWindowGestureShadowingReportsClaimedFingerCounts() {
+        let settings = makeSettingsStore()
+        settings.scrollGestureEnabled = true
+        settings.gestureFingerCount = .three
+        XCTAssertNil(settings.windowGestureShadowing(fingerCount: .three))
+
+        settings.windowResizeGestureEnabled = true
+        settings.windowResizeGestureFingerCount = .three
+        XCTAssertEqual(settings.windowGestureShadowing(fingerCount: .three), .windowResize)
+        XCTAssertNil(settings.windowGestureShadowing(fingerCount: .four))
+
+        settings.windowMoveGestureEnabled = true
+        settings.windowMoveGestureFingerCount = .three
+        XCTAssertEqual(settings.windowGestureShadowing(fingerCount: .three), .windowMove)
+    }
+
     @MainActor
     func testHorizontalWorkspaceSwipeSelectionSurvivesFingerCountCollision() {
         var export = SettingsExport.defaults()
@@ -763,6 +853,16 @@ final class SettingsTOMLCodecTests: XCTestCase {
                 "workspaceSwipeAxis = \"\(WorkspaceSwipeAxis.vertical.rawValue)\"",
                 "workspaceSwipeAxis = \"diagonal\"",
                 "workspaceSwipeAxis"
+            ),
+            (
+                "windowMoveFingerCount = \(GestureFingerCount.four.rawValue)\n",
+                "windowMoveFingerCount = 5\n",
+                "windowMoveFingerCount"
+            ),
+            (
+                "windowResizeFingerCount = \(GestureFingerCount.three.rawValue)\n",
+                "windowResizeFingerCount = 1\n",
+                "windowResizeFingerCount"
             ),
             (
                 "position = \"\(QuakeTerminalPosition.center.rawValue)\"",

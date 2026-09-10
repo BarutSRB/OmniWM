@@ -23,6 +23,7 @@ struct MouseTrackpadSettingsTab: View {
         Form {
             niriColumnScrollingSection
             workspaceSwipeSection
+            trackpadWindowGesturesSection
             trackpadDirectionSection
             mouseMoveAndResizeSection
             focusFollowsMouseSection
@@ -131,6 +132,73 @@ struct MouseTrackpadSettingsTab: View {
         }
     }
 
+    private var trackpadWindowGesturesSection: some View {
+        Section("Trackpad Window Move & Resize") {
+            SettingsCaption(
+                "Drag with several fingers, without clicking, to move or resize the tiled window under the cursor. "
+                    + "Lift your fingers to drop."
+            )
+
+            Toggle("Enable Move Gesture", isOn: $settings.windowMoveGestureEnabled)
+
+            Picker("Move Fingers", selection: $settings.windowMoveGestureFingerCount) {
+                ForEach(GestureFingerCount.allCases, id: \.self) { count in
+                    Text(count.displayName).tag(count)
+                }
+            }
+            .disabled(!settings.windowMoveGestureEnabled)
+
+            Toggle("Enable Resize Gesture", isOn: $settings.windowResizeGestureEnabled)
+
+            Picker("Resize Fingers", selection: $settings.windowResizeGestureFingerCount) {
+                ForEach(GestureFingerCount.allCases, id: \.self) { count in
+                    Text(count.displayName).tag(count)
+                }
+            }
+            .disabled(!settings.windowResizeGestureEnabled)
+
+            SettingsCaption("Resize pulls the window corner nearest the cursor, like a modifier + right drag.")
+
+            SettingsSliderRow(
+                label: "Gesture Sensitivity",
+                value: $settings.windowGestureSensitivity,
+                range: SettingsStore.windowGestureSensitivityRange,
+                step: 0.1,
+                valueText: String(format: "%.1f", settings.windowGestureSensitivity) + "x"
+            )
+            .disabled(!settings.windowMoveGestureEnabled && !settings.windowResizeGestureEnabled)
+
+            SettingsCaption("At 1.0x, sweeping the whole trackpad carries the window across the whole screen.")
+
+            ForEach(windowGestureConflictCaptions, id: \.self) { caption in
+                SettingsCaption(caption)
+            }
+
+            if showWindowGestureMissionControlWarning {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label {
+                        Text("macOS gesture conflict")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+
+                    Text(
+                        "macOS still sees these fingers. Turn off Mission Control, App Exposé, and Swipe between full-screen applications for this finger count in  → System Settings → Trackpad → More Gestures, or the system gesture fires alongside the window gesture."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
+                        .controlSize(.small)
+                        .accessibilityHint(
+                            "Opens System Settings. Select More Gestures, then turn off the conflicting gestures."
+                        )
+                }
+            }
+        }
+    }
+
     private var trackpadDirectionSection: some View {
         Section("Trackpad Direction") {
             Toggle("Invert Direction (Natural)", isOn: $settings.gestureInvertDirection)
@@ -209,6 +277,59 @@ struct MouseTrackpadSettingsTab: View {
 
     private var showTwoFingerWorkspaceSwipeWarning: Bool {
         settings.workspaceSwipeEnabled && settings.workspaceSwipeFingerCount == .two
+    }
+
+    private var showWindowGestureMissionControlWarning: Bool {
+        (settings.windowMoveGestureEnabled
+            && missionControlGestureProbe.shouldWarnForWindowGesture(
+                fingerCount: settings.windowMoveGestureFingerCount
+            ))
+            || (settings.windowResizeGestureEnabled
+                && missionControlGestureProbe.shouldWarnForWindowGesture(
+                    fingerCount: settings.windowResizeGestureFingerCount
+                ))
+    }
+
+    /// Window gestures claim their finger count outright, so the user should know which other gestures
+    /// that silences.
+    private var windowGestureConflictCaptions: [String] {
+        var captions: [String] = []
+        if settings.windowMoveGestureEnabled,
+           settings.windowResizeGestureEnabled,
+           settings.windowMoveGestureFingerCount == settings.windowResizeGestureFingerCount
+        {
+            captions.append(
+                "Move and resize share \(settings.windowMoveGestureFingerCount.displayName.lowercased()); "
+                    + "move wins and resize never fires."
+            )
+        }
+        if settings.scrollGestureEnabled,
+           let shadow = settings.windowGestureShadowing(fingerCount: settings.gestureFingerCount)
+        {
+            captions.append(
+                "\(Self.windowGestureName(shadow)) uses \(settings.gestureFingerCount.displayName.lowercased()), "
+                    + "so column scrolling with that count is disabled."
+            )
+        }
+        if settings.workspaceSwipeEnabled,
+           let shadow = settings.windowGestureShadowing(fingerCount: settings.workspaceSwipeFingerCount)
+        {
+            captions.append(
+                "\(Self.windowGestureName(shadow)) uses "
+                    + "\(settings.workspaceSwipeFingerCount.displayName.lowercased()), "
+                    + "so workspace swipe with that count is disabled."
+            )
+        }
+        return captions
+    }
+
+    private static func windowGestureName(_ mode: TrackpadGestureMode) -> String {
+        switch mode {
+        case .windowMove: "The move gesture"
+        case .windowResize: "The resize gesture"
+        case .columnScroll: "Column scrolling"
+        case .workspaceSwitch: "Workspace swipe"
+        }
     }
 
     private var workspaceSwipeFingerPickerHint: String {

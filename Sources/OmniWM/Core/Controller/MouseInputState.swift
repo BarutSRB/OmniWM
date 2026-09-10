@@ -14,6 +14,11 @@ struct MouseInputState {
         let columnScrollCandidate: Bool
         let columnScrollAxis: WorkspaceSwipeAxis
         let workspaceAxis: WorkspaceSwipeAxis?
+        /// Layout of the tiled window under the cursor when the gesture began, when a window move or
+        /// resize gesture could target it. `nil` means no window gesture candidate.
+        let windowGestureLayout: LayoutType?
+        /// Cursor location when the gesture began; window gestures steer a virtual cursor from here.
+        let startLocation: CGPoint
     }
 
     enum GesturePhase {
@@ -72,6 +77,8 @@ struct MouseInputState {
     var gestureLastAverageY: CGFloat = 0.0
     var lockedGestureContext: LockedGestureContext?
     var activeGestureMode: TrackpadGestureMode?
+    /// True while the active move or resize was started by a trackpad gesture instead of a mouse button.
+    var gestureOwnsWindowInteraction = false
     var viewportGestureSessionID: AnimationDriver.GestureSessionID?
     var workspaceSwipeFired = false
     let workspaceSwipeTracker = SwipeTracker()

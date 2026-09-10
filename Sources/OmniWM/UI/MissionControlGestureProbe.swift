@@ -84,6 +84,12 @@ final class MissionControlGestureProbe {
         return fingerCount == .three || fingerCount == .four
     }
 
+    /// Window move and resize gestures travel in every direction, so any vertical component can trigger
+    /// Mission Control whenever it is bound to the same finger count.
+    func shouldWarnForWindowGesture(fingerCount: GestureFingerCount) -> Bool {
+        shouldWarn(axis: .vertical, fingerCount: fingerCount)
+    }
+
     func openTrackpadSettings() {
         guard let url = URL(string: Self.trackpadSettingsURLString) else { return }
         urlOpener(url)

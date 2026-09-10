@@ -8,7 +8,7 @@ sidebar:
 Complete reference for `settings.toml`, in the file's canonical order. The authoritative schema is [`CanonicalTOMLConfig.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/CanonicalTOMLConfig.swift); defaults come from [`SettingsExport.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/SettingsExport.swift) and [`BuiltInSettingsDefaults.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/BuiltInSettingsDefaults.swift).
 
 :::caution
-The current schema is strict — a missing required key in a version 3 file invalidates the whole file, `hotkeys` must list every assignable action exactly once, and an enumerated string key must use one of its listed values (an unknown value rejects the whole file, exactly like a missing key). Edit values in place; see [Configuration](/config/configuration/).
+The current schema is strict — a missing required key in a version 4 file invalidates the whole file, `hotkeys` must list every assignable action exactly once, and an enumerated string key must use one of its listed values (an unknown value rejects the whole file, exactly like a missing key). Edit values in place; see [Configuration](/config/configuration/).
 :::
 
 **Conventions**
@@ -27,10 +27,10 @@ The current schema is strict — a missing required key in a version 3 file inva
 The canonical file declares:
 
 ```toml
-schemaVersion = 3
+schemaVersion = 4
 ```
 
-An absent version identifies a legacy version 0 file, while OmniWM v0.6.4 emitted version 1. OmniWM upgrades version 0, 1, and 2 files sequentially in memory before strict version 3 validation, retaining the compatibility guarantee for settings emitted by v0.6.2 through v0.6.4. The version 2 to version 3 step moves the old flat routing rows into one saved arrangement. A successful upgrade creates an exact write-once `settings.toml.pre-v3` or `settings.toml.pre-v3.1` backup, then atomically rewrites canonical TOML once; this can reorder keys and removes comments, while preserving unrecognized keys when their owner can be matched safely. Valid release migrations never use the `.corrupt` recovery slots. Older schema-less files are attempted but remain untouched with defaults active if they cannot validate, and files declaring a newer unsupported version remain untouched with configuration writes blocked. See [Automatic version upgrades](/config/configuration/#automatic-version-upgrades) for the migration rules and recovery behavior.
+An absent version identifies a legacy version 0 file, while OmniWM v0.6.4 emitted version 1 and v0.6.5 through v0.6.9 emitted version 3. OmniWM upgrades version 0, 1, 2, and 3 files sequentially in memory before strict version 4 validation, retaining the compatibility guarantee for settings emitted by v0.6.2 through v0.6.9. The version 2 to version 3 step moves the old flat routing rows into one saved arrangement; the version 3 to version 4 step adds the trackpad window move and resize gesture keys with their defaults. A successful upgrade creates an exact write-once `settings.toml.pre-v4` or `settings.toml.pre-v4.1` backup, then atomically rewrites canonical TOML once; this can reorder keys and removes comments, while preserving unrecognized keys when their owner can be matched safely. Valid release migrations never use the `.corrupt` recovery slots. Older schema-less files are attempted but remain untouched with defaults active if they cannot validate, and files declaring a newer unsupported version remain untouched with configuration writes blocked. See [Automatic version upgrades](/config/configuration/#automatic-version-upgrades) for the migration rules and recovery behavior.
 
 ## general
 
@@ -226,6 +226,11 @@ Mouse and trackpad gestures.
 | `workspaceSwipeEnabled` | boolean | `false` | Trackpad swipe switches to the next/previous workspace. |
 | `workspaceSwipeFingerCount` | integer | `3` | Workspace-swipe finger count: `2`, `3`, or `4`. |
 | `workspaceSwipeAxis` | string | `"vertical"` | Workspace-swipe axis: `horizontal` or `vertical`. |
+| `windowMoveEnabled` | boolean | `false` | Multi-finger trackpad drag (no click) moves the tiled window under the cursor; lifting the fingers drops it. Claims its finger count outright, so column scrolling or workspace swipe bound to the same count stop firing. |
+| `windowMoveFingerCount` | integer | `4` | Window-move finger count: `2`, `3`, or `4`. |
+| `windowResizeEnabled` | boolean | `false` | Multi-finger trackpad drag (no click) resizes the tiled window under the cursor from the corner nearest the cursor. When move and resize share a count, move wins. |
+| `windowResizeFingerCount` | integer | `3` | Window-resize finger count: `2`, `3`, or `4`. |
+| `windowGestureSensitivity` | float | `1.0` | Window gesture travel scale, `0.1` to `5.0`; at `1.0` a full trackpad sweep crosses the whole monitor. |
 
 ## statusBar
 
