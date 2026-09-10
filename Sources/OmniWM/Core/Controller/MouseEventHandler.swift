@@ -1178,8 +1178,8 @@ final class MouseEventHandler {
         wsId: WorkspaceDescriptor.ID,
         monitor: Monitor,
         at location: CGPoint,
-        isInsertMode: Bool,
-        button: MouseButton?
+        isInsertMode: Bool = false,
+        button: MouseButton? = nil
     ) -> Bool {
         guard let controller else { return false }
         let geometry = controller.niriInteractionGeometry(for: monitor)
@@ -1238,7 +1238,7 @@ final class MouseEventHandler {
         wsId: WorkspaceDescriptor.ID,
         monitor: Monitor,
         at location: CGPoint,
-        button: MouseButton?
+        button: MouseButton? = nil
     ) -> Bool {
         guard let controller,
               let frame = tiledWindow.renderedFrame ?? tiledWindow.frame
@@ -1320,7 +1320,7 @@ final class MouseEventHandler {
         engine: DwindleLayoutEngine,
         wsId: WorkspaceDescriptor.ID,
         at location: CGPoint,
-        button: MouseButton?
+        button: MouseButton? = nil
     ) -> Bool {
         guard let controller else { return false }
         let now = controller.animationClock.now()
@@ -1348,7 +1348,7 @@ final class MouseEventHandler {
         monitor: Monitor,
         at location: CGPoint,
         edges requestedEdges: ResizeEdge? = nil,
-        button: MouseButton?
+        button: MouseButton? = nil
     ) -> Bool {
         guard let controller,
               let node = engine.findNode(for: token, in: wsId),
@@ -2530,16 +2530,11 @@ final class MouseEventHandler {
             && fingerCount == config.columnScrollFingerCount
             && supportsColumnScroll
         let isWorkspaceCandidate = config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount
-        let columnScrollAxis: WorkspaceSwipeAxis
-        if let engine = controller.niriEngine, supportsColumnScroll {
-            columnScrollAxis = resolvedNiriOrientation(
-                engine: engine,
-                workspaceId: workspace.id,
-                monitor: monitor
-            ) == .horizontal ? .horizontal : .vertical
-        } else {
-            columnScrollAxis = .horizontal
-        }
+        let columnScrollAxis = gestureColumnScrollAxis(
+            workspaceId: workspace.id,
+            monitor: monitor,
+            supportsColumnScroll: supportsColumnScroll
+        )
         let workspaceAxis: WorkspaceSwipeAxis? = if isWorkspaceCandidate {
             if columnScrollCandidate {
                 columnScrollAxis == .horizontal ? .vertical : .horizontal
@@ -2559,6 +2554,17 @@ final class MouseEventHandler {
             windowGestureLayout: windowGestureLayout,
             startLocation: location
         )
+    }
+
+    private func gestureColumnScrollAxis(
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        supportsColumnScroll: Bool
+    ) -> WorkspaceSwipeAxis {
+        guard let engine = controller?.niriEngine, supportsColumnScroll else { return .horizontal }
+        return resolvedNiriOrientation(engine: engine, workspaceId: workspaceId, monitor: monitor) == .horizontal
+            ? .horizontal
+            : .vertical
     }
 
     /// Resolves which layout engine owns the tiled window under `location`, or nil when a window
@@ -2600,69 +2606,12 @@ final class MouseEventHandler {
         else { return false }
         let wsId = lockedContext.workspaceId
         let location = lockedContext.startLocation
-        let began: Bool
-        switch (layout, mode) {
-        case (.dwindle, .windowMove):
-            guard let engine = controller.dwindleEngine,
-                  let token = engine.hitTestFocusableWindow(
-                      point: location,
-                      in: wsId,
-                      at: controller.animationClock.now()
-                  )
-            else { return false }
-            began = beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location, button: nil)
-        case (.dwindle, .windowResize):
-            let now = controller.animationClock.now()
-            guard let engine = controller.dwindleEngine,
-                  let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: now),
-                  let frame = engine.presentedFrame(for: token, in: wsId, at: now)
-            else { return false }
-            // A gesture has no grab point to honor, so steer the edges that can actually move.
-            let edges = Self.gestureResizeEdges(
-                nearest: resizeEdges(for: location, in: frame),
-                resizable: engine.resizableEdges(for: token, in: wsId)
-            )
-            guard !edges.isEmpty else {
-                MouseTrace.record("gesture: dwindle resize has no resizable edge for \(token)")
-                return false
-            }
-            began = beginDwindleResize(
-                token: token,
-                engine: engine,
-                wsId: wsId,
-                monitor: monitor,
-                at: location,
-                edges: edges,
-                button: nil
-            )
-        case (_, .windowMove):
-            guard let engine = controller.niriEngine,
-                  let window = engine.hitTestTiled(point: location, in: wsId)
-            else { return false }
-            began = beginNiriMove(
-                window: window,
-                engine: engine,
-                wsId: wsId,
-                monitor: monitor,
-                at: location,
-                isInsertMode: false,
-                button: nil
-            )
-        case (_, .windowResize):
-            guard let engine = controller.niriEngine,
-                  let window = engine.hitTestTiled(point: location, in: wsId)
-            else { return false }
-            began = beginNiriResize(
-                window: window,
-                engine: engine,
-                wsId: wsId,
-                monitor: monitor,
-                at: location,
-                button: nil
-            )
-        case (_, .columnScroll),
-             (_, .workspaceSwitch):
-            return false
+        let began = switch layout {
+        case .dwindle:
+            beginDwindleGestureInteraction(mode, wsId: wsId, monitor: monitor, at: location)
+        case .niri,
+             .defaultLayout:
+            beginNiriGestureInteraction(mode, wsId: wsId, monitor: monitor, at: location)
         }
         guard began else {
             MouseTrace.record("gesture: \(mode) begin refused by \(layout) engine at \(TraceFormat.point(location))")
@@ -2696,6 +2645,63 @@ final class MouseEventHandler {
             }
         }
         return edges
+    }
+
+    private func beginDwindleGestureInteraction(
+        _ mode: TrackpadGestureMode,
+        wsId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        at location: CGPoint
+    ) -> Bool {
+        guard let controller, let engine = controller.dwindleEngine else { return false }
+        let now = controller.animationClock.now()
+        guard let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: now) else { return false }
+        switch mode {
+        case .windowMove:
+            return beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location)
+        case .windowResize:
+            guard let frame = engine.presentedFrame(for: token, in: wsId, at: now) else { return false }
+            // A gesture has no grab point to honor, so steer the edges that can actually move.
+            let edges = Self.gestureResizeEdges(
+                nearest: resizeEdges(for: location, in: frame),
+                resizable: engine.resizableEdges(for: token, in: wsId)
+            )
+            guard !edges.isEmpty else {
+                MouseTrace.record("gesture: dwindle resize has no resizable edge for \(token)")
+                return false
+            }
+            return beginDwindleResize(
+                token: token,
+                engine: engine,
+                wsId: wsId,
+                monitor: monitor,
+                at: location,
+                edges: edges
+            )
+        case .columnScroll,
+             .workspaceSwitch:
+            return false
+        }
+    }
+
+    private func beginNiriGestureInteraction(
+        _ mode: TrackpadGestureMode,
+        wsId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        at location: CGPoint
+    ) -> Bool {
+        guard let controller, let engine = controller.niriEngine,
+              let window = engine.hitTestTiled(point: location, in: wsId)
+        else { return false }
+        switch mode {
+        case .windowMove:
+            return beginNiriMove(window: window, engine: engine, wsId: wsId, monitor: monitor, at: location)
+        case .windowResize:
+            return beginNiriResize(window: window, engine: engine, wsId: wsId, monitor: monitor, at: location)
+        case .columnScroll,
+             .workspaceSwitch:
+            return false
+        }
     }
 
     /// Where the gesture's virtual cursor currently sits, derived from finger travel since the gesture began.
