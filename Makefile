@@ -36,6 +36,17 @@ run:
 	-pkill -x OmniWM
 	open ./dist/OmniWM.app
 
+# Side-by-side dev copy: "/Applications/OmniWM Dev.app" with its own bundle id,
+# so its privacy grants never collide with the release install.
+dev-install:
+	./Scripts/omniwm-dev.sh install
+
+use-dev:
+	./Scripts/omniwm-dev.sh use dev
+
+use-release:
+	./Scripts/omniwm-dev.sh use release
+
 energy-profile:
 	./Scripts/energy-profile.sh
 

@@ -4,7 +4,12 @@ set -euo pipefail
 CONFIG="${1:-release}"
 SIGN_AND_NOTARIZE="${2:-true}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_DIR="$ROOT_DIR/dist/OmniWM.app"
+# A side-by-side dev install sets these so macOS treats it as a separate app
+# (own privacy grants, own login item). The executable stays "OmniWM" because
+# the launch conflict checker and build info key off that name.
+APP_NAME="${OMNIWM_APP_NAME:-OmniWM}"
+BUNDLE_ID="${OMNIWM_BUNDLE_ID:-com.barut.OmniWM}"
+APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
 GHOSTTY_LIBRARY_DIR="$("$ROOT_DIR/Scripts/ghostty-preflight.sh" print-library-dir)"
 SWIFT_BUILD_ARGS=(-c "$CONFIG" --arch arm64)
 
@@ -38,6 +43,11 @@ cp "$CLI_EXECUTABLE" "$APP_DIR/Contents/MacOS/omniwmctl"
 cp "$ROOT_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 if command -v plutil >/dev/null 2>&1; then
   plutil -replace OMNIWMGitHash -string "$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo SNAPSHOT)" "$APP_DIR/Contents/Info.plist"
+  if [ "$APP_NAME" != "OmniWM" ] || [ "$BUNDLE_ID" != "com.barut.OmniWM" ]; then
+    plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$APP_DIR/Contents/Info.plist"
+    plutil -replace CFBundleName -string "$APP_NAME" "$APP_DIR/Contents/Info.plist"
+    plutil -replace CFBundleDisplayName -string "$APP_NAME" "$APP_DIR/Contents/Info.plist"
+  fi
 fi
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$BUILD_DIR/OmniWM_OmniWM.bundle" "$APP_DIR/Contents/Resources/"
