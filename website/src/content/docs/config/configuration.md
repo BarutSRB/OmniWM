@@ -64,6 +64,7 @@ The full schema is documented key by key in the [Settings Reference](/config/set
 | [`[focus]`](/config/settings-reference/#focus) | Focus-follows-mouse and monitor-edge focus behavior |
 | [`[mouseWarp]`](/config/settings-reference/#mousewarp) | Cursor warping between monitors |
 | [`[routing]`](/config/settings-reference/#routing) | macOS vs. custom routing and saved arrangements per connected display set |
+| [`[monitors]`](/config/settings-reference/#monitors) | Optional ranking that decides which connected display is Main, Secondary, and so on |
 | [`[gaps]`](/config/settings-reference/#gaps) | Inner and outer gaps |
 | [`[niri]`](/config/settings-reference/#niri) | Scrolling (Niri) layout options |
 | [`[dwindle]`](/config/settings-reference/#dwindle) | Dwindle (BSP) layout options |

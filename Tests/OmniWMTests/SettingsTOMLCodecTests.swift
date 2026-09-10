@@ -380,6 +380,32 @@ final class SettingsTOMLCodecTests: XCTestCase {
         XCTAssertNil(decoded.quakeTerminalOpacity)
     }
 
+    func testMonitorRankingRoundTripsInOrderAndTableIsOmittedWhenEmpty() throws {
+        let defaults = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
+        XCTAssertFalse(defaults.contains("[monitors]"))
+        XCTAssertFalse(defaults.contains("ranking"))
+        XCTAssertEqual(try SettingsTOMLCodec.decode(Data(defaults.utf8)).monitorRanking, [])
+
+        var export = SettingsExport.defaults()
+        export.monitorRanking = [
+            OutputId(displayUUID: "22222222-2222-2222-2222-222222222222", name: "DELL U3423WE"),
+            OutputId(displayId: 7, name: "LG HDR 4K"),
+            OutputId(name: "Built-in Retina Display")
+        ]
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let toml = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(toml.contains("[[monitors.ranking]]"), toml)
+        XCTAssertTrue(toml.contains("displayUUID = \"22222222-2222-2222-2222-222222222222\""), toml)
+
+        let decoded = try SettingsTOMLCodec.decode(data)
+        XCTAssertEqual(decoded.monitorRanking.map(\.name), ["DELL U3423WE", "LG HDR 4K", "Built-in Retina Display"])
+        XCTAssertEqual(decoded.monitorRanking[0].displayUUID, "22222222-2222-2222-2222-222222222222")
+        XCTAssertEqual(decoded.monitorRanking[1].displayId, 7)
+        XCTAssertNil(decoded.monitorRanking[2].displayUUID)
+        XCTAssertNil(decoded.monitorRanking[2].displayId)
+    }
+
     @MainActor
     func testSavePathPreservesUnknownKeys() throws {
         let directory = FileManager.default.temporaryDirectory

@@ -33,6 +33,7 @@ struct MonitorSetupDraft {
     var mouseWarpEnabled: Bool
     private(set) var workspaceConfigurations: [WorkspaceConfiguration]
     private let monitorIdentities: Set<OutputId>
+    private let monitorRanking: [OutputId]
     private var draftCreatedWorkspaceIDs: Set<WorkspaceConfiguration.ID>
 
     init(
@@ -40,10 +41,12 @@ struct MonitorSetupDraft {
         routingMode: MonitorRoutingMode,
         arrangements: [MonitorArrangement],
         mouseWarpEnabled: Bool,
-        workspaceConfigurations: [WorkspaceConfiguration]
+        workspaceConfigurations: [WorkspaceConfiguration],
+        monitorRanking: [OutputId] = []
     ) {
         monitorIDs = Set(monitors.map(\.id))
         monitorIdentities = Set(monitors.map(OutputId.init(from:)))
+        self.monitorRanking = monitorRanking
         self.mouseWarpEnabled = mouseWarpEnabled
         self.workspaceConfigurations = workspaceConfigurations.sorted {
             WorkspaceIDPolicy.sortsBefore($0.name, $1.name)
@@ -139,7 +142,7 @@ struct MonitorSetupDraft {
         let coveredMonitorIDs = Set(workspaceConfigurations.compactMap { configuration in
             configuration.monitorAssignment
                 .toMonitorDescription()
-                .resolveMonitor(sortedMonitors: sortedMonitors)?
+                .resolveMonitor(sortedMonitors: sortedMonitors, ranking: monitorRanking)?
                 .id
         })
         return sortedMonitors.filter { !coveredMonitorIDs.contains($0.id) }
