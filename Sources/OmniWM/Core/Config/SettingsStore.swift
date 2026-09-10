@@ -189,6 +189,14 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var borderGradient = SettingsStore.defaultExport.borderGradient {
+        didSet { scheduleSave() }
+    }
+
+    var borderGlow = SettingsStore.defaultExport.borderGlow {
+        didSet { scheduleSave() }
+    }
+
     var borderColorRed: Double {
         get { borderColor.red }
         set {
@@ -741,6 +749,7 @@ final class SettingsStore {
         runtimeState.flushNow()
     }
 
+    /// Creates a serializable snapshot of the current settings.
     func toExport() -> SettingsExport {
         SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
@@ -777,6 +786,8 @@ final class SettingsStore {
             borderColorGreen: borderColorGreen,
             borderColorBlue: borderColorBlue,
             borderColorAlpha: borderColorAlpha,
+            borderGradient: borderGradient,
+            borderGlow: borderGlow,
             overviewZoom: overviewZoom,
             overviewBackdropColor: overviewBackdropColor,
             overviewNormalBorderColor: overviewNormalBorderColor,
@@ -861,8 +872,11 @@ final class SettingsStore {
         )
     }
 
+    /// Applies a validated settings snapshot while preserving safe prior values.
     func applyExport(_ export: SettingsExport) {
         let baseline = SettingsStore.defaultExport
+        let previousBorderGradient = borderGradient
+        let previousBorderGlow = borderGlow
         let trackpadGesturesWereAvailable = scrollGestureEnabled || workspaceSwipeEnabled
         isApplyingExport = true
         defer {
@@ -915,6 +929,14 @@ final class SettingsStore {
             green: SettingsStore.validatedColorComponent(export.borderColorGreen),
             blue: SettingsStore.validatedColorComponent(export.borderColorBlue),
             alpha: SettingsStore.validatedColorComponent(export.borderColorAlpha)
+        )
+        borderGradient = SettingsStore.validatedBorderGradient(
+            export.borderGradient,
+            fallback: previousBorderGradient ?? baseline.borderGradient
+        )
+        borderGlow = SettingsStore.validatedBorderGlow(
+            export.borderGlow,
+            fallback: previousBorderGlow ?? baseline.borderGlow
         )
 
         overviewZoom = SettingsStore.validatedOverviewZoom(export.overviewZoom)
@@ -1373,8 +1395,58 @@ final class SettingsStore {
         min(12.0, max(1.0, width))
     }
 
+    /// Clamps a finite color component into the supported unit interval.
     static func validatedColorComponent(_ value: Double) -> Double {
-        min(1.0, max(0.0, value))
+        guard value.isFinite else { return 0 }
+        return min(1.0, max(0.0, value))
+    }
+
+    /// Validates gradient structure and clamps its finite color components.
+    static func validatedBorderGradient(
+        _ gradient: BorderGradient?,
+        fallback: BorderGradient?
+    ) -> BorderGradient? {
+        guard var gradient else { return nil }
+        guard isFinite(gradient.start),
+              isFinite(gradient.end)
+        else {
+            return fallback
+        }
+        gradient.start = validatedColor(gradient.start)
+        gradient.end = validatedColor(gradient.end)
+        return gradient
+    }
+
+    /// Validates the supported glow radius and opacity ranges.
+    static func validatedBorderGlow(
+        _ glow: BorderGlow?,
+        fallback: BorderGlow?
+    ) -> BorderGlow? {
+        guard var glow else { return nil }
+        guard glow.radius.isFinite, glow.opacity.isFinite,
+              glow.radius >= 0, glow.radius <= 32,
+              glow.opacity >= 0, glow.opacity <= 1
+        else {
+            return fallback
+        }
+        glow.radius = min(32, max(0, glow.radius))
+        glow.opacity = min(1, max(0, glow.opacity))
+        return glow
+    }
+
+    /// Reports whether every component of a settings color is finite.
+    private static func isFinite(_ color: SettingsColor) -> Bool {
+        color.red.isFinite && color.green.isFinite && color.blue.isFinite && color.alpha.isFinite
+    }
+
+    /// Returns a settings color with all components clamped to valid values.
+    private static func validatedColor(_ color: SettingsColor) -> SettingsColor {
+        SettingsColor(
+            red: validatedColorComponent(color.red),
+            green: validatedColorComponent(color.green),
+            blue: validatedColorComponent(color.blue),
+            alpha: validatedColorComponent(color.alpha)
+        )
     }
 
     static func validatedOverviewZoom(_ value: Double) -> Double {

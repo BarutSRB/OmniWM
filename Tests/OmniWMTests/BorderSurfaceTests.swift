@@ -105,9 +105,10 @@ final class BorderSurfaceTests: XCTestCase {
             )
         }
 
+        /// Rasterizes the complete retained layer tree for pixel assertions.
         func rasterize(_ panel: RecordingLayerPanel) throws {
-            let context = try XCTUnwrap(Self.makeContext(size: panel.borderLayer.bounds.size))
-            panel.borderLayer.render(in: context)
+            let context = try XCTUnwrap(Self.makeContext(size: panel.containerLayer.bounds.size))
+            panel.containerLayer.render(in: context)
             contextsByWindowId[UInt32(panel.windowNumber)] = context
         }
 
@@ -471,14 +472,27 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    /// Confirms glow content is cleared before retained-panel reuse.
     func testLayerBorderPreservesSurfaceLifecycle() throws {
         let recorder = BorderOperationsRecorder()
+        let configRedWithGlow = BorderConfig(
+            enabled: true,
+            width: 4,
+            color: configRed.color,
+            gradient: BorderGradient(
+                enabled: true,
+                start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
+                end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
+                direction: .topLeftToBottomRight
+            ),
+            glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        )
         let applier = BorderSurfaceApplier(
             borderWindowOperations: recorder.operations(),
             cornerSampleProvider: { _ in nil }
         )
         defer { applier.cleanup() }
-        XCTAssertTrue(applier.apply(desired(configRed), forceOrdering: false).didApply)
+        XCTAssertTrue(applier.apply(desired(configRedWithGlow), forceOrdering: false).didApply)
         let panel = try XCTUnwrap(recorder.layerPanels.first)
         let id = panel.windowNumber
         XCTAssertTrue(SurfaceCoordinator.shared.contains(windowNumber: id))
@@ -509,10 +523,14 @@ final class BorderSurfaceTests: XCTestCase {
 
         _ = applier.apply(nil, forceOrdering: false)
         XCTAssertGreaterThanOrEqual(panel.hides, 1)
+        XCTAssertTrue(panel.contentView?.isHidden ?? false)
+        XCTAssertTrue(panel.containerLayer.isHidden)
         XCTAssertFalse(SurfaceCoordinator.shared.contains(windowNumber: id))
-        _ = applier.apply(desired(configBlue), forceOrdering: false)
+        _ = applier.apply(desired(configRedWithGlow), forceOrdering: false)
         XCTAssertEqual(recorder.layerPanels.count, 1)
         XCTAssertEqual(panel.shows, 2)
+        XCTAssertFalse(panel.contentView?.isHidden ?? true)
+        XCTAssertFalse(panel.containerLayer.isHidden)
         XCTAssertEqual(panel.presentationEvents, ["show", "order", "show", "order"])
         XCTAssertTrue(SurfaceCoordinator.shared.contains(windowNumber: id))
         applier.cleanup()
@@ -707,6 +725,123 @@ final class BorderSurfaceTests: XCTestCase {
             }
         }
         XCTAssertEqual(nontransparentInteriorPixels, 0)
+    }
+
+    @MainActor
+    /// Confirms gradient glow expands only the private overlay surface.
+    func testGradientAndGlowExpandOnlyOverlayAndKeepRingGeometry() throws {
+        let recorder = BorderOperationsRecorder()
+        recorder.backingScale = 1
+        let config = BorderConfig(
+            enabled: true,
+            width: 4,
+            color: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
+            gradient: BorderGradient(
+                enabled: true,
+                start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
+                end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
+                direction: .topLeftToBottomRight
+            ),
+            glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        )
+        let target = CGRect(x: 10, y: 20, width: 100, height: 80)
+        let geometry = config.resolvedGeometry(for: target, scale: 1)
+        let window = BorderWindow(config: config, operations: recorder.operations())
+
+        XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
+        let windowId = try XCTUnwrap(window.windowId)
+        let panel = try XCTUnwrap(recorder.layerPanels.first)
+        try recorder.rasterize(panel)
+
+        XCTAssertEqual(geometry.width, 4)
+        XCTAssertEqual(geometry.ringFrame, CGRect(x: 6, y: 16, width: 108, height: 88))
+        // Surface padding = ceil(8 * 1.5) = 12; ring expands by 12 on each side.
+        XCTAssertEqual(geometry.surfaceFrame, CGRect(x: -6, y: 4, width: 132, height: 112))
+        XCTAssertEqual(window.targetFrameOnScreen, target)
+        XCTAssertEqual(window.frameOnScreen, geometry.surfaceFrame)
+        XCTAssertGreaterThan(recorder.pixel(windowId: windowId, x: 62, y: 8)?.alpha ?? 0, 0)
+        XCTAssertGreaterThan(recorder.pixel(windowId: windowId, x: 2, y: 60)?.alpha ?? 0, 0)
+        XCTAssertEqual(recorder.pixel(windowId: windowId, x: 62, y: 60)?.alpha, 0)
+        // Glow reflects the border gradient: at mid-height the left padding is
+        // redder and the right padding is bluer.
+        let leftGlow = try XCTUnwrap(recorder.pixel(windowId: windowId, x: 2, y: 60))
+        let rightGlow = try XCTUnwrap(recorder.pixel(windowId: windowId, x: 124, y: 60))
+        XCTAssertGreaterThan(leftGlow.red, leftGlow.blue)
+        XCTAssertGreaterThan(rightGlow.blue, rightGlow.red)
+    }
+
+    @MainActor
+    /// Confirms both user-facing gradient directions map to layer coordinates.
+    func testGradientDirectionsMatchTheUnflippedLayerCoordinateSpace() throws {
+        for direction in BorderGradientDirection.allCases {
+            let config = BorderConfig(
+                enabled: true,
+                width: 4,
+                color: configRed.color,
+                gradient: BorderGradient(
+                    enabled: true,
+                    start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
+                    end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
+                    direction: direction
+                ),
+                glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+            )
+            let recorder = BorderOperationsRecorder()
+            let window = BorderWindow(config: config, operations: recorder.operations())
+            defer { window.destroy() }
+            XCTAssertTrue(window.update(frame: frame, targetToken: token(windowId: 55)))
+            let panel = try XCTUnwrap(recorder.layerPanels.first)
+
+            let expected: (start: CGPoint, end: CGPoint)
+            switch direction {
+            case .topLeftToBottomRight:
+                expected = (CGPoint(x: 0, y: 1), CGPoint(x: 1, y: 0))
+            case .topRightToBottomLeft:
+                expected = (CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 0))
+            }
+            XCTAssertEqual(panel.glowColorLayer.startPoint, expected.start)
+            XCTAssertEqual(panel.glowColorLayer.endPoint, expected.end)
+        }
+    }
+
+    @MainActor
+    /// Confirms style changes redraw without changing target geometry.
+    func testStyleChangeRedrawsWithoutChangingTargetOrLayoutClearance() throws {
+        let recorder = BorderOperationsRecorder()
+        recorder.backingScale = 1
+        let target = CGRect(x: 10, y: 20, width: 100, height: 80)
+        let window = BorderWindow(config: configRed, operations: recorder.operations())
+        XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
+        let panel = try XCTUnwrap(recorder.layerPanels.first)
+        XCTAssertNotNil(panel.borderLayer.fillColor)
+        XCTAssertEqual(panel.borderLayer.shadowOpacity, 0)
+        let initialSurfaceFrame = try XCTUnwrap(window.frameOnScreen)
+
+        window.updateConfig(
+            BorderConfig(
+                enabled: true,
+                width: 4,
+                color: configRed.color,
+                gradient: BorderGradient(
+                    enabled: true,
+                    start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
+                    end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
+                    direction: .topLeftToBottomRight
+                ),
+                glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+            )
+        )
+        XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
+
+        // Gradient + glow style applied: solid fill replaced by the gradient
+        // layer and the dedicated glow layer enabled with the full shadow.
+        XCTAssertNil(panel.borderLayer.fillColor)
+        XCTAssertFalse(panel.glowColorLayer.isHidden)
+        XCTAssertEqual(panel.glowColorLayer.colors?.count, 2)
+        XCTAssertEqual(window.targetFrameOnScreen, target)
+        // Glow padding = ceil(8 * 1.5) = 12.
+        XCTAssertEqual(window.frameOnScreen, initialSurfaceFrame.insetBy(dx: -12, dy: -12))
+        XCTAssertEqual(BorderConfig.layoutClearance(enabled: true, width: 4, scale: 1), 4)
     }
 
     @MainActor

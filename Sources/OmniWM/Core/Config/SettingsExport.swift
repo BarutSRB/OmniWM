@@ -13,6 +13,33 @@ struct SettingsColor: Codable, Equatable {
     var alpha: Double
 }
 
+enum BorderGradientDirection: String, Codable, CaseIterable, Equatable, Hashable {
+    case topLeftToBottomRight
+    case topRightToBottomLeft
+}
+
+struct BorderGradient: Codable, Equatable {
+    var enabled: Bool
+    var start: SettingsColor
+    var end: SettingsColor
+    var direction: BorderGradientDirection
+
+    static let `default` = BorderGradient(
+        enabled: false,
+        start: SettingsColor(red: 0.0, green: 0.4, blue: 1.0, alpha: 1.0),
+        end: SettingsColor(red: 0.0, green: 1.0, blue: 0.7, alpha: 1.0),
+        direction: .topLeftToBottomRight
+    )
+}
+
+struct BorderGlow: Codable, Equatable {
+    var enabled: Bool
+    var radius: Double
+    var opacity: Double
+
+    static let `default` = BorderGlow(enabled: false, radius: 8.0, opacity: 0.6)
+}
+
 struct SettingsExport: Equatable {
     var hotkeysEnabled: Bool
     var focusFollowsMouse: Bool
@@ -51,6 +78,8 @@ struct SettingsExport: Equatable {
     var borderColorGreen: Double
     var borderColorBlue: Double
     var borderColorAlpha: Double
+    var borderGradient: BorderGradient?
+    var borderGlow: BorderGlow?
 
     var overviewZoom: Double
     var overviewBackdropColor: SettingsColor
@@ -181,6 +210,8 @@ extension SettingsExport {
             borderColorGreen: 1.0,
             borderColorBlue: 0.97930003794467602,
             borderColorAlpha: 1.0,
+            borderGradient: nil,
+            borderGlow: nil,
             overviewZoom: 1.0,
             overviewBackdropColor: SettingsColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1.0),
             overviewNormalBorderColor: SettingsColor(red: 0.3, green: 0.3, blue: 0.35, alpha: 0.5),
