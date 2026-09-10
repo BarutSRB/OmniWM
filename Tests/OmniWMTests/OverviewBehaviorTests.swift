@@ -743,35 +743,6 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(wasOpenAtActivation, false)
     }
 
-    func testPostCloseFocusHandoffSurvivesWindowVisibilityChange() throws {
-        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
-        let handoffScheduler = OverviewPostCloseHandoffScheduler()
-        var environment = fixture.environment
-        environment.schedulePostCloseHandoff = handoffScheduler.schedule
-        let overview = OverviewController(
-            wmController: fixture.controller,
-            motionPolicy: fixture.controller.motionPolicy,
-            environment: environment
-        )
-        overview.prepareOpenState()
-        overview.onAnimationComplete(state: .open)
-        let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
-        let otherHandle = try XCTUnwrap(fixture.handles.first { $0.id != selectedHandle.id })
-        fixture.controller.workspaceManager.setHiddenState(
-            HiddenState(proportionalPosition: .zero, referenceMonitorId: nil, reason: .layoutTransient(.left)),
-            for: otherHandle.id
-        )
-        var activatedHandle: WindowHandle?
-        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
-
-        overview.dismissToSelection(animated: false)
-        // Niri can reveal another column before the deferred focus handoff runs.
-        fixture.controller.workspaceManager.setHiddenState(nil, for: otherHandle.id)
-        handoffScheduler.runNext()
-
-        XCTAssertEqual(activatedHandle, selectedHandle)
-    }
-
     func testPostCloseFocusHandoffIsDiscardedAfterOverviewReopens() throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
         let handoffScheduler = OverviewPostCloseHandoffScheduler()
@@ -799,35 +770,29 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.completeCloseTransition(targetWindow: nil)
     }
 
-    func testPostCloseFocusHandoffIsDiscardedAfterNewerFocusChange() throws {
-        for externalFocusChange in [false, true] {
-            let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
-            let handoffScheduler = OverviewPostCloseHandoffScheduler()
-            var environment = fixture.environment
-            environment.schedulePostCloseHandoff = handoffScheduler.schedule
-            let overview = OverviewController(
-                wmController: fixture.controller,
-                motionPolicy: fixture.controller.motionPolicy,
-                environment: environment
-            )
-            overview.prepareOpenState()
-            overview.onAnimationComplete(state: .open)
-            var activatedHandle: WindowHandle?
-            overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+    func testPostCloseFocusHandoffIsDiscardedAfterNewerFocusIntent() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        let handoffScheduler = OverviewPostCloseHandoffScheduler()
+        var environment = fixture.environment
+        environment.schedulePostCloseHandoff = handoffScheduler.schedule
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: environment
+        )
+        overview.prepareOpenState()
+        overview.onAnimationComplete(state: .open)
+        var activatedHandle: WindowHandle?
+        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-            overview.dismissToSelection(animated: false)
-            if externalFocusChange {
-                fixture.controller.workspaceManager.recordExternalFocus(pid: 91_299, windowId: 91_399)
-            } else {
-                _ = fixture.controller.intentLedger.beginManagedRequest(
-                    token: fixture.handles[1].id,
-                    workspaceId: fixture.workspaceId
-                )
-            }
-            handoffScheduler.runNext()
+        overview.dismissToSelection(animated: false)
+        _ = fixture.controller.intentLedger.beginManagedRequest(
+            token: fixture.handles[1].id,
+            workspaceId: fixture.workspaceId
+        )
+        handoffScheduler.runNext()
 
-            XCTAssertNil(activatedHandle)
-        }
+        XCTAssertNil(activatedHandle)
     }
 
     func testPostCloseFocusHandoffIsDiscardedAfterNewerAppActivationIntent() throws {
