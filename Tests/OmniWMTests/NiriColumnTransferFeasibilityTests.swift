@@ -119,12 +119,14 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
             sourceWindowId: fixture.windows[1].id,
             targetWindowId: fixture.windows[0].id,
             position: .after,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         XCTAssertFalse(inserted)
@@ -139,12 +141,14 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
         let swapped = fixture.engine.swapWindowsByMove(
             sourceWindowId: fixture.windows[2].id,
             targetWindowId: fixture.windows[1].id,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         XCTAssertFalse(swapped)
@@ -159,12 +163,14 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
         let swapped = fixture.engine.swapWindowsByMove(
             sourceWindowId: fixture.windows[2].id,
             targetWindowId: fixture.windows[1].id,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         XCTAssertTrue(swapped)

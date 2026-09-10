@@ -20,8 +20,6 @@ extension EnvironmentValues {
     @Entry var statusMenuDismiss = StatusMenuDismissAction(dismiss: {})
 }
 
-let statusMenuWidth: CGFloat = 280
-
 @MainActor
 final class StatusMenuHost {
     private struct HostedPanel {
@@ -201,38 +199,6 @@ final class StatusMenuHost {
         hoverCandidate = nil
     }
 
-    nonisolated static func panelSize(contentSize: CGSize, visibleFrame: CGRect) -> CGSize {
-        CGSize(
-            width: min(statusMenuWidth, max(1, visibleFrame.width - 16)),
-            height: min(max(1, ceil(contentSize.height)), max(1, visibleFrame.height - 16))
-        )
-    }
-
-    nonisolated static func submenuFrame(
-        rootFrame: CGRect,
-        rowFrame: CGRect,
-        size: CGSize,
-        visibleFrame: CGRect
-    ) -> CGRect {
-        let bounds = visibleFrame.insetBy(dx: 8, dy: 8)
-        let right = rootFrame.maxX + 4
-        let left = rootFrame.minX - 4 - size.width
-        let x: CGFloat
-        if right + size.width <= bounds.maxX {
-            x = right
-        } else if left >= bounds.minX {
-            x = left
-        } else {
-            x = bounds.maxX - rootFrame.maxX >= rootFrame.minX - bounds.minX ? right : left
-        }
-        return CGRect(
-            x: max(bounds.minX, min(x, bounds.maxX - size.width)),
-            y: max(bounds.minY, min(rowFrame.maxY - size.height, bounds.maxY - size.height)),
-            width: size.width,
-            height: size.height
-        )
-    }
-
     private func makePanel() -> HostedPanel {
         let panel = NonactivatingPanel(
             contentRect: CGRect(x: 0, y: 0, width: statusMenuWidth, height: 1),
@@ -304,7 +270,7 @@ final class StatusMenuHost {
         if hosted.view.frame.size != contentSize {
             hosted.view.setFrameSize(contentSize)
         }
-        let panelSize = Self.panelSize(contentSize: contentSize, visibleFrame: placement.visibleFrame)
+        let panelSize = StatusMenuGeometry.panelSize(contentSize: contentSize, visibleFrame: placement.visibleFrame)
         let frame: CGRect
         if page == .root {
             frame = NonactivatingPanel.frame(
@@ -317,7 +283,7 @@ final class StatusMenuHost {
             if !root.view.isFlipped {
                 rowFrame.origin.y = root.view.bounds.height - rowFrame.maxY
             }
-            frame = Self.submenuFrame(
+            frame = StatusMenuGeometry.submenuFrame(
                 rootFrame: root.window.frame,
                 rowFrame: root.window.convertToScreen(root.view.convert(rowFrame, to: nil)),
                 size: panelSize,
@@ -333,10 +299,12 @@ final class StatusMenuHost {
         ownedWindowRegistry.register(
             panel,
             surfaceId: surfaceId,
-            kind: .statusPanel,
-            hitTestPolicy: .interactive,
-            capturePolicy: .excluded,
-            suppressesManagedFocusRecovery: true
+            policy: SurfacePolicy(
+                kind: .statusPanel,
+                hitTestPolicy: .interactive,
+                capturePolicy: .excluded,
+                suppressesManagedFocusRecovery: true
+            )
         )
     }
 

@@ -170,12 +170,13 @@ final class OverviewRendererTests: XCTestCase {
             frame: CGRect(x: 0, y: 0, width: 800, height: 600)
         )
 
-        let layout = OverviewLayoutCalculator.calculateLayout(
+        let layout = OverviewLayoutCalculator(
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            scale: 1
+        ).calculateLayout(
             workspaces: [OverviewWorkspaceLayoutItem(id: workspaceId, name: "Workspace", isActive: true)],
             windows: [handle: data],
-            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
-            searchQuery: "",
-            scale: 1
+            searchQuery: ""
         )
 
         XCTAssertEqual(layout.allWindows.first?.appIcon?.width, 4)

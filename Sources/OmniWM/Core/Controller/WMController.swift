@@ -931,14 +931,15 @@ final class WMController {
         for monitor: Monitor,
         projection options: WorkspaceBarProjectionOptions
     ) -> WorkspaceBarProjection {
-        WorkspaceBarDataSource.workspaceBarProjection(
-            for: monitor,
-            options: options,
+        WorkspaceBarDataSource(
             workspaceManager: workspaceManager,
             appInfoCache: appInfoCache,
             iconResolver: workspaceBarIconResolver,
-            focusedToken: workspaceManager.selectedManagedToken,
             settings: settings
+        ).workspaceBarProjection(
+            for: monitor,
+            options: options,
+            focusedToken: workspaceManager.selectedManagedToken
         )
     }
 
@@ -1117,7 +1118,7 @@ final class WMController {
     func layoutFrames(
         for monitor: Monitor,
         scale: CGFloat
-    ) -> (workingFrame: CGRect, borderSafeFillFrame: CGRect, fullscreenLayoutFrame: CGRect) {
+    ) -> MonitorLayoutFrames {
         let reservedTopInset = workspaceBarReservedTopInset(for: monitor)
         let gaps = settings.resolvedGapSettings(for: monitor)
         let menuBarInset = max(0, monitor.frame.maxY - monitor.visibleFrame.maxY)
@@ -1171,21 +1172,29 @@ final class WMController {
                 )
             )
         }
-        return (workingFrame, borderSafeFillFrame, fullscreenLayoutFrame)
+        return MonitorLayoutFrames(
+            workingFrame: workingFrame,
+            borderSafeFillFrame: borderSafeFillFrame,
+            fullscreenLayoutFrame: fullscreenLayoutFrame
+        )
     }
 
     func niriInteractionGeometry(
         for monitor: Monitor
-    ) -> (workingFrame: CGRect, innerGap: CGFloat, scale: CGFloat) {
+    ) -> NiriInteractionGeometry {
         niriInteractionGeometry(for: monitor, scale: backingScaleFactor(for: monitor))
     }
 
     func niriInteractionGeometry(
         for monitor: Monitor,
         scale: CGFloat
-    ) -> (workingFrame: CGRect, innerGap: CGFloat, scale: CGFloat) {
+    ) -> NiriInteractionGeometry {
         let workingFrame = layoutFrames(for: monitor, scale: scale).workingFrame
-        return (workingFrame, innerGap(for: monitor, scale: scale), scale)
+        return NiriInteractionGeometry(
+            workingFrame: workingFrame,
+            innerGap: innerGap(for: monitor, scale: scale),
+            scale: scale
+        )
     }
 
     func insetWorkingFrame(for monitor: Monitor) -> CGRect {

@@ -141,10 +141,12 @@ final class HiddenBarPanelController {
         OwnedWindowRegistry.shared.register(
             panel,
             surfaceId: Self.surfaceId,
-            kind: .hiddenBarPanel,
-            hitTestPolicy: .interactive,
-            capturePolicy: .excluded,
-            suppressesManagedFocusRecovery: true
+            policy: SurfacePolicy(
+                kind: .hiddenBarPanel,
+                hitTestPolicy: .interactive,
+                capturePolicy: .excluded,
+                suppressesManagedFocusRecovery: true
+            )
         )
         panel.makeKeyAndOrderFront(nil)
         isVisible = true

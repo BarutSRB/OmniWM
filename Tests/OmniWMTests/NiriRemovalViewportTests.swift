@@ -111,12 +111,14 @@ final class NiriRemovalViewportTests: XCTestCase {
         fixture.state.selectedNodeId = node.id
         fixture.engine.ensureSelectionVisible(
             node: node,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: fixture.orientation
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: fixture.orientation
+            ),
+            state: &fixture.state
         )
     }
 
@@ -126,12 +128,14 @@ final class NiriRemovalViewportTests: XCTestCase {
     ) -> NiriLayoutEngine.NiriRemovalResult {
         fixture.engine.removeWindows(
             [fixture.tokens[index]],
-            in: fixture.workspaceId,
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: fixture.orientation
+            ),
             state: &fixture.state,
-            motion: .disabled,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: fixture.orientation,
             selectedNodeId: fixture.state.selectedNodeId,
             removedNodeIds: []
         )
@@ -321,12 +325,14 @@ final class NiriRemovalViewportTests: XCTestCase {
         fixture.state.selectedNodeId = survivingWindow.id
         fixture.engine.ensureSelectionVisible(
             node: survivingWindow,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: fixture.orientation
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: fixture.orientation
+            ),
+            state: &fixture.state
         )
         XCTAssertEqual(viewOrigin(fixture), -250, accuracy: 0.5)
         let stateBeforeRemoval = fixture.state

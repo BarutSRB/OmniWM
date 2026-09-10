@@ -1857,12 +1857,13 @@ final class OverviewBehaviorTests: XCTestCase {
         scale: CGFloat,
         query: String
     ) -> OverviewLayout {
-        OverviewLayoutCalculator.calculateLayout(
+        OverviewLayoutCalculator(
+            screenFrame: screenFrame,
+            scale: scale
+        ).calculateLayout(
             workspaces: fixture.workspaces,
             windows: fixture.windows,
-            screenFrame: screenFrame,
-            searchQuery: query,
-            scale: scale
+            searchQuery: query
         )
     }
 

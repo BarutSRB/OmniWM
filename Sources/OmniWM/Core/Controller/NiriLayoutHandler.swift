@@ -773,12 +773,14 @@ enum StructuralMutationOutcome: Equatable {
 
         let removalResult = pass.engine.removeWindows(
             removedHandleIds,
-            in: pass.wsId,
+            context: .init(
+                workspaceId: pass.wsId,
+                motion: motion,
+                workingFrame: pass.insetFrame,
+                gaps: pass.gap,
+                orientation: pass.orientation
+            ),
             state: &state,
-            motion: motion,
-            workingFrame: pass.insetFrame,
-            gaps: pass.gap,
-            orientation: pass.orientation,
             selectedNodeId: currentSelection,
             removedNodeIds: removedNodeIds
         )
@@ -990,23 +992,27 @@ enum StructuralMutationOutcome: Equatable {
             if snapshot.excludedTokens.isEmpty {
                 pass.engine.ensureSelectionVisible(
                     node: selectedNode,
-                    in: pass.wsId,
-                    motion: motion,
+                    context: .init(
+                        workspaceId: pass.wsId,
+                        motion: motion,
+                        workingFrame: pass.insetFrame,
+                        gaps: pass.gap,
+                        orientation: pass.orientation
+                    ),
                     state: &state,
-                    workingFrame: pass.insetFrame,
-                    gaps: pass.gap,
-                    orientation: pass.orientation,
                     fromContainerIndex: removal.removalResult.fromIndexForVisibility
                 )
             } else {
                 pass.engine.ensureProjectedSelectionVisible(
                     node: selectedNode,
-                    in: pass.wsId,
-                    motion: motion,
+                    context: .init(
+                        workspaceId: pass.wsId,
+                        motion: motion,
+                        workingFrame: pass.insetFrame,
+                        gaps: pass.gap,
+                        orientation: pass.orientation
+                    ),
                     state: &state,
-                    workingFrame: pass.insetFrame,
-                    gaps: pass.gap,
-                    orientation: pass.orientation,
                     animationConfig: nil,
                     fromContainerIndex: removal.removalResult.fromIndexForVisibility
                 )
@@ -1023,12 +1029,14 @@ enum StructuralMutationOutcome: Equatable {
            snapshot.excludedTokens.isEmpty,
            removal.removalResult.removedColumnIndicesBefore.isEmpty,
            pass.engine.correctViewportAfterColumnRemoval(
-               in: pass.wsId,
-               state: &state,
-               motion: motion,
-               workingFrame: pass.insetFrame,
-               gaps: pass.gap,
-               orientation: pass.orientation
+               context: .init(
+                   workspaceId: pass.wsId,
+                   motion: motion,
+                   workingFrame: pass.insetFrame,
+                   gaps: pass.gap,
+                   orientation: pass.orientation
+               ),
+               state: &state
            )
         {
             viewportNeedsRecalc = true
@@ -1092,12 +1100,14 @@ enum StructuralMutationOutcome: Equatable {
                 } else {
                     pass.engine.ensureSelectionVisible(
                         node: newNode,
-                        in: pass.wsId,
-                        motion: .disabled,
-                        state: &state,
-                        workingFrame: pass.insetFrame,
-                        gaps: pass.gap,
-                        orientation: pass.orientation
+                        context: .init(
+                            workspaceId: pass.wsId,
+                            motion: .disabled,
+                            workingFrame: pass.insetFrame,
+                            gaps: pass.gap,
+                            orientation: pass.orientation
+                        ),
+                        state: &state
                     )
                 }
             } else if isTabLocalArrival {
@@ -1117,12 +1127,14 @@ enum StructuralMutationOutcome: Equatable {
 
                 pass.engine.ensureSelectionVisible(
                     node: newNode,
-                    in: pass.wsId,
-                    motion: motion,
+                    context: .init(
+                        workspaceId: pass.wsId,
+                        motion: motion,
+                        workingFrame: pass.insetFrame,
+                        gaps: pass.gap,
+                        orientation: pass.orientation
+                    ),
                     state: &state,
-                    workingFrame: pass.insetFrame,
-                    gaps: pass.gap,
-                    orientation: pass.orientation,
                     fromContainerIndex: state.activeColumnIndex
                 )
 
@@ -1649,16 +1661,18 @@ enum StructuralMutationOutcome: Equatable {
                 let workingFrame = controller.insetWorkingFrame(for: monitor)
                 engine.ensureSelectionVisible(
                     node: target,
-                    in: workspaceId,
-                    motion: controller.motionPolicy.snapshot(),
-                    state: &state,
-                    workingFrame: workingFrame,
-                    gaps: gap,
-                    orientation: resolvedOrientation(
-                        for: workspaceId,
-                        monitor: monitor,
-                        engine: engine
-                    )
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: controller.motionPolicy.snapshot(),
+                        workingFrame: workingFrame,
+                        gaps: gap,
+                        orientation: resolvedOrientation(
+                            for: workspaceId,
+                            monitor: monitor,
+                            engine: engine
+                        )
+                    ),
+                    state: &state
                 )
             }
         }
@@ -1952,12 +1966,14 @@ enum StructuralMutationOutcome: Equatable {
     func centerColumn() {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps, orientation in
             guard engine.centerColumn(
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             ) else { return }
 
             requestLayoutCommandRelayout(in: wsId)
@@ -1968,12 +1984,14 @@ enum StructuralMutationOutcome: Equatable {
     func centerVisibleColumns() {
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps, orientation in
             guard engine.centerVisibleColumns(
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             ) else { return }
 
             requestLayoutCommandRelayout(in: wsId)
@@ -2233,16 +2251,18 @@ enum StructuralMutationOutcome: Equatable {
             let geometry = controller.niriInteractionGeometry(for: monitor)
             engine.ensureSelectionVisible(
                 node: node,
-                in: workspaceId,
-                motion: controller.motionPolicy.snapshot(),
-                state: &state,
-                workingFrame: geometry.workingFrame,
-                gaps: geometry.innerGap,
-                orientation: resolvedOrientation(
-                    for: workspaceId,
-                    monitor: monitor,
-                    engine: engine
-                )
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: controller.motionPolicy.snapshot(),
+                    workingFrame: geometry.workingFrame,
+                    gaps: geometry.innerGap,
+                    orientation: resolvedOrientation(
+                        for: workspaceId,
+                        monitor: monitor,
+                        engine: engine
+                    )
+                ),
+                state: &state
             )
         }
 
@@ -2437,22 +2457,26 @@ enum StructuralMutationOutcome: Equatable {
             if engine.projectionExclusions(in: workspaceId).isEmpty {
                 engine.ensureSelectionVisible(
                     node: windowNode,
-                    in: workspaceId,
-                    motion: context.motion,
-                    state: &state,
-                    workingFrame: workingFrame,
-                    gaps: gaps,
-                    orientation: orientation
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: context.motion,
+                        workingFrame: workingFrame,
+                        gaps: gaps,
+                        orientation: orientation
+                    ),
+                    state: &state
                 )
             } else {
                 engine.ensureProjectedSelectionVisible(
                     node: windowNode,
-                    in: workspaceId,
-                    motion: context.motion,
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: context.motion,
+                        workingFrame: workingFrame,
+                        gaps: gaps,
+                        orientation: orientation
+                    ),
                     state: &state,
-                    workingFrame: workingFrame,
-                    gaps: gaps,
-                    orientation: orientation,
                     animationConfig: nil,
                     fromContainerIndex: nil
                 )
@@ -2540,12 +2564,14 @@ enum StructuralMutationOutcome: Equatable {
             guard ctx.engine.moveWindow(
                 ctx.windowNode,
                 direction: direction,
-                in: ctx.wsId,
-                orientation: ctx.orientation,
-                motion: motion,
+                context: .init(
+                    workspaceId: ctx.wsId,
+                    motion: motion,
+                    workingFrame: ctx.workingFrame,
+                    gaps: ctx.gaps,
+                    orientation: ctx.orientation
+                ),
                 state: &state,
-                workingFrame: ctx.workingFrame,
-                gaps: ctx.gaps,
                 allowEdgeWrap: allowEdgeWrap
             ) else {
                 return nil
@@ -2689,9 +2715,15 @@ enum StructuralMutationOutcome: Equatable {
                 engine.activateWindow(movedNode.id, in: workspaceId)
                 targetState.selectedNodeId = movedNode.id
                 engine.ensureSelectionVisible(
-                    node: movedNode, in: workspaceId, motion: .disabled, state: &targetState,
-                    workingFrame: workingFrame, gaps: gaps,
-                    orientation: orientation
+                    node: movedNode,
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: .disabled,
+                        workingFrame: workingFrame,
+                        gaps: gaps,
+                        orientation: orientation
+                    ),
+                    state: &targetState
                 )
             }
         }
@@ -3036,12 +3068,14 @@ enum StructuralMutationOutcome: Equatable {
                 sourceWindowId: sourceNode.id,
                 targetWindowId: target.id,
                 position: position,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: .init(
+                    workspaceId: wsId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: orientation
+                ),
+                state: &state
             )
         }
         if didMove {

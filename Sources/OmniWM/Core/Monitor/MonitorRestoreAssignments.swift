@@ -41,6 +41,34 @@ struct MonitorRestoreKey: Hashable {
     }
 }
 
+struct MonitorRestoreOrder: Comparable {
+    private let horizontal: CGFloat
+    private let vertical: CGFloat
+    private let displayId: CGDirectDisplayID
+
+    init(monitor: Monitor) {
+        horizontal = monitor.frame.minX
+        vertical = -monitor.frame.maxY
+        displayId = monitor.displayId
+    }
+
+    init(restoreKey: MonitorRestoreKey) {
+        horizontal = restoreKey.anchorPoint.x
+        vertical = -restoreKey.anchorPoint.y
+        displayId = restoreKey.displayId
+    }
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        if lhs.horizontal != rhs.horizontal {
+            return lhs.horizontal < rhs.horizontal
+        }
+        if lhs.vertical != rhs.vertical {
+            return lhs.vertical < rhs.vertical
+        }
+        return lhs.displayId < rhs.displayId
+    }
+}
+
 struct WorkspaceRestoreSnapshot: Hashable {
     let monitor: MonitorRestoreKey
     let workspaceId: WorkspaceDescriptor.ID
@@ -71,11 +99,11 @@ func resolveWorkspaceRestoreAssignments(
     }
 
     filteredSnapshots.sort { lhs, rhs in
-        snapshotSortKey(lhs.monitor) < snapshotSortKey(rhs.monitor)
+        MonitorRestoreOrder(restoreKey: lhs.monitor) < MonitorRestoreOrder(restoreKey: rhs.monitor)
     }
 
     let sortedMonitors = monitors.sorted { lhs, rhs in
-        monitorRestoreSortKey(lhs) < monitorRestoreSortKey(rhs)
+        MonitorRestoreOrder(monitor: lhs) < MonitorRestoreOrder(monitor: rhs)
     }
 
     var assignments: [Monitor.ID: WorkspaceDescriptor.ID] = [:]
@@ -174,7 +202,7 @@ private func resolveBestRestoreMatches(
                 else {
                     return lhsMonitorId.displayId < rhsMonitorId.displayId
                 }
-                return monitorRestoreSortKey(lhsMonitor) < monitorRestoreSortKey(rhsMonitor)
+                return MonitorRestoreOrder(monitor: lhsMonitor) < MonitorRestoreOrder(monitor: rhsMonitor)
             }
         }
 
@@ -229,12 +257,4 @@ private func restoreMatchScore(
     let heightDelta = abs(snapshot.frameSize.height - monitor.frame.height)
     let geometryDelta = anchorDistance + widthDelta + heightDelta
     return (namePenalty, geometryDelta)
-}
-
-private func snapshotSortKey(_ snapshot: MonitorRestoreKey) -> (CGFloat, CGFloat, UInt32) {
-    (snapshot.anchorPoint.x, -snapshot.anchorPoint.y, snapshot.displayId)
-}
-
-private func monitorRestoreSortKey(_ monitor: Monitor) -> (CGFloat, CGFloat, UInt32) {
-    (monitor.frame.minX, -monitor.frame.maxY, monitor.displayId)
 }

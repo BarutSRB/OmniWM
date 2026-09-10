@@ -378,45 +378,27 @@ enum CLIParser {
     }
 
     private static func parseRuleApplyTarget(arguments: [String]) throws -> IPCRuleApplyTarget {
-        guard !arguments.isEmpty else {
+        switch arguments.first {
+        case nil:
             return .focused
-        }
-
-        var target: IPCRuleApplyTarget?
-        var index = 0
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard target == nil else {
+        case "--focused":
+            guard arguments.count == 1 else {
                 throw CLIParseError.usage(usageText)
             }
-
-            switch argument {
-            case "--focused":
-                target = .focused
-                index += 1
-            case "--window":
-                guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                    throw CLIParseError.usage(usageText)
-                }
-                target = .window(windowId: arguments[index + 1])
-                index += 2
-            case "--pid":
-                guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                    throw CLIParseError.usage(usageText)
-                }
-                target = .pid(try parsePID(arguments[index + 1]))
-                index += 2
-            default:
+            return .focused
+        case "--window":
+            guard arguments.count == 2, !arguments[1].hasPrefix("--") else {
                 throw CLIParseError.usage(usageText)
             }
-        }
-
-        guard let target else {
+            return .window(windowId: arguments[1])
+        case "--pid":
+            guard arguments.count == 2, !arguments[1].hasPrefix("--") else {
+                throw CLIParseError.usage(usageText)
+            }
+            return .pid(try parsePID(arguments[1]))
+        default:
             throw CLIParseError.usage(usageText)
         }
-
-        return target
     }
 
     private static func parseWorkspaceRequest(id: String, arguments: [String]) throws -> IPCRequest {
@@ -428,6 +410,7 @@ enum CLIParser {
             let actionWords = descriptor.actionWords
             let remaining = Array(arguments.dropFirst(actionWords.count))
 
+            let workspace: IPCWorkspaceRequest
             switch descriptor.name {
             case .focusName:
                 guard remaining.count == descriptor.arguments.count,
@@ -435,12 +418,7 @@ enum CLIParser {
                 else {
                     continue
                 }
-                return IPCRequest(
-                    id: id,
-                    workspace: .focusName(
-                        target: WorkspaceTarget(resolvingInput: targetValue)
-                    )
-                )
+                workspace = .focusName(target: WorkspaceTarget(resolvingInput: targetValue))
             case .moveToMonitor:
                 let flags = remaining.filter { $0.hasPrefix("--") }
                 guard flags.allSatisfy(descriptor.optionalFlags.contains),
@@ -454,13 +432,10 @@ enum CLIParser {
                     continue
                 }
 
-                return IPCRequest(
-                    id: id,
-                    workspace: .moveToMonitor(
-                        target: WorkspaceTarget(resolvingInput: positionals[0]),
-                        direction: try parseDirection(positionals[1]),
-                        force: flags.contains("--force")
-                    )
+                workspace = .moveToMonitor(
+                    target: WorkspaceTarget(resolvingInput: positionals[0]),
+                    direction: try parseDirection(positionals[1]),
+                    force: flags.contains("--force")
                 )
             case .rename:
                 guard remaining.count == descriptor.arguments.count,
@@ -468,14 +443,12 @@ enum CLIParser {
                 else {
                     continue
                 }
-                return IPCRequest(
-                    id: id,
-                    workspace: .rename(
-                        target: WorkspaceTarget(resolvingInput: remaining[0]),
-                        displayName: remaining[1]
-                    )
+                workspace = .rename(
+                    target: WorkspaceTarget(resolvingInput: remaining[0]),
+                    displayName: remaining[1]
                 )
             }
+            return IPCRequest(id: id, workspace: workspace)
         }
 
         throw CLIParseError.usage(usageText)
@@ -649,13 +622,6 @@ enum CLIParser {
         return axis
     }
 
-    private static func parseWorkspaceNumber(_ rawValue: String) throws -> Int {
-        guard let workspaceNumber = Int(rawValue), workspaceNumber > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return workspaceNumber
-    }
-
     private static func parseScratchpadIndex(_ rawValue: String) throws -> Int {
         guard let index = Int(rawValue), IPCScratchpadSlots.range.contains(index) else {
             throw CLIParseError.usage(usageText)
@@ -689,20 +655,6 @@ enum CLIParser {
             throw CLIParseError.usage(usageText)
         }
         return value
-    }
-
-    private static func parseColumnIndex(_ rawValue: String) throws -> Int {
-        guard let columnIndex = Int(rawValue), columnIndex > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return columnIndex
-    }
-
-    private static func parseWindowIndex(_ rawValue: String) throws -> Int {
-        guard let windowIndex = Int(rawValue), windowIndex > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return windowIndex
     }
 
     private static func parseResizeOperation(_ rawValue: String) throws -> IPCResizeOperation {
@@ -745,12 +697,10 @@ enum CLIParser {
         switch descriptor.kind {
         case .direction:
             return .direction(try parseDirection(token))
-        case .workspaceNumber:
-            return .integer(try parseWorkspaceNumber(token))
-        case .columnIndex:
-            return .integer(try parseColumnIndex(token))
-        case .windowIndex:
-            return .integer(try parseWindowIndex(token))
+        case .workspaceNumber,
+             .columnIndex,
+             .windowIndex:
+            return .integer(try parsePositiveInteger(token))
         case .scratchpadIndex:
             return .integer(try parseScratchpadIndex(token))
         case .layout:

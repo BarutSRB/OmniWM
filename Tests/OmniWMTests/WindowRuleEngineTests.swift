@@ -631,6 +631,45 @@ final class WindowRuleEngineTests: XCTestCase {
         }
     }
 
+    func testAutomaticUserEffectsSurviveBuiltInLayoutAndMissingTitle() {
+        let engine = WindowRuleEngine()
+        let rule = AppRule(
+            bundleId: "org.mozilla.firefox",
+            assignToWorkspace: "2",
+            initialContainerPrimarySpan: 0.42,
+            minWidth: 420,
+            minHeight: 240
+        )
+        engine.rebuild(rules: [rule])
+        let pictureInPicture = evaluate(
+            engine,
+            facts(appName: "Firefox", bundleId: rule.bundleId, title: "Picture-in-Picture"),
+            appFullscreen: true
+        )
+        let missingTitle = evaluate(
+            engine,
+            facts(appName: "Firefox", bundleId: rule.bundleId),
+            appFullscreen: true
+        )
+
+        XCTAssertEqual(pictureInPicture.disposition, .floating)
+        XCTAssertEqual(pictureInPicture.source, .builtInRule("browserPictureInPicture"))
+        XCTAssertEqual(pictureInPicture.layoutDecisionKind, .explicitLayout)
+        XCTAssertNil(pictureInPicture.deferredReason)
+        XCTAssertEqual(missingTitle.disposition, .undecided)
+        XCTAssertEqual(missingTitle.source, .userRule(rule.id))
+        XCTAssertEqual(missingTitle.deferredReason, .requiredTitleMissing)
+        for decision in [pictureInPicture, missingTitle] {
+            XCTAssertEqual(decision.workspaceName, "2")
+            XCTAssertEqual(decision.ruleEffects, ManagedWindowRuleEffects(
+                minWidth: 420,
+                minHeight: 240,
+                matchedRuleId: rule.id
+            ))
+            XCTAssertEqual(decision.admissionHints.initialNiriContainerPrimarySpan, 0.42)
+        }
+    }
+
     func testAutomaticRuleEffectsAndManualOverridesDoNotAdmitExternalSurfaces() {
         let engine = WindowRuleEngine()
         let rule = AppRule(bundleId: "org.example.widget-host", minWidth: 420)

@@ -25,20 +25,24 @@ final class NiriProjectionCommandTests: XCTestCase {
 
         XCTAssertEqual(
             projected.engine.centerColumn(
-                in: projected.workspaceId,
-                motion: .disabled,
-                state: &projectedState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: projected.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &projectedState
             ),
             baseline.engine.centerColumn(
-                in: baseline.workspaceId,
-                motion: .disabled,
-                state: &baselineState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: baseline.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &baselineState
             )
         )
         XCTAssertEqual(projectedState.viewOffset, baselineState.viewOffset, accuracy: 0.001)
@@ -48,20 +52,24 @@ final class NiriProjectionCommandTests: XCTestCase {
         baselineState.jumpOffset(to: -50)
         XCTAssertEqual(
             projected.engine.centerVisibleColumns(
-                in: projected.workspaceId,
-                motion: .disabled,
-                state: &projectedState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: projected.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &projectedState
             ),
             baseline.engine.centerVisibleColumns(
-                in: baseline.workspaceId,
-                motion: .disabled,
-                state: &baselineState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: baseline.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &baselineState
             )
         )
         XCTAssertEqual(projectedState.viewOffset, baselineState.viewOffset, accuracy: 0.001)

@@ -117,12 +117,8 @@ extension NiriLayoutEngine {
 
         ensureSelectionVisible(
             node: newSelection,
-            in: context.workspaceId,
-            motion: context.motion,
-            state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation
+            context: context,
+            state: &state
         )
 
         return newSelection
@@ -212,27 +208,19 @@ extension NiriLayoutEngine {
 
     func ensureSelectionVisible(
         node: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID,
-        motion: MotionSnapshot,
+        context: NiriInteractionContext,
         state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation,
         animationConfig: SpringConfig? = nil,
         fromContainerIndex: Int? = nil,
         previousActiveContainerPosition: CGFloat? = nil,
         previousProjectedAnchor: NiriProjectedViewportAnchor? = nil
     ) {
         assertSanctionedMutation()
-        if !projectionExclusions(in: workspaceId).isEmpty {
+        if !projectionExclusions(in: context.workspaceId).isEmpty {
             ensureProjectedSelectionVisible(
                 node: node,
-                in: workspaceId,
-                motion: motion,
+                context: context,
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
                 animationConfig: animationConfig,
                 fromContainerIndex: fromContainerIndex,
                 previousProjectedAnchor: previousProjectedAnchor
@@ -240,41 +228,41 @@ extension NiriLayoutEngine {
             return
         }
         resolvePrimaryContainerSpans(
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         )
-        let containers = columns(in: workspaceId)
+        let containers = columns(in: context.workspaceId)
         guard !containers.isEmpty else { return }
 
         guard let container = column(of: node),
-              let targetIdx = columnIndex(of: container, in: workspaceId)
+              let targetIdx = columnIndex(of: container, in: context.workspaceId)
         else {
             return
         }
 
         let prevIdx = fromContainerIndex ?? state.activeColumnIndex
 
-        let viewportSpan: CGFloat = switch orientation {
-        case .horizontal: workingFrame.width
-        case .vertical: workingFrame.height
+        let viewportSpan: CGFloat = switch context.orientation {
+        case .horizontal: context.workingFrame.width
+        case .vertical: context.workingFrame.height
         }
 
-        let scale = displayScale(in: workspaceId)
-        let viewFrame = monitorForWorkspace(workspaceId)?.frame
+        let scale = displayScale(in: context.workspaceId)
+        let viewFrame = monitorForWorkspace(context.workspaceId)?.frame
         let oldActivePos = previousActiveContainerPosition
             ?? state.containerPosition(
                 at: state.activeColumnIndex,
                 containers: containers,
-                gap: gaps,
-                sizeKeyPath: orientation.renderedSpanKeyPath
+                gap: context.gaps,
+                sizeKeyPath: context.orientation.renderedSpanKeyPath
             )
         let newActivePos = state.containerPosition(
             at: targetIdx,
             containers: containers,
-            gap: gaps,
-            sizeKeyPath: orientation.renderedSpanKeyPath
+            gap: context.gaps,
+            sizeKeyPath: context.orientation.renderedSpanKeyPath
         )
         let offsetDelta = oldActivePos - newActivePos
         state.rebaseOffset(by: offsetDelta)
@@ -283,23 +271,23 @@ extension NiriLayoutEngine {
         state.activatePrevColumnOnRemoval = nil
         state.viewOffsetToRestore = nil
 
-        let settings = effectiveSettings(in: workspaceId)
+        let settings = effectiveSettings(in: context.workspaceId)
         state.ensureContainerVisible(
             containerIndex: targetIdx,
             containers: containers,
-            gap: gaps,
+            gap: context.gaps,
             viewportSpan: viewportSpan,
-            motion: motion,
-            sizeKeyPath: orientation.settledSpanKeyPath,
+            motion: context.motion,
+            sizeKeyPath: context.orientation.settledSpanKeyPath,
             animate: true,
             centerMode: settings.centerFocusedColumn,
             alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
             animationConfig: animationConfig,
             fromContainerIndex: prevIdx,
             scale: scale,
-            workingArea: workingFrame,
+            workingArea: context.workingFrame,
             viewFrame: viewFrame,
-            orientation: orientation
+            orientation: context.orientation
         )
     }
 
@@ -353,12 +341,8 @@ extension NiriLayoutEngine {
         if let target {
             ensureSelectionVisible(
                 node: target,
-                in: context.workspaceId,
-                motion: context.motion,
-                state: &state,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation
+                context: context,
+                state: &state
             )
         }
         return target
@@ -379,12 +363,8 @@ extension NiriLayoutEngine {
         ) {
             ensureSelectionVisible(
                 node: target,
-                in: context.workspaceId,
-                motion: context.motion,
-                state: &state,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation
+                context: context,
+                state: &state
             )
             return target
         }
@@ -454,12 +434,8 @@ extension NiriLayoutEngine {
         let target = projectedActiveWindow(in: targetColumn) ?? windows[0]
         ensureSelectionVisible(
             node: target,
-            in: context.workspaceId,
-            motion: context.motion,
-            state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation
+            context: context,
+            state: &state
         )
         return target
     }
@@ -565,12 +541,8 @@ extension NiriLayoutEngine {
         ) {
             ensureSelectionVisible(
                 node: target,
-                in: context.workspaceId,
-                motion: context.motion,
-                state: &state,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation
+                context: context,
+                state: &state
             )
             return target
         }
@@ -595,12 +567,8 @@ extension NiriLayoutEngine {
         ) {
             ensureSelectionVisible(
                 node: target,
-                in: context.workspaceId,
-                motion: context.motion,
-                state: &state,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation
+                context: context,
+                state: &state
             )
             return target
         }
@@ -651,12 +619,8 @@ extension NiriLayoutEngine {
 
         ensureSelectionVisible(
             node: target,
-            in: context.workspaceId,
-            motion: context.motion,
-            state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation
+            context: context,
+            state: &state
         )
         return target
     }
@@ -680,12 +644,8 @@ extension NiriLayoutEngine {
 
         ensureSelectionVisible(
             node: previousWindow,
-            in: context.workspaceId,
-            motion: context.motion,
-            state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation
+            context: context,
+            state: &state
         )
 
         return previousWindow

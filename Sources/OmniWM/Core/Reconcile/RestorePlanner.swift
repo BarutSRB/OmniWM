@@ -212,12 +212,12 @@ struct RestorePlanner {
         }
 
         migrations.sort { lhs, rhs in
-            monitorSortKey(lhs.removedMonitor) < monitorSortKey(rhs.removedMonitor)
+            MonitorRestoreOrder(monitor: lhs.removedMonitor) < MonitorRestoreOrder(monitor: rhs.removedMonitor)
         }
 
         if hasNewMonitor, !disconnectedCache.isEmpty {
             let sortedCacheEntries = disconnectedCache.sorted { lhs, rhs in
-                restoreKeySortKey(lhs.key) < restoreKeySortKey(rhs.key)
+                MonitorRestoreOrder(restoreKey: lhs.key) < MonitorRestoreOrder(restoreKey: rhs.key)
             }
 
             for (_, workspaceId) in sortedCacheEntries {
@@ -539,7 +539,7 @@ struct RestorePlanner {
             if lhsScore.geometryDelta != rhsScore.geometryDelta {
                 return lhsScore.geometryDelta < rhsScore.geometryDelta
             }
-            return monitorSortKey(lhs) < monitorSortKey(rhs)
+            return MonitorRestoreOrder(monitor: lhs) < MonitorRestoreOrder(monitor: rhs)
         }
 
         return bestFallback ?? monitors.first
@@ -613,13 +613,5 @@ struct RestorePlanner {
         }
 
         return (resolvedInteractionMonitorId, resolvedPreviousInteractionMonitorId)
-    }
-
-    private func monitorSortKey(_ monitor: Monitor) -> (CGFloat, CGFloat, UInt32) {
-        (monitor.frame.minX, -monitor.frame.maxY, monitor.displayId)
-    }
-
-    private func restoreKeySortKey(_ restoreKey: MonitorRestoreKey) -> (CGFloat, CGFloat, UInt32) {
-        (restoreKey.anchorPoint.x, -restoreKey.anchorPoint.y, restoreKey.displayId)
     }
 }

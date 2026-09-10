@@ -506,12 +506,14 @@ final class NiriTransferRecoveryTests: XCTestCase {
     ) -> NiriLayoutEngine.NiriRemovalResult {
         engine.removeWindows(
             [token],
-            in: workspaceId,
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: 0,
+                orientation: .horizontal
+            ),
             state: &state,
-            motion: .disabled,
-            workingFrame: workingFrame,
-            gaps: 0,
-            orientation: .horizontal,
             selectedNodeId: state.selectedNodeId,
             removedNodeIds: []
         )

@@ -364,7 +364,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
         let fixture = try makeFixture(pid: 561_026)
         let blocker = blockRefreshes(fixture)
         defer { unblockRefreshes(fixture, blocker: blocker) }
-        var drag = MouseEventHandler.State.NativeTitleBarDrag(token: fixture.token)
+        var drag = MouseInputState.NativeTitleBarDrag(token: fixture.token)
         drag.phase = .awaitingFrameWrite
         drag.receivedFrameChange = true
         fixture.handler.state.nativeTitleBarDrag = drag
@@ -544,7 +544,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
         let fixture = try makeFixture(pid: 561_015)
         let blocker = blockRefreshes(fixture)
         defer { unblockRefreshes(fixture, blocker: blocker) }
-        var drag = MouseEventHandler.State.NativeTitleBarDrag(token: fixture.token)
+        var drag = MouseInputState.NativeTitleBarDrag(token: fixture.token)
         drag.phase = .awaitingFrameWrite
         drag.receivedFrameChange = true
         fixture.handler.state.nativeTitleBarDrag = drag
@@ -594,7 +594,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
     func testInputSuppressionCannotCleanRetireSettledDragAtInputBoundary() throws {
         let fixture = try makeFixture(pid: 561_019)
         fixture.controller.isLockScreenActive = true
-        var drag = MouseEventHandler.State.NativeTitleBarDrag(token: fixture.token)
+        var drag = MouseInputState.NativeTitleBarDrag(token: fixture.token)
         drag.phase = .awaitingFrameChange
         fixture.handler.state.nativeTitleBarDrag = drag
         var frameReadCount = 0
@@ -634,7 +634,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
         let fixture = try makeFixture(pid: 561_021)
         let blocker = blockRefreshes(fixture)
         defer { unblockRefreshes(fixture, blocker: blocker) }
-        var drag = MouseEventHandler.State.NativeTitleBarDrag(token: fixture.token)
+        var drag = MouseInputState.NativeTitleBarDrag(token: fixture.token)
         drag.phase = .awaitingCorrection
         fixture.handler.state.nativeTitleBarDrag = drag
         let firstFailure = failedFrameResult(fixture, requestId: 71)
@@ -665,7 +665,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
         let fixture = try makeFixture(pid: 561_024)
         let blocker = blockRefreshes(fixture)
         defer { unblockRefreshes(fixture, blocker: blocker) }
-        var drag = MouseEventHandler.State.NativeTitleBarDrag(token: fixture.token)
+        var drag = MouseInputState.NativeTitleBarDrag(token: fixture.token)
         drag.phase = .awaitingCorrection
         fixture.handler.state.nativeTitleBarDrag = drag
         let terminated = expectation(description: "normal frame application terminated")
@@ -696,7 +696,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
         let fixture = try makeFixture(pid: 561_022)
         let blocker = blockRefreshes(fixture)
         defer { unblockRefreshes(fixture, blocker: blocker) }
-        var oldDrag = MouseEventHandler.State.NativeTitleBarDrag(token: fixture.token)
+        var oldDrag = MouseInputState.NativeTitleBarDrag(token: fixture.token)
         oldDrag.phase = .awaitingCorrection
         oldDrag.terminalFailureRetryRequestId = 81
         fixture.handler.state.nativeTitleBarDrag = oldDrag
@@ -724,7 +724,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
 
     func testStaleAXIncarnationTerminalResultsCannotMutateCurrentDrag() throws {
         let fixture = try makeFixture(pid: 561_023)
-        var drag = MouseEventHandler.State.NativeTitleBarDrag(token: fixture.token)
+        var drag = MouseInputState.NativeTitleBarDrag(token: fixture.token)
         drag.phase = .awaitingCorrection
         fixture.handler.state.nativeTitleBarDrag = drag
         let staleWindow = AXWindowRef(

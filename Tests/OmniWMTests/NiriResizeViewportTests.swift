@@ -102,21 +102,25 @@ final class NiriResizeViewportTests: XCTestCase {
         if let selectedId, let node = fixture.engine.findNode(by: selectedId, in: fixture.workspaceId) {
             fixture.engine.ensureSelectionVisible(
                 node: node,
-                in: fixture.workspaceId,
-                motion: .enabled,
-                state: &fixture.state,
-                workingFrame: fixture.workingFrame,
-                gaps: fixture.gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: fixture.workspaceId,
+                    motion: .enabled,
+                    workingFrame: fixture.workingFrame,
+                    gaps: fixture.gap,
+                    orientation: .horizontal
+                ),
+                state: &fixture.state
             )
         }
         return fixture.engine.correctViewportAfterColumnRemoval(
-            in: fixture.workspaceId,
-            state: &fixture.state,
-            motion: .enabled,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .enabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
     }
 
@@ -248,12 +252,14 @@ final class NiriResizeViewportTests: XCTestCase {
 
         XCTAssertTrue(
             fixture.engine.correctViewportAfterColumnRemoval(
-                in: fixture.workspaceId,
-                state: &fixture.state,
-                motion: .disabled,
-                workingFrame: fixture.workingFrame,
-                gaps: fixture.gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: fixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: fixture.workingFrame,
+                    gaps: fixture.gap,
+                    orientation: .horizontal
+                ),
+                state: &fixture.state
             )
         )
         XCTAssertEqual(fixture.state.viewOffset, fixture.rightAlignedOffset, accuracy: 0.001)

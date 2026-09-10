@@ -766,12 +766,14 @@ final class WindowActionHandler {
                         )
                         engine.ensureProjectedSelectionVisible(
                             node: niriWindow,
-                            in: workspaceId,
-                            motion: .disabled,
+                            context: .init(
+                                workspaceId: workspaceId,
+                                motion: .disabled,
+                                workingFrame: workingFrame,
+                                gaps: gap,
+                                orientation: orientation
+                            ),
                             state: &targetState,
-                            workingFrame: workingFrame,
-                            gaps: gap,
-                            orientation: orientation,
                             animationConfig: nil,
                             fromContainerIndex: nil
                         )

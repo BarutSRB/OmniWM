@@ -3552,7 +3552,7 @@ final class WorkspaceManager {
             if lhsDistance != rhsDistance {
                 return lhsDistance < rhsDistance
             }
-            return monitorSortKey(lhs) < monitorSortKey(rhs)
+            return MonitorRestoreOrder(monitor: lhs) < MonitorRestoreOrder(monitor: rhs)
         }
     }
 

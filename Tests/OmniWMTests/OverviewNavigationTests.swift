@@ -218,13 +218,14 @@ final class OverviewNavigationTests: XCTestCase {
             workspaceId: descriptor.id,
             columns: snapshotColumns
         )
-        let layout = OverviewLayoutCalculator.calculateLayout(
+        let layout = OverviewLayoutCalculator(
+            screenFrame: screenFrame,
+            scale: 1
+        ).calculateLayout(
             workspaces: [OverviewWorkspaceLayoutItem(id: descriptor.id, name: descriptor.name, isActive: true)],
             windows: windows,
             niriSnapshotsByWorkspace: [descriptor.id: snapshot],
-            screenFrame: screenFrame,
-            searchQuery: searchQuery,
-            scale: 1
+            searchQuery: searchQuery
         )
         return NavigationFixture(
             workspaceId: descriptor.id,
@@ -257,12 +258,13 @@ final class OverviewNavigationTests: XCTestCase {
             handlesByRow.append(handles)
         }
 
-        let layout = OverviewLayoutCalculator.calculateLayout(
+        let layout = OverviewLayoutCalculator(
+            screenFrame: screenFrame,
+            scale: 1
+        ).calculateLayout(
             workspaces: [OverviewWorkspaceLayoutItem(id: descriptor.id, name: descriptor.name, isActive: true)],
             windows: windows,
-            screenFrame: screenFrame,
-            searchQuery: "",
-            scale: 1
+            searchQuery: ""
         )
         return NavigationFixture(
             workspaceId: descriptor.id,

@@ -188,12 +188,8 @@ extension NiriLayoutEngine {
 
         ensureSelectionVisible(
             node: window,
-            in: context.workspaceId,
-            motion: context.motion,
-            state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation
+            context: context,
+            state: &state
         )
 
         return true
@@ -739,12 +735,8 @@ extension NiriLayoutEngine {
 
         ensureSelectionVisible(
             node: window,
-            in: context.workspaceId,
-            motion: context.motion,
+            context: context,
             state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation,
             fromContainerIndex: previousActiveColumnIndex,
             previousActiveContainerPosition: previousActiveColumnPosition,
             previousProjectedAnchor: previousProjectedAnchor
@@ -1134,12 +1126,8 @@ extension NiriLayoutEngine {
 
         ensureSelectionVisible(
             node: window,
-            in: context.workspaceId,
-            motion: context.motion,
+            context: context,
             state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation,
             previousProjectedAnchor: previousProjectedAnchor
         )
 
@@ -1157,12 +1145,8 @@ extension NiriLayoutEngine {
         if let firstWindow = projectedWindows(in: column, workspaceId: context.workspaceId).first {
             ensureSelectionVisible(
                 node: firstWindow,
-                in: context.workspaceId,
-                motion: context.motion,
+                context: context,
                 state: &state,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation,
                 animationConfig: animationConfig,
                 fromContainerIndex: fromContainerIndex,
                 previousProjectedAnchor: previousProjectedAnchor

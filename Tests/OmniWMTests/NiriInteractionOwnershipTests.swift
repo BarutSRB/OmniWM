@@ -33,12 +33,14 @@ class NiriInteractionTestCase: XCTestCase {
             windowId: window.id,
             windowToken: window.token,
             startLocation: frames[window.token]?.center ?? .zero,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: 0,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: 0,
+                orientation: .horizontal
+            ),
+            state: &state
         )
     }
 
@@ -79,12 +81,14 @@ class NiriInteractionTestCase: XCTestCase {
         var state = ViewportState()
         return engine.removeWindows(
             tokens,
-            in: workspaceId,
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: 0,
+                orientation: .horizontal
+            ),
             state: &state,
-            motion: .disabled,
-            workingFrame: workingFrame,
-            gaps: 0,
-            orientation: .horizontal,
             selectedNodeId: nil,
             removedNodeIds: []
         )
@@ -120,12 +124,14 @@ final class NiriInteractionOwnershipTests: NiriInteractionTestCase {
                 windowId: source.id,
                 windowToken: source.token,
                 startLocation: sourceFrame.center,
-                in: workspaceA,
-                motion: .disabled,
-                state: &stateA,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: workspaceA,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
+                state: &stateA
             )
         )
         let hoverTarget = try XCTUnwrap(
@@ -669,12 +675,14 @@ final class NiriInteractionOrientationTests: NiriInteractionTestCase {
                 windowToken: source.token,
                 startLocation: sourceFrame.center,
                 isInsertMode: true,
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
 
@@ -952,12 +960,14 @@ final class NiriInteractionOrientationTests: NiriInteractionTestCase {
         let targetFrame = CGRect(x: 0, y: 0, width: 900, height: 900)
         engine.ensureSelectionVisible(
             node: movedWindow,
-            in: targetWorkspaceId,
-            motion: .disabled,
-            state: &targetState,
-            workingFrame: targetFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: targetWorkspaceId,
+                motion: .disabled,
+                workingFrame: targetFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &targetState
         )
 
         XCTAssertEqual(movedColumn.cachedHeight, targetFrame.height, accuracy: 0.001)

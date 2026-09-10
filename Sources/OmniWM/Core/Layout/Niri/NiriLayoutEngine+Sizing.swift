@@ -239,12 +239,8 @@ extension NiriLayoutEngine {
 
         ensureSelectionVisible(
             node: window,
-            in: context.workspaceId,
-            motion: context.motion,
-            state: &state,
-            workingFrame: context.workingFrame,
-            gaps: context.gaps,
-            orientation: context.orientation
+            context: context,
+            state: &state
         )
     }
 
@@ -270,12 +266,14 @@ extension NiriLayoutEngine {
         if let window = column.activeWindow ?? column.windowNodes.first {
             ensureSelectionVisible(
                 node: window,
-                in: context.workspaceId,
-                motion: context.motion,
-                state: &state,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: context.workspaceId,
+                    motion: context.motion,
+                    workingFrame: context.workingFrame,
+                    gaps: context.gaps,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         }
         recoverSettledCoverage(
@@ -391,12 +389,14 @@ extension NiriLayoutEngine {
             if let window = column.activeWindow ?? column.windowNodes.first {
                 ensureSelectionVisible(
                     node: window,
-                    in: context.workspaceId,
-                    motion: context.motion,
-                    state: &state,
-                    workingFrame: context.workingFrame,
-                    gaps: context.gaps,
-                    orientation: .vertical
+                    context: .init(
+                        workspaceId: context.workspaceId,
+                        motion: context.motion,
+                        workingFrame: context.workingFrame,
+                        gaps: context.gaps,
+                        orientation: .vertical
+                    ),
+                    state: &state
                 )
             }
         } else {

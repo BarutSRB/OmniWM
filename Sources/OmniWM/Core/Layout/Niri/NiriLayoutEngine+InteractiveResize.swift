@@ -420,12 +420,14 @@ extension NiriLayoutEngine {
         if let windowNode = findNode(by: resize.windowId, in: resize.workspaceId) as? NiriWindow {
             ensureSelectionVisible(
                 node: windowNode,
-                in: resize.workspaceId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: resize.orientation
+                context: .init(
+                    workspaceId: resize.workspaceId,
+                    motion: motion,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: resize.orientation
+                ),
+                state: &state
             )
             if resize.originalContainerSpan != nil {
                 recoverSettledCoverage(

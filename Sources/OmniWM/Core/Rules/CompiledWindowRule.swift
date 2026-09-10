@@ -137,6 +137,42 @@ struct CompiledWindowRule {
             )
         }
 
+        appendPictureInPictureRules(to: &rules)
+
+        for subrole in [kAXStandardWindowSubrole as String, kAXUnknownSubrole as String] {
+            rules.append(
+                CompiledWindowRule(
+                    rule: AppRule(
+                        bundleId: "com.valvesoftware.steam.helper",
+                        axRole: kAXWindowRole as String,
+                        axSubrole: subrole,
+                        layout: .tile
+                    ),
+                    source: .builtIn("steamClient"),
+                    titleRegex: nil,
+                    order: rules.count
+                )
+            )
+        }
+
+        rules.append(
+            CompiledWindowRule(
+                rule: AppRule(
+                    bundleId: "com.apple.finder",
+                    axRole: kAXWindowRole as String,
+                    axSubrole: finderQuickLookSubrole,
+                    layout: .float
+                ),
+                source: .builtIn("finderQuickLook"),
+                titleRegex: nil,
+                order: rules.count
+            )
+        )
+
+        return rules
+    }
+
+    private static func appendPictureInPictureRules(to rules: inout [CompiledWindowRule]) {
         let pictureInPicturePattern = "^Picture-in-Picture$"
         let pictureInPictureRegex: NSRegularExpression
         do {
@@ -173,37 +209,5 @@ struct CompiledWindowRule {
                 )
             )
         }
-
-        for subrole in [kAXStandardWindowSubrole as String, kAXUnknownSubrole as String] {
-            rules.append(
-                CompiledWindowRule(
-                    rule: AppRule(
-                        bundleId: "com.valvesoftware.steam.helper",
-                        axRole: kAXWindowRole as String,
-                        axSubrole: subrole,
-                        layout: .tile
-                    ),
-                    source: .builtIn("steamClient"),
-                    titleRegex: nil,
-                    order: rules.count
-                )
-            )
-        }
-
-        rules.append(
-            CompiledWindowRule(
-                rule: AppRule(
-                    bundleId: "com.apple.finder",
-                    axRole: kAXWindowRole as String,
-                    axSubrole: finderQuickLookSubrole,
-                    layout: .float
-                ),
-                source: .builtIn("finderQuickLook"),
-                titleRegex: nil,
-                order: rules.count
-            )
-        )
-
-        return rules
     }
 }

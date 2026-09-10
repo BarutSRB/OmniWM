@@ -10,16 +10,10 @@ final class WindowRuleEngine {
     nonisolated static let externalSurfaceRuleName = "externalSurface"
     nonisolated static let unprovenIndependentRootRuleName = "unprovenIndependentRoot"
     nonisolated static let hiddenTitleBarWindowRuleName = "hiddenTitleBarWindow"
-    private static let nativeFullscreenSubrole = "AXFullScreenWindow"
-    private static let systemSurfaceLevelFloor = CGWindowLevelForKey(.statusWindow)
 
-    private enum StructuralEligibility {
-        case eligible
-        case requiresExplicitInclusion
-        case requiresExplicitUserInclusion
-        case requiresIndependentRootInclusion
-        case external
-        case deferred(WindowDecisionDeferredReason)
+    private enum Selection {
+        case matched(MatchedWindowRules)
+        case rejected(WindowDecision)
     }
 
     private var compiledUserRules: [CompiledWindowRule] = []
@@ -28,20 +22,20 @@ final class WindowRuleEngine {
     private(set) var invalidRegexMessagesByRuleId: [UUID: String] = [:]
 
     private(set) var hasDynamicReevaluationRules = false
-    private let inputMethodBundleIds: Set<String>
-    private let hiddenTitleBarFullscreenButtonOptionalBundleIds: Set<String>
-    private let hiddenTitleBarNonStandardSubroleBundleIds: Set<String>
+    private let eligibilityPolicy: WindowEligibilityPolicy
 
     init(
         inputMethodBundleIds: Set<String>? = nil,
         hiddenTitleBarFullscreenButtonOptionalBundleIds: Set<String>? = nil,
         hiddenTitleBarNonStandardSubroleBundleIds: Set<String>? = nil
     ) {
-        self.hiddenTitleBarFullscreenButtonOptionalBundleIds = hiddenTitleBarFullscreenButtonOptionalBundleIds
-            ?? HiddenTitleBarRegistry.fullscreenButtonOptionalBundleIds
-        self.hiddenTitleBarNonStandardSubroleBundleIds = hiddenTitleBarNonStandardSubroleBundleIds
-            ?? HiddenTitleBarRegistry.nonStandardSubroleBundleIds
-        self.inputMethodBundleIds = inputMethodBundleIds ?? InputMethodBundleRegistry.discover()
+        eligibilityPolicy = WindowEligibilityPolicy(
+            hiddenTitleBarFullscreenButtonOptionalBundleIds: hiddenTitleBarFullscreenButtonOptionalBundleIds
+                ?? HiddenTitleBarRegistry.fullscreenButtonOptionalBundleIds,
+            hiddenTitleBarNonStandardSubroleBundleIds: hiddenTitleBarNonStandardSubroleBundleIds
+                ?? HiddenTitleBarRegistry.nonStandardSubroleBundleIds,
+            inputMethodBundleIds: inputMethodBundleIds ?? InputMethodBundleRegistry.discover()
+        )
         builtInRules = CompiledWindowRule.makeBuiltInRules()
         titleRules = builtInRules.filter(\.requiresTitle)
         hasDynamicReevaluationRules = builtInRules.contains { $0.requiresDynamicReevaluation }
@@ -97,25 +91,41 @@ final class WindowRuleEngine {
         token: WindowToken?,
         appFullscreen: Bool
     ) -> WindowDecision {
-        if facts.ax.role == (kAXHelpTagRole as String) {
+        if eligibilityPolicy.isExternalSurface(facts) {
             return externalSurfaceDecision()
         }
-
-        if let bundleId = facts.ax.bundleId?.lowercased(),
-           inputMethodBundleIds.contains(bundleId)
+        let eligibility = eligibilityPolicy.eligibility(for: facts, token: token, appFullscreen: appFullscreen)
+        let matches: MatchedWindowRules
+        switch selectRules(for: facts, eligibility: eligibility) {
+        case let .rejected(decision):
+            return decision
+        case let .matched(selected):
+            matches = selected
+        }
+        if let decision = matches.explicitDecision(for: facts) {
+            return decision
+        }
+        if facts.ax.title == nil,
+           requiresTitle(for: facts.ax.bundleId, appName: facts.appName)
         {
-            return externalSurfaceDecision()
+            return matches.fallbackDecision(disposition: .undecided, deferredReason: .requiredTitleMissing)
         }
+        if appFullscreen {
+            return matches.fallbackDecision(disposition: .managed)
+        }
+        if eligibilityPolicy.acceptsHiddenTitleBar(facts) {
+            return matches.fallbackDecision(
+                disposition: .managed,
+                source: .builtInRule(Self.hiddenTitleBarWindowRuleName)
+            )
+        }
+        return matches.heuristicDecision(for: facts)
+    }
 
-        let structuralEligibility = structuralEligibility(
-            for: facts,
-            token: token,
-            appFullscreen: appFullscreen
-        )
-
+    private func selectRules(for facts: WindowRuleFacts, eligibility: WindowStructuralEligibility) -> Selection {
         let userRule: CompiledWindowRule?
         let builtInRule: CompiledWindowRule?
-        switch structuralEligibility {
+        switch eligibility {
         case .eligible:
             userRule = bestMatch(in: compiledUserRules, facts: facts)
             builtInRule = bestMatch(in: builtInRules, facts: facts)
@@ -123,216 +133,27 @@ final class WindowRuleEngine {
             userRule = bestExplicitInclusionMatch(in: compiledUserRules, facts: facts)
             builtInRule = bestExplicitInclusionMatch(in: builtInRules, facts: facts)
             if userRule == nil, builtInRule == nil {
-                return externalSurfaceDecision()
+                return .rejected(externalSurfaceDecision())
             }
         case .requiresExplicitUserInclusion:
             userRule = bestExplicitInclusionMatch(in: compiledUserRules, facts: facts)
             builtInRule = nil
             if userRule == nil {
-                return externalSurfaceDecision()
+                return .rejected(externalSurfaceDecision())
             }
         case .requiresIndependentRootInclusion:
             userRule = bestExplicitInclusionMatch(in: compiledUserRules, facts: facts)
             builtInRule = bestExplicitInclusionMatch(in: builtInRules, facts: facts)
             if userRule == nil, builtInRule == nil {
-                return unprovenIndependentRootDecision()
+                return .rejected(unprovenIndependentRootDecision())
             }
         case .external:
-            return externalSurfaceDecision()
+            return .rejected(externalSurfaceDecision())
         case let .deferred(reason):
-            return deferredStructuralDecision(reason: reason)
+            return .rejected(deferredStructuralDecision(reason: reason))
         }
-
-        let workspaceName = userRule?.rule.assignToWorkspace
-        let effects = ManagedWindowRuleEffects(
-            minWidth: userRule?.rule.minWidth,
-            minHeight: userRule?.rule.minHeight,
-            matchedRuleId: userRule?.rule.id
-        )
-        let admissionHints = ManagedWindowAdmissionHints(
-            initialNiriContainerPrimarySpan: userRule?.rule.validInitialContainerPrimarySpan
-        )
-
-        if let userRule,
-           let userDecision = explicitDecision(
-               userRule,
-               workspaceName: workspaceName,
-               effects: effects,
-               admissionHints: admissionHints
-           )
-        {
-            return userDecision
-        }
-
-        // Built-in layout can still inherit workspace assignment and sizing effects
-        // from a matching user auto rule.
-        if let builtInRule,
-           builtInRule.canApplyExplicitly(to: facts),
-           let builtInDecision = explicitDecision(
-               builtInRule,
-               workspaceName: workspaceName,
-               effects: effects,
-               admissionHints: admissionHints
-           )
-        {
-            return builtInDecision
-        }
-
-        if facts.ax.title == nil,
-           requiresTitle(for: facts.ax.bundleId, appName: facts.appName)
-        {
-            return WindowDecision(
-                disposition: .undecided,
-                source: userRule.map { .userRule($0.rule.id) }
-                    ?? builtInRule.map { builtInRuleSource(for: $0) }
-                    ?? .heuristic,
-                layoutDecisionKind: .fallbackLayout,
-                workspaceName: workspaceName,
-                ruleEffects: effects,
-                admissionHints: admissionHints,
-                heuristicReasons: [],
-                deferredReason: .requiredTitleMissing
-            )
-        }
-
-        if appFullscreen {
-            return WindowDecision(
-                disposition: .managed,
-                source: userRule.map { .userRule($0.rule.id) }
-                    ?? builtInRule.map { builtInRuleSource(for: $0) }
-                    ?? .heuristic,
-                layoutDecisionKind: .fallbackLayout,
-                workspaceName: workspaceName,
-                ruleEffects: effects,
-                admissionHints: admissionHints,
-                heuristicReasons: [],
-                deferredReason: nil
-            )
-        }
-
-        if HiddenTitleBarRegistry.decision(
-            for: facts.ax,
-            windowServer: facts.windowServer,
-            fullscreenButtonOptionalBundleIds: hiddenTitleBarFullscreenButtonOptionalBundleIds,
-            nonStandardSubroleBundleIds: hiddenTitleBarNonStandardSubroleBundleIds
-        ) {
-            return WindowDecision(
-                disposition: .managed,
-                source: .builtInRule(Self.hiddenTitleBarWindowRuleName),
-                layoutDecisionKind: .fallbackLayout,
-                workspaceName: workspaceName,
-                ruleEffects: effects,
-                admissionHints: admissionHints,
-                heuristicReasons: [],
-                deferredReason: nil
-            )
-        }
-
-        let heuristic = AXWindowService.heuristicDisposition(for: facts.ax)
-
-        return WindowDecision(
-            disposition: heuristic.disposition,
-            source: userRule.map { .userRule($0.rule.id) } ?? .heuristic,
-            layoutDecisionKind: .fallbackLayout,
-            workspaceName: workspaceName,
-            ruleEffects: effects,
-            admissionHints: admissionHints,
-            heuristicReasons: heuristic.reasons,
-            deferredReason: heuristic.disposition == .undecided ? .attributeFetchFailed : nil
-        )
+        return .matched(MatchedWindowRules(userRule: userRule, builtInRule: builtInRule))
     }
-
-    private func structuralEligibility(
-        for facts: WindowRuleFacts,
-        token: WindowToken?,
-        appFullscreen: Bool
-    ) -> StructuralEligibility {
-        guard facts.ax.attributeFetchSucceeded else {
-            return .deferred(.attributeFetchFailed)
-        }
-
-        guard let role = facts.ax.role,
-              let subrole = facts.ax.subrole
-        else {
-            return .deferred(.attributeFetchFailed)
-        }
-
-        let windowServerEvidence: WindowServerInfo?
-        if let token {
-            guard let windowServer = facts.windowServer,
-                  let windowId = UInt32(exactly: token.windowId),
-                  windowServer.id == windowId,
-                  pid_t(windowServer.pid) == token.pid
-            else {
-                return .deferred(.windowServerEvidenceMissing)
-            }
-            windowServerEvidence = windowServer
-        } else {
-            windowServerEvidence = facts.windowServer
-        }
-
-        if let windowServer = windowServerEvidence,
-           windowServer.parentId != 0,
-           windowServer.parentId != windowServer.id
-        {
-            return .external
-        }
-
-        if let windowServer = windowServerEvidence,
-           windowServer.level >= Self.systemSurfaceLevelFloor
-        {
-            return .requiresExplicitUserInclusion
-        }
-
-        if facts.ax.appPolicy == .prohibited
-            || (facts.ax.appPolicy == .accessory && !facts.ax.hasCloseButton)
-        {
-            return .requiresExplicitInclusion
-        }
-
-        guard role == (kAXWindowRole as String) else {
-            return .requiresExplicitInclusion
-        }
-
-        if appFullscreen || Self.automaticRootSubroles.contains(subrole) {
-            return .eligible
-        }
-
-        if Self.independentRootSubroles.contains(subrole) {
-            if HiddenTitleBarRegistry.decision(
-                for: facts.ax,
-                windowServer: facts.windowServer,
-                fullscreenButtonOptionalBundleIds: hiddenTitleBarFullscreenButtonOptionalBundleIds,
-                nonStandardSubroleBundleIds: hiddenTitleBarNonStandardSubroleBundleIds
-            ) {
-                return .eligible
-            }
-
-            let hasWindowChrome = facts.ax.hasCloseButton
-                || facts.ax.hasFullscreenButton
-                || facts.ax.hasZoomButton
-                || facts.ax.hasMinimizeButton
-            if hasWindowChrome || facts.ax.isMain == true || facts.ax.isModal == true {
-                return .eligible
-            }
-            if facts.ax.isMain == nil || facts.ax.isModal == nil {
-                return .deferred(.independentRootEvidenceMissing)
-            }
-            return .requiresIndependentRootInclusion
-        }
-
-        return .requiresExplicitInclusion
-    }
-
-    private static let automaticRootSubroles: Set<String> = [
-        kAXStandardWindowSubrole as String,
-        nativeFullscreenSubrole
-    ]
-
-    private static let independentRootSubroles: Set<String> = [
-        kAXDialogSubrole as String,
-        kAXFloatingWindowSubrole as String
-    ]
 
     private func externalSurfaceDecision() -> WindowDecision {
         WindowDecision(
@@ -373,50 +194,6 @@ final class WindowRuleEngine {
             heuristicReasons: reason == .attributeFetchFailed ? [.attributeFetchFailed] : [],
             deferredReason: reason
         )
-    }
-
-    private func explicitDecision(
-        _ compiled: CompiledWindowRule,
-        workspaceName: String?,
-        effects: ManagedWindowRuleEffects,
-        admissionHints: ManagedWindowAdmissionHints
-    ) -> WindowDecision? {
-        let source: WindowDecisionSource = switch compiled.source {
-        case .user:
-            .userRule(compiled.rule.id)
-        case let .builtIn(name):
-            .builtInRule(name)
-        }
-
-        let disposition: WindowDecisionDisposition
-        switch compiled.rule.effectiveLayoutAction {
-        case .float:
-            disposition = .floating
-        case .tile:
-            disposition = .managed
-        case .auto:
-            return nil
-        }
-
-        return WindowDecision(
-            disposition: disposition,
-            source: source,
-            layoutDecisionKind: .explicitLayout,
-            workspaceName: workspaceName,
-            ruleEffects: effects,
-            admissionHints: admissionHints,
-            heuristicReasons: [],
-            deferredReason: nil
-        )
-    }
-
-    private func builtInRuleSource(for compiled: CompiledWindowRule) -> WindowDecisionSource {
-        switch compiled.source {
-        case let .builtIn(name):
-            .builtInRule(name)
-        case .user:
-            .heuristic
-        }
     }
 
     private func bestMatch(

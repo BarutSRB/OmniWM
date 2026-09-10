@@ -174,6 +174,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             updateCoordinator: updateCoordinator
         )
         controller.statusBarController = statusBarController
+        observeSettings(settings, controller: controller)
+        statusBarController?.setup()
+        do {
+            try setIPCEnabled(settings.ipcEnabled, controller: controller)
+        } catch {
+            presentInfoAlert(
+                title: "IPC Failed to Start",
+                message: error.localizedDescription
+            )
+            settings.ipcEnabled = false
+        }
+        updateCoordinator.startAutomaticChecks()
+
+        startMonitorSetupPresentationObservation()
+        playLaunchOverlay()
+    }
+
+    private func observeSettings(_ settings: SettingsStore, controller: WMController) {
         settings.onIPCEnabledChanged = { [weak self, weak controller] isEnabled in
             guard let self, let controller else { return }
             do {
@@ -195,19 +213,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.onConfigNoticeChanged = { [weak controller] in
             controller?.refreshDiagnosticsIssues()
         }
-        statusBarController?.setup()
-        do {
-            try setIPCEnabled(settings.ipcEnabled, controller: controller)
-        } catch {
-            presentInfoAlert(
-                title: "IPC Failed to Start",
-                message: error.localizedDescription
-            )
-            settings.ipcEnabled = false
-        }
-        updateCoordinator.startAutomaticChecks()
+    }
 
-        startMonitorSetupPresentationObservation()
+    private func playLaunchOverlay() {
         let overlay = LaunchOverlayController()
         launchOverlayController = overlay
         overlay.play { [weak self] in

@@ -1178,15 +1178,16 @@ final class OverviewStructuralCommandTests: XCTestCase {
         {
             niriSnapshots[workspaceId] = fixture.controller.niriEngine?.overviewSnapshot(for: workspaceId)
         }
-        let layout = OverviewLayoutCalculator.calculateLayout(
-            workspaces: workspaces,
-            windows: windowData,
-            niriSnapshotsByWorkspace: niriSnapshots,
+        let layout = OverviewLayoutCalculator(
             screenFrame: OverviewLayoutCalculator.viewportFrame(for: fixture.monitor.frame),
-            searchQuery: "",
             scale: OverviewLayoutCalculator.clampedScale(
                 CGFloat(fixture.controller.settings.overviewZoom)
             )
+        ).calculateLayout(
+            workspaces: workspaces,
+            windows: windowData,
+            niriSnapshotsByWorkspace: niriSnapshots,
+            searchQuery: ""
         )
         return (overview, layout)
     }

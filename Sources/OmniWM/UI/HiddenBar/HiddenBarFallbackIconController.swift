@@ -147,10 +147,12 @@ final class HiddenBarFallbackIconController {
         OwnedWindowRegistry.shared.register(
             panel,
             surfaceId: Self.surfaceId(monitorId: monitorId),
-            kind: .hiddenBarPanel,
-            hitTestPolicy: .interactive,
-            capturePolicy: .excluded,
-            suppressesManagedFocusRecovery: false
+            policy: SurfacePolicy(
+                kind: .hiddenBarPanel,
+                hitTestPolicy: .interactive,
+                capturePolicy: .excluded,
+                suppressesManagedFocusRecovery: false
+            )
         )
         panelsByMonitor[monitorId] = panel
         return panel

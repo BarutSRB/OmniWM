@@ -70,10 +70,6 @@ extension WorkspaceManager {
         return sorted[(currentIndex + 1) % sorted.count]
     }
 
-    func monitorSortKey(_ monitor: Monitor) -> (CGFloat, CGFloat, UInt32) {
-        (monitor.frame.minX, -monitor.frame.maxY, monitor.displayId)
-    }
-
     func runtimeOverrideReconnectAssignments(
         previousMonitors: [Monitor],
         newMonitors: [Monitor]
@@ -193,7 +189,7 @@ extension WorkspaceManager {
         {
             return lhsDistance < rhsDistance
         }
-        return monitorSortKey(lhs) < monitorSortKey(rhs)
+        return MonitorRestoreOrder(monitor: lhs) < MonitorRestoreOrder(monitor: rhs)
     }
 
     private func monitorSelectionRank(

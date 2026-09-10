@@ -1180,13 +1180,14 @@ final class OverviewController {
         }
 
         let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
-        var layout = OverviewLayoutCalculator.calculateLayout(
+        var layout = OverviewLayoutCalculator(
+            screenFrame: viewportFrame,
+            scale: scale
+        ).calculateLayout(
             workspaces: overviewSnapshot.workspaces,
             windows: localizedWindowData,
             niriSnapshotsByWorkspace: niriSnapshotsByWorkspace,
-            screenFrame: viewportFrame,
-            searchQuery: searchQuery,
-            scale: scale
+            searchQuery: searchQuery
         )
         layout.updateGroupCounts(overviewSnapshot.groupCountByHandle)
         return layout

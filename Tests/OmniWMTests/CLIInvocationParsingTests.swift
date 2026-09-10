@@ -55,4 +55,56 @@ final class CLIInvocationParsingTests: XCTestCase {
             }
         }
     }
+
+    func testPositiveIndexAndWorkspaceArgumentsKeepIdenticalBounds() throws {
+        let commands = ["switch-workspace", "focus-column", "focus-window-in-column"]
+        for command in commands {
+            for value in ["1", "+1", String(Int.max)] {
+                XCTAssertNoThrow(try CLIParser.parse(arguments: ["omniwmctl", "command", command, value]))
+            }
+            for value in ["0", "-1", "1.0", " 1", "1 ", String(Int.max) + "0"] {
+                XCTAssertThrowsError(try CLIParser.parse(arguments: [
+                    "omniwmctl",
+                    "command",
+                    command,
+                    value
+                ])) { error in
+                    XCTAssertEqual(error as? CLIParseError, .usage(CLIParser.usageText))
+                }
+            }
+        }
+    }
+
+    func testRuleApplyAcceptsOneExactTarget() throws {
+        let cases: [(arguments: [String], target: IPCRuleApplyTarget)] = [
+            ([], .focused),
+            (["--focused"], .focused),
+            (["--window", "window-id"], .window(windowId: "window-id")),
+            (["--window", ""], .window(windowId: "")),
+            (["--pid", "1"], .pid(1)),
+            (["--pid", String(Int32.max)], .pid(Int32.max))
+        ]
+        for testCase in cases {
+            let parsed = try CLIParser.parse(arguments: ["omniwmctl", "rule", "apply"] + testCase.arguments)
+            guard case let .rule(request) = parsed.request.payload else {
+                return XCTFail("Expected a rule request")
+            }
+            XCTAssertEqual(request, .apply(target: testCase.target))
+        }
+    }
+
+    func testRuleApplyRejectsDuplicateMissingAndUnexpectedTargetArguments() {
+        let cases = [
+            ["--focused", "--focused"], ["--focused", "extra"],
+            ["--window"], ["--window", "--focused"], ["--window", "window-id", "--focused"],
+            ["--pid"], ["--pid", "--focused"], ["--pid", "1", "extra"],
+            ["--pid", "0"], ["--pid", "-1"], ["--pid", String(Int32.max) + "0"],
+            ["window-id"], ["--unknown"]
+        ]
+        for arguments in cases {
+            XCTAssertThrowsError(try CLIParser.parse(arguments: ["omniwmctl", "rule", "apply"] + arguments)) { error in
+                XCTAssertEqual(error as? CLIParseError, .usage(CLIParser.usageText))
+            }
+        }
+    }
 }

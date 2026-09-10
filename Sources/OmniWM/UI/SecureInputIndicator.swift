@@ -68,10 +68,12 @@ final class SecureInputIndicatorController {
         OwnedWindowRegistry.shared.register(
             panel,
             surfaceId: "secure-input-indicator",
-            kind: .secureInputIndicator,
-            hitTestPolicy: .interactive,
-            capturePolicy: .excluded,
-            suppressesManagedFocusRecovery: false
+            policy: SurfacePolicy(
+                kind: .secureInputIndicator,
+                hitTestPolicy: .interactive,
+                capturePolicy: .excluded,
+                suppressesManagedFocusRecovery: false
+            )
         )
 
         self.panel = panel
