@@ -305,7 +305,7 @@ final class TrackpadWindowGestureTests: XCTestCase {
         XCTAssertEqual(fixture.windowOrder(), [fixture.first.token, fixture.second.token])
     }
 
-    func testLiftingOneFingerDropsTheWindow() throws {
+    func testLiftingOneFingerDropsTheWindowAfterTheFlickerGrace() throws {
         let fixture = try makeNiriFixture(pid: 9_108)
         let handler = fixture.handler
         let start = fixture.firstFrame.center
@@ -326,16 +326,14 @@ final class TrackpadWindowGestureTests: XCTestCase {
         }
         XCTAssertTrue(handler.state.isMoving)
 
-        time += 0.01
-        sendFrame(
-            handler,
-            phase: .changed,
-            fingers: 3,
-            x: 0.2 + travel,
-            y: 0.5,
-            at: time,
-            location: start
-        )
+        // One finger lifts and stays lifted. Within the grace the move survives; past it, the window drops.
+        for _ in 0 ..< 5 {
+            time += 0.02
+            sendFrame(handler, phase: .changed, fingers: 3, x: 0.2 + travel, y: 0.5, at: time, location: start)
+        }
+        XCTAssertTrue(handler.state.isMoving, "100ms of three fingers is flicker, not a release")
+        time += 0.1
+        sendFrame(handler, phase: .changed, fingers: 3, x: 0.2 + travel, y: 0.5, at: time, location: start)
 
         XCTAssertFalse(handler.state.isMoving)
         XCTAssertNil(fixture.engine.interactiveMove)
@@ -345,6 +343,109 @@ final class TrackpadWindowGestureTests: XCTestCase {
         time += 0.01
         sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
         XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
+    }
+
+    func testBriefFingerCountDipDoesNotEndResize() throws {
+        let fixture = try makeNiriFixture(pid: 9_113)
+        let handler = fixture.handler
+        let widthBefore = fixture.firstFrame.width
+        let start = CGPoint(x: fixture.firstFrame.maxX - 20, y: fixture.firstFrame.midY)
+        var time: TimeInterval = 100
+        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
+        for step in 1 ... 4 {
+            time += 0.01
+            sendFrame(
+                handler,
+                phase: .changed,
+                fingers: 3,
+                x: 0.4 + 0.0125 * CGFloat(step),
+                y: 0.5,
+                at: time,
+                location: start
+            )
+        }
+        XCTAssertTrue(handler.state.isResizing)
+
+        // A fingertip rolls: two frames report two fingers, then all three are back.
+        time += 0.01
+        sendFrame(handler, phase: .changed, fingers: 2, x: 0.46, y: 0.5, at: time, location: start)
+        time += 0.01
+        sendFrame(handler, phase: .changed, fingers: 2, x: 0.47, y: 0.5, at: time, location: start)
+        XCTAssertTrue(handler.state.isResizing, "a two-frame dip must not end the resize")
+        XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
+
+        for step in 5 ... 8 {
+            time += 0.01
+            sendFrame(
+                handler,
+                phase: .changed,
+                fingers: 3,
+                x: 0.4 + 0.0125 * CGFloat(step),
+                y: 0.5,
+                at: time,
+                location: start
+            )
+        }
+        XCTAssertTrue(handler.state.isResizing)
+        time += 0.01
+        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+
+        let widthAfter = try XCTUnwrap(fixture.frames()[fixture.first.token]).width
+        XCTAssertEqual(widthAfter, widthBefore + 160, accuracy: 2, "the full travel must land despite the dip")
+    }
+
+    func testTransientExtraFingerDoesNotAbortMove() throws {
+        let fixture = try makeNiriFixture(pid: 9_114)
+        let handler = fixture.handler
+        let start = fixture.firstFrame.center
+        var time: TimeInterval = 100
+        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
+        for step in 1 ... 4 {
+            time += 0.01
+            sendFrame(
+                handler,
+                phase: .changed,
+                fingers: 4,
+                x: 0.2 + 0.02 * CGFloat(step),
+                y: 0.5,
+                at: time,
+                location: start
+            )
+        }
+        XCTAssertTrue(handler.state.isMoving)
+
+        time += 0.01
+        sendFrame(handler, phase: .changed, fingers: 5, x: 0.29, y: 0.5, at: time, location: start)
+        XCTAssertTrue(handler.state.isMoving, "a resting palm for one frame must not cancel the move")
+        time += 0.01
+        sendFrame(handler, phase: .changed, fingers: 4, x: 0.3, y: 0.5, at: time, location: start)
+        XCTAssertTrue(handler.state.isMoving)
+
+        time += 0.01
+        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        XCTAssertFalse(handler.state.isMoving)
+    }
+
+    func testResizeTravelIsNotClampedToTheMonitor() {
+        let monitor = CGRect(x: 0, y: 0, width: 3840, height: 2160)
+        let start = CGPoint(x: 1127, y: 195)
+        let unclamped = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.5, y: 0.8),
+            currentTouch: CGPoint(x: 0.5, y: 0.3),
+            monitorFrame: monitor,
+            sensitivity: 1,
+            clampToMonitor: false
+        )
+        XCTAssertEqual(unclamped.y, 195 - 0.5 * 2160, accuracy: 0.001)
+        let clamped = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.5, y: 0.8),
+            currentTouch: CGPoint(x: 0.5, y: 0.3),
+            monitorFrame: monitor,
+            sensitivity: 1
+        )
+        XCTAssertEqual(clamped.y, 0)
     }
 
     func testMouseEventsDoNotDisturbGestureOwnedMove() throws {

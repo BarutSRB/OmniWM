@@ -102,16 +102,18 @@ enum TrackpadGestureIntent {
     }
 
     /// Maps trackpad travel onto the screen: a full traversal of the trackpad crosses the whole monitor
-    /// at sensitivity 1.0. The result is clamped to the monitor so drop targets stay reachable.
+    /// at sensitivity 1.0. `clampToMonitor` keeps the result on the monitor so drop targets stay reachable.
     static func windowGestureLocation(
         start: CGPoint,
         startTouch: CGPoint,
         currentTouch: CGPoint,
         monitorFrame: CGRect,
-        sensitivity: CGFloat
+        sensitivity: CGFloat,
+        clampToMonitor: Bool = true
     ) -> CGPoint {
         let x = start.x + (currentTouch.x - startTouch.x) * monitorFrame.width * sensitivity
         let y = start.y + (currentTouch.y - startTouch.y) * monitorFrame.height * sensitivity
+        guard clampToMonitor else { return CGPoint(x: x, y: y) }
         return CGPoint(
             x: min(max(x, monitorFrame.minX), monitorFrame.maxX),
             y: min(max(y, monitorFrame.minY), monitorFrame.maxY)

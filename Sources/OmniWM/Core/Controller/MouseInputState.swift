@@ -79,6 +79,8 @@ struct MouseInputState {
     var activeGestureMode: TrackpadGestureMode?
     /// True while the active move or resize was started by a trackpad gesture instead of a mouse button.
     var gestureOwnsWindowInteraction = false
+    /// When the contact frame first disagreed with the locked finger count during a committed window gesture.
+    var gestureFingerCountMismatchSince: TimeInterval?
     var viewportGestureSessionID: AnimationDriver.GestureSessionID?
     var workspaceSwipeFired = false
     let workspaceSwipeTracker = SwipeTracker()

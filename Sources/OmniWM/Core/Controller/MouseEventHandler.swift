@@ -5,6 +5,9 @@ import AppKit
 import Foundation
 
 private let niriTouchpadGestureRecognitionThreshold: CGFloat = 16.0
+// A fingertip that rolls or lightens mid-drag drops out of the contact frame for a few frames. Window
+// gestures ride that out rather than dropping the window; a real lift lasts far longer than this.
+private let windowGestureFingerCountGrace: TimeInterval = 0.15
 // AppKit gives normalized touch positions rather than libinput gesture deltas.
 // This maps normalized movement into the delta space that AnimationDriver later
 // normalizes with gestureWorkingAreaMovement.
@@ -2374,31 +2377,15 @@ final class MouseEventHandler {
             requiredFingers: requiredFingers,
             touches: snapshot.touches
         ) else {
-            if state.gesturePhase == .committed, activeTouchCount < requiredFingers {
-                finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
-                return
-            }
-            if state.gesturePhase == .armed, activeTouchCount > requiredFingers,
-               let average = Self.averageGestureTouchPosition(
-                   requiredFingers: activeTouchCount,
-                   touches: snapshot.touches
-               )
-            {
-                // Fingers rarely land in the same frame. While nothing has committed yet, a late finger
-                // simply means the user meant the larger count, so re-arm instead of giving up.
-                MouseTrace.record("gesture: re-arm \(requiredFingers) -> \(activeTouchCount) fingers")
-                resetGestureState()
-                armGestureIfPossible(
-                    at: location,
-                    activeTouchCount: activeTouchCount,
-                    average: average,
-                    timestamp: snapshot.timestamp
-                )
-                return
-            }
-            abortActiveGestureIfNeeded()
+            handleGestureFingerCountMismatch(
+                activeTouchCount: activeTouchCount,
+                requiredFingers: requiredFingers,
+                at: location,
+                snapshot: snapshot
+            )
             return
         }
+        state.gestureFingerCountMismatchSince = nil
 
         if state.gesturePhase == .idle {
             armGestureIfPossible(
@@ -2410,6 +2397,56 @@ final class MouseEventHandler {
             return
         }
         processActiveGestureFrame(average: averageTouchPosition, timestamp: snapshot.timestamp)
+    }
+
+    /// The frame carries a different finger count than the gesture locked.
+    private func handleGestureFingerCountMismatch(
+        activeTouchCount: Int,
+        requiredFingers: Int,
+        at location: CGPoint,
+        snapshot: GestureEventSnapshot
+    ) {
+        if state.gesturePhase == .committed, state.activeGestureMode?.isWindowInteraction == true {
+            let since = state.gestureFingerCountMismatchSince ?? snapshot.timestamp
+            state.gestureFingerCountMismatchSince = since
+            let held = snapshot.timestamp - since
+            if held < windowGestureFingerCountGrace {
+                MouseTrace.record("gesture: tolerating \(requiredFingers) -> \(activeTouchCount) fingers")
+                return
+            }
+            MouseTrace.record(
+                "gesture: \(requiredFingers) -> \(activeTouchCount) fingers held \(Int(held * 1000))ms, ending"
+            )
+            if activeTouchCount < requiredFingers {
+                finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
+            } else {
+                abortActiveGestureIfNeeded()
+            }
+            return
+        }
+        if state.gesturePhase == .committed, activeTouchCount < requiredFingers {
+            finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
+            return
+        }
+        if state.gesturePhase == .armed, activeTouchCount > requiredFingers,
+           let average = Self.averageGestureTouchPosition(
+               requiredFingers: activeTouchCount,
+               touches: snapshot.touches
+           )
+        {
+            // Fingers rarely land in the same frame. While nothing has committed yet, a late finger
+            // simply means the user meant the larger count, so re-arm instead of giving up.
+            MouseTrace.record("gesture: re-arm \(requiredFingers) -> \(activeTouchCount) fingers")
+            resetGestureState()
+            armGestureIfPossible(
+                at: location,
+                activeTouchCount: activeTouchCount,
+                average: average,
+                timestamp: snapshot.timestamp
+            )
+            return
+        }
+        abortActiveGestureIfNeeded()
     }
 
     private func gestureFramePreconditionsSatisfied(at location: CGPoint) -> Bool {
@@ -2632,8 +2669,17 @@ final class MouseEventHandler {
             return false
         }
         state.gestureOwnsWindowInteraction = true
-        MouseTrace.record("gesture: \(mode) began in \(layout) at \(TraceFormat.point(location))")
+        MouseTrace.record(
+            "gesture: \(mode) began in \(layout) at \(TraceFormat.point(location))"
+                + (mode == .windowResize ? " edges=\(Self.describe(state.currentHoveredEdges))" : "")
+        )
         return true
+    }
+
+    nonisolated static func describe(_ edges: ResizeEdge) -> String {
+        let names: [(ResizeEdge, String)] = [(.left, "left"), (.right, "right"), (.top, "top"), (.bottom, "bottom")]
+        let present = names.filter { edges.contains($0.0) }.map(\.1)
+        return present.isEmpty ? "none" : present.joined(separator: "+")
     }
 
     /// Per axis, keep the edge nearest the cursor when it can move, fall back to the opposite edge when
@@ -2662,7 +2708,10 @@ final class MouseEventHandler {
             startTouch: CGPoint(x: state.gestureStartX, y: state.gestureStartY),
             currentTouch: CGPoint(x: state.gestureLastAverageX, y: state.gestureLastAverageY),
             monitorFrame: monitor.frame,
-            sensitivity: CGFloat(controller?.settings.windowGestureSensitivity ?? 1.0)
+            sensitivity: CGFloat(controller?.settings.windowGestureSensitivity ?? 1.0),
+            // A move needs its drop target on screen; a resize is pure travel, and clamping it would cap
+            // how far an edge can go whenever the cursor started near a screen edge.
+            clampToMonitor: state.activeGestureMode == .windowMove
         )
     }
 
@@ -2671,6 +2720,10 @@ final class MouseEventHandler {
     private func endGestureWindowInteraction(commit: Bool, at location: CGPoint) {
         guard state.gestureOwnsWindowInteraction else { return }
         state.gestureOwnsWindowInteraction = false
+        MouseTrace.record(
+            "gesture: \(state.activeGestureMode.map { "\($0)" } ?? "window gesture") "
+                + "\(commit ? "completed" : "cancelled") at \(TraceFormat.point(location))"
+        )
         guard commit else {
             cancelActiveMouseInteraction()
             return
@@ -3187,6 +3240,7 @@ final class MouseEventHandler {
         state.activeGestureMode = nil
         state.viewportGestureSessionID = nil
         state.workspaceSwipeFired = false
+        state.gestureFingerCountMismatchSince = nil
     }
 
     private func currentSelectionNode(
