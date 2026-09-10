@@ -1344,6 +1344,7 @@ final class MouseEventHandler {
         wsId: WorkspaceDescriptor.ID,
         monitor: Monitor,
         at location: CGPoint,
+        edges requestedEdges: ResizeEdge? = nil,
         button: MouseButton?
     ) -> Bool {
         guard let controller,
@@ -1351,7 +1352,7 @@ final class MouseEventHandler {
               let frame = node.presentedFrame(at: controller.animationClock.now())
         else { return false }
 
-        let edges = resizeEdges(for: location, in: frame)
+        let edges = requestedEdges ?? resizeEdges(for: location, in: frame)
         controller.dwindleLayoutHandler.refreshEngineConstraints(workspaceId: wsId, monitor: monitor)
         let innerGap = controller.resolvedDwindleSettings(for: monitor).innerGap
         guard engine.interactiveResizeBegin(
@@ -2377,6 +2378,24 @@ final class MouseEventHandler {
                 finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
                 return
             }
+            if state.gesturePhase == .armed, activeTouchCount > requiredFingers,
+               let average = Self.averageGestureTouchPosition(
+                   requiredFingers: activeTouchCount,
+                   touches: snapshot.touches
+               )
+            {
+                // Fingers rarely land in the same frame. While nothing has committed yet, a late finger
+                // simply means the user meant the larger count, so re-arm instead of giving up.
+                MouseTrace.record("gesture: re-arm \(requiredFingers) -> \(activeTouchCount) fingers")
+                resetGestureState()
+                armGestureIfPossible(
+                    at: location,
+                    activeTouchCount: activeTouchCount,
+                    average: average,
+                    timestamp: snapshot.timestamp
+                )
+                return
+            }
             abortActiveGestureIfNeeded()
             return
         }
@@ -2423,7 +2442,16 @@ final class MouseEventHandler {
         average: CGPoint,
         timestamp: TimeInterval
     ) {
-        guard let context = resolveGestureArmContext(at: location, fingerCount: activeTouchCount) else { return }
+        guard let context = resolveGestureArmContext(at: location, fingerCount: activeTouchCount) else {
+            MouseTrace.record(
+                "gesture: \(activeTouchCount) fingers not armed at \(TraceFormat.point(location))"
+            )
+            return
+        }
+        MouseTrace.record(
+            "gesture: armed \(activeTouchCount) fingers at \(TraceFormat.point(location)) "
+                + "window=\(context.windowGestureLayout.map { "\($0)" } ?? "none")"
+        )
         state.lockedGestureContext = context
         if context.workspaceAxis != nil {
             state.workspaceSwipeTracker.reset()
@@ -2547,19 +2575,27 @@ final class MouseEventHandler {
             else { return false }
             began = beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location, button: nil)
         case (.dwindle, .windowResize):
+            let now = controller.animationClock.now()
             guard let engine = controller.dwindleEngine,
-                  let token = engine.hitTestFocusableWindow(
-                      point: location,
-                      in: wsId,
-                      at: controller.animationClock.now()
-                  )
+                  let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: now),
+                  let frame = engine.presentedFrame(for: token, in: wsId, at: now)
             else { return false }
+            // A gesture has no grab point to honor, so steer the edges that can actually move.
+            let edges = Self.gestureResizeEdges(
+                nearest: resizeEdges(for: location, in: frame),
+                resizable: engine.resizableEdges(for: token, in: wsId)
+            )
+            guard !edges.isEmpty else {
+                MouseTrace.record("gesture: dwindle resize has no resizable edge for \(token)")
+                return false
+            }
             began = beginDwindleResize(
                 token: token,
                 engine: engine,
                 wsId: wsId,
                 monitor: monitor,
                 at: location,
+                edges: edges,
                 button: nil
             )
         case (_, .windowMove):
@@ -2591,9 +2627,29 @@ final class MouseEventHandler {
              (_, .workspaceSwitch):
             return false
         }
-        guard began else { return false }
+        guard began else {
+            MouseTrace.record("gesture: \(mode) begin refused by \(layout) engine at \(TraceFormat.point(location))")
+            return false
+        }
         state.gestureOwnsWindowInteraction = true
+        MouseTrace.record("gesture: \(mode) began in \(layout) at \(TraceFormat.point(location))")
         return true
+    }
+
+    /// Per axis, keep the edge nearest the cursor when it can move, fall back to the opposite edge when
+    /// only that one can, and drop the axis when neither can.
+    nonisolated static func gestureResizeEdges(nearest: ResizeEdge, resizable: ResizeEdge) -> ResizeEdge {
+        var edges: ResizeEdge = []
+        for pair in [(ResizeEdge.left, ResizeEdge.right), (.top, .bottom)] {
+            let preferred = nearest.contains(pair.0) ? pair.0 : pair.1
+            let opposite = preferred == pair.0 ? pair.1 : pair.0
+            if resizable.contains(preferred) {
+                edges.insert(preferred)
+            } else if resizable.contains(opposite) {
+                edges.insert(opposite)
+            }
+        }
+        return edges
     }
 
     /// Where the gesture's virtual cursor currently sits, derived from finger travel since the gesture began.
@@ -2711,6 +2767,7 @@ final class MouseEventHandler {
             resetGestureState()
             return false
         }
+        MouseTrace.record("gesture: committed \(mode) with \(lockedContext.fingerCount) fingers")
         state.activeGestureMode = mode
         state.gesturePhase = .committed
         return true

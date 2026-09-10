@@ -524,6 +524,96 @@ final class TrackpadWindowGestureTests: XCTestCase {
         XCTAssertGreaterThan(widthAfter, fixture.firstFrame.width + 100)
     }
 
+    func testDwindleResizeGestureFallsBackToTheEdgeThatCanMove() throws {
+        let fixture = try makeDwindleFixture(pid: 9_203)
+        let handler = fixture.handler
+        // The first tile sits against the left screen edge: its nearest edge cannot move, its right one can.
+        let start = CGPoint(x: fixture.firstFrame.minX + 20, y: fixture.firstFrame.minY + 20)
+        XCTAssertEqual(fixture.engine.resizableEdges(for: fixture.first, in: fixture.workspaceId), .right)
+
+        var time: TimeInterval = 100
+        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
+        for step in 1 ... 8 {
+            time += 0.01
+            sendFrame(
+                handler,
+                phase: .changed,
+                fingers: 3,
+                x: 0.4 + 0.0125 * CGFloat(step),
+                y: 0.5,
+                at: time,
+                location: start
+            )
+        }
+        XCTAssertTrue(handler.state.isResizing)
+        XCTAssertEqual(fixture.engine.interactiveResize?.edges, .right)
+        XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
+
+        time += 0.01
+        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+
+        XCTAssertFalse(handler.state.isResizing)
+        fixture.relayout()
+        let widthAfter = try XCTUnwrap(fixture.presentedFrame(fixture.first)).width
+        XCTAssertGreaterThan(widthAfter, fixture.firstFrame.width + 100)
+    }
+
+    func testGestureResizeEdgesPreferNearestThenOppositeThenDropAxis() {
+        XCTAssertEqual(
+            MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: .all),
+            [.left, .top]
+        )
+        XCTAssertEqual(
+            MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: [.right, .bottom]),
+            [.right, .bottom]
+        )
+        XCTAssertEqual(
+            MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: [.right]),
+            .right
+        )
+        XCTAssertEqual(
+            MouseEventHandler.gestureResizeEdges(nearest: [.right, .bottom], resizable: [.left, .right]),
+            .right
+        )
+        XCTAssertTrue(MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: []).isEmpty)
+    }
+
+    func testLateFourthFingerReArmsFromResizeToMoveBeforeCommit() throws {
+        let fixture = try makeNiriFixture(pid: 9_112)
+        let handler = fixture.handler
+        let start = fixture.firstFrame.center
+        let travel = (fixture.secondFrame.center.x - start.x) / fixture.monitor.frame.width
+        var time: TimeInterval = 100
+        // Three fingers land first and drift a little, staying under the commit threshold.
+        sendFrame(handler, phase: .began, fingers: 3, x: 0.2, y: 0.5, at: time, location: start)
+        time += 0.01
+        sendFrame(handler, phase: .changed, fingers: 3, x: 0.21, y: 0.5, at: time, location: start)
+        XCTAssertEqual(handler.state.gesturePhase, .armed)
+        XCTAssertEqual(handler.state.lockedGestureContext?.fingerCount, 3)
+
+        // The fourth finger arrives: the gesture must become a four-finger move, not abort.
+        for step in 0 ... 10 {
+            time += 0.01
+            sendFrame(
+                handler,
+                phase: .changed,
+                fingers: 4,
+                x: 0.21 + travel * CGFloat(step) / 10,
+                y: 0.5,
+                at: time,
+                location: start
+            )
+        }
+        XCTAssertEqual(handler.state.lockedGestureContext?.fingerCount, 4)
+        XCTAssertEqual(handler.state.activeGestureMode, .windowMove)
+        XCTAssertTrue(handler.state.isMoving)
+        XCTAssertFalse(handler.state.isResizing)
+
+        time += 0.01
+        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        XCTAssertEqual(fixture.windowOrder(), [fixture.second.token, fixture.first.token])
+    }
+
     // MARK: - Helpers
 
     private func sendFrame(

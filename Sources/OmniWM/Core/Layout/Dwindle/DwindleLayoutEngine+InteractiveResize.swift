@@ -207,6 +207,21 @@ extension DwindleLayoutEngine {
         return (match.split, match.child, axisLength)
     }
 
+    /// The edges of `token`'s tile that a resize can actually move: each edge whose side has a split with
+    /// two visible branches. A tile against the screen edge, or on the unsplit axis of a two-window
+    /// layout, has no controlling split there and `interactiveResizeBegin` refuses that edge.
+    func resizableEdges(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> ResizeEdge {
+        guard let leaf = findNode(for: token, in: workspaceId), leaf.isLeaf, !leaf.isFullscreen else { return [] }
+        var edges: ResizeEdge = []
+        for edge in [ResizeEdge.left, .right, .top, .bottom] {
+            let axis: DwindleOrientation = edge == .left || edge == .right ? .horizontal : .vertical
+            if resolveControllingSplit(from: leaf, edges: edge, axis: axis, workspaceId: workspaceId) != nil {
+                edges.insert(edge)
+            }
+        }
+        return edges
+    }
+
     private func controllingSplit(
         from leaf: DwindleNode,
         orientation: DwindleOrientation,
