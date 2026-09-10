@@ -4,8 +4,14 @@
 import CoreGraphics
 
 enum HiddenBarMenuGuard {
+    struct WindowInfo {
+        let layer: Int
+        let ownerPID: pid_t
+        let title: String?
+    }
+
     static func isMenuOpen(
-        windows: [(layer: Int, ownerPID: pid_t, title: String?)],
+        windows: [WindowInfo],
         menuOwnerPIDs: Set<pid_t>
     ) -> Bool {
         guard !menuOwnerPIDs.isEmpty else { return false }
@@ -22,11 +28,11 @@ enum HiddenBarMenuGuard {
         guard !menuOwnerPIDs.isEmpty else { return false }
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
         else { return nil }
-        let windows = list.compactMap { info -> (layer: Int, ownerPID: pid_t, title: String?)? in
+        let windows = list.compactMap { info -> WindowInfo? in
             guard let layer = info[kCGWindowLayer as String] as? Int,
                   let pid = info[kCGWindowOwnerPID as String] as? pid_t
             else { return nil }
-            return (layer, pid, info[kCGWindowName as String] as? String)
+            return WindowInfo(layer: layer, ownerPID: pid, title: info[kCGWindowName as String] as? String)
         }
         return isMenuOpen(windows: windows, menuOwnerPIDs: menuOwnerPIDs)
     }

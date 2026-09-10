@@ -22,7 +22,7 @@ enum TitleMatcherMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum AppRuleInitialContainerPrimarySpanPercent {
+enum AppRulePrimarySpanPercent {
     static func percent(from proportion: Double) -> Double {
         proportion * 100
     }
@@ -149,8 +149,8 @@ struct AppRuleDraft: Identifiable, Equatable {
     }
 
     static func guided(from snapshot: WindowDecisionDebugSnapshot) -> AppRuleDraft? {
-        let bundleId = snapshot.bundleId?.trimmedNonEmpty
-        let appName = snapshot.appName?.trimmedNonEmpty
+        let bundleId = trimmedRuleValue(snapshot.bundleId)
+        let appName = trimmedRuleValue(snapshot.appName)
         guard bundleId != nil || appName != nil else { return nil }
 
         var draft = AppRuleDraft(bundleId: bundleId ?? "")
@@ -158,15 +158,15 @@ struct AppRuleDraft: Identifiable, Equatable {
             draft.appNameMatcherEnabled = true
             draft.appNameSubstring = appName
         }
-        if let title = snapshot.title?.trimmedNonEmpty {
+        if let title = trimmedRuleValue(snapshot.title) {
             draft.titleMatcherMode = .substring
             draft.titleSubstring = title
         }
-        if let axRole = snapshot.axRole?.trimmedNonEmpty {
+        if let axRole = trimmedRuleValue(snapshot.axRole) {
             draft.axRoleEnabled = true
             draft.axRole = axRole
         }
-        if let axSubrole = snapshot.axSubrole?.trimmedNonEmpty {
+        if let axSubrole = trimmedRuleValue(snapshot.axSubrole) {
             draft.axSubroleEnabled = true
             draft.axSubrole = axSubrole
         }
@@ -245,13 +245,13 @@ struct AppRuleDraft: Identifiable, Equatable {
         AppRule(
             id: id ?? self.id,
             bundleId: bundleId.trimmingCharacters(in: .whitespacesAndNewlines),
-            appNameSubstring: appNameMatcherEnabled ? appNameSubstring.trimmedNonEmpty : nil,
-            titleSubstring: titleMatcherMode == .substring ? titleSubstring.trimmedNonEmpty : nil,
-            titleRegex: titleMatcherMode == .regex ? titleRegex.trimmedNonEmpty : nil,
-            axRole: axRoleEnabled ? axRole.trimmedNonEmpty : nil,
-            axSubrole: axSubroleEnabled ? axSubrole.trimmedNonEmpty : nil,
+            appNameSubstring: appNameMatcherEnabled ? trimmedRuleValue(appNameSubstring) : nil,
+            titleSubstring: titleMatcherMode == .substring ? trimmedRuleValue(titleSubstring) : nil,
+            titleRegex: titleMatcherMode == .regex ? trimmedRuleValue(titleRegex) : nil,
+            axRole: axRoleEnabled ? trimmedRuleValue(axRole) : nil,
+            axSubrole: axSubroleEnabled ? trimmedRuleValue(axSubrole) : nil,
             layout: layoutAction == .auto ? nil : layoutAction,
-            assignToWorkspace: assignToWorkspaceEnabled ? assignToWorkspace.trimmedNonEmpty : nil,
+            assignToWorkspace: assignToWorkspaceEnabled ? trimmedRuleValue(assignToWorkspace) : nil,
             initialContainerPrimarySpan: initialContainerPrimarySpanEnabled ? initialContainerPrimarySpan : nil,
             minWidth: minWidthEnabled ? minWidth : nil,
             minHeight: minHeightEnabled ? minHeight : nil
@@ -271,13 +271,11 @@ enum AppRuleDraftValidation {
     }
 
     static func titleRegexError(for pattern: String?) -> String? {
-        IPCRuleValidator.invalidRegexMessage(for: pattern?.trimmedNonEmpty)
+        IPCRuleValidator.invalidRegexMessage(for: trimmedRuleValue(pattern))
     }
 }
 
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
+private func trimmedRuleValue(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+    return trimmed
 }

@@ -435,14 +435,15 @@ final class NiriSingleWindowFitEngineTests: XCTestCase {
         )
         let size = CGSize(width: 400, height: 300)
 
-        let placement = HiddenWindowPlacementResolver.placement(
+        let placement = HiddenWindowPlacementResolver(
+            monitor: monitor,
+            monitors: [monitor]
+        ).placement(
             for: size,
             requestedEdge: .maximum,
             orthogonalOrigin: 40,
             baseReveal: 1,
-            orientation: .horizontal,
-            monitor: monitor,
-            monitors: [monitor]
+            orientation: .horizontal
         )
         let frame = placement.frame(for: size)
 

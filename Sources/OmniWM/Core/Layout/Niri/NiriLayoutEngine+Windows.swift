@@ -17,6 +17,11 @@ extension NiriLayoutEngine {
         let visibilityWasCorrected: Bool
     }
 
+    private struct RemovalBatch {
+        let tokens: Set<WindowToken>
+        let nodeIds: Set<NodeId>
+    }
+
     private struct TileRemovalStep {
         var removedTokens: Set<WindowToken> = []
         var removedNodeIds: Set<NodeId> = []
@@ -164,25 +169,21 @@ extension NiriLayoutEngine {
     @discardableResult
     func removeWindows(
         _ tokens: Set<WindowToken>,
-        in workspaceId: WorkspaceDescriptor.ID,
+        context: NiriInteractionContext,
         state: inout ViewportState,
-        motion: MotionSnapshot,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation,
         selectedNodeId: NodeId?,
         removedNodeIds externallyRemovedNodeIds: [NodeId]
     ) -> NiriRemovalResult {
         assertSanctionedMutation()
         guard !tokens.isEmpty,
-              let workspaceState = states[workspaceId]
+              let workspaceState = states[context.workspaceId]
         else {
             return NiriRemovalResult(
                 removedTokens: [],
                 removedNodeIds: [],
                 removedColumnIndicesBefore: [],
-                activeIndexBefore: columns(in: workspaceId).isEmpty ? nil : state.activeColumnIndex,
-                activeIndexAfter: columns(in: workspaceId).isEmpty ? nil : state.activeColumnIndex,
+                activeIndexBefore: columns(in: context.workspaceId).isEmpty ? nil : state.activeColumnIndex,
+                activeIndexAfter: columns(in: context.workspaceId).isEmpty ? nil : state.activeColumnIndex,
                 finalSelectionId: nil,
                 viewportNeedsRecalc: false,
                 fromIndexForVisibility: nil,
@@ -207,8 +208,11 @@ extension NiriLayoutEngine {
             )
         }
 
-        let batchRemovedNodeIds = Set(externallyRemovedNodeIds).union(
-            removalTokens.compactMap { workspaceState.nodesByToken[$0]?.id }
+        let batch = RemovalBatch(
+            tokens: removalTokens,
+            nodeIds: Set(externallyRemovedNodeIds).union(
+                removalTokens.compactMap { workspaceState.nodesByToken[$0]?.id }
+            )
         )
         var remainingTokens = removalTokens
         var removedTokens: Set<WindowToken> = []
@@ -221,7 +225,7 @@ extension NiriLayoutEngine {
 
         while let window = root.allWindows.first(where: { remainingTokens.contains($0.token) }) {
             guard let column = column(of: window),
-                  let columnIndex = columnIndex(of: column, in: workspaceId),
+                  let columnIndex = columnIndex(of: column, in: context.workspaceId),
                   let tileIndex = column.windowNodes.firstIndex(where: { $0 === window })
             else {
                 remainingTokens.remove(window.token)
@@ -231,14 +235,9 @@ extension NiriLayoutEngine {
             let step = removeTileByIdx(
                 columnIndex: columnIndex,
                 tileIndex: tileIndex,
-                in: workspaceId,
+                context: context,
                 state: &state,
-                motion: motion,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
-                allRemovalTokens: removalTokens,
-                allRemovalNodeIds: batchRemovedNodeIds
+                batch: batch
             )
 
             removedTokens.formUnion(step.removedTokens)
@@ -260,18 +259,18 @@ extension NiriLayoutEngine {
         let currentSelection = state.selectedNodeId ?? selectedNodeId
         let finalSelection: NodeId?
         if let currentSelection,
-           !batchRemovedNodeIds.contains(currentSelection),
+           !batch.nodeIds.contains(currentSelection),
            root.findNode(by: currentSelection) != nil
         {
             finalSelection = currentSelection
         } else {
             finalSelection = latestFallback
                 ?? fallbackSelectionFromActiveColumn(
-                    in: workspaceId,
+                    in: context.workspaceId,
                     activeIndex: state.activeColumnIndex,
-                    excluding: batchRemovedNodeIds
+                    excluding: batch.nodeIds
                 )
-                ?? validateSelection(nil, in: workspaceId)
+                ?? validateSelection(nil, in: context.workspaceId)
         }
 
         state.selectedNodeId = finalSelection
@@ -284,12 +283,8 @@ extension NiriLayoutEngine {
         {
             ensureSelectionVisible(
                 node: selectedNode,
-                in: workspaceId,
-                motion: motion,
+                context: context,
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
                 fromContainerIndex: fromIndexForVisibility
             )
             visibilityWasCorrected = true
@@ -297,12 +292,8 @@ extension NiriLayoutEngine {
 
         if !removedColumnIndicesBefore.isEmpty,
            correctViewportAfterColumnRemoval(
-               in: workspaceId,
-               state: &state,
-               motion: motion,
-               workingFrame: workingFrame,
-               gaps: gaps,
-               orientation: orientation
+               context: context,
+               state: &state
            )
         {
             viewportNeedsRecalc = true
@@ -310,10 +301,10 @@ extension NiriLayoutEngine {
 
         return NiriRemovalResult(
             removedTokens: removedTokens,
-            removedNodeIds: removedNodeIds.union(batchRemovedNodeIds),
+            removedNodeIds: removedNodeIds.union(batch.nodeIds),
             removedColumnIndicesBefore: removedColumnIndicesBefore,
             activeIndexBefore: activeIndexBefore,
-            activeIndexAfter: columns(in: workspaceId).isEmpty ? nil : state.activeColumnIndex,
+            activeIndexAfter: columns(in: context.workspaceId).isEmpty ? nil : state.activeColumnIndex,
             finalSelectionId: finalSelection,
             viewportNeedsRecalc: viewportNeedsRecalc,
             fromIndexForVisibility: visibilityWasCorrected ? nil : fromIndexForVisibility,
@@ -324,16 +315,11 @@ extension NiriLayoutEngine {
     private func removeTileByIdx(
         columnIndex: Int,
         tileIndex: Int,
-        in workspaceId: WorkspaceDescriptor.ID,
+        context: NiriInteractionContext,
         state: inout ViewportState,
-        motion: MotionSnapshot,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation,
-        allRemovalTokens: Set<WindowToken>,
-        allRemovalNodeIds: Set<NodeId>
+        batch: RemovalBatch
     ) -> TileRemovalStep {
-        let cols = columns(in: workspaceId)
+        let cols = columns(in: context.workspaceId)
         guard columnIndex >= 0, columnIndex < cols.count else { return TileRemovalStep() }
 
         let column = cols[columnIndex]
@@ -343,14 +329,9 @@ extension NiriLayoutEngine {
         if windows.count == 1 {
             return removeColumnByIdx(
                 columnIndex,
-                in: workspaceId,
+                context: context,
                 state: &state,
-                motion: motion,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
-                allRemovalTokens: allRemovalTokens,
-                allRemovalNodeIds: allRemovalNodeIds
+                batch: batch
             )
         }
 
@@ -358,10 +339,10 @@ extension NiriLayoutEngine {
         let removedToken = node.token
         let removedNodeId = node.id
 
-        cancelInteractions(for: Set([removedNodeId]), in: workspaceId)
+        cancelInteractions(for: Set([removedNodeId]), in: context.workspaceId)
 
         column.adjustActiveTileIdxForRemoval(of: node)
-        states[workspaceId]?.unindex(node)
+        states[context.workspaceId]?.unindex(node)
         node.remove()
 
         if column.displayMode == .tabbed {
@@ -378,7 +359,7 @@ extension NiriLayoutEngine {
 
         let fallback = fallbackSelectionInColumn(
             column,
-            excluding: allRemovalNodeIds
+            excluding: batch.nodeIds
         )
 
         return TileRemovalStep(
@@ -390,48 +371,43 @@ extension NiriLayoutEngine {
 
     private func removeColumnByIdx(
         _ removedIdx: Int,
-        in workspaceId: WorkspaceDescriptor.ID,
+        context: NiriInteractionContext,
         state: inout ViewportState,
-        motion: MotionSnapshot,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation,
-        allRemovalTokens: Set<WindowToken>,
-        allRemovalNodeIds: Set<NodeId>
+        batch: RemovalBatch
     ) -> TileRemovalStep {
-        let cols = columns(in: workspaceId)
+        let cols = columns(in: context.workspaceId)
         guard removedIdx >= 0, removedIdx < cols.count else { return TileRemovalStep() }
 
         resolvePrimaryContainerSpans(
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         )
 
         let column = cols[removedIdx]
         let removedWindows = column.windowNodes
-        let removedTokens = Set(removedWindows.map(\.token)).intersection(allRemovalTokens)
+        let removedTokens = Set(removedWindows.map(\.token)).intersection(batch.tokens)
         let removedNodeIds = Set(removedWindows.map(\.id))
         let activeIdx = state.activeColumnIndex.clamped(to: 0 ... max(0, cols.count - 1))
         let postRemovalCount = cols.count - 1
-        let primarySpan = switch orientation {
+        let primarySpan = switch context.orientation {
         case .horizontal: column.cachedWidth
         case .vertical: column.cachedHeight
         }
-        let offset = primarySpan + gaps
+        let offset = primarySpan + context.gaps
 
         animateColumnsAroundRemoval(
             columns: cols,
             removedIdx: removedIdx,
             activeIdx: activeIdx,
             offset: offset,
-            in: workspaceId,
-            motion: motion,
-            orientation: orientation
+            in: context.workspaceId,
+            motion: context.motion,
+            orientation: context.orientation
         )
 
-        cancelInteractions(for: Set(removedWindows.map(\.id)), in: workspaceId)
+        cancelInteractions(for: Set(removedWindows.map(\.id)), in: context.workspaceId)
 
         let pendingPreviousOffset = state.activatePrevColumnOnRemoval
         if removedIdx + 1 == activeIdx {
@@ -442,7 +418,7 @@ extension NiriLayoutEngine {
         }
 
         for window in removedWindows {
-            states[workspaceId]?.unindex(window)
+            states[context.workspaceId]?.unindex(window)
             window.detach()
         }
         column.remove()
@@ -462,9 +438,9 @@ extension NiriLayoutEngine {
             state.activatePrevColumnOnRemoval = nil
             viewportNeedsRecalc = true
             fallbackSelectionId = fallbackSelectionFromActiveColumn(
-                in: workspaceId,
+                in: context.workspaceId,
                 activeIndex: state.activeColumnIndex,
-                excluding: allRemovalNodeIds
+                excluding: batch.nodeIds
             )
         } else if removedIdx == activeIdx,
                   let previousOffset = pendingPreviousOffset,
@@ -475,22 +451,18 @@ extension NiriLayoutEngine {
             state.jumpOffset(to: previousOffset)
             viewportNeedsRecalc = true
             fallbackSelectionId = fallbackSelectionFromActiveColumn(
-                in: workspaceId,
+                in: context.workspaceId,
                 activeIndex: state.activeColumnIndex,
-                excluding: allRemovalNodeIds
+                excluding: batch.nodeIds
             )
             if let fallbackSelectionId,
-               let selectedNode = findNode(by: fallbackSelectionId, in: workspaceId)
+               let selectedNode = findNode(by: fallbackSelectionId, in: context.workspaceId)
             {
                 state.selectedNodeId = fallbackSelectionId
                 ensureSelectionVisible(
                     node: selectedNode,
-                    in: workspaceId,
-                    motion: motion,
+                    context: context,
                     state: &state,
-                    workingFrame: workingFrame,
-                    gaps: gaps,
-                    orientation: orientation,
                     fromContainerIndex: state.activeColumnIndex
                 )
                 visibilityWasCorrected = true
@@ -501,9 +473,9 @@ extension NiriLayoutEngine {
             viewportNeedsRecalc = true
             fromIndexForVisibility = removedIdx
             fallbackSelectionId = fallbackSelectionFromActiveColumn(
-                in: workspaceId,
+                in: context.workspaceId,
                 activeIndex: state.activeColumnIndex,
-                excluding: allRemovalNodeIds
+                excluding: batch.nodeIds
             )
         } else {
             state.activatePrevColumnOnRemoval = nil
@@ -545,27 +517,23 @@ extension NiriLayoutEngine {
     }
 
     func correctViewportAfterColumnRemoval(
-        in workspaceId: WorkspaceDescriptor.ID,
-        state: inout ViewportState,
-        motion: MotionSnapshot,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation
+        context: NiriInteractionContext,
+        state: inout ViewportState
     ) -> Bool {
-        let cols = columns(in: workspaceId)
+        let cols = columns(in: context.workspaceId)
         guard !cols.isEmpty else { return false }
 
-        let monitor = monitorForWorkspace(workspaceId)
+        let monitor = monitorForWorkspace(context.workspaceId)
         resolvePrimaryContainerSpans(
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         )
-        let sizeKeyPath = orientation.settledSpanKeyPath
-        let viewportSpan: CGFloat = switch orientation {
-        case .horizontal: workingFrame.width
-        case .vertical: workingFrame.height
+        let sizeKeyPath = context.orientation.settledSpanKeyPath
+        let viewportSpan: CGFloat = switch context.orientation {
+        case .horizontal: context.workingFrame.width
+        case .vertical: context.workingFrame.height
         }
 
         let activeIdx = state.activeColumnIndex.clamped(to: 0 ... (cols.count - 1))
@@ -573,64 +541,64 @@ extension NiriLayoutEngine {
         let activePosition = state.containerPosition(
             at: activeIdx,
             containers: cols,
-            gap: gaps,
+            gap: context.gaps,
             sizeKeyPath: sizeKeyPath
         )
         let viewStart = activePosition + state.viewOffset
-        let settings = effectiveSettings(in: workspaceId)
-        let scale = displayScale(in: workspaceId)
+        let settings = effectiveSettings(in: context.workspaceId)
+        let scale = displayScale(in: context.workspaceId)
         if settings.centerFocusedColumn == .always
             || (cols.count == 1 && settings.alwaysCenterSingleColumn)
         {
             let targetOffset = state.computeVisibleOffset(
                 containerIndex: activeIdx,
                 containers: cols,
-                gap: gaps,
+                gap: context.gaps,
                 viewportSpan: viewportSpan,
                 sizeKeyPath: sizeKeyPath,
                 currentViewStart: viewStart,
                 centerMode: settings.centerFocusedColumn,
                 alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
                 scale: scale,
-                workingArea: workingFrame,
+                workingArea: context.workingFrame,
                 viewFrame: monitor?.frame,
-                orientation: orientation
+                orientation: context.orientation
             )
             let targetStart = activePosition + targetOffset
             guard abs(targetStart - viewStart) > 0.5 else { return false }
-            state.animateToOffset(targetOffset, motion: motion, scale: scale)
+            state.animateToOffset(targetOffset, motion: context.motion, scale: scale)
             return true
         }
 
         let totalSpan = state.totalSpan(
             containers: cols,
-            gap: gaps,
+            gap: context.gaps,
             sizeKeyPath: sizeKeyPath
         )
-        let contentEdge = totalSpan - viewportSpan + gaps
-        let clampedStart = viewStart.clamped(to: min(-gaps, contentEdge) ... max(-gaps, contentEdge))
+        let contentEdge = totalSpan - viewportSpan + context.gaps
+        let clampedStart = viewStart.clamped(to: min(-context.gaps, contentEdge) ... max(-context.gaps, contentEdge))
         guard abs(clampedStart - viewStart) > 0.5 else { return false }
 
         if settings.centerFocusedColumn == .onOverflow {
             let centeredOffset = state.computeVisibleOffset(
                 containerIndex: activeIdx,
                 containers: cols,
-                gap: gaps,
+                gap: context.gaps,
                 viewportSpan: viewportSpan,
                 sizeKeyPath: sizeKeyPath,
                 currentViewStart: viewStart,
                 centerMode: .always,
                 scale: scale,
-                workingArea: workingFrame,
+                workingArea: context.workingFrame,
                 viewFrame: monitor?.frame,
-                orientation: orientation
+                orientation: context.orientation
             )
             let centeredStart = activePosition + centeredOffset
             let activeSpan = cols[activeIdx][keyPath: sizeKeyPath]
             let previousPairOverflows = activeIdx > 0
-                && cols[activeIdx - 1][keyPath: sizeKeyPath] + activeSpan + gaps * 3 > viewportSpan
+                && cols[activeIdx - 1][keyPath: sizeKeyPath] + activeSpan + context.gaps * 3 > viewportSpan
             let nextPairOverflows = activeIdx + 1 < cols.count
-                && activeSpan + cols[activeIdx + 1][keyPath: sizeKeyPath] + gaps * 3 > viewportSpan
+                && activeSpan + cols[activeIdx + 1][keyPath: sizeKeyPath] + context.gaps * 3 > viewportSpan
             if previousPairOverflows || nextPairOverflows,
                abs(centeredStart - viewStart) <= 0.5
             {
@@ -641,21 +609,21 @@ extension NiriLayoutEngine {
         let fittedOffset = state.computeVisibleOffset(
             containerIndex: activeIdx,
             containers: cols,
-            gap: gaps,
+            gap: context.gaps,
             viewportSpan: viewportSpan,
             sizeKeyPath: sizeKeyPath,
             currentViewStart: clampedStart,
             centerMode: .never,
             scale: scale,
-            workingArea: workingFrame,
+            workingArea: context.workingFrame,
             viewFrame: monitor?.frame,
-            orientation: orientation
+            orientation: context.orientation
         )
         let fittedStart = activePosition + fittedOffset
         guard abs(fittedStart - viewStart) > 0.5 else { return false }
         state.animateToOffset(
             fittedOffset,
-            motion: motion,
+            motion: context.motion,
             scale: scale
         )
         return true
@@ -706,23 +674,19 @@ extension NiriLayoutEngine {
 
         var removedHandles = Set<WindowToken>()
 
-        for window in state.root.allWindows {
-            if !currentIdSet.contains(window.token) {
-                removedHandles.insert(window.token)
-                removeWindow(token: window.token, in: workspaceId)
-            }
+        for window in state.root.allWindows where !currentIdSet.contains(window.token) {
+            removedHandles.insert(window.token)
+            removeWindow(token: window.token, in: workspaceId)
         }
 
-        for token in tokens {
-            if state.nodesByToken[token] == nil {
-                _ = addWindow(
-                    token: token,
-                    to: workspaceId,
-                    afterSelection: selectedNodeId,
-                    focusedToken: focusedToken,
-                    containerSizingState: containerSizingStates?[token]
-                )
-            }
+        for token in tokens where state.nodesByToken[token] == nil {
+            _ = addWindow(
+                token: token,
+                to: workspaceId,
+                afterSelection: selectedNodeId,
+                focusedToken: focusedToken,
+                containerSizingState: containerSizingStates?[token]
+            )
         }
 
         return removedHandles
@@ -775,11 +739,9 @@ extension NiriLayoutEngine {
             }
         }
 
-        for col in cols {
-            if col.id != column(of: removingNode)?.id {
-                if let firstWindow = col.firstChild() {
-                    return firstWindow.id
-                }
+        for col in cols where col.id != column(of: removingNode)?.id {
+            if let firstWindow = col.firstChild() {
+                return firstWindow.id
             }
         }
 

@@ -6,8 +6,8 @@ import SwiftUI
 struct MonitorArrangementCanvas: View {
     let monitors: [Monitor]
     let displayLabels: [Monitor.ID: MonitorDisplayLabel]
-    var selected: Monitor.ID? = nil
-    var onSelect: ((Monitor.ID) -> Void)? = nil
+    var selected: Monitor.ID?
+    var onSelect: ((Monitor.ID) -> Void)?
     var height: CGFloat = 170
 
     var body: some View {
@@ -45,7 +45,7 @@ struct MonitorArrangementTile: View {
     let fallbackName: String
     let isMain: Bool
     var isSelected: Bool = false
-    var identifierNumber: Int? = nil
+    var identifierNumber: Int?
 
     private var name: String {
         displayLabel?.name ?? fallbackName
@@ -112,7 +112,7 @@ struct RoutingArrangementCanvas: View {
         let displayLabel: MonitorDisplayLabel?
         let fallbackName: String
         let isMain: Bool
-        var identifierNumber: Int? = nil
+        var identifierNumber: Int?
     }
 
     let tiles: [Tile]

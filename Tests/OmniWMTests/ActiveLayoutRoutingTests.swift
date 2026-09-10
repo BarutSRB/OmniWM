@@ -452,12 +452,14 @@ final class ActiveLayoutRoutingTests: XCTestCase {
                         secondNode,
                         into: column,
                         enteringFrom: .right,
-                        in: workspaceId,
-                        motion: .disabled,
-                        state: &state,
-                        workingFrame: screenFrame,
-                        gaps: 10,
-                        orientation: .horizontal
+                        context: .init(
+                            workspaceId: workspaceId,
+                            motion: .disabled,
+                            workingFrame: screenFrame,
+                            gaps: 10,
+                            orientation: .horizontal
+                        ),
+                        state: &state
                     )
                     column.displayMode = .tabbed
                     column.frame = staleNiriFrame.offsetBy(dx: 700, dy: 0)

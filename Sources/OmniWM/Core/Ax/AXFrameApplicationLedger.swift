@@ -680,9 +680,9 @@ final class AXFrameApplicationLedger {
         if !isRetry,
            let requestId = observerRequestIdByWindowId[windowId],
            let pendingObserver = pendingFrameObserversByRequestId[requestId],
-           (!pendingObserver.targetFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite)
-               || pendingObserver.components != effectiveComponents
-               || !sameAXWindowIdentity(pendingObserver.expectedWindow, expectedWindow))
+           !pendingObserver.targetFrame.approximatelyEqual(to: frame, tolerance: FrameTolerance.frameWrite)
+           || pendingObserver.components != effectiveComponents
+           || !sameAXWindowIdentity(pendingObserver.expectedWindow, expectedWindow)
         {
             deliveries.append(contentsOf: discardPendingFrameObserver(for: windowId))
         }
@@ -716,10 +716,10 @@ final class AXFrameApplicationLedger {
         if let existingObserverRequestId,
            var pendingObserver = pendingFrameObserversByRequestId[existingObserverRequestId],
            sameAXWindowIdentity(pendingObserver.expectedWindow, expectedWindow),
-           (pendingObserver.targetFrame.approximatelyEqual(
+           pendingObserver.targetFrame.approximatelyEqual(
                to: frame,
                tolerance: FrameTolerance.frameWrite
-           ) && pendingObserver.components == effectiveComponents)
+           ) && pendingObserver.components == effectiveComponents
         {
             pendingFrameObserversByRequestId.removeValue(forKey: existingObserverRequestId)
             pendingObserver.windowId = windowId

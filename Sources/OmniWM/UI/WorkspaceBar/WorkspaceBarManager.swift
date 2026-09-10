@@ -532,7 +532,7 @@ final class WorkspaceBarManager {
         showsSystemStatsButton: Bool,
         monitorId: Monitor.ID
     ) {
-        guard (island.slice != slice || island.showsSystemStatsButton != showsSystemStatsButton),
+        guard island.slice != slice || island.showsSystemStatsButton != showsSystemStatsButton,
               let controller
         else {
             return

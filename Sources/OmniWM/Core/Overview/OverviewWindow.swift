@@ -412,7 +412,7 @@ final class OverviewView: NSView {
     }
 
     func cancelPendingDragIfNeeded(optionPressed: Bool) {
-        if (isDragging || dragCandidateHandle != nil), !optionPressed {
+        if isDragging || dragCandidateHandle != nil, !optionPressed {
             cancelDrag()
         }
     }

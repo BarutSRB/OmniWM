@@ -296,7 +296,7 @@ import QuartzCore
         )
     }
 
-    private func executeEffectPlan(_ plan: EffectPlan, generation: UInt64) async -> Bool {
+    private func executeEffectPlan(_ plan: EffectPlan, generation: UInt64) -> Bool {
         guard let controller else { return false }
         guard isCurrentRefreshGeneration(generation) else { return false }
 
@@ -368,7 +368,7 @@ import QuartzCore
         }
 
         if plan.effects.drainDeferredCreatedWindows {
-            await controller.axEventHandler.drainDeferredCreatedWindows()
+            controller.axEventHandler.drainDeferredCreatedWindows()
         }
 
         if plan.effects.subscribeManagedWindows {
@@ -847,12 +847,12 @@ import QuartzCore
         }
     }
 
-    private func executeScheduledRelayout(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeScheduledRelayout(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         guard !layoutState.isIncrementalRefreshInProgress else { return false }
         guard !layoutState.isImmediateLayoutInProgress else { return false }
         layoutState.isIncrementalRefreshInProgress = true
         defer { layoutState.isIncrementalRefreshInProgress = false }
-        return await executeRelayout(
+        return executeRelayout(
             refresh: refresh,
             useScrollAnimationPath: false,
             recoverFocus: true,
@@ -865,7 +865,7 @@ import QuartzCore
         useScrollAnimationPath: Bool,
         recoverFocus: Bool,
         generation: UInt64
-    ) async -> Bool {
+    ) -> Bool {
         guard let controller else { return false }
 
         if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
@@ -887,10 +887,10 @@ import QuartzCore
             }
         )
         applyRefreshMetadata(refresh, to: &plan)
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
-    private func executeVisibilityRefresh(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeVisibilityRefresh(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         guard let controller else { return false }
 
         if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
@@ -904,7 +904,7 @@ import QuartzCore
             recoverFocus: refresh.reason.recoversFocusAfterVisibilityChange
         )
         applyRefreshMetadata(refresh, to: &plan)
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
     func hideInactiveWorkspacesSync() {
@@ -918,11 +918,11 @@ import QuartzCore
         hideInactiveWorkspaces(activeWorkspaceIds: activeWorkspaceIds)
     }
 
-    private func executeImmediateRelayout(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeImmediateRelayout(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         guard !layoutState.isImmediateLayoutInProgress else { return false }
         layoutState.isImmediateLayoutInProgress = true
         defer { layoutState.isImmediateLayoutInProgress = false }
-        return await executeRelayout(
+        return executeRelayout(
             refresh: refresh,
             useScrollAnimationPath: !niriHandler.scrollAnimationByDisplay.isEmpty,
             recoverFocus: false,
@@ -930,7 +930,7 @@ import QuartzCore
         )
     }
 
-    private func executeWindowRemoval(refresh: ScheduledRefresh, generation: UInt64) async -> Bool {
+    private func executeWindowRemoval(refresh: ScheduledRefresh, generation: UInt64) -> Bool {
         let payloads = refresh.windowRemovalPayloads
         guard let controller else { return false }
         if controller.isFrontmostAppLockScreen() || controller.isLockScreenActive {
@@ -939,7 +939,7 @@ import QuartzCore
 
         var plan = buildWindowRemovalEffectPlan(payloads: payloads)
         applyRefreshMetadata(refresh, to: &plan)
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
     func resetState() {
@@ -1016,7 +1016,7 @@ import QuartzCore
         applyRefreshMetadata(refresh, includePostLayoutActions: false, to: &plan)
         try Task.checkCancellation()
         guard isCurrentRefreshGeneration(generation) else { return false }
-        return await executeEffectPlan(plan, generation: generation)
+        return executeEffectPlan(plan, generation: generation)
     }
 
     func selectTabInNiri(
@@ -1071,7 +1071,7 @@ import QuartzCore
         let layoutWorkspaceIds = affectedWorkspaceIds.isEmpty && emptyScopeUsesActiveWorkspaces
             ? activeWorkspaceIds
             : liveLayoutWorkspaceIds(affectedWorkspaceIds, controller: controller)
-        if (!affectedWorkspaceIds.isEmpty || !emptyScopeUsesActiveWorkspaces),
+        if !affectedWorkspaceIds.isEmpty || !emptyScopeUsesActiveWorkspaces,
            layoutWorkspaceIds.isEmpty
         {
             var effects = EffectPlanEffects()
@@ -2332,13 +2332,13 @@ import QuartzCore
             case .fullRescan:
                 return try await executeFullRefresh(refresh: refresh, generation: generation)
             case .relayout:
-                return await executeScheduledRelayout(refresh: refresh, generation: generation)
+                return executeScheduledRelayout(refresh: refresh, generation: generation)
             case .immediateRelayout:
-                return await executeImmediateRelayout(refresh: refresh, generation: generation)
+                return executeImmediateRelayout(refresh: refresh, generation: generation)
             case .visibilityRefresh:
-                return await executeVisibilityRefresh(refresh: refresh, generation: generation)
+                return executeVisibilityRefresh(refresh: refresh, generation: generation)
             case .windowRemoval:
-                return await executeWindowRemoval(refresh: refresh, generation: generation)
+                return executeWindowRemoval(refresh: refresh, generation: generation)
             }
         } catch {
             return false
@@ -2590,13 +2590,13 @@ import QuartzCore
         }
     }
 
-    fileprivate enum HideOperationResolution {
+    private enum HideOperationResolution {
         case movable(WindowPositionPlan, hiddenState: HiddenState)
         case alreadyHidden(WindowPositionPlan, hiddenState: HiddenState)
         case unavailable
     }
 
-    fileprivate func resolveHideOperation(
+    private func resolveHideOperation(
         for entry: WindowState,
         monitor: Monitor,
         side: HideSide,
@@ -2632,7 +2632,6 @@ import QuartzCore
             for: frame,
             monitor: monitor,
             side: side,
-            pid: entry.pid,
             reason: reason,
             hiddenPlacementMonitors: hiddenPlacementMonitors
         ) else {
@@ -2831,12 +2830,11 @@ import QuartzCore
         for frame: CGRect,
         monitor: Monitor,
         side: HideSide,
-        pid: pid_t,
         reason: HideReason,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
     ) -> CGPoint? {
         guard let controller else { return nil }
-        let baseReveal = Self.hiddenEdgeReveal(isZoomApp: isZoomApp(pid))
+        let baseReveal = Self.hiddenWindowEdgeRevealEpsilon
         let hiddenPlacementMonitor = HiddenPlacementMonitorContext(monitor)
         let resolvedHiddenPlacementMonitors = hiddenPlacementMonitors
             ?? controller.workspaceManager.monitors.map(HiddenPlacementMonitorContext.init)
@@ -2844,14 +2842,16 @@ import QuartzCore
         switch reason {
         case .workspaceInactive,
              .scratchpad:
-            return HiddenWindowPlacementResolver.physicalScreenEdgeOrigin(
-                for: frame.size,
-                requestedSide: side,
-                targetY: frame.origin.y,
-                baseReveal: baseReveal,
+            return HiddenWindowPlacementResolver(
                 monitor: hiddenPlacementMonitor,
                 monitors: resolvedHiddenPlacementMonitors
-            )
+            ).placement(
+                for: frame.size,
+                requestedEdge: AxisHideEdge(encodedHideSide: side),
+                orthogonalOrigin: frame.origin.y,
+                baseReveal: baseReveal,
+                orientation: .horizontal
+            ).origin
         case .layoutTransient:
             let orientation = controller.settings.effectiveOrientation(for: monitor)
             let orthogonalOrigin: CGFloat = switch orientation {
@@ -2859,14 +2859,15 @@ import QuartzCore
             case .vertical: frame.origin.x
             }
             let requestedEdge = AxisHideEdge(encodedHideSide: side)
-            let placement = HiddenWindowPlacementResolver.placement(
+            let placement = HiddenWindowPlacementResolver(
+                monitor: hiddenPlacementMonitor,
+                monitors: resolvedHiddenPlacementMonitors
+            ).placement(
                 for: frame.size,
                 requestedEdge: requestedEdge,
                 orthogonalOrigin: orthogonalOrigin,
                 baseReveal: baseReveal,
-                orientation: orientation,
-                monitor: hiddenPlacementMonitor,
-                monitors: resolvedHiddenPlacementMonitors
+                orientation: orientation
             )
             return placement.origin
         }

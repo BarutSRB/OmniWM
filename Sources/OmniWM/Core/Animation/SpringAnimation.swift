@@ -149,13 +149,13 @@ final class SpringAnimation {
         )
         guard value.isFinite else { return target }
         let range = (target - from) * 10.0
-        let a = from - range
-        let b = target + range
+        let fromLimit = from - range
+        let targetLimit = target + range
 
         if from <= target {
-            return value.clamped(to: a ... b)
+            return value.clamped(to: fromLimit ... targetLimit)
         } else {
-            return value.clamped(to: b ... a)
+            return value.clamped(to: targetLimit ... fromLimit)
         }
     }
 
@@ -213,7 +213,7 @@ final class SpringAnimation {
     }
 
     private static func oscillate(
-        _ t: TimeInterval,
+        _ elapsed: TimeInterval,
         from: Double,
         target: Double,
         initialVelocity: Double,
@@ -221,26 +221,26 @@ final class SpringAnimation {
     ) -> Double {
         let (beta, omega0) = params(config)
         let x0 = from - target
-        let envelope = exp(-beta * t)
+        let envelope = exp(-beta * elapsed)
         let betaX0PlusV0 = beta * x0 + initialVelocity
 
         if abs(beta - omega0) <= Double(Float.ulpOfOne) {
-            return target + envelope * (x0 + betaX0PlusV0 * t)
+            return target + envelope * (x0 + betaX0PlusV0 * elapsed)
         } else if beta < omega0 {
             let omega1 = sqrt(omega0 * omega0 - beta * beta)
             return target + envelope * (
-                x0 * cos(omega1 * t) + (betaX0PlusV0 / omega1) * sin(omega1 * t)
+                x0 * cos(omega1 * elapsed) + (betaX0PlusV0 / omega1) * sin(omega1 * elapsed)
             )
         } else {
             let omega2 = sqrt(beta * beta - omega0 * omega0)
             return target + envelope * (
-                x0 * cosh(omega2 * t) + (betaX0PlusV0 / omega2) * sinh(omega2 * t)
+                x0 * cosh(omega2 * elapsed) + (betaX0PlusV0 / omega2) * sinh(omega2 * elapsed)
             )
         }
     }
 
     private static func velocity(
-        _ t: TimeInterval,
+        _ elapsed: TimeInterval,
         from: Double,
         target displacement: Double,
         initialVelocity: Double,
@@ -249,24 +249,26 @@ final class SpringAnimation {
         let to = from + displacement
         let (beta, omega0) = params(config)
         let x0 = from - to
-        let envelope = exp(-beta * t)
+        let envelope = exp(-beta * elapsed)
         let betaX0PlusV0 = beta * x0 + initialVelocity
 
         if abs(beta - omega0) <= Double(Float.ulpOfOne) {
-            let f = x0 + betaX0PlusV0 * t
-            return envelope * (betaX0PlusV0 - beta * f)
+            let oscillation = x0 + betaX0PlusV0 * elapsed
+            return envelope * (betaX0PlusV0 - beta * oscillation)
         } else if beta < omega0 {
             let omega1 = sqrt(omega0 * omega0 - beta * beta)
-            let b = betaX0PlusV0 / omega1
-            let f = x0 * cos(omega1 * t) + b * sin(omega1 * t)
-            let fPrime = -x0 * omega1 * sin(omega1 * t) + b * omega1 * cos(omega1 * t)
-            return envelope * (fPrime - beta * f)
+            let velocityCoefficient = betaX0PlusV0 / omega1
+            let oscillation = x0 * cos(omega1 * elapsed) + velocityCoefficient * sin(omega1 * elapsed)
+            let oscillationDerivative = -x0 * omega1 * sin(omega1 * elapsed) + velocityCoefficient * omega1 *
+                cos(omega1 * elapsed)
+            return envelope * (oscillationDerivative - beta * oscillation)
         } else {
             let omega2 = sqrt(beta * beta - omega0 * omega0)
-            let b = betaX0PlusV0 / omega2
-            let f = x0 * cosh(omega2 * t) + b * sinh(omega2 * t)
-            let fPrime = x0 * omega2 * sinh(omega2 * t) + b * omega2 * cosh(omega2 * t)
-            return envelope * (fPrime - beta * f)
+            let velocityCoefficient = betaX0PlusV0 / omega2
+            let oscillation = x0 * cosh(omega2 * elapsed) + velocityCoefficient * sinh(omega2 * elapsed)
+            let oscillationDerivative = x0 * omega2 * sinh(omega2 * elapsed) + velocityCoefficient * omega2 *
+                cosh(omega2 * elapsed)
+            return envelope * (oscillationDerivative - beta * oscillation)
         }
     }
 

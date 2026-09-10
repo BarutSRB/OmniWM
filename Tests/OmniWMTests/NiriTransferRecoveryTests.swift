@@ -225,12 +225,14 @@ final class NiriTransferRecoveryTests: XCTestCase {
             defaultFixture.engine.insertWindowInNewColumn(
                 defaultFixture.first,
                 insertIndex: 1,
-                in: defaultFixture.workspaceId,
-                motion: .disabled,
+                context: .init(
+                    workspaceId: defaultFixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
                 state: &defaultState,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .horizontal,
                 sizingPolicy: .workspaceDefault
             )
         )
@@ -252,12 +254,14 @@ final class NiriTransferRecoveryTests: XCTestCase {
             inheritedFixture.engine.insertWindowInNewColumn(
                 inheritedFixture.first,
                 insertIndex: 1,
-                in: inheritedFixture.workspaceId,
-                motion: .disabled,
+                context: .init(
+                    workspaceId: inheritedFixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
                 state: &inheritedState,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .horizontal,
                 sizingPolicy: .inheritSource
             )
         )
@@ -371,12 +375,14 @@ final class NiriTransferRecoveryTests: XCTestCase {
                 sourceOnlyNode,
                 into: sourceColumn,
                 enteringFrom: .down,
-                in: sourceWorkspace,
-                motion: .disabled,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: sourceWorkspace,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
+                state: &state
             )
         )
         let staleSharedNode = engine.addWindow(token: sharedToken, to: targetWorkspace, afterSelection: nil)
@@ -422,12 +428,14 @@ final class NiriTransferRecoveryTests: XCTestCase {
                 second,
                 into: column,
                 enteringFrom: .down,
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: 0,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
+                state: &state
             )
         )
         return (engine, workspaceId, first, second, column)
@@ -498,12 +506,14 @@ final class NiriTransferRecoveryTests: XCTestCase {
     ) -> NiriLayoutEngine.NiriRemovalResult {
         engine.removeWindows(
             [token],
-            in: workspaceId,
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: 0,
+                orientation: .horizontal
+            ),
             state: &state,
-            motion: .disabled,
-            workingFrame: workingFrame,
-            gaps: 0,
-            orientation: .horizontal,
             selectedNodeId: state.selectedNodeId,
             removedNodeIds: []
         )

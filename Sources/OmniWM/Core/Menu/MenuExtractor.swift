@@ -69,10 +69,10 @@ final class MenuExtractor {
 
     func getMenuBar(for pid: pid_t) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
-        var menuBarValue: AnyObject?
+        var menuBarValue: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &menuBarValue)
-        guard result == .success, let menuBar = menuBarValue else { return nil }
-        return (menuBar as! AXUIElement)
+        guard result == .success else { return nil }
+        return AXUIElement.from(menuBarValue)
     }
 
     func buildMenu(from element: AXUIElement, target: AnyObject?, action: Selector?) -> [NSMenuItem] {
@@ -568,10 +568,10 @@ extension MenuExtractor {
 extension NSMenu {
     var axRootElement: AXUIElement? {
         get {
-            guard let obj = objc_getAssociatedObject(self, &kAXRootElementAssociatedKey) else {
+            guard let value = objc_getAssociatedObject(self, &kAXRootElementAssociatedKey) else {
                 return nil
             }
-            return (obj as! AXUIElement)
+            return AXUIElement.from(value as CFTypeRef)
         }
         set {
             objc_setAssociatedObject(

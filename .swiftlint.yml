@@ -10,6 +10,7 @@ excluded:
 
 # Disable rules that conflict with SwiftFormat
 disabled_rules:
+  - closure_parameter_position
   - colon
   - comma
   - leading_whitespace
@@ -24,12 +25,13 @@ disabled_rules:
   - trailing_semicolon
   - trailing_whitespace
   - vertical_whitespace
+  # Preserve explicit replacement decoding and guaranteed UTF-8 encoder output.
+  - optional_data_string_conversion
 
-# Swift 6 / Concurrency-aware opt-in rules (verified to exist)
+# Swift 6 does not need Swift 5 compatibility annotations. Unowned captures are
+# reviewed against their actual lifetime contracts rather than prohibited.
 opt_in_rules:
   - async_without_await
-  - incompatible_concurrency_annotation
-  - strict_fileprivate
   - no_extension_access_modifier
   - empty_count
   - empty_string
@@ -39,10 +41,17 @@ opt_in_rules:
   - overridden_super_call
   - sorted_first_last
   - unavailable_function
-  - unowned_variable_capture
 
 cyclomatic_complexity:
   warning: 10
+  ignores_case_statements: true
+
+nesting:
+  ignore_typealiases_and_associatedtypes: true
+
+type_name:
+  excluded:
+    - ID
 
 function_parameter_count:
   warning: 5

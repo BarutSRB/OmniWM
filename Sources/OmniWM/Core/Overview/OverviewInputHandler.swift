@@ -33,7 +33,7 @@ final class OverviewInputHandler {
         static let upArrow = UInt16(kVK_UpArrow)
         static let tab = UInt16(kVK_Tab)
         static let delete = UInt16(kVK_Delete)
-        static let w = UInt16(kVK_ANSI_W)
+        static let closeWindow = UInt16(kVK_ANSI_W)
     }
 
     private weak var controller: OverviewController?
@@ -145,16 +145,16 @@ final class OverviewInputHandler {
         case KeyCode.delete:
             guard relevantModifiers.isEmpty else { break }
             return .init(action: .deleteBackward, shouldConsume: true)
-        case KeyCode.w:
+        case KeyCode.closeWindow:
             guard relevantModifiers == .command else { break }
             guard !isRepeat else { return .init(action: .consume, shouldConsume: true) }
             return .init(action: .closeSelection, shouldConsume: true)
         default:
-            if relevantModifiers.intersection([.command, .control, .option]).isEmpty,
+            if relevantModifiers.isDisjoint(with: [.command, .control, .option]),
                let charactersIgnoringModifiers,
                let character = charactersIgnoringModifiers.first,
                charactersIgnoringModifiers.count == 1,
-               (character.isLetter || character.isNumber || character == " ")
+               character.isLetter || character.isNumber || character == " "
             {
                 return .init(action: .appendToSearch(String(character)), shouldConsume: true)
             }

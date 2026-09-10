@@ -129,9 +129,9 @@ struct RestoreIntent: Equatable {
     var normalizedFloatingOrigin: CGPoint?
     var restoreToFloating: Bool
     var rescueEligible: Bool
-    var niriPlacement: PersistedNiriPlacement? = nil
-    var detachedNiriContainerSizingState: NiriContainerSizingState? = nil
-    var dwindlePlacement: PersistedDwindlePlacement? = nil
+    var niriPlacement: PersistedNiriPlacement?
+    var detachedNiriContainerSizingState: NiriContainerSizingState?
+    var dwindlePlacement: PersistedDwindlePlacement?
 }
 
 enum ReplacementCorrelation {
@@ -256,19 +256,19 @@ enum NativeFocusOwner: Equatable, Sendable {
 }
 
 struct FocusSessionSnapshot: Equatable {
-    var selectedManagedToken: WindowToken? = nil
+    var selectedManagedToken: WindowToken?
     var nativeFocusOwner: NativeFocusOwner = .none
     var pendingManagedFocus: PendingManagedFocusSnapshot = .empty
     var lastTiledFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
     var lastFloatingFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
     var lastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
-    var lastTiledFocusedToken: WindowToken? = nil
+    var lastTiledFocusedToken: WindowToken?
     var tiledFocusHistory: [WindowToken] = []
-    var focusLease: FocusPolicyLease? = nil
-    var suppressedFocusToken: WindowToken? = nil
-    var systemModalFocusToken: WindowToken? = nil
-    var interactionMonitorId: Monitor.ID? = nil
-    var previousInteractionMonitorId: Monitor.ID? = nil
+    var focusLease: FocusPolicyLease?
+    var suppressedFocusToken: WindowToken?
+    var systemModalFocusToken: WindowToken?
+    var interactionMonitorId: Monitor.ID?
+    var previousInteractionMonitorId: Monitor.ID?
 }
 
 extension FocusSessionSnapshot {

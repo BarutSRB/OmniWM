@@ -472,8 +472,8 @@ final class WorldStore {
     }
 }
 
-private extension WMEvent {
-    var mutatesSnapshotAfterPlan: Bool {
+extension WMEvent {
+    fileprivate var mutatesSnapshotAfterPlan: Bool {
         switch self {
         case .windowRemoved:
             true

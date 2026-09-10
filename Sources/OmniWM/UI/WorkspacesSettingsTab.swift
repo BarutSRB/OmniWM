@@ -90,10 +90,10 @@ struct WorkspacesSettingsTab: View {
                 HStack {
                     Text("Workspace Configurations")
                     Spacer()
-                    Button(action: { isAddingNew = true }) {
+                    Button(action: { isAddingNew = true }, label: {
                         Label("Add workspace", systemImage: "plus.circle")
                             .labelStyle(.iconOnly)
-                    }
+                    })
                     .buttonStyle(.plain)
                     .help(addButtonHelp)
                     .accessibilityLabel("Add workspace")

@@ -86,7 +86,7 @@ final class WindowMoveIPCIntegrationTests: XCTestCase {
         let moved = try addManagedWindow(pid: 489_003, windowId: 22, to: fixture.workspaceIds[1], fixture: fixture)
         try select(focused, in: fixture.workspaceIds[0], fixture: fixture)
 
-        try withBlockedLayoutRefreshes(fixture) {
+        withBlockedLayoutRefreshes(fixture) {
             XCTAssertEqual(fixture.router.handle(moveRequest(moved, to: "1")), .executed)
             XCTAssertEqual(fixture.controller.workspaceManager.workspace(for: moved.id), fixture.workspaceIds[0])
             XCTAssertEqual(fixture.controller.workspaceManager.selectedManagedToken, focused.id)

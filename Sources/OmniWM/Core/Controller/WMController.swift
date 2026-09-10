@@ -611,7 +611,11 @@ final class WMController {
             && hasStartedServices
             && !serviceLifecycleManager.isSecureInputActive
         hotkeysEnabled = shouldEnableHotkeys
-        shouldEnableHotkeys ? hotkeys.start() : hotkeys.stop()
+        if shouldEnableHotkeys {
+            hotkeys.start()
+        } else {
+            hotkeys.stop()
+        }
         refreshHotkeyFailureSnapshots()
     }
 
@@ -927,14 +931,15 @@ final class WMController {
         for monitor: Monitor,
         projection options: WorkspaceBarProjectionOptions
     ) -> WorkspaceBarProjection {
-        WorkspaceBarDataSource.workspaceBarProjection(
-            for: monitor,
-            options: options,
+        WorkspaceBarDataSource(
             workspaceManager: workspaceManager,
             appInfoCache: appInfoCache,
             iconResolver: workspaceBarIconResolver,
-            focusedToken: workspaceManager.selectedManagedToken,
             settings: settings
+        ).workspaceBarProjection(
+            for: monitor,
+            options: options,
+            focusedToken: workspaceManager.selectedManagedToken
         )
     }
 
@@ -1113,7 +1118,7 @@ final class WMController {
     func layoutFrames(
         for monitor: Monitor,
         scale: CGFloat
-    ) -> (workingFrame: CGRect, borderSafeFillFrame: CGRect, fullscreenLayoutFrame: CGRect) {
+    ) -> MonitorLayoutFrames {
         let reservedTopInset = workspaceBarReservedTopInset(for: monitor)
         let gaps = settings.resolvedGapSettings(for: monitor)
         let menuBarInset = max(0, monitor.frame.maxY - monitor.visibleFrame.maxY)
@@ -1167,21 +1172,29 @@ final class WMController {
                 )
             )
         }
-        return (workingFrame, borderSafeFillFrame, fullscreenLayoutFrame)
+        return MonitorLayoutFrames(
+            workingFrame: workingFrame,
+            borderSafeFillFrame: borderSafeFillFrame,
+            fullscreenLayoutFrame: fullscreenLayoutFrame
+        )
     }
 
     func niriInteractionGeometry(
         for monitor: Monitor
-    ) -> (workingFrame: CGRect, innerGap: CGFloat, scale: CGFloat) {
+    ) -> NiriInteractionGeometry {
         niriInteractionGeometry(for: monitor, scale: backingScaleFactor(for: monitor))
     }
 
     func niriInteractionGeometry(
         for monitor: Monitor,
         scale: CGFloat
-    ) -> (workingFrame: CGRect, innerGap: CGFloat, scale: CGFloat) {
+    ) -> NiriInteractionGeometry {
         let workingFrame = layoutFrames(for: monitor, scale: scale).workingFrame
-        return (workingFrame, innerGap(for: monitor, scale: scale), scale)
+        return NiriInteractionGeometry(
+            workingFrame: workingFrame,
+            innerGap: innerGap(for: monitor, scale: scale),
+            scale: scale
+        )
     }
 
     func insetWorkingFrame(for monitor: Monitor) -> CGRect {
@@ -2331,15 +2344,13 @@ final class WMController {
             self.stackScratchpadMembers(survivors, in: index, on: workspaceId)
         }
 
-        for entry in ordered {
-            if showScratchpadWindow(
-                entry,
-                on: workspaceId,
-                monitor: monitor,
-                revealGroupId: groupId
-            ) {
-                revealed = true
-            }
+        for entry in ordered where showScratchpadWindow(
+            entry,
+            on: workspaceId,
+            monitor: monitor,
+            revealGroupId: groupId
+        ) {
+            revealed = true
         }
 
         guard revealed else {
@@ -2463,6 +2474,12 @@ final class WMController {
                 workspaceManager.setFloatingState(floatingState, for: token)
             }
             _ = workspaceManager.setWindowMode(.tiling, for: token)
+            if workspaceManager.isScratchpadToken(token) {
+                cleanupScratchpadWindowResources(for: token)
+                if workspaceManager.hiddenState(for: token)?.isScratchpad == true {
+                    workspaceManager.setHiddenState(nil, for: token)
+                }
+            }
             return true
 
         case (.tiling, .tiling),
@@ -2976,8 +2993,8 @@ final class WMController {
                 if !windows.isEmpty {
                     resolvedAnyTarget = true
                 }
-                for (axRef, _, windowId) in windows {
-                    let token = WindowToken(pid: pid, windowId: windowId)
+                for axRef in windows {
+                    let token = WindowToken(pid: pid, windowId: axRef.windowId)
                     tokensToReevaluate.insert(token)
                     liveWindowsByToken[token] = axRef
                     topLevelInventoryTokens.insert(token)

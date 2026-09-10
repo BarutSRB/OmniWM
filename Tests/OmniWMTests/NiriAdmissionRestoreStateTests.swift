@@ -208,12 +208,14 @@ final class NiriAdmissionRestoreStateTests: XCTestCase {
                     second,
                     into: firstColumn,
                     enteringFrom: .down,
-                    in: workspaceId,
-                    motion: .disabled,
-                    state: &state,
-                    workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 1600),
-                    gaps: 0,
-                    orientation: .vertical
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: .disabled,
+                        workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 1600),
+                        gaps: 0,
+                        orientation: .vertical
+                    ),
+                    state: &state
                 )
             )
             firstNode = first
@@ -991,12 +993,14 @@ final class NiriAdmissionRestoreStateTests: XCTestCase {
                     second,
                     into: firstColumn,
                     enteringFrom: .down,
-                    in: sourceWorkspaceId,
-                    motion: .disabled,
-                    state: &state,
-                    workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 1600),
-                    gaps: 0,
-                    orientation: .vertical
+                    context: .init(
+                        workspaceId: sourceWorkspaceId,
+                        motion: .disabled,
+                        workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 1600),
+                        gaps: 0,
+                        orientation: .vertical
+                    ),
+                    state: &state
                 )
             )
             firstColumn.height = expectedContainerHeight

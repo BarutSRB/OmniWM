@@ -317,6 +317,13 @@ final class CommandHandler {
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let gaps = controller.innerGap(for: monitor)
         let orientation = controller.settings.effectiveOrientation(for: monitor)
+        let context = NiriInteractionContext(
+            workspaceId: workspaceId,
+            motion: motion,
+            workingFrame: workingFrame,
+            gaps: gaps,
+            orientation: orientation
+        )
 
         let previousWindow = controller.workspaceManager.withEngineMutationScope { () -> NiriWindow? in
             if let selected = engine.reconcileProjectedSelection(state: &state, in: workspaceId) {
@@ -327,12 +334,8 @@ final class CommandHandler {
 
             return engine.focusPrevious(
                 currentNodeId: state.selectedNodeId,
-                in: workspaceId,
-                motion: motion,
+                context: context,
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
                 limitToWorkspace: true
             )
         }
@@ -448,100 +451,72 @@ final class CommandHandler {
     }
 
     private func focusDownOrLeftInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusDownOrLeft(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusUpOrRightInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusUpOrRight(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusWindowInColumnInNiri(index: Int) {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusWindowInColumn(
                 index,
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusWindowTopInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusWindowTop(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusWindowBottomInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusWindowBottom(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusWindowDownOrTopInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusWindowDownOrTop(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusWindowUpOrBottomInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusWindowUpOrBottom(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
@@ -553,59 +528,43 @@ final class CommandHandler {
                 isNext: direction == .down,
                 wrapAround: false
             )
-        }) { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        }, { engine, currentNode, context, state in
             engine.focusTarget(
                 direction: direction,
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
-        }
+        })
     }
 
     private func focusColumnFirstInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusColumnFirst(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusColumnLastInNiri() {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusColumnLast(
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
 
     private func focusColumnInNiri(index: Int) {
-        executeCombinedNavigation { engine, currentNode, wsId, motion, state, workingFrame, gaps, orientation in
+        executeCombinedNavigation { engine, currentNode, context, state in
             engine.focusColumn(
                 index,
                 currentSelection: currentNode,
-                in: wsId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
+                context: context,
+                state: &state
             )
         }
     }
@@ -615,12 +574,8 @@ final class CommandHandler {
         _ navigationAction: (
             NiriLayoutEngine,
             NiriNode,
-            WorkspaceDescriptor.ID,
-            MotionSnapshot,
-            inout ViewportState,
-            CGRect,
-            CGFloat,
-            Monitor.Orientation
+            NiriInteractionContext,
+            inout ViewportState
         )
             -> NiriNode?
     ) {
@@ -654,8 +609,15 @@ final class CommandHandler {
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let motion = controller.motionPolicy.snapshot()
         let orientation = controller.settings.effectiveOrientation(for: monitor)
+        let context = NiriInteractionContext(
+            workspaceId: wsId,
+            motion: motion,
+            workingFrame: workingFrame,
+            gaps: gap,
+            orientation: orientation
+        )
         guard let newNode = controller.workspaceManager.withEngineMutationScope(label: "focus_navigation", {
-            navigationAction(engine, currentNode, wsId, motion, &state, workingFrame, gap, orientation)
+            navigationAction(engine, currentNode, context, &state)
         }) else {
             onNoTarget?()
             return

@@ -200,12 +200,14 @@ final class NiriAxisSolverTests: XCTestCase {
                 second,
                 into: column,
                 enteringFrom: .down,
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: CGRect(x: 0, y: 0, width: 1000, height: 800),
-                gaps: 0,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+                    gaps: 0,
+                    orientation: .horizontal
+                ),
+                state: &state
             )
         )
         return (engine, workspaceId, state, first, second)

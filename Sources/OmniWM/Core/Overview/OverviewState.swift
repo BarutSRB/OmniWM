@@ -67,12 +67,12 @@ struct OverviewWindowItem {
     }
 
     func interpolatedFrame(progress: Double) -> CGRect {
-        let t = CGFloat(progress)
+        let fraction = CGFloat(progress)
         return CGRect(
-            x: originalFrame.origin.x + (overviewFrame.origin.x - originalFrame.origin.x) * t,
-            y: originalFrame.origin.y + (overviewFrame.origin.y - originalFrame.origin.y) * t,
-            width: originalFrame.width + (overviewFrame.width - originalFrame.width) * t,
-            height: originalFrame.height + (overviewFrame.height - originalFrame.height) * t
+            x: originalFrame.origin.x + (overviewFrame.origin.x - originalFrame.origin.x) * fraction,
+            y: originalFrame.origin.y + (overviewFrame.origin.y - originalFrame.origin.y) * fraction,
+            width: originalFrame.width + (overviewFrame.width - originalFrame.width) * fraction,
+            height: originalFrame.height + (overviewFrame.height - originalFrame.height) * fraction
         )
     }
 }
@@ -160,10 +160,8 @@ struct OverviewLayout {
 
     func workspaceSection(at point: CGPoint) -> OverviewWorkspaceSection? {
         let adjustedPoint = CGPoint(x: point.x, y: point.y + scrollOffset)
-        for section in workspaceSections {
-            if section.sectionFrame.contains(adjustedPoint) {
-                return section
-            }
+        for section in workspaceSections where section.sectionFrame.contains(adjustedPoint) {
+            return section
         }
         return nil
     }

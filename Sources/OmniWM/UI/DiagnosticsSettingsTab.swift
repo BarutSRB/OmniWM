@@ -64,11 +64,16 @@ struct DiagnosticsSettingsTab: View {
     var body: some View {
         Form {
             crashBannerSection
-            healthSection
+            DiagnosticsHealthSection(issues: controller.diagnosticsIssues)
             privateAPICapabilitySection
             recordingSection
             performanceRecordingSection
-            savedDiagnosticsSection
+            SavedDiagnosticsSection(
+                files: recentFiles,
+                onRevealFolder: revealFolder,
+                onRefresh: { reloadToken += 1 },
+                copyFile: copyFile
+            )
         }
         .formStyle(.grouped)
         .task(id: reloadToken) {
@@ -122,57 +127,13 @@ struct DiagnosticsSettingsTab: View {
     }
 
     @ViewBuilder
-    private var healthSection: some View {
-        Section("Health") {
-            if controller.diagnosticsIssues.isEmpty {
-                Label("No issues detected", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            } else {
-                ForEach(controller.diagnosticsIssues) { issue in
-                    issueRow(issue)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func issueRow(_ issue: DiagnosticsIssue) -> some View {
-        let isCritical = issue.severity == .critical
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent {
-                HStack(spacing: 8) {
-                    if let urlString = issue.systemSettingsURLString {
-                        Button("Open Settings") {
-                            openSystemSettings(urlString)
-                        }
-                        .accessibilityLabel("Open System Settings for \(issue.title)")
-                    }
-                    if issue.revealsConfigFolder {
-                        Button("Reveal Config Folder") {
-                            revealConfigFolder()
-                        }
-                        .accessibilityLabel("Reveal config folder for \(issue.title)")
-                    }
-                }
-                .controlSize(.small)
-            } label: {
-                Label(issue.title, systemImage: isCritical ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(isCritical ? .red : .orange)
-            }
-            Text(issue.message)
-                .font(.callout)
-            SettingsCaption(issue.remediation)
-        }
-    }
-
-    @ViewBuilder
     private var privateAPICapabilitySection: some View {
         Section("Private-API Capability") {
             Button("Run Private-API Probe") {
                 runPrivateAPIProbe()
             }
             .disabled(isPrivateAPIProbeRunning)
-            statusLabel(probeStatus)
+            DiagnosticsStatusLabel(status: probeStatus)
             SettingsCaption(
                 "On-demand check of every private window-server API on this Mac, confirming each actually works. "
                     + "It briefly nudges one unmanaged open window a few pixels and restores its verified starting "
@@ -202,7 +163,7 @@ struct DiagnosticsSettingsTab: View {
                 }
             case .recording:
                 if controller.traceCaptureStatus.profile == .problem {
-                    recordingProgressLabel
+                    DiagnosticsRecordingProgress(startedAt: controller.traceCaptureStatus.startedAt)
                     Button("Stop & Save Recording") {
                         stopRecording()
                     }
@@ -217,7 +178,7 @@ struct DiagnosticsSettingsTab: View {
                     Text("Finalizing diagnostics…")
                 }
             }
-            statusLabel(traceStatus)
+            DiagnosticsStatusLabel(status: traceStatus)
             SettingsCaption(
                 "Start recording, reproduce one problem, then stop and attach the saved trace log. "
                     + "The app and window evidence is captured automatically. This detailed recording changes runtime "
@@ -266,100 +227,6 @@ struct DiagnosticsSettingsTab: View {
                     + "It does not enable detailed event traces. Use Instruments or powermetrics separately to measure "
                     + "WindowServer and GPU energy."
             )
-        }
-    }
-
-    @ViewBuilder
-    private var recordingProgressLabel: some View {
-        if let startedAt = controller.traceCaptureStatus.startedAt {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let elapsed = elapsed(since: startedAt, now: context.date)
-                HStack(spacing: 8) {
-                    Image(systemName: "record.circle")
-                        .foregroundStyle(.red)
-                    Text("Recording \(elapsed)")
-                        .font(.callout.monospacedDigit())
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Recording in progress")
-                .accessibilityValue(elapsed)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var savedDiagnosticsSection: some View {
-        Section("Saved Diagnostics") {
-            if recentFiles.isEmpty {
-                Text("No diagnostics files yet.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(recentFiles.prefix(10)) { file in
-                    savedDiagnosticRow(file)
-                }
-            }
-            HStack {
-                Button("Refresh") {
-                    reloadToken += 1
-                }
-                Button("Reveal Folder") {
-                    revealFolder()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func savedDiagnosticRow(_ file: DiagnosticsFile) -> some View {
-        LabeledContent {
-            HStack(spacing: 8) {
-                Button("Copy Path") {
-                    copyToPasteboard(file.url.path)
-                }
-                .accessibilityLabel("Copy path for \(file.name)")
-                Button("Reveal") {
-                    NSWorkspace.shared.activateFileViewerSelecting([file.url])
-                }
-                .accessibilityLabel("Reveal \(file.name) in Finder")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-        } label: {
-            Text(artifactType(file))
-                .font(.callout)
-            Text(file.name)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("\(file.modified.formatted(date: .abbreviated, time: .shortened)) · \(byteCount(file.sizeBytes))")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-        .contextMenu {
-            Button("Copy Path") {
-                copyToPasteboard(file.url.path)
-            }
-            Button("Copy File") {
-                copyFile(file.url)
-            }
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([file.url])
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func statusLabel(_ status: DiagnosticsActionStatus) -> some View {
-        switch status {
-        case .idle:
-            EmptyView()
-        case let .success(message):
-            Label(message, systemImage: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(.green)
-        case let .failure(message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.red)
         }
     }
 
@@ -428,50 +295,8 @@ struct DiagnosticsSettingsTab: View {
         NSWorkspace.shared.open(directory)
     }
 
-    private func openSystemSettings(_ urlString: String) {
-        guard let url = URL(string: urlString) else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    private func revealConfigFolder() {
-        let directory = SettingsFilePersistence.defaultDirectoryURL
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(directory)
-    }
-
-    private func copyToPasteboard(_ string: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
-    }
-
     private func copyFile(_ url: URL) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([url as NSURL])
-    }
-
-    private func artifactType(_ file: DiagnosticsFile) -> String {
-        let name = file.name
-        if name.hasPrefix("omniwm-trace-") {
-            return name.hasSuffix(".partial.log") ? "Trace (incomplete)" : "Trace"
-        }
-        if name.hasPrefix("omniwm-performance-") {
-            return "Performance"
-        }
-        if name.hasPrefix("omniwm-crash-") {
-            return "Crash"
-        }
-        if name.hasPrefix("omniwm-diagnostics-") {
-            return "Diagnostics"
-        }
-        return name
-    }
-
-    private func elapsed(since start: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(start)))
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
-
-    private func byteCount(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }

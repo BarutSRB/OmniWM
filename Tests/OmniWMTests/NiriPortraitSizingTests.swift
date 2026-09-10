@@ -43,12 +43,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
                 second,
                 into: column,
                 enteringFrom: .right,
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: portraitFrame,
-                gaps: 0,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: portraitFrame,
+                    gaps: 0,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
         state.selectedNodeId = first.id
@@ -160,12 +162,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         engine.setContainerPrimarySpan(
             column,
             change: .setProportion(50),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         var frame = try XCTUnwrap(
             portraitLayout(engine, in: workspaceId, state: state)[window.token]
@@ -175,12 +179,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
 
         engine.toggleContainerFullPrimarySpan(
             column,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[window.token]).height,
@@ -189,12 +195,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         )
         engine.toggleContainerFullPrimarySpan(
             column,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         frame = try XCTUnwrap(
             portraitLayout(engine, in: workspaceId, state: state)[window.token]
@@ -236,12 +244,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         engine.setContainerPrimarySpan(
             column,
             change: .setProportion(100),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
 
         XCTAssertTrue(column.hasManualSingleWindowHeightOverride)
@@ -336,12 +346,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         engine.setContainerPrimarySpan(
             column,
             change: .setProportion(50),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
@@ -353,12 +365,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         engine.setWindowPrimarySpan(
             first,
             change: .setProportion(75),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
@@ -368,12 +382,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
 
         engine.toggleContainerFullPrimarySpan(
             column,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         XCTAssertTrue(column.isFullHeight)
         XCTAssertEqual(
@@ -384,21 +400,25 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
 
         engine.toggleContainerFullPrimarySpan(
             column,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         engine.expandContainerToAvailablePrimarySpan(
             column,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         XCTAssertTrue(column.isFullHeight)
         XCTAssertEqual(
@@ -410,12 +430,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         engine.toggleContainerPrimarySpan(
             column,
             forwards: true,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         XCTAssertFalse(column.isFullHeight)
         XCTAssertEqual(
@@ -427,12 +449,14 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         engine.toggleWindowPrimarySpan(
             first,
             forwards: true,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,

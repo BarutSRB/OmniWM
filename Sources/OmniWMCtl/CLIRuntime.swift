@@ -88,14 +88,14 @@ enum CLIRuntime {
     private static let reconnectInitialDelay: Duration = .milliseconds(500)
     private static let reconnectMaximumDelay: Duration = .seconds(5)
 
-    struct WatchChildResult: Sendable, Equatable {
-        enum TerminationReason: Sendable, Equatable {
-            case exit
-            case uncaughtSignal
-            case unknown
-        }
+    enum WatchTerminationReason: Sendable, Equatable {
+        case exit
+        case uncaughtSignal
+        case unknown
+    }
 
-        let terminationReason: TerminationReason
+    struct WatchChildResult: Sendable, Equatable {
+        let terminationReason: WatchTerminationReason
         let terminationStatus: Int32
     }
 
@@ -412,7 +412,7 @@ enum CLIRuntime {
         }
     }
 
-    private static func terminationReason(for reason: Process.TerminationReason) -> WatchChildResult.TerminationReason {
+    private static func terminationReason(for reason: Process.TerminationReason) -> WatchTerminationReason {
         switch reason {
         case .exit:
             return .exit

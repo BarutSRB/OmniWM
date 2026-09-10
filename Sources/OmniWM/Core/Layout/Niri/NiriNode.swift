@@ -25,8 +25,8 @@ enum ProportionalSize: Codable, Equatable, Sendable {
 
     var value: CGFloat {
         switch self {
-        case let .proportion(p): p
-        case let .fixed(f): f
+        case let .proportion(proportion): proportion
+        case let .fixed(size): size
         }
     }
 
@@ -52,7 +52,7 @@ enum WeightedSize: Codable, Equatable, Sendable {
 
     var weight: CGFloat {
         switch self {
-        case let .auto(w): w
+        case let .auto(weight): weight
         case .fixed,
              .preset: 0
         }
@@ -182,8 +182,8 @@ struct PresetSize: Equatable {
 
         var value: CGFloat {
             switch self {
-            case let .proportion(p): p
-            case let .fixed(f): f
+            case let .proportion(proportion): proportion
+            case let .fixed(size): size
             }
         }
     }
@@ -200,8 +200,8 @@ struct PresetSize: Equatable {
 
     var asProportionalSize: ProportionalSize {
         switch kind {
-        case let .proportion(p): .proportion(p)
-        case let .fixed(f): .fixed(f)
+        case let .proportion(proportion): .proportion(proportion)
+        case let .fixed(size): .fixed(size)
         }
     }
 }
@@ -555,10 +555,10 @@ class NiriContainer: NiriNode {
         var result: CGFloat
         let effectiveSpec = isFull ? ProportionalSize.proportion(1.0) : spec
         switch effectiveSpec {
-        case let .proportion(p):
-            result = (availableSpace - gaps) * p - gaps
-        case let .fixed(f):
-            result = f
+        case let .proportion(proportion):
+            result = (availableSpace - gaps) * proportion - gaps
+        case let .fixed(size):
+            result = size
         }
         let effectiveMaxConstraint = maxConstraint.map { max($0, minConstraint) }
         if result < minConstraint { result = minConstraint }

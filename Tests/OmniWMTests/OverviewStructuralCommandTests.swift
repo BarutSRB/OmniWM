@@ -1134,7 +1134,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         for monitor in workspaceManager.monitors {
             let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
             for workspace in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append((
+                workspaces.append(OverviewWorkspaceLayoutItem(
                     id: workspace.id,
                     name: workspace.name,
                     isActive: workspace.id == activeWorkspaceId
@@ -1149,7 +1149,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
                         height: 360
                     )
                     framesByToken[entry.token] = frame
-                    windowData[handle] = (
+                    windowData[handle] = OverviewWindowLayoutData(
                         token: entry.token,
                         workspaceId: entry.workspaceId,
                         title: "Window \(entry.windowId)",
@@ -1178,15 +1178,16 @@ final class OverviewStructuralCommandTests: XCTestCase {
         {
             niriSnapshots[workspaceId] = fixture.controller.niriEngine?.overviewSnapshot(for: workspaceId)
         }
-        let layout = OverviewLayoutCalculator.calculateLayout(
-            workspaces: workspaces,
-            windows: windowData,
-            niriSnapshotsByWorkspace: niriSnapshots,
+        let layout = OverviewLayoutCalculator(
             screenFrame: OverviewLayoutCalculator.viewportFrame(for: fixture.monitor.frame),
-            searchQuery: "",
             scale: OverviewLayoutCalculator.clampedScale(
                 CGFloat(fixture.controller.settings.overviewZoom)
             )
+        ).calculateLayout(
+            workspaces: workspaces,
+            windows: windowData,
+            niriSnapshotsByWorkspace: niriSnapshots,
+            searchQuery: ""
         )
         return (overview, layout)
     }

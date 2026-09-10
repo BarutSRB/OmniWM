@@ -318,13 +318,13 @@ extension AXEventHandler {
     }
 }
 
-private extension AppTerminationFocusRecoveryPhase {
-    var candidatePID: pid_t? {
+extension AppTerminationFocusRecoveryPhase {
+    fileprivate var candidatePID: pid_t? {
         guard case let .verifying(candidatePID, _, _) = self else { return nil }
         return candidatePID
     }
 
-    var fallbackPID: pid_t? {
+    fileprivate var fallbackPID: pid_t? {
         switch self {
         case .verifying:
             nil

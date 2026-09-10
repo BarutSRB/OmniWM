@@ -26,9 +26,12 @@ protocol IPCServerLifecycle: AnyObject {
 
 actor IPCConnectionRegistry {
     private var connections: [UUID: IPCConnection] = [:]
+    private var isStopped = false
 
-    func insert(_ connection: IPCConnection) {
+    func insert(_ connection: IPCConnection) -> Bool {
+        guard !isStopped else { return false }
         connections[connection.id] = connection
+        return true
     }
 
     func remove(id: UUID) {
@@ -36,6 +39,7 @@ actor IPCConnectionRegistry {
     }
 
     func stopAll() async {
+        isStopped = true
         let currentConnections = Array(connections.values)
         connections.removeAll()
         for connection in currentConnections {
@@ -172,7 +176,10 @@ final class IPCServer: IPCServerLifecycle {
                     }
                 )
 
-                await connectionRegistry.insert(connection)
+                guard await connectionRegistry.insert(connection) else {
+                    await connection.stop()
+                    return
+                }
                 await connection.start()
             }
         }

@@ -1339,11 +1339,11 @@ import QuartzCore
     ) {
         guard let controller, let engine = controller.dwindleEngine else { return }
         controller.workspaceManager.withEngineMutationScope {
-            if let v = smartSplit { engine.settings.smartSplit = v }
-            if let v = defaultSplitRatio { engine.settings.defaultSplitRatio = v }
-            if let v = splitWidthMultiplier { engine.settings.splitWidthMultiplier = v }
-            if let v = singleWindowFit { engine.settings.singleWindowFit = v }
-            if let v = innerGap { engine.settings.innerGap = v }
+            if let smartSplit { engine.settings.smartSplit = smartSplit }
+            if let defaultSplitRatio { engine.settings.defaultSplitRatio = defaultSplitRatio }
+            if let splitWidthMultiplier { engine.settings.splitWidthMultiplier = splitWidthMultiplier }
+            if let singleWindowFit { engine.settings.singleWindowFit = singleWindowFit }
+            if let innerGap { engine.settings.innerGap = innerGap }
         }
         controller.workspaceManager.invalidateAllLayouts()
         controller.layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)

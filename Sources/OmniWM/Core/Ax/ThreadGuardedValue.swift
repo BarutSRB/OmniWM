@@ -24,10 +24,10 @@ final class ThreadGuardedValue<Value>: Sendable {
         get {
             #if DEBUG
                 threadToken.checkEquals(appThreadToken)
-                guard let v = _value else {
+                guard let value = _value else {
                     fatalError("Value is already destroyed")
                 }
-                return v
+                return value
             #else
                 return _value.unsafelyUnwrapped
             #endif

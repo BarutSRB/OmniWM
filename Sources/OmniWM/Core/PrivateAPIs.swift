@@ -21,7 +21,7 @@ func SLPSPostEventRecordTo(
 ) -> OSStatus
 
 @_silgen_name("GetProcessForPID")
-func GetProcessForPID(_ pid: pid_t, _ psn: inout ProcessSerialNumber) -> OSStatus
+func getProcessForPID(_ pid: pid_t, _ psn: inout ProcessSerialNumber) -> OSStatus
 
 @_silgen_name("_AXUIElementGetWindow")
 func _AXUIElementGetWindow(_ element: AXUIElement, _ windowId: inout CGWindowID) -> AXError
@@ -127,7 +127,7 @@ func makeKeyWindow(psn: inout ProcessSerialNumber, windowId: UInt32) -> Bool {
 
 func focusWindow(pid: pid_t, windowId: UInt32, windowRef _: AXUIElement) {
     var psn = ProcessSerialNumber()
-    guard GetProcessForPID(pid, &psn) == noErr else {
+    guard getProcessForPID(pid, &psn) == noErr else {
         FallbackFiringRecorder.shared.note(.skylight, "getProcessForPIDFailed")
         return
     }
@@ -141,7 +141,7 @@ func focusWindow(pid: pid_t, windowId: UInt32, windowRef _: AXUIElement) {
 @discardableResult
 func deactivateSameAppWindow(pid: pid_t, windowId: UInt32) -> Bool {
     var psn = ProcessSerialNumber()
-    guard GetProcessForPID(pid, &psn) == noErr else {
+    guard getProcessForPID(pid, &psn) == noErr else {
         FallbackFiringRecorder.shared.note(.skylight, "getProcessForPIDFailed")
         return false
     }
@@ -160,7 +160,7 @@ func activateAndFocusSameAppWindow(
     windowRef _: AXUIElement
 ) -> Bool {
     var psn = ProcessSerialNumber()
-    guard GetProcessForPID(pid, &psn) == noErr else {
+    guard getProcessForPID(pid, &psn) == noErr else {
         FallbackFiringRecorder.shared.note(.skylight, "getProcessForPIDFailed")
         return false
     }

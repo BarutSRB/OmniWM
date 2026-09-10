@@ -61,12 +61,14 @@ final class NiriColumnMinWidthTests: XCTestCase {
         engine.setContainerPrimarySpan(
             column,
             change: .setFixed(200),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &state
         )
 
         XCTAssertEqual(column.cachedWidth, 800, accuracy: 0.001)
@@ -85,12 +87,14 @@ final class NiriColumnMinWidthTests: XCTestCase {
                 second,
                 into: column,
                 enteringFrom: .right,
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    orientation: .horizontal
+                ),
+                state: &state
             )
         )
         engine.singleWindowFit = SingleWindowFit(mode: .containerPrimarySpan)
@@ -100,12 +104,14 @@ final class NiriColumnMinWidthTests: XCTestCase {
         engine.setContainerPrimarySpan(
             column,
             change: .setFixed(500),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &state
         )
 
         let frame = try XCTUnwrap(
@@ -137,12 +143,14 @@ final class NiriColumnMinWidthTests: XCTestCase {
         engine.toggleContainerPrimarySpan(
             column,
             forwards: true,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &state
         )
 
         XCTAssertEqual(column.width, .fixed(520))
@@ -170,12 +178,14 @@ final class NiriColumnMinWidthTests: XCTestCase {
         engine.setContainerPrimarySpan(
             column,
             change: .setFixed(200),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &state
         )
         var frame = try XCTUnwrap(
             engine.calculateLayout(
@@ -193,12 +203,14 @@ final class NiriColumnMinWidthTests: XCTestCase {
         engine.setContainerPrimarySpan(
             column,
             change: .setFixed(900),
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &state
         )
         frame = try XCTUnwrap(
             engine.calculateLayout(
@@ -281,23 +293,27 @@ final class NiriColumnMinWidthTests: XCTestCase {
 
         engine.toggleContainerFullPrimarySpan(
             column,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &state
         )
         XCTAssertGreaterThanOrEqual(column.cachedWidth, 800)
 
         engine.toggleContainerFullPrimarySpan(
             column,
-            in: workspaceId,
-            motion: .disabled,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                orientation: .horizontal
+            ),
+            state: &state
         )
         XCTAssertEqual(column.cachedWidth, 800, accuracy: 0.001)
     }

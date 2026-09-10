@@ -214,13 +214,11 @@ private struct HiddenBarGlyphButton: View {
             if let image = glyph.image {
                 Image(nsImage: image)
                     .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
+                    .interpolation(.high).scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
                 Image(systemName: "app.dashed")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .resizable().scaledToFit()
                     .foregroundStyle(.secondary)
                     .padding(2)
             }

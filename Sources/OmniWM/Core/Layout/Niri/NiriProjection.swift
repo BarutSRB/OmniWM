@@ -261,17 +261,13 @@ extension NiriLayoutEngine {
 
     func ensureProjectedSelectionVisible(
         node: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID,
-        motion: MotionSnapshot,
+        context: NiriInteractionContext,
         state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation,
         animationConfig: SpringConfig?,
         fromContainerIndex: Int?,
         previousProjectedAnchor: NiriProjectedViewportAnchor? = nil
     ) {
-        let projectedColumns = projectedColumns(in: workspaceId)
+        let projectedColumns = projectedColumns(in: context.workspaceId)
         guard !projectedColumns.isEmpty,
               let targetColumn = column(of: node),
               let targetProjectedIndex = projectedColumns.firstIndex(where: { $0.column === targetColumn })
@@ -281,35 +277,35 @@ extension NiriLayoutEngine {
 
         withProjectedPrimarySpans(
             projectedColumns,
-            workingFrame: workingFrame,
-            gap: gaps,
-            orientation: orientation
+            workingFrame: context.workingFrame,
+            gap: context.gaps,
+            orientation: context.orientation
         ) {
             let containers = projectedColumns.map(\.column)
-            let viewportSpan: CGFloat = switch orientation {
-            case .horizontal: workingFrame.width
-            case .vertical: workingFrame.height
+            let viewportSpan: CGFloat = switch context.orientation {
+            case .horizontal: context.workingFrame.width
+            case .vertical: context.workingFrame.height
             }
 
             var projectedState = state
             let currentProjectedIndex = projectedActiveColumnIndex(
                 state: state,
                 columns: projectedColumns,
-                in: workspaceId
+                in: context.workspaceId
             )
             projectedState.activeColumnIndex = currentProjectedIndex
             let oldActivePosition = previousProjectedAnchor?.primaryPosition
                 ?? projectedState.containerPosition(
                     at: currentProjectedIndex,
                     containers: containers,
-                    gap: gaps,
-                    sizeKeyPath: orientation.renderedSpanKeyPath
+                    gap: context.gaps,
+                    sizeKeyPath: context.orientation.renderedSpanKeyPath
                 )
             let newActivePosition = projectedState.containerPosition(
                 at: targetProjectedIndex,
                 containers: containers,
-                gap: gaps,
-                sizeKeyPath: orientation.renderedSpanKeyPath
+                gap: context.gaps,
+                sizeKeyPath: context.orientation.renderedSpanKeyPath
             )
             projectedState.rebaseOffset(by: oldActivePosition - newActivePosition)
             projectedState.activeColumnIndex = targetProjectedIndex
@@ -320,23 +316,23 @@ extension NiriLayoutEngine {
                 ?? fromContainerIndex.flatMap { durableIndex in
                     projectedColumns.firstIndex(where: { $0.durableIndex == durableIndex })
                 }
-            let settings = effectiveSettings(in: workspaceId)
+            let settings = effectiveSettings(in: context.workspaceId)
             projectedState.ensureContainerVisible(
                 containerIndex: targetProjectedIndex,
                 containers: containers,
-                gap: gaps,
+                gap: context.gaps,
                 viewportSpan: viewportSpan,
-                motion: motion,
-                sizeKeyPath: orientation.settledSpanKeyPath,
+                motion: context.motion,
+                sizeKeyPath: context.orientation.settledSpanKeyPath,
                 animate: true,
                 centerMode: settings.centerFocusedColumn,
                 alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
                 animationConfig: animationConfig,
                 fromContainerIndex: projectedFromIndex,
-                scale: displayScale(in: workspaceId),
-                workingArea: workingFrame,
-                viewFrame: monitorForWorkspace(workspaceId)?.frame,
-                orientation: orientation
+                scale: displayScale(in: context.workspaceId),
+                workingArea: context.workingFrame,
+                viewFrame: monitorForWorkspace(context.workspaceId)?.frame,
+                orientation: context.orientation
             )
             state = projectedState
             state.activeColumnIndex = projectedColumns[targetProjectedIndex].durableIndex

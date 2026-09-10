@@ -33,12 +33,12 @@ enum TrackpadGestureIntent {
     static func resolveMode(
         _ config: Config,
         fingerCount: Int,
-        cumulativeX: CGFloat,
-        cumulativeY: CGFloat,
+        cumulativeTranslation: CGVector,
         columnScrollAxis: WorkspaceSwipeAxis,
         columnContextAvailable: Bool
     ) -> TrackpadGestureMode? {
-        let dominantAxis: WorkspaceSwipeAxis = abs(cumulativeX) > abs(cumulativeY) ? .horizontal : .vertical
+        let dominantAxis: WorkspaceSwipeAxis = abs(cumulativeTranslation.dx) > abs(cumulativeTranslation.dy) ?
+            .horizontal : .vertical
         let columnCandidate = config.columnScrollEnabled
             && fingerCount == config.columnScrollFingerCount
             && columnContextAvailable

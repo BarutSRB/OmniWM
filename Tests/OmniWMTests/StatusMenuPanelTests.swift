@@ -9,7 +9,7 @@ import XCTest
 final class StatusMenuPanelTests: XCTestCase {
     func testContentIsCappedToScreenAndAnchoredAtEdges() {
         let screen = CGRect(x: -1280, y: 100, width: 1280, height: 700)
-        let size = StatusMenuHost.panelSize(
+        let size = StatusMenuGeometry.panelSize(
             contentSize: CGSize(width: 280, height: 1200),
             visibleFrame: screen
         )
@@ -28,7 +28,7 @@ final class StatusMenuPanelTests: XCTestCase {
         let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
         let root = CGRect(x: 100, y: 300, width: 280, height: 600)
         let row = CGRect(x: root.minX, y: 620, width: root.width, height: 30)
-        let frame = StatusMenuHost.submenuFrame(
+        let frame = StatusMenuGeometry.submenuFrame(
             rootFrame: root,
             rowFrame: row,
             size: CGSize(width: 280, height: 300),
@@ -44,7 +44,7 @@ final class StatusMenuPanelTests: XCTestCase {
         let screen = CGRect(x: -1280, y: 100, width: 1280, height: 900)
         let root = CGRect(x: screen.maxX - 288, y: 350, width: 280, height: 600)
         let row = CGRect(x: root.minX, y: 650, width: root.width, height: 30)
-        let frame = StatusMenuHost.submenuFrame(
+        let frame = StatusMenuGeometry.submenuFrame(
             rootFrame: root,
             rowFrame: row,
             size: CGSize(width: 280, height: 300),
@@ -59,7 +59,7 @@ final class StatusMenuPanelTests: XCTestCase {
     func testSubmenuClampsToScreenWithoutMovingRoot() {
         let screen = CGRect(x: 0, y: 100, width: 500, height: 500)
         let root = CGRect(x: 200, y: 108, width: 280, height: 484)
-        let frame = StatusMenuHost.submenuFrame(
+        let frame = StatusMenuGeometry.submenuFrame(
             rootFrame: root,
             rowFrame: CGRect(x: root.minX, y: 120, width: root.width, height: 30),
             size: CGSize(width: 280, height: 400),

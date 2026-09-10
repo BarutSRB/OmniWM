@@ -68,10 +68,12 @@ final class SecureInputIndicatorController {
         OwnedWindowRegistry.shared.register(
             panel,
             surfaceId: "secure-input-indicator",
-            kind: .secureInputIndicator,
-            hitTestPolicy: .interactive,
-            capturePolicy: .excluded,
-            suppressesManagedFocusRecovery: false
+            policy: SurfacePolicy(
+                kind: .secureInputIndicator,
+                hitTestPolicy: .interactive,
+                capturePolicy: .excluded,
+                suppressesManagedFocusRecovery: false
+            )
         )
 
         self.panel = panel
@@ -115,8 +117,7 @@ struct SecureInputIndicatorView: View {
                 .padding(16)
             } else {
                 Image(systemName: "lock.shield.fill")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .resizable().scaledToFit()
                     .padding(10)
             }
         }

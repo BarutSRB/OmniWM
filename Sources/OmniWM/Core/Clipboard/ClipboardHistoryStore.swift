@@ -32,10 +32,15 @@ actor ClipboardHistoryStore {
     private var configuration: ClipboardHistoryConfiguration
     private var persistence: ClipboardHistoryPersistence
     private var items: [ClipboardHistoryItem] = []
-    private var saveTask: Task<Void, Never>?
+    private let sleep: @Sendable (Duration) async throws -> Void
+    private(set) var saveTask: Task<Void, Never>?
 
-    init(configuration: ClipboardHistoryConfiguration) {
+    init(
+        configuration: ClipboardHistoryConfiguration,
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) {
         self.configuration = configuration
+        self.sleep = sleep
         persistence = ClipboardHistoryPersistence(fileURL: configuration.storageURL)
     }
 
@@ -129,10 +134,19 @@ actor ClipboardHistoryStore {
 
     private func scheduleSave() {
         saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            await self?.flush()
+        saveTask = Task { [weak self, sleep] in
+            do {
+                try await sleep(.milliseconds(250))
+            } catch {
+                return
+            }
+            await self?.flushScheduledSave()
         }
+    }
+
+    private func flushScheduledSave() {
+        guard !Task.isCancelled else { return }
+        flush()
     }
 
     private func normalized(_ configuration: ClipboardHistoryConfiguration) -> ClipboardHistoryConfiguration {

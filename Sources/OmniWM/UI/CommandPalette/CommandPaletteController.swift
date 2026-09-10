@@ -549,10 +549,10 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         }
 
         return scored
-            .sorted { a, b in
-                if a.1 != b.1 { return a.1 < b.1 }
-                if a.0.title.count != b.0.title.count { return a.0.title.count < b.0.title.count }
-                return a.0.title < b.0.title
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                if lhs.0.title.count != rhs.0.title.count { return lhs.0.title.count < rhs.0.title.count }
+                return lhs.0.title < rhs.0.title
             }
             .map(\.0)
     }
@@ -582,10 +582,10 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         }
 
         return scored
-            .sorted { a, b in
-                if a.1 != b.1 { return a.1 < b.1 }
-                if a.0.title.count != b.0.title.count { return a.0.title.count < b.0.title.count }
-                return a.0.title < b.0.title
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                if lhs.0.title.count != rhs.0.title.count { return lhs.0.title.count < rhs.0.title.count }
+                return lhs.0.title < rhs.0.title
             }
             .map(\.0)
     }
@@ -624,10 +624,10 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         }
 
         return scored
-            .sorted { a, b in
-                if a.1 != b.1 { return a.1 < b.1 }
-                if a.0.title.count != b.0.title.count { return a.0.title.count < b.0.title.count }
-                return a.0.title < b.0.title
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                if lhs.0.title.count != rhs.0.title.count { return lhs.0.title.count < rhs.0.title.count }
+                return lhs.0.title < rhs.0.title
             }
             .map(\.0)
     }
@@ -1210,10 +1210,10 @@ private struct CommandPaletteView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 18))
                     if !controller.searchText.isEmpty {
-                        Button(action: { controller.searchText = "" }) {
+                        Button(action: { controller.searchText = "" }, label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(.secondary)
-                        }
+                        })
                         .buttonStyle(.plain)
                     }
                 }
@@ -1228,10 +1228,10 @@ private struct CommandPaletteView: View {
                        controller.isClipboardHistoryEnabled,
                        !controller.clipboardItems.isEmpty
                     {
-                        Button(action: { controller.clearClipboardHistory() }) {
+                        Button(action: { controller.clearClipboardHistory() }, label: {
                             Image(systemName: "trash")
                                 .font(.system(size: 12, weight: .semibold))
-                        }
+                        })
                         .buttonStyle(.plain)
                         .help("Clear Clipboard History")
                     }
@@ -1413,7 +1413,7 @@ private struct CommandPaletteModePicker: View {
     private func modeButton(_ mode: CommandPaletteMode, enabled: Bool) -> some View {
         let hint = CommandPaletteController.modeHint(for: mode)
         let isSelected = selectedMode == mode
-        return Button(action: { onSelect(mode) }) {
+        return Button(action: { onSelect(mode) }, label: {
             HStack(spacing: 10) {
                 Text(hint.title)
                     .font(.system(size: 12, weight: .semibold))
@@ -1434,7 +1434,7 @@ private struct CommandPaletteModePicker: View {
                     )
             }
             .clipShape(Capsule())
-        }
+        })
         .buttonStyle(.plain)
         .disabled(!enabled)
     }

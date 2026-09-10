@@ -39,26 +39,6 @@ final class OwnedWindowRegistry {
         )
     }
 
-    func register(
-        _ window: NSWindow,
-        surfaceId: String,
-        kind: SurfaceKind,
-        hitTestPolicy: HitTestPolicy,
-        capturePolicy: CapturePolicy,
-        suppressesManagedFocusRecovery: Bool
-    ) {
-        register(
-            window,
-            surfaceId: surfaceId,
-            policy: SurfacePolicy(
-                kind: kind,
-                hitTestPolicy: hitTestPolicy,
-                capturePolicy: capturePolicy,
-                suppressesManagedFocusRecovery: suppressesManagedFocusRecovery
-            )
-        )
-    }
-
     func registerWindowNumber(
         surfaceId: String,
         policy: SurfacePolicy,
@@ -72,30 +52,6 @@ final class OwnedWindowRegistry {
             frameProvider: frameProvider,
             visibilityProvider: visibilityProvider,
             policy: policy
-        )
-    }
-
-    func registerWindowNumber(
-        surfaceId: String,
-        kind: SurfaceKind,
-        windowNumber: Int,
-        frameProvider: @escaping @MainActor () -> CGRect?,
-        visibilityProvider: @escaping @MainActor () -> Bool,
-        hitTestPolicy: HitTestPolicy,
-        capturePolicy: CapturePolicy,
-        suppressesManagedFocusRecovery: Bool
-    ) {
-        registerWindowNumber(
-            surfaceId: surfaceId,
-            policy: SurfacePolicy(
-                kind: kind,
-                hitTestPolicy: hitTestPolicy,
-                capturePolicy: capturePolicy,
-                suppressesManagedFocusRecovery: suppressesManagedFocusRecovery
-            ),
-            windowNumber: windowNumber,
-            frameProvider: frameProvider,
-            visibilityProvider: visibilityProvider
         )
     }
 

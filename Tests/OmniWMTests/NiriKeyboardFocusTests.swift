@@ -16,6 +16,7 @@ final class NiriKeyboardFocusTests: XCTestCase {
     private final class FocusRecorder {
         var operations: [FocusOperation] = []
         var queuedRaises: [(job: RunLoopJob, completion: @MainActor @Sendable () -> Void)] = []
+        var onFocus: (() -> Void)?
     }
 
     @MainActor private struct Fixture {
@@ -50,6 +51,59 @@ final class NiriKeyboardFocusTests: XCTestCase {
                     true
                 )
             }
+        }
+    }
+
+    func testPrimaryNavigationCommitsOneEngineMutationBeforeSemanticSelectionAndFocus() throws {
+        for orientation in [Monitor.Orientation.horizontal, .vertical] {
+            try withFixture(orientation: orientation) { fixture in
+                let manager = fixture.controller.workspaceManager
+                let initialTraceCount = manager.reconcileTraceDump().split(separator: "\n").count
+                let target = fixture.windows[2]
+                var observedFocus = false
+                fixture.recorder.onFocus = {
+                    observedFocus = true
+                    let records = manager.reconcileTraceDump().split(separator: "\n").dropFirst(initialTraceCount)
+                    XCTAssertEqual(records.count, 5)
+                    let events = records.compactMap { line in
+                        line.split(separator: " ").first(where: { $0.hasPrefix("event=") }).map(String.init)
+                    }
+                    XCTAssertEqual(events, [
+                        "event=user_command",
+                        "event=selection_changed",
+                        "event=focus_remembered",
+                        "event=viewport_committed",
+                        "event=managed_focus_requested"
+                    ])
+                    XCTAssertEqual(manager.niriViewportState(for: fixture.workspaceId).selectedNodeId, target.id)
+                    XCTAssertEqual(manager.lastFocusedToken(in: fixture.workspaceId), target.token)
+                    XCTAssertNotNil(target.lastFocusedTime)
+                }
+                defer { fixture.recorder.onFocus = nil }
+
+                let direction: Direction = orientation == .horizontal ? .left : .down
+                XCTAssertTrue(fixture.controller.niriLayoutHandler.focusNeighbor(direction: direction))
+                XCTAssertTrue(observedFocus)
+            }
+        }
+    }
+
+    func testNavigationWithoutTargetDoesNotCommitSelectionOrFocus() throws {
+        try withFixture(selection: 0) { fixture in
+            let manager = fixture.controller.workspaceManager
+            let initialSeq = manager.worldSeq
+            let initialState = fixture.state
+            let initialFocusTime = fixture.windows[0].lastFocusedTime
+
+            XCTAssertFalse(fixture.controller.niriLayoutHandler.focusNeighbor(direction: .left))
+
+            XCTAssertEqual(manager.worldSeq, initialSeq + 1)
+            XCTAssertEqual(fixture.state.selectedNodeId, initialState.selectedNodeId)
+            XCTAssertEqual(fixture.state.viewOffset, initialState.viewOffset)
+            XCTAssertEqual(fixture.windows[0].lastFocusedTime, initialFocusTime)
+            XCTAssertTrue(fixture.recorder.operations.isEmpty)
+            XCTAssertTrue(fixture.recorder.queuedRaises.isEmpty)
+            XCTAssertNil(fixture.controller.layoutRefreshController.layoutState.pendingRefresh)
         }
     }
 
@@ -122,12 +176,14 @@ final class NiriKeyboardFocusTests: XCTestCase {
                     fixture.windows[3],
                     into: column,
                     enteringFrom: .right,
-                    in: fixture.workspaceId,
-                    motion: .disabled,
-                    state: &state,
-                    workingFrame: controller.insetWorkingFrame(for: monitor),
-                    gaps: fixture.gap,
-                    orientation: .horizontal
+                    context: .init(
+                        workspaceId: fixture.workspaceId,
+                        motion: .disabled,
+                        workingFrame: controller.insetWorkingFrame(for: monitor),
+                        gaps: fixture.gap,
+                        orientation: .horizontal
+                    ),
+                    state: &state
                 )
             })
             state.activeColumnIndex = 2
@@ -166,6 +222,7 @@ final class NiriKeyboardFocusTests: XCTestCase {
             windowFocusOperations: WindowFocusOperations(
                 activateApp: { recorder.operations.append(.activate($0)) },
                 focusSpecificWindow: { pid, windowId, _ in
+                    recorder.onFocus?()
                     recorder.operations.append(.focus(WindowToken(pid: pid, windowId: Int(windowId))))
                 },
                 raiseWindow: { _ in recorder.operations.append(.raise) },

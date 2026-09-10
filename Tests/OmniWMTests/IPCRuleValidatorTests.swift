@@ -205,6 +205,23 @@ final class IPCRuleValidatorTests: XCTestCase {
         XCTAssertNotNil(IPCRuleValidator.bundleIdError(for: "com.app slot"))
     }
 
+    func testBundleIdRequiresWholeASCIIIdentifier() {
+        let invalidIdentifiers = [
+            "com.app\nother", "com.app\r\nother", "com.app\u{2028}other",
+            "com.ä", "com.Ａ", "com.a\u{0301}", "com.😀", "com.app\u{0000}",
+            "com..app", "com.-app", "com.app_name", "-com.app"
+        ]
+        for identifier in invalidIdentifiers {
+            XCTAssertEqual(IPCRuleValidator.bundleIdError(for: identifier), "Invalid bundle ID format", identifier)
+        }
+    }
+
+    func testBundleIdPreservesWhitespaceTrimmingAndMixedSeparators() {
+        for identifier in [" \t\r\n", "\u{2003}com.App-123\u{2028}", "a-b.c-D9", "COM9"] {
+            XCTAssertNil(IPCRuleValidator.bundleIdError(for: identifier), identifier)
+        }
+    }
+
     func testValidRegexReturnsNoMessage() {
         XCTAssertNil(IPCRuleValidator.invalidRegexMessage(for: "^foo.*bar$"))
         XCTAssertNil(IPCRuleValidator.invalidRegexMessage(for: nil))

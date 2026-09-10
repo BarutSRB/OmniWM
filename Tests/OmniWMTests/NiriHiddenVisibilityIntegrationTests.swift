@@ -141,12 +141,14 @@ final class NiriHiddenVisibilityIntegrationTests: XCTestCase {
             )
             engine.ensureProjectedSelectionVisible(
                 node: targetNode,
-                in: workspaceId,
-                motion: .disabled,
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: orientation
+                ),
                 state: &expectedState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: orientation,
                 animationConfig: nil,
                 fromContainerIndex: nil
             )
