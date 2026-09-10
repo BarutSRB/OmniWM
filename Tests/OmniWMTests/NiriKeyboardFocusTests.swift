@@ -217,7 +217,7 @@ final class NiriKeyboardFocusTests: XCTestCase {
                         let target = fixture.windows[2]
                         let handle = try XCTUnwrap(manager.handle(for: target.token))
 
-                        controller.windowActionHandler.prepareWindowFromOverview(handle)
+                        controller.windowActionHandler.prepareWindowFromOverview(handle, animated: true)
                         XCTAssertTrue(fixture.recorder.operations.isEmpty)
                         controller.windowActionHandler.activateWindowFromOverview(
                             handle: handle,
@@ -244,46 +244,53 @@ final class NiriKeyboardFocusTests: XCTestCase {
     }
 
     func testOverviewStartsScrollingBeforeClosingAndDefersFocusUntilClosed() throws {
-        try withFixture(selection: 0) { fixture in
-            let controller = fixture.controller
-            let manager = controller.workspaceManager
-            manager.animationDriver.removeMotions(for: [fixture.workspaceId])
-            var initialState = fixture.state
-            initialState.jumpOffset(to: 0)
-            manager.updateNiriViewportState(initialState, for: fixture.workspaceId)
-            let target = fixture.windows[2]
-            let handle = try XCTUnwrap(manager.handle(for: target.token))
-            var environment = OverviewEnvironment()
-            environment.frontmostApplicationPID = { nil }
-            environment.activateOmniWM = {}
-            environment.windowFrame = { _ in CGRect(x: 0, y: 0, width: 800, height: 600) }
-            environment.windowTitle = { _ in "Window" }
-            environment.schedulePostCloseHandoff = { $0() }
-            let overview = OverviewController(
-                wmController: controller,
-                motionPolicy: controller.motionPolicy,
-                environment: environment,
-                displayLinkFactory: { _, _ in .manual },
-                animationMediaTimeProvider: { 0 }
-            )
-            overview.onActivateWindow = controller.windowActionHandler.activateWindowFromOverview
-            overview.open()
-            overview.onAnimationComplete(state: .open)
-            fixture.recorder.operations.removeAll()
+        for animated in [false, true] {
+            try withFixture(selection: 0) { fixture in
+                let controller = fixture.controller
+                let manager = controller.workspaceManager
+                manager.animationDriver.removeMotions(for: [fixture.workspaceId])
+                var initialState = fixture.state
+                initialState.jumpOffset(to: 0)
+                manager.updateNiriViewportState(initialState, for: fixture.workspaceId)
+                let target = fixture.windows[2]
+                let handle = try XCTUnwrap(manager.handle(for: target.token))
+                var environment = OverviewEnvironment()
+                environment.frontmostApplicationPID = { nil }
+                environment.activateOmniWM = {}
+                environment.windowFrame = { _ in CGRect(x: 0, y: 0, width: 800, height: 600) }
+                environment.windowTitle = { _ in "Window" }
+                environment.schedulePostCloseHandoff = { $0() }
+                let overview = OverviewController(
+                    wmController: controller,
+                    motionPolicy: controller.motionPolicy,
+                    environment: environment,
+                    displayLinkFactory: { _, _ in .manual },
+                    animationMediaTimeProvider: { 0 }
+                )
+                overview.onActivateWindow = controller.windowActionHandler.activateWindowFromOverview
+                overview.open()
+                overview.onAnimationComplete(state: .open)
+                fixture.recorder.operations.removeAll()
 
-            overview.dismiss(reason: .selection, targetWindow: handle, animated: true)
+                overview.dismiss(reason: .selection, targetWindow: handle, animated: animated)
 
-            guard case .closing = overview.state else {
-                return XCTFail("Expected Overview to remain in its closing animation")
+                if animated {
+                    guard case .closing = overview.state else {
+                        return XCTFail("Expected Overview to remain in its closing animation")
+                    }
+                    XCTAssertTrue(manager.animationDriver.hasMotion(in: fixture.workspaceId))
+                    XCTAssertTrue(fixture.recorder.operations.isEmpty)
+                    overview.completeCloseTransition(targetWindow: handle)
+                } else {
+                    guard case .closed = overview.state else {
+                        return XCTFail("Expected Overview to close immediately")
+                    }
+                }
+
+                XCTAssertEqual(fixture.state.selectedNodeId, target.id)
+                XCTAssertEqual(manager.animationDriver.hasMotion(in: fixture.workspaceId), animated)
+                XCTAssertEqual(fixture.recorder.operations, [.activate(target.token.pid), .focus(target.token), .raise])
             }
-            XCTAssertTrue(manager.animationDriver.hasMotion(in: fixture.workspaceId))
-            XCTAssertTrue(fixture.recorder.operations.isEmpty)
-
-            overview.completeCloseTransition(targetWindow: handle)
-
-            XCTAssertEqual(fixture.state.selectedNodeId, target.id)
-            XCTAssertTrue(manager.animationDriver.hasMotion(in: fixture.workspaceId))
-            XCTAssertEqual(fixture.recorder.operations, [.activate(target.token.pid), .focus(target.token), .raise])
         }
     }
 

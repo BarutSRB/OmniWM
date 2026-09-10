@@ -141,7 +141,7 @@ final class WindowActionHandler {
         overviewControllerStorage?.isOpen == true
     }
 
-    func prepareWindowFromOverview(_ handle: WindowHandle) {
+    func prepareWindowFromOverview(_ handle: WindowHandle, animated: Bool) {
         guard let controller,
               let entry = controller.workspaceManager.entry(for: handle),
               controller.activeWorkspace()?.id == entry.workspaceId,
@@ -150,7 +150,7 @@ final class WindowActionHandler {
         navigateToWindowInternal(
             token: handle.id,
             workspaceId: entry.workspaceId,
-            motion: controller.motionPolicy.snapshot(),
+            motion: animated ? controller.motionPolicy.snapshot() : .disabled,
             focusAfterLayout: false
         )
     }

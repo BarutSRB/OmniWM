@@ -745,7 +745,7 @@ final class OverviewController {
         pendingDismissReason = reason
         pendingFocusTargetWindow = resolvedTargetWindow
         if let resolvedTargetWindow {
-            wmController?.windowActionHandler.prepareWindowFromOverview(resolvedTargetWindow)
+            wmController?.windowActionHandler.prepareWindowFromOverview(resolvedTargetWindow, animated: animated)
         }
         pendingPostCloseHandoffValidity = currentPostCloseHandoffValidity()
 
