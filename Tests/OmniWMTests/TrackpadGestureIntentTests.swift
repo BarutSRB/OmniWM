@@ -430,6 +430,24 @@ final class TrackpadGestureIntentTests: XCTestCase {
             sensitivity: 3
         )
         XCTAssertEqual(clamped, CGPoint(x: monitor.minX, y: monitor.minY))
+
+        let unclamped = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.9, y: 0.9),
+            currentTouch: CGPoint(x: 0.0, y: 0.0),
+            monitorFrame: monitor,
+            sensitivity: 3,
+            clampToMonitor: false
+        )
+        XCTAssertEqual(unclamped.x, start.x - 0.9 * 1600 * 3, accuracy: 0.001)
+        XCTAssertEqual(unclamped.y, start.y - 0.9 * 900 * 3, accuracy: 0.001)
+    }
+
+    func testFingerCountGraceOnlyAppliesToWindowGestures() {
+        XCTAssertEqual(TrackpadGestureMode.windowMove.fingerCountGrace, 0.15)
+        XCTAssertEqual(TrackpadGestureMode.windowResize.fingerCountGrace, 0.15)
+        XCTAssertEqual(TrackpadGestureMode.columnScroll.fingerCountGrace, 0)
+        XCTAssertEqual(TrackpadGestureMode.workspaceSwitch(axis: .horizontal).fingerCountGrace, 0)
     }
 
     func testWindowModesReportAsWindowInteractions() {

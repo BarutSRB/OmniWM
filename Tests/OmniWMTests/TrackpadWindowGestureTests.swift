@@ -12,6 +12,49 @@ import XCTest
 final class TrackpadWindowGestureTests: XCTestCase {
     private let workingFrame = CGRect(x: 0, y: 0, width: 1600, height: 900)
 
+    /// Feeds contact frames to the handler with a fixed cursor location, 10ms apart unless told otherwise.
+    @MainActor
+    private struct GestureDriver {
+        let handler: MouseEventHandler
+        let location: CGPoint
+        var time: TimeInterval = 100
+
+        mutating func begin(fingers: Int, x: CGFloat, y: CGFloat = 0.5) {
+            send(.began, fingers: fingers, x: x, y: y)
+        }
+
+        mutating func frame(fingers: Int, x: CGFloat, y: CGFloat = 0.5, after dt: TimeInterval = 0.01) {
+            time += dt
+            send(.changed, fingers: fingers, x: x, y: y)
+        }
+
+        /// Moves `fingers` from `fromX` to `toX` in equal steps, leaving them at `toX`.
+        mutating func drag(fingers: Int, fromX: CGFloat, toX: CGFloat, steps: Int = 10, y: CGFloat = 0.5) {
+            for step in 1 ... steps {
+                frame(fingers: fingers, x: fromX + (toX - fromX) * CGFloat(step) / CGFloat(steps), y: y)
+            }
+        }
+
+        mutating func end(_ phase: NSEvent.Phase = .ended) {
+            time += 0.01
+            send(phase, fingers: 0, x: 0, y: 0)
+        }
+
+        private func send(_ phase: NSEvent.Phase, fingers: Int, x: CGFloat, y: CGFloat) {
+            let touches = (0 ..< fingers).map { _ in
+                MouseEventHandler.GestureTouchSample(phase: .moved, normalizedPosition: CGPoint(x: x, y: y))
+            }
+            handler.receiveTapGestureEvent(
+                MouseEventHandler.GestureEventSnapshot(
+                    location: location,
+                    phaseRawValue: phase.rawValue,
+                    timestamp: time,
+                    touches: phase == .ended || phase == .cancelled ? [] : touches
+                )
+            )
+        }
+    }
+
     @MainActor
     private struct NiriFixture {
         let controller: WMController
@@ -27,6 +70,16 @@ final class TrackpadWindowGestureTests: XCTestCase {
             controller.mouseEventHandler
         }
 
+        /// Trackpad travel that carries the virtual cursor from the first window's center to the second's.
+        var travelToSecond: CGFloat {
+            (secondFrame.center.x - firstFrame.center.x) / monitor.frame.width
+        }
+
+        /// A cursor spot in the first window's right half, so a resize grabs its right edge.
+        var firstRightEdgeGrip: CGPoint {
+            CGPoint(x: firstFrame.maxX - 20, y: firstFrame.midY)
+        }
+
         func windowOrder() -> [WindowToken] {
             engine.columns(in: workspaceId).flatMap { $0.windowNodes.map(\.token) }
         }
@@ -40,6 +93,10 @@ final class TrackpadWindowGestureTests: XCTestCase {
                 gaps: (horizontal: gap, vertical: gap),
                 orientation: .horizontal
             )
+        }
+
+        func driver(at location: CGPoint) -> GestureDriver {
+            GestureDriver(handler: handler, location: location)
         }
     }
 
@@ -66,6 +123,10 @@ final class TrackpadWindowGestureTests: XCTestCase {
             _ = engine.calculateLayout(for: workspaceId, screen: screen)
             engine.cancelAnimations(in: workspaceId)
         }
+
+        func driver(at location: CGPoint) -> GestureDriver {
+            GestureDriver(handler: handler, location: location)
+        }
     }
 
     // MARK: - Niri
@@ -73,34 +134,20 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testFourFingerDragMovesWindowAndSwapsOnRelease() throws {
         let fixture = try makeNiriFixture(pid: 9_101)
         let handler = fixture.handler
-        let orderBefore = fixture.windowOrder()
-        XCTAssertEqual(orderBefore, [fixture.first.token, fixture.second.token])
+        XCTAssertEqual(fixture.windowOrder(), [fixture.first.token, fixture.second.token])
 
-        // Cursor on the first window; carry the virtual cursor to the second window's center.
-        let start = fixture.firstFrame.center
-        let travel = (fixture.secondFrame.center.x - start.x) / fixture.monitor.frame.width
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
         XCTAssertEqual(handler.state.gesturePhase, .armed)
         XCTAssertFalse(handler.state.isMoving)
 
-        for step in 1 ... 10 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + travel * CGFloat(step) / 10,
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.2 + fixture.travelToSecond)
 
         XCTAssertEqual(handler.state.gesturePhase, .committed)
         XCTAssertEqual(handler.state.activeGestureMode, .windowMove)
         XCTAssertTrue(handler.state.isMoving)
         XCTAssertTrue(handler.state.gestureOwnsWindowInteraction)
+        XCTAssertEqual(handler.state.activeInteractionSource, .trackpadGesture)
         XCTAssertEqual(handler.state.moveLayout, .niri)
         XCTAssertNil(handler.state.activeInteractionButton)
         XCTAssertEqual(fixture.engine.interactiveMove?.windowToken, fixture.first.token)
@@ -113,8 +160,7 @@ final class TrackpadWindowGestureTests: XCTestCase {
         XCTAssertEqual(targetToken, fixture.second.token)
         XCTAssertEqual(insertPosition, .swap)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
 
         XCTAssertEqual(handler.state.gesturePhase, .idle)
         XCTAssertFalse(handler.state.isMoving)
@@ -128,22 +174,9 @@ final class TrackpadWindowGestureTests: XCTestCase {
         let handler = fixture.handler
         let widthBefore = fixture.firstFrame.width
 
-        // Cursor in the right half of the first window so the gesture grabs its right edge.
-        let start = CGPoint(x: fixture.firstFrame.maxX - 20, y: fixture.firstFrame.midY)
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
-        for step in 1 ... 8 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 3,
-                x: 0.4 + 0.0125 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+        var gesture = fixture.driver(at: fixture.firstRightEdgeGrip)
+        gesture.begin(fingers: 3, x: 0.4)
+        gesture.drag(fingers: 3, fromX: 0.4, toX: 0.5, steps: 8)
 
         XCTAssertEqual(handler.state.activeGestureMode, .windowResize)
         XCTAssertTrue(handler.state.isResizing)
@@ -152,10 +185,9 @@ final class TrackpadWindowGestureTests: XCTestCase {
         XCTAssertNil(handler.state.activeInteractionButton)
         let resize = try XCTUnwrap(fixture.engine.interactiveResize)
         XCTAssertTrue(resize.edges.contains(.right))
-        XCTAssertEqual(resize.startMouseLocation, start)
+        XCTAssertEqual(resize.startMouseLocation, gesture.location)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
 
         XCTAssertFalse(handler.state.isResizing)
         XCTAssertFalse(handler.state.gestureOwnsWindowInteraction)
@@ -169,25 +201,12 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testSensitivityScalesVirtualCursorTravel() throws {
         let fixture = try makeNiriFixture(pid: 9_103)
         fixture.controller.settings.windowGestureSensitivity = 0.5
-        let handler = fixture.handler
         let widthBefore = fixture.firstFrame.width
-        let start = CGPoint(x: fixture.firstFrame.maxX - 20, y: fixture.firstFrame.midY)
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
-        for step in 1 ... 8 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 3,
-                x: 0.4 + 0.0125 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+
+        var gesture = fixture.driver(at: fixture.firstRightEdgeGrip)
+        gesture.begin(fingers: 3, x: 0.4)
+        gesture.drag(fingers: 3, fromX: 0.4, toX: 0.5, steps: 8)
+        gesture.end()
 
         let widthAfter = try XCTUnwrap(fixture.frames()[fixture.first.token]).width
         XCTAssertEqual(widthAfter, widthBefore + 80, accuracy: 2)
@@ -196,27 +215,20 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testWindowGestureWithNoWindowUnderCursorNeverArms() throws {
         let fixture = try makeNiriFixture(pid: 9_104)
         let handler = fixture.handler
-        let offMonitor = CGPoint(x: workingFrame.maxX + 400, y: workingFrame.midY)
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: offMonitor)
+
+        var gesture = fixture.driver(at: CGPoint(x: workingFrame.maxX + 400, y: workingFrame.midY))
+        gesture.begin(fingers: 4, x: 0.2)
         XCTAssertEqual(handler.state.gesturePhase, .idle)
-        for step in 1 ... 5 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + 0.05 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: offMonitor
-            )
-        }
+        XCTAssertTrue(
+            handler.state.suppressGestureStartUntilAllTouchesLift,
+            "The cursor cannot move while fingers rest, so retrying every frame is pointless"
+        )
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.45, steps: 5)
         XCTAssertEqual(handler.state.gesturePhase, .idle)
         XCTAssertFalse(handler.state.isMoving)
         XCTAssertNil(fixture.engine.interactiveMove)
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: offMonitor)
+        gesture.end()
+        XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
     }
 
     func testDisabledWindowGesturesIgnoreTheirFingerCount() throws {
@@ -225,25 +237,13 @@ final class TrackpadWindowGestureTests: XCTestCase {
         fixture.controller.settings.windowResizeGestureEnabled = false
         fixture.controller.settings.workspaceSwipeEnabled = true
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 5 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + 0.05 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.45, steps: 5)
         XCTAssertFalse(handler.state.isMoving)
         XCTAssertNil(fixture.engine.interactiveMove)
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
     }
 
     func testWindowResizeGestureTakesThreeFingersAwayFromColumnScroll() throws {
@@ -252,52 +252,27 @@ final class TrackpadWindowGestureTests: XCTestCase {
         fixture.controller.settings.gestureFingerCount = .three
         fixture.controller.settings.windowResizeGestureFingerCount = .three
         let handler = fixture.handler
-        let start = CGPoint(x: fixture.firstFrame.maxX - 20, y: fixture.firstFrame.midY)
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
-        for step in 1 ... 4 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 3,
-                x: 0.4 + 0.02 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstRightEdgeGrip)
+        gesture.begin(fingers: 3, x: 0.4)
+        gesture.drag(fingers: 3, fromX: 0.4, toX: 0.48, steps: 4)
         XCTAssertEqual(handler.state.activeGestureMode, .windowResize)
         XCTAssertTrue(handler.state.isResizing)
         XCTAssertFalse(handler.isViewportGestureActive)
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
         XCTAssertFalse(handler.state.isResizing)
     }
 
     func testCancelledTouchSessionRevertsMoveInsteadOfDropping() throws {
         let fixture = try makeNiriFixture(pid: 9_107)
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        let travel = (fixture.secondFrame.center.x - start.x) / fixture.monitor.frame.width
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 10 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + travel * CGFloat(step) / 10,
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.2 + fixture.travelToSecond)
         XCTAssertTrue(handler.state.isMoving)
 
-        time += 0.01
-        sendFrame(handler, phase: .cancelled, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end(.cancelled)
 
         XCTAssertFalse(handler.state.isMoving)
         XCTAssertNil(fixture.engine.interactiveMove)
@@ -308,40 +283,26 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testLiftingOneFingerDropsTheWindowAfterTheFlickerGrace() throws {
         let fixture = try makeNiriFixture(pid: 9_108)
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        let travel = (fixture.secondFrame.center.x - start.x) / fixture.monitor.frame.width
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 10 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + travel * CGFloat(step) / 10,
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        let endX = 0.2 + fixture.travelToSecond
+        gesture.drag(fingers: 4, fromX: 0.2, toX: endX)
         XCTAssertTrue(handler.state.isMoving)
 
         // One finger lifts and stays lifted. Within the grace the move survives; past it, the window drops.
         for _ in 0 ..< 5 {
-            time += 0.02
-            sendFrame(handler, phase: .changed, fingers: 3, x: 0.2 + travel, y: 0.5, at: time, location: start)
+            gesture.frame(fingers: 3, x: endX, after: 0.02)
         }
         XCTAssertTrue(handler.state.isMoving, "100ms of three fingers is flicker, not a release")
-        time += 0.1
-        sendFrame(handler, phase: .changed, fingers: 3, x: 0.2 + travel, y: 0.5, at: time, location: start)
+        gesture.frame(fingers: 3, x: endX, after: 0.1)
 
         XCTAssertFalse(handler.state.isMoving)
         XCTAssertNil(fixture.engine.interactiveMove)
         XCTAssertEqual(fixture.windowOrder(), [fixture.second.token, fixture.first.token])
         XCTAssertTrue(handler.state.suppressGestureStartUntilAllTouchesLift)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
         XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
     }
 
@@ -349,46 +310,21 @@ final class TrackpadWindowGestureTests: XCTestCase {
         let fixture = try makeNiriFixture(pid: 9_113)
         let handler = fixture.handler
         let widthBefore = fixture.firstFrame.width
-        let start = CGPoint(x: fixture.firstFrame.maxX - 20, y: fixture.firstFrame.midY)
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
-        for step in 1 ... 4 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 3,
-                x: 0.4 + 0.0125 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstRightEdgeGrip)
+        gesture.begin(fingers: 3, x: 0.4)
+        gesture.drag(fingers: 3, fromX: 0.4, toX: 0.45, steps: 4)
         XCTAssertTrue(handler.state.isResizing)
 
         // A fingertip rolls: two frames report two fingers, then all three are back.
-        time += 0.01
-        sendFrame(handler, phase: .changed, fingers: 2, x: 0.46, y: 0.5, at: time, location: start)
-        time += 0.01
-        sendFrame(handler, phase: .changed, fingers: 2, x: 0.47, y: 0.5, at: time, location: start)
+        gesture.frame(fingers: 2, x: 0.46)
+        gesture.frame(fingers: 2, x: 0.47)
         XCTAssertTrue(handler.state.isResizing, "a two-frame dip must not end the resize")
         XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
 
-        for step in 5 ... 8 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 3,
-                x: 0.4 + 0.0125 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+        gesture.drag(fingers: 3, fromX: 0.45, toX: 0.5, steps: 4)
         XCTAssertTrue(handler.state.isResizing)
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
 
         let widthAfter = try XCTUnwrap(fixture.frames()[fixture.first.token]).width
         XCTAssertEqual(widthAfter, widthBefore + 160, accuracy: 2, "the full travel must land despite the dip")
@@ -397,75 +333,51 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testTransientExtraFingerDoesNotAbortMove() throws {
         let fixture = try makeNiriFixture(pid: 9_114)
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 4 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + 0.02 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.28, steps: 4)
         XCTAssertTrue(handler.state.isMoving)
 
-        time += 0.01
-        sendFrame(handler, phase: .changed, fingers: 5, x: 0.29, y: 0.5, at: time, location: start)
+        gesture.frame(fingers: 5, x: 0.29)
         XCTAssertTrue(handler.state.isMoving, "a resting palm for one frame must not cancel the move")
-        time += 0.01
-        sendFrame(handler, phase: .changed, fingers: 4, x: 0.3, y: 0.5, at: time, location: start)
+        gesture.frame(fingers: 4, x: 0.3)
         XCTAssertTrue(handler.state.isMoving)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
         XCTAssertFalse(handler.state.isMoving)
     }
 
-    func testResizeTravelIsNotClampedToTheMonitor() {
-        let monitor = CGRect(x: 0, y: 0, width: 3840, height: 2160)
-        let start = CGPoint(x: 1127, y: 195)
-        let unclamped = TrackpadGestureIntent.windowGestureLocation(
-            start: start,
-            startTouch: CGPoint(x: 0.5, y: 0.8),
-            currentTouch: CGPoint(x: 0.5, y: 0.3),
-            monitorFrame: monitor,
-            sensitivity: 1,
-            clampToMonitor: false
-        )
-        XCTAssertEqual(unclamped.y, 195 - 0.5 * 2160, accuracy: 0.001)
-        let clamped = TrackpadGestureIntent.windowGestureLocation(
-            start: start,
-            startTouch: CGPoint(x: 0.5, y: 0.8),
-            currentTouch: CGPoint(x: 0.5, y: 0.3),
-            monitorFrame: monitor,
-            sensitivity: 1
-        )
-        XCTAssertEqual(clamped.y, 0)
+    func testLateFourthFingerReArmsFromResizeToMoveBeforeCommit() throws {
+        let fixture = try makeNiriFixture(pid: 9_112)
+        let handler = fixture.handler
+
+        // Three fingers land first and drift a little, staying under the commit threshold.
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 3, x: 0.2)
+        gesture.frame(fingers: 3, x: 0.21)
+        XCTAssertEqual(handler.state.gesturePhase, .armed)
+        XCTAssertEqual(handler.state.lockedGestureContext?.fingerCount, 3)
+
+        // The fourth finger arrives: the gesture must become a four-finger move, not abort.
+        gesture.frame(fingers: 4, x: 0.21)
+        gesture.drag(fingers: 4, fromX: 0.21, toX: 0.21 + fixture.travelToSecond)
+        XCTAssertEqual(handler.state.lockedGestureContext?.fingerCount, 4)
+        XCTAssertEqual(handler.state.activeGestureMode, .windowMove)
+        XCTAssertTrue(handler.state.isMoving)
+        XCTAssertFalse(handler.state.isResizing)
+
+        gesture.end()
+        XCTAssertEqual(fixture.windowOrder(), [fixture.second.token, fixture.first.token])
     }
 
     func testMouseEventsDoNotDisturbGestureOwnedMove() throws {
         let fixture = try makeNiriFixture(pid: 9_109)
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 4 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + 0.02 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.28, steps: 4)
         XCTAssertTrue(handler.state.isMoving)
 
         handler.pressedMouseButtonsProvider = { 0 }
@@ -479,42 +391,21 @@ final class TrackpadWindowGestureTests: XCTestCase {
         )
         XCTAssertNotNil(fixture.engine.interactiveMove)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
         XCTAssertFalse(handler.state.isMoving)
     }
 
     func testDisablingControllerMidGestureCancelsMoveAndClearsGestureState() throws {
         let fixture = try makeNiriFixture(pid: 9_110)
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 4 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + 0.02 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.28, steps: 4)
         XCTAssertTrue(handler.state.isMoving)
 
         fixture.controller.isEnabled = false
-        time += 0.01
-        sendFrame(
-            handler,
-            phase: .changed,
-            fingers: 4,
-            x: 0.3,
-            y: 0.5,
-            at: time,
-            location: start
-        )
+        gesture.frame(fingers: 4, x: 0.3)
 
         XCTAssertFalse(handler.state.isMoving)
         XCTAssertFalse(handler.state.gestureOwnsWindowInteraction)
@@ -522,29 +413,17 @@ final class TrackpadWindowGestureTests: XCTestCase {
         XCTAssertEqual(handler.state.gesturePhase, .idle)
         XCTAssertEqual(fixture.windowOrder(), [fixture.first.token, fixture.second.token])
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
         fixture.controller.isEnabled = true
     }
 
     func testCleanupWhileGestureOwnsMoveReconcilesEverything() throws {
         let fixture = try makeNiriFixture(pid: 9_111)
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 4 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + 0.02 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.28, steps: 4)
         XCTAssertTrue(handler.state.isMoving)
 
         handler.cleanup()
@@ -561,30 +440,18 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testFourFingerDragSwapsDwindleTilesOnRelease() throws {
         let fixture = try makeDwindleFixture(pid: 9_201)
         let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        let travel = (fixture.secondFrame.center.x - start.x) / fixture.screen.width
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 4, x: 0.2, y: 0.5, at: time, location: start)
-        for step in 1 ... 10 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.2 + travel * CGFloat(step) / 10,
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+        let travel = (fixture.secondFrame.center.x - fixture.firstFrame.center.x) / fixture.screen.width
+
+        var gesture = fixture.driver(at: fixture.firstFrame.center)
+        gesture.begin(fingers: 4, x: 0.2)
+        gesture.drag(fingers: 4, fromX: 0.2, toX: 0.2 + travel)
 
         XCTAssertTrue(handler.state.isMoving)
         XCTAssertEqual(handler.state.moveLayout, .dwindle)
         XCTAssertEqual(fixture.engine.interactiveMove?.token, fixture.first)
         XCTAssertEqual(fixture.engine.interactiveMove?.targetToken, fixture.second)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
 
         XCTAssertFalse(handler.state.isMoving)
         XCTAssertNil(fixture.engine.interactiveMove)
@@ -596,27 +463,15 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testThreeFingerDragResizesDwindleSplit() throws {
         let fixture = try makeDwindleFixture(pid: 9_202)
         let handler = fixture.handler
-        let start = CGPoint(x: fixture.firstFrame.maxX - 20, y: fixture.firstFrame.midY)
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
-        for step in 1 ... 8 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 3,
-                x: 0.4 + 0.0125 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+
+        var gesture = fixture.driver(at: CGPoint(x: fixture.firstFrame.maxX - 20, y: fixture.firstFrame.midY))
+        gesture.begin(fingers: 3, x: 0.4)
+        gesture.drag(fingers: 3, fromX: 0.4, toX: 0.5, steps: 8)
         XCTAssertTrue(handler.state.isResizing)
         XCTAssertEqual(handler.state.resizeLayout, .dwindle)
         XCTAssertEqual(fixture.engine.interactiveResize?.token, fixture.first)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
 
         XCTAssertFalse(handler.state.isResizing)
         XCTAssertNil(fixture.engine.interactiveResize)
@@ -628,30 +483,17 @@ final class TrackpadWindowGestureTests: XCTestCase {
     func testDwindleResizeGestureFallsBackToTheEdgeThatCanMove() throws {
         let fixture = try makeDwindleFixture(pid: 9_203)
         let handler = fixture.handler
-        // The first tile sits against the left screen edge: its nearest edge cannot move, its right one can.
-        let start = CGPoint(x: fixture.firstFrame.minX + 20, y: fixture.firstFrame.minY + 20)
-        XCTAssertEqual(fixture.engine.resizableEdges(for: fixture.first, in: fixture.workspaceId), .right)
 
-        var time: TimeInterval = 100
-        sendFrame(handler, phase: .began, fingers: 3, x: 0.4, y: 0.5, at: time, location: start)
-        for step in 1 ... 8 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 3,
-                x: 0.4 + 0.0125 * CGFloat(step),
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
+        // The first tile sits against the left screen edge: its nearest edge cannot move, its right one can.
+        var gesture = fixture.driver(at: CGPoint(x: fixture.firstFrame.minX + 20, y: fixture.firstFrame.minY + 20))
+        gesture.begin(fingers: 3, x: 0.4)
+        gesture.drag(fingers: 3, fromX: 0.4, toX: 0.5, steps: 8)
         XCTAssertTrue(handler.state.isResizing)
         XCTAssertEqual(fixture.engine.interactiveResize?.edges, .right)
+        XCTAssertEqual(handler.state.currentHoveredEdges, .right)
         XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
 
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
+        gesture.end()
 
         XCTAssertFalse(handler.state.isResizing)
         fixture.relayout()
@@ -659,103 +501,20 @@ final class TrackpadWindowGestureTests: XCTestCase {
         XCTAssertGreaterThan(widthAfter, fixture.firstFrame.width + 100)
     }
 
-    func testGestureResizeEdgesPreferNearestThenOppositeThenDropAxis() {
-        XCTAssertEqual(
-            MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: .all),
-            [.left, .top]
-        )
-        XCTAssertEqual(
-            MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: [.right, .bottom]),
-            [.right, .bottom]
-        )
-        XCTAssertEqual(
-            MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: [.right]),
-            .right
-        )
-        XCTAssertEqual(
-            MouseEventHandler.gestureResizeEdges(nearest: [.right, .bottom], resizable: [.left, .right]),
-            .right
-        )
-        XCTAssertTrue(MouseEventHandler.gestureResizeEdges(nearest: [.left, .top], resizable: []).isEmpty)
-    }
-
-    func testLateFourthFingerReArmsFromResizeToMoveBeforeCommit() throws {
-        let fixture = try makeNiriFixture(pid: 9_112)
-        let handler = fixture.handler
-        let start = fixture.firstFrame.center
-        let travel = (fixture.secondFrame.center.x - start.x) / fixture.monitor.frame.width
-        var time: TimeInterval = 100
-        // Three fingers land first and drift a little, staying under the commit threshold.
-        sendFrame(handler, phase: .began, fingers: 3, x: 0.2, y: 0.5, at: time, location: start)
-        time += 0.01
-        sendFrame(handler, phase: .changed, fingers: 3, x: 0.21, y: 0.5, at: time, location: start)
-        XCTAssertEqual(handler.state.gesturePhase, .armed)
-        XCTAssertEqual(handler.state.lockedGestureContext?.fingerCount, 3)
-
-        // The fourth finger arrives: the gesture must become a four-finger move, not abort.
-        for step in 0 ... 10 {
-            time += 0.01
-            sendFrame(
-                handler,
-                phase: .changed,
-                fingers: 4,
-                x: 0.21 + travel * CGFloat(step) / 10,
-                y: 0.5,
-                at: time,
-                location: start
-            )
-        }
-        XCTAssertEqual(handler.state.lockedGestureContext?.fingerCount, 4)
-        XCTAssertEqual(handler.state.activeGestureMode, .windowMove)
-        XCTAssertTrue(handler.state.isMoving)
-        XCTAssertFalse(handler.state.isResizing)
-
-        time += 0.01
-        sendFrame(handler, phase: .ended, fingers: 0, x: 0, y: 0, at: time, location: start)
-        XCTAssertEqual(fixture.windowOrder(), [fixture.second.token, fixture.first.token])
+    func testMouseResizeKeepsExactEdgesAndRefusesAnImmovableOne() throws {
+        let fixture = try makeDwindleFixture(pid: 9_204)
+        // A right-drag on the first tile's left half asks for its left edge, which has no split to move.
+        let leftGrip = CGPoint(x: fixture.firstFrame.minX + 20, y: fixture.firstFrame.midY)
+        XCTAssertFalse(fixture.handler.dispatchMouseDown(at: leftGrip, modifiers: .maskAlternate, button: .right))
+        XCTAssertNil(fixture.engine.interactiveResize)
     }
 
     // MARK: - Helpers
 
-    private func sendFrame(
-        _ handler: MouseEventHandler,
-        phase: NSEvent.Phase,
-        fingers: Int,
-        x: CGFloat,
-        y: CGFloat,
-        at timestamp: TimeInterval,
-        location: CGPoint
-    ) {
-        let touches = (0 ..< fingers).map { _ in
-            MouseEventHandler.GestureTouchSample(phase: .moved, normalizedPosition: CGPoint(x: x, y: y))
-        }
-        handler.receiveTapGestureEvent(
-            MouseEventHandler.GestureEventSnapshot(
-                location: location,
-                phaseRawValue: phase.rawValue,
-                timestamp: timestamp,
-                touches: phase == .ended || phase == .cancelled ? [] : touches
-            )
-        )
-    }
-
     private func makeController() -> WMController {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TrackpadWindowGestureTests-\(UUID().uuidString)", isDirectory: true)
-        let settings = SettingsStore(
-            persistence: SettingsFilePersistence(
-                directory: root.appendingPathComponent("config", isDirectory: true),
-                startWatching: false,
-                deferSaves: false
-            ),
-            runtimeState: RuntimeStateStore(
-                directory: root.appendingPathComponent("state", isDirectory: true),
-                deferSaves: false
-            ),
-            autosaveEnabled: false
-        )
-        let controller = WMController(settings: settings)
+        let controller = WindowAdmissionTestSupport.controller(prefix: "TrackpadWindowGestureTests")
         controller.layoutRefreshController.displayLinkActivationForTests = { _ in true }
+        let settings = controller.settings
         settings.animationsEnabled = false
         // Window gestures alone; column scroll and workspace swipe stay out of the way unless a test opts in.
         settings.scrollGestureEnabled = false
@@ -797,8 +556,7 @@ final class TrackpadWindowGestureTests: XCTestCase {
                 windowId: windowId,
                 to: workspaceId
             )
-            let window = engine.addWindow(token: token, to: workspaceId, afterSelection: windows.last?.id)
-            windows.append(window)
+            windows.append(engine.addWindow(token: token, to: workspaceId, afterSelection: windows.last?.id))
         }
         XCTAssertTrue(
             controller.workspaceManager.confirmManagedFocus(
@@ -810,14 +568,17 @@ final class TrackpadWindowGestureTests: XCTestCase {
         for column in engine.columns(in: workspaceId) {
             column.cachedWidth = 700
         }
-        let gap = controller.innerGap(for: monitor)
-        let frames = engine.calculateLayout(
-            state: controller.workspaceManager.niriViewportState(for: workspaceId),
+        let partial = NiriFixture(
+            controller: controller,
+            engine: engine,
+            monitor: monitor,
             workspaceId: workspaceId,
-            monitorFrame: controller.insetWorkingFrame(for: monitor),
-            gaps: (horizontal: gap, vertical: gap),
-            orientation: .horizontal
+            first: windows[0],
+            second: windows[1],
+            firstFrame: .zero,
+            secondFrame: .zero
         )
+        let frames = partial.frames()
         let firstFrame = try XCTUnwrap(frames[windows[0].token])
         let secondFrame = try XCTUnwrap(frames[windows[1].token])
         XCTAssertLessThan(firstFrame.maxX, secondFrame.minX)

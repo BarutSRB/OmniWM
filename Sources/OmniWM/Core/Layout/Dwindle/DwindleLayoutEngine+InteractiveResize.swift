@@ -24,13 +24,30 @@ struct DwindleInteractiveResize {
     var didChange = false
 }
 
+/// Which edge a resize grabs when the requested one has no split to move.
+enum DwindleResizeEdgePolicy {
+    /// Move exactly the requested edges; an edge without a controlling split contributes nothing.
+    case exact
+    /// Per axis, fall back to the opposite edge when only that one has a split. For input with no physical
+    /// grab point, such as a trackpad gesture, this keeps a tile against the screen edge resizable.
+    case nearestMovable
+}
+
 extension DwindleLayoutEngine {
+    private struct ControllingSplitMatch {
+        let split: DwindleNode
+        let child: DwindleNode
+        let axisLength: CGFloat
+        let edge: ResizeEdge
+    }
+
     func interactiveResizeBegin(
         token: WindowToken,
         edges: ResizeEdge,
         startLocation: CGPoint,
         in workspaceId: WorkspaceDescriptor.ID,
-        innerGap: CGFloat
+        innerGap: CGFloat,
+        edgePolicy: DwindleResizeEdgePolicy = .exact
     ) -> Bool {
         guard interactiveResize == nil else { return false }
         guard let leaf = findNode(for: token, in: workspaceId), leaf.isLeaf, !leaf.isFullscreen else { return false }
@@ -39,12 +56,14 @@ extension DwindleLayoutEngine {
             from: leaf,
             edges: edges,
             axis: .horizontal,
+            policy: edgePolicy,
             workspaceId: workspaceId
         )
         let vertical = resolveControllingSplit(
             from: leaf,
             edges: edges,
             axis: .vertical,
+            policy: edgePolicy,
             workspaceId: workspaceId
         )
         guard horizontal != nil || vertical != nil else { return false }
@@ -52,7 +71,7 @@ extension DwindleLayoutEngine {
         interactiveResize = DwindleInteractiveResize(
             token: token,
             workspaceId: workspaceId,
-            edges: edges,
+            edges: [horizontal?.edge ?? [], vertical?.edge ?? []],
             startMouseLocation: startLocation,
             innerGap: innerGap,
             horizontalSplitId: horizontal?.split.id,
@@ -170,56 +189,37 @@ extension DwindleLayoutEngine {
         from leaf: DwindleNode,
         edges: ResizeEdge,
         axis: DwindleOrientation,
+        policy: DwindleResizeEdgePolicy,
         workspaceId: WorkspaceDescriptor.ID
-    ) -> (split: DwindleNode, child: DwindleNode, axisLength: CGFloat)? {
-        let wantFirstChild: Bool
-        switch axis {
-        case .horizontal:
-            if edges.contains(.right) {
-                wantFirstChild = true
-            } else if edges.contains(.left) {
-                wantFirstChild = false
-            } else {
-                return nil
-            }
-        case .vertical:
-            if edges.contains(.top) {
-                wantFirstChild = true
-            } else if edges.contains(.bottom) {
-                wantFirstChild = false
-            } else {
-                return nil
-            }
+    ) -> ControllingSplitMatch? {
+        // The first child of a split sits on the left or top, so grabbing a tile's right or top edge moves
+        // the split where this tile is the first child.
+        let (firstChildEdge, secondChildEdge): (ResizeEdge, ResizeEdge) = switch axis {
+        case .horizontal: (.right, .left)
+        case .vertical: (.top, .bottom)
         }
-
-        guard let match = controllingSplit(
-            from: leaf,
-            orientation: axis,
-            wantFirstChild: wantFirstChild,
-            workspaceId: workspaceId
-        ),
-            let frame = match.split.cachedFrame
-        else {
+        let requested = edges.intersection([firstChildEdge, secondChildEdge])
+        guard let preferred = [firstChildEdge, secondChildEdge].first(where: { requested.contains($0) }) else {
             return nil
         }
-        let axisLength = axis == .horizontal ? frame.width : frame.height
-        guard axisLength.isFinite, axisLength > 0 else { return nil }
-        return (match.split, match.child, axisLength)
-    }
-
-    /// The edges of `token`'s tile that a resize can actually move: each edge whose side has a split with
-    /// two visible branches. A tile against the screen edge, or on the unsplit axis of a two-window
-    /// layout, has no controlling split there and `interactiveResizeBegin` refuses that edge.
-    func resizableEdges(for token: WindowToken, in workspaceId: WorkspaceDescriptor.ID) -> ResizeEdge {
-        guard let leaf = findNode(for: token, in: workspaceId), leaf.isLeaf, !leaf.isFullscreen else { return [] }
-        var edges: ResizeEdge = []
-        for edge in [ResizeEdge.left, .right, .top, .bottom] {
-            let axis: DwindleOrientation = edge == .left || edge == .right ? .horizontal : .vertical
-            if resolveControllingSplit(from: leaf, edges: edge, axis: axis, workspaceId: workspaceId) != nil {
-                edges.insert(edge)
-            }
+        let candidates: [ResizeEdge] = switch policy {
+        case .exact: [preferred]
+        case .nearestMovable: [preferred, preferred == firstChildEdge ? secondChildEdge : firstChildEdge]
         }
-        return edges
+        for edge in candidates {
+            guard let match = controllingSplit(
+                from: leaf,
+                orientation: axis,
+                wantFirstChild: edge == firstChildEdge,
+                workspaceId: workspaceId
+            ),
+                let frame = match.split.cachedFrame
+            else { continue }
+            let axisLength = axis == .horizontal ? frame.width : frame.height
+            guard axisLength.isFinite, axisLength > 0 else { continue }
+            return ControllingSplitMatch(split: match.split, child: match.child, axisLength: axisLength, edge: edge)
+        }
+        return nil
     }
 
     private func controllingSplit(

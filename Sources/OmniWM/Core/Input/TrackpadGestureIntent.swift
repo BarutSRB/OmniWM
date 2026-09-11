@@ -2,6 +2,7 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import CoreGraphics
+import Foundation
 
 enum TrackpadGestureMode: Equatable {
     case columnScroll
@@ -18,6 +19,13 @@ enum TrackpadGestureMode: Equatable {
              .workspaceSwitch:
             false
         }
+    }
+
+    /// How long a committed gesture rides out a contact frame that disagrees with its locked finger count.
+    /// A fingertip that rolls or lightens mid-drag drops out for a few frames; dropping a window on that is
+    /// costly, ending a scroll a frame early is not. A real lift lasts far longer than this.
+    var fingerCountGrace: TimeInterval {
+        isWindowInteraction ? 0.15 : 0
     }
 }
 
@@ -115,8 +123,8 @@ enum TrackpadGestureIntent {
         let y = start.y + (currentTouch.y - startTouch.y) * monitorFrame.height * sensitivity
         guard clampToMonitor else { return CGPoint(x: x, y: y) }
         return CGPoint(
-            x: min(max(x, monitorFrame.minX), monitorFrame.maxX),
-            y: min(max(y, monitorFrame.minY), monitorFrame.maxY)
+            x: x.clamped(to: monitorFrame.minX ... monitorFrame.maxX),
+            y: y.clamped(to: monitorFrame.minY ... monitorFrame.maxY)
         )
     }
 

@@ -5,9 +5,6 @@ import AppKit
 import Foundation
 
 private let niriTouchpadGestureRecognitionThreshold: CGFloat = 16.0
-// A fingertip that rolls or lightens mid-drag drops out of the contact frame for a few frames. Window
-// gestures ride that out rather than dropping the window; a real lift lasts far longer than this.
-private let windowGestureFingerCountGrace: TimeInterval = 0.15
 // AppKit gives normalized touch positions rather than libinput gesture deltas.
 // This maps normalized movement into the delta space that AnimationDriver later
 // normalizes with gestureWorkingAreaMovement.
@@ -830,18 +827,7 @@ final class MouseEventHandler {
     }
 
     private var trackpadGestureConfig: TrackpadGestureIntent.Config? {
-        guard let settings = controller?.settings else { return nil }
-        return TrackpadGestureIntent.Config(
-            columnScrollEnabled: settings.scrollGestureEnabled,
-            columnScrollFingerCount: settings.gestureFingerCount.rawValue,
-            workspaceSwipeEnabled: settings.workspaceSwipeEnabled,
-            workspaceSwipeFingerCount: settings.workspaceSwipeFingerCount.rawValue,
-            workspaceSwipeAxis: settings.effectiveWorkspaceSwipeAxis,
-            windowMoveEnabled: settings.windowMoveGestureEnabled,
-            windowMoveFingerCount: settings.windowMoveGestureFingerCount.rawValue,
-            windowResizeEnabled: settings.windowResizeGestureEnabled,
-            windowResizeFingerCount: settings.windowResizeGestureFingerCount.rawValue
-        )
+        controller?.settings.trackpadGestureIntentConfig
     }
 
     private var isInputSuppressed: Bool {
@@ -881,19 +867,18 @@ final class MouseEventHandler {
         if wasActive {
             NSCursor.arrow.set()
         }
-        releaseGestureWindowInteractionIfNeeded()
     }
 
     private func clearMoveInteractionState() {
         state.dragGhostController?.endDrag()
         state.isMoving = false
         state.moveLayout = nil
-        state.activeInteractionButton = nil
+        state.activeInteractionSource = nil
     }
 
     private func clearResizeInteractionState() {
         state.isResizing = false
-        state.activeInteractionButton = nil
+        state.activeInteractionSource = nil
         state.resizeLayout = nil
         state.currentHoveredEdges = []
     }
@@ -914,18 +899,6 @@ final class MouseEventHandler {
         finishActiveResize()
         clearResizeInteractionState()
         NSCursor.arrow.set()
-    }
-
-    /// A gesture-owned move or resize was torn down from outside the gesture pipeline (overview opened,
-    /// controller disabled, own-window input, lock screen). Drop the gesture session with it so the
-    /// remaining touch frames cannot steer an interaction that no longer exists.
-    private func releaseGestureWindowInteractionIfNeeded() {
-        guard state.gestureOwnsWindowInteraction else { return }
-        state.gestureOwnsWindowInteraction = false
-        guard state.gesturePhase != .idle else { return }
-        state.suppressGestureStartUntilAllTouchesLift = true
-        state.consumeTrackpadScrollUntilAllTouchesLift = true
-        resetGestureState()
     }
 
     private func recoverAfterTapDisable() {
@@ -1132,17 +1105,14 @@ final class MouseEventHandler {
                required: controller.settings.mouseMoveModifierKey.cgEventFlags
            )
         {
-            if let tiledWindow = engine.hitTestTiled(point: location, in: wsId),
-               let monitor = controller.workspaceManager.monitor(for: wsId)
-            {
+            if let tiledWindow = engine.hitTestTiled(point: location, in: wsId) {
                 _ = beginNiriMove(
                     window: tiledWindow,
                     engine: engine,
                     wsId: wsId,
-                    monitor: monitor,
                     at: location,
                     isInsertMode: moveMode == .insert,
-                    button: button
+                    source: .mouse(button)
                 )
             }
             return false
@@ -1161,27 +1131,19 @@ final class MouseEventHandler {
                 appliedBorder: controller.surfaceReconciler.appliedScene.border
             ).flatMap { engine.findNode(for: $0, in: wsId) }
         guard let tiledWindow else { return false }
-        return beginNiriResize(
-            window: tiledWindow,
-            engine: engine,
-            wsId: wsId,
-            monitor: monitor,
-            at: location,
-            button: button
-        )
+        return beginNiriResize(window: tiledWindow, engine: engine, wsId: wsId, at: location, source: .mouse(button))
     }
 
-    /// Starts a Niri interactive move. `button` is nil when a trackpad gesture drives the move.
+    /// Starts a Niri interactive move for the given input source.
     private func beginNiriMove(
         window tiledWindow: NiriWindow,
         engine: NiriLayoutEngine,
         wsId: WorkspaceDescriptor.ID,
-        monitor: Monitor,
         at location: CGPoint,
         isInsertMode: Bool = false,
-        button: MouseButton? = nil
+        source: MouseInputState.InteractionSource
     ) -> Bool {
-        guard let controller else { return false }
+        guard let controller, let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
         let geometry = controller.niriInteractionGeometry(for: monitor)
         let orientation = resolvedNiriOrientation(
             engine: engine,
@@ -1212,8 +1174,8 @@ final class MouseEventHandler {
 
         state.isMoving = true
         state.moveLayout = .niri
-        state.activeInteractionButton = button
-        state.capturedInteractionButton = button
+        state.activeInteractionSource = source
+        state.capturedInteractionButton = source.mouseButton
         NSCursor.closedHand.set()
 
         if let entry = controller.workspaceManager.entry(for: tiledWindow.token),
@@ -1231,16 +1193,16 @@ final class MouseEventHandler {
         return true
     }
 
-    /// Starts a Niri interactive resize on the edges nearest `location`. `button` is nil for gestures.
+    /// Starts a Niri interactive resize on the edges nearest `location` for the given input source.
     private func beginNiriResize(
         window tiledWindow: NiriWindow,
         engine: NiriLayoutEngine,
         wsId: WorkspaceDescriptor.ID,
-        monitor: Monitor,
         at location: CGPoint,
-        button: MouseButton? = nil
+        source: MouseInputState.InteractionSource
     ) -> Bool {
         guard let controller,
+              let monitor = controller.workspaceManager.monitor(for: wsId),
               let frame = tiledWindow.renderedFrame ?? tiledWindow.frame
         else { return false }
 
@@ -1262,8 +1224,8 @@ final class MouseEventHandler {
 
         state.isResizing = true
         state.resizeLayout = .niri
-        state.activeInteractionButton = button
-        state.capturedInteractionButton = button
+        state.activeInteractionSource = source
+        state.capturedInteractionButton = source.mouseButton
         state.currentHoveredEdges = edges
         controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
         edges.cursor.set()
@@ -1288,7 +1250,7 @@ final class MouseEventHandler {
                     at: controller.animationClock.now()
                 )
             else { return false }
-            _ = beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location, button: button)
+            _ = beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location, source: .mouse(button))
             return false
         }
         guard button == .right,
@@ -1304,23 +1266,16 @@ final class MouseEventHandler {
                 appliedBorder: controller.surfaceReconciler.appliedScene.border
             )
         guard let token else { return false }
-        return beginDwindleResize(
-            token: token,
-            engine: engine,
-            wsId: wsId,
-            monitor: monitor,
-            at: location,
-            button: button
-        )
+        return beginDwindleResize(token: token, engine: engine, wsId: wsId, at: location, source: .mouse(button))
     }
 
-    /// Starts a Dwindle tile swap drag. `button` is nil when a trackpad gesture drives the move.
+    /// Starts a Dwindle tile swap drag for the given input source.
     private func beginDwindleMove(
         token: WindowToken,
         engine: DwindleLayoutEngine,
         wsId: WorkspaceDescriptor.ID,
         at location: CGPoint,
-        button: MouseButton? = nil
+        source: MouseInputState.InteractionSource
     ) -> Bool {
         guard let controller else { return false }
         let now = controller.animationClock.now()
@@ -1330,8 +1285,8 @@ final class MouseEventHandler {
 
         state.isMoving = true
         state.moveLayout = .dwindle
-        state.activeInteractionButton = button
-        state.capturedInteractionButton = button
+        state.activeInteractionSource = source
+        state.capturedInteractionButton = source.mouseButton
         NSCursor.closedHand.set()
         if state.dragGhostController == nil {
             state.dragGhostController = DragGhostController()
@@ -1340,39 +1295,41 @@ final class MouseEventHandler {
         return true
     }
 
-    /// Starts a Dwindle split resize on the edges nearest `location`. `button` is nil for gestures.
+    /// Starts a Dwindle split resize on the edges nearest `location` for the given input source.
     private func beginDwindleResize(
         token: WindowToken,
         engine: DwindleLayoutEngine,
         wsId: WorkspaceDescriptor.ID,
-        monitor: Monitor,
         at location: CGPoint,
-        edges requestedEdges: ResizeEdge? = nil,
-        button: MouseButton? = nil
+        edgePolicy: DwindleResizeEdgePolicy = .exact,
+        source: MouseInputState.InteractionSource
     ) -> Bool {
         guard let controller,
+              let monitor = controller.workspaceManager.monitor(for: wsId),
               let node = engine.findNode(for: token, in: wsId),
               let frame = node.presentedFrame(at: controller.animationClock.now())
         else { return false }
 
-        let edges = requestedEdges ?? resizeEdges(for: location, in: frame)
         controller.dwindleLayoutHandler.refreshEngineConstraints(workspaceId: wsId, monitor: monitor)
         let innerGap = controller.resolvedDwindleSettings(for: monitor).innerGap
         guard engine.interactiveResizeBegin(
             token: token,
-            edges: edges,
+            edges: resizeEdges(for: location, in: frame),
             startLocation: location,
             in: wsId,
-            innerGap: innerGap
-        ) else {
+            innerGap: innerGap,
+            edgePolicy: edgePolicy
+        ),
+            let edges = engine.interactiveResize?.edges
+        else {
             return false
         }
 
         controller.layoutRefreshController.stopDwindleAnimation(for: monitor.displayId)
         engine.cancelAnimations(in: wsId)
         state.isResizing = true
-        state.activeInteractionButton = button
-        state.capturedInteractionButton = button
+        state.activeInteractionSource = source
+        state.capturedInteractionButton = source.mouseButton
         state.currentHoveredEdges = edges
         state.resizeLayout = .dwindle
         edges.cursor.set()
@@ -1480,7 +1437,7 @@ final class MouseEventHandler {
     }
 
     private func shouldAcceptInteractionButton(_ button: MouseButton) -> Bool {
-        state.activeInteractionButton == nil || state.activeInteractionButton == button
+        state.activeInteractionSource == nil || state.activeInteractionSource == .mouse(button)
     }
 
     private func isCapturedInteraction(_ button: MouseButton) -> Bool {
@@ -1501,7 +1458,8 @@ final class MouseEventHandler {
             cancelActiveMouseInteraction()
             return
         }
-        // A gesture-driven move or resize follows the virtual cursor, not the mouse.
+        // A gesture-driven move or resize follows the virtual cursor, not the mouse, and must not be
+        // cancelled because no mouse button is held.
         guard !state.gestureOwnsWindowInteraction else { return }
         if requirePressedButtonCheck {
             guard pressedMouseButtonsProvider() & button.pressedMask != 0 else {
@@ -2070,9 +2028,6 @@ final class MouseEventHandler {
             cancelActiveMouseInteraction()
             return
         }
-        // Releasing a mouse button must not drop a gesture-driven move or resize; the fingers lifting do.
-        guard !state.gestureOwnsWindowInteraction else { return }
-
         if state.isMoving {
             guard shouldAcceptInteractionButton(button) else { return }
             completeActiveMove(at: location)
@@ -2406,11 +2361,11 @@ final class MouseEventHandler {
         at location: CGPoint,
         snapshot: GestureEventSnapshot
     ) {
-        if state.gesturePhase == .committed, state.activeGestureMode?.isWindowInteraction == true {
+        if state.gesturePhase == .committed {
             let since = state.gestureFingerCountMismatchSince ?? snapshot.timestamp
             state.gestureFingerCountMismatchSince = since
             let held = snapshot.timestamp - since
-            if held < windowGestureFingerCountGrace {
+            if held < state.activeGestureMode?.fingerCountGrace ?? 0 {
                 MouseTrace.record("gesture: tolerating \(requiredFingers) -> \(activeTouchCount) fingers")
                 return
             }
@@ -2419,20 +2374,13 @@ final class MouseEventHandler {
             )
             if activeTouchCount < requiredFingers {
                 finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
-            } else {
-                abortActiveGestureIfNeeded()
+                return
             }
-            return
-        }
-        if state.gesturePhase == .committed, activeTouchCount < requiredFingers {
-            finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
-            return
-        }
-        if state.gesturePhase == .armed, activeTouchCount > requiredFingers,
-           let average = Self.averageGestureTouchPosition(
-               requiredFingers: activeTouchCount,
-               touches: snapshot.touches
-           )
+        } else if state.gesturePhase == .armed, activeTouchCount > requiredFingers,
+                  let average = Self.averageGestureTouchPosition(
+                      requiredFingers: activeTouchCount,
+                      touches: snapshot.touches
+                  )
         {
             // Fingers rarely land in the same frame. While nothing has committed yet, a late finger
             // simply means the user meant the larger count, so re-arm instead of giving up.
@@ -2480,6 +2428,13 @@ final class MouseEventHandler {
         timestamp: TimeInterval
     ) {
         guard let context = resolveGestureArmContext(at: location, fingerCount: activeTouchCount) else {
+            if let config = trackpadGestureConfig,
+               TrackpadGestureIntent.windowGestureMode(config, fingerCount: activeTouchCount) != nil
+            {
+                // The cursor stays put while several fingers rest on the trackpad, so no later frame of
+                // this touch session can find a window under it either.
+                state.suppressGestureStartUntilAllTouchesLift = true
+            }
             MouseTrace.record(
                 "gesture: \(activeTouchCount) fingers not armed at \(TraceFormat.point(location))"
             )
@@ -2487,7 +2442,7 @@ final class MouseEventHandler {
         }
         MouseTrace.record(
             "gesture: armed \(activeTouchCount) fingers at \(TraceFormat.point(location)) "
-                + "window=\(context.windowGestureLayout.map { "\($0)" } ?? "none")"
+                + "window=\(context.windowGestureTarget.map { "\($0)" } ?? "none")"
         )
         state.lockedGestureContext = context
         if context.workspaceAxis != nil {
@@ -2517,14 +2472,14 @@ final class MouseEventHandler {
         case .dwindle:
             false
         }
-        let windowGestureLayout = TrackpadGestureIntent.windowGestureMode(config, fingerCount: fingerCount) != nil
-            ? windowGestureTargetLayout(at: location, wsId: workspace.id, layoutType: layoutType)
+        let windowGestureTarget = TrackpadGestureIntent.windowGestureMode(config, fingerCount: fingerCount) != nil
+            ? windowGestureTarget(at: location, wsId: workspace.id, layoutType: layoutType)
             : nil
         guard TrackpadGestureIntent.hasCandidateMode(
             config,
             fingerCount: fingerCount,
             columnContextAvailable: supportsColumnScroll,
-            windowContextAvailable: windowGestureLayout != nil
+            windowContextAvailable: windowGestureTarget != nil
         ) else { return nil }
         let columnScrollCandidate = config.columnScrollEnabled
             && fingerCount == config.columnScrollFingerCount
@@ -2551,7 +2506,7 @@ final class MouseEventHandler {
             columnScrollCandidate: columnScrollCandidate,
             columnScrollAxis: columnScrollAxis,
             workspaceAxis: workspaceAxis,
-            windowGestureLayout: windowGestureLayout,
+            windowGestureTarget: windowGestureTarget,
             startLocation: location
         )
     }
@@ -2567,149 +2522,85 @@ final class MouseEventHandler {
             : .vertical
     }
 
-    /// Resolves which layout engine owns the tiled window under `location`, or nil when a window
-    /// gesture has nothing to act on there.
-    private func windowGestureTargetLayout(
+    /// The tiled window under `location`, or nil when a window gesture has nothing to act on there.
+    private func windowGestureTarget(
         at location: CGPoint,
         wsId: WorkspaceDescriptor.ID,
         layoutType: LayoutType
-    ) -> LayoutType? {
+    ) -> WindowToken? {
         guard let controller else { return nil }
         switch layoutType {
         case .niri,
              .defaultLayout:
-            guard let engine = controller.niriEngine,
-                  engine.hitTestTiled(point: location, in: wsId) != nil
-            else { return nil }
-            return .niri
+            return controller.niriEngine?.hitTestTiled(point: location, in: wsId)?.token
         case .dwindle:
-            guard let engine = controller.dwindleEngine,
-                  engine.hitTestFocusableWindow(
-                      point: location,
-                      in: wsId,
-                      at: controller.animationClock.now()
-                  ) != nil
-            else { return nil }
-            return .dwindle
+            return controller.dwindleEngine?.hitTestFocusableWindow(
+                point: location,
+                in: wsId,
+                at: controller.animationClock.now()
+            )
         }
     }
 
-    /// Starts the move or resize a committed window gesture asked for, targeting the window under the
-    /// cursor position captured when the fingers landed.
+    /// Starts the move or resize a committed window gesture asked for on the window it locked onto when
+    /// the fingers landed.
     private func beginGestureWindowInteraction(
         _ mode: TrackpadGestureMode,
         lockedContext: MouseInputState.LockedGestureContext
     ) -> Bool {
         guard let controller,
-              let layout = lockedContext.windowGestureLayout,
-              let monitor = controller.workspaceManager.monitor(byId: lockedContext.monitorId)
+              let token = lockedContext.windowGestureTarget,
+              let workspace = controller.workspaceManager.descriptor(for: lockedContext.workspaceId)
         else { return false }
         let wsId = lockedContext.workspaceId
         let location = lockedContext.startLocation
-        let began = switch layout {
-        case .dwindle:
-            beginDwindleGestureInteraction(mode, wsId: wsId, monitor: monitor, at: location)
-        case .niri,
-             .defaultLayout:
-            beginNiriGestureInteraction(mode, wsId: wsId, monitor: monitor, at: location)
-        }
-        guard began else {
-            MouseTrace.record("gesture: \(mode) begin refused by \(layout) engine at \(TraceFormat.point(location))")
+        let began: Bool
+        switch (controller.settings.layoutType(for: workspace.name), mode) {
+        case (.dwindle, .windowMove):
+            guard let engine = controller.dwindleEngine else { return false }
+            began = beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location, source: .trackpadGesture)
+        case (.dwindle, .windowResize):
+            guard let engine = controller.dwindleEngine else { return false }
+            // A gesture has no grab point to honor, so let the engine steer the edges that can actually move.
+            began = beginDwindleResize(
+                token: token,
+                engine: engine,
+                wsId: wsId,
+                at: location,
+                edgePolicy: .nearestMovable,
+                source: .trackpadGesture
+            )
+        case (_, .windowMove):
+            guard let engine = controller.niriEngine, let window = engine.findNode(for: token, in: wsId) else {
+                return false
+            }
+            began = beginNiriMove(window: window, engine: engine, wsId: wsId, at: location, source: .trackpadGesture)
+        case (_, .windowResize):
+            guard let engine = controller.niriEngine, let window = engine.findNode(for: token, in: wsId) else {
+                return false
+            }
+            began = beginNiriResize(window: window, engine: engine, wsId: wsId, at: location, source: .trackpadGesture)
+        case (_, .columnScroll),
+             (_, .workspaceSwitch):
             return false
         }
-        state.gestureOwnsWindowInteraction = true
+        guard began else {
+            MouseTrace.record("gesture: \(mode) begin refused for \(token) at \(TraceFormat.point(location))")
+            return false
+        }
         MouseTrace.record(
-            "gesture: \(mode) began in \(layout) at \(TraceFormat.point(location))"
-                + (mode == .windowResize ? " edges=\(Self.describe(state.currentHoveredEdges))" : "")
+            "gesture: \(mode) began on \(token) at \(TraceFormat.point(location))"
+                + (mode == .windowResize ? " edges=\(state.currentHoveredEdges)" : "")
         )
         return true
     }
 
-    nonisolated static func describe(_ edges: ResizeEdge) -> String {
-        let names: [(ResizeEdge, String)] = [(.left, "left"), (.right, "right"), (.top, "top"), (.bottom, "bottom")]
-        let present = names.filter { edges.contains($0.0) }.map(\.1)
-        return present.isEmpty ? "none" : present.joined(separator: "+")
-    }
-
-    /// Per axis, keep the edge nearest the cursor when it can move, fall back to the opposite edge when
-    /// only that one can, and drop the axis when neither can.
-    nonisolated static func gestureResizeEdges(nearest: ResizeEdge, resizable: ResizeEdge) -> ResizeEdge {
-        var edges: ResizeEdge = []
-        for pair in [(ResizeEdge.left, ResizeEdge.right), (.top, .bottom)] {
-            let preferred = nearest.contains(pair.0) ? pair.0 : pair.1
-            let opposite = preferred == pair.0 ? pair.1 : pair.0
-            if resizable.contains(preferred) {
-                edges.insert(preferred)
-            } else if resizable.contains(opposite) {
-                edges.insert(opposite)
-            }
-        }
-        return edges
-    }
-
-    private func beginDwindleGestureInteraction(
-        _ mode: TrackpadGestureMode,
-        wsId: WorkspaceDescriptor.ID,
-        monitor: Monitor,
-        at location: CGPoint
-    ) -> Bool {
-        guard let controller, let engine = controller.dwindleEngine else { return false }
-        let now = controller.animationClock.now()
-        guard let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: now) else { return false }
-        switch mode {
-        case .windowMove:
-            return beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location)
-        case .windowResize:
-            guard let frame = engine.presentedFrame(for: token, in: wsId, at: now) else { return false }
-            // A gesture has no grab point to honor, so steer the edges that can actually move.
-            let edges = Self.gestureResizeEdges(
-                nearest: resizeEdges(for: location, in: frame),
-                resizable: engine.resizableEdges(for: token, in: wsId)
-            )
-            guard !edges.isEmpty else {
-                MouseTrace.record("gesture: dwindle resize has no resizable edge for \(token)")
-                return false
-            }
-            return beginDwindleResize(
-                token: token,
-                engine: engine,
-                wsId: wsId,
-                monitor: monitor,
-                at: location,
-                edges: edges
-            )
-        case .columnScroll,
-             .workspaceSwitch:
-            return false
-        }
-    }
-
-    private func beginNiriGestureInteraction(
-        _ mode: TrackpadGestureMode,
-        wsId: WorkspaceDescriptor.ID,
-        monitor: Monitor,
-        at location: CGPoint
-    ) -> Bool {
-        guard let controller, let engine = controller.niriEngine,
-              let window = engine.hitTestTiled(point: location, in: wsId)
-        else { return false }
-        switch mode {
-        case .windowMove:
-            return beginNiriMove(window: window, engine: engine, wsId: wsId, monitor: monitor, at: location)
-        case .windowResize:
-            return beginNiriResize(window: window, engine: engine, wsId: wsId, monitor: monitor, at: location)
-        case .columnScroll,
-             .workspaceSwitch:
-            return false
-        }
-    }
-
     /// Where the gesture's virtual cursor currently sits, derived from finger travel since the gesture began.
-    private func gestureWindowLocation(
-        for lockedContext: MouseInputState.LockedGestureContext,
-        monitor: Monitor
-    ) -> CGPoint {
-        TrackpadGestureIntent.windowGestureLocation(
+    private func gestureWindowLocation(for lockedContext: MouseInputState.LockedGestureContext) -> CGPoint {
+        guard let monitor = controller?.workspaceManager.monitor(byId: lockedContext.monitorId) else {
+            return lockedContext.startLocation
+        }
+        return TrackpadGestureIntent.windowGestureLocation(
             start: lockedContext.startLocation,
             startTouch: CGPoint(x: state.gestureStartX, y: state.gestureStartY),
             currentTouch: CGPoint(x: state.gestureLastAverageX, y: state.gestureLastAverageY),
@@ -2721,24 +2612,25 @@ final class MouseEventHandler {
         )
     }
 
-    /// Finishes a gesture-owned move or resize. `commit` drops or applies like a mouse release; otherwise
-    /// the interaction is cancelled (a move reverts, a resize keeps what was applied so far).
-    private func endGestureWindowInteraction(commit: Bool, at location: CGPoint) {
+    /// Drops or applies a gesture-owned move or resize the way a mouse release does.
+    private func commitGestureWindowInteraction(lockedContext: MouseInputState.LockedGestureContext) {
         guard state.gestureOwnsWindowInteraction else { return }
-        state.gestureOwnsWindowInteraction = false
+        let location = gestureWindowLocation(for: lockedContext)
         MouseTrace.record(
-            "gesture: \(state.activeGestureMode.map { "\($0)" } ?? "window gesture") "
-                + "\(commit ? "completed" : "cancelled") at \(TraceFormat.point(location))"
+            "gesture: \(state.activeGestureMode.map { "\($0)" } ?? "") completed at \(TraceFormat.point(location))"
         )
-        guard commit else {
-            cancelActiveMouseInteraction()
-            return
-        }
         if state.isMoving {
             completeActiveMove(at: location)
         } else if state.isResizing {
             completeActiveResize()
         }
+    }
+
+    /// Cancels a gesture-owned move or resize: a move reverts, a resize keeps what was applied so far.
+    private func cancelGestureWindowInteraction() {
+        guard state.gestureOwnsWindowInteraction else { return }
+        MouseTrace.record("gesture: \(state.activeGestureMode.map { "\($0)" } ?? "") cancelled")
+        cancelActiveMouseInteraction()
     }
 
     private struct GestureFrameMetrics {
@@ -2815,7 +2707,7 @@ final class MouseEventHandler {
             cumulativeTranslation: CGVector(dx: metrics.cumulativeX, dy: metrics.cumulativeY),
             columnScrollAxis: lockedContext.columnScrollAxis,
             columnContextAvailable: lockedContext.columnScrollCandidate && controller.niriEngine != nil,
-            windowContextAvailable: lockedContext.windowGestureLayout != nil
+            windowContextAvailable: lockedContext.windowGestureTarget != nil
         ) else {
             state.suppressGestureStartUntilAllTouchesLift = true
             resetGestureState()
@@ -2874,13 +2766,13 @@ final class MouseEventHandler {
                 abortActiveGestureIfNeeded()
                 return
             }
-            updateActiveMove(at: gestureWindowLocation(for: lockedContext, monitor: monitor))
+            updateActiveMove(at: gestureWindowLocation(for: lockedContext))
         case .windowResize:
             guard state.gestureOwnsWindowInteraction, state.isResizing else {
                 abortActiveGestureIfNeeded()
                 return
             }
-            updateActiveResize(at: gestureWindowLocation(for: lockedContext, monitor: monitor))
+            updateActiveResize(at: gestureWindowLocation(for: lockedContext))
         case nil:
             abortActiveGestureIfNeeded()
         }
@@ -2919,10 +2811,11 @@ final class MouseEventHandler {
         case .windowMove,
              .windowResize:
             // `allowFlick` is false only for a cancelled touch session, which must not drop the window.
-            let location = controller?.workspaceManager.monitor(byId: lockedContext.monitorId)
-                .map { gestureWindowLocation(for: lockedContext, monitor: $0) }
-                ?? lockedContext.startLocation
-            endGestureWindowInteraction(commit: allowFlick, at: location)
+            if allowFlick {
+                commitGestureWindowInteraction(lockedContext: lockedContext)
+            } else {
+                cancelGestureWindowInteraction()
+            }
         default:
             if let engine = controller?.niriEngine {
                 finalizeOrCancelCommittedGesture(
@@ -3178,7 +3071,7 @@ final class MouseEventHandler {
             if case .workspaceSwitch = state.activeGestureMode {
                 state.suppressTrackpadMomentumScroll = true
             } else if state.activeGestureMode?.isWindowInteraction == true {
-                endGestureWindowInteraction(commit: false, at: .zero)
+                cancelGestureWindowInteraction()
             } else if let lockedContext = state.lockedGestureContext {
                 if let engine = controller?.niriEngine {
                     finalizeOrCancelCommittedGesture(
@@ -3226,11 +3119,9 @@ final class MouseEventHandler {
     }
 
     private func resetGestureState(settleViewportGesture: Bool = true) {
-        if state.gestureOwnsWindowInteraction {
-            // The gesture is ending without a proper release (source replaced, external reset); never
-            // leave the engine holding a move or resize nobody can finish.
-            endGestureWindowInteraction(commit: false, at: .zero)
-        }
+        // The gesture is ending without a proper release (source replaced, external reset); never leave the
+        // engine holding a move or resize nobody can finish.
+        cancelGestureWindowInteraction()
         if settleViewportGesture,
            let lockedContext = state.lockedGestureContext,
            controller?.workspaceManager.animationDriver.hasGesture(in: lockedContext.workspaceId) == true
