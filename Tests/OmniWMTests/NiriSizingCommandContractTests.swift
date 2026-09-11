@@ -8,23 +8,23 @@ import XCTest
 
 final class NiriSizingCommandContractTests: XCTestCase {
     func testNewSizingActionsExposeAxisRelativeContracts() throws {
-        let cycle = try XCTUnwrap(ActionCatalog.spec(for: .cycleSizeForward))
+        let cycle = try XCTUnwrap(ActionCatalog.spec(for: .sizing(.cycleSizeForward)))
         XCTAssertEqual(cycle.id, "cycleSizeForward")
         XCTAssertEqual(cycle.layoutCompatibility, .shared)
         XCTAssertEqual(cycle.category, .layout)
-        XCTAssertEqual(cycle.ipcCommandName, .cycleSizeForward)
+        XCTAssertEqual(cycle.ipcCommandName, .sizing(.cycleSizeForward))
 
         let primary = try XCTUnwrap(
-            ActionCatalog.spec(for: .setContainerPrimarySpan(.adjustProportion(10)))
+            ActionCatalog.spec(for: .sizing(.setContainerPrimarySpan(.adjustProportion(10))))
         )
         XCTAssertEqual(primary.id, "setContainerPrimarySpan.increase10Percent")
         XCTAssertEqual(primary.layoutCompatibility, .niri)
-        XCTAssertEqual(primary.ipcCommandName, .setContainerPrimarySpan)
+        XCTAssertEqual(primary.ipcCommandName, .sizing(.setContainerPrimarySpan))
 
-        let secondary = try XCTUnwrap(ActionCatalog.spec(for: .resetWindowSecondarySpan))
+        let secondary = try XCTUnwrap(ActionCatalog.spec(for: .sizing(.resetWindowSecondarySpan)))
         XCTAssertEqual(secondary.id, "resetWindowSecondarySpan")
         XCTAssertEqual(secondary.layoutCompatibility, .niri)
-        XCTAssertEqual(secondary.ipcCommandName, .resetWindowSecondarySpan)
+        XCTAssertEqual(secondary.ipcCommandName, .sizing(.resetWindowSecondarySpan))
     }
 
     func testRemovedSizingActionIDsAreAbsent() {
@@ -55,12 +55,12 @@ final class NiriSizingCommandContractTests: XCTestCase {
         let cycle = try XCTUnwrap(
             IPCAutomationManifest.commandDescriptors(matching: ["cycle-size", "forward"]).first
         )
-        XCTAssertEqual(cycle.name, .cycleSizeForward)
+        XCTAssertEqual(cycle.name, .sizing(.cycleSizeForward))
         XCTAssertEqual(cycle.path, "command cycle-size forward")
         XCTAssertEqual(cycle.layoutCompatibility, .shared)
 
         let setPrimary = try XCTUnwrap(
-            IPCAutomationManifest.commandDescriptor(for: .setContainerPrimarySpan)
+            IPCAutomationManifest.commandDescriptor(for: .sizing(.setContainerPrimarySpan))
         )
         XCTAssertEqual(setPrimary.commandWords, ["set-container-primary-span"])
         XCTAssertEqual(setPrimary.arguments.map(\.kind), [.sizeChange])
@@ -69,15 +69,15 @@ final class NiriSizingCommandContractTests: XCTestCase {
 
     func testSizingRequestsRoundTripWithNewWireNames() throws {
         let requests: [(IPCCommandRequest, String)] = [
-            (.cycleSizeForward, "cycle-size-forward"),
-            (.cycleWindowPrimarySpanBackward, "cycle-window-primary-span-backward"),
-            (.cycleWindowSecondarySpanForward, "cycle-window-secondary-span-forward"),
-            (.toggleContainerFullPrimarySpan, "toggle-container-full-primary-span"),
-            (.expandContainerToAvailablePrimarySpan, "expand-container-to-available-primary-span"),
-            (.resetWindowSecondarySpan, "reset-window-secondary-span"),
-            (.setContainerPrimarySpan(change: .setProportion(50)), "set-container-primary-span"),
-            (.setWindowPrimarySpan(change: .adjustFixed(10)), "set-window-primary-span"),
-            (.setWindowSecondarySpan(change: .adjustProportion(-10)), "set-window-secondary-span")
+            (.sizing(.cycleSizeForward), "cycle-size-forward"),
+            (.sizing(.cycleWindowPrimarySpanBackward), "cycle-window-primary-span-backward"),
+            (.sizing(.cycleWindowSecondarySpanForward), "cycle-window-secondary-span-forward"),
+            (.sizing(.toggleContainerFullPrimarySpan), "toggle-container-full-primary-span"),
+            (.sizing(.expandContainerToAvailablePrimarySpan), "expand-container-to-available-primary-span"),
+            (.sizing(.resetWindowSecondarySpan), "reset-window-secondary-span"),
+            (.sizing(.setContainerPrimarySpan(change: .setProportion(50))), "set-container-primary-span"),
+            (.sizing(.setWindowPrimarySpan(change: .adjustFixed(10))), "set-window-primary-span"),
+            (.sizing(.setWindowSecondarySpan(change: .adjustProportion(-10))), "set-window-secondary-span")
         ]
 
         for (request, expectedName) in requests {
@@ -117,9 +117,9 @@ final class NiriSizingCommandContractTests: XCTestCase {
 
     func testNiriSizingSettingsRoundTripOnlyNewKeys() throws {
         var export = SettingsExport.defaults()
-        export.niriVisibleContainerCount = 4
-        export.niriContainerPrimarySpanPresets = [0.25, 0.5, 0.75]
-        export.niriDefaultContainerPrimarySpan = 0.5
+        export.niri.visibleContainerCount = 4
+        export.niri.containerPrimarySpanPresets = [0.25, 0.5, 0.75]
+        export.niri.defaultContainerPrimarySpan = 0.5
 
         let data = try SettingsTOMLCodec.encode(export)
         let toml = String(decoding: data, as: UTF8.self)
@@ -131,9 +131,9 @@ final class NiriSizingCommandContractTests: XCTestCase {
         XCTAssertFalse(toml.contains("maxVisibleColumns"))
         XCTAssertFalse(toml.contains("columnWidthPresets"))
         XCTAssertFalse(toml.contains("defaultColumnWidth"))
-        XCTAssertEqual(decoded.niriVisibleContainerCount, 4)
-        XCTAssertEqual(decoded.niriContainerPrimarySpanPresets, [0.25, 0.5, 0.75])
-        XCTAssertEqual(decoded.niriDefaultContainerPrimarySpan, 0.5)
+        XCTAssertEqual(decoded.niri.visibleContainerCount, 4)
+        XCTAssertEqual(decoded.niri.containerPrimarySpanPresets, [0.25, 0.5, 0.75])
+        XCTAssertEqual(decoded.niri.defaultContainerPrimarySpan, 0.5)
     }
 
     func testCurrentProtocolVersion() {

@@ -415,6 +415,22 @@ final class NativeFullscreenPlaceholderDiagnosticsTests: XCTestCase {
         XCTAssertTrue(included.captureSummary.contains("exclusionOutcome=failed"))
     }
 
+    func testPanelTokenMismatchPrecedesPresentationFailures() {
+        let panel = panelDiagnostics(skyLightCaptureExcluded: nil)
+        XCTAssertEqual(
+            panel.presentationReason(expectedToken: WindowToken(pid: 1, windowId: 99)),
+            "panel-token-mismatch"
+        )
+        XCTAssertEqual(
+            panel.presentationReason(expectedToken: WindowToken(pid: 99, windowId: 2)),
+            "panel-token-mismatch"
+        )
+        XCTAssertEqual(
+            panel.presentationReason(expectedToken: WindowToken(pid: 1, windowId: 2)),
+            "panel-descriptor-hidden"
+        )
+    }
+
     func testCaptureExclusionOutcomePreservesTriStateVerification() {
         XCTAssertEqual(
             NativeFullscreenCaptureExclusionOutcome.resolve(writeAccepted: false, readback: nil),

@@ -79,22 +79,22 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testResolvedGapSettingsFallsBackToGlobalThenOverride() {
         let settings = makeSettingsStore()
-        settings.outerGapLeft = 12
-        settings.outerGapRight = 12
-        settings.outerGapTop = 46
-        settings.outerGapBottom = 12
-        settings.gapSize = 16
-        settings.fullscreenUsesOuterGaps = true
+        settings.gaps.outerGapLeft = 12
+        settings.gaps.outerGapRight = 12
+        settings.gaps.outerGapTop = 46
+        settings.gaps.outerGapBottom = 12
+        settings.gaps.size = 16
+        settings.gaps.fullscreenUsesOuterGaps = true
 
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
 
-        let globalOnly = settings.resolvedGapSettings(for: monitor)
+        let globalOnly = settings.gaps.resolved(for: monitor)
         XCTAssertEqual(globalOnly.innerGap, 16)
         XCTAssertEqual(globalOnly.outerGapTop, 46)
         XCTAssertEqual(globalOnly.outerGapLeft, 12)
         XCTAssertTrue(globalOnly.fullscreenUsesOuterGaps)
 
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(
                 monitorName: "Built-in",
                 monitorDisplayId: 1,
@@ -105,7 +105,7 @@ final class GapSettingsTests: XCTestCase {
             for: monitor
         )
 
-        let resolved = settings.resolvedGapSettings(for: monitor)
+        let resolved = settings.gaps.resolved(for: monitor)
         XCTAssertEqual(resolved.innerGap, 6)
         XCTAssertEqual(resolved.outerGapTop, 20)
         XCTAssertEqual(resolved.outerGapLeft, 12)
@@ -117,12 +117,12 @@ final class GapSettingsTests: XCTestCase {
     func testFullscreenOuterGapPolicyAppliesAndExports() {
         let settings = makeSettingsStore()
         var export = SettingsExport.defaults()
-        export.fullscreenUsesOuterGaps = true
+        export.gaps.fullscreenUsesOuterGaps = true
 
         settings.applyExport(export)
 
-        XCTAssertTrue(settings.fullscreenUsesOuterGaps)
-        XCTAssertTrue(settings.toExport().fullscreenUsesOuterGaps)
+        XCTAssertTrue(settings.gaps.fullscreenUsesOuterGaps)
+        XCTAssertTrue(settings.toExport().gaps.fullscreenUsesOuterGaps)
     }
 
     @MainActor
@@ -130,20 +130,20 @@ final class GapSettingsTests: XCTestCase {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
 
-        settings.gapSize = 100
-        XCTAssertEqual(settings.resolvedGapSettings(for: monitor).innerGap, 64)
+        settings.gaps.size = 100
+        XCTAssertEqual(settings.gaps.resolved(for: monitor).innerGap, 64)
 
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, innerGap: -10),
             for: monitor
         )
-        XCTAssertEqual(settings.resolvedGapSettings(for: monitor).innerGap, 0)
+        XCTAssertEqual(settings.gaps.resolved(for: monitor).innerGap, 0)
 
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, innerGap: 0),
             for: monitor
         )
-        XCTAssertEqual(settings.gapSettings(for: monitor)?.innerGap, 0)
+        XCTAssertEqual(settings.gaps.settings(for: monitor)?.innerGap, 0)
     }
 
     @MainActor
@@ -157,15 +157,15 @@ final class GapSettingsTests: XCTestCase {
             outerGapTop: 20
         )
 
-        settings.updateGapSettings(override, for: monitor)
+        settings.gaps.update(override, for: monitor)
         override.innerGap = nil
-        settings.updateGapSettings(override, for: monitor)
-        XCTAssertNil(settings.gapSettings(for: monitor)?.innerGap)
-        XCTAssertEqual(settings.gapSettings(for: monitor)?.outerGapTop, 20)
+        settings.gaps.update(override, for: monitor)
+        XCTAssertNil(settings.gaps.settings(for: monitor)?.innerGap)
+        XCTAssertEqual(settings.gaps.settings(for: monitor)?.outerGapTop, 20)
 
         override.outerGapTop = nil
-        settings.updateGapSettings(override, for: monitor)
-        XCTAssertNil(settings.gapSettings(for: monitor))
+        settings.gaps.update(override, for: monitor)
+        XCTAssertNil(settings.gaps.settings(for: monitor))
         XCTAssertTrue(settings.toExport().monitorGapSettings.isEmpty)
     }
 
@@ -179,15 +179,15 @@ final class GapSettingsTests: XCTestCase {
             fullscreenUsesOuterGaps: false
         )
 
-        settings.updateGapSettings(override, for: monitor)
+        settings.gaps.update(override, for: monitor)
 
-        XCTAssertEqual(settings.gapSettings(for: monitor)?.fullscreenUsesOuterGaps, false)
+        XCTAssertEqual(settings.gaps.settings(for: monitor)?.fullscreenUsesOuterGaps, false)
         XCTAssertEqual(settings.toExport().monitorGapSettings.count, 1)
 
         override.fullscreenUsesOuterGaps = nil
-        settings.updateGapSettings(override, for: monitor)
+        settings.gaps.update(override, for: monitor)
 
-        XCTAssertNil(settings.gapSettings(for: monitor))
+        XCTAssertNil(settings.gaps.settings(for: monitor))
         XCTAssertTrue(settings.toExport().monitorGapSettings.isEmpty)
     }
 
@@ -202,7 +202,7 @@ final class GapSettingsTests: XCTestCase {
 
         settings.applyExport(export)
 
-        XCTAssertNil(settings.gapSettings(for: monitor))
+        XCTAssertNil(settings.gaps.settings(for: monitor))
         XCTAssertTrue(settings.toExport().monitorGapSettings.isEmpty)
     }
 
@@ -210,16 +210,16 @@ final class GapSettingsTests: XCTestCase {
     func testDwindleGeneralGapUsesDisplayOverrideWithoutChangingSpecificGapPrecedence() {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.bordersEnabled = true
-        settings.borderWidth = 8
-        settings.gapSize = 16
-        settings.dwindleUseGlobalGaps = true
-        settings.updateGapSettings(
+        settings.setBordersEnabled(true)
+        settings.setBorderWidth(8)
+        settings.gaps.size = 16
+        settings.dwindle.useGlobalGaps = true
+        settings.gaps.update(
             MonitorGapSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, innerGap: 24),
             for: monitor
         )
 
-        let generalResolved = settings.resolvedDwindleSettings(for: monitor)
+        let generalResolved = settings.dwindle.resolved(for: monitor)
         XCTAssertEqual(generalResolved.innerGap, 24)
 
         let controller = WMController(settings: settings)
@@ -230,7 +230,7 @@ final class GapSettingsTests: XCTestCase {
             XCTAssertEqual(engine.settings.innerGap, 24)
         }
 
-        settings.updateDwindleSettings(
+        settings.dwindle.update(
             MonitorDwindleSettings(
                 monitorName: monitor.name,
                 monitorDisplayId: monitor.displayId,
@@ -239,7 +239,7 @@ final class GapSettingsTests: XCTestCase {
             ),
             for: monitor
         )
-        XCTAssertEqual(settings.resolvedDwindleSettings(for: monitor).innerGap, 6)
+        XCTAssertEqual(settings.dwindle.resolved(for: monitor).innerGap, 6)
         XCTAssertEqual(controller.resolvedDwindleSettings(for: monitor).innerGap, 8)
         controller.dwindleLayoutHandler.withDwindleContext { engine, _ in
             XCTAssertEqual(engine.settings.innerGap, 8)
@@ -250,12 +250,12 @@ final class GapSettingsTests: XCTestCase {
     func testDwindleOwnInnerGapClampsToRuntimeBounds() {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.dwindleUseGlobalGaps = false
-        settings.gapSize = 100
-        XCTAssertEqual(settings.resolvedDwindleSettings(for: monitor).innerGap, 64)
+        settings.dwindle.useGlobalGaps = false
+        settings.gaps.size = 100
+        XCTAssertEqual(settings.dwindle.resolved(for: monitor).innerGap, 64)
 
         for (override, expected) in [(100.0, 64.0), (-5.0, 0.0), (12.0, 12.0)] {
-            settings.updateDwindleSettings(
+            settings.dwindle.update(
                 MonitorDwindleSettings(
                     monitorName: monitor.name,
                     monitorDisplayId: monitor.displayId,
@@ -264,23 +264,23 @@ final class GapSettingsTests: XCTestCase {
                 ),
                 for: monitor
             )
-            XCTAssertEqual(settings.resolvedDwindleSettings(for: monitor).innerGap, CGFloat(expected))
+            XCTAssertEqual(settings.dwindle.resolved(for: monitor).innerGap, CGFloat(expected))
         }
 
-        settings.gapSize = 16
-        settings.updateDwindleSettings(
+        settings.gaps.size = 16
+        settings.dwindle.update(
             MonitorDwindleSettings(monitorName: monitor.name, monitorDisplayId: monitor.displayId, useGlobalGaps: true),
             for: monitor
         )
-        XCTAssertEqual(settings.resolvedDwindleSettings(for: monitor).innerGap, 16)
+        XCTAssertEqual(settings.dwindle.resolved(for: monitor).innerGap, 16)
     }
 
     @MainActor
     func testDisplaysQueryProjectsOnlyRequestedResolvedGapSettings() throws {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.fullscreenUsesOuterGaps = true
-        settings.updateGapSettings(
+        settings.gaps.fullscreenUsesOuterGaps = true
+        settings.gaps.update(
             MonitorGapSettings(
                 monitorName: monitor.name,
                 monitorDisplayId: monitor.displayId,
@@ -328,10 +328,10 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     private func assertLayoutRoutesInnerGapByWorkspaceDisplay(_ layout: LayoutType) throws {
         let settings = makeSettingsStore()
-        settings.bordersEnabled = false
+        settings.setBordersEnabled(false)
         let left = makeMonitor(displayId: 1, name: "Left", originX: 0)
         let right = makeMonitor(displayId: 2, name: "Right", originX: 1440)
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: left)),
@@ -343,11 +343,11 @@ final class GapSettingsTests: XCTestCase {
                 layoutType: layout
             )
         ]
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(monitorName: left.name, monitorDisplayId: left.displayId, innerGap: 4),
             for: left
         )
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(monitorName: right.name, monitorDisplayId: right.displayId, innerGap: 24),
             for: right
         )
@@ -400,12 +400,12 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testTopGapIsMeasuredFromPhysicalTopAcrossDisplays() {
         let settings = makeSettingsStore()
-        settings.bordersEnabled = false
-        settings.workspaceBarEnabled = false
-        settings.outerGapLeft = 0
-        settings.outerGapRight = 0
-        settings.outerGapBottom = 0
-        settings.outerGapTop = 50
+        settings.setBordersEnabled(false)
+        settings.workspaceBar.enabled = false
+        settings.gaps.outerGapLeft = 0
+        settings.gaps.outerGapRight = 0
+        settings.gaps.outerGapBottom = 0
+        settings.gaps.outerGapTop = 50
         let builtIn = Monitor(
             id: .init(displayId: 1),
             displayId: 1,
@@ -415,7 +415,7 @@ final class GapSettingsTests: XCTestCase {
             name: "Built-in"
         )
         let external = makeMonitor(displayId: 2, name: "External", originX: 1440)
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(monitorName: external.name, monitorDisplayId: external.displayId, outerGapTop: 41),
             for: external
         )
@@ -434,13 +434,13 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testLiveReloadOfDisplayTopGapOverrideMovesNextLayout() throws {
         let settings = makeSettingsStore()
-        settings.bordersEnabled = false
-        settings.workspaceBarEnabled = false
-        settings.gapSize = 0
-        settings.outerGapTop = 50
+        settings.setBordersEnabled(false)
+        settings.workspaceBar.enabled = false
+        settings.gaps.size = 0
+        settings.gaps.outerGapTop = 50
         let left = makeMonitor(displayId: 1, name: "Left", originX: 0)
         let right = makeMonitor(displayId: 2, name: "Right", originX: 1440)
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: left)),
@@ -481,7 +481,7 @@ final class GapSettingsTests: XCTestCase {
         controller.applyPersistedSettings(settings, startServices: false)
 
         XCTAssertNotNil(controller.layoutRefreshController.layoutState.pendingRefresh)
-        XCTAssertEqual(settings.resolvedGapSettings(for: right).outerGapTop, 41)
+        XCTAssertEqual(settings.gaps.resolved(for: right).outerGapTop, 41)
         frames = laidOutFrames(controller: controller, workspaces: [leftWorkspace, rightWorkspace])
         XCTAssertEqual(frames[rightToken]?.maxY, 859)
         XCTAssertEqual(frames[leftToken]?.maxY ?? 850, 850)
@@ -508,18 +508,20 @@ final class GapSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testBorderClearanceFloorsRuntimeGapsWithoutMutatingStoredValues() {
+    func testBorderClearanceFloorsRuntimeGapsWithoutMutatingStoredValues() throws {
         let settings = makeSettingsStore()
-        let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.bordersEnabled = true
-        settings.borderWidth = 5.2
-        settings.gapSize = 0
-        settings.outerGapLeft = 0
-        settings.outerGapRight = 0
-        settings.outerGapTop = 0
-        settings.outerGapBottom = 0
-        settings.workspaceBarEnabled = false
-        settings.updateGapSettings(
+        let connectedDisplayIds = Set(NSScreen.screens.map(\.displayId))
+        let displayId = try XCTUnwrap((1 ... CGDirectDisplayID.max).first { !connectedDisplayIds.contains($0) })
+        let monitor = makeMonitor(displayId: displayId, name: "Built-in")
+        settings.setBordersEnabled(true)
+        settings.setBorderWidth(5.2)
+        settings.gaps.size = 0
+        settings.gaps.outerGapLeft = 0
+        settings.gaps.outerGapRight = 0
+        settings.gaps.outerGapTop = 0
+        settings.gaps.outerGapBottom = 0
+        settings.workspaceBar.enabled = false
+        settings.gaps.update(
             MonitorGapSettings(
                 monitorName: monitor.name,
                 monitorDisplayId: monitor.displayId,
@@ -527,7 +529,7 @@ final class GapSettingsTests: XCTestCase {
             ),
             for: monitor
         )
-        settings.updateDwindleSettings(
+        settings.dwindle.update(
             MonitorDwindleSettings(
                 monitorName: monitor.name,
                 monitorDisplayId: monitor.displayId,
@@ -539,8 +541,8 @@ final class GapSettingsTests: XCTestCase {
         let controller = WMController(settings: settings)
         let frames = controller.layoutFrames(for: monitor, scale: 2)
 
-        XCTAssertEqual(settings.resolvedGapSettings(for: monitor).innerGap, 0)
-        XCTAssertEqual(settings.resolvedDwindleSettings(for: monitor).innerGap, 0)
+        XCTAssertEqual(settings.gaps.resolved(for: monitor).innerGap, 0)
+        XCTAssertEqual(settings.dwindle.resolved(for: monitor).innerGap, 0)
         XCTAssertEqual(controller.innerGap(for: monitor, scale: 2), 5.5)
         XCTAssertEqual(controller.resolvedDwindleSettings(for: monitor).innerGap, 5.5)
         XCTAssertEqual(frames.workingFrame, CGRect(x: 5.5, y: 5.5, width: 1429, height: 889))
@@ -552,15 +554,15 @@ final class GapSettingsTests: XCTestCase {
     func testNiriInteractionGeometryUsesOneResolvedScaleForFrameAndGap() {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.bordersEnabled = true
-        settings.borderWidth = 5.2
-        settings.gapSize = 0
-        settings.outerGapLeft = 0
-        settings.outerGapRight = 0
-        settings.outerGapTop = 0
-        settings.outerGapBottom = 0
-        settings.workspaceBarEnabled = false
-        settings.updateGapSettings(
+        settings.setBordersEnabled(true)
+        settings.setBorderWidth(5.2)
+        settings.gaps.size = 0
+        settings.gaps.outerGapLeft = 0
+        settings.gaps.outerGapRight = 0
+        settings.gaps.outerGapTop = 0
+        settings.gaps.outerGapBottom = 0
+        settings.workspaceBar.enabled = false
+        settings.gaps.update(
             MonitorGapSettings(
                 monitorName: monitor.name,
                 monitorDisplayId: monitor.displayId,
@@ -585,14 +587,14 @@ final class GapSettingsTests: XCTestCase {
     func testDisabledBordersPreserveZeroGapGeometry() {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.bordersEnabled = false
-        settings.gapSize = 0
-        settings.outerGapLeft = 0
-        settings.outerGapRight = 0
-        settings.outerGapTop = 0
-        settings.outerGapBottom = 0
-        settings.workspaceBarEnabled = false
-        settings.updateGapSettings(
+        settings.setBordersEnabled(false)
+        settings.gaps.size = 0
+        settings.gaps.outerGapLeft = 0
+        settings.gaps.outerGapRight = 0
+        settings.gaps.outerGapTop = 0
+        settings.gaps.outerGapBottom = 0
+        settings.workspaceBar.enabled = false
+        settings.gaps.update(
             MonitorGapSettings(
                 monitorName: monitor.name,
                 monitorDisplayId: monitor.displayId,
@@ -612,13 +614,13 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testBorderClearanceFloorsTopAfterMenuBarNormalization() {
         let settings = makeSettingsStore()
-        settings.bordersEnabled = true
-        settings.borderWidth = 8
-        settings.outerGapLeft = 0
-        settings.outerGapRight = 0
-        settings.outerGapTop = 46
-        settings.outerGapBottom = 0
-        settings.workspaceBarEnabled = false
+        settings.setBordersEnabled(true)
+        settings.setBorderWidth(8)
+        settings.gaps.outerGapLeft = 0
+        settings.gaps.outerGapRight = 0
+        settings.gaps.outerGapTop = 46
+        settings.gaps.outerGapBottom = 0
+        settings.workspaceBar.enabled = false
         let monitor = Monitor(
             id: .init(displayId: 1),
             displayId: 1,
@@ -652,12 +654,12 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testFullscreenLayoutFrameIgnoresOuterGapsButKeepsWorkspaceBarReserve() {
         let settings = makeSettingsStore()
-        settings.outerGapLeft = 12
-        settings.outerGapRight = 12
-        settings.outerGapTop = 46
-        settings.outerGapBottom = 14
-        settings.workspaceBarReserveLayoutSpace = true
-        settings.workspaceBarHeight = 24
+        settings.gaps.outerGapLeft = 12
+        settings.gaps.outerGapRight = 12
+        settings.gaps.outerGapTop = 46
+        settings.gaps.outerGapBottom = 14
+        settings.workspaceBar.reserveLayoutSpace = true
+        settings.workspaceBar.height = 24
         let controller = WMController(settings: settings)
         let monitor = Monitor(
             id: .init(displayId: 1),
@@ -681,12 +683,12 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testFullscreenLayoutFrameUsesOuterGapsWhenPolicyEnabled() {
         let settings = makeSettingsStore()
-        settings.outerGapLeft = 12
-        settings.outerGapRight = 12
-        settings.outerGapTop = 46
-        settings.outerGapBottom = 14
-        settings.workspaceBarReserveLayoutSpace = true
-        settings.workspaceBarHeight = 24
+        settings.gaps.outerGapLeft = 12
+        settings.gaps.outerGapRight = 12
+        settings.gaps.outerGapTop = 46
+        settings.gaps.outerGapBottom = 14
+        settings.workspaceBar.reserveLayoutSpace = true
+        settings.workspaceBar.height = 24
         let controller = WMController(settings: settings)
         let monitor = Monitor(
             id: .init(displayId: 1),
@@ -704,7 +706,7 @@ final class GapSettingsTests: XCTestCase {
             CGRect(x: 0, y: 0, width: 1440, height: 836)
         )
 
-        settings.fullscreenUsesOuterGaps = true
+        settings.gaps.fullscreenUsesOuterGaps = true
 
         XCTAssertEqual(controller.insetWorkingFrame(for: monitor), workingFrame)
         XCTAssertEqual(controller.fullscreenLayoutFrame(for: monitor), workingFrame)
@@ -717,14 +719,14 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testFullscreenOuterGapPolicyResolvesIndependentlyPerDisplay() {
         let settings = makeSettingsStore()
-        settings.outerGapLeft = 12
-        settings.outerGapRight = 12
-        settings.outerGapTop = 12
-        settings.outerGapBottom = 12
-        settings.workspaceBarEnabled = false
+        settings.gaps.outerGapLeft = 12
+        settings.gaps.outerGapRight = 12
+        settings.gaps.outerGapTop = 12
+        settings.gaps.outerGapBottom = 12
+        settings.workspaceBar.enabled = false
         let left = makeMonitor(displayId: 1, name: "Left", originX: 0)
         let right = makeMonitor(displayId: 2, name: "Right", originX: 1440)
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(
                 monitorName: right.name,
                 monitorDisplayId: right.displayId,

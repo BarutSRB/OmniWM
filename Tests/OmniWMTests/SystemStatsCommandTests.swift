@@ -8,13 +8,13 @@ import XCTest
 
 final class SystemStatsCommandTests: XCTestCase {
     func testToggleSystemStatsSpecRegistered() throws {
-        let spec = try XCTUnwrap(ActionCatalog.spec(for: .toggleSystemStats))
+        let spec = try XCTUnwrap(ActionCatalog.spec(for: .presentation(.systemStats)))
 
         XCTAssertEqual(spec.id, "toggleSystemStats")
         XCTAssertEqual(spec.title, "Toggle System Stats")
         XCTAssertEqual(spec.layoutCompatibility, .shared)
         XCTAssertEqual(spec.defaultBinding, .unassigned)
-        XCTAssertEqual(spec.ipcCommandName, .toggleSystemStats)
+        XCTAssertEqual(spec.ipcCommandName, .presentation(.systemStats))
         XCTAssertNotNil(spec.ipcDescriptor)
     }
 
@@ -25,21 +25,21 @@ final class SystemStatsCommandTests: XCTestCase {
     }
 
     func testToggleSystemStatsNameMapping() {
-        XCTAssertEqual(IPCCommandRequest.toggleSystemStats.name, .toggleSystemStats)
+        XCTAssertEqual(IPCCommandRequest.presentation(.systemStats).name, .presentation(.systemStats))
     }
 
     func testToggleSystemStatsJSONRoundTrip() throws {
-        let data = try JSONEncoder().encode(IPCCommandRequest.toggleSystemStats)
+        let data = try JSONEncoder().encode(IPCCommandRequest.presentation(.systemStats))
 
-        XCTAssertEqual(try JSONDecoder().decode(IPCCommandRequest.self, from: data), .toggleSystemStats)
+        XCTAssertEqual(try JSONDecoder().decode(IPCCommandRequest.self, from: data), .presentation(.systemStats))
     }
 
     func testToggleSystemStatsManifestResolves() throws {
         let descriptors = IPCAutomationManifest.commandDescriptors(matching: ["toggle-system-stats"])
-        let descriptor = try XCTUnwrap(descriptors.first { $0.name == .toggleSystemStats })
+        let descriptor = try XCTUnwrap(descriptors.first { $0.name == .presentation(.systemStats) })
 
         XCTAssertEqual(descriptor.commandWords, ["toggle-system-stats"])
-        XCTAssertEqual(try IPCCommandRequest(name: descriptor.name, argumentValues: []), .toggleSystemStats)
+        XCTAssertEqual(try IPCCommandRequest(name: descriptor.name, argumentValues: []), .presentation(.systemStats))
     }
 
     @MainActor
@@ -47,17 +47,17 @@ final class SystemStatsCommandTests: XCTestCase {
         let controller = WMController(settings: makeSettingsStore())
         let router = IPCCommandRouter(controller: controller, sessionToken: "test")
 
-        XCTAssertEqual(router.handle(.toggleSystemStats), .executed)
+        XCTAssertEqual(router.handle(.presentation(.systemStats)), .executed)
     }
 
     func testSystemStatsButtonSettingRoundTrips() throws {
-        XCTAssertFalse(SettingsExport.defaults().workspaceBarSystemStatsButton)
+        XCTAssertFalse(SettingsExport.defaults().workspaceBar.systemStatsButton)
 
         var export = SettingsExport.defaults()
-        export.workspaceBarSystemStatsButton = true
+        export.workspaceBar.systemStatsButton = true
         let data = try SettingsTOMLCodec.encode(export)
         XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("systemStatsButton = true"))
-        XCTAssertTrue(try SettingsTOMLCodec.decode(data).workspaceBarSystemStatsButton)
+        XCTAssertTrue(try SettingsTOMLCodec.decode(data).workspaceBar.systemStatsButton)
     }
 
     @MainActor

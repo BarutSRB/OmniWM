@@ -175,12 +175,12 @@ final class InputDiagnosticsTests: XCTestCase {
     func testBindingFactsClassifyRegistrationRoutes() {
         let carbon = HotkeyBinding(
             id: "toggleFullscreen",
-            command: .toggleFullscreen,
+            command: .fullscreen(.managed),
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey))
         )
         let sided = HotkeyBinding(
             id: "focusPrevious",
-            command: .focusPrevious,
+            command: .focusNavigation(.previous),
             binding: KeyBinding(
                 keyCode: UInt32(kVK_ANSI_K),
                 modifiers: KeySymbolMapper.hyperModifiers,
@@ -189,21 +189,21 @@ final class InputDiagnosticsTests: XCTestCase {
         )
         let dupA = HotkeyBinding(
             id: "focusMonitorNext",
-            command: .focusMonitorNext,
+            command: .monitorFocus(.next),
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey))
         )
         let dupB = HotkeyBinding(
             id: "focusMonitorLast",
-            command: .focusMonitorLast,
+            command: .monitorFocus(.last),
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey))
         )
 
         let facts = HotkeyCenter.bindingFacts(for: [carbon, sided, dupA, dupB])
         let routeByCommand = Dictionary(facts.map { ($0.command, $0.route) }, uniquingKeysWith: { first, _ in first })
 
-        XCTAssertEqual(routeByCommand[HotkeyCommand.toggleFullscreen.displayName], "carbon")
-        XCTAssertEqual(routeByCommand[HotkeyCommand.focusPrevious.displayName], "sided")
-        XCTAssertEqual(routeByCommand[HotkeyCommand.focusMonitorNext.displayName], "unregistered(duplicateBinding)")
+        XCTAssertEqual(routeByCommand[HotkeyCommand.fullscreen(.managed).displayName], "carbon")
+        XCTAssertEqual(routeByCommand[HotkeyCommand.focusNavigation(.previous).displayName], "sided")
+        XCTAssertEqual(routeByCommand[HotkeyCommand.monitorFocus(.next).displayName], "unregistered(duplicateBinding)")
         XCTAssertTrue(facts.contains { $0.display.contains("L⌃") })
     }
 

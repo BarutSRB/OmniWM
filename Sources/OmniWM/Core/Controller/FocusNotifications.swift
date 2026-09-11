@@ -50,12 +50,22 @@ final class FocusNotificationDispatcher {
         guard let controller else {
             return ChangeSet(focusChanged: false, workspaceChanged: false, monitorChanged: false)
         }
-        var focusChanged = false
-
         let projection = controller.interactionWorkspaceProjection()
         let currentMonitorId = projection.monitor?.id
         let currentWorkspaceId = projection.workspace?.id
 
+        let focusChanged = notifyWindowFocusIfNeeded(controller: controller)
+        let workspaceChanged = notifyWorkspaceIfNeeded(currentWorkspaceId, controller: controller)
+        let monitorChanged = notifyMonitorIfNeeded(currentMonitorId, controller: controller)
+
+        return ChangeSet(
+            focusChanged: focusChanged,
+            workspaceChanged: workspaceChanged,
+            monitorChanged: monitorChanged
+        )
+    }
+
+    private func notifyWindowFocusIfNeeded(controller: WMController) -> Bool {
         let currentToken = controller.workspaceManager.nativeManagedFocusToken
         let currentWindowId = currentToken
             .flatMap { controller.workspaceManager.entry(for: $0)?.windowId }
@@ -82,9 +92,15 @@ final class FocusNotificationDispatcher {
             )
             lastNotifiedFocusedToken = currentToken
             lastNotifiedFocusedWindowId = currentWindowId
-            focusChanged = true
+            return true
         }
+        return false
+    }
 
+    private func notifyWorkspaceIfNeeded(
+        _ currentWorkspaceId: WorkspaceDescriptor.ID?,
+        controller: WMController
+    ) -> Bool {
         var workspaceInfo: [AnyHashable: Any] = [:]
         if let oldId = lastNotifiedWorkspaceId {
             workspaceInfo[OmniWMFocusNotificationKey.oldWorkspaceId] = oldId
@@ -96,14 +112,16 @@ final class FocusNotificationDispatcher {
             if let name = controller.workspaceManager.descriptor(for: newId)?
                 .name { workspaceInfo[OmniWMFocusNotificationKey.newWorkspaceName] = name }
         }
-        let workspaceChanged = postNotificationIfChanged(
+        return postNotificationIfChanged(
             name: .omniwmFocusedWorkspaceChanged,
             current: currentWorkspaceId,
             last: &lastNotifiedWorkspaceId,
             info: workspaceInfo,
             sender: controller
         )
+    }
 
+    private func notifyMonitorIfNeeded(_ currentMonitorId: Monitor.ID?, controller: WMController) -> Bool {
         var monitorInfo: [AnyHashable: Any] = [:]
         if let oldId = lastNotifiedMonitorId {
             monitorInfo[OmniWMFocusNotificationKey.oldMonitorIndex] = oldId.displayId
@@ -115,18 +133,12 @@ final class FocusNotificationDispatcher {
             if let name = controller.workspaceManager.monitor(byId: newId)?
                 .name { monitorInfo[OmniWMFocusNotificationKey.newMonitorName] = name }
         }
-        let monitorChanged = postNotificationIfChanged(
+        return postNotificationIfChanged(
             name: .omniwmFocusedMonitorChanged,
             current: currentMonitorId,
             last: &lastNotifiedMonitorId,
             info: monitorInfo,
             sender: controller
-        )
-
-        return ChangeSet(
-            focusChanged: focusChanged,
-            workspaceChanged: workspaceChanged,
-            monitorChanged: monitorChanged
         )
     }
 

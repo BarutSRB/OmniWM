@@ -36,9 +36,11 @@ final class ViewportGestureTests: XCTestCase {
             currentOffset: 0,
             projectedOffset: 0,
             columns: columns([100, 100, 100]),
-            gap: 10,
-            viewportSpan: 150,
-            orientation: .horizontal,
+            geometry: NiriViewportGeometry(
+                gap: 10,
+                viewportSpan: 150,
+                orientation: .horizontal
+            ),
             motion: .enabled,
             snapToColumn: false
         )
@@ -54,9 +56,11 @@ final class ViewportGestureTests: XCTestCase {
             currentOffset: 20,
             projectedOffset: 65,
             columns: columns([100, 100, 100]),
-            gap: 10,
-            viewportSpan: 150,
-            orientation: .horizontal,
+            geometry: NiriViewportGeometry(
+                gap: 10,
+                viewportSpan: 150,
+                orientation: .horizontal
+            ),
             motion: .enabled,
             snapToColumn: false
         )
@@ -76,9 +80,11 @@ final class ViewportGestureTests: XCTestCase {
             currentOffset: 30,
             projectedOffset: 500,
             columns: columns([100, 100, 100]),
-            gap: 10,
-            viewportSpan: 150,
-            orientation: .horizontal,
+            geometry: NiriViewportGeometry(
+                gap: 10,
+                viewportSpan: 150,
+                orientation: .horizontal
+            ),
             motion: .enabled,
             snapToColumn: false
         )
@@ -95,9 +101,11 @@ final class ViewportGestureTests: XCTestCase {
             currentOffset: 30,
             projectedOffset: 500,
             columns: columns([100, 100, 100]),
-            gap: 10,
-            viewportSpan: 150,
-            orientation: .horizontal,
+            geometry: NiriViewportGeometry(
+                gap: 10,
+                viewportSpan: 150,
+                orientation: .horizontal
+            ),
             motion: .disabled,
             snapToColumn: false
         )
@@ -113,9 +121,11 @@ final class ViewportGestureTests: XCTestCase {
             currentOffset: 0,
             projectedOffset: 65,
             columns: portraitColumns([100, 100, 100]),
-            gap: 10,
-            viewportSpan: 150,
-            orientation: .vertical,
+            geometry: NiriViewportGeometry(
+                gap: 10,
+                viewportSpan: 150,
+                orientation: .vertical
+            ),
             motion: .disabled
         )
 
@@ -130,9 +140,11 @@ final class ViewportGestureTests: XCTestCase {
             currentOffset: 20,
             projectedOffset: 65,
             columns: portraitColumns([100, 100, 100]),
-            gap: 10,
-            viewportSpan: 150,
-            orientation: .vertical,
+            geometry: NiriViewportGeometry(
+                gap: 10,
+                viewportSpan: 150,
+                orientation: .vertical
+            ),
             motion: .enabled,
             snapToColumn: false
         )

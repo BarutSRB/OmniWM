@@ -9,8 +9,8 @@ import XCTest
 final class WorkspaceSlotIPCCommandTests: XCTestCase {
     func testSlotRequestsRoundTripThroughJSONAndManifest() throws {
         let cases: [(request: IPCCommandRequest, name: IPCCommandName, words: [String], slot: Int)] = [
-            (.switchWorkspaceSlot(slotNumber: 2), .switchWorkspaceSlot, ["switch-workspace", "slot"], 2),
-            (.moveToWorkspaceSlot(slotNumber: 3), .moveToWorkspaceSlot, ["move-to-workspace", "slot"], 3)
+            (.workspace(.switchSlot(slotNumber: 2)), .workspace(.switchSlot), ["switch-workspace", "slot"], 2),
+            (.workspace(.moveToSlot(slotNumber: 3)), .workspace(.moveToSlot), ["move-to-workspace", "slot"], 3)
         ]
 
         for entry in cases {
@@ -34,14 +34,14 @@ final class WorkspaceSlotIPCCommandTests: XCTestCase {
     func testParserBuildsSlotRequestsAndKeepsNumericForms() throws {
         XCTAssertEqual(
             try commandPayload(["switch-workspace", "slot", "2"]),
-            .switchWorkspaceSlot(slotNumber: 2)
+            .workspace(.switchSlot(slotNumber: 2))
         )
         XCTAssertEqual(
             try commandPayload(["move-to-workspace", "slot", "3"]),
-            .moveToWorkspaceSlot(slotNumber: 3)
+            .workspace(.moveToSlot(slotNumber: 3))
         )
-        XCTAssertEqual(try commandPayload(["switch-workspace", "2"]), .switchWorkspace(workspaceNumber: 2))
-        XCTAssertEqual(try commandPayload(["move-to-workspace", "3"]), .moveToWorkspace(workspaceNumber: 3))
+        XCTAssertEqual(try commandPayload(["switch-workspace", "2"]), .workspace(.switchTo(workspaceNumber: 2)))
+        XCTAssertEqual(try commandPayload(["move-to-workspace", "3"]), .workspace(.moveTo(workspaceNumber: 3)))
 
         for malformed in [
             ["switch-workspace", "slot"],

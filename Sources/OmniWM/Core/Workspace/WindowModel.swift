@@ -58,108 +58,22 @@ final class WindowModel {
     private var handleByToken: [WindowToken: WindowHandle] = [:]
     private var constraintsCacheByToken: [WindowToken: ConstraintsCacheRecord] = [:]
     private var observedMinSizeByToken: [WindowToken: CGSize] = [:]
-    private var tokensByWorkspace: [WorkspaceDescriptor.ID: [WindowToken]] = [:]
-    private var tokenIndexByWorkspace: [WorkspaceDescriptor.ID: [WindowToken: Int]] = [:]
-    private var tokensByWorkspaceMode: [WorkspaceModeKey: [WindowToken]] = [:]
-    private var tokenIndexByWorkspaceMode: [WorkspaceModeKey: [WindowToken: Int]] = [:]
-    private var tokensByPid: [pid_t: [WindowToken]] = [:]
-    private var tokenIndexByPid: [pid_t: [WindowToken: Int]] = [:]
-
-    private func appendToken<Key: Hashable>(
-        _ token: WindowToken,
-        to key: Key,
-        tokensByKey: inout [Key: [WindowToken]],
-        tokenIndexByKey: inout [Key: [WindowToken: Int]]
-    ) {
-        guard tokenIndexByKey[key]?[token] == nil else { return }
-        let index = tokensByKey[key]?.count ?? 0
-        tokensByKey[key, default: []].append(token)
-        tokenIndexByKey[key, default: [:]][token] = index
-    }
-
-    private func removeTokenFromBucket(
-        _ token: WindowToken,
-        tokens: inout [WindowToken],
-        indexByToken: inout [WindowToken: Int]
-    ) -> Bool {
-        guard let index = indexByToken.removeValue(forKey: token) else { return tokens.isEmpty }
-        tokens.remove(at: index)
-        for position in index ..< tokens.count {
-            indexByToken[tokens[position]] = position
-        }
-        return tokens.isEmpty
-    }
-
-    private func removeToken<Key: Hashable>(
-        _ token: WindowToken,
-        from key: Key,
-        tokensByKey: inout [Key: [WindowToken]],
-        tokenIndexByKey: inout [Key: [WindowToken: Int]]
-    ) {
-        guard tokensByKey[key] != nil,
-              tokenIndexByKey[key]?[token] != nil
-        else {
-            return
-        }
-
-        let bucketIsEmpty = removeTokenFromBucket(
-            token,
-            tokens: &tokensByKey[key]!,
-            indexByToken: &tokenIndexByKey[key]!
-        )
-        if bucketIsEmpty {
-            tokensByKey.removeValue(forKey: key)
-            tokenIndexByKey.removeValue(forKey: key)
-        }
-    }
-
-    private func replaceTokenInBucket(
-        from oldToken: WindowToken,
-        to newToken: WindowToken,
-        tokens: inout [WindowToken],
-        indexByToken: inout [WindowToken: Int]
-    ) {
-        guard let index = indexByToken.removeValue(forKey: oldToken) else { return }
-        tokens[index] = newToken
-        indexByToken[newToken] = index
-    }
-
-    private func replaceToken<Key: Hashable>(
-        from oldToken: WindowToken,
-        to newToken: WindowToken,
-        in key: Key,
-        tokensByKey: inout [Key: [WindowToken]],
-        tokenIndexByKey: inout [Key: [WindowToken: Int]]
-    ) {
-        guard tokensByKey[key] != nil,
-              tokenIndexByKey[key]?[oldToken] != nil
-        else {
-            return
-        }
-        replaceTokenInBucket(
-            from: oldToken,
-            to: newToken,
-            tokens: &tokensByKey[key]!,
-            indexByToken: &tokenIndexByKey[key]!
-        )
-    }
+    private var workspaceIndex = WindowTokenIndex<WorkspaceDescriptor.ID>()
+    private var workspaceModeIndex = WindowTokenIndex<WorkspaceModeKey>()
+    private var pidIndex = WindowTokenIndex<pid_t>()
 
     private func appendIndexes(for entry: WindowState) {
         let token = entry.token
         windowIdToToken[entry.windowId] = token
-        appendToken(
+        workspaceIndex.append(
             token,
-            to: entry.workspaceId,
-            tokensByKey: &tokensByWorkspace,
-            tokenIndexByKey: &tokenIndexByWorkspace
+            to: entry.workspaceId
         )
-        appendToken(
+        workspaceModeIndex.append(
             token,
-            to: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode),
-            tokensByKey: &tokensByWorkspaceMode,
-            tokenIndexByKey: &tokenIndexByWorkspaceMode
+            to: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode)
         )
-        appendToken(token, to: entry.pid, tokensByKey: &tokensByPid, tokenIndexByKey: &tokenIndexByPid)
+        pidIndex.append(token, to: entry.pid)
     }
 
     private func removeIndexes(for entry: WindowState, token: WindowToken? = nil, windowId: Int? = nil) {
@@ -167,51 +81,41 @@ final class WindowModel {
         let windowId = windowId ?? entry.windowId
 
         windowIdToToken.removeValue(forKey: windowId)
-        removeToken(
+        workspaceIndex.remove(
             token,
-            from: entry.workspaceId,
-            tokensByKey: &tokensByWorkspace,
-            tokenIndexByKey: &tokenIndexByWorkspace
+            from: entry.workspaceId
         )
-        removeToken(
+        workspaceModeIndex.remove(
             token,
-            from: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode),
-            tokensByKey: &tokensByWorkspaceMode,
-            tokenIndexByKey: &tokenIndexByWorkspaceMode
+            from: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode)
         )
-        removeToken(token, from: token.pid, tokensByKey: &tokensByPid, tokenIndexByKey: &tokenIndexByPid)
+        pidIndex.remove(token, from: token.pid)
     }
 
     private func rekeyIndexes(for entry: WindowState, from oldToken: WindowToken, to newToken: WindowToken) {
         windowIdToToken.removeValue(forKey: oldToken.windowId)
         windowIdToToken[newToken.windowId] = newToken
 
-        replaceToken(
+        workspaceIndex.replace(
             from: oldToken,
             to: newToken,
-            in: entry.workspaceId,
-            tokensByKey: &tokensByWorkspace,
-            tokenIndexByKey: &tokenIndexByWorkspace
+            in: entry.workspaceId
         )
-        replaceToken(
+        workspaceModeIndex.replace(
             from: oldToken,
             to: newToken,
-            in: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode),
-            tokensByKey: &tokensByWorkspaceMode,
-            tokenIndexByKey: &tokenIndexByWorkspaceMode
+            in: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode)
         )
 
         if oldToken.pid == newToken.pid {
-            replaceToken(
+            pidIndex.replace(
                 from: oldToken,
                 to: newToken,
-                in: oldToken.pid,
-                tokensByKey: &tokensByPid,
-                tokenIndexByKey: &tokenIndexByPid
+                in: oldToken.pid
             )
         } else {
-            removeToken(oldToken, from: oldToken.pid, tokensByKey: &tokensByPid, tokenIndexByKey: &tokenIndexByPid)
-            appendToken(newToken, to: newToken.pid, tokensByKey: &tokensByPid, tokenIndexByKey: &tokenIndexByPid)
+            pidIndex.remove(oldToken, from: oldToken.pid)
+            pidIndex.append(newToken, to: newToken.pid)
         }
     }
 
@@ -331,36 +235,30 @@ final class WindowModel {
         guard let entry = entries[token] else { return }
         let oldWorkspace = entry.workspaceId
         if oldWorkspace != workspace {
-            removeToken(
+            workspaceIndex.remove(
                 token,
-                from: oldWorkspace,
-                tokensByKey: &tokensByWorkspace,
-                tokenIndexByKey: &tokenIndexByWorkspace
+                from: oldWorkspace
             )
-            removeToken(
+            workspaceModeIndex.remove(
                 token,
-                from: WorkspaceModeKey(workspaceId: oldWorkspace, mode: entry.mode),
-                tokensByKey: &tokensByWorkspaceMode,
-                tokenIndexByKey: &tokenIndexByWorkspaceMode
+                from: WorkspaceModeKey(workspaceId: oldWorkspace, mode: entry.mode)
             )
-            appendToken(token, to: workspace, tokensByKey: &tokensByWorkspace, tokenIndexByKey: &tokenIndexByWorkspace)
-            appendToken(
+            workspaceIndex.append(token, to: workspace)
+            workspaceModeIndex.append(
                 token,
-                to: WorkspaceModeKey(workspaceId: workspace, mode: entry.mode),
-                tokensByKey: &tokensByWorkspaceMode,
-                tokenIndexByKey: &tokenIndexByWorkspaceMode
+                to: WorkspaceModeKey(workspaceId: workspace, mode: entry.mode)
             )
         }
         entries[token]?.workspaceId = workspace
     }
 
     func windows(in workspace: WorkspaceDescriptor.ID) -> [WindowState] {
-        guard let tokens = tokensByWorkspace[workspace] else { return [] }
+        guard let tokens = workspaceIndex.tokensByKey[workspace] else { return [] }
         return tokens.compactMap { entries[$0] }
     }
 
     func windowCount(in workspace: WorkspaceDescriptor.ID) -> Int {
-        tokensByWorkspace[workspace]?.count ?? 0
+        workspaceIndex.tokensByKey[workspace]?.count ?? 0
     }
 
     func windows(
@@ -368,7 +266,7 @@ final class WindowModel {
         mode: TrackedWindowMode
     ) -> [WindowState] {
         let key = WorkspaceModeKey(workspaceId: workspace, mode: mode)
-        guard let tokens = tokensByWorkspaceMode[key] else { return [] }
+        guard let tokens = workspaceModeIndex.tokensByKey[key] else { return [] }
         return tokens.compactMap { entries[$0] }
     }
 
@@ -389,12 +287,12 @@ final class WindowModel {
     }
 
     func entries(forPid pid: pid_t) -> [WindowState] {
-        guard let tokens = tokensByPid[pid] else { return [] }
+        guard let tokens = pidIndex.tokensByKey[pid] else { return [] }
         return tokens.compactMap { entries[$0] }
     }
 
     func hasEntries(forPid pid: pid_t) -> Bool {
-        tokensByPid[pid]?.isEmpty == false
+        pidIndex.tokensByKey[pid]?.isEmpty == false
     }
 
     func entry(forWindowId windowId: Int) -> WindowState? {
@@ -412,30 +310,28 @@ final class WindowModel {
     }
 
     func allEntries(mode: TrackedWindowMode) -> [WindowState] {
-        tokensByWorkspaceMode
+        workspaceModeIndex.tokensByKey
             .filter { $0.key.mode == mode }
             .values
             .flatMap { $0.compactMap { entries[$0] } }
     }
+}
 
+extension WindowModel {
     func mode(for token: WindowToken) -> TrackedWindowMode? {
         entries[token]?.mode
     }
 
     func setMode(_ mode: TrackedWindowMode, for token: WindowToken) {
         guard let entry = entries[token], entry.mode != mode else { return }
-        removeToken(
+        workspaceModeIndex.remove(
             token,
-            from: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode),
-            tokensByKey: &tokensByWorkspaceMode,
-            tokenIndexByKey: &tokenIndexByWorkspaceMode
+            from: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: entry.mode)
         )
         entries[token]?.mode = mode
-        appendToken(
+        workspaceModeIndex.append(
             token,
-            to: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: mode),
-            tokensByKey: &tokensByWorkspaceMode,
-            tokenIndexByKey: &tokenIndexByWorkspaceMode
+            to: WorkspaceModeKey(workspaceId: entry.workspaceId, mode: mode)
         )
     }
 
@@ -493,6 +389,27 @@ final class WindowModel {
 
     func setRestoreIntent(_ intent: RestoreIntent?, for token: WindowToken) {
         entries[token]?.restoreIntent = intent
+    }
+
+    func applyNiriPlacements(_ placements: [WindowToken: PersistedNiriPlacement], monitors: [Monitor]) {
+        for (token, placement) in placements {
+            guard let entry = self.entry(for: token), entry.mode == .tiling else { continue }
+            var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
+            restoreIntent.niriPlacement = placement
+            restoreIntent.detachedNiriContainerSizingState = nil
+            guard entry.restoreIntent != restoreIntent else { continue }
+            self.setRestoreIntent(restoreIntent, for: token)
+        }
+    }
+
+    func applyDwindlePlacements(_ placements: [WindowToken: PersistedDwindlePlacement], monitors: [Monitor]) {
+        for (token, placement) in placements {
+            guard let entry = self.entry(for: token), entry.mode == .tiling else { continue }
+            var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
+            restoreIntent.dwindlePlacement = placement
+            guard entry.restoreIntent != restoreIntent else { continue }
+            self.setRestoreIntent(restoreIntent, for: token)
+        }
     }
 
     func managedReplacementMetadata(for token: WindowToken) -> ManagedReplacementMetadata? {
@@ -571,8 +488,7 @@ final class WindowModel {
     func setObservedMinSize(_ size: CGSize, for token: WindowToken) -> Bool {
         guard entries[token] != nil else { return false }
         if let existing = observedMinSizeByToken[token],
-           abs(existing.width - size.width) <= FrameTolerance.frameWrite,
-           abs(existing.height - size.height) <= FrameTolerance.frameWrite
+           existing.isWithinFrameTolerance(of: size)
         {
             return false
         }

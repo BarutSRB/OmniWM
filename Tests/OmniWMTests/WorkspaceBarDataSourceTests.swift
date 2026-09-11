@@ -289,7 +289,7 @@ final class WorkspaceBarDataSourceTests: XCTestCase {
 
     func testWorkspaceBarIPCUsesFilteredProjectionWhileWindowsQueryRetainsEntry() throws {
         let settings = makeSettingsStore()
-        XCTAssertTrue(settings.addWorkspaceBarExcludedBundleID("com.example.ipc"))
+        XCTAssertTrue(settings.workspaceBar.addExcludedBundleID("com.example.ipc"))
         let controller = WMController(
             settings: settings,
             windowFocusOperations: WindowFocusOperations(
@@ -334,7 +334,7 @@ final class WorkspaceBarDataSourceTests: XCTestCase {
     func testWorkspaceBarFocusUsesIdentityForDuplicateDisplayNames() throws {
         let settings = makeSettingsStore()
         let displayName = "🚀"
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(name: "1", displayName: displayName),
             WorkspaceConfiguration(name: "2", displayName: displayName)
         ]

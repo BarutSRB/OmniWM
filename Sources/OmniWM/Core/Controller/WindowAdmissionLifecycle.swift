@@ -51,6 +51,13 @@ extension WindowServerInfo {
     }
 }
 
+enum ActivationCallOrigin: String {
+    case appTerminationProbe
+    case external
+    case probe
+    case retry
+}
+
 enum ActivationRequestDisposition {
     case matchesActiveRequest(ManagedFocusRequest)
     case conflictsWithPendingRequest(ManagedFocusRequest)
@@ -194,7 +201,7 @@ enum ManagedWindowIdentityRebindResult {
     }
 }
 
-struct FocusedAdmissionRetryExecution: Equatable, Sendable {
+struct AdmissionRetryExecution: Equatable, Sendable {
     let windowId: UInt32
     let generation: UInt64
     let executionOwner: UInt64
@@ -360,5 +367,31 @@ struct WindowIdentityAliasHistory {
 
     var isEmpty: Bool {
         current == nil && previous == nil
+    }
+}
+
+extension PendingFocusedManagedActivation {
+    init(facts: ActivationFacts, requestDisposition: ActivationRequestDisposition, appFullscreen: Bool) {
+        self.init(
+            source: facts.source,
+            origin: facts.origin,
+            observationGeneration: facts.observationGeneration,
+            appFullscreen: appFullscreen,
+            request: .init(requestDisposition),
+            callbackGeneration: facts.callbackGeneration
+        )
+    }
+}
+
+extension AXEventHandler {
+    struct WindowCloseFocusRecoveryContext {
+        let workspaceId: WorkspaceDescriptor.ID
+        let closedToken: WindowToken
+        let expiresAt: Date
+    }
+
+    struct RecentMouseFocusIntent {
+        let token: WindowToken
+        let expiresAt: Date
     }
 }

@@ -289,4 +289,22 @@ extension AXEventHandler {
         return controller.appInfoCache.bundleId(for: pid) ?? NSRunningApplication(processIdentifier: pid)?
             .bundleIdentifier
     }
+
+    func isWindowDisplayable(token: WindowToken) -> Bool {
+        guard let controller else { return false }
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            return false
+        }
+        return controller.isManagedWindowDisplayable(entry.token)
+    }
+
+    func updateManagedReplacementTitle(windowInfo: WindowServerInfo, token: WindowToken) {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: token),
+              let title = windowInfo.title ?? AXWindowService.titlePreferFast(windowId: windowInfo.id)
+        else {
+            return
+        }
+        _ = controller.workspaceManager.updateManagedReplacementTitle(title, for: entry.token)
+    }
 }

@@ -235,7 +235,7 @@ final class StatusMenuModel {
     }
 
     var canShowHiddenIcons: Bool {
-        settings.hiddenBarEnabled && controller?.isHiddenBarHidingAvailable == true
+        settings.hiddenBar.enabled && controller?.isHiddenBarHidingAvailable == true
     }
 
     func menuWillOpen() {
@@ -255,9 +255,9 @@ final class StatusMenuModel {
             ToggleTileSpec(
                 control: .bordersEnabled,
                 isOn: Binding(
-                    get: { settings.bordersEnabled },
+                    get: { settings.borders.enabled },
                     set: {
-                        settings.bordersEnabled = $0
+                        settings.setBordersEnabled($0)
                         controller?.borderSettingsChanged()
                     }
                 )
@@ -265,9 +265,9 @@ final class StatusMenuModel {
             ToggleTileSpec(
                 control: .workspaceBarEnabled,
                 isOn: Binding(
-                    get: { settings.workspaceBarEnabled },
+                    get: { settings.workspaceBar.enabled },
                     set: {
-                        settings.workspaceBarEnabled = $0
+                        settings.workspaceBar.enabled = $0
                         controller?.setWorkspaceBarEnabled($0)
                     }
                 )
@@ -285,9 +285,9 @@ final class StatusMenuModel {
             ToggleTileSpec(
                 control: .focusFollowsMouse,
                 isOn: Binding(
-                    get: { settings.focusFollowsMouse },
+                    get: { settings.focus.followsMouse },
                     set: {
-                        settings.focusFollowsMouse = $0
+                        settings.focus.followsMouse = $0
                         controller?.setFocusFollowsMouse($0)
                     }
                 )
@@ -295,16 +295,16 @@ final class StatusMenuModel {
             ToggleTileSpec(
                 control: .focusCrossesMonitorAtEdge,
                 isOn: Binding(
-                    get: { settings.focusCrossesMonitorAtEdge },
-                    set: { settings.focusCrossesMonitorAtEdge = $0 }
+                    get: { settings.focus.crossesMonitorAtEdge },
+                    set: { settings.focus.crossesMonitorAtEdge = $0 }
                 )
             ),
             ToggleTileSpec(
                 control: .moveMouseToFocusedWindow,
                 isOn: Binding(
-                    get: { settings.moveMouseToFocusedWindow },
+                    get: { settings.focus.moveMouseToFocusedWindow },
                     set: {
-                        settings.moveMouseToFocusedWindow = $0
+                        settings.focus.moveMouseToFocusedWindow = $0
                         controller?.setMoveMouseToFocusedWindow($0)
                     }
                 )
@@ -312,22 +312,22 @@ final class StatusMenuModel {
             ToggleTileSpec(
                 control: .focusFollowsWindowToMonitor,
                 isOn: Binding(
-                    get: { settings.focusFollowsWindowToMonitor },
-                    set: { settings.focusFollowsWindowToMonitor = $0 }
+                    get: { settings.focus.followsWindowToMonitor },
+                    set: { settings.focus.followsWindowToMonitor = $0 }
                 )
             ),
             ToggleTileSpec(
                 control: .moveCrossesMonitorAtEdge,
                 isOn: Binding(
-                    get: { settings.moveCrossesMonitorAtEdge },
-                    set: { settings.moveCrossesMonitorAtEdge = $0 }
+                    get: { settings.focus.moveCrossesMonitorAtEdge },
+                    set: { settings.focus.moveCrossesMonitorAtEdge = $0 }
                 )
             ),
             ToggleTileSpec(
                 control: .mouseWarpEnabled,
                 isOn: Binding(
-                    get: { settings.mouseWarpEnabled },
-                    set: { settings.mouseWarpEnabled = $0 }
+                    get: { settings.pointer.enabled },
+                    set: { settings.pointer.enabled = $0 }
                 )
             )
         ]
@@ -336,7 +336,7 @@ final class StatusMenuModel {
                 ToggleTileSpec(
                     control: .hiddenBarEnabled,
                     isOn: Binding(
-                        get: { settings.hiddenBarEnabled },
+                        get: { settings.hiddenBar.enabled },
                         set: { controller?.setHiddenBarEnabled($0) }
                     )
                 )

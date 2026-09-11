@@ -21,7 +21,7 @@ final class WorkspaceBarIconOverrideUITests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            settings.workspaceBarIconOverrideValue(for: "COM.EXAMPLE.APP"),
+            settings.workspaceBar.iconOverrideValue(for: "COM.EXAMPLE.APP"),
             "/tmp/custom.icns"
         )
         XCTAssertEqual(refreshes, [true])
@@ -41,7 +41,7 @@ final class WorkspaceBarIconOverrideUITests: XCTestCase {
         )
 
         XCTAssertEqual(
-            settings.workspaceBarIconOverrideValue(for: "COM.CMUXTERM.APP"),
+            settings.workspaceBar.iconOverrideValue(for: "COM.CMUXTERM.APP"),
             "bundle-resource:AppIconDark"
         )
         XCTAssertEqual(refreshes, [true])
@@ -51,12 +51,12 @@ final class WorkspaceBarIconOverrideUITests: XCTestCase {
         let settings = makeSettingsStore()
         let selectedURL = URL(fileURLWithPath: "/tmp/custom.icns")
         XCTAssertTrue(
-            settings.setWorkspaceBarIconOverride(
+            settings.workspaceBar.setIconOverride(
                 selectedURL.standardizedFileURL.path,
                 for: "com.example.App"
             )
         )
-        let before = settings.workspaceBarIconOverrides
+        let before = settings.workspaceBar.iconOverrides
         var refreshes: [Bool] = []
 
         XCTAssertFalse(
@@ -68,7 +68,7 @@ final class WorkspaceBarIconOverrideUITests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(settings.workspaceBarIconOverrides, before)
+        XCTAssertEqual(settings.workspaceBar.iconOverrides, before)
         XCTAssertEqual(refreshes, [true])
     }
 
@@ -93,14 +93,14 @@ final class WorkspaceBarIconOverrideUITests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(settings.workspaceBarIconOverrides.isEmpty)
+        XCTAssertTrue(settings.workspaceBar.iconOverrides.isEmpty)
         XCTAssertTrue(refreshes.isEmpty)
     }
 
     func testRemoveRefreshesOnlyWhenOverrideExists() {
         let settings = makeSettingsStore()
         XCTAssertTrue(
-            settings.setWorkspaceBarIconOverride(
+            settings.workspaceBar.setIconOverride(
                 "/tmp/custom.icns",
                 for: "com.example.App"
             )
@@ -122,7 +122,7 @@ final class WorkspaceBarIconOverrideUITests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(settings.workspaceBarIconOverrides.isEmpty)
+        XCTAssertTrue(settings.workspaceBar.iconOverrides.isEmpty)
         XCTAssertEqual(refreshes, [false])
     }
 

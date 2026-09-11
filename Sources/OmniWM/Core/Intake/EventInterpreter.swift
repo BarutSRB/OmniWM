@@ -11,7 +11,7 @@ final class EventInterpreter: EventIntakeSink {
     init(
         controller: WMController,
         callbackGenerationProvider: @escaping @MainActor (pid_t) -> UInt64? = {
-            AppAXContext.contexts[$0]?.callbackGeneration
+            AppAXContextRegistry.contexts[$0]?.callbackGeneration
         }
     ) {
         self.controller = controller
@@ -31,72 +31,17 @@ final class EventInterpreter: EventIntakeSink {
         case .activeSpaceChanged:
             controller.serviceLifecycleManager.handleActiveSpaceDidChange()
 
-        case let .appActivated(pid):
-            controller.axEventHandler.handleAppActivation(
-                pid: pid,
-                source: .workspaceDidActivateApplication
-            )
+        case let .application(event):
+            handleApplicationIntakeEvent(event, sequence: stamped.seq, controller: controller)
 
-        case let .appDeactivated(pid):
-            controller.axEventHandler.handleAppDeactivated(pid: pid)
-
-        case let .appHidden(pid):
-            AppVisibilityTrace.record(
-                .intake,
-                pid: pid,
-                visibility: .hidden,
-                outcome: .dispatched,
-                intakeSequence: stamped.seq,
-                source: .service
-            )
-            controller.axEventHandler.handleAppHidden(pid: pid, source: .service)
-
-        case let .appLaunched(pid):
-            controller.serviceLifecycleManager.handleAppLaunched(pid: pid)
-
-        case let .appTerminated(pid, frontmostPID):
-            controller.serviceLifecycleManager.handleAppTerminated(
-                pid: pid,
-                frontmostPID: frontmostPID
-            )
-
-        case let .appUnhidden(pid):
-            AppVisibilityTrace.record(
-                .intake,
-                pid: pid,
-                visibility: .visible,
-                outcome: .dispatched,
-                intakeSequence: stamped.seq,
-                source: .service
-            )
-            controller.axEventHandler.handleAppUnhidden(pid: pid, source: .service)
-
-        case let .axFocusedWindowChanged(pid, callbackGeneration):
-            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
-            controller.axEventHandler.handleAppActivation(
-                pid: pid,
-                source: .focusedWindowChanged,
-                callbackGeneration: callbackGeneration
-            )
-
-        case let .axWindowDestroyed(pid, axRef, callbackGeneration):
-            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
-            controller.axEventHandler.handleRemoved(
-                pid: pid,
-                winId: axRef.windowId,
-                axRef: axRef,
-                callbackGeneration: callbackGeneration
-            )
-
-        case let .axWindowMiniaturized(pid, windowId, callbackGeneration):
-            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
-            controller.axEventHandler.handleWindowMiniaturized(pid: pid, windowId: windowId)
+        case let .axWindow(event):
+            handleAXWindowIntakeEvent(event, controller: controller)
 
         case let .cgs(event):
             controller.axEventHandler.handleCGSEvent(event)
 
         case let .display(event):
-            controller.serviceLifecycleManager.handleDisplayEvent(event)
+            controller.serviceLifecycleManager.monitorConfiguration.handle(event)
 
         case let .hotkeyInvocation(invocation):
             _ = controller.commandHandler.handleHotkeyInvocation(invocation)
@@ -121,14 +66,7 @@ final class EventInterpreter: EventIntakeSink {
             )
 
         case let .mouseScroll(payload):
-            controller.mouseEventHandler.dispatchScrollWheel(
-                at: payload.location,
-                deltaX: payload.deltaX,
-                deltaY: payload.deltaY,
-                momentumPhase: payload.momentumPhase,
-                phase: payload.phase,
-                modifiers: payload.modifiers
-            )
+            controller.mouseEventHandler.dispatchScrollWheel(payload)
 
         case let .nativeFullscreenTransitionExpired(originalToken, generation):
             _ = controller.workspaceManager.expireNativeFullscreenTransition(
@@ -151,5 +89,82 @@ final class EventInterpreter: EventIntakeSink {
     private func acceptsCallbackGeneration(_ callbackGeneration: UInt64?, pid: pid_t) -> Bool {
         guard let callbackGeneration else { return true }
         return callbackGenerationProvider(pid) == callbackGeneration
+    }
+
+    private func handleAppVisibility(
+        _ visibility: AppVisibilityTrace.Visibility,
+        pid: pid_t,
+        sequence: UInt64,
+        controller: WMController
+    ) {
+        AppVisibilityTrace.record(
+            .intake,
+            pid: pid,
+            visibility: visibility,
+            outcome: .dispatched,
+            intakeSequence: sequence,
+            source: .service
+        )
+        switch visibility {
+        case .hidden: controller.axEventHandler.handleAppHidden(pid: pid, source: .service)
+        case .visible: controller.axEventHandler.handleAppUnhidden(pid: pid, source: .service)
+        }
+    }
+
+    private func handleApplicationIntakeEvent(
+        _ event: ApplicationIntakeEvent,
+        sequence: UInt64,
+        controller: WMController
+    ) {
+        switch event {
+        case let .activated(pid):
+            controller.axEventHandler.handleAppActivation(
+                pid: pid,
+                source: .workspaceDidActivateApplication
+            )
+
+        case let .deactivated(pid):
+            controller.axEventHandler.handleAppDeactivated(pid: pid)
+
+        case let .hidden(pid):
+            handleAppVisibility(.hidden, pid: pid, sequence: sequence, controller: controller)
+
+        case let .launched(pid):
+            controller.axEventHandler.handleAppLaunched(pid: pid)
+
+        case let .terminated(pid, frontmostPID):
+            controller.axEventHandler.handleAppTerminated(
+                pid: pid,
+                frontmostPID: frontmostPID
+            )
+
+        case let .unhidden(pid):
+            handleAppVisibility(.visible, pid: pid, sequence: sequence, controller: controller)
+        }
+    }
+
+    private func handleAXWindowIntakeEvent(_ event: AXWindowIntakeEvent, controller: WMController) {
+        switch event {
+        case let .focusedWindowChanged(pid, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
+            controller.axEventHandler.handleAppActivation(
+                pid: pid,
+                source: .focusedWindowChanged,
+                callbackGeneration: callbackGeneration
+            )
+
+        case let .windowDestroyed(pid, axRef, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
+            controller.axEventHandler.handleRemoved(
+                pid: pid,
+                winId: axRef.windowId,
+                axRef: axRef,
+                callbackGeneration: callbackGeneration
+            )
+
+        case let .windowMiniaturized(pid, windowId, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
+            controller.axEventHandler.handleWindowMiniaturized(pid: pid, windowId: windowId)
+        }
     }
 }

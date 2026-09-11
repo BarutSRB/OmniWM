@@ -204,7 +204,7 @@ final class WorkspaceBarIconResolver {
     }
 
     private static func normalizedOverrides(_ overrides: [String: String]) -> [NormalizedOverride] {
-        SettingsStore.normalizedWorkspaceBarIconOverrides(overrides).compactMap { bundleId, value in
+        SettingsExport.WorkspaceBar.normalizedIconOverrides(overrides).compactMap { bundleId, value in
             guard let source = WorkspaceBarIconOverrideSource(storedValue: value) else {
                 return nil
             }

@@ -12,7 +12,7 @@ private final class PerformanceCaptureSnapshotStore {
 
 private struct PerformanceOwnerSnapshots {
     let refresh: LayoutRefreshController.PerformanceSnapshot?
-    let topology: ServiceLifecycleManager.PerformanceSnapshot?
+    let topology: NativeSpaceInventoryController.PerformanceSnapshot?
     let intake: EventIntake.PerformanceSnapshot?
     let input: MouseEventHandler.PerformanceSnapshot?
     let hiddenBar: HiddenBarController.PerformanceSnapshot?
@@ -23,6 +23,186 @@ private struct PerformanceOwnerSnapshots {
     let pidBuffer: AXManagerPIDBufferRuntimeSnapshot
     let focus: ManagedFocusRetryRuntimeSnapshot
     let surfaces: SurfaceSceneRuntimeSnapshot
+
+    func formatted() -> String {
+        var lines: [String] = []
+        appendRefresh(to: &lines)
+        appendTopology(to: &lines)
+        appendIntake(to: &lines)
+        appendInput(to: &lines)
+        appendHiddenBar(to: &lines)
+        appendPeriodicServices(to: &lines)
+        appendAX(to: &lines)
+        lines.append(
+            "pidScratch current=\(pidBuffer.currentSize) highWater=\(pidBuffer.highWater)"
+                + " retainedCapacity=\(pidBuffer.retainedCapacity)"
+        )
+        lines.append(
+            "focus attempts=\(focus.attempts) sourceChanges=\(focus.sourceChanges)"
+                + " deadlineRearms=\(focus.deadlineRearms) exhaustions=\(focus.exhaustions)"
+        )
+        lines.append(
+            "surfaces total=\(surfaces.total) live=\(surfaces.live) dead=\(surfaces.dead)"
+                + " numberBacked=\(surfaces.numberBacked)"
+                + " reverseEntries=\(surfaces.reverseEntries)"
+                + " orphanReverseEntries=\(surfaces.orphanReverseEntries)"
+                + " highWater=\(surfaces.highWater)"
+        )
+        lines.append(
+            "surfaceKinds "
+                + SurfaceKind.allCases.map {
+                    "\($0.rawValue)=\(surfaces.byKind[$0, default: 0])"
+                }.joined(separator: " ")
+        )
+        return lines.isEmpty ? "unavailable" : lines.joined(separator: "\n")
+    }
+
+    private func appendRefresh(to lines: inout [String]) {
+        if let refresh {
+            lines.append(
+                "refresh enqueued=\(refresh.refreshesEnqueued) merged=\(refresh.refreshesMerged)"
+                    + " started=\(refresh.refreshesStarted) completed=\(refresh.refreshesCompleted)"
+                    + " incomplete=\(refresh.refreshesIncomplete) lockedDeferrals=\(refresh.lockedRefreshDeferrals)"
+                    + " immediateRestarts=\(refresh.immediateRefreshRestarts)"
+                    + " maxRequeueStreak=\(refresh.maximumConsecutiveRequeues)"
+            )
+            lines.append(
+                "displayLink created=\(refresh.displayLinksCreated) invalidated=\(refresh.displayLinksInvalidated)"
+                    + " callbacks=\(refresh.displayLinkCallbacks)"
+                    + " meaningful=\(refresh.meaningfulDisplayLinkCallbacks)"
+                    + " noWork=\(refresh.noWorkDisplayLinkCallbacks)"
+                    + " active=\(refresh.activeDisplayLinks)"
+                    + " activeHighWater=\(refresh.activeDisplayLinkHighWater)"
+            )
+            lines.append(
+                "displayLinkStops idle=\(refresh.displayLinkIdleStops) noWork=\(refresh.displayLinkNoWorkStops)"
+                    + " monitorDisconnect=\(refresh.displayLinkMonitorDisconnectStops)"
+                    + " reset=\(refresh.displayLinkResetStops)"
+            )
+        }
+    }
+
+    private func appendTopology(to lines: inout [String]) {
+        if let topology {
+            lines.append(
+                "topology samples=\(topology.topologySamples) fallbacks=\(topology.topologyGlobalFallbacks)"
+                    + " authoritativeStops=\(topology.authoritativeTerminations)"
+                    + " fallbackStops=\(topology.globalFallbackTerminations)"
+                    + " cancelledStops=\(topology.cancelledTerminations)"
+                    + " supersededStops=\(topology.supersededTerminations)"
+                    + " lastStop=\(topology.lastTopologyTerminalReason?.rawValue ?? "none")"
+            )
+        }
+    }
+
+    private func appendIntake(to lines: inout [String]) {
+        if let intake {
+            lines.append(
+                "intake accepted=\(intake.acceptedEvents) coalesced=\(intake.coalescedEvents)"
+                    + " delivered=\(intake.deliveredEvents) drains=\(intake.drainBatches)"
+                    + " depth=\(intake.currentQueueDepth) maxDepth=\(intake.maximumQueueDepth)"
+                    + " maxBatch=\(intake.maximumBatchSize)"
+            )
+            lines.append(
+                "intakeCGS accepted/coalesced/delivered"
+                    + " created=\(eventCategoryCounts(intake.cgsCreatedEvents))"
+                    + " destroyed=\(eventCategoryCounts(intake.cgsDestroyedEvents))"
+                    + " frame=\(eventCategoryCounts(intake.cgsFrameChangedEvents))"
+                    + " title=\(eventCategoryCounts(intake.cgsTitleChangedEvents))"
+            )
+            lines.append(
+                "intakeAX accepted/coalesced/delivered"
+                    + " lifecycle=\(eventCategoryCounts(intake.axLifecycleEvents))"
+                    + " focused=\(eventCategoryCounts(intake.axFocusedWindowChangedEvents))"
+            )
+        }
+    }
+
+    private func appendInput(to lines: inout [String]) {
+        if let input {
+            lines.append(
+                "input cgEvents=\(input.cgEvents) moved=\(input.mouseMovedEvents)"
+                    + " dragged=\(input.mouseDraggedEvents) scroll=\(input.scrollEvents)"
+                    + " buttons=\(input.buttonEvents) droppedTrackpadScroll=\(input.droppedTrackpadScrollEvents)"
+                    + " warpSamples=\(input.mouseWarpSamples)"
+            )
+            if let touch = input.multitouch {
+                lines.append(
+                    "touch raw=\(touch.rawCallbacks) stale=\(touch.staleCallbacks)"
+                        + " drains=\(touch.drainBatches) overwritten=\(touch.overwrittenChanges)"
+                        + " transitions=\(touch.transitionsQueued) cursorSamples=\(touch.cursorSamples)"
+                        + " pending=\(touch.pendingFrames) maxPending=\(touch.maximumPendingFrames)"
+                )
+            }
+        }
+    }
+
+    private func appendHiddenBar(to lines: inout [String]) {
+        if let hiddenBar {
+            lines.append(
+                "hiddenBar refreshEvents=\(hiddenBar.refreshEvents) menuQueries=\(hiddenBar.menuGuardQueries)"
+                    + " tasksStarted=\(hiddenBar.reconcealTasksStarted)"
+                    + " tasksCancelled=\(hiddenBar.reconcealTasksCancelled)"
+                    + " deferrals=\(hiddenBar.menuGuardDeferrals)"
+                    + " maxDeferrals=\(hiddenBar.maximumConsecutiveDeferrals)"
+                    + " terminal=\(hiddenBar.terminalReason.map { String(describing: $0) } ?? "none")"
+            )
+        }
+    }
+
+    private func appendPeriodicServices(to lines: inout [String]) {
+        if let clipboard,
+           let secureInput,
+           let sleep
+        {
+            lines.append(
+                "periodic clipboard=\(clipboard.timerFires) secureInput=\(secureInput.recoveryTimerFires)"
+                    + " sleepAssertions=\(sleep.assertionAcquisitions)"
+            )
+        }
+    }
+
+    private func appendAX(to lines: inout [String]) {
+        lines.append(
+            "ax submitted=\(ax.submitted) started=\(ax.started) completed=\(ax.completed)"
+                + " cancelled=\(ax.cancelled) replaced=\(ax.replaced)"
+                + " pending=\(ax.pending) inFlight=\(ax.inFlight)"
+                + " pendingHighWater=\(ax.pendingHighWater) inFlightHighWater=\(ax.inFlightHighWater)"
+                + " staleBeforeIPC=\(ax.staleBeforeIPC) enhancedUI=\(ax.enhancedUICalls)"
+        )
+        lines.append(
+            "axOrdinary submitted=\(ax.ordinarySubmitted) started=\(ax.ordinaryStarted)"
+                + " completed=\(ax.ordinaryCompleted) cancelled=\(ax.ordinaryCancelled)"
+                + " replaced=\(ax.ordinaryReplaced) pending=\(ax.ordinaryPending)"
+                + " inFlight=\(ax.ordinaryInFlight) pendingHighWater=\(ax.ordinaryPendingHighWater)"
+                + " inFlightHighWater=\(ax.ordinaryInFlightHighWater)"
+        )
+        lines.append(
+            "axPark submitted=\(ax.parkSubmitted) started=\(ax.parkStarted)"
+                + " completed=\(ax.parkCompleted) cancelled=\(ax.parkCancelled)"
+                + " replaced=\(ax.parkReplaced) pending=\(ax.parkPending)"
+                + " inFlight=\(ax.parkInFlight) pendingHighWater=\(ax.parkPendingHighWater)"
+                + " inFlightHighWater=\(ax.parkInFlightHighWater)"
+        )
+        lines.append(
+            "axClosing submitted=\(ax.closingSubmitted) started=\(ax.closingStarted)"
+                + " completed=\(ax.closingCompleted) cancelled=\(ax.closingCancelled)"
+                + " replaced=\(ax.closingReplaced) pending=\(ax.closingPending)"
+                + " inFlight=\(ax.closingInFlight) pendingHighWater=\(ax.closingPendingHighWater)"
+                + " inFlightHighWater=\(ax.closingInFlightHighWater)"
+        )
+        lines.append(
+            "axQueueWait samples=\(ax.queueWaitSamples) ordinaryStarted=\(ax.ordinaryStarted)"
+                + " under1ms=\(ax.queueWaitUnder1ms) under4ms=\(ax.queueWaitUnder4ms)"
+                + " under16ms=\(ax.queueWaitUnder16ms) atLeast16ms=\(ax.queueWaitAtLeast16ms)"
+        )
+    }
+
+    private func eventCategoryCounts(
+        _ snapshot: EventIntake.EventCategoryPerformanceSnapshot
+    ) -> String {
+        "\(snapshot.acceptedEvents)/\(snapshot.coalescedEvents)/\(snapshot.deliveredEvents)"
+    }
 }
 
 @MainActor
@@ -84,13 +264,13 @@ extension WMController {
             "enabled=\(isEnabled)",
             "locked=\(isLockScreenActive)",
             "animationsEnabled=\(settings.animationsEnabled)",
-            "scrollGestureEnabled=\(settings.scrollGestureEnabled)",
-            "workspaceSwipeEnabled=\(settings.workspaceSwipeEnabled)",
-            "mouseWarpEnabled=\(settings.mouseWarpEnabled)",
-            "bordersEnabled=\(settings.bordersEnabled)",
-            "workspaceBarEnabled=\(settings.workspaceBarEnabled)",
-            "hiddenBarEnabled=\(settings.hiddenBarEnabled)",
-            "clipboardHistoryEnabled=\(settings.clipboardHistoryEnabled)",
+            "scrollGestureEnabled=\(settings.gestures.scrollEnabled)",
+            "workspaceSwipeEnabled=\(settings.gestures.workspaceSwipeEnabled)",
+            "mouseWarpEnabled=\(settings.pointer.enabled)",
+            "bordersEnabled=\(settings.borders.enabled)",
+            "workspaceBarEnabled=\(settings.workspaceBar.enabled)",
+            "hiddenBarEnabled=\(settings.hiddenBar.enabled)",
+            "clipboardHistoryEnabled=\(settings.clipboard.historyEnabled)",
             "preventSleepEnabled=\(settings.preventSleepEnabled)",
             "worldSeq=\(workspaceManager.worldSeq)",
             "monitors=\(workspaceManager.monitors.count)",
@@ -106,11 +286,11 @@ extension WMController {
         if let finalOwnerSnapshots {
             sections.append("")
             sections.append("== Owner Metrics End ==")
-            sections.append(performanceMetricsReport(finalOwnerSnapshots))
+            sections.append(finalOwnerSnapshots.formatted())
         } else if let initialOwnerSnapshots {
             sections.append("")
             sections.append("== Owner Metrics Start ==")
-            sections.append(performanceMetricsReport(initialOwnerSnapshots))
+            sections.append(initialOwnerSnapshots.formatted())
         } else {
             sections.append("")
             sections.append("== Owner Metrics ==")
@@ -121,15 +301,15 @@ extension WMController {
 
     private func beginPerformanceMetricsCapture() -> PerformanceOwnerSnapshots {
         layoutRefreshController.beginPerformanceCapture()
-        serviceLifecycleManager.beginPerformanceCapture()
+        serviceLifecycleManager.topologyInventory.beginPerformanceCapture()
         eventIntake.beginPerformanceCapture()
         mouseEventHandler.beginPerformanceCapture()
-        hiddenBarController.beginPerformanceCapture()
+        hiddenBarController.performance.begin()
         clipboardHistoryService.beginPerformanceCapture()
         secureInputMonitor.beginPerformanceCapture()
         SleepPreventionManager.shared.beginPerformanceCapture()
         AppAXContextRuntimeMetrics.shared.beginCapture(
-            initialDepths: AppAXContext.aggregateRuntimeMailboxDepths()
+            initialDepths: AppAXContextRegistry.aggregateRuntimeMailboxDepths()
         )
         axManager.beginPIDBufferRuntimeCapture()
         intentLedger.beginManagedFocusRetryRuntimeCapture()
@@ -140,10 +320,10 @@ extension WMController {
     private func currentPerformanceMetricsSnapshot() -> PerformanceOwnerSnapshots {
         PerformanceOwnerSnapshots(
             refresh: layoutRefreshController.performanceSnapshot(),
-            topology: serviceLifecycleManager.performanceSnapshot(),
+            topology: serviceLifecycleManager.topologyInventory.performanceSnapshot(),
             intake: eventIntake.performanceSnapshot(),
             input: mouseEventHandler.performanceSnapshot(),
-            hiddenBar: hiddenBarController.performanceSnapshot(),
+            hiddenBar: hiddenBarController.performance.snapshot(),
             clipboard: clipboardHistoryService.performanceSnapshot(),
             secureInput: secureInputMonitor.performanceSnapshot(),
             sleep: SleepPreventionManager.shared.performanceSnapshot(),
@@ -157,10 +337,10 @@ extension WMController {
     private func endPerformanceMetricsCapture() -> PerformanceOwnerSnapshots {
         PerformanceOwnerSnapshots(
             refresh: layoutRefreshController.endPerformanceCapture(),
-            topology: serviceLifecycleManager.endPerformanceCapture(),
+            topology: serviceLifecycleManager.topologyInventory.endPerformanceCapture(),
             intake: eventIntake.endPerformanceCapture(),
             input: mouseEventHandler.endPerformanceCapture(),
-            hiddenBar: hiddenBarController.endPerformanceCapture(),
+            hiddenBar: hiddenBarController.performance.end(),
             clipboard: clipboardHistoryService.endPerformanceCapture(),
             secureInput: secureInputMonitor.endPerformanceCapture(),
             sleep: SleepPreventionManager.shared.endPerformanceCapture(),
@@ -189,164 +369,6 @@ extension WMController {
     private func endSurfaceRuntimeCapture() -> SurfaceSceneRuntimeSnapshot {
         SurfaceCoordinator.shared.endRuntimeCapture()
         return SurfaceCoordinator.shared.runtimeSnapshot()
-    }
-
-    private func performanceMetricsReport(
-        _ snapshots: PerformanceOwnerSnapshots
-    ) -> String {
-        var lines: [String] = []
-        if let refresh = snapshots.refresh {
-            lines.append(
-                "refresh enqueued=\(refresh.refreshesEnqueued) merged=\(refresh.refreshesMerged)"
-                    + " started=\(refresh.refreshesStarted) completed=\(refresh.refreshesCompleted)"
-                    + " incomplete=\(refresh.refreshesIncomplete) lockedDeferrals=\(refresh.lockedRefreshDeferrals)"
-                    + " immediateRestarts=\(refresh.immediateRefreshRestarts)"
-                    + " maxRequeueStreak=\(refresh.maximumConsecutiveRequeues)"
-            )
-            lines.append(
-                "displayLink created=\(refresh.displayLinksCreated) invalidated=\(refresh.displayLinksInvalidated)"
-                    + " callbacks=\(refresh.displayLinkCallbacks)"
-                    + " meaningful=\(refresh.meaningfulDisplayLinkCallbacks)"
-                    + " noWork=\(refresh.noWorkDisplayLinkCallbacks)"
-                    + " active=\(refresh.activeDisplayLinks)"
-                    + " activeHighWater=\(refresh.activeDisplayLinkHighWater)"
-            )
-            lines.append(
-                "displayLinkStops idle=\(refresh.displayLinkIdleStops) noWork=\(refresh.displayLinkNoWorkStops)"
-                    + " monitorDisconnect=\(refresh.displayLinkMonitorDisconnectStops)"
-                    + " reset=\(refresh.displayLinkResetStops)"
-            )
-        }
-        if let topology = snapshots.topology {
-            lines.append(
-                "topology samples=\(topology.topologySamples) fallbacks=\(topology.topologyGlobalFallbacks)"
-                    + " authoritativeStops=\(topology.authoritativeTerminations)"
-                    + " fallbackStops=\(topology.globalFallbackTerminations)"
-                    + " cancelledStops=\(topology.cancelledTerminations)"
-                    + " supersededStops=\(topology.supersededTerminations)"
-                    + " lastStop=\(topology.lastTopologyTerminalReason?.rawValue ?? "none")"
-            )
-        }
-        if let intake = snapshots.intake {
-            lines.append(
-                "intake accepted=\(intake.acceptedEvents) coalesced=\(intake.coalescedEvents)"
-                    + " delivered=\(intake.deliveredEvents) drains=\(intake.drainBatches)"
-                    + " depth=\(intake.currentQueueDepth) maxDepth=\(intake.maximumQueueDepth)"
-                    + " maxBatch=\(intake.maximumBatchSize)"
-            )
-            lines.append(
-                "intakeCGS accepted/coalesced/delivered"
-                    + " created=\(eventCategoryCounts(intake.cgsCreatedEvents))"
-                    + " destroyed=\(eventCategoryCounts(intake.cgsDestroyedEvents))"
-                    + " frame=\(eventCategoryCounts(intake.cgsFrameChangedEvents))"
-                    + " title=\(eventCategoryCounts(intake.cgsTitleChangedEvents))"
-            )
-            lines.append(
-                "intakeAX accepted/coalesced/delivered"
-                    + " lifecycle=\(eventCategoryCounts(intake.axLifecycleEvents))"
-                    + " focused=\(eventCategoryCounts(intake.axFocusedWindowChangedEvents))"
-            )
-        }
-        if let input = snapshots.input {
-            lines.append(
-                "input cgEvents=\(input.cgEvents) moved=\(input.mouseMovedEvents)"
-                    + " dragged=\(input.mouseDraggedEvents) scroll=\(input.scrollEvents)"
-                    + " buttons=\(input.buttonEvents) droppedTrackpadScroll=\(input.droppedTrackpadScrollEvents)"
-                    + " warpSamples=\(input.mouseWarpSamples)"
-            )
-            if let touch = input.multitouch {
-                lines.append(
-                    "touch raw=\(touch.rawCallbacks) stale=\(touch.staleCallbacks)"
-                        + " drains=\(touch.drainBatches) overwritten=\(touch.overwrittenChanges)"
-                        + " transitions=\(touch.transitionsQueued) cursorSamples=\(touch.cursorSamples)"
-                        + " pending=\(touch.pendingFrames) maxPending=\(touch.maximumPendingFrames)"
-                )
-            }
-        }
-        if let hiddenBar = snapshots.hiddenBar {
-            lines.append(
-                "hiddenBar refreshEvents=\(hiddenBar.refreshEvents) menuQueries=\(hiddenBar.menuGuardQueries)"
-                    + " tasksStarted=\(hiddenBar.reconcealTasksStarted)"
-                    + " tasksCancelled=\(hiddenBar.reconcealTasksCancelled)"
-                    + " deferrals=\(hiddenBar.menuGuardDeferrals)"
-                    + " maxDeferrals=\(hiddenBar.maximumConsecutiveDeferrals)"
-                    + " terminal=\(hiddenBar.terminalReason.map { String(describing: $0) } ?? "none")"
-            )
-        }
-        if let clipboard = snapshots.clipboard,
-           let secureInput = snapshots.secureInput,
-           let sleep = snapshots.sleep
-        {
-            lines.append(
-                "periodic clipboard=\(clipboard.timerFires) secureInput=\(secureInput.recoveryTimerFires)"
-                    + " sleepAssertions=\(sleep.assertionAcquisitions)"
-            )
-        }
-        let ax = snapshots.ax
-        lines.append(
-            "ax submitted=\(ax.submitted) started=\(ax.started) completed=\(ax.completed)"
-                + " cancelled=\(ax.cancelled) replaced=\(ax.replaced)"
-                + " pending=\(ax.pending) inFlight=\(ax.inFlight)"
-                + " pendingHighWater=\(ax.pendingHighWater) inFlightHighWater=\(ax.inFlightHighWater)"
-                + " staleBeforeIPC=\(ax.staleBeforeIPC) enhancedUI=\(ax.enhancedUICalls)"
-        )
-        lines.append(
-            "axOrdinary submitted=\(ax.ordinarySubmitted) started=\(ax.ordinaryStarted)"
-                + " completed=\(ax.ordinaryCompleted) cancelled=\(ax.ordinaryCancelled)"
-                + " replaced=\(ax.ordinaryReplaced) pending=\(ax.ordinaryPending)"
-                + " inFlight=\(ax.ordinaryInFlight) pendingHighWater=\(ax.ordinaryPendingHighWater)"
-                + " inFlightHighWater=\(ax.ordinaryInFlightHighWater)"
-        )
-        lines.append(
-            "axPark submitted=\(ax.parkSubmitted) started=\(ax.parkStarted)"
-                + " completed=\(ax.parkCompleted) cancelled=\(ax.parkCancelled)"
-                + " replaced=\(ax.parkReplaced) pending=\(ax.parkPending)"
-                + " inFlight=\(ax.parkInFlight) pendingHighWater=\(ax.parkPendingHighWater)"
-                + " inFlightHighWater=\(ax.parkInFlightHighWater)"
-        )
-        lines.append(
-            "axClosing submitted=\(ax.closingSubmitted) started=\(ax.closingStarted)"
-                + " completed=\(ax.closingCompleted) cancelled=\(ax.closingCancelled)"
-                + " replaced=\(ax.closingReplaced) pending=\(ax.closingPending)"
-                + " inFlight=\(ax.closingInFlight) pendingHighWater=\(ax.closingPendingHighWater)"
-                + " inFlightHighWater=\(ax.closingInFlightHighWater)"
-        )
-        let pidBuffer = snapshots.pidBuffer
-        lines.append(
-            "axQueueWait samples=\(ax.queueWaitSamples) ordinaryStarted=\(ax.ordinaryStarted)"
-                + " under1ms=\(ax.queueWaitUnder1ms) under4ms=\(ax.queueWaitUnder4ms)"
-                + " under16ms=\(ax.queueWaitUnder16ms) atLeast16ms=\(ax.queueWaitAtLeast16ms)"
-        )
-        let focus = snapshots.focus
-        lines.append(
-            "pidScratch current=\(pidBuffer.currentSize) highWater=\(pidBuffer.highWater)"
-                + " retainedCapacity=\(pidBuffer.retainedCapacity)"
-        )
-        let surfaces = snapshots.surfaces
-        lines.append(
-            "focus attempts=\(focus.attempts) sourceChanges=\(focus.sourceChanges)"
-                + " deadlineRearms=\(focus.deadlineRearms) exhaustions=\(focus.exhaustions)"
-        )
-        lines.append(
-            "surfaces total=\(surfaces.total) live=\(surfaces.live) dead=\(surfaces.dead)"
-                + " numberBacked=\(surfaces.numberBacked)"
-                + " reverseEntries=\(surfaces.reverseEntries)"
-                + " orphanReverseEntries=\(surfaces.orphanReverseEntries)"
-                + " highWater=\(surfaces.highWater)"
-        )
-        lines.append(
-            "surfaceKinds "
-                + SurfaceKind.allCases.map {
-                    "\($0.rawValue)=\(surfaces.byKind[$0, default: 0])"
-                }.joined(separator: " ")
-        )
-        return lines.isEmpty ? "unavailable" : lines.joined(separator: "\n")
-    }
-
-    private func eventCategoryCounts(
-        _ snapshot: EventIntake.EventCategoryPerformanceSnapshot
-    ) -> String {
-        "\(snapshot.acceptedEvents)/\(snapshot.coalescedEvents)/\(snapshot.deliveredEvents)"
     }
 
     private func automaticTraceEvidence() async -> String {
@@ -403,8 +425,8 @@ extension WMController {
     }
 
     private func seedWindowAdmissionTrace() {
-        for pid in AppAXContext.contexts.keys.sorted() {
-            guard let context = AppAXContext.contexts[pid] else { continue }
+        for pid in AppAXContextRegistry.contexts.keys.sorted() {
+            guard let context = AppAXContextRegistry.contexts[pid] else { continue }
             WindowAdmissionTrace.record(
                 .init(
                     action: .endpointCreated,

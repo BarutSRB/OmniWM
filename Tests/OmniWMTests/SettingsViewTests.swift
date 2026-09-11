@@ -67,7 +67,7 @@ final class SettingsViewTests: XCTestCase {
         ).settingSide(.left)
         settings.hotkeyBindings = [HotkeyBinding(
             id: "settings-reactivation",
-            command: .focusPrevious,
+            command: .focusNavigation(.previous),
             binding: sidedHyper
         )]
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
-import Foundation
-
-enum IPCFocusCommandName: String, CaseIterable, Equatable, Sendable {
+public enum IPCFocusCommandName: String, CaseIterable, Hashable, Sendable {
     case spatial = "focus"
     case previous = "focus-previous"
     case downOrLeft = "focus-down-or-left"
@@ -22,7 +20,7 @@ enum IPCFocusCommandName: String, CaseIterable, Equatable, Sendable {
     case centerVisibleColumns = "center-visible-columns"
 }
 
-enum IPCFocusCommand: Equatable, Sendable {
+public enum IPCFocusCommand: Equatable, Sendable {
     case spatial(direction: IPCDirection)
     case previous
     case downOrLeft
@@ -40,7 +38,7 @@ enum IPCFocusCommand: Equatable, Sendable {
     case centerColumn
     case centerVisibleColumns
 
-    var name: IPCFocusCommandName {
+    public var name: IPCFocusCommandName {
         switch self {
         case .spatial:
             .spatial

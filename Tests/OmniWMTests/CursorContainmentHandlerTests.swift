@@ -62,17 +62,17 @@ final class CursorContainmentHandlerTests: XCTestCase {
 
     private func makeFixture(verticalRouting: Bool = false, margin: Int = 1) -> Fixture {
         let settings = makeSettings()
-        settings.mouseWarpEnabled = true
-        settings.cursorContainmentEnabled = true
-        settings.monitorRoutingMode = .custom
-        settings.mouseWarpMargin = margin
+        settings.pointer.enabled = true
+        settings.pointer.constrainToArrangement = true
+        settings.monitors.routingMode = .custom
+        settings.pointer.margin = margin
 
         let bottom = makeMonitor(1, "Bottom", CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let top = makeMonitor(2, "Top", CGRect(x: 0, y: 1080, width: 1920, height: 1080))
         let layout = verticalRouting
             ? [routing(2, "Top", 0, 0), routing(1, "Bottom", 0, 1)]
             : [routing(1, "Bottom", 0, 0), routing(2, "Top", 1, 0)]
-        settings.monitorArrangements = [MonitorArrangement(monitors: layout)]
+        settings.monitors.arrangements = [MonitorArrangement(monitors: layout)]
 
         let controller = WMController(settings: settings)
         controller.workspaceManager.applyMonitorConfigurationChange([bottom, top])
@@ -83,14 +83,14 @@ final class CursorContainmentHandlerTests: XCTestCase {
 
     private func makeReporterFixture() -> ReporterFixture {
         let settings = makeSettings()
-        settings.mouseWarpEnabled = true
-        settings.cursorContainmentEnabled = false
-        settings.monitorRoutingMode = .custom
-        settings.mouseWarpMargin = 1
+        settings.pointer.enabled = true
+        settings.pointer.constrainToArrangement = false
+        settings.monitors.routingMode = .custom
+        settings.pointer.margin = 1
 
         let source = makeMonitor(2, "Dell", CGRect(x: 0, y: 0, width: 3360, height: 1418))
         let target = makeMonitor(3, "espresso", CGRect(x: 3360, y: 1418, width: 1080, height: 1920))
-        settings.monitorArrangements = [MonitorArrangement(monitors: [
+        settings.monitors.arrangements = [MonitorArrangement(monitors: [
             routing(3, "espresso", 0, 0),
             routing(2, "Dell", 1, 0)
         ])]
@@ -172,7 +172,7 @@ final class CursorContainmentHandlerTests: XCTestCase {
         let inherited = MonitorArrangement(monitors: [
             routing(1, "Bottom", 0, 0), routing(2, "Top", 1, 0), routing(3, "Disconnected", 2, 0)
         ])
-        fixture.settings.monitorArrangements = [inherited]
+        fixture.settings.monitors.arrangements = [inherited]
         var warped: [CGPoint] = []
         fixture.handler.warpCursor = {
             warped.append($0)
@@ -199,12 +199,12 @@ final class CursorContainmentHandlerTests: XCTestCase {
 
         fixture.handler.resetTransientState()
         warped.removeAll()
-        fixture.settings.storeRoutingLayout(
+        fixture.settings.monitors.storeRoutingLayout(
             [routing(1, "Bottom", 0, 1), routing(2, "Top", 0, 0)],
             for: [fixture.bottom, fixture.top]
         )
-        XCTAssertEqual(fixture.settings.monitorArrangements.count, 2)
-        XCTAssertEqual(fixture.settings.monitorArrangements[0], inherited)
+        XCTAssertEqual(fixture.settings.monitors.arrangements.count, 2)
+        XCTAssertEqual(fixture.settings.monitors.arrangements[0], inherited)
         XCTAssertEqual(manager.adjacentMonitor(from: fixture.bottom.id, direction: .up), fixture.top)
         XCTAssertNil(manager.adjacentMonitor(from: fixture.bottom.id, direction: .right))
         fixture.handler.handleMouseWarpMoved(at: fixture.bottom.frame.center)
@@ -456,19 +456,19 @@ extension CursorContainmentHandlerTests {
         defer { fixture.handler.resetTransientState() }
 
         fixture.handler.handleMouseWarpMoved(at: fixture.bottom.frame.center)
-        fixture.settings.cursorContainmentEnabled = false
+        fixture.settings.pointer.constrainToArrangement = false
         fixture.handler.handleMouseWarpMoved(at: fixture.top.frame.center)
         XCTAssertTrue(warped.isEmpty)
 
         fixture.handler.handleMouseWarpMoved(at: fixture.bottom.frame.center)
-        fixture.settings.cursorContainmentEnabled = true
-        fixture.settings.monitorRoutingMode = .macOS
+        fixture.settings.pointer.constrainToArrangement = true
+        fixture.settings.monitors.routingMode = .macOS
         fixture.handler.handleMouseWarpMoved(at: fixture.top.frame.center)
         XCTAssertTrue(warped.isEmpty)
 
         fixture.handler.handleMouseWarpMoved(at: fixture.bottom.frame.center)
-        fixture.settings.monitorRoutingMode = .custom
-        fixture.settings.mouseWarpEnabled = false
+        fixture.settings.monitors.routingMode = .custom
+        fixture.settings.pointer.enabled = false
         fixture.handler.handleMouseWarpMoved(at: fixture.top.frame.center)
         XCTAssertTrue(warped.isEmpty)
     }

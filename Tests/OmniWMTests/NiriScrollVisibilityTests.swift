@@ -454,10 +454,12 @@ final class NiriScrollVisibilityTests: XCTestCase {
             windows: [window],
             frames: [:],
             hiddenHandles: [token: .left],
-            engine: engine,
-            workspaceId: WorkspaceDescriptor.ID(),
-            canRestoreHiddenWorkspaceWindows: true,
-            reassertHidden: false
+            context: NiriLayoutDiffContext(
+                engine: engine,
+                workspaceId: WorkspaceDescriptor.ID(),
+                canRestoreHiddenWorkspaceWindows: true,
+                reassertHidden: false
+            )
         )
         XCTAssertTrue(steady.visibilityChanges.isEmpty)
 
@@ -465,10 +467,12 @@ final class NiriScrollVisibilityTests: XCTestCase {
             windows: [window],
             frames: [:],
             hiddenHandles: [token: .left],
-            engine: engine,
-            workspaceId: WorkspaceDescriptor.ID(),
-            canRestoreHiddenWorkspaceWindows: true,
-            reassertHidden: true
+            context: NiriLayoutDiffContext(
+                engine: engine,
+                workspaceId: WorkspaceDescriptor.ID(),
+                canRestoreHiddenWorkspaceWindows: true,
+                reassertHidden: true
+            )
         )
         XCTAssertEqual(settle.visibilityChanges.count, 1)
         guard case let .hide(hiddenToken, side) = settle.visibilityChanges[0] else {
@@ -497,11 +501,13 @@ final class NiriScrollVisibilityTests: XCTestCase {
             windows: [window],
             frames: [:],
             hiddenHandles: [token: .left],
-            engine: engine,
-            workspaceId: WorkspaceDescriptor.ID(),
-            canRestoreHiddenWorkspaceWindows: true,
-            reassertHidden: false,
-            pendingParkWindowIds: [token.windowId]
+            context: NiriLayoutDiffContext(
+                engine: engine,
+                workspaceId: WorkspaceDescriptor.ID(),
+                canRestoreHiddenWorkspaceWindows: true,
+                reassertHidden: false,
+                pendingParkWindowIds: [token.windowId]
+            )
         )
         XCTAssertEqual(pending.visibilityChanges.count, 1)
         guard case let .hide(pendingToken, pendingSide) = pending.visibilityChanges[0] else {
@@ -514,11 +520,13 @@ final class NiriScrollVisibilityTests: XCTestCase {
             windows: [window],
             frames: [:],
             hiddenHandles: [token: .left],
-            engine: engine,
-            workspaceId: WorkspaceDescriptor.ID(),
-            canRestoreHiddenWorkspaceWindows: true,
-            reassertHidden: false,
-            pendingParkWindowIds: [999]
+            context: NiriLayoutDiffContext(
+                engine: engine,
+                workspaceId: WorkspaceDescriptor.ID(),
+                canRestoreHiddenWorkspaceWindows: true,
+                reassertHidden: false,
+                pendingParkWindowIds: [999]
+            )
         )
         XCTAssertTrue(confirmed.visibilityChanges.isEmpty)
     }
@@ -674,10 +682,12 @@ final class NiriScrollVisibilityTests: XCTestCase {
             windows: [window],
             frames: [:],
             hiddenHandles: [:],
-            engine: engine,
-            workspaceId: WorkspaceDescriptor.ID(),
-            canRestoreHiddenWorkspaceWindows: true,
-            reassertHidden: false
+            context: NiriLayoutDiffContext(
+                engine: engine,
+                workspaceId: WorkspaceDescriptor.ID(),
+                canRestoreHiddenWorkspaceWindows: true,
+                reassertHidden: false
+            )
         )
         XCTAssertTrue(withoutFrame.visibilityChanges.isEmpty)
 
@@ -685,10 +695,12 @@ final class NiriScrollVisibilityTests: XCTestCase {
             windows: [window],
             frames: [token: CGRect(x: 100, y: 16, width: 500, height: 500)],
             hiddenHandles: [:],
-            engine: engine,
-            workspaceId: WorkspaceDescriptor.ID(),
-            canRestoreHiddenWorkspaceWindows: true,
-            reassertHidden: false
+            context: NiriLayoutDiffContext(
+                engine: engine,
+                workspaceId: WorkspaceDescriptor.ID(),
+                canRestoreHiddenWorkspaceWindows: true,
+                reassertHidden: false
+            )
         )
         XCTAssertEqual(withFrame.visibilityChanges.count, 1)
         guard case let .show(shownToken) = withFrame.visibilityChanges[0] else {
@@ -729,10 +741,12 @@ final class NiriScrollVisibilityTests: XCTestCase {
             windows: windows,
             frames: [visibleToken: visibleFrame, hiddenToken: hiddenFrame],
             hiddenHandles: [hiddenToken: .left],
-            engine: engine,
-            workspaceId: workspaceId,
-            canRestoreHiddenWorkspaceWindows: true,
-            reassertHidden: false
+            context: NiriLayoutDiffContext(
+                engine: engine,
+                workspaceId: workspaceId,
+                canRestoreHiddenWorkspaceWindows: true,
+                reassertHidden: false
+            )
         )
 
         XCTAssertTrue(diff.frameChanges.isEmpty)

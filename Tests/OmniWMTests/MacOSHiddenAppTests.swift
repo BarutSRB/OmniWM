@@ -442,10 +442,10 @@ final class MacOSHiddenAppTests: XCTestCase {
         controller.axManager.unsuppressFrameWrites(entries)
 
         XCTAssertTrue(controller.axManager.macOSHiddenAppPIDs.contains(token.pid))
-        XCTAssertTrue(AppAXContext.isMacOSAppHidden(pid: token.pid))
+        XCTAssertTrue(AppAXContextRegistry.isMacOSAppHidden(pid: token.pid))
         controller.axManager.setMacOSAppHidden(false, pid: token.pid, entries: entries)
         XCTAssertFalse(controller.axManager.macOSHiddenAppPIDs.contains(token.pid))
-        XCTAssertFalse(AppAXContext.isMacOSAppHidden(pid: token.pid))
+        XCTAssertFalse(AppAXContextRegistry.isMacOSAppHidden(pid: token.pid))
     }
 
     func testHiddenParkPlanDoesNotPublishFalseSkyLightPosition() throws {

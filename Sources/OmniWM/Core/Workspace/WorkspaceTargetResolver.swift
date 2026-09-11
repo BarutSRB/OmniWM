@@ -30,7 +30,7 @@ struct WorkspaceTargetResolver {
                 return .failure(.invalidTarget)
             }
 
-            let matches = settings.workspaceConfigurations.filter {
+            let matches = settings.workspaces.configurations.filter {
                 $0.effectiveDisplayName.caseInsensitiveCompare(displayName) == .orderedSame
             }
 

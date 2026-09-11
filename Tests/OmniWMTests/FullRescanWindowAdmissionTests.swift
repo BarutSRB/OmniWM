@@ -37,25 +37,25 @@ private struct PendingFullRescanIdentityRebindFixture {
 final class FullRescanWindowAdmissionTests: XCTestCase {
     func testFullRescanProbesRegularAppsWithoutVisibleProcessEvidence() {
         XCTAssertTrue(
-            AXManager.shouldEnumerateForFullRescan(
+            AXWindowInspectionContext.shouldEnumerateForFullRescan(
                 activationPolicy: .regular,
                 hasDiscoveryEvidence: false
             )
         )
         XCTAssertTrue(
-            AXManager.shouldEnumerateForFullRescan(
+            AXWindowInspectionContext.shouldEnumerateForFullRescan(
                 activationPolicy: .accessory,
                 hasDiscoveryEvidence: true
             )
         )
         XCTAssertFalse(
-            AXManager.shouldEnumerateForFullRescan(
+            AXWindowInspectionContext.shouldEnumerateForFullRescan(
                 activationPolicy: .accessory,
                 hasDiscoveryEvidence: false
             )
         )
         XCTAssertFalse(
-            AXManager.shouldEnumerateForFullRescan(
+            AXWindowInspectionContext.shouldEnumerateForFullRescan(
                 activationPolicy: .prohibited,
                 hasDiscoveryEvidence: true
             )
@@ -295,7 +295,7 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         let owner = candidate(pid: ownerPID, windowId: windowId)
 
         XCTAssertTrue(
-            AXManager.shouldPreferFullRescanCandidate(
+            FullRescanCandidateSelection.shouldPreferFullRescanCandidate(
                 preserved,
                 over: owner,
                 activationPolicyByPID: [preservedPID: .regular, ownerPID: .regular],
@@ -449,14 +449,14 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         controller.axEventHandler.managedWindowIdentityRebindFinalizationProvider = { _, _ in true }
 
         await controller.axEventHandler.completeManagedWindowIdentityRebind(
-            from: oldWindow,
-            to: newWindow,
-            windowId: windowId,
-            retryGeneration: retainedState.generation,
-            executionOwner: executionOwner,
-            managedReplacementMetadata: managedReplacementMetadata,
-            admissionHints: admissionHints,
-            sizeConstraints: sizeConstraints
+            rebind: .init(
+                oldWindow: oldWindow,
+                newWindow: newWindow,
+                managedReplacementMetadata: managedReplacementMetadata,
+                admissionHints: admissionHints,
+                sizeConstraints: sizeConstraints
+            ),
+            execution: .init(windowId: windowId, generation: retainedState.generation, executionOwner: executionOwner)
         )
 
         XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
@@ -788,14 +788,18 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
 
         let completion = Task { @MainActor in
             await controller.axEventHandler.completeManagedWindowIdentityRebind(
-                from: oldWindow,
-                to: newWindow,
-                windowId: UInt32(restoredToken.windowId),
-                retryGeneration: retryState.generation,
-                executionOwner: executionOwner,
-                managedReplacementMetadata: managedReplacementMetadata,
-                admissionHints: admissionHints,
-                sizeConstraints: sizeConstraints
+                rebind: .init(
+                    oldWindow: oldWindow,
+                    newWindow: newWindow,
+                    managedReplacementMetadata: managedReplacementMetadata,
+                    admissionHints: admissionHints,
+                    sizeConstraints: sizeConstraints
+                ),
+                execution: .init(
+                    windowId: UInt32(restoredToken.windowId),
+                    generation: retryState.generation,
+                    executionOwner: executionOwner
+                )
             )
         }
         await fulfillment(of: [acknowledgementEntered], timeout: 2)
@@ -905,15 +909,20 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         XCTAssertTrue(
             controller.layoutRefreshController
                 .yieldToDeferredCreate(
-                    token: newToken,
-                    bundleId: bundleId,
-                    mode: .tiling,
-                    facts: facts,
+                    .init(
+                        token: newToken,
+                        bundleId: bundleId,
+                        mode: .tiling,
+                        facts: facts,
+                        entry: nil
+                    ),
                     scope: .all,
-                    capturedWindowServerInfoByWindowId: [
-                        newToken.windowId: replacementWindowInfo(token: newToken, frame: matchingFrame)
-                    ],
-                    entry: nil,
+                    capturedInventory: .init(infoByWindowId: [
+                        newToken.windowId: replacementWindowInfo(
+                            token: newToken,
+                            frame: matchingFrame
+                        )
+                    ]),
                     seenKeys: &seenKeys
                 )
         )
@@ -935,26 +944,30 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         XCTAssertFalse(
             controller.layoutRefreshController
                 .yieldToDeferredCreate(
-                    token: newToken,
-                    bundleId: bundleId,
-                    mode: .tiling,
-                    facts: facts,
+                    .init(
+                        token: newToken,
+                        bundleId: bundleId,
+                        mode: .tiling,
+                        facts: facts,
+                        entry: try XCTUnwrap(controller.workspaceManager.entry(for: oldToken))
+                    ),
                     scope: .all,
-                    capturedWindowServerInfoByWindowId: [:],
-                    entry: try XCTUnwrap(controller.workspaceManager.entry(for: oldToken)),
+                    capturedInventory: .init(infoByWindowId: [:]),
                     seenKeys: &rejectedSeenKeys
                 )
         )
         XCTAssertFalse(
             controller.layoutRefreshController
                 .yieldToDeferredCreate(
-                    token: WindowToken(pid: pid, windowId: newToken.windowId + 1),
-                    bundleId: bundleId,
-                    mode: .tiling,
-                    facts: facts,
+                    .init(
+                        token: WindowToken(pid: pid, windowId: newToken.windowId + 1),
+                        bundleId: bundleId,
+                        mode: .tiling,
+                        facts: facts,
+                        entry: nil
+                    ),
                     scope: .all,
-                    capturedWindowServerInfoByWindowId: [:],
-                    entry: nil,
+                    capturedInventory: .init(infoByWindowId: [:]),
                     seenKeys: &rejectedSeenKeys
                 )
         )
@@ -987,15 +1000,24 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         var seenKeys: Set<WindowToken> = []
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: replacementFacts(token: newToken, bundleId: bundleId, frame: frame),
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: replacementFacts(
+                        token: newToken,
+                        bundleId: bundleId,
+                        frame: frame
+                    ),
+                    entry: nil
+                ),
                 scope: .all,
-                capturedWindowServerInfoByWindowId: [
-                    newToken.windowId: replacementWindowInfo(token: newToken, frame: frame)
-                ],
-                entry: nil,
+                capturedInventory: .init(infoByWindowId: [
+                    newToken.windowId: replacementWindowInfo(
+                        token: newToken,
+                        frame: frame
+                    )
+                ]),
                 seenKeys: &seenKeys
             )
         )
@@ -1045,12 +1067,9 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
                     workspaceId: workspaceId,
                     source: .liveInvisible
                 ),
-                token: newToken,
+                identity: .init(token: newToken, axRef: WindowAdmissionTestSupport.axRef(for: newToken)),
                 windowId: UInt32(newToken.windowId),
-                axRef: WindowAdmissionTestSupport.axRef(for: newToken),
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: facts
+                candidate: .init(bundleId: bundleId, mode: .tiling, facts: facts)
             )
         )
         controller.layoutRefreshController.restoreNativeFullscreenAfterStructuralReplacement(
@@ -1099,15 +1118,24 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         var seenKeys: Set<WindowToken> = []
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: replacementFacts(token: newToken, bundleId: bundleId, frame: frame),
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: replacementFacts(
+                        token: newToken,
+                        bundleId: bundleId,
+                        frame: frame
+                    ),
+                    entry: nil
+                ),
                 scope: scope,
-                capturedWindowServerInfoByWindowId: [
-                    newToken.windowId: replacementWindowInfo(token: newToken, frame: frame)
-                ],
-                entry: nil,
+                capturedInventory: .init(infoByWindowId: [
+                    newToken.windowId: replacementWindowInfo(
+                        token: newToken,
+                        frame: frame
+                    )
+                ]),
                 seenKeys: &seenKeys
             )
         )
@@ -1240,15 +1268,24 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         var seenKeys: Set<WindowToken> = []
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: replacementFacts(token: newToken, bundleId: bundleId, frame: frame),
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: replacementFacts(
+                        token: newToken,
+                        bundleId: bundleId,
+                        frame: frame
+                    ),
+                    entry: nil
+                ),
                 scope: .all,
-                capturedWindowServerInfoByWindowId: [
-                    newToken.windowId: replacementWindowInfo(token: newToken, frame: frame)
-                ],
-                entry: nil,
+                capturedInventory: .init(infoByWindowId: [
+                    newToken.windowId: replacementWindowInfo(
+                        token: newToken,
+                        frame: frame
+                    )
+                ]),
                 seenKeys: &seenKeys
             )
         )
@@ -1312,16 +1349,27 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         var seenKeys: Set<WindowToken> = []
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: replacementFacts(token: newToken, bundleId: bundleId, frame: frame),
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: replacementFacts(
+                        token: newToken,
+                        bundleId: bundleId,
+                        frame: frame
+                    ),
+                    entry: nil
+                ),
                 scope: .all,
-                capturedWindowServerInfoByWindowId: [
-                    newToken.windowId: replacementWindowInfo(token: newToken, frame: frame)
-                ],
-                capturedWindowServerAuthoritativeWindowIds: [newToken.windowId],
-                entry: nil,
+                capturedInventory: .init(
+                    infoByWindowId: [
+                        newToken.windowId: replacementWindowInfo(
+                            token: newToken,
+                            frame: frame
+                        )
+                    ],
+                    authoritativeWindowIds: [newToken.windowId]
+                ),
                 seenKeys: &seenKeys
             )
         )
@@ -1354,21 +1402,23 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         XCTAssertNil(
             controller.axEventHandler.structuralReplacementMatch(
                 token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: facts,
-                capturedWindowServerInfoByWindowId: [:]
+                candidate: .init(
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: facts
+                ),
+                capturedInventory: .init(infoByWindowId: [:])
             )
         )
         XCTAssertEqual(
             controller.axEventHandler.structuralReplacementMatch(
                 token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: facts,
-                capturedWindowServerInfoByWindowId: [:],
-                capturedWindowServerAuthoritativeWindowIds: [oldToken.windowId],
-                capturedWindowServerAuthoritativePIDs: [pid]
+                candidate: .init(bundleId: bundleId, mode: .tiling, facts: facts),
+                capturedInventory: .init(
+                    infoByWindowId: [:],
+                    authoritativeWindowIds: [oldToken.windowId],
+                    authoritativePIDs: [pid]
+                )
             )?.token,
             oldToken
         )
@@ -1652,15 +1702,20 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         var seenKeys: Set<WindowToken> = []
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: facts,
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: facts,
+                    entry: nil
+                ),
                 scope: .all,
-                capturedWindowServerInfoByWindowId: [
-                    newToken.windowId: replacementWindowInfo(token: newToken, frame: newFrame)
-                ],
-                entry: nil,
+                capturedInventory: .init(infoByWindowId: [
+                    newToken.windowId: replacementWindowInfo(
+                        token: newToken,
+                        frame: newFrame
+                    )
+                ]),
                 seenKeys: &seenKeys
             )
         )
@@ -1675,14 +1730,16 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         XCTAssertTrue(protectedTokens.isEmpty)
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: nil,
-                factsAreDeferred: true,
-                facts: facts,
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: nil,
+                    factsAreDeferred: true,
+                    facts: facts,
+                    entry: nil
+                ),
                 scope: .all,
-                capturedWindowServerInfoByWindowId: [:],
-                entry: nil,
+                capturedInventory: .init(infoByWindowId: [:]),
                 seenKeys: &seenKeys
             )
         )
@@ -1738,15 +1795,20 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         var seenKeys: Set<WindowToken> = []
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: facts,
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: facts,
+                    entry: nil
+                ),
                 scope: .all,
-                capturedWindowServerInfoByWindowId: [
-                    newToken.windowId: replacementWindowInfo(token: newToken, frame: frame)
-                ],
-                entry: nil,
+                capturedInventory: .init(infoByWindowId: [
+                    newToken.windowId: replacementWindowInfo(
+                        token: newToken,
+                        frame: frame
+                    )
+                ]),
                 seenKeys: &seenKeys
             )
         )
@@ -1801,15 +1863,20 @@ final class FullRescanWindowAdmissionTests: XCTestCase {
         var seenKeys: Set<WindowToken> = []
         XCTAssertTrue(
             controller.layoutRefreshController.yieldToDeferredCreate(
-                token: newToken,
-                bundleId: bundleId,
-                mode: .tiling,
-                facts: facts,
+                .init(
+                    token: newToken,
+                    bundleId: bundleId,
+                    mode: .tiling,
+                    facts: facts,
+                    entry: nil
+                ),
                 scope: .all,
-                capturedWindowServerInfoByWindowId: [
-                    newToken.windowId: replacementWindowInfo(token: newToken, frame: frame)
-                ],
-                entry: nil,
+                capturedInventory: .init(infoByWindowId: [
+                    newToken.windowId: replacementWindowInfo(
+                        token: newToken,
+                        frame: frame
+                    )
+                ]),
                 seenKeys: &seenKeys
             )
         )

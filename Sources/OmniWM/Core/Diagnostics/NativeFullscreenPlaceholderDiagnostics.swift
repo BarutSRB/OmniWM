@@ -21,6 +21,15 @@ struct FullscreenLifecycleDiagnosticsSnapshot {
         let displayId: CGDirectDisplayID?
         let displayUUID: String?
         let displayShowingFullscreen: Bool?
+
+        func hiddenReason() -> String? {
+            if !workspaceVisible { return "workspace-inactive" }
+            if appHidden { return "app-hidden" }
+            if cornerHidden { return "corner-hidden" }
+            if displayShowingFullscreen == true { return "display-fullscreen-space" }
+            if displayShowingFullscreen == nil { return "display-context-unresolved" }
+            return nil
+        }
     }
 
     let records: [Record]
@@ -108,6 +117,17 @@ struct NativeFullscreenPanelDiagnostics {
             + " retryExhausted=\(captureRetryExhausted)"
     }
 
+    func presentationReason(expectedToken: WindowToken) -> String {
+        guard currentToken == expectedToken else { return "panel-token-mismatch" }
+        guard descriptorVisible else { return "panel-descriptor-hidden" }
+        guard panelFrame != nil else { return "geometry-rejected" }
+        guard frameSynchronized else { return "panel-frame-desync" }
+        guard onActiveSpace else { return "panel-off-active-space" }
+        if appliedVisible, !windowVisible { return "ordering-failed" }
+        guard appliedVisible, windowVisible else { return "panel-hidden" }
+        return "visible"
+    }
+
     private func optionalBool(_ value: Bool?) -> String {
         value.map(String.init) ?? "unknown"
     }
@@ -134,28 +154,12 @@ struct FullscreenPlaceholderDiagnosticsSnapshot {
     }
 
     func formatted() -> String {
-        let records = dictionary(
-            lifecycle.records,
-            key: \FullscreenLifecycleDiagnosticsSnapshot.Record.originalToken
-        )
-        let descriptors = dictionary(surface.descriptors, key: \NativeFullscreenPlaceholderUpdate.originalToken)
-        let applied = dictionary(surface.applied, key: \NativeFullscreenPlaceholderUpdate.originalToken)
-        let panelMap = dictionary(panels, key: \NativeFullscreenPanelDiagnostics.originalToken)
-        let slots = Dictionary(
-            grouping: surface.acceptedSlots,
-            by: \NativeFullscreenAcceptedSlotDiagnostics.originalToken
-        )
-        let tokens = Set(records.keys)
-            .union(descriptors.keys)
-            .union(slots.keys)
-            .union(applied.keys)
-            .union(panelMap.keys)
-            .sorted(by: tokenOrder)
+        let index = Index(lifecycle: lifecycle, surface: surface, panels: panels)
 
         var lines = [
-            "servicesStarted=\(servicesStarted) records=\(records.count) descriptors=\(descriptors.count)"
+            "servicesStarted=\(servicesStarted) records=\(index.records.count) descriptors=\(index.descriptors.count)"
                 + " acceptedProjections=\(surface.acceptedProjections.count)"
-                + " acceptedSlots=\(surface.acceptedSlots.count) applied=\(applied.count) panels=\(panelMap.count)"
+                + " acceptedSlots=\(surface.acceptedSlots.count) applied=\(index.applied.count) panels=\(index.panelMap.count)"
                 +
                 " appliedDuplicateStableIds=\(surface.appliedDuplicateOriginalTokens.map(token).joined(separator: ","))",
             "nativeFocusOwner=\(nativeFocusOwner(lifecycle.nativeFocusOwner))"
@@ -163,17 +167,17 @@ struct FullscreenPlaceholderDiagnosticsSnapshot {
                 + " renderableFocus=\(token(lifecycle.renderableFocusToken))"
         ]
         lines.append(contentsOf: surface.acceptedProjections.map(format(projection:)))
-        guard !tokens.isEmpty else {
+        guard !index.tokens.isEmpty else {
             lines.append("placeholders: none")
             return lines.joined(separator: "\n")
         }
 
-        for originalToken in tokens {
-            let record = records[originalToken]
-            let descriptor = descriptors[originalToken]
-            let tokenSlots = slots[originalToken] ?? []
-            let appliedEntry = applied[originalToken]
-            let panel = panelMap[originalToken]
+        for originalToken in index.tokens {
+            let record = index.records[originalToken]
+            let descriptor = index.descriptors[originalToken]
+            let tokenSlots = index.slots[originalToken] ?? []
+            let appliedEntry = index.applied[originalToken]
+            let panel = index.panelMap[originalToken]
             let surfaceReason = surface.resolutions.first { $0.originalToken == originalToken }?.reason
             lines.append(
                 "original=\(token(originalToken)) resolution="
@@ -212,26 +216,23 @@ struct FullscreenPlaceholderDiagnosticsSnapshot {
         if surfaceReason == .layoutNotNativeFullscreen, !record.entryPresent {
             return "entry-missing"
         }
-        if surfaceReason == .descriptorHidden {
-            if !record.workspaceVisible { return "workspace-inactive" }
-            if record.appHidden { return "app-hidden" }
-            if record.cornerHidden { return "corner-hidden" }
-            if record.displayShowingFullscreen == true { return "display-fullscreen-space" }
-            if record.displayShowingFullscreen == nil { return "display-context-unresolved" }
+        if surfaceReason == .descriptorHidden, let reason = record.hiddenReason() {
+            return reason
         }
         guard surfaceReason == .accepted else { return surfaceReason.rawValue }
+        return appliedPresentationReason(applied: applied, panel: panel, currentToken: record.currentToken)
+    }
+
+    private func appliedPresentationReason(
+        applied: NativeFullscreenPlaceholderUpdate?,
+        panel: NativeFullscreenPanelDiagnostics?,
+        currentToken: WindowToken
+    ) -> String {
         guard let applied else { return "applied-missing" }
-        guard applied.currentToken == record.currentToken else { return "applied-token-mismatch" }
+        guard applied.currentToken == currentToken else { return "applied-token-mismatch" }
         guard applied.visible else { return "applied-hidden" }
         guard let panel else { return "panel-missing" }
-        guard panel.currentToken == record.currentToken else { return "panel-token-mismatch" }
-        guard panel.descriptorVisible else { return "panel-descriptor-hidden" }
-        guard panel.panelFrame != nil else { return "geometry-rejected" }
-        guard panel.frameSynchronized else { return "panel-frame-desync" }
-        guard panel.onActiveSpace else { return "panel-off-active-space" }
-        if panel.appliedVisible, !panel.windowVisible { return "ordering-failed" }
-        guard panel.appliedVisible, panel.windowVisible else { return "panel-hidden" }
-        return "visible"
+        return panel.presentationReason(expectedToken: currentToken)
     }
 
     private func format(record: FullscreenLifecycleDiagnosticsSnapshot.Record?) -> String {
@@ -341,20 +342,53 @@ struct FullscreenPlaceholderDiagnosticsSnapshot {
         return "[\(values.joined(separator: ","))]:\(rawValue)"
     }
 
-    private func dictionary<Element, Key: Hashable>(
-        _ elements: [Element],
-        key: KeyPath<Element, Key>
-    ) -> [Key: Element] {
-        var result: [Key: Element] = [:]
-        result.reserveCapacity(elements.count)
-        for element in elements {
-            result[element[keyPath: key]] = element
-        }
-        return result
-    }
+    private struct Index {
+        let records: [WindowToken: FullscreenLifecycleDiagnosticsSnapshot.Record]
+        let descriptors: [WindowToken: NativeFullscreenPlaceholderUpdate]
+        let applied: [WindowToken: NativeFullscreenPlaceholderUpdate]
+        let panelMap: [WindowToken: NativeFullscreenPanelDiagnostics]
+        let slots: [WindowToken: [NativeFullscreenAcceptedSlotDiagnostics]]
+        let tokens: [WindowToken]
 
-    private func tokenOrder(_ lhs: WindowToken, _ rhs: WindowToken) -> Bool {
-        (lhs.pid, lhs.windowId) < (rhs.pid, rhs.windowId)
+        init(
+            lifecycle: FullscreenLifecycleDiagnosticsSnapshot,
+            surface: FullscreenSurfaceDiagnosticsSnapshot,
+            panels: [NativeFullscreenPanelDiagnostics]
+        ) {
+            records = Self.dictionary(
+                lifecycle.records,
+                key: \FullscreenLifecycleDiagnosticsSnapshot.Record.originalToken
+            )
+            descriptors = Self.dictionary(surface.descriptors, key: \NativeFullscreenPlaceholderUpdate.originalToken)
+            applied = Self.dictionary(surface.applied, key: \NativeFullscreenPlaceholderUpdate.originalToken)
+            panelMap = Self.dictionary(panels, key: \NativeFullscreenPanelDiagnostics.originalToken)
+            slots = Dictionary(
+                grouping: surface.acceptedSlots,
+                by: \NativeFullscreenAcceptedSlotDiagnostics.originalToken
+            )
+            tokens = Set(records.keys)
+                .union(descriptors.keys)
+                .union(slots.keys)
+                .union(applied.keys)
+                .union(panelMap.keys)
+                .sorted(by: Self.tokenOrder)
+        }
+
+        private static func dictionary<Element, Key: Hashable>(
+            _ elements: [Element],
+            key: KeyPath<Element, Key>
+        ) -> [Key: Element] {
+            var result: [Key: Element] = [:]
+            result.reserveCapacity(elements.count)
+            for element in elements {
+                result[element[keyPath: key]] = element
+            }
+            return result
+        }
+
+        private static func tokenOrder(_ lhs: WindowToken, _ rhs: WindowToken) -> Bool {
+            (lhs.pid, lhs.windowId) < (rhs.pid, rhs.windowId)
+        }
     }
 
     private func slotOrder(

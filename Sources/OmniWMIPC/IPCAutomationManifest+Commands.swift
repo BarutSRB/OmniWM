@@ -4,553 +4,449 @@
 import Foundation
 
 extension IPCAutomationManifest {
-    private static let directionArgument = IPCCommandArgumentDescriptor(
-        kind: .direction,
-        summary: "Direction argument."
-    )
-    private static let workspaceNumberArgument = IPCCommandArgumentDescriptor(
-        kind: .workspaceNumber,
-        summary: "Positive numeric workspace ID."
-    )
-    private static let slotNumberArgument = IPCCommandArgumentDescriptor(
-        kind: .workspaceNumber,
-        summary: "One-based position in the interaction monitor's ordered workspace list."
-    )
-    private static let columnIndexArgument = IPCCommandArgumentDescriptor(
-        kind: .columnIndex,
-        summary: "One-based column index."
-    )
-    private static let windowIndexArgument = IPCCommandArgumentDescriptor(
-        kind: .windowIndex,
-        summary: "One-based window index within the focused column."
-    )
-    private static let scratchpadIndexArgument = IPCCommandArgumentDescriptor(
-        kind: .scratchpadIndex,
-        summary: "Scratchpad slot from 1 to 10."
-    )
-    private static let layoutArgument = IPCCommandArgumentDescriptor(
-        kind: .layout,
-        summary: "Workspace layout selection."
-    )
-    private static let resizeAxisArgument = IPCCommandArgumentDescriptor(
-        kind: .resizeAxis,
-        summary: "Dwindle split axis."
-    )
-    private static let resizeOperationArgument = IPCCommandArgumentDescriptor(
-        kind: .resizeOperation,
-        summary: "Whether to grow or shrink."
-    )
-    private static let sizeChangeArgument = IPCCommandArgumentDescriptor(
-        kind: .sizeChange,
-        summary: "Size change such as 100, 50%, +10, or -10%."
-    )
-
-    private static func command(
-        _ commandWords: [String],
-        name: IPCCommandName,
-        summary: String,
-        arguments: [IPCCommandArgumentDescriptor] = [],
-        layoutCompatibility: IPCAutomationLayoutCompatibility = .shared
-    ) -> IPCCommandDescriptor {
-        IPCCommandDescriptor(
-            commandWords: commandWords,
-            name: name,
-            summary: summary,
-            arguments: arguments,
-            layoutCompatibility: layoutCompatibility
-        )
-    }
-
     public static let commandDescriptors: [IPCCommandDescriptor] = [
-        command(
-            ["focus"],
-            name: .focus,
+        .init(
+            name: .focus(.spatial),
             summary: "Focus spatially; Dwindle Up/Down traverse grouped tabs before edge fallback.",
-            arguments: [directionArgument]
+            arguments: [.direction]
         ),
-        command(
-            ["focus", "previous"],
-            name: .focusPrevious,
+        .init(
+            commandWords: ["focus", "previous"],
+            name: .focus(.previous),
             summary: "Focus the previously focused window."
         ),
-        command(
-            ["focus", "down-or-left"],
-            name: .focusDownOrLeft,
+        .init(
+            commandWords: ["focus", "down-or-left"],
+            name: .focus(.downOrLeft),
             summary: "Traverse backward through the active Niri workspace.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus", "up-or-right"],
-            name: .focusUpOrRight,
+        .init(
+            commandWords: ["focus", "up-or-right"],
+            name: .focus(.upOrRight),
             summary: "Traverse forward through the active Niri workspace.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-window-in-column"],
-            name: .focusWindowInColumn,
+        .init(
+            name: .focus(.windowInColumn),
             summary: "Focus a window in the focused Niri column by one-based index.",
-            arguments: [windowIndexArgument],
+            arguments: [.windowIndex],
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-window", "top"],
-            name: .focusWindowTop,
+        .init(
+            commandWords: ["focus-window", "top"],
+            name: .focus(.windowTop),
             summary: "Focus the top window in the focused Niri column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-window", "bottom"],
-            name: .focusWindowBottom,
+        .init(
+            commandWords: ["focus-window", "bottom"],
+            name: .focus(.windowBottom),
             summary: "Focus the bottom window in the focused Niri column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-window", "down-or-top"],
-            name: .focusWindowDownOrTop,
+        .init(
+            commandWords: ["focus-window", "down-or-top"],
+            name: .focus(.windowDownOrTop),
             summary: "Focus the next window in the active Niri column or Dwindle group, wrapping to the top."
         ),
-        command(
-            ["focus-window", "up-or-bottom"],
-            name: .focusWindowUpOrBottom,
+        .init(
+            commandWords: ["focus-window", "up-or-bottom"],
+            name: .focus(.windowUpOrBottom),
             summary: "Focus the previous window in the active Niri column or Dwindle group, wrapping to the bottom."
         ),
-        command(
-            ["focus-window-or-workspace-down"],
-            name: .focusWindowOrWorkspaceDown,
+        .init(
+            name: .focus(.windowOrWorkspaceDown),
             summary: "Focus down using the active Niri orientation; if no target exists, switch without wrapping to the workspace below.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-window-or-workspace-up"],
-            name: .focusWindowOrWorkspaceUp,
+        .init(
+            name: .focus(.windowOrWorkspaceUp),
             summary: "Focus up using the active Niri orientation; if no target exists, switch without wrapping to the workspace above.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-column"],
-            name: .focusColumn,
+        .init(
+            name: .focus(.column),
             summary: "Focus a Niri column by one-based index.",
-            arguments: [columnIndexArgument],
+            arguments: [.columnIndex],
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-column", "first"],
-            name: .focusColumnFirst,
+        .init(
+            commandWords: ["focus-column", "first"],
+            name: .focus(.columnFirst),
             summary: "Focus the first Niri column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["focus-column", "last"],
-            name: .focusColumnLast,
+        .init(
+            commandWords: ["focus-column", "last"],
+            name: .focus(.columnLast),
             summary: "Focus the last Niri column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["center-column"],
-            name: .centerColumn,
+        .init(
+            name: .focus(.centerColumn),
             summary: "Center the focused Niri column without changing focus.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["center-visible-columns"],
-            name: .centerVisibleColumns,
+        .init(
+            name: .focus(.centerVisibleColumns),
             summary: "Center the current block of fully visible Niri columns in the viewport.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["move"],
-            name: .move,
+        .init(
+            name: .windowMovement(.spatial),
             summary: "Move with layout-aware consume/expel or Dwindle join/extract behavior.",
-            arguments: [directionArgument]
+            arguments: [.direction]
         ),
-        command(
-            ["move-window-down"],
-            name: .moveWindowDown,
+        .init(
+            name: .windowMovement(.down),
             summary: "Reorder the focused window down by one without wrapping within its Niri column or Dwindle group."
         ),
-        command(
-            ["move-window-up"],
-            name: .moveWindowUp,
+        .init(
+            name: .windowMovement(.up),
             summary: "Reorder the focused window up by one without wrapping within its Niri column or Dwindle group."
         ),
-        command(
-            ["move-window-down-or-to-workspace-down"],
-            name: .moveWindowDownOrToWorkspaceDown,
+        .init(
+            name: .windowMovement(.downOrToWorkspaceDown),
             summary: "Move the focused Niri window down, or to the workspace below at the column edge.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["move-window-up-or-to-workspace-up"],
-            name: .moveWindowUpOrToWorkspaceUp,
+        .init(
+            name: .windowMovement(.upOrToWorkspaceUp),
             summary: "Move the focused Niri window up, or to the workspace above at the column edge.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["consume-or-expel-window-left"],
-            name: .consumeOrExpelWindowLeft,
+        .init(
+            name: .windowMovement(.consumeOrExpelLeft),
             summary: "Consume the focused Niri window into the column to the left, or expel it left from its column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["consume-or-expel-window-right"],
-            name: .consumeOrExpelWindowRight,
+        .init(
+            name: .windowMovement(.consumeOrExpelRight),
             summary: "Consume the focused Niri window into the column to the right, or expel it right from its column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["consume-window-into-column"],
-            name: .consumeWindowIntoColumn,
+        .init(
+            name: .windowMovement(.consumeIntoColumn),
             summary: "Consume the top window from the next Niri column into the focused column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["expel-window-from-column"],
-            name: .expelWindowFromColumn,
+        .init(
+            name: .windowMovement(.expelFromColumn),
             summary: "Expel the bottom window from the focused Niri column into a new following column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["switch-workspace"],
-            name: .switchWorkspace,
+        .init(
+            name: .workspace(.switchTo),
             summary: "Switch to a workspace on the interaction monitor by workspace ID.",
-            arguments: [workspaceNumberArgument]
+            arguments: [.workspaceNumber]
         ),
-        command(
-            ["switch-workspace", "next"],
-            name: .switchWorkspaceNext,
+        .init(
+            commandWords: ["switch-workspace", "next"],
+            name: .workspace(.next),
             summary: "Switch to the next workspace on the current monitor."
         ),
-        command(
-            ["switch-workspace", "prev"],
-            name: .switchWorkspacePrevious,
+        .init(
+            commandWords: ["switch-workspace", "prev"],
+            name: .workspace(.previous),
             summary: "Switch to the previous workspace on the current monitor."
         ),
-        command(
-            ["switch-workspace", "back-and-forth"],
-            name: .switchWorkspaceBackAndForth,
+        .init(
+            commandWords: ["switch-workspace", "back-and-forth"],
+            name: .workspace(.backAndForth),
             summary: "Switch to the previously active workspace on the current monitor."
         ),
-        command(
-            ["switch-workspace", "anywhere"],
-            name: .switchWorkspaceAnywhere,
+        .init(
+            commandWords: ["switch-workspace", "anywhere"],
+            name: .workspace(.switchAnywhere),
             summary: "Focus a workspace by workspace ID across all monitors.",
-            arguments: [workspaceNumberArgument]
+            arguments: [.workspaceNumber]
         ),
-        command(
-            ["switch-workspace", "slot"],
-            name: .switchWorkspaceSlot,
+        .init(
+            commandWords: ["switch-workspace", "slot"],
+            name: .workspace(.switchSlot),
             summary: "Switch to the workspace at a one-based position in the interaction monitor's workspace list.",
-            arguments: [slotNumberArgument]
+            arguments: [.slotNumber]
         ),
-        command(
-            ["move-to-workspace"],
-            name: .moveToWorkspace,
+        .init(
+            name: .workspace(.moveTo),
             summary: "Move the focused window to a workspace by workspace ID.",
-            arguments: [workspaceNumberArgument]
+            arguments: [.workspaceNumber]
         ),
-        command(
-            ["move-to-workspace", "up"],
-            name: .moveToWorkspaceUp,
+        .init(
+            commandWords: ["move-to-workspace", "up"],
+            name: .workspace(.moveUp),
             summary: "Move the focused window to the adjacent workspace above."
         ),
-        command(
-            ["move-to-workspace", "down"],
-            name: .moveToWorkspaceDown,
+        .init(
+            commandWords: ["move-to-workspace", "down"],
+            name: .workspace(.moveDown),
             summary: "Move the focused window to the adjacent workspace below."
         ),
-        command(
-            ["move-to-workspace", "on-monitor"],
-            name: .moveToWorkspaceOnMonitor,
+        .init(
+            commandWords: ["move-to-workspace", "on-monitor"],
+            name: .workspace(.moveToOnMonitor),
             summary: "Move the focused window to a workspace already assigned to the requested adjacent monitor.",
-            arguments: [workspaceNumberArgument, directionArgument]
+            arguments: [.workspaceNumber, .direction]
         ),
-        command(
-            ["move-to-workspace", "slot"],
-            name: .moveToWorkspaceSlot,
+        .init(
+            commandWords: ["move-to-workspace", "slot"],
+            name: .workspace(.moveToSlot),
             summary: "Move the focused window to the workspace at a one-based position in the interaction monitor's workspace list.",
-            arguments: [slotNumberArgument]
+            arguments: [.slotNumber]
         ),
-        command(
-            ["move-to-monitor"],
-            name: .moveToMonitor,
+        .init(
+            name: .workspace(.moveToMonitor),
             summary: "Move the focused window to the active workspace on the adjacent monitor.",
-            arguments: [directionArgument]
+            arguments: [.direction]
         ),
-        command(
-            ["focus-monitor", "prev"],
-            name: .focusMonitorPrevious,
+        .init(
+            commandWords: ["focus-monitor", "prev"],
+            name: .monitorFocus(.previous),
             summary: "Move interaction focus to the previous monitor."
         ),
-        command(
-            ["focus-monitor", "next"],
-            name: .focusMonitorNext,
+        .init(
+            commandWords: ["focus-monitor", "next"],
+            name: .monitorFocus(.next),
             summary: "Move interaction focus to the next monitor."
         ),
-        command(
-            ["focus-monitor", "last"],
-            name: .focusMonitorLast,
+        .init(
+            commandWords: ["focus-monitor", "last"],
+            name: .monitorFocus(.last),
             summary: "Move interaction focus back to the previous monitor."
         ),
-        command(
-            ["move-column"],
-            name: .moveColumn,
+        .init(
+            name: .column(.move),
             summary: "Move a Niri column horizontally or a complete Dwindle tile/group without monitor fallback.",
-            arguments: [directionArgument]
+            arguments: [.direction]
         ),
-        command(
-            ["move-column-to-first"],
-            name: .moveColumnToFirst,
+        .init(
+            name: .column(.moveToFirst),
             summary: "Move the focused Niri column to the first position.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["move-column-to-last"],
-            name: .moveColumnToLast,
+        .init(
+            name: .column(.moveToLast),
             summary: "Move the focused Niri column to the last position.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["move-column-to-index"],
-            name: .moveColumnToIndex,
+        .init(
+            name: .column(.moveToIndex),
             summary: "Move the focused Niri column to a one-based index.",
-            arguments: [columnIndexArgument],
+            arguments: [.columnIndex],
             layoutCompatibility: .niri
         ),
-        command(
-            ["move-column-to-workspace"],
-            name: .moveColumnToWorkspace,
+        .init(
+            name: .column(.moveToWorkspace),
             summary: "Move the focused Niri column to a Niri workspace by workspace ID.",
-            arguments: [workspaceNumberArgument],
+            arguments: [.workspaceNumber],
             layoutCompatibility: .niri
         ),
-        command(
-            ["move-column-to-workspace", "up"],
-            name: .moveColumnToWorkspaceUp,
+        .init(
+            commandWords: ["move-column-to-workspace", "up"],
+            name: .column(.moveToWorkspaceUp),
             summary: "Move the focused Niri column to the adjacent workspace above.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["move-column-to-workspace", "down"],
-            name: .moveColumnToWorkspaceDown,
+        .init(
+            commandWords: ["move-column-to-workspace", "down"],
+            name: .column(.moveToWorkspaceDown),
             summary: "Move the focused Niri column to the adjacent workspace below.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["toggle-column-tabbed"],
-            name: .toggleColumnTabbed,
+        .init(
+            name: .column(.toggleTabbed),
             summary: "Toggle tabbed mode for the focused Niri column.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["cycle-size", "forward"],
-            name: .cycleSizeForward,
+        .init(
+            commandWords: ["cycle-size", "forward"],
+            name: .sizing(.cycleSizeForward),
             summary: "Cycle layout sizing presets forward."
         ),
-        command(
-            ["cycle-size", "backward"],
-            name: .cycleSizeBackward,
+        .init(
+            commandWords: ["cycle-size", "backward"],
+            name: .sizing(.cycleSizeBackward),
             summary: "Cycle layout sizing presets backward."
         ),
-        command(
-            ["cycle-window-primary-span", "forward"],
-            name: .cycleWindowPrimarySpanForward,
+        .init(
+            commandWords: ["cycle-window-primary-span", "forward"],
+            name: .sizing(.cycleWindowPrimarySpanForward),
             summary: "Cycle Niri window primary-span presets forward.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["cycle-window-primary-span", "backward"],
-            name: .cycleWindowPrimarySpanBackward,
+        .init(
+            commandWords: ["cycle-window-primary-span", "backward"],
+            name: .sizing(.cycleWindowPrimarySpanBackward),
             summary: "Cycle Niri window primary-span presets backward.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["cycle-window-secondary-span", "forward"],
-            name: .cycleWindowSecondarySpanForward,
+        .init(
+            commandWords: ["cycle-window-secondary-span", "forward"],
+            name: .sizing(.cycleWindowSecondarySpanForward),
             summary: "Cycle Niri window secondary-span presets forward.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["cycle-window-secondary-span", "backward"],
-            name: .cycleWindowSecondarySpanBackward,
+        .init(
+            commandWords: ["cycle-window-secondary-span", "backward"],
+            name: .sizing(.cycleWindowSecondarySpanBackward),
             summary: "Cycle Niri window secondary-span presets backward.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["toggle-container-full-primary-span"],
-            name: .toggleContainerFullPrimarySpan,
+        .init(
+            name: .sizing(.toggleContainerFullPrimarySpan),
             summary: "Toggle full-primary-span mode for the focused Niri container.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["expand-container-to-available-primary-span"],
-            name: .expandContainerToAvailablePrimarySpan,
+        .init(
+            name: .sizing(.expandContainerToAvailablePrimarySpan),
             summary: "Expand the focused Niri container into available primary-axis space.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["reset-window-secondary-span"],
-            name: .resetWindowSecondarySpan,
+        .init(
+            name: .sizing(.resetWindowSecondarySpan),
             summary: "Reset the focused Niri window secondary span.",
             layoutCompatibility: .niri
         ),
-        command(
-            ["set-container-primary-span"],
-            name: .setContainerPrimarySpan,
+        .init(
+            name: .sizing(.setContainerPrimarySpan),
             summary: "Set or adjust the focused Niri container primary span.",
-            arguments: [sizeChangeArgument],
+            arguments: [.sizeChange],
             layoutCompatibility: .niri
         ),
-        command(
-            ["set-window-primary-span"],
-            name: .setWindowPrimarySpan,
+        .init(
+            name: .sizing(.setWindowPrimarySpan),
             summary: "Set or adjust the focused Niri window primary span.",
-            arguments: [sizeChangeArgument],
+            arguments: [.sizeChange],
             layoutCompatibility: .niri
         ),
-        command(
-            ["set-window-secondary-span"],
-            name: .setWindowSecondarySpan,
+        .init(
+            name: .sizing(.setWindowSecondarySpan),
             summary: "Set or adjust the focused Niri window secondary span.",
-            arguments: [sizeChangeArgument],
+            arguments: [.sizeChange],
             layoutCompatibility: .niri
         ),
-        command(
-            ["swap-workspace-with-monitor"],
+        .init(
             name: .swapWorkspaceWithMonitor,
             summary: "Swap the active workspace with the active workspace on an adjacent monitor.",
-            arguments: [directionArgument]
+            arguments: [.direction]
         ),
-        command(["balance-sizes"], name: .balanceSizes, summary: "Balance layout sizes in the active workspace."),
-        command(
-            ["move-to-root"],
-            name: .moveToRoot,
+        .init(
+            name: .dwindle(.balanceSizes),
+            summary: "Balance layout sizes in the active workspace."
+        ),
+        .init(
+            name: .dwindle(.moveToRoot),
             summary: "Move the selected Dwindle window to the root split.",
             layoutCompatibility: .dwindle
         ),
-        command(
-            ["toggle-split"],
-            name: .toggleSplit,
+        .init(
+            name: .dwindle(.toggleSplit),
             summary: "Toggle the active Dwindle split orientation.",
             layoutCompatibility: .dwindle
         ),
-        command(
-            ["swap-split"],
-            name: .swapSplit,
+        .init(
+            name: .dwindle(.swapSplit),
             summary: "Swap the active Dwindle split.",
             layoutCompatibility: .dwindle
         ),
-        command(
-            ["resize"],
-            name: .resize,
+        .init(
+            name: .dwindle(.resize),
             summary: "Resize the selected Dwindle window.",
-            arguments: [resizeAxisArgument, resizeOperationArgument],
+            arguments: [.resizeAxis, .resizeOperation],
             layoutCompatibility: .dwindle
         ),
-        command(
-            ["resize-focused"],
-            name: .resizeFocused,
+        .init(
+            name: .dwindle(.resizeFocused),
             summary: "Grow or shrink the focused Dwindle window.",
-            arguments: [resizeOperationArgument],
+            arguments: [.resizeOperation],
             layoutCompatibility: .dwindle
         ),
-        command(
-            ["preselect"],
-            name: .preselect,
+        .init(
+            name: .dwindle(.preselect),
             summary: "Set the Dwindle preselection direction.",
-            arguments: [directionArgument],
+            arguments: [.direction],
             layoutCompatibility: .dwindle
         ),
-        command(
-            ["preselect", "clear"],
-            name: .preselectClear,
+        .init(
+            commandWords: ["preselect", "clear"],
+            name: .dwindle(.preselectClear),
             summary: "Clear the Dwindle preselection.",
             layoutCompatibility: .dwindle
         ),
-        command(["open-command-palette"], name: .openCommandPalette, summary: "Toggle the command palette."),
-        command(
-            ["raise-all-floating-windows"],
+        .init(
+            name: .openCommandPalette,
+            summary: "Toggle the command palette."
+        ),
+        .init(
             name: .raiseAllFloatingWindows,
             summary: "Raise all visible floating windows."
         ),
-        command(
-            ["rescue-offscreen-windows"],
+        .init(
             name: .rescueOffscreenWindows,
             summary: "Clamp tracked floating windows back onto their visible monitors."
         ),
-        command(
-            ["toggle-focused-window-floating"],
-            name: .toggleFocusedWindowFloating,
+        .init(
+            name: .windowState(.toggleFloating),
             summary: "Toggle the focused managed window between tiled and floating."
         ),
-        command(
-            ["close-focused-window"],
-            name: .closeFocusedWindow,
+        .init(
+            name: .windowState(.close),
             summary: "Close the focused managed window through its close button."
         ),
-        command(
-            ["scratchpad", "assign"],
-            name: .scratchpadAssign,
+        .init(
+            commandWords: ["scratchpad", "assign"],
+            name: .scratchpad(.assign),
             summary: "Assign the focused managed window to a scratchpad, or remove it when already there.",
-            arguments: [scratchpadIndexArgument]
+            arguments: [.scratchpadIndex]
         ),
-        command(
-            ["scratchpad", "toggle"],
-            name: .scratchpadToggle,
+        .init(
+            commandWords: ["scratchpad", "toggle"],
+            name: .scratchpad(.toggle),
             summary: "Show or hide a scratchpad's windows.",
-            arguments: [scratchpadIndexArgument]
+            arguments: [.scratchpadIndex]
         ),
-        command(["open-menu-anywhere"], name: .openMenuAnywhere, summary: "Open the menu surface anywhere."),
-        command(
-            ["toggle-workspace-bar"],
-            name: .toggleWorkspaceBar,
+        .init(
+            name: .openMenuAnywhere,
+            summary: "Open the menu surface anywhere."
+        ),
+        .init(
+            name: .presentation(.workspaceBar),
             summary: "Toggle runtime workspace bar visibility."
         ),
-        command(["hidden-bar", "panel"], name: .hiddenBarPanel, summary: "Toggle the hidden-bar items panel."),
-        command(
-            ["toggle-quake-terminal"],
-            name: .toggleQuakeTerminal,
+        .init(
+            commandWords: ["hidden-bar", "panel"],
+            name: .presentation(.hiddenBar),
+            summary: "Toggle the hidden-bar items panel."
+        ),
+        .init(
+            name: .presentation(.quakeTerminal),
             summary: "Toggle the configured Quake terminal."
         ),
-        command(
-            ["toggle-workspace-layout"],
-            name: .toggleWorkspaceLayout,
+        .init(
+            name: .workspaceLayout(.toggle),
             summary: "Toggle the current workspace between Niri and Dwindle."
         ),
-        command(
-            ["set-workspace-layout"],
-            name: .setWorkspaceLayout,
+        .init(
+            name: .workspaceLayout(.set),
             summary: "Set the current workspace layout explicitly.",
-            arguments: [layoutArgument]
+            arguments: [.layout]
         ),
-        command(["toggle-fullscreen"], name: .toggleFullscreen, summary: "Toggle OmniWM-managed fullscreen."),
-        command(
-            ["toggle-native-fullscreen"],
-            name: .toggleNativeFullscreen,
+        .init(
+            name: .fullscreen(.managed),
+            summary: "Toggle OmniWM-managed fullscreen."
+        ),
+        .init(
+            name: .fullscreen(.native),
             summary: "Toggle native macOS fullscreen."
         ),
-        command(["toggle-overview"], name: .toggleOverview, summary: "Toggle the overview surface."),
-        command(
-            ["toggle-system-stats"],
-            name: .toggleSystemStats,
+        .init(
+            name: .presentation(.overview),
+            summary: "Toggle the overview surface."
+        ),
+        .init(
+            name: .presentation(.systemStats),
             summary: "Toggle the system stats popup when a workspace-bar System Stats button is available."
         )
     ]
-
-    public static func commandDescriptor(for name: IPCCommandName) -> IPCCommandDescriptor? {
-        commandDescriptors.first { $0.name == name }
-    }
-
-    public static func commandDescriptors(matching commandWords: [String]) -> [IPCCommandDescriptor] {
-        commandDescriptors
-            .sorted {
-                if $0.commandWords.count != $1.commandWords.count {
-                    return $0.commandWords.count > $1.commandWords.count
-                }
-                return $0.path < $1.path
-            }
-            .filter { descriptor in
-                guard commandWords.count >= descriptor.commandWords.count else { return false }
-                return Array(commandWords.prefix(descriptor.commandWords.count)) == descriptor.commandWords
-            }
-    }
 }

@@ -48,7 +48,7 @@ extension AXEventHandler {
                 workspaceId: workspaceId,
                 requestId: canceledRequest.requestId
             )
-            controller.abortScratchpadStacking(matching: canceledRequest.requestId)
+            controller.scratchpadStacking.abortScratchpadStacking(matching: canceledRequest.requestId)
         } else {
             _ = controller.workspaceManager.cancelCurrentManagedFocusRequest(
                 matching: token,

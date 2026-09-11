@@ -113,7 +113,7 @@ final class MetricsQueryContractTests: XCTestCase {
         XCTAssertEqual(MachTimebase(numerator: 1, denominator: 0).nanoseconds(fromMachTicks: 1), .max)
     }
 
-    func testRouterProjectsProcessCPUTimeThroughTheMachTimebase() {
+    func testQueryResultProjectsProcessCPUTimeThroughTheMachTimebase() {
         let process = ProcessResourceSnapshot(
             capturedAt: 0,
             energyNanojoules: 5,
@@ -141,7 +141,7 @@ final class MetricsQueryContractTests: XCTestCase {
             intervalMaxPhysicalFootprint: 0
         )
 
-        let result = IPCQueryRouter.metricsResult(
+        let result = IPCMetricsQueryResult(
             axWrites: .empty,
             displayTicks: DisplayTickMetrics(),
             layoutBuilds: (totalBuilds: 2, completedRelayoutCycles: 1),
@@ -164,7 +164,7 @@ final class MetricsQueryContractTests: XCTestCase {
         )
         XCTAssertEqual(result.layoutBuilds, IPCLayoutBuildMetrics(totalBuilds: 2, completedRelayoutCycles: 1))
         XCTAssertNil(
-            IPCQueryRouter.metricsResult(
+            IPCMetricsQueryResult(
                 axWrites: .empty,
                 displayTicks: DisplayTickMetrics(),
                 layoutBuilds: (totalBuilds: 0, completedRelayoutCycles: 0),
@@ -182,29 +182,35 @@ final class MetricsQueryContractTests: XCTestCase {
         let expectedMs = 1_000.0 / 120
         for _ in 0 ..< 8 {
             metrics.record(
-                intervalMs: expectedMs,
-                expectedMs: expectedMs,
-                workMs: 1.0,
-                hasPreviousTick: true,
-                entrySlackMs: 5.0,
-                completionSlackMs: 4.0
+                DisplayTickTiming(
+                    intervalMs: expectedMs,
+                    expectedMs: expectedMs,
+                    workMs: 1.0,
+                    entrySlackMs: 5.0,
+                    completionSlackMs: 4.0
+                ),
+                hasPreviousTick: true
             )
         }
         let gap = metrics.record(
-            intervalMs: expectedMs * 3,
-            expectedMs: expectedMs,
-            workMs: 1.0,
-            hasPreviousTick: true,
-            entrySlackMs: -2.5,
-            completionSlackMs: -3.5
+            DisplayTickTiming(
+                intervalMs: expectedMs * 3,
+                expectedMs: expectedMs,
+                workMs: 1.0,
+                entrySlackMs: -2.5,
+                completionSlackMs: -3.5
+            ),
+            hasPreviousTick: true
         )
         let overPeriod = metrics.record(
-            intervalMs: expectedMs,
-            expectedMs: expectedMs,
-            workMs: 20.0,
-            hasPreviousTick: true,
-            entrySlackMs: 7.0,
-            completionSlackMs: -13.0
+            DisplayTickTiming(
+                intervalMs: expectedMs,
+                expectedMs: expectedMs,
+                workMs: 20.0,
+                entrySlackMs: 7.0,
+                completionSlackMs: -13.0
+            ),
+            hasPreviousTick: true
         )
 
         XCTAssertEqual(
@@ -241,12 +247,14 @@ final class MetricsQueryContractTests: XCTestCase {
         let expectedMs = 1_000.0 / 144
 
         let classification = metrics.record(
-            intervalMs: expectedMs * 5,
-            expectedMs: expectedMs,
-            workMs: expectedMs * 5,
-            hasPreviousTick: true,
-            entrySlackMs: 1.0,
-            completionSlackMs: -30.0
+            DisplayTickTiming(
+                intervalMs: expectedMs * 5,
+                expectedMs: expectedMs,
+                workMs: expectedMs * 5,
+                entrySlackMs: 1.0,
+                completionSlackMs: -30.0
+            ),
+            hasPreviousTick: true
         )
 
         XCTAssertTrue(classification.timingAnomaly)
@@ -261,20 +269,24 @@ final class MetricsQueryContractTests: XCTestCase {
         let expectedMs = 1_000.0 / 120
 
         let pastTargetOnly = metrics.record(
-            intervalMs: expectedMs,
-            expectedMs: expectedMs,
-            workMs: expectedMs / 2,
-            hasPreviousTick: true,
-            entrySlackMs: -1.0,
-            completionSlackMs: -0.5
+            DisplayTickTiming(
+                intervalMs: expectedMs,
+                expectedMs: expectedMs,
+                workMs: expectedMs / 2,
+                entrySlackMs: -1.0,
+                completionSlackMs: -0.5
+            ),
+            hasPreviousTick: true
         )
         let firstTick = metrics.record(
-            intervalMs: expectedMs * 99,
-            expectedMs: expectedMs,
-            workMs: expectedMs / 2,
-            hasPreviousTick: false,
-            entrySlackMs: 3.0,
-            completionSlackMs: 2.0
+            DisplayTickTiming(
+                intervalMs: expectedMs * 99,
+                expectedMs: expectedMs,
+                workMs: expectedMs / 2,
+                entrySlackMs: 3.0,
+                completionSlackMs: 2.0
+            ),
+            hasPreviousTick: false
         )
 
         XCTAssertEqual(
@@ -300,27 +312,31 @@ final class MetricsQueryContractTests: XCTestCase {
         XCTAssertEqual(metrics.minCompletionSlackMicros, -500)
     }
 
-    func testRouterProjectsSignedSlackAndAnomalyPercent() {
+    func testQueryResultProjectsSignedSlackAndAnomalyPercent() {
         var ticks = DisplayTickMetrics()
         let expectedMs = 1_000.0 / 120
         ticks.record(
-            intervalMs: expectedMs,
-            expectedMs: expectedMs,
-            workMs: 1.0,
-            hasPreviousTick: true,
-            entrySlackMs: 6.0,
-            completionSlackMs: 5.0
+            DisplayTickTiming(
+                intervalMs: expectedMs,
+                expectedMs: expectedMs,
+                workMs: 1.0,
+                entrySlackMs: 6.0,
+                completionSlackMs: 5.0
+            ),
+            hasPreviousTick: true
         )
         ticks.record(
-            intervalMs: expectedMs * 4,
-            expectedMs: expectedMs,
-            workMs: 2.0,
-            hasPreviousTick: true,
-            entrySlackMs: -4.0,
-            completionSlackMs: -6.0
+            DisplayTickTiming(
+                intervalMs: expectedMs * 4,
+                expectedMs: expectedMs,
+                workMs: 2.0,
+                entrySlackMs: -4.0,
+                completionSlackMs: -6.0
+            ),
+            hasPreviousTick: true
         )
 
-        let result = IPCQueryRouter.metricsResult(
+        let result = IPCMetricsQueryResult(
             axWrites: .empty,
             displayTicks: ticks,
             layoutBuilds: (totalBuilds: 0, completedRelayoutCycles: 0),
@@ -346,7 +362,7 @@ final class MetricsQueryContractTests: XCTestCase {
         )
     }
 
-    func testRouterProjectsRegisteredContextIdentityIntoLiveRows() {
+    func testQueryResultProjectsRegisteredContextIdentityIntoLiveRows() {
         let metrics = AXWriteMetrics()
         let blender = AXWriteMetrics.ContextToken(pid: 4_242, callbackGeneration: 9)
         metrics.register(blender, app: "Blender", bundleId: "org.blenderfoundation.blender")
@@ -357,7 +373,7 @@ final class MetricsQueryContractTests: XCTestCase {
         metrics.record(retired, lane: .park, nanoseconds: 2_000_000, succeeded: true)
         metrics.retire(retired)
 
-        let result = IPCQueryRouter.metricsResult(
+        let result = IPCMetricsQueryResult(
             axWrites: metrics.snapshot(),
             displayTicks: DisplayTickMetrics(),
             layoutBuilds: (totalBuilds: 0, completedRelayoutCycles: 0),

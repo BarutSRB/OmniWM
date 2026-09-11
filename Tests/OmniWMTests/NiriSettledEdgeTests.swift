@@ -111,11 +111,13 @@ final class NiriSettledEdgeTests: XCTestCase {
                 windows: [.init(token: token, constraints: .unconstrained, hiddenState: nil, layoutReason: .standard)],
                 frames: [token: frame],
                 hiddenHandles: [:],
-                engine: fixture.engine,
-                workspaceId: fixture.workspaceId,
-                canRestoreHiddenWorkspaceWindows: true,
-                reassertHidden: true,
-                settledContext: state.map { (monitor, $0) }
+                context: NiriLayoutDiffContext(
+                    engine: fixture.engine,
+                    workspaceId: fixture.workspaceId,
+                    canRestoreHiddenWorkspaceWindows: true,
+                    reassertHidden: true,
+                    settledContext: state.map { (monitor, $0) }
+                )
             ).frameChanges.first)
         }
 

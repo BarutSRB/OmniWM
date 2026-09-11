@@ -337,7 +337,7 @@ final class ActiveLayoutRoutingTests: XCTestCase {
 
     func testFollowingMoveIntoDwindleDoesNotMutateDormantTargetNiriViewport() throws {
         let controller = makeController()
-        controller.settings.focusFollowsWindowToMonitor = true
+        controller.settings.focus.followsWindowToMonitor = true
         controller.niriLayoutHandler.enableNiriLayout()
         controller.dwindleLayoutHandler.enableDwindleLayout()
         let niriEngine = try XCTUnwrap(controller.niriEngine)
@@ -534,7 +534,7 @@ final class ActiveLayoutRoutingTests: XCTestCase {
         layoutType: LayoutType,
         controller: WMController
     ) throws -> WorkspaceDescriptor.ID {
-        controller.settings.workspaceConfigurations.append(WorkspaceConfiguration(name: name, layoutType: layoutType))
+        controller.settings.workspaces.configurations.append(WorkspaceConfiguration(name: name, layoutType: layoutType))
         controller.workspaceManager.applySettings()
         return try XCTUnwrap(controller.workspaceManager.workspaceId(named: name))
     }

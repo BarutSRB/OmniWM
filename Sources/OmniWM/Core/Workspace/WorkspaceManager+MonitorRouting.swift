@@ -31,11 +31,11 @@ extension WorkspaceManager {
     func adjacentMonitor(from monitorId: Monitor.ID, direction: Direction, wrapAround: Bool = false) -> Monitor? {
         guard let current = monitor(byId: monitorId) else { return nil }
 
-        if settings.monitorRoutingMode == .custom {
+        if settings.monitors.routingMode == .custom {
             switch MonitorRouting.gridAdjacent(
                 from: current,
                 direction: direction,
-                layout: MonitorRouting.layout(for: monitors, in: settings.monitorArrangements),
+                layout: MonitorRouting.layout(for: monitors, in: settings.monitors.arrangements),
                 monitors: monitors,
                 wrapAround: wrapAround
             ) {

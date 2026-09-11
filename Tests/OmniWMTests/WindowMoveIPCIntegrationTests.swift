@@ -167,9 +167,9 @@ final class WindowMoveIPCIntegrationTests: XCTestCase {
             autosaveEnabled: false
         )
         settings.animationsEnabled = false
-        settings.focusFollowsWindowToMonitor = followsFocus
-        settings.defaultLayoutType = .niri
-        settings.workspaceConfigurations = ["1", "2"].map { name in
+        settings.focus.followsWindowToMonitor = followsFocus
+        settings.workspaces.defaultLayoutType = .niri
+        settings.workspaces.configurations = ["1", "2"].map { name in
             WorkspaceConfiguration(name: name, monitorAssignment: .main, layoutType: .niri)
         }
 

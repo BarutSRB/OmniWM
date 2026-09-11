@@ -32,20 +32,16 @@ final class MouseContainmentTests: XCTestCase {
         let monitors = [bottom, top]
         let layout = [routing(1, "Bottom", 0, 0), routing(2, "Top", 1, 0)]
 
-        let upward = MouseContainment.evaluate(
+        let upward = MouseContainment(layout: layout, monitors: monitors).evaluate(
             location: CGPoint(x: 960, y: 1600),
             source: bottom,
             destination: top,
-            layout: layout,
-            monitors: monitors,
             margin: 1
         )
-        let downward = MouseContainment.evaluate(
+        let downward = MouseContainment(layout: layout, monitors: monitors).evaluate(
             location: CGPoint(x: 960, y: 400),
             source: top,
             destination: bottom,
-            layout: layout,
-            monitors: monitors,
             margin: 1
         )
 
@@ -59,12 +55,10 @@ final class MouseContainmentTests: XCTestCase {
         let monitors = [left, right]
         let layout = [routing(1, "Left", 0, 0), routing(2, "Right", 1, 0)]
 
-        let verdict = MouseContainment.evaluate(
+        let verdict = MouseContainment(layout: layout, monitors: monitors).evaluate(
             location: CGPoint(x: 1925, y: 500),
             source: left,
             destination: right,
-            layout: layout,
-            monitors: monitors,
             margin: 1
         )
 
@@ -82,12 +76,10 @@ final class MouseContainmentTests: XCTestCase {
             routing(3, "Right", 2, 0)
         ]
 
-        let verdict = MouseContainment.evaluate(
+        let verdict = MouseContainment(layout: layout, monitors: monitors).evaluate(
             location: CGPoint(x: 2500, y: 500),
             source: left,
             destination: right,
-            layout: layout,
-            monitors: monitors,
             margin: 2
         )
 
@@ -100,36 +92,32 @@ final class MouseContainmentTests: XCTestCase {
         let monitors = [source, destination]
 
         XCTAssertEqual(
-            MouseContainment.evaluate(
+            MouseContainment(layout: [routing(1, "Source", 0, 0)], monitors: monitors).evaluate(
                 location: CGPoint(x: 500, y: 1500),
                 source: source,
                 destination: destination,
-                layout: [routing(1, "Source", 0, 0)],
-                monitors: monitors,
                 margin: 2
             ),
             .allow
         )
         XCTAssertEqual(
-            MouseContainment.evaluate(
-                location: CGPoint(x: 500, y: 1500),
-                source: source,
-                destination: destination,
-                layout: [routing(1, "Source", 0, 0), routing(2, "Destination", 0, 0)],
-                monitors: monitors,
-                margin: 2
-            ),
+            MouseContainment(layout: [routing(1, "Source", 0, 0), routing(2, "Destination", 0, 0)], monitors: monitors)
+                .evaluate(
+                    location: CGPoint(x: 500, y: 1500),
+                    source: source,
+                    destination: destination,
+                    margin: 2
+                ),
             .allow
         )
         XCTAssertEqual(
-            MouseContainment.evaluate(
-                location: CGPoint(x: 500, y: 1500),
-                source: source,
-                destination: destination,
-                layout: [routing(1, "Source", 0, 0), routing(2, "Destination", 1, 1)],
-                monitors: monitors,
-                margin: 2
-            ),
+            MouseContainment(layout: [routing(1, "Source", 0, 0), routing(2, "Destination", 1, 1)], monitors: monitors)
+                .evaluate(
+                    location: CGPoint(x: 500, y: 1500),
+                    source: source,
+                    destination: destination,
+                    margin: 2
+                ),
             .allow
         )
     }
@@ -140,23 +128,19 @@ final class MouseContainmentTests: XCTestCase {
         let layout = [routing(1, "First", 0, 0), routing(2, "Second", 1, 0)]
 
         XCTAssertEqual(
-            MouseContainment.evaluate(
+            MouseContainment(layout: layout, monitors: [first, second]).evaluate(
                 location: CGPoint(x: 500, y: 500),
                 source: first,
                 destination: first,
-                layout: layout,
-                monitors: [first, second],
                 margin: 2
             ),
             .allow
         )
         XCTAssertEqual(
-            MouseContainment.evaluate(
+            MouseContainment(layout: layout, monitors: [first, second]).evaluate(
                 location: CGPoint(x: 500, y: 500),
                 source: first,
                 destination: second,
-                layout: layout,
-                monitors: [first, second],
                 margin: 2
             ),
             .allow
@@ -169,12 +153,10 @@ final class MouseContainmentTests: XCTestCase {
         let monitors = [source, destination]
         let layout = [routing(1, "Source", 0, 0), routing(2, "Destination", 1, 0)]
 
-        let verdict = MouseContainment.evaluate(
+        let verdict = MouseContainment(layout: layout, monitors: monitors).evaluate(
             location: CGPoint(x: 600, y: 2500),
             source: source,
             destination: destination,
-            layout: layout,
-            monitors: monitors,
             margin: 4
         )
 

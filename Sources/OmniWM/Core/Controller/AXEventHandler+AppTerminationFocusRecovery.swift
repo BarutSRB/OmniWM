@@ -43,45 +43,7 @@ extension AXEventHandler {
         guard origin == .external, let controller else { return false }
 
         if let open = controller.intentLedger.openAppTerminationFocusRecovery() {
-            if pid == open.payload.preferredTiledToken.pid {
-                return false
-            }
-            if hasExplicitFocusIntent(forPID: pid) {
-                cancelAppTerminationFocusRecovery(open.intent.id)
-                return false
-            }
-            if pid == open.payload.departingToken.pid {
-                return true
-            }
-
-            switch open.payload.phase {
-            case let .verifying(candidatePID, _, _):
-                guard pid == candidatePID else {
-                    cancelAppTerminationFocusRecovery(open.intent.id)
-                    return false
-                }
-                return true
-
-            case let .recovering(fallbackPID):
-                guard let fallbackPID else {
-                    controller.intentLedger.updateAppTerminationFocusRecovery(id: open.intent.id) {
-                        $0.phase = .recovering(fallbackPID: pid)
-                    }
-                    return true
-                }
-                guard pid == fallbackPID else {
-                    cancelAppTerminationFocusRecovery(open.intent.id)
-                    return false
-                }
-                return true
-
-            case let .retiring(fallbackPID):
-                guard fallbackPID == nil || pid == fallbackPID else {
-                    cancelAppTerminationFocusRecovery(open.intent.id)
-                    return false
-                }
-                return true
-            }
+            return handleExistingAppTerminationFocusActivation(pid: pid, open: open, controller: controller)
         }
 
         guard let departingToken = controller.workspaceManager.nativeManagedFocusToken,
@@ -127,27 +89,7 @@ extension AXEventHandler {
         if let open = controller.intentLedger.openAppTerminationFocusRecovery(),
            open.payload.departingToken.pid == pid
         {
-            guard !open.payload.terminationHandled else { return nil }
-            let resolvedFallbackPID = appTerminationFallbackPID(
-                fallbackPID,
-                payload: open.payload
-            ) ?? appTerminationFallbackPID(
-                open.payload.phase.candidatePID,
-                payload: open.payload
-            )
-            let payload = AppTerminationFocusRecoveryPayload(
-                departingToken: open.payload.departingToken,
-                workspaceId: open.payload.workspaceId,
-                preferredTiledToken: open.payload.preferredTiledToken,
-                phase: .recovering(fallbackPID: resolvedFallbackPID),
-                terminationHandled: true
-            )
-            let intent = controller.intentLedger.registerAppTerminationFocusRecovery(payload)
-            controller.deadlineWheel.schedule(
-                intentId: intent.id,
-                after: Self.appTerminationFocusRecoveryTimeout
-            )
-            return (payload.workspaceId, payload.preferredTiledToken)
+            return resumeAppTerminationFocusRecovery(open.payload, fallbackPID: fallbackPID, controller: controller)
         }
 
         guard let departingToken = controller.workspaceManager.nativeManagedFocusToken,
@@ -195,49 +137,8 @@ extension AXEventHandler {
         }
 
         switch payload.phase {
-        case let .verifying(candidatePID, source, callbackGeneration):
-            if hasExplicitFocusIntent(forPID: candidatePID) {
-                _ = controller.intentLedger.markExpired(id: intentId)
-                handleAppActivation(
-                    pid: candidatePID,
-                    source: source,
-                    origin: .appTerminationProbe,
-                    callbackGeneration: callbackGeneration
-                )
-                return
-            }
-            if applicationIsTerminatedProvider(payload.departingToken.pid) {
-                let recoveryPayload = AppTerminationFocusRecoveryPayload(
-                    departingToken: payload.departingToken,
-                    workspaceId: payload.workspaceId,
-                    preferredTiledToken: payload.preferredTiledToken,
-                    phase: .recovering(fallbackPID: candidatePID)
-                )
-                let recoveryIntent = controller.intentLedger.registerAppTerminationFocusRecovery(
-                    recoveryPayload
-                )
-                controller.deadlineWheel.schedule(
-                    intentId: recoveryIntent.id,
-                    after: Self.appTerminationFocusRecoveryTimeout
-                )
-                if !EventIntake.post(
-                    .appTerminated(
-                        pid: payload.departingToken.pid,
-                        frontmostPID: candidatePID
-                    )
-                ) {
-                    cancelAppTerminationFocusRecovery(recoveryIntent.id)
-                }
-                return
-            }
-
-            _ = controller.intentLedger.markExpired(id: intentId)
-            handleAppActivation(
-                pid: candidatePID,
-                source: source,
-                origin: .appTerminationProbe,
-                callbackGeneration: callbackGeneration
-            )
+        case .verifying:
+            verifyAppTerminationRecovery(intentId: intentId, payload: payload, controller: controller)
 
         case let .recovering(fallbackPID):
             _ = controller.intentLedger.markExpired(id: intentId)
@@ -332,5 +233,131 @@ extension AppTerminationFocusRecoveryPhase {
              let .retiring(fallbackPID):
             fallbackPID
         }
+    }
+}
+
+extension AXEventHandler {
+    private func handleExistingAppTerminationFocusActivation(
+        pid: pid_t,
+        open: (intent: Intent, payload: AppTerminationFocusRecoveryPayload),
+        controller: WMController
+    ) -> Bool {
+        if pid == open.payload.preferredTiledToken.pid {
+            return false
+        }
+        if hasExplicitFocusIntent(forPID: pid) {
+            cancelAppTerminationFocusRecovery(open.intent.id)
+            return false
+        }
+        if pid == open.payload.departingToken.pid {
+            return true
+        }
+
+        switch open.payload.phase {
+        case let .verifying(candidatePID, _, _):
+            guard pid == candidatePID else {
+                cancelAppTerminationFocusRecovery(open.intent.id)
+                return false
+            }
+            return true
+
+        case let .recovering(fallbackPID):
+            guard let fallbackPID else {
+                controller.intentLedger.updateAppTerminationFocusRecovery(id: open.intent.id) {
+                    $0.phase = .recovering(fallbackPID: pid)
+                }
+                return true
+            }
+            guard pid == fallbackPID else {
+                cancelAppTerminationFocusRecovery(open.intent.id)
+                return false
+            }
+            return true
+
+        case let .retiring(fallbackPID):
+            guard fallbackPID == nil || pid == fallbackPID else {
+                cancelAppTerminationFocusRecovery(open.intent.id)
+                return false
+            }
+            return true
+        }
+    }
+
+    private func resumeAppTerminationFocusRecovery(
+        _ pending: AppTerminationFocusRecoveryPayload,
+        fallbackPID: pid_t?,
+        controller: WMController
+    ) -> (workspaceId: WorkspaceDescriptor.ID, preferredToken: WindowToken)? {
+        guard !pending.terminationHandled else { return nil }
+        let resolvedFallbackPID = appTerminationFallbackPID(
+            fallbackPID,
+            payload: pending
+        ) ?? appTerminationFallbackPID(
+            pending.phase.candidatePID,
+            payload: pending
+        )
+        let payload = AppTerminationFocusRecoveryPayload(
+            departingToken: pending.departingToken,
+            workspaceId: pending.workspaceId,
+            preferredTiledToken: pending.preferredTiledToken,
+            phase: .recovering(fallbackPID: resolvedFallbackPID),
+            terminationHandled: true
+        )
+        let intent = controller.intentLedger.registerAppTerminationFocusRecovery(payload)
+        controller.deadlineWheel.schedule(
+            intentId: intent.id,
+            after: Self.appTerminationFocusRecoveryTimeout
+        )
+        return (payload.workspaceId, payload.preferredTiledToken)
+    }
+
+    private func verifyAppTerminationRecovery(
+        intentId: IntentID,
+        payload: AppTerminationFocusRecoveryPayload,
+        controller: WMController
+    ) {
+        guard case let .verifying(candidatePID, source, callbackGeneration) = payload.phase else { return }
+        if hasExplicitFocusIntent(forPID: candidatePID) {
+            _ = controller.intentLedger.markExpired(id: intentId)
+            handleAppActivation(
+                pid: candidatePID,
+                source: source,
+                origin: .appTerminationProbe,
+                callbackGeneration: callbackGeneration
+            )
+            return
+        }
+        if applicationIsTerminatedProvider(payload.departingToken.pid) {
+            let recoveryPayload = AppTerminationFocusRecoveryPayload(
+                departingToken: payload.departingToken,
+                workspaceId: payload.workspaceId,
+                preferredTiledToken: payload.preferredTiledToken,
+                phase: .recovering(fallbackPID: candidatePID)
+            )
+            let recoveryIntent = controller.intentLedger.registerAppTerminationFocusRecovery(
+                recoveryPayload
+            )
+            controller.deadlineWheel.schedule(
+                intentId: recoveryIntent.id,
+                after: Self.appTerminationFocusRecoveryTimeout
+            )
+            if !EventIntake.post(
+                .application(.terminated(
+                    pid: payload.departingToken.pid,
+                    frontmostPID: candidatePID
+                ))
+            ) {
+                cancelAppTerminationFocusRecovery(recoveryIntent.id)
+            }
+            return
+        }
+
+        _ = controller.intentLedger.markExpired(id: intentId)
+        handleAppActivation(
+            pid: candidatePID,
+            source: source,
+            origin: .appTerminationProbe,
+            callbackGeneration: callbackGeneration
+        )
     }
 }

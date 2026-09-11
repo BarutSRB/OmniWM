@@ -62,8 +62,8 @@ final class MonitorSetupPresentationTests: XCTestCase {
             WorkspaceConfiguration(name: "1", monitorAssignment: .main),
             WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
         ]
-        settings.monitorRoutingMode = .macOS
-        settings.mouseWarpEnabled = true
+        settings.monitors.routingMode = .macOS
+        settings.pointer.enabled = true
 
         settings.applyMonitorSetup(
             routingSettings: routing,
@@ -72,10 +72,10 @@ final class MonitorSetupPresentationTests: XCTestCase {
             workspaceConfigurations: workspaceConfigurations
         )
 
-        XCTAssertEqual(settings.monitorArrangements.map(\.monitors), [routing])
-        XCTAssertEqual(settings.monitorRoutingMode, .custom)
-        XCTAssertFalse(settings.mouseWarpEnabled)
-        XCTAssertEqual(settings.workspaceConfigurations, workspaceConfigurations)
+        XCTAssertEqual(settings.monitors.arrangements.map(\.monitors), [routing])
+        XCTAssertEqual(settings.monitors.routingMode, .custom)
+        XCTAssertFalse(settings.pointer.enabled)
+        XCTAssertEqual(settings.workspaces.configurations, workspaceConfigurations)
     }
 
     func testApplyMonitorSetupCreatesExactSubsetWithoutChangingLargerArrangement() throws {
@@ -90,7 +90,7 @@ final class MonitorSetupPresentationTests: XCTestCase {
             mouseWarpEnabled: true,
             workspaceConfigurations: []
         )
-        let original = try XCTUnwrap(settings.monitorArrangements.first)
+        let original = try XCTUnwrap(settings.monitors.arrangements.first)
         let connected = Array(displays.prefix(2))
         var subsetRouting = MonitorRouting.seedLayout(from: connected)
         subsetRouting[1].gridColumn = 0
@@ -103,12 +103,12 @@ final class MonitorSetupPresentationTests: XCTestCase {
             workspaceConfigurations: []
         )
 
-        XCTAssertEqual(settings.monitorArrangements.count, 2)
-        XCTAssertEqual(settings.monitorArrangements[0], original)
-        XCTAssertEqual(settings.monitorArrangements[1].monitors, subsetRouting)
-        XCTAssertNotEqual(settings.monitorArrangements[1].id, original.id)
+        XCTAssertEqual(settings.monitors.arrangements.count, 2)
+        XCTAssertEqual(settings.monitors.arrangements[0], original)
+        XCTAssertEqual(settings.monitors.arrangements[1].monitors, subsetRouting)
+        XCTAssertNotEqual(settings.monitors.arrangements[1].id, original.id)
 
-        let subsetID = settings.monitorArrangements[1].id
+        let subsetID = settings.monitors.arrangements[1].id
         let resetRouting = MonitorRouting.seedLayout(from: connected)
         settings.applyMonitorSetup(
             routingSettings: resetRouting,
@@ -117,11 +117,11 @@ final class MonitorSetupPresentationTests: XCTestCase {
             workspaceConfigurations: []
         )
 
-        XCTAssertEqual(settings.monitorArrangements.count, 2)
-        XCTAssertEqual(settings.monitorArrangements[0], original)
-        XCTAssertEqual(settings.monitorArrangements[1].id, subsetID)
-        XCTAssertEqual(settings.monitorArrangements[1].monitors, resetRouting)
-        XCTAssertFalse(settings.mouseWarpEnabled)
+        XCTAssertEqual(settings.monitors.arrangements.count, 2)
+        XCTAssertEqual(settings.monitors.arrangements[0], original)
+        XCTAssertEqual(settings.monitors.arrangements[1].id, subsetID)
+        XCTAssertEqual(settings.monitors.arrangements[1].monitors, resetRouting)
+        XCTAssertFalse(settings.pointer.enabled)
     }
 
     func testNavigationRequestIsConsumedOnceAndSelectsMonitors() {

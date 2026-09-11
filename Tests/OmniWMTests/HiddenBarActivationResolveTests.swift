@@ -52,7 +52,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
     }
 
     func testMissingCachedIdentityRejectsActivation() {
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: nil,
             cachedIcons: [:],
@@ -62,7 +62,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
     }
 
     func testAuthoritativeEmptyResolutionRejectsActivation() {
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [item(ordinal: 0, identity: identity("a"))],
             cachedIcons: [:],
@@ -72,13 +72,13 @@ final class HiddenBarActivationResolveTests: XCTestCase {
     }
 
     func testAuthoritativeEmptyRequiresResolutionDeadlineGrace() {
-        XCTAssertFalse(MenuBarItemLocator.shouldAcceptAuthoritativeEmpty(
+        XCTAssertFalse(MenuBarItemSampleTracker.shouldAcceptAuthoritativeEmpty(
             continuouslyEmptyFor: .milliseconds(50)
         ))
-        XCTAssertFalse(MenuBarItemLocator.shouldAcceptAuthoritativeEmpty(
+        XCTAssertFalse(MenuBarItemSampleTracker.shouldAcceptAuthoritativeEmpty(
             continuouslyEmptyFor: .milliseconds(1999)
         ))
-        XCTAssertTrue(MenuBarItemLocator.shouldAcceptAuthoritativeEmpty(
+        XCTAssertTrue(MenuBarItemSampleTracker.shouldAcceptAuthoritativeEmpty(
             continuouslyEmptyFor: .seconds(2)
         ))
     }
@@ -93,7 +93,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            HiddenBarController.activationTarget(
+            HiddenBarActivationPolicy.activationTarget(
                 for: key(0),
                 cachedItems: cached,
                 cachedIcons: [:],
@@ -110,7 +110,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
         let fresh = [item(ordinal: 0, identity: b)]
 
         XCTAssertEqual(
-            HiddenBarController.activationTarget(
+            HiddenBarActivationPolicy.activationTarget(
                 for: key(1),
                 cachedItems: cached,
                 cachedIcons: [:],
@@ -127,7 +127,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
         let fresh = [item(ordinal: 0, identity: identity("b")), item(ordinal: 1, identity: a)]
 
         XCTAssertEqual(
-            HiddenBarController.activationTarget(
+            HiddenBarActivationPolicy.activationTarget(
                 for: key(0),
                 cachedItems: cached,
                 cachedIcons: [:],
@@ -140,7 +140,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testDuplicateSemanticIdentityRejectsAmbiguousActivation() {
         let duplicate = identity("duplicate")
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [item(ordinal: 0, identity: duplicate)],
             cachedIcons: [:],
@@ -154,7 +154,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testDuplicateCachedSemanticIdentityRejectsAmbiguousActivation() {
         let duplicate = identity("duplicate")
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [
                 item(ordinal: 0, identity: duplicate),
@@ -168,7 +168,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testSemanticMismatchDoesNotFallBackToMatchingPixels() {
         let red = icon(red: 1)
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [item(ordinal: 0, identity: identity("cached"))],
             cachedIcons: [key(0): red],
@@ -184,7 +184,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
         let fresh = [item(ordinal: 0), item(ordinal: 1)]
 
         XCTAssertEqual(
-            HiddenBarController.activationTarget(
+            HiddenBarActivationPolicy.activationTarget(
                 for: key(0),
                 cachedItems: cached,
                 cachedIcons: [key(0): red, key(1): green],
@@ -197,7 +197,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testDuplicatePixelIdentityRejectsAmbiguousActivation() {
         let red = icon(red: 1)
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [item(ordinal: 0)],
             cachedIcons: [key(0): red],
@@ -208,7 +208,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testDuplicateCachedPixelIdentityRejectsAmbiguousActivation() {
         let red = icon(red: 1)
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [item(ordinal: 0), item(ordinal: 1)],
             cachedIcons: [key(0): red, key(1): icon(red: 1)],
@@ -219,7 +219,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testIncompletePixelSnapshotRejectsActivation() {
         let red = icon(red: 1)
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [item(ordinal: 0), item(ordinal: 1)],
             cachedIcons: [key(0): red],
@@ -230,7 +230,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testChangedProcessRejectsActivation() {
         let stableIdentity = identity("a")
-        XCTAssertNil(HiddenBarController.activationTarget(
+        XCTAssertNil(HiddenBarActivationPolicy.activationTarget(
             for: key(0),
             cachedItems: [item(ordinal: 0, identity: stableIdentity)],
             cachedIcons: [:],
@@ -242,7 +242,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
     func testActivationOwnerPrefersSelectedCachedPIDAcrossMultipleProcesses() {
         let selected = item(ordinal: 0, pid: 42)
         XCTAssertEqual(
-            HiddenBarController.activationOwner(
+            HiddenBarActivationPolicy.activationOwner(
                 bundleID: bundleID,
                 selectedItem: selected,
                 cachedItems: [selected],
@@ -256,7 +256,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
     }
 
     func testActivationOwnerRejectsAmbiguousUncachedProcesses() {
-        XCTAssertNil(HiddenBarController.activationOwner(
+        XCTAssertNil(HiddenBarActivationPolicy.activationOwner(
             bundleID: bundleID,
             selectedItem: nil,
             cachedItems: nil,
@@ -269,7 +269,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testActivationOwnerUsesKnownBundlePIDWhenSelectedItemIsMissing() {
         XCTAssertEqual(
-            HiddenBarController.activationOwner(
+            HiddenBarActivationPolicy.activationOwner(
                 bundleID: bundleID,
                 selectedItem: nil,
                 cachedItems: [item(ordinal: 1, pid: 42)],
@@ -284,7 +284,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
 
     func testSoleUncachedProcessCannotAuthoritativelyClearItems() {
         XCTAssertEqual(
-            HiddenBarController.activationOwner(
+            HiddenBarActivationPolicy.activationOwner(
                 bundleID: bundleID,
                 selectedItem: nil,
                 cachedItems: nil,
@@ -297,7 +297,7 @@ final class HiddenBarActivationResolveTests: XCTestCase {
     }
 
     func testStaleCachedOwnerDoesNotFallBackToAnotherProcess() {
-        XCTAssertNil(HiddenBarController.activationOwner(
+        XCTAssertNil(HiddenBarActivationPolicy.activationOwner(
             bundleID: bundleID,
             selectedItem: nil,
             cachedItems: [item(ordinal: 0, pid: 42)],

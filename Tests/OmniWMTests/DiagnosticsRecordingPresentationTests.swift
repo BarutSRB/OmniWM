@@ -86,17 +86,103 @@ final class DiagnosticsRecordingPresentationTests: XCTestCase {
     @MainActor
     func testForeignProbeBaselineRequiresMatchingOrigins() {
         XCTAssertTrue(
-            PrivateAPIHealthDiagnostics.originsMatch(
+            ForeignWindowProbe.originsMatch(
                 CGPoint(x: 100, y: 200),
                 CGPoint(x: 101, y: 201)
             )
         )
         XCTAssertFalse(
-            PrivateAPIHealthDiagnostics.originsMatch(
+            ForeignWindowProbe.originsMatch(
                 CGPoint(x: 100, y: 200),
                 CGPoint(x: 102, y: 200)
             )
         )
+    }
+
+    @MainActor
+    func testForeignProbeRejectsMismatchedBaselineBeforeMutation() async throws {
+        let sample = foreignProbeSample()
+        var operationsPerformed: [String] = []
+        let operations = ForeignWindowProbeOperations(
+            queryWindowInfo: { _ in
+                operationsPerformed.append("identity")
+                return sample
+            },
+            windowBounds: { _ in
+                operationsPerformed.append("bounds")
+                return sample.frame
+            },
+            independentOrigin: { _, _ in
+                operationsPerformed.append("origin")
+                return CGPoint(x: 103, y: 200)
+            },
+            batchMove: { _, _ in
+                XCTFail("A mismatched baseline must prevent mutation")
+                return .unavailable
+            },
+            directMove: { _, _ in
+                XCTFail("A mismatched baseline must prevent restoration")
+                return false
+            },
+            waitForOrigin: { _, _, _ in
+                XCTFail("A rejected probe must not wait for a move")
+                return nil
+            }
+        )
+
+        let optionalResult = await ForeignWindowProbe.run(sample: sample, operations: operations)
+        let result = try XCTUnwrap(optionalResult)
+
+        XCTAssertEqual(operationsPerformed, ["identity", "bounds", "origin"])
+        XCTAssertEqual(result.outcome, .inconclusive)
+        XCTAssertNil(result.movedDelta)
+        XCTAssertFalse(result.skylightMoved)
+        XCTAssertFalse(result.restored)
+        XCTAssertEqual(
+            result.detail,
+            "submission=not-attempted reason=baseline-mismatch pid=42 wid=7 sls=(100,200) independent=(103,200)"
+        )
+    }
+
+    @MainActor
+    func testForeignProbeCancelsDeferredMoveBeforeReadingRestoration() async throws {
+        let sample = foreignProbeSample()
+        let baseline = sample.frame.origin
+        let target = CGPoint(x: baseline.x + 6, y: baseline.y + 6)
+        var targets: [CGPoint] = []
+        var readAfterCompensation = false
+        let operations = foreignProbeOperations(
+            sample: sample,
+            origin: {
+                if !targets.isEmpty {
+                    readAfterCompensation = targets == [target, baseline]
+                }
+                return baseline
+            },
+            batchMove: { requested in
+                targets.append(requested)
+                return targets.count == 1 ? .deferred : .submitted
+            },
+            directMove: { _ in
+                XCTFail("Deferred submission must use its existing transaction compensation")
+                return false
+            },
+            waitForOrigin: { _ in
+                XCTFail("Deferred submission must not start observation polling")
+                return nil
+            }
+        )
+
+        let optionalResult = await ForeignWindowProbe.run(sample: sample, operations: operations)
+        let result = try XCTUnwrap(optionalResult)
+
+        XCTAssertEqual(targets, [target, baseline])
+        XCTAssertTrue(readAfterCompensation)
+        XCTAssertEqual(result.outcome, .inconclusive)
+        XCTAssertEqual(result.movedDelta, .zero)
+        XCTAssertFalse(result.skylightMoved)
+        XCTAssertTrue(result.restored)
+        XCTAssertEqual(result.detail, "submission=deferred restore=submitted pid=42 wid=7 before=(100,200)")
     }
 
     @MainActor
@@ -124,11 +210,11 @@ final class DiagnosticsRecordingPresentationTests: XCTestCase {
                 return true
             },
             waitForOrigin: { requested in
-                PrivateAPIHealthDiagnostics.originsMatch(origin, requested) ? origin : nil
+                ForeignWindowProbe.originsMatch(origin, requested) ? origin : nil
             }
         )
 
-        let optionalResult = await PrivateAPIHealthDiagnostics.activeForeignWindowProbe(
+        let optionalResult = await ForeignWindowProbe.run(
             sample: sample,
             operations: operations
         )
@@ -159,11 +245,11 @@ final class DiagnosticsRecordingPresentationTests: XCTestCase {
                 return true
             },
             waitForOrigin: { requested in
-                PrivateAPIHealthDiagnostics.originsMatch(origin, requested) ? origin : nil
+                ForeignWindowProbe.originsMatch(origin, requested) ? origin : nil
             }
         )
 
-        let optionalResult = await PrivateAPIHealthDiagnostics.activeForeignWindowProbe(
+        let optionalResult = await ForeignWindowProbe.run(
             sample: sample,
             operations: operations
         )
@@ -197,14 +283,14 @@ final class DiagnosticsRecordingPresentationTests: XCTestCase {
                 return true
             },
             waitForOrigin: { requested in
-                guard PrivateAPIHealthDiagnostics.originsMatch(requested, target) else { return nil }
+                guard ForeignWindowProbe.originsMatch(requested, target) else { return nil }
                 let observed = origin
                 origin = interferedOrigin
                 return observed
             }
         )
 
-        let optionalResult = await PrivateAPIHealthDiagnostics.activeForeignWindowProbe(
+        let optionalResult = await ForeignWindowProbe.run(
             sample: sample,
             operations: operations
         )
@@ -236,7 +322,7 @@ final class DiagnosticsRecordingPresentationTests: XCTestCase {
                 return true
             },
             waitForOrigin: { requested in
-                PrivateAPIHealthDiagnostics.originsMatch(origin, requested) ? origin : nil
+                ForeignWindowProbe.originsMatch(origin, requested) ? origin : nil
             }
         )
         operations = ForeignWindowProbeOperations(
@@ -251,7 +337,7 @@ final class DiagnosticsRecordingPresentationTests: XCTestCase {
             waitForOrigin: operations.waitForOrigin
         )
 
-        let optionalResult = await PrivateAPIHealthDiagnostics.activeForeignWindowProbe(
+        let optionalResult = await ForeignWindowProbe.run(
             sample: sample,
             operations: operations
         )

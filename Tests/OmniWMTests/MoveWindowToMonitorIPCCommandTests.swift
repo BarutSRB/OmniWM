@@ -12,12 +12,12 @@ final class MoveWindowToMonitorIPCCommandTests: XCTestCase {
 
     func testDirectionalRequestsExposeCanonicalWireContract() throws {
         for direction in directions {
-            let request = IPCCommandRequest.moveToMonitor(direction: direction)
+            let request = IPCCommandRequest.workspace(.moveToMonitor(direction: direction))
 
-            XCTAssertEqual(request.name, .moveToMonitor)
+            XCTAssertEqual(request.name, .workspace(.moveToMonitor))
             XCTAssertEqual(
                 try IPCCommandRequest(
-                    name: .moveToMonitor,
+                    name: .workspace(.moveToMonitor),
                     argumentValues: [.direction(direction)]
                 ),
                 request
@@ -34,16 +34,16 @@ final class MoveWindowToMonitorIPCCommandTests: XCTestCase {
     }
 
     func testRequestConstructionRejectsInvalidArguments() {
-        XCTAssertThrowsError(try IPCCommandRequest(name: .moveToMonitor))
+        XCTAssertThrowsError(try IPCCommandRequest(name: .workspace(.moveToMonitor)))
         XCTAssertThrowsError(
             try IPCCommandRequest(
-                name: .moveToMonitor,
+                name: .workspace(.moveToMonitor),
                 argumentValues: [.integer(1)]
             )
         )
         XCTAssertThrowsError(
             try IPCCommandRequest(
-                name: .moveToMonitor,
+                name: .workspace(.moveToMonitor),
                 argumentValues: [.direction(.left), .direction(.right)]
             )
         )
@@ -51,7 +51,7 @@ final class MoveWindowToMonitorIPCCommandTests: XCTestCase {
 
     func testManifestDescribesDirectionalMonitorMove() throws {
         let descriptor = try XCTUnwrap(
-            IPCAutomationManifest.commandDescriptor(for: .moveToMonitor)
+            IPCAutomationManifest.commandDescriptor(for: .workspace(.moveToMonitor))
         )
 
         XCTAssertEqual(descriptor.commandWords, ["move-to-monitor"])
@@ -61,7 +61,7 @@ final class MoveWindowToMonitorIPCCommandTests: XCTestCase {
         XCTAssertTrue(descriptor.summary.contains("active workspace"))
         XCTAssertEqual(
             IPCAutomationManifest.commandDescriptors(matching: ["move-to-monitor", "right"]).first?.name,
-            .moveToMonitor
+            .workspace(.moveToMonitor)
         )
     }
 
@@ -74,7 +74,7 @@ final class MoveWindowToMonitorIPCCommandTests: XCTestCase {
                 return XCTFail("Expected command request")
             }
 
-            XCTAssertEqual(request, .moveToMonitor(direction: direction))
+            XCTAssertEqual(request, .workspace(.moveToMonitor(direction: direction)))
         }
     }
 
@@ -133,6 +133,6 @@ final class MoveWindowToMonitorIPCCommandTests: XCTestCase {
         let controller = WMController(settings: settings)
         let router = IPCCommandRouter(controller: controller, sessionToken: "test")
 
-        XCTAssertEqual(router.handle(.moveToMonitor(direction: .right)), .notFound)
+        XCTAssertEqual(router.handle(.workspace(.moveToMonitor(direction: .right))), .notFound)
     }
 }

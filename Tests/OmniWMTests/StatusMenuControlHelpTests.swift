@@ -320,13 +320,13 @@ final class StatusMenuControlHelpTests: XCTestCase {
     func testFocusFollowsMouseTileDoesNotChangeRaisePreference() throws {
         let fixture = makeStatusMenuModelFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        fixture.model.settings.raiseOnMouseFocus = true
+        fixture.model.settings.focus.raiseOnMouseFocus = true
         let tile = try XCTUnwrap(fixture.model.toggleTiles.first { $0.control == .focusFollowsMouse })
 
         tile.isOn.wrappedValue = true
         tile.isOn.wrappedValue = false
 
-        XCTAssertTrue(fixture.model.settings.raiseOnMouseFocus)
+        XCTAssertTrue(fixture.model.settings.focus.raiseOnMouseFocus)
     }
 
     private struct StatusMenuModelFixture {

@@ -8,28 +8,28 @@ import XCTest
 final class HiddenBarSettingsTOMLTests: XCTestCase {
     func testRoundTripsAllHiddenBarFields() throws {
         var export = SettingsExport.defaults()
-        export.hiddenBarEnabled = false
-        export.hiddenBarHiddenBundleIDs = ["com.example.a", "com.example.b"]
-        export.hiddenBarRehideIntervalSeconds = 12
+        export.hiddenBar.enabled = false
+        export.hiddenBar.hiddenBundleIDs = ["com.example.a", "com.example.b"]
+        export.hiddenBar.rehideIntervalSeconds = 12
 
         let decoded = try SettingsTOMLCodec.decode(SettingsTOMLCodec.encode(export))
 
-        XCTAssertEqual(decoded.hiddenBarEnabled, false)
-        XCTAssertEqual(decoded.hiddenBarHiddenBundleIDs, ["com.example.a", "com.example.b"])
-        XCTAssertEqual(decoded.hiddenBarRehideIntervalSeconds, 12)
+        XCTAssertEqual(decoded.hiddenBar.enabled, false)
+        XCTAssertEqual(decoded.hiddenBar.hiddenBundleIDs, ["com.example.a", "com.example.b"])
+        XCTAssertEqual(decoded.hiddenBar.rehideIntervalSeconds, 12)
     }
 
     func testEmptyBundleListRoundTrips() throws {
         var export = SettingsExport.defaults()
-        export.hiddenBarHiddenBundleIDs = []
+        export.hiddenBar.hiddenBundleIDs = []
 
         let decoded = try SettingsTOMLCodec.decode(SettingsTOMLCodec.encode(export))
-        XCTAssertEqual(decoded.hiddenBarHiddenBundleIDs, [])
+        XCTAssertEqual(decoded.hiddenBar.hiddenBundleIDs, [])
     }
 
     func testPopulatedBundleListSurvivesPreservingEncode() throws {
         var export = SettingsExport.defaults()
-        export.hiddenBarHiddenBundleIDs = ["com.keep.me"]
+        export.hiddenBar.hiddenBundleIDs = ["com.keep.me"]
         let previous = try SettingsTOMLCodec.encode(export)
 
         let rewritten = String(
@@ -56,7 +56,7 @@ final class HiddenBarSettingsTOMLTests: XCTestCase {
             settings.applyExport(export)
 
             XCTAssertEqual(
-                settings.hiddenBarRehideIntervalSeconds,
+                settings.hiddenBar.rehideIntervalSeconds,
                 testCase.expected,
                 "TOML value: \(testCase.literal)"
             )
@@ -67,7 +67,7 @@ final class HiddenBarSettingsTOMLTests: XCTestCase {
     func testApplyExportNormalizesHiddenBundleIDsFromTOML() {
         let settings = makeSettingsStore()
         var export = SettingsExport.defaults()
-        export.hiddenBarHiddenBundleIDs = [
+        export.hiddenBar.hiddenBundleIDs = [
             "  com.example.first  ",
             "",
             "com.apple.systemuiserver",
@@ -78,7 +78,7 @@ final class HiddenBarSettingsTOMLTests: XCTestCase {
         settings.applyExport(export)
 
         XCTAssertEqual(
-            settings.hiddenBarHiddenBundleIDs,
+            settings.hiddenBar.hiddenBundleIDs,
             ["com.example.first", "com.example.second"]
         )
     }
@@ -89,10 +89,10 @@ final class HiddenBarSettingsTOMLTests: XCTestCase {
         var reconciliations = 0
 
         HiddenBarSettingsEdits.setEnabled(true) { enabled in
-            settings.hiddenBarEnabled = enabled
+            settings.setHiddenBarEnabled(enabled)
             reconciliations += 1
         }
-        XCTAssertTrue(settings.hiddenBarEnabled)
+        XCTAssertTrue(settings.hiddenBar.enabled)
         XCTAssertEqual(reconciliations, 1)
 
         reconciliations = 0
@@ -103,7 +103,7 @@ final class HiddenBarSettingsTOMLTests: XCTestCase {
         ) {
             reconciliations += 1
         }
-        XCTAssertEqual(settings.hiddenBarHiddenBundleIDs, ["com.example.item"])
+        XCTAssertEqual(settings.hiddenBar.hiddenBundleIDs, ["com.example.item"])
         XCTAssertEqual(reconciliations, 1)
 
         HiddenBarSettingsEdits.setHidden(
@@ -113,12 +113,12 @@ final class HiddenBarSettingsTOMLTests: XCTestCase {
         ) {
             reconciliations += 1
         }
-        XCTAssertEqual(settings.hiddenBarHiddenBundleIDs, ["com.example.item"])
+        XCTAssertEqual(settings.hiddenBar.hiddenBundleIDs, ["com.example.item"])
         XCTAssertEqual(reconciliations, 1)
 
         reconciliations = 0
         HiddenBarSettingsEdits.setRehideInterval(12, settings: settings)
-        XCTAssertEqual(settings.hiddenBarRehideIntervalSeconds, 12)
+        XCTAssertEqual(settings.hiddenBar.rehideIntervalSeconds, 12)
         XCTAssertEqual(reconciliations, 0)
     }
 

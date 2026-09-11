@@ -104,33 +104,9 @@ indirect enum SplitNode {
         switch self {
         case let .leaf(view):
             return [LeafBounds(view: view, rect: rect)]
-
         case let .split(direction, ratio, left, right):
-            let clampedRatio = min(max(ratio, 0.1), 0.9)
-
-            switch direction {
-            case .horizontal:
-                let leftWidth = rect.width * clampedRatio
-                let leftRect = NSRect(x: rect.minX, y: rect.minY, width: leftWidth, height: rect.height)
-                let rightRect = NSRect(
-                    x: rect.minX + leftWidth,
-                    y: rect.minY,
-                    width: rect.width - leftWidth,
-                    height: rect.height
-                )
-                return left.calculateBounds(in: leftRect) + right.calculateBounds(in: rightRect)
-
-            case .vertical:
-                let topHeight = rect.height * clampedRatio
-                let topRect = NSRect(
-                    x: rect.minX,
-                    y: rect.minY + rect.height - topHeight,
-                    width: rect.width,
-                    height: topHeight
-                )
-                let bottomRect = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - topHeight)
-                return left.calculateBounds(in: topRect) + right.calculateBounds(in: bottomRect)
-            }
+            let geometry = SplitGeometry(direction: direction, ratio: ratio, in: rect)
+            return left.calculateBounds(in: geometry.firstRect) + right.calculateBounds(in: geometry.secondRect)
         }
     }
 
@@ -150,95 +126,29 @@ indirect enum SplitNode {
         switch self {
         case .leaf:
             return []
-
         case let .split(direction, ratio, left, right):
-            let clampedRatio = min(max(ratio, 0.1), 0.9)
+            let geometry = SplitGeometry(direction: direction, ratio: ratio, in: rect)
             var result: [DividerInfo] = []
-
-            switch direction {
-            case .horizontal:
-                let leftWidth = rect.width * clampedRatio
-                let dividerX = rect.minX + leftWidth
-                let visibleRect = NSRect(
-                    x: dividerX - visibleThickness / 2,
-                    y: rect.minY,
-                    width: visibleThickness,
-                    height: rect.height
-                )
-                let hitRect = NSRect(
-                    x: dividerX - hitThickness / 2,
-                    y: rect.minY,
-                    width: hitThickness,
-                    height: rect.height
-                )
-                result.append(DividerInfo(
-                    address: address,
-                    direction: direction,
-                    visibleRect: visibleRect,
-                    hitRect: hitRect
-                ))
-                let leftRect = NSRect(x: rect.minX, y: rect.minY, width: leftWidth, height: rect.height)
-                let rightRect = NSRect(
-                    x: rect.minX + leftWidth,
-                    y: rect.minY,
-                    width: rect.width - leftWidth,
-                    height: rect.height
-                )
-                result += left.calculateDividers(
-                    in: leftRect,
-                    visibleThickness: visibleThickness,
-                    hitThickness: hitThickness,
-                    address: address + [.left]
-                )
-                result += right.calculateDividers(
-                    in: rightRect,
-                    visibleThickness: visibleThickness,
-                    hitThickness: hitThickness,
-                    address: address + [.right]
-                )
-
-            case .vertical:
-                let topHeight = rect.height * clampedRatio
-                let dividerY = rect.minY + rect.height - topHeight
-                let visibleRect = NSRect(
-                    x: rect.minX,
-                    y: dividerY - visibleThickness / 2,
-                    width: rect.width,
-                    height: visibleThickness
-                )
-                let hitRect = NSRect(
-                    x: rect.minX,
-                    y: dividerY - hitThickness / 2,
-                    width: rect.width,
-                    height: hitThickness
-                )
-                result.append(DividerInfo(
-                    address: address,
-                    direction: direction,
-                    visibleRect: visibleRect,
-                    hitRect: hitRect
-                ))
-                let topRect = NSRect(
-                    x: rect.minX,
-                    y: rect.minY + rect.height - topHeight,
-                    width: rect.width,
-                    height: topHeight
-                )
-                let bottomRect = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - topHeight)
-                result += left.calculateDividers(
-                    in: topRect,
-                    visibleThickness: visibleThickness,
-                    hitThickness: hitThickness,
-                    address: address + [.left]
-                )
-                result += right.calculateDividers(
-                    in: bottomRect,
-                    visibleThickness: visibleThickness,
-                    hitThickness: hitThickness,
-                    address: address + [.right]
-                )
-            }
-
+            let visibleRect = geometry.dividerRect(thickness: visibleThickness)
+            let hitRect = geometry.dividerRect(thickness: hitThickness)
+            result.append(DividerInfo(
+                address: address,
+                direction: direction,
+                visibleRect: visibleRect,
+                hitRect: hitRect
+            ))
+            result += left.calculateDividers(
+                in: geometry.firstRect,
+                visibleThickness: visibleThickness,
+                hitThickness: hitThickness,
+                address: address + [.left]
+            )
+            result += right.calculateDividers(
+                in: geometry.secondRect,
+                visibleThickness: visibleThickness,
+                hitThickness: hitThickness,
+                address: address + [.right]
+            )
             return result
         }
     }
@@ -341,6 +251,61 @@ indirect enum SplitNode {
 
 enum NavigationDirection {
     case left, right, up, down
+}
+
+private struct SplitGeometry {
+    let firstRect: NSRect
+    let secondRect: NSRect
+    private let direction: SplitDirection
+    private let bounds: NSRect
+    private let boundary: CGFloat
+
+    init(direction: SplitDirection, ratio: Double, in rect: NSRect) {
+        self.direction = direction
+        bounds = rect
+        let clampedRatio = min(max(ratio, 0.1), 0.9)
+        switch direction {
+        case .horizontal:
+            let leftWidth = rect.width * clampedRatio
+            boundary = rect.minX + leftWidth
+            firstRect = NSRect(x: rect.minX, y: rect.minY, width: leftWidth, height: rect.height)
+            secondRect = NSRect(
+                x: boundary,
+                y: rect.minY,
+                width: rect.width - leftWidth,
+                height: rect.height
+            )
+        case .vertical:
+            let topHeight = rect.height * clampedRatio
+            boundary = rect.minY + rect.height - topHeight
+            firstRect = NSRect(
+                x: rect.minX,
+                y: boundary,
+                width: rect.width,
+                height: topHeight
+            )
+            secondRect = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - topHeight)
+        }
+    }
+
+    func dividerRect(thickness: CGFloat) -> NSRect {
+        switch direction {
+        case .horizontal:
+            NSRect(
+                x: boundary - thickness / 2,
+                y: bounds.minY,
+                width: thickness,
+                height: bounds.height
+            )
+        case .vertical:
+            NSRect(
+                x: bounds.minX,
+                y: boundary - thickness / 2,
+                width: bounds.width,
+                height: thickness
+            )
+        }
+    }
 }
 
 private func areIdentical(_ lhs: SplitNode, _ rhs: SplitNode) -> Bool {

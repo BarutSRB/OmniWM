@@ -169,7 +169,7 @@ final class ScratchpadMembershipTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: left)),

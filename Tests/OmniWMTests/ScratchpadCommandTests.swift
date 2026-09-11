@@ -10,18 +10,18 @@ import XCTest
 final class ScratchpadCommandTests: XCTestCase {
     func testEverySlotRegistersBothActions() throws {
         for slot in ScratchpadIndex.range {
-            let toggle = try XCTUnwrap(ActionCatalog.spec(for: .toggleScratchpad(slot)))
+            let toggle = try XCTUnwrap(ActionCatalog.spec(for: .scratchpad(.toggle(slot))))
             XCTAssertEqual(toggle.id, "toggleScratchpad.\(slot)")
             XCTAssertEqual(toggle.title, "Toggle Scratchpad \(slot)")
             XCTAssertEqual(toggle.layoutCompatibility, .shared)
             XCTAssertEqual(toggle.defaultBinding, .unassigned)
-            XCTAssertEqual(toggle.ipcCommandName, .scratchpadToggle)
+            XCTAssertEqual(toggle.ipcCommandName, .scratchpad(.toggle))
             XCTAssertNotNil(toggle.ipcDescriptor)
 
-            let assign = try XCTUnwrap(ActionCatalog.spec(for: .assignFocusedWindowToScratchpad(slot)))
+            let assign = try XCTUnwrap(ActionCatalog.spec(for: .scratchpad(.assign(slot))))
             XCTAssertEqual(assign.id, "assignFocusedWindowToScratchpad.\(slot)")
             XCTAssertEqual(assign.title, "Assign Focused Window to Scratchpad \(slot)")
-            XCTAssertEqual(assign.ipcCommandName, .scratchpadAssign)
+            XCTAssertEqual(assign.ipcCommandName, .scratchpad(.assign))
         }
     }
 
@@ -32,12 +32,12 @@ final class ScratchpadCommandTests: XCTestCase {
     }
 
     func testCommandNameMapping() {
-        XCTAssertEqual(IPCCommandRequest.scratchpadAssign(index: 4).name, .scratchpadAssign)
-        XCTAssertEqual(IPCCommandRequest.scratchpadToggle(index: 4).name, .scratchpadToggle)
+        XCTAssertEqual(IPCCommandRequest.scratchpad(.assign(index: 4)).name, .scratchpad(.assign))
+        XCTAssertEqual(IPCCommandRequest.scratchpad(.toggle(index: 4)).name, .scratchpad(.toggle))
     }
 
     func testCommandJSONRoundTripCarriesIndex() throws {
-        for request in [IPCCommandRequest.scratchpadAssign(index: 2), .scratchpadToggle(index: 10)] {
+        for request in [IPCCommandRequest.scratchpad(.assign(index: 2)), .scratchpad(.toggle(index: 10))] {
             let data = try JSONEncoder().encode(request)
             XCTAssertEqual(try JSONDecoder().decode(IPCCommandRequest.self, from: data), request)
         }
@@ -45,13 +45,13 @@ final class ScratchpadCommandTests: XCTestCase {
 
     func testManifestResolvesIndexArgument() throws {
         let descriptors = IPCAutomationManifest.commandDescriptors(matching: ["scratchpad", "toggle"])
-        let descriptor = try XCTUnwrap(descriptors.first { $0.name == .scratchpadToggle })
+        let descriptor = try XCTUnwrap(descriptors.first { $0.name == .scratchpad(.toggle) })
 
         XCTAssertEqual(descriptor.commandWords, ["scratchpad", "toggle"])
         XCTAssertEqual(descriptor.arguments.map(\.kind), [.scratchpadIndex])
         XCTAssertEqual(
             try IPCCommandRequest(name: descriptor.name, argumentValues: [.integer(3)]),
-            .scratchpadToggle(index: 3)
+            .scratchpad(.toggle(index: 3))
         )
         XCTAssertThrowsError(try IPCCommandRequest(name: descriptor.name, argumentValues: []))
     }
@@ -63,7 +63,7 @@ final class ScratchpadCommandTests: XCTestCase {
         guard case let .command(request) = parsed.request.payload else {
             return XCTFail("expected a command payload")
         }
-        XCTAssertEqual(request, .scratchpadToggle(index: 7))
+        XCTAssertEqual(request, .scratchpad(.toggle(index: 7)))
 
         XCTAssertThrowsError(
             try CLIParser.parse(arguments: ["omniwmctl", "command", "scratchpad", "toggle", "11"])
@@ -78,8 +78,8 @@ final class ScratchpadCommandTests: XCTestCase {
         let controller = WMController(settings: makeSettingsStore())
         let router = IPCCommandRouter(controller: controller, sessionToken: "test")
 
-        XCTAssertEqual(router.handle(.scratchpadToggle(index: 11)), .invalidArguments)
-        XCTAssertEqual(router.handle(.scratchpadAssign(index: 0)), .invalidArguments)
+        XCTAssertEqual(router.handle(.scratchpad(.toggle(index: 11))), .invalidArguments)
+        XCTAssertEqual(router.handle(.scratchpad(.assign(index: 0))), .invalidArguments)
     }
 
     @MainActor
@@ -87,24 +87,24 @@ final class ScratchpadCommandTests: XCTestCase {
         let controller = WMController(settings: makeSettingsStore())
         let router = IPCCommandRouter(controller: controller, sessionToken: "test")
 
-        XCTAssertEqual(router.handle(.scratchpadToggle(index: 1)), .notFound)
+        XCTAssertEqual(router.handle(.scratchpad(.toggle(index: 1))), .notFound)
     }
 
     func testLabelsRoundTripThroughTOML() throws {
-        XCTAssertTrue(SettingsExport.defaults().scratchpadLabels.isEmpty)
+        XCTAssertTrue(SettingsExport.defaults().scratchpads.labels.isEmpty)
 
         var export = SettingsExport.defaults()
-        export.scratchpadLabels = ["3": "COMMS"]
+        export.scratchpads.labels = ["3": "COMMS"]
         let data = try SettingsTOMLCodec.encode(export)
         XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("COMMS"))
-        XCTAssertEqual(try SettingsTOMLCodec.decode(data).scratchpadLabels, ["3": "COMMS"])
+        XCTAssertEqual(try SettingsTOMLCodec.decode(data).scratchpads.labels, ["3": "COMMS"])
     }
 
     @MainActor
     func testLabelNormalizationDropsUnusableEntries() {
         let settings = makeSettingsStore()
         var export = SettingsExport.defaults()
-        export.scratchpadLabels = ["1": " term ", "0": "low", "11": "high", "4": "   "]
+        export.scratchpads.labels = ["1": " term ", "0": "low", "11": "high", "4": "   "]
 
         settings.applyExport(export)
 
