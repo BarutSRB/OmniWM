@@ -8,38 +8,30 @@ extension NiriLayoutEngine {
     func moveWindow(
         _ node: NiriWindow,
         direction: Direction,
-        in workspaceId: WorkspaceDescriptor.ID,
-        orientation: Monitor.Orientation,
-        motion: MotionSnapshot,
+        context: NiriInteractionContext,
         state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat,
         allowEdgeWrap: Bool = true
     ) -> Bool {
         assertSanctionedMutation()
         resolvePrimaryContainerSpans(
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         )
 
-        if let step = direction.primaryStep(for: orientation) {
+        if let step = direction.primaryStep(for: context.orientation) {
             return consumeOrExpelWindow(
                 node,
                 direction: step > 0 ? .right : .left,
-                in: workspaceId,
-                motion: motion,
+                context: context,
                 state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation,
                 allowEdgeWrap: allowEdgeWrap
             )
         }
 
-        guard let step = direction.secondaryStep(for: orientation) else { return false }
-        return moveWindowWithinContainer(node, step: step, in: workspaceId)
+        guard let step = direction.secondaryStep(for: context.orientation) else { return false }
+        return moveWindowWithinContainer(node, step: step, in: context.workspaceId)
     }
 
     func moveWindowWithinContainer(

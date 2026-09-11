@@ -816,7 +816,12 @@ final class FloatingMonitorRebindFocusTests: XCTestCase {
         fixture: Fixture
     ) -> WorkspaceBarProjection {
         let controller = fixture.controller
-        return WorkspaceBarDataSource.workspaceBarProjection(
+        return WorkspaceBarDataSource(
+            workspaceManager: controller.workspaceManager,
+            appInfoCache: controller.appInfoCache,
+            iconResolver: controller.workspaceBarIconResolver,
+            settings: controller.settings
+        ).workspaceBarProjection(
             for: monitor,
             options: WorkspaceBarProjectionOptions(
                 deduplicateAppIcons: false,
@@ -824,11 +829,7 @@ final class FloatingMonitorRebindFocusTests: XCTestCase {
                 showFloatingWindows: true,
                 excludedBundleIDs: []
             ),
-            workspaceManager: controller.workspaceManager,
-            appInfoCache: controller.appInfoCache,
-            iconResolver: controller.workspaceBarIconResolver,
-            focusedToken: controller.workspaceManager.selectedManagedToken,
-            settings: controller.settings
+            focusedToken: controller.workspaceManager.selectedManagedToken
         )
     }
 

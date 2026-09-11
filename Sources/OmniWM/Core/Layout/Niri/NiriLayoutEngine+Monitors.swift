@@ -141,19 +141,15 @@ extension NiriLayoutEngine {
     }
 
     func monitorContaining(workspace workspaceId: WorkspaceDescriptor.ID) -> Monitor.ID? {
-        for (monitorId, niriMonitor) in monitors {
-            if niriMonitor.containsWorkspace(workspaceId) {
-                return monitorId
-            }
+        for (monitorId, niriMonitor) in monitors where niriMonitor.containsWorkspace(workspaceId) {
+            return monitorId
         }
         return nil
     }
 
     func monitorForWorkspace(_ workspaceId: WorkspaceDescriptor.ID) -> NiriMonitor? {
-        for niriMonitor in monitors.values {
-            if niriMonitor.containsWorkspace(workspaceId) {
-                return niriMonitor
-            }
+        for niriMonitor in monitors.values where niriMonitor.containsWorkspace(workspaceId) {
+            return niriMonitor
         }
         return nil
     }

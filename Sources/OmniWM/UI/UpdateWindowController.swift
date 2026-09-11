@@ -42,10 +42,11 @@ final class UpdateWindowController: UpdateWindowControlling {
                 if shouldNotify {
                     onWindowClosedWithoutAction?()
                 }
+            },
+            content: {
+                UpdatePopupView(configuration: configuration)
             }
-        ) {
-            UpdatePopupView(configuration: configuration)
-        }
+        )
     }
 
     func close(markingActionHandled: Bool) {

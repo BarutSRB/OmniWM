@@ -41,7 +41,7 @@ final class OverviewNavigationTests: XCTestCase {
 
         for handle in fixture.groups[0] {
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(
+                OverviewNavigation.findNextWindow(
                     in: fixture.layout,
                     from: handle,
                     direction: .left
@@ -49,7 +49,7 @@ final class OverviewNavigationTests: XCTestCase {
                 handle
             )
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(
+                OverviewNavigation.findNextWindow(
                     in: fixture.layout,
                     from: handle,
                     direction: .right
@@ -65,7 +65,7 @@ final class OverviewNavigationTests: XCTestCase {
         let greatestOverlap = fixture.groups[1][0]
 
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(
+            OverviewNavigation.findNextWindow(
                 in: fixture.layout,
                 from: current,
                 direction: .right
@@ -73,7 +73,7 @@ final class OverviewNavigationTests: XCTestCase {
             greatestOverlap
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(
+            OverviewNavigation.findNextWindow(
                 in: fixture.layout,
                 from: current,
                 direction: .left
@@ -127,7 +127,7 @@ final class OverviewNavigationTests: XCTestCase {
         let current = fixture.groups[0][0]
 
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(
+            OverviewNavigation.findNextWindow(
                 in: fixture.layout,
                 from: current,
                 direction: .right
@@ -145,28 +145,28 @@ final class OverviewNavigationTests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: left, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: left, direction: .right),
             right,
             message,
             file: file,
             line: line
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: right, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: right, direction: .left),
             left,
             message,
             file: file,
             line: line
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: left, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: left, direction: .left),
             right,
             message,
             file: file,
             line: line
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: right, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: right, direction: .right),
             left,
             message,
             file: file,
@@ -192,7 +192,7 @@ final class OverviewNavigationTests: XCTestCase {
                 let handle = WindowHandle(id: token)
                 let columnName = columnIndex == 0 ? "Left" : "Right"
                 let tileName = tileIndex == 0 ? "Top" : "Bottom"
-                windows[handle] = (
+                windows[handle] = OverviewWindowLayoutData(
                     token: token,
                     workspaceId: descriptor.id,
                     title: "\(columnName) \(tileName)",
@@ -218,13 +218,14 @@ final class OverviewNavigationTests: XCTestCase {
             workspaceId: descriptor.id,
             columns: snapshotColumns
         )
-        let layout = OverviewLayoutCalculator.calculateLayout(
-            workspaces: [(id: descriptor.id, name: descriptor.name, isActive: true)],
+        let layout = OverviewLayoutCalculator(
+            screenFrame: screenFrame,
+            scale: 1
+        ).calculateLayout(
+            workspaces: [OverviewWorkspaceLayoutItem(id: descriptor.id, name: descriptor.name, isActive: true)],
             windows: windows,
             niriSnapshotsByWorkspace: [descriptor.id: snapshot],
-            screenFrame: screenFrame,
-            searchQuery: searchQuery,
-            scale: 1
+            searchQuery: searchQuery
         )
         return NavigationFixture(
             workspaceId: descriptor.id,
@@ -244,7 +245,7 @@ final class OverviewNavigationTests: XCTestCase {
                 let ordinal = rowIndex * 100 + columnIndex + 1
                 let token = WindowToken(pid: pid_t(90_000 + ordinal), windowId: 90_000 + ordinal)
                 let handle = WindowHandle(id: token)
-                windows[handle] = (
+                windows[handle] = OverviewWindowLayoutData(
                     token: token,
                     workspaceId: descriptor.id,
                     title: "Row \(rowIndex) Column \(columnIndex)",
@@ -257,12 +258,13 @@ final class OverviewNavigationTests: XCTestCase {
             handlesByRow.append(handles)
         }
 
-        let layout = OverviewLayoutCalculator.calculateLayout(
-            workspaces: [(id: descriptor.id, name: descriptor.name, isActive: true)],
-            windows: windows,
+        let layout = OverviewLayoutCalculator(
             screenFrame: screenFrame,
-            searchQuery: "",
             scale: 1
+        ).calculateLayout(
+            workspaces: [OverviewWorkspaceLayoutItem(id: descriptor.id, name: descriptor.name, isActive: true)],
+            windows: windows,
+            searchQuery: ""
         )
         return NavigationFixture(
             workspaceId: descriptor.id,

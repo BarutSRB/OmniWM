@@ -16,7 +16,7 @@ struct LayoutBuildMetrics {
     }
 
     private struct Stat {
-        var count = 0
+        var sampleCount = 0
         var totalMicros = 0
         var maxMicros = 0
     }
@@ -35,7 +35,7 @@ struct LayoutBuildMetrics {
             windowRank: Self.windowRank(windowCount)
         )
         var stat = statsByBucket[bucket] ?? Stat()
-        stat.count += 1
+        stat.sampleCount += 1
         stat.totalMicros += micros
         stat.maxMicros = max(stat.maxMicros, micros)
         statsByBucket[bucket] = stat
@@ -59,11 +59,11 @@ struct LayoutBuildMetrics {
                 < ($1.key.route.rawValue, $1.key.workspaceCount, $1.key.windowRank)
         }
         for (bucket, stat) in sorted {
-            let average = stat.count > 0 ? stat.totalMicros / stat.count : 0
+            let average = stat.sampleCount > 0 ? stat.totalMicros / stat.sampleCount : 0
             let windowLabel = Self.windowLabels[bucket.windowRank]
             lines.append(
                 "route=\(bucket.route.rawValue) ws=\(bucket.workspaceCount) win=\(windowLabel)"
-                    + " n=\(stat.count) avg=\(average)us max=\(stat.maxMicros)us"
+                    + " n=\(stat.sampleCount) avg=\(average)us max=\(stat.maxMicros)us"
             )
         }
         return lines.joined(separator: "\n")

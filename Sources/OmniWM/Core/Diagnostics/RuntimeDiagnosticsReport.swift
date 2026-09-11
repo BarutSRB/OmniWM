@@ -21,7 +21,7 @@ enum RuntimeDiagnosticsReport {
             section("Owned Windows / Surface", InputDiagnostics.ownedSurfaces(controller).formatted()),
             section(
                 "Native Fullscreen Placeholders",
-                NativeFullscreenPlaceholderDiagnosticsSnapshot.capture(controller).formatted()
+                FullscreenPlaceholderDiagnosticsSnapshot.capture(controller).formatted()
             ),
             section("Interaction Monitor Writes", InteractionMonitorWriteRecorder.shared.dump()),
             section("Reconcile Snapshot", controller.workspaceManager.reconcileSnapshotDump()),

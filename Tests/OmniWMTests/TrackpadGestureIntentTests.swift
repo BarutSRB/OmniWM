@@ -21,26 +21,26 @@ final class TrackpadGestureIntentTests: XCTestCase {
         var config = makeConfig(columnFingers: 4, workspaceFingers: 3)
         config.overviewEnabled = true
         XCTAssertEqual(TrackpadGestureIntent.resolveMode(
-            config, fingerCount: 4, cumulativeX: 0, cumulativeY: 24,
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
             columnScrollAxis: .horizontal, columnContextAvailable: true
         ), .overview)
         XCTAssertNil(TrackpadGestureIntent.resolveMode(
-            config, fingerCount: 4, cumulativeX: 0, cumulativeY: -24,
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: -24),
             columnScrollAxis: .horizontal, columnContextAvailable: true
         ))
         XCTAssertEqual(TrackpadGestureIntent.resolveMode(
-            config, fingerCount: 4, cumulativeX: 0, cumulativeY: 24,
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
             columnScrollAxis: .vertical, columnContextAvailable: true
         ), .columnScroll)
 
         config.workspaceSwipeFingerCount = 4
         XCTAssertEqual(TrackpadGestureIntent.resolveMode(
-            config, fingerCount: 4, cumulativeX: 0, cumulativeY: 24,
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
             columnScrollAxis: .horizontal, columnContextAvailable: true
         ), .workspaceSwitch(axis: .vertical))
         config.workspaceSwipeAxis = .horizontal
         XCTAssertEqual(TrackpadGestureIntent.resolveMode(
-            config, fingerCount: 4, cumulativeX: 0, cumulativeY: 24,
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
             columnScrollAxis: .horizontal, columnContextAvailable: false
         ), .overview)
     }
@@ -109,8 +109,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(),
             fingerCount: 3,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -121,8 +120,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(),
             fingerCount: 3,
-            cumulativeX: 10,
-            cumulativeY: 50,
+            cumulativeTranslation: CGVector(dx: 10, dy: 50),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -133,8 +131,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(workspaceAxis: .horizontal),
             fingerCount: 3,
-            cumulativeX: 10,
-            cumulativeY: 50,
+            cumulativeTranslation: CGVector(dx: 10, dy: 50),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -145,8 +142,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(workspaceFingers: 4),
             fingerCount: 3,
-            cumulativeX: 10,
-            cumulativeY: 50,
+            cumulativeTranslation: CGVector(dx: 10, dy: 50),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -157,8 +153,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(workspaceFingers: 4, workspaceAxis: .vertical),
             fingerCount: 4,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -169,8 +164,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(),
             fingerCount: 3,
-            cumulativeX: 10,
-            cumulativeY: 50,
+            cumulativeTranslation: CGVector(dx: 10, dy: 50),
             columnScrollAxis: .horizontal,
             columnContextAvailable: false
         )
@@ -181,8 +175,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(workspaceEnabled: false),
             fingerCount: 3,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .horizontal,
             columnContextAvailable: false
         )
@@ -193,8 +186,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(workspaceFingers: 4, workspaceAxis: .horizontal),
             fingerCount: 4,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -205,8 +197,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(),
             fingerCount: 3,
-            cumulativeX: 30,
-            cumulativeY: 30,
+            cumulativeTranslation: CGVector(dx: 30, dy: 30),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -217,8 +208,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(columnEnabled: false, workspaceEnabled: false),
             fingerCount: 3,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .horizontal,
             columnContextAvailable: true
         )
@@ -229,8 +219,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(),
             fingerCount: 3,
-            cumulativeX: 10,
-            cumulativeY: 50,
+            cumulativeTranslation: CGVector(dx: 10, dy: 50),
             columnScrollAxis: .vertical,
             columnContextAvailable: true
         )
@@ -241,8 +230,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(),
             fingerCount: 3,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .vertical,
             columnContextAvailable: true
         )
@@ -253,8 +241,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(workspaceFingers: 4),
             fingerCount: 3,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .vertical,
             columnContextAvailable: true
         )
@@ -265,8 +252,7 @@ final class TrackpadGestureIntentTests: XCTestCase {
         let mode = TrackpadGestureIntent.resolveMode(
             makeConfig(workspaceFingers: 4, workspaceAxis: .horizontal),
             fingerCount: 4,
-            cumulativeX: 50,
-            cumulativeY: 10,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
             columnScrollAxis: .vertical,
             columnContextAvailable: true
         )

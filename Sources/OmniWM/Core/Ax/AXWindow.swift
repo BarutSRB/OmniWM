@@ -283,8 +283,8 @@ struct AXWindowFacts: Equatable, Sendable {
     let appPolicy: NSApplication.ActivationPolicy?
     let bundleId: String?
     let attributeFetchSucceeded: Bool
-    var isMain: Bool? = nil
-    var isModal: Bool? = nil
+    var isMain: Bool?
+    var isModal: Bool?
 }
 
 struct AXWindowDecisionEvidence: Equatable, Sendable {
@@ -325,8 +325,8 @@ struct AXWindowFactAttributeValues {
     let fullscreenButtonEnabled: Bool?
     let zoomButton: Any?
     let minimizeButton: Any?
-    var main: Any? = nil
-    var modal: Any? = nil
+    var main: Any?
+    var modal: Any?
 }
 
 struct AXWindowConstraintInputs {
@@ -604,8 +604,8 @@ enum AXWindowService {
         var size = CGSize(width: axFrame.size.width, height: axFrame.size.height)
         let positionValue = components.contains(.position) ? AXValueCreate(.cgPoint, &position) : nil
         let sizeValue = components.contains(.size) ? AXValueCreate(.cgSize, &size) : nil
-        guard (!components.contains(.position) || positionValue != nil),
-              (!components.contains(.size) || sizeValue != nil)
+        guard !components.contains(.position) || positionValue != nil,
+              !components.contains(.size) || sizeValue != nil
         else {
             return .skipped(
                 targetFrame: frame,

@@ -89,18 +89,6 @@ struct FloatingState: Equatable {
     var normalizedOrigin: CGPoint?
     var referenceMonitorId: Monitor.ID?
     var restoreToFloating: Bool
-
-    init(
-        lastFrame: CGRect,
-        normalizedOrigin: CGPoint?,
-        referenceMonitorId: Monitor.ID?,
-        restoreToFloating: Bool
-    ) {
-        self.lastFrame = lastFrame
-        self.normalizedOrigin = normalizedOrigin
-        self.referenceMonitorId = referenceMonitorId
-        self.restoreToFloating = restoreToFloating
-    }
 }
 
 struct WindowState: Equatable {

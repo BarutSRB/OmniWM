@@ -155,11 +155,10 @@ final class WindowActionHandler {
         return MainThreadAXSpanTrace.measure(.closeButtonPress, pid: entry.pid, windowId: entry.windowId) {
             var closeButton: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton) == .success,
-               let closeButton,
-               CFGetTypeID(closeButton) == AXUIElementGetTypeID()
+               let closeButton = AXUIElement.from(closeButton)
             {
                 return performAXAction(
-                    closeButton as! AXUIElement,
+                    closeButton,
                     kAXPressAction as CFString,
                     noteKey: "performPressFailed"
                 )
@@ -767,12 +766,14 @@ final class WindowActionHandler {
                         )
                         engine.ensureProjectedSelectionVisible(
                             node: niriWindow,
-                            in: workspaceId,
-                            motion: .disabled,
+                            context: .init(
+                                workspaceId: workspaceId,
+                                motion: .disabled,
+                                workingFrame: workingFrame,
+                                gaps: gap,
+                                orientation: orientation
+                            ),
                             state: &targetState,
-                            workingFrame: workingFrame,
-                            gaps: gap,
-                            orientation: orientation,
                             animationConfig: nil,
                             fromContainerIndex: nil
                         )

@@ -8,6 +8,8 @@ import XCTest
 
 @MainActor
 final class DisplayConfigurationTransientSampleTests: XCTestCase {
+    private var sampledMonitors: [Monitor] = []
+
     func testTransientUnusableResampleDoesNotTearDownPresentMonitor() throws {
         let controller = WindowAdmissionTestSupport.controller(prefix: "DisplayConfigurationTransientSampleTests")
         let manager = controller.serviceLifecycleManager
@@ -45,14 +47,14 @@ final class DisplayConfigurationTransientSampleTests: XCTestCase {
     func testObserverIgnoresUnusableSampleAsBaseline() {
         let first = makeMonitor(displayId: 1, name: "First", originX: 0, width: 1440)
         let second = makeMonitor(displayId: 2, name: "Second", originX: 1440, width: 1440)
-        var sample = [first, second]
-        let observer = DisplayConfigurationObserver(monitorSampler: { sample })
+        sampledMonitors = [first, second]
+        let observer = DisplayConfigurationObserver(monitorSampler: { self.sampledMonitors })
         var events: [DisplayConfigurationObserver.DisplayEvent] = []
         observer.setEventHandler { events.append($0) }
 
-        sample = [makeMonitor(displayId: 1, name: "First", originX: 0, width: 1), second]
+        sampledMonitors = [makeMonitor(displayId: 1, name: "First", originX: 0, width: 1), second]
         observer.sampleNow()
-        sample = [first, second]
+        sampledMonitors = [first, second]
         observer.sampleNow()
 
         XCTAssertTrue(events.isEmpty)

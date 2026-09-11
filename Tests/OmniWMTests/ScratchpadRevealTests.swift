@@ -1227,6 +1227,132 @@ final class ScratchpadRevealTests: XCTestCase {
         XCTAssertEqual(fixture.controller.workspaceManager.scratchpadIndex(for: fullscreen), 5)
     }
 
+    func testReturningScratchpadMemberToNiriReleasesOnlyThatMember() throws {
+        try verifyReturningScratchpadMemberToLayout(.niri)
+    }
+
+    func testReturningScratchpadMemberToDwindleReleasesOnlyThatMember() throws {
+        try verifyReturningScratchpadMemberToLayout(.dwindle)
+    }
+
+    func testReturningLastRevealedScratchpadMemberToTilingClearsRevealedSlot() throws {
+        try verifyReturningLastScratchpadMemberToTiling(parkBeforeTransition: false)
+    }
+
+    func testDeferredTilingTransitionAfterParkingClearsScratchpadHiding() throws {
+        try verifyReturningLastScratchpadMemberToTiling(parkBeforeTransition: true)
+    }
+
+    private func verifyReturningScratchpadMemberToLayout(_ layout: LayoutType) throws {
+        let fixture = try makeFixture()
+        let controller = fixture.controller
+        let manager = controller.workspaceManager
+        defer {
+            controller.layoutRefreshController.resetState()
+            controller.surfaceReconciler.cleanup()
+            controller.axManager.cleanup()
+        }
+        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map {
+            $0.name == "1" ? $0.with(layoutType: layout) : $0
+        }
+        manager.applySettings()
+        if layout == .niri {
+            controller.niriLayoutHandler.enableNiriLayout()
+        } else {
+            controller.dwindleLayoutHandler.enableDwindleLayout()
+        }
+        controller.layoutRefreshController.resetState()
+        let first = addFloatingWindow(pid: 972_001, windowId: 972_101, to: fixture)
+        let second = addFloatingWindow(pid: 972_002, windowId: 972_102, to: fixture)
+        XCTAssertEqual(assign(first, to: 1, in: fixture), .executed)
+        XCTAssertEqual(assign(second, to: 1, in: fixture), .executed)
+        XCTAssertEqual(controller.toggleScratchpad(1), .executed)
+        try completeReveal(first, in: fixture)
+        try completeReveal(second, in: fixture)
+        _ = manager.cancelCurrentManagedFocusRequest()
+        _ = manager.setManagedFocus(first, in: fixture.workspaceId, onMonitor: fixture.monitor.id)
+
+        XCTAssertEqual(controller.toggleFocusedWindowFloating(), .executed)
+        XCTAssertNil(manager.manualLayoutOverride(for: first))
+        XCTAssertEqual(manager.entry(for: first)?.mode, .floating)
+        XCTAssertEqual(manager.scratchpadIndex(for: first), 1)
+        XCTAssertTrue(controller.transitionWindowMode(
+            for: first,
+            to: .tiling,
+            preferredMonitor: fixture.monitor,
+            observedFrame: CGRect(x: 120, y: 80, width: 900, height: 620),
+            allowLiveFrameFallback: false
+        ))
+
+        XCTAssertEqual(manager.entry(for: first)?.mode, .tiling)
+        XCTAssertNil(manager.scratchpadIndex(for: first))
+        XCTAssertNil(manager.hiddenState(for: first))
+        XCTAssertEqual(manager.scratchpadMembers(in: 1), [second])
+        XCTAssertEqual(manager.revealedScratchpadIndex(), 1)
+        if layout == .niri {
+            _ = manager.withBatchedLayoutBuild {
+                controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [fixture.workspaceId])
+            }
+            let engine = try XCTUnwrap(controller.niriEngine)
+            let handle = try XCTUnwrap(manager.handle(for: first))
+            XCTAssertNotNil(engine.findNode(for: handle, in: fixture.workspaceId))
+        } else {
+            _ = manager.withBatchedLayoutBuild {
+                controller.dwindleLayoutHandler.layoutWithDwindleEngine(activeWorkspaces: [fixture.workspaceId])
+            }
+            let engine = try XCTUnwrap(controller.dwindleEngine)
+            XCTAssertNotNil(engine.findNode(for: first, in: fixture.workspaceId))
+        }
+
+        XCTAssertEqual(controller.toggleScratchpad(1), .executed)
+        XCTAssertNil(manager.hiddenState(for: first))
+        XCTAssertEqual(manager.hiddenState(for: second)?.isScratchpad, true)
+        XCTAssertEqual(controller.toggleScratchpad(1), .executed)
+        try completeReveal(second, in: fixture)
+        XCTAssertNil(manager.hiddenState(for: first))
+        let destination = try XCTUnwrap(manager.workspaceId(for: "2", createIfMissing: true))
+        _ = manager.focusWorkspace(named: "2")
+        controller.rehomeRevealedScratchpad(activeWorkspaceIds: [destination])
+        XCTAssertEqual(manager.workspace(for: first), fixture.workspaceId)
+        XCTAssertEqual(manager.workspace(for: second), destination)
+    }
+
+    private func verifyReturningLastScratchpadMemberToTiling(parkBeforeTransition: Bool) throws {
+        let fixture = try makeFixture()
+        let controller = fixture.controller
+        let manager = controller.workspaceManager
+        defer {
+            controller.layoutRefreshController.resetState()
+            controller.surfaceReconciler.cleanup()
+            controller.axManager.cleanup()
+        }
+        let token = addFloatingWindow(pid: 972_011, windowId: 972_111, to: fixture)
+        XCTAssertEqual(assign(token, to: 1, in: fixture), .executed)
+        XCTAssertEqual(controller.toggleScratchpad(1), .executed)
+        try completeReveal(token, in: fixture)
+        _ = manager.cancelCurrentManagedFocusRequest()
+        _ = manager.setManagedFocus(token, in: fixture.workspaceId, onMonitor: fixture.monitor.id)
+        XCTAssertEqual(controller.toggleFocusedWindowFloating(), .executed)
+        if parkBeforeTransition {
+            XCTAssertEqual(controller.toggleScratchpad(1), .executed)
+            XCTAssertEqual(manager.hiddenState(for: token)?.isScratchpad, true)
+        }
+
+        XCTAssertTrue(controller.transitionWindowMode(
+            for: token,
+            to: .tiling,
+            preferredMonitor: fixture.monitor,
+            observedFrame: CGRect(x: 120, y: 80, width: 900, height: 620),
+            allowLiveFrameFallback: false
+        ))
+
+        XCTAssertNil(manager.scratchpadIndex(for: token))
+        XCTAssertNil(manager.revealedScratchpadIndex())
+        XCTAssertNil(manager.hiddenState(for: token))
+        XCTAssertTrue(manager.scratchpadMembers(in: 1).isEmpty)
+        XCTAssertEqual(controller.toggleScratchpad(1), .notFound)
+    }
+
     private struct Fixture {
         let controller: WMController
         let monitor: Monitor

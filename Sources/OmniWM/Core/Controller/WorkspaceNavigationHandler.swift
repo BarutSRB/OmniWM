@@ -201,12 +201,14 @@ final class WorkspaceNavigationHandler {
             engine.activateWindow(movedNode.id, in: workspaceId)
             engine.ensureSelectionVisible(
                 node: movedNode,
-                in: workspaceId,
-                motion: controller.motionPolicy.snapshot(),
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: orientation
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: controller.motionPolicy.snapshot(),
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: orientation
+                ),
+                state: &state
             )
         }
         return state
@@ -1207,12 +1209,14 @@ final class WorkspaceNavigationHandler {
                 targetState.selectedNodeId = windowNode.id
                 engine.ensureSelectionVisible(
                     node: windowNode,
-                    in: targetWorkspaceId,
-                    motion: motion,
-                    state: &targetState,
-                    workingFrame: targetWorkingFrame,
-                    gaps: gaps,
-                    orientation: orientation
+                    context: .init(
+                        workspaceId: targetWorkspaceId,
+                        motion: motion,
+                        workingFrame: targetWorkingFrame,
+                        gaps: gaps,
+                        orientation: orientation
+                    ),
+                    state: &targetState
                 )
                 return (moveResult, movedTokens)
             }

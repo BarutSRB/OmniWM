@@ -28,14 +28,15 @@ final class SponsorsWindowController {
                 window.titleVisibility = .hidden
                 window.isOpaque = false
                 window.backgroundColor = .clear
+            },
+            content: {
+                SponsorsView(
+                    motionPolicy: motionPolicy,
+                    onClose: { [weak presenter] in
+                        presenter?.close()
+                    }
+                )
             }
-        ) {
-            SponsorsView(
-                motionPolicy: motionPolicy,
-                onClose: { [weak presenter] in
-                    presenter?.close()
-                }
-            )
-        }
+        )
     }
 }

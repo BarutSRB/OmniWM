@@ -262,15 +262,15 @@ struct RuleWindowBehaviorSection: View {
 
     private var initialContainerPrimarySpanPercent: Binding<Double> {
         Binding(
-            get: { AppRuleInitialContainerPrimarySpanPercent.percent(from: draft.initialContainerPrimarySpan) },
+            get: { AppRulePrimarySpanPercent.percent(from: draft.initialContainerPrimarySpan) },
             set: { percent in
-                draft.initialContainerPrimarySpan = AppRuleInitialContainerPrimarySpanPercent.proportion(from: percent)
+                draft.initialContainerPrimarySpan = AppRulePrimarySpanPercent.proportion(from: percent)
             }
         )
     }
 
     private var initialContainerPrimarySpanAccessibilityValue: String {
-        let value = AppRuleInitialContainerPrimarySpanPercent.displayText(for: draft.initialContainerPrimarySpan) + " percent"
+        let value = AppRulePrimarySpanPercent.displayText(for: draft.initialContainerPrimarySpan) + " percent"
         guard draft.initialContainerPrimarySpanError != nil else { return value }
         return value + ", invalid"
     }

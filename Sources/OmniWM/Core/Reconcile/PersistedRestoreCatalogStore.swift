@@ -4,7 +4,7 @@
 import CoreGraphics
 import Foundation
 
-struct PersistedWindowRestoreCatalogBuildSnapshot: Sendable {
+struct RestoreCatalogBuildSnapshot: Sendable {
     let entries: [PersistedWindowRestoreCatalogBuildEntry]
 }
 
@@ -29,7 +29,7 @@ enum PersistedWindowRestoreCatalogBuilder {
         let entry: PersistedWindowRestoreEntry
     }
 
-    static func build(from snapshot: PersistedWindowRestoreCatalogBuildSnapshot) -> PersistedWindowRestoreCatalog {
+    static func build(from snapshot: RestoreCatalogBuildSnapshot) -> PersistedWindowRestoreCatalog {
         var candidatesByBaseKey: [PersistedWindowRestoreBaseKey: [Candidate]] = [:]
 
         for snapshotEntry in snapshot.entries {
@@ -110,12 +110,12 @@ final class PersistedRestoreCatalogStore {
     private var saveScheduled = false
     private var buildInFlight = false
     private var revision: UInt64 = 0
-    private let buildSnapshot: @MainActor () -> PersistedWindowRestoreCatalogBuildSnapshot
+    private let buildSnapshot: @MainActor () -> RestoreCatalogBuildSnapshot
     private let save: @MainActor (PersistedWindowRestoreCatalog) -> Void
 
     init(
         bootCatalog: PersistedWindowRestoreCatalog,
-        buildSnapshot: @escaping @MainActor () -> PersistedWindowRestoreCatalogBuildSnapshot,
+        buildSnapshot: @escaping @MainActor () -> RestoreCatalogBuildSnapshot,
         save: @escaping @MainActor (PersistedWindowRestoreCatalog) -> Void
     ) {
         self.bootCatalog = bootCatalog

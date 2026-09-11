@@ -95,10 +95,12 @@ final class SystemStatsPopupController {
         OwnedWindowRegistry.shared.register(
             panel,
             surfaceId: Self.surfaceId,
-            kind: .systemStats,
-            hitTestPolicy: .interactive,
-            capturePolicy: .excluded,
-            suppressesManagedFocusRecovery: false
+            policy: SurfacePolicy(
+                kind: .systemStats,
+                hitTestPolicy: .interactive,
+                capturePolicy: .excluded,
+                suppressesManagedFocusRecovery: false
+            )
         )
         panel.orderFrontRegardless()
         isVisible = true

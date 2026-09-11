@@ -197,7 +197,7 @@ final class OverviewController {
     private var windows: [OverviewWindow] = []
     private var windowsByDisplayId: [CGDirectDisplayID: OverviewWindow] = [:]
     private var animator: OverviewAnimator?
-    private var thumbnailCache: [Int: CGImage] = [:]
+    private(set) var thumbnailCache: [Int: CGImage] = [:]
     private var thumbnailCaptureTask: Task<Void, Never>?
     private static let maxConcurrentThumbnailCaptures = 4
 
@@ -772,7 +772,7 @@ final class OverviewController {
             let activeWs = workspaceManager.activeWorkspace(on: monitor.id)
 
             for ws in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append((
+                workspaces.append(OverviewWorkspaceLayoutItem(
                     id: ws.id,
                     name: wmController.settings.displayName(for: ws.name),
                     isActive: ws.id == activeWs?.id
@@ -822,7 +822,7 @@ final class OverviewController {
         for monitor in workspaceManager.monitors {
             let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
             for workspace in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append((
+                workspaces.append(OverviewWorkspaceLayoutItem(
                     id: workspace.id,
                     name: wmController.settings.displayName(for: workspace.name),
                     isActive: workspace.id == activeWorkspaceId
@@ -872,7 +872,7 @@ final class OverviewController {
             }
             let frame = engineFrames[entry.token] ?? data.frame
             if entry.token != data.token || entry.workspaceId != data.workspaceId || frame != data.frame {
-                overviewSnapshot.windows[handle] = (
+                overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
                     token: entry.token,
                     workspaceId: entry.workspaceId,
                     title: data.title,
@@ -966,7 +966,7 @@ final class OverviewController {
                 ?? .zero
             if let data = overviewSnapshot.windows[handle] {
                 if data.token != entry.token || data.workspaceId != workspaceId || data.frame != frame {
-                    overviewSnapshot.windows[handle] = (
+                    overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
                         token: entry.token,
                         workspaceId: workspaceId,
                         title: data.title,
@@ -1019,7 +1019,7 @@ final class OverviewController {
                 ?? .zero
             if let data = overviewSnapshot.windows[handle] {
                 if data.token != entry.token || data.workspaceId != workspaceId || data.frame != frame {
-                    overviewSnapshot.windows[handle] = (
+                    overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
                         token: entry.token,
                         workspaceId: workspaceId,
                         title: data.title,
@@ -1053,7 +1053,7 @@ final class OverviewController {
     ) -> OverviewWindowLayoutData {
         let title = environment.windowTitle(entry) ?? ""
         let appInfo = appInfoCache.info(for: entry.pid)
-        return (
+        return OverviewWindowLayoutData(
             token: entry.token,
             workspaceId: entry.workspaceId,
             title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
@@ -1171,7 +1171,7 @@ final class OverviewController {
         niriSnapshotsByWorkspace: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot]
     ) -> OverviewLayout {
         let localizedWindowData = overviewSnapshot.windows.mapValues { windowData in
-            (
+            OverviewWindowLayoutData(
                 token: windowData.token,
                 workspaceId: windowData.workspaceId,
                 title: windowData.title,
@@ -1182,13 +1182,14 @@ final class OverviewController {
         }
 
         let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
-        var layout = OverviewLayoutCalculator.calculateLayout(
+        var layout = OverviewLayoutCalculator(
+            screenFrame: viewportFrame,
+            scale: scale
+        ).calculateLayout(
             workspaces: overviewSnapshot.workspaces,
             windows: localizedWindowData,
             niriSnapshotsByWorkspace: niriSnapshotsByWorkspace,
-            screenFrame: viewportFrame,
-            searchQuery: searchQuery,
-            scale: scale
+            searchQuery: searchQuery
         )
         layout.updateGroupCounts(overviewSnapshot.groupCountByHandle)
         return layout
@@ -1333,12 +1334,22 @@ final class OverviewController {
     }
 
     private func startThumbnailCapture(windowIds: Set<Int>? = nil) {
-        thumbnailCaptureTask?.cancel()
-        guard CGPreflightScreenCaptureAccess() else { return }
-        environment.onThumbnailCaptureStarted()
-        thumbnailCaptureTask = Task { [weak self] in
+        guard CGPreflightScreenCaptureAccess() else {
+            thumbnailCaptureTask?.cancel()
+            return
+        }
+        startThumbnailCapture { [weak self] in
             await self?.captureThumbnails(windowIds: windowIds)
         }
+    }
+
+    @discardableResult
+    private func startThumbnailCapture(_ capture: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        thumbnailCaptureTask?.cancel()
+        environment.onThumbnailCaptureStarted()
+        let task = Task(operation: capture)
+        thumbnailCaptureTask = task
+        return task
     }
 
     private func captureThumbnails(windowIds: Set<Int>?) async {
@@ -1357,39 +1368,61 @@ final class OverviewController {
                 return ThumbnailCaptureItem(request: request, scWindow: scWindow)
             }
 
-            await withTaskGroup(of: (windowId: Int, thumbnail: CGImage?).self) { group in
-                var nextIndex = 0
-                func addNextCapture() {
-                    guard nextIndex < captures.count, !Task.isCancelled else { return }
-                    let item = captures[nextIndex]
-                    nextIndex += 1
-                    group.addTask {
-                        guard !Task.isCancelled else { return (item.request.windowId, nil) }
-                        return (
-                            item.request.windowId,
-                            await Self.captureWindowThumbnail(scWindow: item.scWindow, request: item.request)
-                        )
-                    }
-                }
-
-                for _ in 0 ..< min(Self.maxConcurrentThumbnailCaptures, captures.count) {
-                    addNextCapture()
-                }
-                while let result = await group.next() {
-                    if let thumbnail = result.thumbnail {
-                        thumbnailCache[result.windowId] = thumbnail
-                    }
-                    addNextCapture()
-                }
+            await captureThumbnails(captures) { item in
+                guard !Task.isCancelled else { return (item.request.windowId, nil) }
+                return (
+                    item.request.windowId,
+                    await Self.captureWindowThumbnail(scWindow: item.scWindow, request: item.request)
+                )
             }
-
-            guard !Task.isCancelled else { return }
-            updateWindowThumbnails()
         } catch {
             FallbackFiringRecorder.shared.note(.capture, "overviewContentException")
             return
         }
     }
+
+    private func captureThumbnails<Capture: Sendable>(
+        _ captures: [Capture],
+        capture: @escaping @Sendable (Capture) async -> (windowId: Int, thumbnail: CGImage?)
+    ) async {
+        await withTaskGroup(of: (windowId: Int, thumbnail: CGImage?).self) { group in
+            var nextIndex = 0
+            func addNextCapture() {
+                guard nextIndex < captures.count, !Task.isCancelled else { return }
+                let item = captures[nextIndex]
+                nextIndex += 1
+                group.addTask { await capture(item) }
+            }
+
+            for _ in 0 ..< min(Self.maxConcurrentThumbnailCaptures, captures.count) {
+                addNextCapture()
+            }
+            while let result = await group.next() {
+                guard !Task.isCancelled else { return }
+                if let thumbnail = result.thumbnail {
+                    thumbnailCache[result.windowId] = thumbnail
+                }
+                addNextCapture()
+            }
+        }
+
+        guard !Task.isCancelled else { return }
+        updateWindowThumbnails()
+    }
+
+    #if DEBUG
+        @discardableResult
+        func startThumbnailCaptureForTests(
+            windowId: Int,
+            capture: @escaping @Sendable () async -> CGImage?
+        ) -> Task<Void, Never> {
+            startThumbnailCapture {
+                await self.captureThumbnails([windowId]) { windowId in
+                    (windowId, await capture())
+                }
+            }
+        }
+    #endif
 
     private func thumbnailCaptureRequests(windowIds: Set<Int>? = nil) -> [OverviewThumbnailCaptureRequest] {
         guard let wmController else { return [] }
@@ -1479,8 +1512,8 @@ final class OverviewController {
             wmController?.workspaceManager.handle(for: handle.id) === handle ? handle : nil
         }
         let handoff: PostCloseHandoff?
-        if (dismissReason.shouldRestorePreviousApplication
-            || dismissReason == .selection && resolvedTargetWindow == nil),
+        if dismissReason.shouldRestorePreviousApplication
+            || dismissReason == .selection && resolvedTargetWindow == nil,
             let previousFrontmostApplicationPID
         {
             handoff = .activateApplication(previousFrontmostApplicationPID)
@@ -1669,7 +1702,7 @@ final class OverviewController {
 
     func navigateSelection(_ direction: Direction, on monitorId: Monitor.ID? = nil) {
         performSelectionNavigation(on: monitorId) { layout, currentHandle in
-            OverviewLayoutCalculator.findNextWindow(
+            OverviewNavigation.findNextWindow(
                 in: layout,
                 from: currentHandle,
                 direction: direction
@@ -1679,7 +1712,7 @@ final class OverviewController {
 
     func cycleSelection(forward: Bool, on monitorId: Monitor.ID? = nil) {
         performSelectionNavigation(on: monitorId) { layout, currentHandle in
-            OverviewLayoutCalculator.findCycledWindow(
+            OverviewNavigation.findCycledWindow(
                 in: layout,
                 from: currentHandle,
                 forward: forward
@@ -2050,7 +2083,7 @@ final class OverviewController {
     }
 }
 
-private extension OverviewController {
+extension OverviewController {
     enum DragMutationOutcome {
         case changed(StructuralMutation)
         case awaitingAdmission(StructuralMutation, OverviewDragTarget)
@@ -2157,20 +2190,20 @@ extension OverviewController {
     }
 }
 
-private extension OverviewController {
-    func cancelDrag() {
+extension OverviewController {
+    fileprivate func cancelDrag() {
         clearDragTargets()
         dragGhostController?.endDrag()
         dragSession = nil
         updateWindowDisplays()
     }
 
-    func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
+    fileprivate func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
         guard let layout = layoutsByMonitor[monitorId] else { return nil }
         return layout.resolveDragTarget(at: point, draggedHandle: dragSession?.handle)
     }
 
-    func performDragAction(session: DragSession, target: OverviewDragTarget) -> DragMutationOutcome {
+    fileprivate func performDragAction(session: DragSession, target: OverviewDragTarget) -> DragMutationOutcome {
         guard let wmController,
               visibleManagedEntry(for: session.handle) != nil
         else {
@@ -2262,7 +2295,7 @@ private extension OverviewController {
         }
     }
 
-    func completeDeferredDragMutation(
+    fileprivate func completeDeferredDragMutation(
         _ mutation: StructuralMutation,
         target: OverviewDragTarget
     ) {
@@ -2292,7 +2325,7 @@ private extension OverviewController {
         )
     }
 
-    func applyDeferredDragPlacement(
+    fileprivate func applyDeferredDragPlacement(
         _ mutation: StructuralMutation,
         target: OverviewDragTarget,
         transferGeneration: UInt64,
@@ -2386,7 +2419,7 @@ private extension OverviewController {
         wmController.layoutRefreshController.startScrollAnimation(for: mutation.destinationWorkspaceId)
     }
 
-    func finishDeferredDragMutation(
+    fileprivate func finishDeferredDragMutation(
         _ mutation: StructuralMutation,
         transferGeneration: UInt64,
         projectionGeneration: UInt64
@@ -2402,14 +2435,14 @@ private extension OverviewController {
         )
     }
 
-    func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    fileprivate func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let wmController else { return false }
         guard let name = wmController.workspaceManager.descriptor(for: workspaceId)?.name else { return false }
         let layoutType = wmController.settings.layoutType(for: name)
         return layoutType != .dwindle
     }
 
-    func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
+    fileprivate func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
         switch position {
         case .before:
             return .after

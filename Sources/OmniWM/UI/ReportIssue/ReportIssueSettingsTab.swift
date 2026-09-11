@@ -309,7 +309,7 @@ extension ReportIssueSettingsTab {
                 }
             case .recording:
                 if controller.traceCaptureStatus.profile == .problem {
-                    recordingLabel
+                    DiagnosticsRecordingProgress(startedAt: controller.traceCaptureStatus.startedAt)
                     Button("Stop, Save & Include Recording") { stopRecording() }
                     SettingsCaption(
                         "Stop, save, and include before submitting — an in-progress recording isn't ready to attach."
@@ -347,7 +347,7 @@ extension ReportIssueSettingsTab {
                         + "Crash and trace evidence is included only when you explicitly select it."
                 )
             }
-            statusLabel(traceStatus)
+            DiagnosticsStatusLabel(status: traceStatus)
         }
     }
 
@@ -402,24 +402,6 @@ extension ReportIssueSettingsTab {
                 if case .trace = evidence { return true }
                 return false
             } ? "Record Again" : "Record a Trace"
-        }
-    }
-
-    @ViewBuilder
-    private var recordingLabel: some View {
-        if let startedAt = controller.traceCaptureStatus.startedAt {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let text = elapsed(since: startedAt, now: context.date)
-                HStack(spacing: 8) {
-                    Image(systemName: "record.circle")
-                        .foregroundStyle(.red)
-                    Text("Recording \(text)")
-                        .font(.callout.monospacedDigit())
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Recording in progress")
-                .accessibilityValue(text)
-            }
         }
     }
 
@@ -498,26 +480,5 @@ extension ReportIssueSettingsTab {
                 traceStatus = .failure("Unexpected recording state")
             }
         }
-    }
-
-    @ViewBuilder
-    private func statusLabel(_ status: DiagnosticsActionStatus) -> some View {
-        switch status {
-        case .idle:
-            EmptyView()
-        case let .success(message):
-            Label(message, systemImage: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(.green)
-        case let .failure(message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.red)
-        }
-    }
-
-    private func elapsed(since start: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(start)))
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }

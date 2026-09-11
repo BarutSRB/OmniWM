@@ -5,7 +5,26 @@ import AppKit
 import Foundation
 
 @MainActor
-enum WorkspaceBarDataSource {
+struct WorkspaceBarDataSource {
+    private let workspaceManager: WorkspaceManager
+    private let windowProjector: WorkspaceBarWindowProjector
+    private let settings: SettingsStore
+
+    init(
+        workspaceManager: WorkspaceManager,
+        appInfoCache: AppInfoCache,
+        iconResolver: WorkspaceBarIconResolver,
+        settings: SettingsStore
+    ) {
+        self.workspaceManager = workspaceManager
+        self.windowProjector = WorkspaceBarWindowProjector(
+            workspaceManager: workspaceManager,
+            appInfoCache: appInfoCache,
+            iconResolver: iconResolver
+        )
+        self.settings = settings
+    }
+
     private struct WorkspaceSnapshot {
         let workspace: WorkspaceDescriptor
         let tiledEntries: [WindowState]
@@ -13,56 +32,33 @@ enum WorkspaceBarDataSource {
         let hasBarOccupancy: Bool
     }
 
-    private enum AppGroupKey: Hashable {
-        case bundleId(String)
-        case pid(pid_t)
-    }
-
-    static func workspaceBarProjection(
+    func workspaceBarProjection(
         for monitor: Monitor,
         options: WorkspaceBarProjectionOptions,
-        workspaceManager: WorkspaceManager,
-        appInfoCache: AppInfoCache,
-        iconResolver: WorkspaceBarIconResolver,
-        focusedToken: WindowToken?,
-        settings: SettingsStore
+        focusedToken: WindowToken?
     ) -> WorkspaceBarProjection {
         WorkspaceBarProjection(
             items: workspaceItems(
                 for: monitor,
                 options: options,
-                workspaceManager: workspaceManager,
-                appInfoCache: appInfoCache,
-                iconResolver: iconResolver,
-                focusedToken: focusedToken,
-                settings: settings
+                focusedToken: focusedToken
             ),
             scratchpads: scratchpadItems(
                 options: options,
-                workspaceManager: workspaceManager,
-                appInfoCache: appInfoCache,
-                iconResolver: iconResolver,
-                focusedToken: focusedToken,
-                settings: settings
+                focusedToken: focusedToken
             )
         )
     }
 
-    private static func workspaceItems(
+    private func workspaceItems(
         for monitor: Monitor,
         options: WorkspaceBarProjectionOptions,
-        workspaceManager: WorkspaceManager,
-        appInfoCache: AppInfoCache,
-        iconResolver: WorkspaceBarIconResolver,
-        focusedToken: WindowToken?,
-        settings: SettingsStore
+        focusedToken: WindowToken?
     ) -> [WorkspaceBarItem] {
         var workspaces = workspaceManager.workspaces(on: monitor.id).map { workspace in
             workspaceSnapshot(
                 for: workspace,
-                options: options,
-                workspaceManager: workspaceManager,
-                appInfoCache: appInfoCache
+                options: options
             )
         }
 
@@ -74,59 +70,67 @@ enum WorkspaceBarDataSource {
         }
 
         return workspaces.map { snapshot in
-            let topology = workspaceManager.layoutTopology(for: snapshot.workspace.id)
-            let orderedTiledEntries = visibilityOrderedEntries(
-                WorkspaceEntryOrdering.orderedEntries(
-                    snapshot.tiledEntries,
-                    topology: topology
-                ),
-                hiddenAppPIDs: hiddenAppPIDs
-            )
-            let orderedFloatingEntries = visibilityOrderedEntries(
-                WorkspaceEntryOrdering.orderedEntries(
-                    snapshot.floatingEntries,
-                    topology: topology
-                ),
-                hiddenAppPIDs: hiddenAppPIDs
-            )
-            let useLayoutOrder = topology.hasColumns
-            let tiledWindows = createWindowItems(
-                entries: orderedTiledEntries,
-                deduplicate: options.deduplicateAppIcons,
-                useLayoutOrder: useLayoutOrder,
-                appInfoCache: appInfoCache,
-                iconResolver: iconResolver,
+            workspaceItem(
+                snapshot,
+                options: options,
+                activeWorkspaceId: activeWorkspaceId,
                 focusedToken: focusedToken,
-                hiddenAppPIDs: hiddenAppPIDs,
-                workspaceManager: workspaceManager
-            )
-            let floatingWindows = createWindowItems(
-                entries: orderedFloatingEntries,
-                deduplicate: options.deduplicateAppIcons,
-                useLayoutOrder: useLayoutOrder,
-                appInfoCache: appInfoCache,
-                iconResolver: iconResolver,
-                focusedToken: focusedToken,
-                hiddenAppPIDs: hiddenAppPIDs,
-                workspaceManager: workspaceManager
-            )
-
-            return WorkspaceBarItem(
-                id: snapshot.workspace.id,
-                name: settings.displayName(for: snapshot.workspace.name),
-                rawName: snapshot.workspace.name,
-                isFocused: snapshot.workspace.id == activeWorkspaceId,
-                tiledWindows: tiledWindows,
-                floatingWindows: floatingWindows
+                hiddenAppPIDs: hiddenAppPIDs
             )
         }
     }
 
-    private static func workspaceSnapshot(
-        for workspace: WorkspaceDescriptor,
+    private func workspaceItem(
+        _ snapshot: WorkspaceSnapshot,
         options: WorkspaceBarProjectionOptions,
-        workspaceManager: WorkspaceManager,
-        appInfoCache: AppInfoCache
+        activeWorkspaceId: WorkspaceDescriptor.ID?,
+        focusedToken: WindowToken?,
+        hiddenAppPIDs: Set<pid_t>
+    ) -> WorkspaceBarItem {
+        let topology = workspaceManager.layoutTopology(for: snapshot.workspace.id)
+        let orderedTiledEntries = visibilityOrderedEntries(
+            WorkspaceEntryOrdering.orderedEntries(
+                snapshot.tiledEntries,
+                topology: topology
+            ),
+            hiddenAppPIDs: hiddenAppPIDs
+        )
+        let orderedFloatingEntries = visibilityOrderedEntries(
+            WorkspaceEntryOrdering.orderedEntries(
+                snapshot.floatingEntries,
+                topology: topology
+            ),
+            hiddenAppPIDs: hiddenAppPIDs
+        )
+        let useLayoutOrder = topology.hasColumns
+        let tiledWindows = windowProjector.items(
+            entries: orderedTiledEntries,
+            deduplicate: options.deduplicateAppIcons,
+            useLayoutOrder: useLayoutOrder,
+            focusedToken: focusedToken,
+            hiddenAppPIDs: hiddenAppPIDs
+        )
+        let floatingWindows = windowProjector.items(
+            entries: orderedFloatingEntries,
+            deduplicate: options.deduplicateAppIcons,
+            useLayoutOrder: useLayoutOrder,
+            focusedToken: focusedToken,
+            hiddenAppPIDs: hiddenAppPIDs
+        )
+
+        return WorkspaceBarItem(
+            id: snapshot.workspace.id,
+            name: settings.displayName(for: snapshot.workspace.name),
+            rawName: snapshot.workspace.name,
+            isFocused: snapshot.workspace.id == activeWorkspaceId,
+            tiledWindows: tiledWindows,
+            floatingWindows: floatingWindows
+        )
+    }
+
+    private func workspaceSnapshot(
+        for workspace: WorkspaceDescriptor,
+        options: WorkspaceBarProjectionOptions
     ) -> WorkspaceSnapshot {
         let projectedEntries = workspaceManager.barVisibleEntries(
             in: workspace.id,
@@ -135,7 +139,7 @@ enum WorkspaceBarDataSource {
         var tiledEntries: [WindowState] = []
         var floatingEntries: [WindowState] = []
         for entry in projectedEntries {
-            if isExcluded(entry, options: options, appInfoCache: appInfoCache) {
+            if windowProjector.isExcluded(entry, options: options) {
                 continue
             }
             switch entry.mode {
@@ -153,31 +157,24 @@ enum WorkspaceBarDataSource {
         )
     }
 
-    private static func scratchpadItems(
+    private func scratchpadItems(
         options: WorkspaceBarProjectionOptions,
-        workspaceManager: WorkspaceManager,
-        appInfoCache: AppInfoCache,
-        iconResolver: WorkspaceBarIconResolver,
-        focusedToken: WindowToken?,
-        settings: SettingsStore
+        focusedToken: WindowToken?
     ) -> [WorkspaceBarScratchpadItem] {
         workspaceManager.occupiedScratchpadIndices().compactMap { index in
             let entries = workspaceManager.scratchpadMembers(in: index).compactMap { token in
                 workspaceManager.entry(for: token).flatMap {
-                    isExcluded($0, options: options, appInfoCache: appInfoCache) ? nil : $0
+                    windowProjector.isExcluded($0, options: options) ? nil : $0
                 }
             }
             guard !entries.isEmpty else { return nil }
 
-            let windows = createWindowItems(
+            let windows = windowProjector.items(
                 entries: entries,
                 deduplicate: true,
                 useLayoutOrder: false,
-                appInfoCache: appInfoCache,
-                iconResolver: iconResolver,
                 focusedToken: focusedToken,
-                hiddenAppPIDs: workspaceManager.hiddenAppPIDs,
-                workspaceManager: workspaceManager
+                hiddenAppPIDs: workspaceManager.hiddenAppPIDs
             )
             guard !windows.isEmpty else { return nil }
             let isRevealed = workspaceManager.revealedScratchpadIndex() == index
@@ -195,204 +192,7 @@ enum WorkspaceBarDataSource {
         }
     }
 
-    private static func isExcluded(
-        _ entry: WindowState,
-        options: WorkspaceBarProjectionOptions,
-        appInfoCache: AppInfoCache
-    ) -> Bool {
-        guard !options.excludedBundleIDs.isEmpty else { return false }
-        return options.excludes(bundleId: bundleId(for: entry, appInfoCache: appInfoCache))
-    }
-
-    private static func createWindowItems(
-        entries: [WindowState],
-        deduplicate: Bool,
-        useLayoutOrder: Bool,
-        appInfoCache: AppInfoCache,
-        iconResolver: WorkspaceBarIconResolver,
-        focusedToken: WindowToken?,
-        hiddenAppPIDs: Set<pid_t>,
-        workspaceManager: WorkspaceManager
-    ) -> [WorkspaceBarWindowItem] {
-        if deduplicate {
-            return createDedupedWindowItems(
-                entries: entries,
-                useLayoutOrder: useLayoutOrder,
-                appInfoCache: appInfoCache,
-                iconResolver: iconResolver,
-                focusedToken: focusedToken,
-                hiddenAppPIDs: hiddenAppPIDs,
-                workspaceManager: workspaceManager
-            )
-        }
-
-        return createIndividualWindowItems(
-            entries: entries,
-            appInfoCache: appInfoCache,
-            iconResolver: iconResolver,
-            focusedToken: focusedToken,
-            hiddenAppPIDs: hiddenAppPIDs,
-            workspaceManager: workspaceManager
-        )
-    }
-
-    private static func createDedupedWindowItems(
-        entries: [WindowState],
-        useLayoutOrder: Bool,
-        appInfoCache: AppInfoCache,
-        iconResolver: WorkspaceBarIconResolver,
-        focusedToken: WindowToken?,
-        hiddenAppPIDs: Set<pid_t>,
-        workspaceManager: WorkspaceManager
-    ) -> [WorkspaceBarWindowItem] {
-        var entriesByApp: [AppGroupKey: [WindowState]] = [:]
-        var appOrder: [AppGroupKey] = []
-        entriesByApp.reserveCapacity(entries.count)
-        appOrder.reserveCapacity(entries.count)
-
-        for entry in entries {
-            let groupKey = appGroupKey(for: entry, appInfoCache: appInfoCache)
-            if entriesByApp[groupKey] == nil {
-                entriesByApp[groupKey] = []
-                appOrder.append(groupKey)
-            }
-            entriesByApp[groupKey]?.append(entry)
-        }
-
-        let indexedItems = appOrder.enumerated().compactMap { index, groupKey -> (Int, WorkspaceBarWindowItem)? in
-            guard let appEntries = entriesByApp[groupKey],
-                  let item = createDeduplicatedWindowItem(
-                      entries: appEntries,
-                      appInfoCache: appInfoCache,
-                      iconResolver: iconResolver,
-                      focusedToken: focusedToken,
-                      hiddenAppPIDs: hiddenAppPIDs,
-                      workspaceManager: workspaceManager
-                  )
-            else {
-                return nil
-            }
-            return (index, item)
-        }
-
-        if useLayoutOrder {
-            return indexedItems.map(\.1)
-        }
-
-        return indexedItems.sorted {
-            if $0.1.isAppHidden != $1.1.isAppHidden {
-                return !$0.1.isAppHidden
-            }
-            if $0.1.appName != $1.1.appName {
-                return $0.1.appName < $1.1.appName
-            }
-            return $0.0 < $1.0
-        }.map(\.1)
-    }
-
-    private static func createDeduplicatedWindowItem(
-        entries: [WindowState],
-        appInfoCache: AppInfoCache,
-        iconResolver: WorkspaceBarIconResolver,
-        focusedToken: WindowToken?,
-        hiddenAppPIDs: Set<pid_t>,
-        workspaceManager: WorkspaceManager
-    ) -> WorkspaceBarWindowItem? {
-        guard let firstEntry = entries.first,
-              let firstHandle = workspaceManager.handle(for: firstEntry.token)
-        else {
-            return nil
-        }
-        let appInfo = entries.lazy.compactMap { appInfoCache.info(for: $0.pid) }.first
-        let appName = appInfo?.name ?? "Unknown"
-        let windowInfos = entries.compactMap { entry -> WorkspaceBarWindowInfo? in
-            guard let handle = workspaceManager.handle(for: entry.token) else { return nil }
-            return WorkspaceBarWindowInfo(
-                id: entry.token,
-                handle: handle,
-                windowId: entry.windowId,
-                title: windowTitle(for: entry) ?? appName,
-                isFocused: entry.token == focusedToken,
-                isAppHidden: hiddenAppPIDs.contains(entry.pid)
-            )
-        }
-
-        return WorkspaceBarWindowItem(
-            id: firstEntry.token,
-            handle: firstHandle,
-            windowId: firstEntry.windowId,
-            appName: appName,
-            bundleId: bundleId(for: firstEntry, appInfoCache: appInfoCache),
-            icon: icon(
-                for: firstEntry,
-                appInfo: appInfo,
-                iconResolver: iconResolver
-            ),
-            isFocused: entries.contains { $0.token == focusedToken },
-            windowCount: windowInfos.count,
-            hiddenWindowCount: windowInfos.count { $0.isAppHidden },
-            allWindows: windowInfos
-        )
-    }
-
-    private static func createIndividualWindowItems(
-        entries: [WindowState],
-        appInfoCache: AppInfoCache,
-        iconResolver: WorkspaceBarIconResolver,
-        focusedToken: WindowToken?,
-        hiddenAppPIDs: Set<pid_t>,
-        workspaceManager: WorkspaceManager
-    ) -> [WorkspaceBarWindowItem] {
-        entries.compactMap { entry -> WorkspaceBarWindowItem? in
-            guard let handle = workspaceManager.handle(for: entry.token) else { return nil }
-            let appInfo = appInfoCache.info(for: entry.pid)
-            let appName = appInfo?.name ?? "Unknown"
-            let title = windowTitle(for: entry) ?? appName
-
-            return WorkspaceBarWindowItem(
-                id: entry.token,
-                handle: handle,
-                windowId: entry.windowId,
-                appName: appName,
-                bundleId: bundleId(for: entry, appInfoCache: appInfoCache),
-                icon: icon(
-                    for: entry,
-                    appInfo: appInfo,
-                    iconResolver: iconResolver
-                ),
-                isFocused: entry.token == focusedToken,
-                windowCount: 1,
-                hiddenWindowCount: hiddenAppPIDs.contains(entry.pid) ? 1 : 0,
-                allWindows: [
-                    WorkspaceBarWindowInfo(
-                        id: entry.token,
-                        handle: handle,
-                        windowId: entry.windowId,
-                        title: title,
-                        isFocused: entry.token == focusedToken,
-                        isAppHidden: hiddenAppPIDs.contains(entry.pid)
-                    )
-                ]
-            )
-        }
-    }
-
-    private static func icon(
-        for entry: WindowState,
-        appInfo: AppInfoCache.AppInfo?,
-        iconResolver: WorkspaceBarIconResolver
-    ) -> NSImage? {
-        guard iconResolver.hasOverrides else { return appInfo?.icon }
-        if let bundleId = normalizedBundleId(entry.managedReplacementMetadata?.bundleId)
-            ?? normalizedBundleId(appInfo?.bundleId),
-            let override = iconResolver.image(for: bundleId)
-        {
-            return override
-        }
-        return appInfo?.icon
-    }
-
-    private static func visibilityOrderedEntries(
+    private func visibilityOrderedEntries(
         _ entries: [WindowState],
         hiddenAppPIDs: Set<pid_t>
     ) -> [WindowState] {
@@ -409,38 +209,5 @@ enum WorkspaceBarDataSource {
         }
         visible.append(contentsOf: hidden)
         return visible
-    }
-
-    private static func appGroupKey(
-        for entry: WindowState,
-        appInfoCache: AppInfoCache
-    ) -> AppGroupKey {
-        if let bundleId = bundleId(for: entry, appInfoCache: appInfoCache) {
-            return .bundleId(bundleId.lowercased())
-        }
-        return .pid(entry.pid)
-    }
-
-    private static func bundleId(
-        for entry: WindowState,
-        appInfoCache: AppInfoCache
-    ) -> String? {
-        normalizedBundleId(entry.managedReplacementMetadata?.bundleId)
-            ?? normalizedBundleId(appInfoCache.bundleId(for: entry.pid))
-    }
-
-    private static func normalizedBundleId(_ bundleId: String?) -> String? {
-        guard let trimmed = bundleId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty
-        else {
-            return nil
-        }
-        return trimmed
-    }
-
-    private static func windowTitle(for entry: WindowState) -> String? {
-        guard let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)),
-              !title.isEmpty else { return nil }
-        return title
     }
 }

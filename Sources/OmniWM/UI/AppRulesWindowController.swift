@@ -23,11 +23,12 @@ final class AppRulesWindowController: NSObject, NSWindowDelegate {
             },
             onWillClose: { [weak self] in
                 self?.editorState.isDirty = false
+            },
+            content: {
+                AppRulesView(settings: settings, controller: controller, editorState: editorState)
+                    .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             }
-        ) {
-            AppRulesView(settings: settings, controller: controller, editorState: editorState)
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        }
+        )
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

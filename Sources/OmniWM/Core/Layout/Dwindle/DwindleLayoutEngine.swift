@@ -16,6 +16,24 @@ final class DwindleWorkspaceState {
 }
 
 final class DwindleLayoutEngine {
+    private struct LayoutCalculation {
+        let tilingArea: CGRect
+        let fullscreenArea: CGRect
+        let excludedTokens: Set<WindowToken>
+        let settings: DwindleSettings
+
+        func frame(for member: DwindleTileMember, in rect: CGRect) -> CGRect {
+            if member.isFullscreen {
+                return fullscreenArea
+            }
+            return DwindleGapCalculator.applyGaps(
+                nodeRect: rect,
+                tilingArea: tilingArea,
+                settings: settings
+            )
+        }
+    }
+
     private var states: [WorkspaceDescriptor.ID: DwindleWorkspaceState] = [:]
     private var windowConstraints: [WindowToken: WindowSizeConstraints] = [:]
 
@@ -940,11 +958,12 @@ final class DwindleLayoutEngine {
             calculateLayoutRecursive(
                 node: state.root,
                 rect: tilingArea,
-                tilingArea: tilingArea,
-                fullscreenArea: fullscreenArea,
-                boundaryEdges: .all,
-                excludedTokens: excludedTokens,
-                settings: calculationSettings,
+                calculation: LayoutCalculation(
+                    tilingArea: tilingArea,
+                    fullscreenArea: fullscreenArea,
+                    excludedTokens: excludedTokens,
+                    settings: calculationSettings
+                ),
                 output: &output
             )
         }
@@ -1082,37 +1101,24 @@ final class DwindleLayoutEngine {
     private func calculateLayoutRecursive(
         node: DwindleNode,
         rect: CGRect,
-        tilingArea: CGRect,
-        fullscreenArea: CGRect,
-        boundaryEdges: ResizeEdge,
-        excludedTokens: Set<WindowToken>,
-        settings: DwindleSettings,
+        calculation: LayoutCalculation,
         output: inout [WindowToken: CGRect]
     ) {
         switch node.kind {
         case let .leaf(tile):
             guard let tile,
-                  let active = visibleMember(in: tile, excluding: excludedTokens)
+                  let active = visibleMember(in: tile, excluding: calculation.excludedTokens)
             else {
                 return
             }
 
-            let target: CGRect
-            if active.isFullscreen {
-                target = fullscreenArea
-            } else {
-                target = DwindleGapCalculator.applyGaps(
-                    nodeRect: rect,
-                    tilingArea: tilingArea,
-                    settings: settings
-                )
-            }
+            let target = calculation.frame(for: active, in: rect)
             node.cachedFrame = target
             let content = contentFrame(
                 for: tile,
                 member: active,
                 tileFrame: target,
-                excludedTokens: excludedTokens
+                excludedTokens: calculation.excludedTokens
             )
             node.cachedContentFrame = content
             output[active.token] = content
@@ -1131,11 +1137,7 @@ final class DwindleLayoutEngine {
                     calculateLayoutRecursive(
                         node: visibleChild,
                         rect: rect,
-                        tilingArea: tilingArea,
-                        fullscreenArea: fullscreenArea,
-                        boundaryEdges: boundaryEdges,
-                        excludedTokens: excludedTokens,
-                        settings: settings,
+                        calculation: calculation,
                         output: &output
                     )
                 }
@@ -1143,7 +1145,6 @@ final class DwindleLayoutEngine {
             }
             guard firstVisible, secondVisible, let first, let second else { return }
 
-            let childEdges = splitChildBoundaryEdges(boundaryEdges, orientation: orientation)
             let firstMin = first.projectedMinSize
             let secondMin = second.projectedMinSize
 
@@ -1153,27 +1154,19 @@ final class DwindleLayoutEngine {
                 ratio: ratio,
                 firstMinSize: firstMin,
                 secondMinSize: secondMin,
-                settings: settings
+                settings: calculation.settings
             )
 
             calculateLayoutRecursive(
                 node: first,
                 rect: r1,
-                tilingArea: tilingArea,
-                fullscreenArea: fullscreenArea,
-                boundaryEdges: childEdges.first,
-                excludedTokens: excludedTokens,
-                settings: settings,
+                calculation: calculation,
                 output: &output
             )
             calculateLayoutRecursive(
                 node: second,
                 rect: r2,
-                tilingArea: tilingArea,
-                fullscreenArea: fullscreenArea,
-                boundaryEdges: childEdges.second,
-                excludedTokens: excludedTokens,
-                settings: settings,
+                calculation: calculation,
                 output: &output
             )
         }
@@ -2368,8 +2361,8 @@ final class DwindleLayoutEngine {
 
     private func hasActiveAnimationsRecursive(_ node: DwindleNode, at time: TimeInterval) -> Bool {
         if node.hasActiveAnimations(at: time) { return true }
-        for child in node.children {
-            if hasActiveAnimationsRecursive(child, at: time) { return true }
+        for child in node.children where hasActiveAnimationsRecursive(child, at: time) {
+            return true
         }
         return false
     }

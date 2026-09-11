@@ -663,7 +663,7 @@ final class SettingsStore {
         }
     }
 
-    private var quakeTerminalCustomFrameStorage: NSRect? = nil {
+    private var quakeTerminalCustomFrameStorage: NSRect? {
         didSet { syncQuakeTerminalCustomFrameToRuntimeState() }
     }
 

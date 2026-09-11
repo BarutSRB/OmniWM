@@ -252,14 +252,6 @@ extension LayoutRefreshController {
         fastFrame(for: entry.token, axRef: entry.axRef)
     }
 
-    static func hiddenEdgeReveal(isZoomApp: Bool) -> CGFloat {
-        isZoomApp ? 0 : hiddenWindowEdgeRevealEpsilon
-    }
-
-    func isZoomApp(_ pid: pid_t) -> Bool {
-        controller?.appInfoCache.bundleId(for: pid) == "us.zoom.xos"
-    }
-
     func markNativeFullscreenRestoredForFrameApply(_ token: WindowToken) {
         nativeFullscreenRestoredFrameApplyTokens.insert(token)
     }

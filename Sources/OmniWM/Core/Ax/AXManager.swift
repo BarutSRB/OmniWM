@@ -49,6 +49,11 @@ struct AXClosingFrameTarget: Sendable {
     }
 }
 
+struct SkyLightPositionTarget {
+    let token: WindowToken
+    let frame: CGRect
+}
+
 struct AXManagerPIDBufferRuntimeSnapshot: Equatable, Sendable {
     var currentSize = 0
     var highWater = 0
@@ -102,7 +107,7 @@ private struct FullRescanAppEnumerationResult: Sendable {
     let callbackGeneration: UInt64?
 }
 
-private struct FullRescanAppTarget: @unchecked Sendable {
+private struct FullRescanAppTarget: Sendable {
     let app: NSRunningApplication
     let route: FullRescanEnumerationRoute
     let inspectionContext: AXWindowInspectionContext
@@ -149,6 +154,13 @@ private struct FullRescanEnumerationCoverage {
     let unavailableTargetPIDs: Set<pid_t>
     let unavailableDependencyPIDs: Set<pid_t>
     let exactWindowIds: Set<Int>?
+}
+
+private struct TargetedFullRescanEnumeration {
+    let appTargets: [FullRescanAppTarget]
+    let results: [FullRescanAppEnumerationResult]
+    let coverage: FullRescanEnumerationCoverage
+    let discoveryEvidence: FullRescanDiscoveryEvidence
 }
 
 struct AXManagedWindowRebindAcknowledgement {
@@ -336,10 +348,8 @@ final class AXManager {
         inactiveWorkspaceWindowIds.removeAll(keepingCapacity: true)
         inactiveWorkspaceWindowIds.reserveCapacity(nativeInactiveWindowIds.count + allEntries.count)
         inactiveWorkspaceWindowIds.formUnion(nativeInactiveWindowIds)
-        for (wsId, windowId) in allEntries {
-            if !activeWorkspaceIds.contains(wsId) {
-                inactiveWorkspaceWindowIds.insert(windowId)
-            }
+        for (wsId, windowId) in allEntries where !activeWorkspaceIds.contains(wsId) {
+            inactiveWorkspaceWindowIds.insert(windowId)
         }
     }
 
@@ -927,7 +937,7 @@ final class AXManager {
         pidBufferMetrics.retainedCapacity = framesByPidBuffer.capacity
     }
 
-    func windowsForApp(_ app: NSRunningApplication) async -> [(AXWindowRef, pid_t, Int)] {
+    func windowsForApp(_ app: NSRunningApplication) async -> [AXWindowRef] {
         guard shouldTrack(app) else { return [] }
         var callbackGeneration: UInt64?
         do {
@@ -944,7 +954,7 @@ final class AXManager {
             }
             callbackGeneration = context.callbackGeneration
             let windows = try await context.getWindowsAsync(timeoutSeconds: perAppTimeout)
-            return windows.map { ($0.axRef, app.processIdentifier, $0.axRef.windowId) }
+            return windows.map(\.axRef)
         } catch {
             WindowAdmissionTrace.record(
                 .init(
@@ -1207,12 +1217,7 @@ final class AXManager {
         preservingPIDsByWindowId: [Int: pid_t],
         identityDependencyPIDsByWindowId: [Int: Set<pid_t>],
         requiresTitleForApp: (String?, String?) -> Bool
-    ) async throws -> (
-        appTargets: [FullRescanAppTarget],
-        results: [FullRescanAppEnumerationResult],
-        coverage: FullRescanEnumerationCoverage,
-        discoveryEvidence: FullRescanDiscoveryEvidence
-    ) {
+    ) async throws -> TargetedFullRescanEnumeration {
         var discoveryEvidence = initialDiscoveryEvidence
         let targetedAppPIDs = scope.appPIDs
         let nativeSpaceWindowIds = scope.nativeSpaceWindowIds
@@ -1235,10 +1240,10 @@ final class AXManager {
             ownerPIDByWindowId: discoveryEvidence.ownerPIDByWindowId,
             identityDependencyPIDsByWindowId: identityDependencyPIDsByWindowId
         ) else {
-            return (
-                [],
-                [],
-                FullRescanEnumerationCoverage(
+            return TargetedFullRescanEnumeration(
+                appTargets: [],
+                results: [],
+                coverage: FullRescanEnumerationCoverage(
                     targetPIDs: [],
                     dependencyPIDs: [],
                     targetPIDsByDependencyPID: [:],
@@ -1246,7 +1251,7 @@ final class AXManager {
                     unavailableDependencyPIDs: [],
                     exactWindowIds: []
                 ),
-                discoveryEvidence
+                discoveryEvidence: discoveryEvidence
             )
         }
         let persistentEvidencePIDs = Set(preservingPIDsByWindowId.values)
@@ -1355,10 +1360,10 @@ final class AXManager {
             unavailableTargetPIDs.formUnion(resolution.targetPIDs)
         }
 
-        return (
-            appTargets,
-            results,
-            FullRescanEnumerationCoverage(
+        return TargetedFullRescanEnumeration(
+            appTargets: appTargets,
+            results: results,
+            coverage: FullRescanEnumerationCoverage(
                 targetPIDs: resolution.targetPIDs,
                 dependencyPIDs: resolution.dependencyPIDs,
                 targetPIDsByDependencyPID: resolution.targetPIDsByDependencyPID,
@@ -1366,7 +1371,7 @@ final class AXManager {
                 unavailableDependencyPIDs: unavailableDependencyPIDs,
                 exactWindowIds: resolution.relevantWindowIds
             ),
-            discoveryEvidence
+            discoveryEvidence: discoveryEvidence
         )
     }
 
@@ -1865,15 +1870,16 @@ final class AXManager {
         try await boundedFullRescanMap(
             targets,
             maxConcurrent: maxConcurrentFullRescanEnumerations,
-            priority: { $0.route == .oneShot ? .utility : nil }
-        ) { target in
-            try await Self.enumerateFullRescanApp(
-                target.app,
-                route: target.route,
-                inspectionContext: target.inspectionContext,
-                includedWindowIds: target.includedWindowIds
-            )
-        }
+            priority: { $0.route == .oneShot ? .utility : nil },
+            operation: { target in
+                try await Self.enumerateFullRescanApp(
+                    target.app,
+                    route: target.route,
+                    inspectionContext: target.inspectionContext,
+                    includedWindowIds: target.includedWindowIds
+                )
+            }
+        )
     }
 
     private nonisolated static func enumerateFullRescanApp(
@@ -2238,6 +2244,7 @@ final class AXManager {
                 expectedWindow: target.expectedWindow,
                 frame: target.frame,
                 currentFrameHint: frameLedger.lastAppliedFrame(for: windowId),
+                components: .position,
                 verify: true,
                 traceRequestId: traceRequestId
             )
@@ -2347,6 +2354,7 @@ final class AXManager {
                 expectedWindow: pending.request.expectedWindow,
                 frame: pending.request.frame,
                 currentFrameHint: pending.request.currentFrameHint,
+                components: pending.request.components,
                 verify: true,
                 traceRequestId: FrameEffectTraceContext.isCurrentCapture(
                     identifier: pending.request.traceRequestId
@@ -2724,26 +2732,24 @@ final class AXManager {
 
     @discardableResult
     func applyPositionsViaSkyLight(
-        _ positions: [(pid: pid_t, windowId: Int, frame: CGRect)],
+        _ positions: [SkyLightPositionTarget],
         allowInactive: Bool = false
     ) -> SkyLight.TransactionSubmissionResult {
         let filtered = positions.filter {
-            (allowInactive || !inactiveWorkspaceWindowIds.contains($0.windowId))
-                && !macOSHiddenAppPIDs.contains($0.pid)
-                && !excludeFrameWriteForNativeTitleBarDrag(pid: $0.pid, windowId: $0.windowId)
+            (allowInactive || !inactiveWorkspaceWindowIds.contains($0.token.windowId))
+                && !macOSHiddenAppPIDs.contains($0.token.pid)
+                && !excludeFrameWriteForNativeTitleBarDrag(pid: $0.token.pid, windowId: $0.token.windowId)
         }
         guard !filtered.isEmpty else { return .submitted }
-        return SkyLight.shared.batchMoveWindows(
-            Self.windowServerPositions(filtered.map { (windowId: $0.windowId, frame: $0.frame) })
-        )
+        return SkyLight.shared.batchMoveWindows(Self.windowServerPositions(filtered))
     }
 
     static func windowServerPositions(
-        _ positions: [(windowId: Int, frame: CGRect)]
+        _ positions: [SkyLightPositionTarget]
     ) -> [(windowId: UInt32, origin: CGPoint)] {
         positions.map {
             (
-                windowId: UInt32($0.windowId),
+                windowId: UInt32($0.token.windowId),
                 origin: ScreenCoordinateSpace.toWindowServer(rect: $0.frame).origin
             )
         }

@@ -204,3 +204,11 @@ extension NSScreen {
             ?? screen(containing: rect.center)
     }
 }
+
+extension CGPoint {
+    func distanceSquared(to point: CGPoint) -> CGFloat {
+        let dx = x - point.x
+        let dy = y - point.y
+        return dx * dx + dy * dy
+    }
+}

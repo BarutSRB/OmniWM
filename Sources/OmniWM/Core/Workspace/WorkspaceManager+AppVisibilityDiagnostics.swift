@@ -128,8 +128,8 @@ extension WorkspaceManager {
     }
 }
 
-private extension AppVisibilityProjectionEngineDiagnostics {
-    var hasExclusions: Bool {
+extension AppVisibilityProjectionEngineDiagnostics {
+    fileprivate var hasExclusions: Bool {
         switch self {
         case .notInstalled:
             false

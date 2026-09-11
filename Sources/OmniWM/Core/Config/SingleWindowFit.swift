@@ -59,13 +59,13 @@ struct SingleWindowFit: Equatable {
             return workingFrame
         case .custom:
             guard hasValidCustomSize else { return workingFrame }
-            let w = min(CGFloat(width), workingFrame.width)
-            let h = min(CGFloat(height), workingFrame.height)
+            let fittedWidth = min(CGFloat(width), workingFrame.width)
+            let fittedHeight = min(CGFloat(height), workingFrame.height)
             return CGRect(
-                x: workingFrame.minX + (workingFrame.width - w) / 2,
-                y: workingFrame.minY + (workingFrame.height - h) / 2,
-                width: w,
-                height: h
+                x: workingFrame.minX + (workingFrame.width - fittedWidth) / 2,
+                y: workingFrame.minY + (workingFrame.height - fittedHeight) / 2,
+                width: fittedWidth,
+                height: fittedHeight
             )
         }
     }

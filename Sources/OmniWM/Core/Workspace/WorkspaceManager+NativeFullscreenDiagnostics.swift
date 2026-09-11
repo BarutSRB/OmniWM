@@ -4,7 +4,7 @@
 import Foundation
 
 extension WorkspaceManager {
-    func nativeFullscreenLifecycleDiagnosticsSnapshot() -> NativeFullscreenLifecycleDiagnosticsSnapshot {
+    func nativeFullscreenLifecycleDiagnosticsSnapshot() -> FullscreenLifecycleDiagnosticsSnapshot {
         let visibleWorkspaces = visibleWorkspaceIds()
         let records = nativeFullscreenRecordsByOriginalToken.values
             .sorted {
@@ -14,7 +14,7 @@ extension WorkspaceManager {
             .map { record in
                 let entry = entry(for: record.currentToken)
                 let monitor = monitor(for: record.workspaceId)
-                return NativeFullscreenLifecycleDiagnosticsSnapshot.Record(
+                return FullscreenLifecycleDiagnosticsSnapshot.Record(
                     originalToken: record.originalToken,
                     currentToken: record.currentToken,
                     workspaceId: record.workspaceId,
@@ -33,7 +33,7 @@ extension WorkspaceManager {
                     }
                 )
             }
-        return NativeFullscreenLifecycleDiagnosticsSnapshot(
+        return FullscreenLifecycleDiagnosticsSnapshot(
             records: records,
             nativeFocusOwner: nativeFocusOwner,
             activeFocusOwnerToken: activeNativeFullscreenFocusOwnerToken,

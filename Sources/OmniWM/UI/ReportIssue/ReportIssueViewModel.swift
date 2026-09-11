@@ -45,15 +45,15 @@ final class ReportIssueViewModel {
     }
 
     var category: IssueCategory = .unspecified {
-        didSet { handleSelection(oldValue != category) }
+        didSet { handleEdit(oldValue, category) }
     }
 
     var layout: LayoutType = .niri {
-        didSet { handleSelection(oldValue != layout) }
+        didSet { handleEdit(oldValue, layout) }
     }
 
     var regression: IssueRegression = .unknown {
-        didSet { handleSelection(oldValue != regression) }
+        didSet { handleEdit(oldValue, regression) }
     }
 
     private(set) var phase: Phase = .editing
@@ -310,22 +310,11 @@ final class ReportIssueViewModel {
         polishedBody = draft.polishedBody.isEmpty ? nil : draft.polishedBody
     }
 
-    private func handleEdit(_ oldValue: String, _ newValue: String) {
-        guard oldValue != newValue else { return }
-        invalidateSuggestion()
-        persistDraft()
-    }
-
-    private func handleSelection(_ changed: Bool) {
-        guard changed else { return }
-        invalidateSuggestion()
-        persistDraft()
-    }
-
-    private func invalidateSuggestion() {
-        guard !isRestoring else { return }
+    private func handleEdit<Value: Equatable>(_ oldValue: Value, _ newValue: Value) {
+        guard oldValue != newValue, !isRestoring else { return }
         suggestion = nil
         polishedBody = nil
+        persistDraft()
     }
 
     private func persistDraft() {

@@ -161,7 +161,7 @@ final class OverviewRendererTests: XCTestCase {
         let workspaceId = UUID()
         let token = WindowToken(pid: 1, windowId: 1)
         let handle = WindowHandle(id: token)
-        let data: OverviewWindowLayoutData = (
+        let data: OverviewWindowLayoutData = OverviewWindowLayoutData(
             token: token,
             workspaceId: workspaceId,
             title: "Window",
@@ -170,12 +170,13 @@ final class OverviewRendererTests: XCTestCase {
             frame: CGRect(x: 0, y: 0, width: 800, height: 600)
         )
 
-        let layout = OverviewLayoutCalculator.calculateLayout(
-            workspaces: [(id: workspaceId, name: "Workspace", isActive: true)],
-            windows: [handle: data],
+        let layout = OverviewLayoutCalculator(
             screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
-            searchQuery: "",
             scale: 1
+        ).calculateLayout(
+            workspaces: [OverviewWorkspaceLayoutItem(id: workspaceId, name: "Workspace", isActive: true)],
+            windows: [handle: data],
+            searchQuery: ""
         )
 
         XCTAssertEqual(layout.allWindows.first?.appIcon?.width, 4)

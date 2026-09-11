@@ -722,10 +722,8 @@ private final class TabRailView: NSView {
 
         let clampedActiveVisualIndex = min(max(0, activeVisualIndex), tabCount - 1)
 
-        for item in layout.items {
-            if item.visualIndex != clampedActiveVisualIndex {
-                drawSegment(item, selected: false)
-            }
+        for item in layout.items where item.visualIndex != clampedActiveVisualIndex {
+            drawSegment(item, selected: false)
         }
 
         if let selectedItem = layout.items.first(where: { $0.visualIndex == clampedActiveVisualIndex }) {
@@ -741,10 +739,8 @@ private final class TabRailView: NSView {
 
     private func visualIndex(at point: CGPoint) -> Int? {
         guard tabCount > 0 else { return nil }
-        for item in currentLayout().items {
-            if item.hitRect.contains(point) {
-                return item.visualIndex
-            }
+        for item in currentLayout().items where item.hitRect.contains(point) {
+            return item.visualIndex
         }
         return nil
     }
@@ -906,7 +902,7 @@ private final class TabRailView: NSView {
         }
     }
 
-    fileprivate func performAccessibilitySelection(_ visualIndex: Int) -> Bool {
+    private func performAccessibilitySelection(_ visualIndex: Int) -> Bool {
         guard tabs.contains(where: { $0.visualIndex == visualIndex }) else { return false }
         onSelect?(visualIndex)
         return true
@@ -1012,8 +1008,8 @@ private final class TabRailAccessibilityElement: NSAccessibilityElement {
     }
 }
 
-private extension String {
-    var nilIfEmpty: String? {
+extension String {
+    fileprivate var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }

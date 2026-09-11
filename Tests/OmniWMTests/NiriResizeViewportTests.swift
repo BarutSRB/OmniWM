@@ -102,21 +102,25 @@ final class NiriResizeViewportTests: XCTestCase {
         if let selectedId, let node = fixture.engine.findNode(by: selectedId, in: fixture.workspaceId) {
             fixture.engine.ensureSelectionVisible(
                 node: node,
-                in: fixture.workspaceId,
-                motion: .enabled,
-                state: &fixture.state,
-                workingFrame: fixture.workingFrame,
-                gaps: fixture.gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: fixture.workspaceId,
+                    motion: .enabled,
+                    workingFrame: fixture.workingFrame,
+                    gaps: fixture.gap,
+                    orientation: .horizontal
+                ),
+                state: &fixture.state
             )
         }
         return fixture.engine.correctViewportAfterColumnRemoval(
-            in: fixture.workspaceId,
-            state: &fixture.state,
-            motion: .enabled,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .enabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
     }
 
@@ -126,12 +130,14 @@ final class NiriResizeViewportTests: XCTestCase {
 
         fixture.engine.toggleContainerFullPrimarySpan(
             trailing,
-            in: fixture.workspaceId,
-            motion: .enabled,
-            state: &fixture.state,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .enabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         XCTAssertEqual(trailing.settledWidth, fixture.fullSpan, accuracy: 0.001)
@@ -149,12 +155,14 @@ final class NiriResizeViewportTests: XCTestCase {
         fixture.engine.setContainerPrimarySpan(
             trailing,
             change: .adjustProportion(10),
-            in: fixture.workspaceId,
-            motion: .enabled,
-            state: &fixture.state,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .enabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         let grownSpan = (fixture.workingFrame.width - fixture.gap) * 0.6 - fixture.gap
@@ -173,12 +181,14 @@ final class NiriResizeViewportTests: XCTestCase {
         fixture.engine.toggleContainerPrimarySpan(
             trailing,
             forwards: true,
-            in: fixture.workspaceId,
-            motion: .enabled,
-            state: &fixture.state,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .enabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         let grownSpan = trailing.settledWidth
@@ -205,23 +215,27 @@ final class NiriResizeViewportTests: XCTestCase {
 
         fixture.engine.toggleContainerFullPrimarySpan(
             trailing,
-            in: fixture.workspaceId,
-            motion: .disabled,
-            state: &fixture.state,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .disabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
         XCTAssertEqual(trailing.cachedWidth, fixture.fullSpan, accuracy: 0.001)
 
         fixture.engine.toggleContainerFullPrimarySpan(
             trailing,
-            in: fixture.workspaceId,
-            motion: .enabled,
-            state: &fixture.state,
-            workingFrame: fixture.workingFrame,
-            gaps: fixture.gap,
-            orientation: .horizontal
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .enabled,
+                workingFrame: fixture.workingFrame,
+                gaps: fixture.gap,
+                orientation: .horizontal
+            ),
+            state: &fixture.state
         )
 
         XCTAssertEqual(trailing.settledWidth, fixture.columnSpan, accuracy: 0.001)
@@ -238,12 +252,14 @@ final class NiriResizeViewportTests: XCTestCase {
 
         XCTAssertTrue(
             fixture.engine.correctViewportAfterColumnRemoval(
-                in: fixture.workspaceId,
-                state: &fixture.state,
-                motion: .disabled,
-                workingFrame: fixture.workingFrame,
-                gaps: fixture.gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: fixture.workspaceId,
+                    motion: .disabled,
+                    workingFrame: fixture.workingFrame,
+                    gaps: fixture.gap,
+                    orientation: .horizontal
+                ),
+                state: &fixture.state
             )
         )
         XCTAssertEqual(fixture.state.viewOffset, fixture.rightAlignedOffset, accuracy: 0.001)

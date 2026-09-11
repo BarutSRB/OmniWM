@@ -1320,12 +1320,14 @@ final class RuntimeArchitectureTests: XCTestCase {
                     peerNode,
                     into: authoritativeColumn,
                     enteringFrom: .right,
-                    in: workspaceId,
-                    motion: .disabled,
-                    state: &viewportState,
-                    workingFrame: monitor.visibleFrame,
-                    gaps: CGFloat(controller.workspaceManager.gaps),
-                    orientation: controller.settings.effectiveOrientation(for: monitor)
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: .disabled,
+                        workingFrame: monitor.visibleFrame,
+                        gaps: CGFloat(controller.workspaceManager.gaps),
+                        orientation: controller.settings.effectiveOrientation(for: monitor)
+                    ),
+                    state: &viewportState
                 ) == true
             )
             authoritativeColumn.displayMode = .tabbed
@@ -5483,12 +5485,14 @@ final class RuntimeArchitectureTests: XCTestCase {
             controller.workspaceManager.withEngineMutationScope(in: workspaceId) {
                 engine.consumeWindowIntoColumn(
                     focusedColumn: engine.columns(in: workspaceId)[1],
-                    in: workspaceId,
-                    motion: .disabled,
-                    state: &state,
-                    workingFrame: monitor.visibleFrame,
-                    gaps: 8,
-                    orientation: .horizontal
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: .disabled,
+                        workingFrame: monitor.visibleFrame,
+                        gaps: 8,
+                        orientation: .horizontal
+                    ),
+                    state: &state
                 )
             }
         )
@@ -5631,12 +5635,14 @@ final class RuntimeArchitectureTests: XCTestCase {
             controller.workspaceManager.withEngineMutationScope(in: ws) {
                 engine.consumeWindowIntoColumn(
                     focusedColumn: targetColumn,
-                    in: ws,
-                    motion: .disabled,
-                    state: &state,
-                    workingFrame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
-                    gaps: CGFloat(controller.workspaceManager.gaps),
-                    orientation: .horizontal
+                    context: .init(
+                        workspaceId: ws,
+                        motion: .disabled,
+                        workingFrame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                        gaps: CGFloat(controller.workspaceManager.gaps),
+                        orientation: .horizontal
+                    ),
+                    state: &state
                 )
             }
         )

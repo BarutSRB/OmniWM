@@ -153,7 +153,7 @@ final class WindowAdmissionRetryTests: XCTestCase {
         controller.layoutRefreshController.layoutState.activeFullEnumerationCount = 0
         controller.axEventHandler.windowInfoProvider = { _ in nil }
 
-        await controller.axEventHandler.drainDeferredCreatedWindows()
+        controller.axEventHandler.drainDeferredCreatedWindows()
 
         let rescheduled = try XCTUnwrap(
             controller.axEventHandler.admissionRetryStateByWindowId[windowId]

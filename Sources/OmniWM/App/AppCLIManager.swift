@@ -145,10 +145,8 @@ final class AppCLIManager {
             homeDirectory.appendingPathComponent("bin", isDirectory: true)
         ]
 
-        for directory in pathDirectories + fallbacks {
-            if isUserWritableDirectory(directory) {
-                return directory
-            }
+        for directory in pathDirectories + fallbacks where isUserWritableDirectory(directory) {
+            return directory
         }
 
         return fallbacks[0]

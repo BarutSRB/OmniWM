@@ -9,6 +9,37 @@ import XCTest
 
 @MainActor
 final class DurableParkTests: XCTestCase {
+    func testInactiveParkingKeepsScreenContactFromZoomClampedFrames() throws {
+        let controller = Self.controller()
+        let monitor = Self.monitor()
+        let upperMonitor = Monitor(
+            id: .init(displayId: 78),
+            displayId: 78,
+            frame: CGRect(x: 2560, y: 1440, width: 1920, height: 1080),
+            visibleFrame: CGRect(x: 2560, y: 1440, width: 1920, height: 1050),
+            hasNotch: false,
+            name: "Upper"
+        )
+        controller.workspaceManager.applyMonitorConfigurationChange([monitor, upperMonitor])
+        let frames = [
+            CGRect(x: 623, y: 365, width: 1314, height: 710),
+            CGRect(x: 2560, y: 774, width: 1314, height: 710),
+            CGRect(x: -1274, y: 700, width: 1314, height: 710)
+        ]
+        for frame in frames {
+            let origin = try XCTUnwrap(controller.layoutRefreshController.liveFrameHideOrigin(
+                for: frame,
+                monitor: monitor,
+                side: .right,
+                reason: .workspaceInactive
+            ))
+            let parkedFrame = CGRect(origin: origin, size: frame.size)
+            XCTAssertEqual(parkedFrame.intersection(monitor.frame).width, 1)
+            XCTAssertTrue(parkedFrame.intersection(upperMonitor.frame).isNull)
+            XCTAssertEqual(origin.y, frame.minY)
+        }
+    }
+
     func testMatchingSkyLightFrameStaysPendingUntilVerifiedAXPark() throws {
         let controller = Self.controller()
         let monitor = Self.monitor()
@@ -381,6 +412,8 @@ final class DurableParkTests: XCTestCase {
         manager.suppressFrameWrites([(pid: pid, windowId: windowId)])
 
         let firstRequest = try XCTUnwrap(manager.prepareParkFrameApplications([target]).first)
+        XCTAssertEqual(firstRequest.components, .position)
+        XCTAssertTrue(firstRequest.verify)
         XCTAssertFalse(manager.hasPendingFrameWrite(for: windowId))
         let retries = manager.processParkFrameApplyResults([
             WindowAdmissionTestSupport.frameResult(
@@ -390,6 +423,8 @@ final class DurableParkTests: XCTestCase {
             )
         ])
         let retryRequest = try XCTUnwrap(retries.first)
+        XCTAssertEqual(retryRequest.components, .position)
+        XCTAssertTrue(retryRequest.verify)
         XCTAssertEqual(retries.count, 1)
         XCTAssertNotEqual(retryRequest.requestId, firstRequest.requestId)
         XCTAssertEqual(manager.pendingParkFrameRequest(for: windowId), retryRequest)

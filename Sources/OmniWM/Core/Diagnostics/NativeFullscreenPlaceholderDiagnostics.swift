@@ -5,7 +5,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-struct NativeFullscreenLifecycleDiagnosticsSnapshot {
+struct FullscreenLifecycleDiagnosticsSnapshot {
     struct Record {
         let originalToken: WindowToken
         let currentToken: WindowToken
@@ -40,7 +40,7 @@ struct NativeFullscreenAcceptedSlotDiagnostics {
     let scale: CGFloat
 }
 
-struct NativeFullscreenAcceptedProjectionDiagnostics {
+struct FullscreenAcceptedProjectionDiagnostics {
     let workspaceId: WorkspaceDescriptor.ID
     let displayId: CGDirectDisplayID
     let workingFrame: CGRect
@@ -48,16 +48,16 @@ struct NativeFullscreenAcceptedProjectionDiagnostics {
     let slotCount: Int
 }
 
-struct NativeFullscreenSurfaceDiagnosticsSnapshot {
+struct FullscreenSurfaceDiagnosticsSnapshot {
     let descriptors: [NativeFullscreenPlaceholderUpdate]
-    let acceptedProjections: [NativeFullscreenAcceptedProjectionDiagnostics]
+    let acceptedProjections: [FullscreenAcceptedProjectionDiagnostics]
     let acceptedSlots: [NativeFullscreenAcceptedSlotDiagnostics]
     let applied: [NativeFullscreenPlaceholderUpdate]
-    let resolutions: [NativeFullscreenSurfaceResolutionDiagnostics]
+    let resolutions: [FullscreenSurfaceResolutionDiagnostics]
     let appliedDuplicateOriginalTokens: [WindowToken]
 }
 
-struct NativeFullscreenSurfaceResolutionDiagnostics {
+struct FullscreenSurfaceResolutionDiagnostics {
     let originalToken: WindowToken
     let reason: NativeFullscreenPlaceholderTrace.Reason
 }
@@ -118,14 +118,14 @@ struct NativeFullscreenPanelDiagnostics {
 }
 
 @MainActor
-struct NativeFullscreenPlaceholderDiagnosticsSnapshot {
+struct FullscreenPlaceholderDiagnosticsSnapshot {
     let servicesStarted: Bool
-    let lifecycle: NativeFullscreenLifecycleDiagnosticsSnapshot
-    let surface: NativeFullscreenSurfaceDiagnosticsSnapshot
+    let lifecycle: FullscreenLifecycleDiagnosticsSnapshot
+    let surface: FullscreenSurfaceDiagnosticsSnapshot
     let panels: [NativeFullscreenPanelDiagnostics]
 
-    static func capture(_ controller: WMController) -> NativeFullscreenPlaceholderDiagnosticsSnapshot {
-        NativeFullscreenPlaceholderDiagnosticsSnapshot(
+    static func capture(_ controller: WMController) -> FullscreenPlaceholderDiagnosticsSnapshot {
+        FullscreenPlaceholderDiagnosticsSnapshot(
             servicesStarted: controller.hasStartedServices,
             lifecycle: controller.workspaceManager.nativeFullscreenLifecycleDiagnosticsSnapshot(),
             surface: controller.surfaceReconciler.nativeFullscreenDiagnosticsSnapshot(),
@@ -136,7 +136,7 @@ struct NativeFullscreenPlaceholderDiagnosticsSnapshot {
     func formatted() -> String {
         let records = dictionary(
             lifecycle.records,
-            key: \NativeFullscreenLifecycleDiagnosticsSnapshot.Record.originalToken
+            key: \FullscreenLifecycleDiagnosticsSnapshot.Record.originalToken
         )
         let descriptors = dictionary(surface.descriptors, key: \NativeFullscreenPlaceholderUpdate.originalToken)
         let applied = dictionary(surface.applied, key: \NativeFullscreenPlaceholderUpdate.originalToken)
@@ -199,7 +199,7 @@ struct NativeFullscreenPlaceholderDiagnosticsSnapshot {
     }
 
     private func resolutionReason(
-        record: NativeFullscreenLifecycleDiagnosticsSnapshot.Record?,
+        record: FullscreenLifecycleDiagnosticsSnapshot.Record?,
         descriptor: NativeFullscreenPlaceholderUpdate?,
         applied: NativeFullscreenPlaceholderUpdate?,
         panel: NativeFullscreenPanelDiagnostics?,
@@ -234,7 +234,7 @@ struct NativeFullscreenPlaceholderDiagnosticsSnapshot {
         return "visible"
     }
 
-    private func format(record: NativeFullscreenLifecycleDiagnosticsSnapshot.Record?) -> String {
+    private func format(record: FullscreenLifecycleDiagnosticsSnapshot.Record?) -> String {
         guard let record else { return "  record=none" }
         return "  record current=\(token(record.currentToken)) workspace=\(record.workspaceId.uuidString)"
             + " transition=\(record.transition) generation=\(record.generation)"
@@ -260,7 +260,7 @@ struct NativeFullscreenPlaceholderDiagnosticsSnapshot {
             + " working=\(TraceFormat.rect(slot.workingFrame)) scale=\(scale(slot.scale))"
     }
 
-    private func format(projection: NativeFullscreenAcceptedProjectionDiagnostics) -> String {
+    private func format(projection: FullscreenAcceptedProjectionDiagnostics) -> String {
         "acceptedProjection workspace=\(projection.workspaceId.uuidString) display=\(projection.displayId)"
             + " working=\(TraceFormat.rect(projection.workingFrame)) scale=\(scale(projection.scale))"
             + " slots=\(projection.slotCount)"

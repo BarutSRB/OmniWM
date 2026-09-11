@@ -4,53 +4,52 @@
 import AppKit
 
 extension NiriLayoutEngine {
+    private struct VisibleColumnsSpan {
+        let firstPosition: CGFloat
+        let activePosition: CGFloat
+        let span: CGFloat
+    }
+
     @discardableResult
-    func centerColumn(
-        in workspaceId: WorkspaceDescriptor.ID,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation
-    ) -> Bool {
+    func centerColumn(context: NiriInteractionContext, state: inout ViewportState) -> Bool {
         assertSanctionedMutation()
         resolvePrimaryContainerSpans(
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         )
-        let sizeKeyPath = orientation.settledSpanKeyPath
-        let viewportSpan: CGFloat = switch orientation {
-        case .horizontal: workingFrame.width
-        case .vertical: workingFrame.height
+        let sizeKeyPath = context.orientation.settledSpanKeyPath
+        let viewportSpan: CGFloat = switch context.orientation {
+        case .horizontal: context.workingFrame.width
+        case .vertical: context.workingFrame.height
         }
-        let scale = displayScale(in: workspaceId)
-        let viewFrame = monitorForWorkspace(workspaceId)?.frame
+        let scale = displayScale(in: context.workspaceId)
+        let viewFrame = monitorForWorkspace(context.workspaceId)?.frame
         return withProjectedViewport(
             state: &state,
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         ) { columns, projectedState in
             let activeIndex = projectedState.activeColumnIndex.clamped(to: 0 ... columns.count - 1)
             projectedState.activeColumnIndex = activeIndex
-            cancelInteractiveResize(for: columns[activeIndex], in: workspaceId)
+            cancelInteractiveResize(for: columns[activeIndex], in: context.workspaceId)
             let targetOffset = projectedState.computeCenteredOffset(
                 containerIndex: activeIndex,
                 containers: columns,
-                gap: gaps,
+                gap: context.gaps,
                 viewportSpan: viewportSpan,
                 sizeKeyPath: sizeKeyPath,
-                workingArea: workingFrame,
+                workingArea: context.workingFrame,
                 viewFrame: viewFrame,
-                orientation: orientation,
+                orientation: context.orientation,
                 scale: scale
             )
             projectedState.animateToOffset(
                 targetOffset,
-                motion: motion,
+                motion: context.motion,
                 scale: scale
             )
             return true
@@ -58,36 +57,29 @@ extension NiriLayoutEngine {
     }
 
     @discardableResult
-    func centerVisibleColumns(
-        in workspaceId: WorkspaceDescriptor.ID,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation
-    ) -> Bool {
+    func centerVisibleColumns(context: NiriInteractionContext, state: inout ViewportState) -> Bool {
         assertSanctionedMutation()
-        let settings = effectiveSettings(in: workspaceId)
+        let settings = effectiveSettings(in: context.workspaceId)
         resolvePrimaryContainerSpans(
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         )
-        let sizeKeyPath = orientation.settledSpanKeyPath
-        let viewportSpan: CGFloat = switch orientation {
-        case .horizontal: workingFrame.width
-        case .vertical: workingFrame.height
+        let sizeKeyPath = context.orientation.settledSpanKeyPath
+        let viewportSpan: CGFloat = switch context.orientation {
+        case .horizontal: context.workingFrame.width
+        case .vertical: context.workingFrame.height
         }
 
-        let scale = displayScale(in: workspaceId)
-        let viewFrame = monitorForWorkspace(workspaceId)?.frame
+        let scale = displayScale(in: context.workspaceId)
+        let viewFrame = monitorForWorkspace(context.workspaceId)?.frame
         return withProjectedViewport(
             state: &state,
-            in: workspaceId,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
+            in: context.workspaceId,
+            workingFrame: context.workingFrame,
+            gaps: context.gaps,
+            orientation: context.orientation
         ) { columns, projectedState in
             guard settings.centerFocusedColumn != .always,
                   !settings.alwaysCenterSingleColumn || columns.count > 1
@@ -99,75 +91,97 @@ extension NiriLayoutEngine {
             projectedState.activeColumnIndex = activeIndex
             let areas = projectedState.normalizedFittingAreas(
                 viewportSpan: viewportSpan,
-                workingArea: workingFrame,
+                workingArea: context.workingFrame,
                 viewFrame: viewFrame,
-                orientation: orientation,
+                orientation: context.orientation,
                 scale: scale
             )
-            let activePosition = projectedState.containerPosition(
-                at: activeIndex,
-                containers: columns,
-                gap: gaps,
-                sizeKeyPath: sizeKeyPath
-            )
-            let viewStart = activePosition + projectedState.viewOffset
+            guard let visibleSpan = visibleColumnsSpan(
+                columns: columns,
+                state: projectedState,
+                areas: areas,
+                gap: context.gaps
+            ) else { return false }
+            cancelInteractiveResize(for: columns[activeIndex], in: context.workspaceId)
             let workingStart = areas.origin(of: areas.working)
             let workingSpan = areas.span(of: areas.working)
+            let freeSpace = workingSpan - visibleSpan.span + context.gaps
+            let newViewStart = visibleSpan.firstPosition - freeSpace / 2 - workingStart
+            let targetOffset = newViewStart - visibleSpan.activePosition
 
-            var spanTaken: CGFloat = 0
-            var firstVisiblePosition: CGFloat?
-            var activeContainerPosition: CGFloat?
-
-            for (idx, column) in columns.enumerated() {
-                let position = projectedState.containerPosition(
-                    at: idx,
-                    containers: columns,
-                    gap: gaps,
-                    sizeKeyPath: sizeKeyPath
-                )
-                if position < viewStart + workingStart + gaps {
-                    continue
-                }
-
-                if firstVisiblePosition == nil {
-                    firstVisiblePosition = position
-                }
-
-                let span = column[keyPath: sizeKeyPath]
-                if viewStart + workingStart + workingSpan < position + span + gaps {
-                    break
-                }
-
-                if idx == activeIndex {
-                    activeContainerPosition = position
-                }
-
-                spanTaken += span + gaps
-            }
-
-            guard let firstVisiblePosition, let activeContainerPosition else { return false }
-            cancelInteractiveResize(for: columns[activeIndex], in: workspaceId)
-            let freeSpace = workingSpan - spanTaken + gaps
-            let newViewStart = firstVisiblePosition - freeSpace / 2 - workingStart
-            let targetOffset = newViewStart - activeContainerPosition
-
-            projectedState.animateToOffset(targetOffset, motion: motion, scale: scale)
+            projectedState.animateToOffset(targetOffset, motion: context.motion, scale: scale)
             projectedState.ensureContainerVisible(
                 containerIndex: activeIndex,
                 containers: columns,
-                gap: gaps,
-                viewportSpan: workingSpan,
-                motion: motion,
+                gap: context.gaps,
+                viewportSpan: areas.span(of: areas.working),
+                motion: context.motion,
                 sizeKeyPath: sizeKeyPath,
                 centerMode: settings.centerFocusedColumn,
                 alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
                 scale: scale,
-                workingArea: workingFrame,
+                workingArea: context.workingFrame,
                 viewFrame: viewFrame,
-                orientation: orientation
+                orientation: context.orientation
             )
             return true
         } ?? false
+    }
+
+    private func visibleColumnsSpan(
+        columns: [NiriContainer],
+        state: ViewportState,
+        areas: ViewportFittingAreas,
+        gap: CGFloat
+    ) -> VisibleColumnsSpan? {
+        let sizeKeyPath = areas.orientation.settledSpanKeyPath
+        let activePosition = state.containerPosition(
+            at: state.activeColumnIndex,
+            containers: columns,
+            gap: gap,
+            sizeKeyPath: sizeKeyPath
+        )
+        let viewStart = activePosition + state.viewOffset
+        let workingStart = areas.origin(of: areas.working)
+        let workingSpan = areas.span(of: areas.working)
+
+        var spanTaken: CGFloat = 0
+        var firstVisiblePosition: CGFloat?
+        var activeContainerPosition: CGFloat?
+
+        for (idx, column) in columns.enumerated() {
+            let position = state.containerPosition(
+                at: idx,
+                containers: columns,
+                gap: gap,
+                sizeKeyPath: sizeKeyPath
+            )
+            if position < viewStart + workingStart + gap {
+                continue
+            }
+
+            if firstVisiblePosition == nil {
+                firstVisiblePosition = position
+            }
+
+            let span = column[keyPath: sizeKeyPath]
+            if viewStart + workingStart + workingSpan < position + span + gap {
+                break
+            }
+
+            if idx == state.activeColumnIndex {
+                activeContainerPosition = position
+            }
+
+            spanTaken += span + gap
+        }
+
+        guard let firstVisiblePosition, let activeContainerPosition else { return nil }
+        return VisibleColumnsSpan(
+            firstPosition: firstVisiblePosition,
+            activePosition: activeContainerPosition,
+            span: spanTaken
+        )
     }
 
     private func cancelInteractiveResize(

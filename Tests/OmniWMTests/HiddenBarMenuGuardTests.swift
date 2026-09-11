@@ -10,7 +10,7 @@ final class HiddenBarMenuGuardTests: XCTestCase {
     func testPopUpWindowOwnedByMenuOwnerDetected() {
         XCTAssertTrue(
             HiddenBarMenuGuard.isMenuOpen(
-                windows: [(layer: popUpLevel, ownerPID: 500, title: nil)],
+                windows: [.init(layer: popUpLevel, ownerPID: 500, title: nil)],
                 menuOwnerPIDs: [500]
             )
         )
@@ -20,8 +20,8 @@ final class HiddenBarMenuGuardTests: XCTestCase {
         XCTAssertFalse(
             HiddenBarMenuGuard.isMenuOpen(
                 windows: [
-                    (layer: popUpLevel, ownerPID: 42, title: nil),
-                    (layer: popUpLevel, ownerPID: 42, title: nil)
+                    .init(layer: popUpLevel, ownerPID: 42, title: nil),
+                    .init(layer: popUpLevel, ownerPID: 42, title: nil)
                 ],
                 menuOwnerPIDs: [500]
             )
@@ -32,8 +32,8 @@ final class HiddenBarMenuGuardTests: XCTestCase {
         XCTAssertFalse(
             HiddenBarMenuGuard.isMenuOpen(
                 windows: [
-                    (layer: 25, ownerPID: 500, title: nil),
-                    (layer: 0, ownerPID: 500, title: nil)
+                    .init(layer: 25, ownerPID: 500, title: nil),
+                    .init(layer: 0, ownerPID: 500, title: nil)
                 ],
                 menuOwnerPIDs: [500]
             )
@@ -43,7 +43,7 @@ final class HiddenBarMenuGuardTests: XCTestCase {
     func testLevelBelowPopUpDetected() {
         XCTAssertTrue(
             HiddenBarMenuGuard.isMenuOpen(
-                windows: [(layer: popUpLevel - 1, ownerPID: 500, title: nil)],
+                windows: [.init(layer: popUpLevel - 1, ownerPID: 500, title: nil)],
                 menuOwnerPIDs: [500]
             )
         )
@@ -52,7 +52,7 @@ final class HiddenBarMenuGuardTests: XCTestCase {
     func testTitledPopUpWindowIgnored() {
         XCTAssertFalse(
             HiddenBarMenuGuard.isMenuOpen(
-                windows: [(layer: popUpLevel, ownerPID: 500, title: "Item-0")],
+                windows: [.init(layer: popUpLevel, ownerPID: 500, title: "Item-0")],
                 menuOwnerPIDs: [500]
             )
         )
@@ -61,7 +61,7 @@ final class HiddenBarMenuGuardTests: XCTestCase {
     func testEmptyTitleCountsAsCandidate() {
         XCTAssertTrue(
             HiddenBarMenuGuard.isMenuOpen(
-                windows: [(layer: popUpLevel, ownerPID: 500, title: "")],
+                windows: [.init(layer: popUpLevel, ownerPID: 500, title: "")],
                 menuOwnerPIDs: [500]
             )
         )
@@ -70,7 +70,7 @@ final class HiddenBarMenuGuardTests: XCTestCase {
     func testEmptyOwnerSetShortCircuits() {
         XCTAssertFalse(
             HiddenBarMenuGuard.isMenuOpen(
-                windows: [(layer: popUpLevel, ownerPID: 500, title: nil)],
+                windows: [.init(layer: popUpLevel, ownerPID: 500, title: nil)],
                 menuOwnerPIDs: []
             )
         )
@@ -80,8 +80,8 @@ final class HiddenBarMenuGuardTests: XCTestCase {
         XCTAssertTrue(
             HiddenBarMenuGuard.isMenuOpen(
                 windows: [
-                    (layer: popUpLevel, ownerPID: 42, title: nil),
-                    (layer: popUpLevel, ownerPID: 500, title: nil)
+                    .init(layer: popUpLevel, ownerPID: 42, title: nil),
+                    .init(layer: popUpLevel, ownerPID: 500, title: nil)
                 ],
                 menuOwnerPIDs: [500]
             )

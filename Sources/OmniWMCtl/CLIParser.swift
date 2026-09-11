@@ -45,138 +45,82 @@ enum CLIParser {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> ParsedCLICommand {
         let normalized = normalize(arguments: arguments)
-        let filteredArguments = normalized.arguments
-
-        guard let command = filteredArguments.first else {
+        guard let command = normalized.arguments.first else {
             throw CLIParseError.usage(usageText)
         }
 
         _ = environment
         let requestId = UUID().uuidString
-        let outputFormat = normalized.outputFormat ?? CLIOutputFormat.defaultFormat(for: command)
+        let commandArguments = Array(normalized.arguments.dropFirst())
+        var outputFormat = normalized.outputFormat ?? CLIOutputFormat.defaultFormat(for: command)
+        let invocation: CLIInvocation
 
         switch command {
-        case "ping":
-            guard filteredArguments.count == 1 else {
-                throw CLIParseError.usage(usageText)
-            }
-            return ParsedCLICommand(
-                invocation: .remote(.init(id: requestId, kind: .ping)),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "version":
-            guard filteredArguments.count == 1 else {
-                throw CLIParseError.usage(usageText)
-            }
-            return ParsedCLICommand(
-                invocation: .remote(.init(id: requestId, kind: .version)),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "command":
-            return ParsedCLICommand(
-                invocation: .remote(try parseCommandRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "query":
-            return ParsedCLICommand(
-                invocation: .remote(try parseQueryRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: normalized.outputFormat ?? .json,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "rule":
-            return ParsedCLICommand(
-                invocation: .remote(try parseRuleRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "capture":
-            return ParsedCLICommand(
-                invocation: .remote(try parseCaptureRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "workspace":
-            return ParsedCLICommand(
-                invocation: .remote(try parseWorkspaceRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
-        case "window":
-            return ParsedCLICommand(
-                invocation: .remote(try parseWindowRequest(
-                    id: requestId,
-                    arguments: Array(filteredArguments.dropFirst())
-                )),
-                outputFormat: outputFormat,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
         case "subscribe":
-            let format = normalized.outputFormat ?? .json
-            guard format.prefersJSON else {
-                throw CLIParseError.usage(usageText)
-            }
-            let parsed = try parseSubscriptionArguments(
-                arguments: Array(filteredArguments.dropFirst()),
-                allowExec: false
-            )
-            return ParsedCLICommand(
-                invocation: .remote(IPCRequest(id: requestId, subscribe: parsed.request)),
-                outputFormat: format,
-                expectsEventStream: true,
-                watchConfiguration: nil,
-                reconnect: parsed.reconnect
-            )
+            return try parseSubscribeCommand(id: requestId, arguments: commandArguments, outputFormat: outputFormat)
         case "watch":
-            return try parseWatchCommand(
-                id: requestId,
-                arguments: Array(filteredArguments.dropFirst()),
-                outputFormat: outputFormat
-            )
+            return try parseWatchCommand(id: requestId, arguments: commandArguments, outputFormat: outputFormat)
         case "completion":
-            return ParsedCLICommand(
-                invocation: .local(try parseCompletionCommand(arguments: Array(filteredArguments.dropFirst()))),
-                outputFormat: .text,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
+            invocation = .local(try parseCompletionCommand(arguments: commandArguments))
+            outputFormat = .text
         case "help",
              "--help",
              "-h":
-            return ParsedCLICommand(
-                invocation: .local(.help),
-                outputFormat: .text,
-                expectsEventStream: false,
-                watchConfiguration: nil
-            )
+            invocation = .local(.help)
+            outputFormat = .text
+        default:
+            invocation = .remote(try parseRemoteRequest(command: command, id: requestId, arguments: commandArguments))
+        }
+
+        return ParsedCLICommand(
+            invocation: invocation,
+            outputFormat: outputFormat,
+            expectsEventStream: false,
+            watchConfiguration: nil
+        )
+    }
+
+    private static func parseRemoteRequest(command: String, id: String, arguments: [String]) throws -> IPCRequest {
+        switch command {
+        case "ping",
+             "version":
+            guard arguments.isEmpty else {
+                throw CLIParseError.usage(usageText)
+            }
+            return IPCRequest(id: id, kind: command == "ping" ? .ping : .version)
+        case "command":
+            return try parseCommandRequest(id: id, arguments: arguments)
+        case "query":
+            return try parseQueryRequest(id: id, arguments: arguments)
+        case "rule":
+            return try parseRuleRequest(id: id, arguments: arguments)
+        case "capture":
+            return try parseCaptureRequest(id: id, arguments: arguments)
+        case "workspace":
+            return try parseWorkspaceRequest(id: id, arguments: arguments)
+        case "window":
+            return try parseWindowRequest(id: id, arguments: arguments)
         default:
             throw CLIParseError.usage(usageText)
         }
+    }
+
+    private static func parseSubscribeCommand(
+        id: String,
+        arguments: [String],
+        outputFormat: CLIOutputFormat
+    ) throws -> ParsedCLICommand {
+        guard outputFormat.prefersJSON else {
+            throw CLIParseError.usage(usageText)
+        }
+        let parsed = try parseSubscriptionArguments(arguments: arguments, allowExec: false)
+        return ParsedCLICommand(
+            invocation: .remote(IPCRequest(id: id, subscribe: parsed.request)),
+            outputFormat: outputFormat,
+            expectsEventStream: true,
+            watchConfiguration: nil,
+            reconnect: parsed.reconnect
+        )
     }
 
     static func outputFormat(arguments: [String]) -> CLIOutputFormat {
@@ -434,45 +378,27 @@ enum CLIParser {
     }
 
     private static func parseRuleApplyTarget(arguments: [String]) throws -> IPCRuleApplyTarget {
-        guard !arguments.isEmpty else {
+        switch arguments.first {
+        case nil:
             return .focused
-        }
-
-        var target: IPCRuleApplyTarget?
-        var index = 0
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard target == nil else {
+        case "--focused":
+            guard arguments.count == 1 else {
                 throw CLIParseError.usage(usageText)
             }
-
-            switch argument {
-            case "--focused":
-                target = .focused
-                index += 1
-            case "--window":
-                guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                    throw CLIParseError.usage(usageText)
-                }
-                target = .window(windowId: arguments[index + 1])
-                index += 2
-            case "--pid":
-                guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                    throw CLIParseError.usage(usageText)
-                }
-                target = .pid(try parsePID(arguments[index + 1]))
-                index += 2
-            default:
+            return .focused
+        case "--window":
+            guard arguments.count == 2, !arguments[1].hasPrefix("--") else {
                 throw CLIParseError.usage(usageText)
             }
-        }
-
-        guard let target else {
+            return .window(windowId: arguments[1])
+        case "--pid":
+            guard arguments.count == 2, !arguments[1].hasPrefix("--") else {
+                throw CLIParseError.usage(usageText)
+            }
+            return .pid(try parsePID(arguments[1]))
+        default:
             throw CLIParseError.usage(usageText)
         }
-
-        return target
     }
 
     private static func parseWorkspaceRequest(id: String, arguments: [String]) throws -> IPCRequest {
@@ -484,6 +410,7 @@ enum CLIParser {
             let actionWords = descriptor.actionWords
             let remaining = Array(arguments.dropFirst(actionWords.count))
 
+            let workspace: IPCWorkspaceRequest
             switch descriptor.name {
             case .focusName:
                 guard remaining.count == descriptor.arguments.count,
@@ -491,12 +418,7 @@ enum CLIParser {
                 else {
                     continue
                 }
-                return IPCRequest(
-                    id: id,
-                    workspace: .focusName(
-                        target: WorkspaceTarget(resolvingInput: targetValue)
-                    )
-                )
+                workspace = .focusName(target: WorkspaceTarget(resolvingInput: targetValue))
             case .moveToMonitor:
                 let flags = remaining.filter { $0.hasPrefix("--") }
                 guard flags.allSatisfy(descriptor.optionalFlags.contains),
@@ -510,13 +432,10 @@ enum CLIParser {
                     continue
                 }
 
-                return IPCRequest(
-                    id: id,
-                    workspace: .moveToMonitor(
-                        target: WorkspaceTarget(resolvingInput: positionals[0]),
-                        direction: try parseDirection(positionals[1]),
-                        force: flags.contains("--force")
-                    )
+                workspace = .moveToMonitor(
+                    target: WorkspaceTarget(resolvingInput: positionals[0]),
+                    direction: try parseDirection(positionals[1]),
+                    force: flags.contains("--force")
                 )
             case .rename:
                 guard remaining.count == descriptor.arguments.count,
@@ -524,14 +443,12 @@ enum CLIParser {
                 else {
                     continue
                 }
-                return IPCRequest(
-                    id: id,
-                    workspace: .rename(
-                        target: WorkspaceTarget(resolvingInput: remaining[0]),
-                        displayName: remaining[1]
-                    )
+                workspace = .rename(
+                    target: WorkspaceTarget(resolvingInput: remaining[0]),
+                    displayName: remaining[1]
                 )
             }
+            return IPCRequest(id: id, workspace: workspace)
         }
 
         throw CLIParseError.usage(usageText)
@@ -705,13 +622,6 @@ enum CLIParser {
         return axis
     }
 
-    private static func parseWorkspaceNumber(_ rawValue: String) throws -> Int {
-        guard let workspaceNumber = Int(rawValue), workspaceNumber > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return workspaceNumber
-    }
-
     private static func parseScratchpadIndex(_ rawValue: String) throws -> Int {
         guard let index = Int(rawValue), IPCScratchpadSlots.range.contains(index) else {
             throw CLIParseError.usage(usageText)
@@ -745,20 +655,6 @@ enum CLIParser {
             throw CLIParseError.usage(usageText)
         }
         return value
-    }
-
-    private static func parseColumnIndex(_ rawValue: String) throws -> Int {
-        guard let columnIndex = Int(rawValue), columnIndex > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return columnIndex
-    }
-
-    private static func parseWindowIndex(_ rawValue: String) throws -> Int {
-        guard let windowIndex = Int(rawValue), windowIndex > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return windowIndex
     }
 
     private static func parseResizeOperation(_ rawValue: String) throws -> IPCResizeOperation {
@@ -801,12 +697,10 @@ enum CLIParser {
         switch descriptor.kind {
         case .direction:
             return .direction(try parseDirection(token))
-        case .workspaceNumber:
-            return .integer(try parseWorkspaceNumber(token))
-        case .columnIndex:
-            return .integer(try parseColumnIndex(token))
-        case .windowIndex:
-            return .integer(try parseWindowIndex(token))
+        case .workspaceNumber,
+             .columnIndex,
+             .windowIndex:
+            return .integer(try parsePositiveInteger(token))
         case .scratchpadIndex:
             return .integer(try parseScratchpadIndex(token))
         case .layout:

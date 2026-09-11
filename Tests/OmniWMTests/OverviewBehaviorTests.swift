@@ -28,6 +28,31 @@ private final class OverviewPostCloseHandoffScheduler {
     }
 }
 
+private actor OverviewThumbnailCaptureGate {
+    private var captureContinuation: CheckedContinuation<CGImage?, Never>?
+    private var startedContinuation: CheckedContinuation<Void, Never>?
+    private var started = false
+
+    func capture() async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            captureContinuation = continuation
+            started = true
+            startedContinuation?.resume()
+            startedContinuation = nil
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { startedContinuation = $0 }
+    }
+
+    func complete(with image: CGImage) {
+        captureContinuation?.resume(returning: image)
+        captureContinuation = nil
+    }
+}
+
 @MainActor
 final class OverviewBehaviorTests: XCTestCase {
     private let screenFrame = CGRect(x: 0, y: 0, width: 1000, height: 800)
@@ -161,10 +186,10 @@ final class OverviewBehaviorTests: XCTestCase {
         let first = try XCTUnwrap(layout.allWindows.first?.handle)
 
         let second = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: first, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: first, direction: .down)
         )
         let third = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: second, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: second, direction: .down)
         )
         let thirdWindow = try XCTUnwrap(layout.window(for: third))
         layout.scrollOffset = OverviewLayoutCalculator.scrollOffsetRevealing(
@@ -177,19 +202,19 @@ final class OverviewBehaviorTests: XCTestCase {
         assertVisible(thirdWindow.overviewFrame, in: layout, offset: layout.scrollOffset)
         XCTAssertTrue(layout.scrollOffset < 0)
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: third, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: third, direction: .right),
             third
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: first, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: first, direction: .left),
             first
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(in: layout, from: third, forward: true),
+            OverviewNavigation.findCycledWindow(in: layout, from: third, forward: true),
             first
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(in: layout, from: first, forward: false),
+            OverviewNavigation.findCycledWindow(in: layout, from: first, forward: false),
             third
         )
     }
@@ -203,12 +228,12 @@ final class OverviewBehaviorTests: XCTestCase {
             let rightEdge = try XCTUnwrap(row.last)
 
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: leftEdge, direction: .left),
+                OverviewNavigation.findNextWindow(in: layout, from: leftEdge, direction: .left),
                 rightEdge,
                 "left edge of workspace row \(rowIndex) must wrap to the row's right-most window"
             )
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: rightEdge, direction: .right),
+                OverviewNavigation.findNextWindow(in: layout, from: rightEdge, direction: .right),
                 leftEdge,
                 "right edge of workspace row \(rowIndex) must wrap to the row's left-most window"
             )
@@ -216,11 +241,11 @@ final class OverviewBehaviorTests: XCTestCase {
 
         let firstRow = fixture.rowHandles[0]
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: firstRow[0], direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: firstRow[0], direction: .right),
             firstRow[1]
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: firstRow[2], direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: firstRow[2], direction: .left),
             firstRow[1]
         )
     }
@@ -231,21 +256,21 @@ final class OverviewBehaviorTests: XCTestCase {
         let loneWindow = try XCTUnwrap(fixture.rowHandles[1].first)
 
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: loneWindow, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: loneWindow, direction: .right),
             loneWindow
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: loneWindow, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: loneWindow, direction: .left),
             loneWindow
         )
 
         let multiWindowRow = fixture.rowHandles[0]
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: multiWindowRow.first, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: multiWindowRow.first, direction: .left),
             multiWindowRow.last
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: multiWindowRow.last, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: multiWindowRow.last, direction: .right),
             multiWindowRow.first
         )
     }
@@ -254,13 +279,13 @@ final class OverviewBehaviorTests: XCTestCase {
         let tallDescriptor = WorkspaceDescriptor(name: "Tall")
         let shortDescriptor = WorkspaceDescriptor(name: "Short")
         let workspaces: [OverviewWorkspaceLayoutItem] = [
-            (id: tallDescriptor.id, name: tallDescriptor.name, isActive: true),
-            (id: shortDescriptor.id, name: shortDescriptor.name, isActive: false)
+            OverviewWorkspaceLayoutItem(id: tallDescriptor.id, name: tallDescriptor.name, isActive: true),
+            OverviewWorkspaceLayoutItem(id: shortDescriptor.id, name: shortDescriptor.name, isActive: false)
         ]
         var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
         let tallToken = WindowToken(pid: 1, windowId: 1)
         let tallHandle = WindowHandle(id: tallToken)
-        windows[tallHandle] = (
+        windows[tallHandle] = OverviewWindowLayoutData(
             token: tallToken,
             workspaceId: tallDescriptor.id,
             title: "Tall 1",
@@ -272,7 +297,7 @@ final class OverviewBehaviorTests: XCTestCase {
         for slot in 0 ..< 2 {
             let token = WindowToken(pid: pid_t(2 + slot), windowId: 2 + slot)
             let handle = WindowHandle(id: token)
-            windows[handle] = (
+            windows[handle] = OverviewWindowLayoutData(
                 token: token,
                 workspaceId: shortDescriptor.id,
                 title: "Short \(slot + 1)",
@@ -289,15 +314,15 @@ final class OverviewBehaviorTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: tallHandle, direction: .left),
+            OverviewNavigation.findNextWindow(in: layout, from: tallHandle, direction: .left),
             tallHandle
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: tallHandle, direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: tallHandle, direction: .right),
             tallHandle
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: shortHandles[0], direction: .right),
+            OverviewNavigation.findNextWindow(in: layout, from: shortHandles[0], direction: .right),
             shortHandles[1]
         )
     }
@@ -310,12 +335,12 @@ final class OverviewBehaviorTests: XCTestCase {
             let loneMatch = row[1]
 
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: loneMatch, direction: .right),
+                OverviewNavigation.findNextWindow(in: layout, from: loneMatch, direction: .right),
                 loneMatch,
                 "workspace row \(rowIndex)"
             )
             XCTAssertEqual(
-                OverviewLayoutCalculator.findNextWindow(in: layout, from: loneMatch, direction: .left),
+                OverviewNavigation.findNextWindow(in: layout, from: loneMatch, direction: .left),
                 loneMatch,
                 "workspace row \(rowIndex)"
             )
@@ -323,7 +348,7 @@ final class OverviewBehaviorTests: XCTestCase {
 
         let matchingHandles = fixture.rowHandles.map { $0[1] }
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(
+            OverviewNavigation.findCycledWindow(
                 in: layout,
                 from: matchingHandles[0],
                 forward: true
@@ -331,7 +356,7 @@ final class OverviewBehaviorTests: XCTestCase {
             matchingHandles[1]
         )
         XCTAssertEqual(
-            OverviewLayoutCalculator.findCycledWindow(
+            OverviewNavigation.findCycledWindow(
                 in: layout,
                 from: matchingHandles[0],
                 forward: false
@@ -396,10 +421,10 @@ final class OverviewBehaviorTests: XCTestCase {
         assertViewportInvariant(layout, selectedHandle: selectedHandle)
 
         let second = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: first, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: first, direction: .down)
         )
         let third = try XCTUnwrap(
-            OverviewLayoutCalculator.findNextWindow(in: layout, from: second, direction: .down)
+            OverviewNavigation.findNextWindow(in: layout, from: second, direction: .down)
         )
         selectedHandle = third
         revealSelection(selectedHandle, in: &layout)
@@ -1572,6 +1597,76 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(captureStarts, 0)
     }
 
+    #if DEBUG
+        func testDismissedOverviewRejectsLateThumbnailCaptureResult() async throws {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+            let overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: fixture.environment
+            )
+            overview.prepareOpenState()
+            overview.onAnimationComplete(state: .open)
+            let windowId = try XCTUnwrap(fixture.handles.first).windowId
+            let image = try makeThumbnailImage()
+            await overview.startThumbnailCaptureForTests(windowId: windowId) { image }.value
+            XCTAssertTrue(overview.thumbnailCache[windowId] === image)
+
+            let gate = OverviewThumbnailCaptureGate()
+            let pendingCapture = overview.startThumbnailCaptureForTests(windowId: windowId) {
+                await gate.capture()
+            }
+            await gate.waitUntilStarted()
+            overview.dismiss(animated: false)
+            XCTAssertTrue(pendingCapture.isCancelled)
+            XCTAssertTrue(overview.thumbnailCache.isEmpty)
+
+            await gate.complete(with: image)
+            await pendingCapture.value
+            XCTAssertTrue(overview.thumbnailCache.isEmpty)
+        }
+
+        func testReplacedOverviewCaptureCannotOverwriteNewThumbnail() async throws {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+            let overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: fixture.environment
+            )
+            overview.prepareOpenState()
+            overview.onAnimationComplete(state: .open)
+            let windowId = try XCTUnwrap(fixture.handles.first).windowId
+            let oldImage = try makeThumbnailImage()
+            let newImage = try makeThumbnailImage()
+            let gate = OverviewThumbnailCaptureGate()
+            let oldCapture = overview.startThumbnailCaptureForTests(windowId: windowId) {
+                await gate.capture()
+            }
+            await gate.waitUntilStarted()
+
+            await overview.startThumbnailCaptureForTests(windowId: windowId) { newImage }.value
+            XCTAssertTrue(oldCapture.isCancelled)
+            XCTAssertTrue(overview.thumbnailCache[windowId] === newImage)
+
+            await gate.complete(with: oldImage)
+            await oldCapture.value
+            XCTAssertTrue(overview.thumbnailCache[windowId] === newImage)
+        }
+
+        private func makeThumbnailImage() throws -> CGImage {
+            let context = try XCTUnwrap(CGContext(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            return try XCTUnwrap(context.makeImage())
+        }
+    #endif
+
     private func makeGeometryLayout(scale: CGFloat = 1) -> OverviewLayout {
         var layout = OverviewLayout()
         layout.scale = scale
@@ -1764,7 +1859,7 @@ final class OverviewBehaviorTests: XCTestCase {
         let descriptors = ["First", "Second", "Third"].map { WorkspaceDescriptor(name: $0) }
         precondition(windowCountsPerWorkspace.count == descriptors.count)
         let workspaces = descriptors.enumerated().map { index, descriptor in
-            (id: descriptor.id, name: descriptor.name, isActive: index == 0)
+            OverviewWorkspaceLayoutItem(id: descriptor.id, name: descriptor.name, isActive: index == 0)
         }
         var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
         var rowHandles: [[WindowHandle]] = []
@@ -1777,7 +1872,7 @@ final class OverviewBehaviorTests: XCTestCase {
                 tokenSeed += 1
                 let token = WindowToken(pid: pid_t(tokenSeed), windowId: tokenSeed)
                 let handle = WindowHandle(id: token)
-                windows[handle] = (
+                windows[handle] = OverviewWindowLayoutData(
                     token: token,
                     workspaceId: descriptor.id,
                     title: "\(descriptor.name) \(slot + 1)",
@@ -1797,12 +1892,13 @@ final class OverviewBehaviorTests: XCTestCase {
         scale: CGFloat,
         query: String
     ) -> OverviewLayout {
-        OverviewLayoutCalculator.calculateLayout(
+        OverviewLayoutCalculator(
+            screenFrame: screenFrame,
+            scale: scale
+        ).calculateLayout(
             workspaces: fixture.workspaces,
             windows: fixture.windows,
-            screenFrame: screenFrame,
-            searchQuery: query,
-            scale: scale
+            searchQuery: query
         )
     }
 

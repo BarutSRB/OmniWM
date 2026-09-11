@@ -367,12 +367,14 @@ extension NiriWorkspaceIsolationTests {
         var state = ViewportState()
         return engine.removeWindows(
             tokens,
-            in: workspaceId,
+            context: .init(
+                workspaceId: workspaceId,
+                motion: .disabled,
+                workingFrame: workingFrame,
+                gaps: 0,
+                orientation: .horizontal
+            ),
             state: &state,
-            motion: .disabled,
-            workingFrame: workingFrame,
-            gaps: 0,
-            orientation: .horizontal,
             selectedNodeId: nil,
             removedNodeIds: []
         )

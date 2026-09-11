@@ -10,7 +10,6 @@ private let niriTouchpadGestureRecognitionThreshold: CGFloat = 16.0
 // normalizes with gestureWorkingAreaMovement.
 private let macNormalizedTouchPositionToNiriGestureUnits: CGFloat = 500.0
 private let mouseWheelAxisEpsilon: CGFloat = 0.001
-private let niriWheelScrollTickAmount: CGFloat = 120.0
 private let mouseRelevantModifierFlags: CGEventFlags = [
     .maskAlternate,
     .maskShift,
@@ -171,87 +170,10 @@ final class MouseEventHandler {
         }
     }
 
-    struct State {
-        struct LockedGestureContext {
-            let workspaceId: WorkspaceDescriptor.ID
-            let monitorId: Monitor.ID
-            let fingerCount: Int
-            let columnScrollCandidate: Bool
-            let columnScrollAxis: WorkspaceSwipeAxis
-            let workspaceAxis: WorkspaceSwipeAxis?
-            let overviewCandidate: Bool
-        }
-
-        enum GesturePhase {
-            case idle
-            case armed
-            case committed
-        }
-
-        enum NativeTitleBarDragPhase {
-            case armed
-            case dragging
-            case awaitingFrameChange
-            case awaitingFrameWrite
-            case awaitingCorrection
-        }
-
-        struct NativeTitleBarDrag {
-            let token: WindowToken
-            var phase: NativeTitleBarDragPhase = .armed
-            var receivedFrameChange = false
-            var issuedUnreadableCorrection = false
-            var terminalFailureRetryRequestId: AXFrameRequestId?
-        }
-
-        struct FocusFollowsMouseSample {
-            let location: CGPoint
-            let modifiersRawValue: UInt64
-            let windowIdUnderPointer: Int?
-        }
-
-        var eventTap: CFMachPort?
-        var runLoopSource: CFRunLoopSource?
-        var moveTap: CFMachPort?
-        var moveTapRunLoopSource: CFRunLoopSource?
-        var currentHoveredEdges: ResizeEdge = []
-        var isResizing: Bool = false
-        var isMoving: Bool = false
-        var activeInteractionButton: MouseButton?
-        var capturedInteractionButton: MouseButton?
-        var resizeLayout: LayoutType?
-        var moveLayout: LayoutType?
-        var awaitsNativeTitleBarDragTarget = false
-        var nativeTitleBarDragFallbackToken: WindowToken?
-        var nativeTitleBarDragFallbackReleased = false
-        var nativeTitleBarDrag: NativeTitleBarDrag?
-
-        var lastFocusFollowsMouseTime: Date = .distantPast
-        var latestFocusFollowsMouseSample: FocusFollowsMouseSample?
-        let focusFollowsMouseDebounce: TimeInterval = 0.1
-        var dragGhostController: DragGhostController?
-
-        var gesturePhase: GesturePhase = .idle
-        var gestureStartX: CGFloat = 0.0
-        var gestureStartY: CGFloat = 0.0
-        var gestureLastAverageX: CGFloat = 0.0
-        var gestureLastAverageY: CGFloat = 0.0
-        var lockedGestureContext: LockedGestureContext?
-        var activeGestureMode: TrackpadGestureMode?
-        var viewportGestureSessionID: AnimationDriver.GestureSessionID?
-        var workspaceSwipeFired = false
-        let workspaceSwipeTracker = SwipeTracker()
-        var suppressGestureStartUntilAllTouchesLift = false
-        var consumeTrackpadScrollUntilAllTouchesLift = false
-        var suppressTrackpadMomentumScroll = false
-        var horizontalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
-        var verticalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
-    }
-
     nonisolated(unsafe) weak static var _instance: MouseEventHandler?
 
     weak var controller: WMController?
-    var state = State()
+    var state = MouseInputState()
     private var multitouchSource: MultitouchGestureSource?
     private var performanceCounters: PerformanceCounters?
     var multitouchSourceFactory: @MainActor () -> MultitouchGestureSource = { MultitouchGestureSource() }
@@ -1133,7 +1055,7 @@ final class MouseEventHandler {
             return false
         }
 
-        if button == .left, modifiers.intersection(mouseRelevantModifierFlags).isEmpty {
+        if button == .left, modifiers.isDisjoint(with: mouseRelevantModifierFlags) {
             state.awaitsNativeTitleBarDragTarget = windowIdUnderPointer == nil
             state.nativeTitleBarDragFallbackReleased = false
             let exactToken = nativeTitleBarDragCandidate(windowIdUnderPointer: windowIdUnderPointer)
@@ -1185,12 +1107,14 @@ final class MouseEventHandler {
                         windowToken: tiledWindow.token,
                         startLocation: location,
                         isInsertMode: isInsertMode,
-                        in: wsId,
-                        motion: controller.motionPolicy.snapshot(),
-                        state: &vstate,
-                        workingFrame: geometry.workingFrame,
-                        gaps: geometry.innerGap,
-                        orientation: orientation
+                        context: .init(
+                            workspaceId: wsId,
+                            motion: controller.motionPolicy.snapshot(),
+                            workingFrame: geometry.workingFrame,
+                            gaps: geometry.innerGap,
+                            orientation: orientation
+                        ),
+                        state: &vstate
                     ) {
                         moveStarted = true
                     }
@@ -1772,8 +1696,8 @@ final class MouseEventHandler {
         if state.nativeTitleBarDrag == nil,
            state.awaitsNativeTitleBarDragTarget,
            state.moveTap == nil,
-           (state.nativeTitleBarDragFallbackReleased
-               || pressedMouseButtonsProvider() & MouseButton.left.pressedMask != 0),
+           state.nativeTitleBarDragFallbackReleased
+           || pressedMouseButtonsProvider() & MouseButton.left.pressedMask != 0,
            state.nativeTitleBarDragFallbackToken == entry.token,
            entry.mode == .tiling,
            let controller
@@ -1788,7 +1712,7 @@ final class MouseEventHandler {
             state.awaitsNativeTitleBarDragTarget = false
             state.nativeTitleBarDragFallbackToken = nil
             state.nativeTitleBarDragFallbackReleased = false
-            var drag = State.NativeTitleBarDrag(token: entry.token)
+            var drag = MouseInputState.NativeTitleBarDrag(token: entry.token)
             if released {
                 if let pendingFrame = controller.axManager.pendingFrameWrite(for: entry.windowId) {
                     awaitNativeTitleBarDragFrameWrite(
@@ -1872,7 +1796,7 @@ final class MouseEventHandler {
     private func awaitNativeTitleBarDragFrameWrite(
         _ pendingFrame: CGRect,
         entry: WindowState,
-        drag: State.NativeTitleBarDrag
+        drag: MouseInputState.NativeTitleBarDrag
     ) {
         guard let controller else { return }
         var drag = drag
@@ -2415,7 +2339,7 @@ final class MouseEventHandler {
     private func resolveGestureArmContext(
         at location: CGPoint,
         fingerCount: Int
-    ) -> State.LockedGestureContext? {
+    ) -> MouseInputState.LockedGestureContext? {
         guard let controller, let config = trackpadGestureConfig else { return nil }
         guard let monitor = location.monitorApproximation(in: controller.workspaceManager.monitors),
               let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
@@ -2524,7 +2448,10 @@ final class MouseEventHandler {
         )
     }
 
-    private func commitGestureMode(metrics: GestureFrameMetrics, lockedContext: State.LockedGestureContext) -> Bool {
+    private func commitGestureMode(
+        metrics: GestureFrameMetrics,
+        lockedContext: MouseInputState.LockedGestureContext
+    ) -> Bool {
         guard let controller, var config = trackpadGestureConfig else {
             abortActiveGestureIfNeeded()
             return false
@@ -2536,8 +2463,7 @@ final class MouseEventHandler {
         guard let mode = TrackpadGestureIntent.resolveMode(
             config,
             fingerCount: lockedContext.fingerCount,
-            cumulativeX: metrics.cumulativeX,
-            cumulativeY: metrics.cumulativeY,
+            cumulativeTranslation: CGVector(dx: metrics.cumulativeX, dy: metrics.cumulativeY),
             columnScrollAxis: lockedContext.columnScrollAxis,
             columnContextAvailable: lockedContext.columnScrollCandidate && controller.niriEngine != nil
         ) else {
@@ -2552,7 +2478,7 @@ final class MouseEventHandler {
 
     private func dispatchCommittedGestureFrame(
         metrics: GestureFrameMetrics,
-        lockedContext: State.LockedGestureContext,
+        lockedContext: MouseInputState.LockedGestureContext,
         monitor: Monitor,
         timestamp: TimeInterval
     ) {
@@ -2739,6 +2665,13 @@ final class MouseEventHandler {
             return
         }
 
+        let context = NiriInteractionContext(
+            workspaceId: wsId,
+            motion: motion,
+            workingFrame: geometry.workingFrame,
+            gaps: geometry.innerGap,
+            orientation: orientation
+        )
         let columns = engine.projectedColumns(in: wsId)
         var didApply = false
         var shouldStartAnimation = false
@@ -2760,12 +2693,8 @@ final class MouseEventHandler {
                       let newNode = engine.focusColumn(
                           targetColumnIndex,
                           currentSelection: currentNode,
-                          in: wsId,
-                          motion: motion,
-                          state: &vstate,
-                          workingFrame: geometry.workingFrame,
-                          gaps: geometry.innerGap,
-                          orientation: orientation
+                          context: context,
+                          state: &vstate
                       )
                 else {
                     break
@@ -2798,7 +2727,7 @@ final class MouseEventHandler {
     }
 
     func finalizeOrCancelCommittedGesture(
-        using lockedContext: State.LockedGestureContext,
+        using lockedContext: MouseInputState.LockedGestureContext,
         engine: NiriLayoutEngine,
         shouldFocusSelection: Bool,
         timestamp: TimeInterval? = nil
