@@ -10,10 +10,27 @@ import OmniWMIPC
 final class SettingsStore {
     private nonisolated static let defaultExport = SettingsExport.defaults()
     private nonisolated static let scrollSensitivityRange = 0.1 ... 100.0
+    nonisolated static let windowGestureSensitivityRange = 0.1 ... 5.0
 
     private nonisolated static func normalizedScrollSensitivity(_ value: Double) -> Double {
-        guard value.isFinite else { return defaultExport.scrollSensitivity }
-        return min(max(value, scrollSensitivityRange.lowerBound), scrollSensitivityRange.upperBound)
+        normalizedSensitivity(value, in: scrollSensitivityRange, default: defaultExport.scrollSensitivity)
+    }
+
+    private nonisolated static func normalizedWindowGestureSensitivity(_ value: Double) -> Double {
+        normalizedSensitivity(
+            value,
+            in: windowGestureSensitivityRange,
+            default: defaultExport.windowGestureSensitivity
+        )
+    }
+
+    private nonisolated static func normalizedSensitivity(
+        _ value: Double,
+        in range: ClosedRange<Double>,
+        default fallback: Double
+    ) -> Double {
+        guard value.isFinite else { return fallback }
+        return min(max(value, range.lowerBound), range.upperBound)
     }
 
     private struct NormalizedWorkspaceBarIconOverride {
@@ -26,6 +43,10 @@ final class SettingsStore {
     private let runtimeState: RuntimeStateStore
     private let autosaveEnabled: Bool
     private var isApplyingExport = false
+    private var notifiedTrackpadGestureAvailability = SettingsStore.defaultExport.scrollGestureEnabled
+        || SettingsStore.defaultExport.workspaceSwipeEnabled
+        || SettingsStore.defaultExport.windowMoveGestureEnabled
+        || SettingsStore.defaultExport.windowResizeGestureEnabled
     private var isApplyingRuntimeState = false
 
     var onIPCEnabledChanged: (@MainActor (Bool) -> Void)?
@@ -448,11 +469,7 @@ final class SettingsStore {
     var scrollGestureEnabled = SettingsStore.defaultExport.scrollGestureEnabled {
         didSet {
             guard oldValue != scrollGestureEnabled else { return }
-            if !isApplyingExport,
-               (oldValue || workspaceSwipeEnabled) != (scrollGestureEnabled || workspaceSwipeEnabled)
-            {
-                onTrackpadGestureAvailabilityChanged?(scrollGestureEnabled || workspaceSwipeEnabled)
-            }
+            trackpadGestureTogglesDidChange()
             scheduleSave()
         }
     }
@@ -495,11 +512,7 @@ final class SettingsStore {
     var workspaceSwipeEnabled = SettingsStore.defaultExport.workspaceSwipeEnabled {
         didSet {
             guard oldValue != workspaceSwipeEnabled else { return }
-            if !isApplyingExport,
-               (scrollGestureEnabled || oldValue) != (scrollGestureEnabled || workspaceSwipeEnabled)
-            {
-                onTrackpadGestureAvailabilityChanged?(scrollGestureEnabled || workspaceSwipeEnabled)
-            }
+            trackpadGestureTogglesDidChange()
             scheduleSave()
         }
     }
@@ -518,6 +531,77 @@ final class SettingsStore {
 
     var effectiveWorkspaceSwipeAxis: WorkspaceSwipeAxis {
         workspaceSwipeAxisLockedToVertical ? .vertical : workspaceSwipeAxis
+    }
+
+    var windowMoveGestureEnabled = SettingsStore.defaultExport.windowMoveGestureEnabled {
+        didSet {
+            guard oldValue != windowMoveGestureEnabled else { return }
+            trackpadGestureTogglesDidChange()
+            scheduleSave()
+        }
+    }
+
+    var windowMoveGestureFingerCount = SettingsStore.defaultExport.windowMoveGestureFingerCount {
+        didSet { scheduleSave() }
+    }
+
+    var windowResizeGestureEnabled = SettingsStore.defaultExport.windowResizeGestureEnabled {
+        didSet {
+            guard oldValue != windowResizeGestureEnabled else { return }
+            trackpadGestureTogglesDidChange()
+            scheduleSave()
+        }
+    }
+
+    var windowResizeGestureFingerCount = SettingsStore.defaultExport.windowResizeGestureFingerCount {
+        didSet { scheduleSave() }
+    }
+
+    var windowGestureSensitivity = SettingsStore.defaultExport.windowGestureSensitivity {
+        didSet {
+            let normalized = SettingsStore.normalizedWindowGestureSensitivity(windowGestureSensitivity)
+            guard normalized == windowGestureSensitivity else {
+                windowGestureSensitivity = normalized
+                return
+            }
+            scheduleSave()
+        }
+    }
+
+    /// True while any trackpad gesture needs the multitouch contact stream running.
+    var trackpadGesturesAvailable: Bool {
+        scrollGestureEnabled || workspaceSwipeEnabled || windowMoveGestureEnabled || windowResizeGestureEnabled
+    }
+
+    /// The trackpad gesture configuration the mouse handler and the settings UI both resolve against.
+    var trackpadGestureIntentConfig: TrackpadGestureIntent.Config {
+        TrackpadGestureIntent.Config(
+            columnScrollEnabled: scrollGestureEnabled,
+            columnScrollFingerCount: gestureFingerCount.rawValue,
+            workspaceSwipeEnabled: workspaceSwipeEnabled,
+            workspaceSwipeFingerCount: workspaceSwipeFingerCount.rawValue,
+            workspaceSwipeAxis: effectiveWorkspaceSwipeAxis,
+            windowMoveEnabled: windowMoveGestureEnabled,
+            windowMoveFingerCount: windowMoveGestureFingerCount.rawValue,
+            windowResizeEnabled: windowResizeGestureEnabled,
+            windowResizeFingerCount: windowResizeGestureFingerCount.rawValue
+        )
+    }
+
+    /// Window gestures claim their finger count outright, so any other trackpad gesture configured for the
+    /// same count stops firing. Returns the window gesture that shadows the given finger count, if any.
+    func windowGestureShadowing(fingerCount: GestureFingerCount) -> TrackpadGestureMode? {
+        TrackpadGestureIntent.windowGestureMode(trackpadGestureIntentConfig, fingerCount: fingerCount.rawValue)
+    }
+
+    /// Fires `onTrackpadGestureAvailabilityChanged` once per aggregate transition, however many individual
+    /// toggles moved to get there. Deferred while an export is being applied; `applyExport` calls this at the end.
+    private func trackpadGestureTogglesDidChange() {
+        guard !isApplyingExport else { return }
+        let available = trackpadGesturesAvailable
+        guard available != notifiedTrackpadGestureAvailability else { return }
+        notifiedTrackpadGestureAvailability = available
+        onTrackpadGestureAvailabilityChanged?(available)
     }
 
     var statusBarShowWorkspaceName = SettingsStore.defaultExport.statusBarShowWorkspaceName {
@@ -836,6 +920,11 @@ final class SettingsStore {
             workspaceSwipeEnabled: workspaceSwipeEnabled,
             workspaceSwipeFingerCount: workspaceSwipeFingerCount,
             workspaceSwipeAxis: workspaceSwipeAxis,
+            windowMoveGestureEnabled: windowMoveGestureEnabled,
+            windowMoveGestureFingerCount: windowMoveGestureFingerCount,
+            windowResizeGestureEnabled: windowResizeGestureEnabled,
+            windowResizeGestureFingerCount: windowResizeGestureFingerCount,
+            windowGestureSensitivity: windowGestureSensitivity,
             statusBarShowWorkspaceName: statusBarShowWorkspaceName,
             statusBarShowAppNames: statusBarShowAppNames,
             statusBarUseWorkspaceId: statusBarUseWorkspaceId,
@@ -863,14 +952,10 @@ final class SettingsStore {
 
     func applyExport(_ export: SettingsExport) {
         let baseline = SettingsStore.defaultExport
-        let trackpadGesturesWereAvailable = scrollGestureEnabled || workspaceSwipeEnabled
         isApplyingExport = true
         defer {
             isApplyingExport = false
-            let trackpadGesturesAreAvailable = scrollGestureEnabled || workspaceSwipeEnabled
-            if trackpadGesturesWereAvailable != trackpadGesturesAreAvailable {
-                onTrackpadGestureAvailabilityChanged?(trackpadGesturesAreAvailable)
-            }
+            trackpadGestureTogglesDidChange()
         }
 
         hotkeysEnabled = export.hotkeysEnabled
@@ -998,6 +1083,11 @@ final class SettingsStore {
         workspaceSwipeEnabled = export.workspaceSwipeEnabled
         workspaceSwipeFingerCount = export.workspaceSwipeFingerCount
         workspaceSwipeAxis = export.workspaceSwipeAxis
+        windowMoveGestureEnabled = export.windowMoveGestureEnabled
+        windowMoveGestureFingerCount = export.windowMoveGestureFingerCount
+        windowResizeGestureEnabled = export.windowResizeGestureEnabled
+        windowResizeGestureFingerCount = export.windowResizeGestureFingerCount
+        windowGestureSensitivity = export.windowGestureSensitivity
         statusBarShowWorkspaceName = export.statusBarShowWorkspaceName
         statusBarShowAppNames = export.statusBarShowAppNames
         statusBarUseWorkspaceId = export.statusBarUseWorkspaceId

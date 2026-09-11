@@ -23,6 +23,7 @@ struct MouseTrackpadSettingsTab: View {
         Form {
             niriColumnScrollingSection
             workspaceSwipeSection
+            trackpadWindowGesturesSection
             trackpadDirectionSection
             mouseMoveAndResizeSection
             focusFollowsMouseSection
@@ -47,12 +48,8 @@ struct MouseTrackpadSettingsTab: View {
             )
             .disabled(!settings.scrollGestureEnabled)
 
-            Picker("Trackpad Gesture Fingers", selection: $settings.gestureFingerCount) {
-                ForEach(GestureFingerCount.allCases, id: \.self) { count in
-                    Text(count.displayName).tag(count)
-                }
-            }
-            .disabled(!settings.scrollGestureEnabled)
+            fingerCountPicker("Trackpad Gesture Fingers", selection: $settings.gestureFingerCount)
+                .disabled(!settings.scrollGestureEnabled)
 
             Picker("Trackpad Scroll Style", selection: $settings.trackpadScrollStyle) {
                 ForEach(TrackpadScrollStyle.allCases) { style in
@@ -82,13 +79,9 @@ struct MouseTrackpadSettingsTab: View {
 
             SettingsCaption("Swipe to switch workspaces on the monitor under the cursor")
 
-            Picker("Swipe Fingers", selection: $settings.workspaceSwipeFingerCount) {
-                ForEach(GestureFingerCount.allCases, id: \.self) { count in
-                    Text(count.displayName).tag(count)
-                }
-            }
-            .disabled(!settings.workspaceSwipeEnabled)
-            .accessibilityHint(workspaceSwipeFingerPickerHint)
+            fingerCountPicker("Swipe Fingers", selection: $settings.workspaceSwipeFingerCount)
+                .disabled(!settings.workspaceSwipeEnabled)
+                .accessibilityHint(workspaceSwipeFingerPickerHint)
 
             if showTwoFingerWorkspaceSwipeWarning {
                 SettingsCaption(twoFingerWorkspaceSwipeWarning)
@@ -107,26 +100,55 @@ struct MouseTrackpadSettingsTab: View {
                 axis: settings.effectiveWorkspaceSwipeAxis,
                 fingerCount: settings.workspaceSwipeFingerCount
             ) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label {
-                        Text("Mission Control gesture conflict")
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    }
+                missionControlConflictWarning(
+                    title: "Mission Control gesture conflict",
+                    message: "Mission Control’s three- or four-finger upward swipe can intercept vertical workspace swipes. Turn off Mission Control in  → System Settings → Trackpad → More Gestures before enabling vertical workspace swipes.",
+                    hint: "Opens System Settings. Select More Gestures, then turn off Mission Control."
+                )
+            }
+        }
+    }
 
-                    Text(
-                        "Mission Control’s three- or four-finger upward swipe can intercept vertical workspace swipes. Turn off Mission Control in  → System Settings → Trackpad → More Gestures before enabling vertical workspace swipes."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private var trackpadWindowGesturesSection: some View {
+        Section("Trackpad Window Move & Resize") {
+            SettingsCaption(
+                "Drag with several fingers, without clicking, to move or resize the tiled window under the cursor. "
+                    + "Lift your fingers to drop."
+            )
 
-                    Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
-                        .controlSize(.small)
-                        .accessibilityHint(
-                            "Opens System Settings. Select More Gestures, then turn off Mission Control."
-                        )
-                }
+            Toggle("Enable Move Gesture", isOn: $settings.windowMoveGestureEnabled)
+
+            fingerCountPicker("Move Fingers", selection: $settings.windowMoveGestureFingerCount)
+                .disabled(!settings.windowMoveGestureEnabled)
+
+            Toggle("Enable Resize Gesture", isOn: $settings.windowResizeGestureEnabled)
+
+            fingerCountPicker("Resize Fingers", selection: $settings.windowResizeGestureFingerCount)
+                .disabled(!settings.windowResizeGestureEnabled)
+
+            SettingsCaption("Resize pulls the window corner nearest the cursor, like a modifier + right drag.")
+
+            SettingsSliderRow(
+                label: "Gesture Sensitivity",
+                value: $settings.windowGestureSensitivity,
+                range: SettingsStore.windowGestureSensitivityRange,
+                step: 0.1,
+                valueText: String(format: "%.1f", settings.windowGestureSensitivity) + "x"
+            )
+            .disabled(!settings.windowMoveGestureEnabled && !settings.windowResizeGestureEnabled)
+
+            SettingsCaption("At 1.0x, sweeping the whole trackpad carries the window across the whole screen.")
+
+            ForEach(windowGestureConflictCaptions, id: \.self) { caption in
+                SettingsCaption(caption)
+            }
+
+            if showWindowGestureMissionControlWarning {
+                missionControlConflictWarning(
+                    title: "macOS gesture conflict",
+                    message: "macOS still sees these fingers. Turn off Mission Control, App Exposé, and Swipe between full-screen applications for this finger count in  → System Settings → Trackpad → More Gestures, or the system gesture fires alongside the window gesture.",
+                    hint: "Opens System Settings. Select More Gestures, then turn off the conflicting gestures."
+                )
             }
         }
     }
@@ -209,6 +231,81 @@ struct MouseTrackpadSettingsTab: View {
 
     private var showTwoFingerWorkspaceSwipeWarning: Bool {
         settings.workspaceSwipeEnabled && settings.workspaceSwipeFingerCount == .two
+    }
+
+    /// Window gestures travel in every direction, so any vertical component can trigger Mission Control
+    /// whenever it is bound to the same finger count.
+    private var showWindowGestureMissionControlWarning: Bool {
+        [
+            (settings.windowMoveGestureEnabled, settings.windowMoveGestureFingerCount),
+            (settings.windowResizeGestureEnabled, settings.windowResizeGestureFingerCount)
+        ].contains { enabled, fingers in
+            enabled && missionControlGestureProbe.shouldWarn(axis: .vertical, fingerCount: fingers)
+        }
+    }
+
+    private func fingerCountPicker(_ title: String, selection: Binding<GestureFingerCount>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(GestureFingerCount.allCases, id: \.self) { count in
+                Text(count.displayName).tag(count)
+            }
+        }
+    }
+
+    private func missionControlConflictWarning(title: String, message: String, hint: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text(title)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
+                .controlSize(.small)
+                .accessibilityHint(hint)
+        }
+    }
+
+    /// Window gestures claim their finger count outright, so the user should know which other gestures
+    /// that silences.
+    private var windowGestureConflictCaptions: [String] {
+        var captions: [String] = []
+        if settings.windowMoveGestureEnabled,
+           settings.windowResizeGestureEnabled,
+           settings.windowMoveGestureFingerCount == settings.windowResizeGestureFingerCount
+        {
+            captions.append(
+                "Move and resize share \(settings.windowMoveGestureFingerCount.displayName.lowercased()); "
+                    + "move wins and resize never fires."
+            )
+        }
+        if settings.scrollGestureEnabled,
+           let shadow = settings.windowGestureShadowing(fingerCount: settings.gestureFingerCount)
+        {
+            captions.append(
+                "\(Self.gestureName(shadow)) uses \(settings.gestureFingerCount.displayName.lowercased()), "
+                    + "so column scrolling with that count is disabled."
+            )
+        }
+        if settings.workspaceSwipeEnabled,
+           let shadow = settings.windowGestureShadowing(fingerCount: settings.workspaceSwipeFingerCount)
+        {
+            captions.append(
+                "\(Self.gestureName(shadow)) uses "
+                    + "\(settings.workspaceSwipeFingerCount.displayName.lowercased()), "
+                    + "so workspace swipe with that count is disabled."
+            )
+        }
+        return captions
+    }
+
+    private static func gestureName(_ mode: TrackpadGestureMode) -> String {
+        mode == .windowMove ? "The move gesture" : "The resize gesture"
     }
 
     private var workspaceSwipeFingerPickerHint: String {

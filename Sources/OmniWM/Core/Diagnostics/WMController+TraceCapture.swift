@@ -86,6 +86,8 @@ extension WMController {
             "animationsEnabled=\(settings.animationsEnabled)",
             "scrollGestureEnabled=\(settings.scrollGestureEnabled)",
             "workspaceSwipeEnabled=\(settings.workspaceSwipeEnabled)",
+            "windowMoveGestureEnabled=\(settings.windowMoveGestureEnabled)",
+            "windowResizeGestureEnabled=\(settings.windowResizeGestureEnabled)",
             "mouseWarpEnabled=\(settings.mouseWarpEnabled)",
             "bordersEnabled=\(settings.bordersEnabled)",
             "workspaceBarEnabled=\(settings.workspaceBarEnabled)",

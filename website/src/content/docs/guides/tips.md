@@ -41,3 +41,17 @@ Opt in under **Settings → Mouse & Trackpad**: swipe with a configurable finger
 :::caution[Mission Control can intercept vertical swipes]
 For vertical swipes with three or four fingers, first turn off Mission Control in System Settings → Trackpad → More Gestures so macOS does not intercept the gesture.
 :::
+
+## Window move and resize gestures (opt-in)
+
+Opt in under **Settings → Mouse & Trackpad → Trackpad Window Move & Resize** to move or resize tiled windows by dragging several fingers across the trackpad without clicking, the way Hyprland's touchpad gestures work. The defaults are four fingers to move and three fingers to resize, each with its own toggle and finger count.
+
+- **Move**: the window under the cursor follows a virtual cursor that starts where the real cursor sits; the drag ghost and drop target behave exactly like a modifier + left drag. Lift your fingers to drop. On Niri this swaps with the target window; on Dwindle it swaps tiles.
+- **Resize**: pulls the corner of the window under the cursor that is nearest the cursor, exactly like a modifier + right drag. Lift your fingers to finish.
+- **Sensitivity**: at 1.0x a full sweep of the trackpad carries the window across the whole monitor. Raise it for large displays, lower it for precision.
+
+A window gesture owns its finger count outright: column scrolling or workspace swipe configured for the same count stop firing while that window gesture is enabled, and when move and resize share a count, move wins. Settings shows a caption whenever one of these collisions exists.
+
+:::caution[macOS still sees the fingers]
+OmniWM observes the trackpad but cannot swallow the touches. Turn off Mission Control, App Exposé, and Swipe between full-screen applications for the finger count you pick in System Settings → Trackpad → More Gestures, or the system gesture fires alongside the window gesture.
+:::
