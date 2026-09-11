@@ -138,6 +138,7 @@ extension NiriLayoutEngine {
         guard let state = states[workspaceId],
               let node = state.nodesByToken[token],
               let column = node.parent as? NiriContainer else { return }
+        let wasSingleWindow = singleWindowLayoutContext(in: workspaceId) != nil
 
         cancelInteractions(for: Set([node.id]), in: workspaceId)
         column.adjustActiveTileIdxForRemoval(of: node)
@@ -164,6 +165,8 @@ extension NiriLayoutEngine {
                 }
             }
         }
+
+        clearManualSpanOverridesOnSingleWindowEntry(in: workspaceId, wasSingleWindow: wasSingleWindow)
     }
 
     @discardableResult
@@ -193,6 +196,7 @@ extension NiriLayoutEngine {
 
         let root = workspaceState.root
         let activeIndexBefore = root.columns.isEmpty ? nil : state.activeColumnIndex
+        let wasSingleWindow = singleWindowLayoutContext(in: context.workspaceId) != nil
         let removalTokens = tokens.intersection(root.windowIdSet)
         guard !removalTokens.isEmpty else {
             return NiriRemovalResult(
@@ -299,6 +303,8 @@ extension NiriLayoutEngine {
             viewportNeedsRecalc = true
         }
 
+        clearManualSpanOverridesOnSingleWindowEntry(in: context.workspaceId, wasSingleWindow: wasSingleWindow)
+
         return NiriRemovalResult(
             removedTokens: removedTokens,
             removedNodeIds: removedNodeIds.union(batch.nodeIds),
@@ -310,6 +316,17 @@ extension NiriLayoutEngine {
             fromIndexForVisibility: visibilityWasCorrected ? nil : fromIndexForVisibility,
             visibilityWasCorrected: visibilityWasCorrected
         )
+    }
+
+    private func clearManualSpanOverridesOnSingleWindowEntry(
+        in workspaceId: WorkspaceDescriptor.ID,
+        wasSingleWindow: Bool
+    ) {
+        // A resize made next to other windows must not override single-window fit.
+        guard !wasSingleWindow,
+              let survivor = singleWindowLayoutContext(in: workspaceId)?.container else { return }
+        survivor.hasManualSingleWindowWidthOverride = false
+        survivor.hasManualSingleWindowHeightOverride = false
     }
 
     private func removeTileByIdx(
