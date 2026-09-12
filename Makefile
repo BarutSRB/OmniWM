@@ -2,7 +2,8 @@
 
 include Scripts/dev-tools.env
 
-export PATH := $(CURDIR)/.cache/dev-tools/bin:$(PATH)
+SWIFTFORMAT := $(CURDIR)/.cache/dev-tools/bin/swiftformat
+SWIFTLINT := $(CURDIR)/.cache/dev-tools/bin/swiftlint
 SWIFT_WITH_GHOSTTY = LIBRARY_PATH="$$(./Scripts/ghostty-preflight.sh print-library-dir)$${LIBRARY_PATH:+:$$LIBRARY_PATH}"
 
 setup:
@@ -12,27 +13,27 @@ doctor:
 	./Scripts/dev-tools.sh doctor
 
 check-swiftformat-version:
-	@actual="$$(swiftformat --version 2>/dev/null || true)"; if [ "$$actual" != "$(SWIFTFORMAT_VERSION)" ]; then echo "error: SwiftFormat $(SWIFTFORMAT_VERSION) required; found $${actual:-missing}" >&2; exit 1; fi
+	@actual="$$("$(SWIFTFORMAT)" --version 2>/dev/null || true)"; if [ "$$actual" != "$(SWIFTFORMAT_VERSION)" ]; then echo "error: SwiftFormat $(SWIFTFORMAT_VERSION) required; found $${actual:-missing}" >&2; exit 1; fi
 
 check-swiftlint-version:
-	@actual="$$(swiftlint version 2>/dev/null || true)"; if [ "$$actual" != "$(SWIFTLINT_VERSION)" ]; then echo "error: SwiftLint $(SWIFTLINT_VERSION) required; found $${actual:-missing}" >&2; exit 1; fi
+	@actual="$$("$(SWIFTLINT)" version 2>/dev/null || true)"; if [ "$$actual" != "$(SWIFTLINT_VERSION)" ]; then echo "error: SwiftLint $(SWIFTLINT_VERSION) required; found $${actual:-missing}" >&2; exit 1; fi
 
 check-tool-versions: check-swiftformat-version check-swiftlint-version
 
 format: check-swiftformat-version
-	swiftformat .
+	"$(SWIFTFORMAT)" .
 
 format-check: check-swiftformat-version
-	swiftformat --lint .
+	"$(SWIFTFORMAT)" --lint .
 
 lint: check-swiftlint-version
-	swiftlint lint
+	"$(SWIFTLINT)" lint
 
 lint-fix: check-tool-versions
-	swiftformat .
-	swiftlint lint --fix || true
-	swiftformat .
-	swiftlint lint
+	"$(SWIFTFORMAT)" .
+	"$(SWIFTLINT)" lint --fix || true
+	"$(SWIFTFORMAT)" .
+	"$(SWIFTLINT)" lint
 
 build:
 	./Scripts/ghostty-preflight.sh verify
