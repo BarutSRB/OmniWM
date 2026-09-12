@@ -50,7 +50,7 @@ OmniWM is a menu-bar-only app: click its menu bar icon to open **Settings** or *
 
 ## The config file
 
-Everything you set in the GUI is stored at `~/.config/omniwm/settings.toml`. The file is live-reloaded when saved from an editor, so you can manage OmniWM from your dotfiles too. See [Configuration](/config/configuration/).
+OmniWM configuration is stored at `${XDG_CONFIG_HOME:-$HOME/.config}/omniwm/settings.toml` (`~/.config/omniwm/settings.toml` by default). The file is live-reloaded when saved from an editor, so you can manage OmniWM from your dotfiles too. Start at Login and System-wide Window Corners are managed separately by macOS. See [Configuration](/config/configuration/).
 
 ## Next steps
 

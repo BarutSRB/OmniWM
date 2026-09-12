@@ -37,4 +37,4 @@ Prefer the web? The [GitHub issue form](https://github.com/BarutSRB/OmniWM/issue
 
 ## Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM). Start with [CONTRIBUTING.md](https://github.com/BarutSRB/OmniWM/blob/main/CONTRIBUTING.md) for the project guidelines, expectations, and preferred direction.
+Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM). Start with [the contributor guide](/developers/contributing/) for the project guidelines, expectations, and preferred direction.

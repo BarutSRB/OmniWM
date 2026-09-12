@@ -57,9 +57,9 @@ Pointer-driven focus and monitor-edge focus/move behavior.
 | `raiseOnMouseFocus` | boolean | `false` | Also raises the window when focus-follows-mouse focuses it. |
 | `lockModifier` | string | `"off"` | Modifier that holds focus in place while pressed: `off`, `option`, `leftOption`, `rightOption`, `command`, `leftCommand`, `rightCommand`, `control`, `leftControl`, `rightControl`, `shift`, `leftShift`, `rightShift`. |
 | `moveMouseToFocusedWindow` | boolean | `false` | Moves the pointer to the window that gains focus. |
-| `followsWindowToMonitor` | boolean | `false` | Keeps focus on a window when it moves to another monitor. |
+| `followsWindowToMonitor` | boolean | `false` | Follows ordinary window or column transfers to another workspace, including dedicated monitor-move actions. Edge-crossing moves always follow. |
 | `crossesMonitorAtEdge` | boolean | `false` | Directional focus continues onto the neighboring monitor at the screen edge. |
-| `moveCrossesMonitorAtEdge` | boolean | `false` | Directional window move continues onto the neighboring monitor at the screen edge. |
+| `moveCrossesMonitorAtEdge` | boolean | `false` | Directional window move continues onto the neighboring monitor at the workspace edge and always follows the moved window. |
 
 ## mouseWarp
 
@@ -265,12 +265,12 @@ The drop-down (Quake) terminal.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Enables the Quake terminal. |
-| `position` | string | `"center"` | Slide-in position: `top`, `bottom`, `left`, `right`, `center`. |
-| `widthPercent` | float | `50.0` | Width as a percentage of the screen. |
-| `heightPercent` | float | `50.0` | Height as a percentage of the screen. |
+| `position` | string | `"center"` | Terminal position: `top`, `bottom`, `left`, `right`, `center`. Edge positions slide in; `center` fades in place. |
+| `widthPercent` | float | `50.0` | Width as a percentage of the monitor's available screen area. |
+| `heightPercent` | float | `50.0` | Height as a percentage of the monitor's available screen area. |
 | `animationDuration` | float | `0.2` | Show/hide animation duration in seconds. |
 | `autoHide` | boolean | `false` | Hides the terminal when it loses focus. |
-| `opacity` *(optional)* | float | `1.0` | Terminal window opacity (`0.0`–`1.0`). |
+| `opacity` *(optional)* | float | `1.0` | Terminal background opacity (`0.0`–`1.0`). |
 | `backgroundEffect` | string | `"standardBlur"` | Background material: `standardBlur`, `glassRegular`, `glassClear`. |
 | `backgroundBlurRadius` *(optional)* | integer | `0` | Background blur radius; `0` disables the extra blur. |
 | `monitorMode` *(optional)* | string | `"focusedWindow"` | Which monitor it appears on: `mouseCursor`, `focusedWindow`, `mainMonitor`. |
@@ -348,7 +348,7 @@ Array of per-app window rules, editable in the **App Rules** window. Matchers se
 
 | Key | Type | Description |
 | --- | --- | --- |
-| `id` | string (UUID) | Stable rule identity. |
+| `id` *(optional)* | string (UUID) | Stable rule identity; generated if omitted. Keep an existing ID unchanged when editing. |
 | `bundleId` | string | App bundle ID to match (may be empty when an advanced matcher is used). |
 | `appNameSubstring` *(optional)* | string | Matches on the app name. |
 | `titleSubstring` *(optional)* | string | Matches on the window title. |

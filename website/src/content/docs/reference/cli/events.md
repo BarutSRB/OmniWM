@@ -9,9 +9,9 @@ Subscribe to real-time state change events from OmniWM.
 
 ## Delivery Pipeline
 
-`IPCServer.start()` attaches `IPCApplicationBridge` to `WMController`. Controller state changes publish channel snapshots through the bridge, and `IPCConnection` expands the requested channels for each client, sends the initial `subscribe` response, starts per-channel stream tasks, and emits initial snapshots unless `--no-send-initial` is set.
+`IPCServer.start()` attaches `IPCApplicationBridge` to `WMController`. Controller state changes publish channel snapshots through the bridge. For each client, `IPCConnection` expands and registers new subscription channels, collects their initial snapshots unless `--no-send-initial` is set, and sends the `subscribe` response followed by those snapshots. It then starts per-channel tasks to forward buffered and live updates.
 
-Initial snapshots are best-effort seed state, not a strict ordering barrier. If state changes during subscription setup, a live update can race with the initial snapshot.
+Initial snapshots are sent before updates from newly subscribed channels, but they are collected separately rather than as one atomic snapshot across channels. Updates buffered during setup can describe state observed before or after a channel's initial snapshot.
 
 Subscription channels are coalesced state streams, not a lossless event log. Slow consumers may only observe the newest buffered update for a channel.
 

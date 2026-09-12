@@ -15,7 +15,7 @@ Hidden Bar conceals selected menu-bar icons and lets you reach them from a panel
 - An optional global hotkey is available and starts unassigned.
 
 :::caution
-Concealment requires macOS 27 or later; the rest of OmniWM continues to support macOS 26.
+Concealment requires macOS 27 or later; core window management supports macOS 26.
 :::
 
 ## The status-bar menu

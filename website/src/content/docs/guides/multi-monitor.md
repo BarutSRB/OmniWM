@@ -34,8 +34,8 @@ Layout behavior follows each display rather than one global setting: monitors us
 
 Two settings shape how windows travel between displays:
 
-- **Move Window Across Monitor at Edge** governs whether moving a window past a workspace edge carries it to the adjacent display. The dedicated `Move Window to Left / Right / Up / Down Monitor` actions work independently of it: they send the focused window directly to the current workspace on the adjacent routed display and do not wrap when no monitor exists in that direction.
-- **Follow Window to Monitor** controls whether focus follows a window sent to another monitor; when it is off, you remain in the source workspace.
+- **Move Window Across Monitor at Edge** sends a window beyond a workspace edge to the adjacent routed display and always follows it. The dedicated `Move Window to Left / Right / Up / Down Monitor` actions work independently of this setting: they send the focused window directly to the current workspace on the adjacent routed display and do not wrap when no monitor exists in that direction.
+- **Follow Window to Monitor** controls whether focus follows ordinary window or column transfers to another workspace, including the dedicated monitor-move actions. When it is off, those transfers leave you in the source workspace; edge-crossing moves always follow.
 
 ## Workspaces and their home monitor
 

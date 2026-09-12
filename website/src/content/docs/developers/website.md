@@ -1,10 +1,18 @@
-# omniwm.app
+---
+title: Website Development
+description: Run the website locally, edit documentation and demos, maintain credits, and understand deployment.
+sidebar:
+  order: 4
+---
 
 The OmniWM website: a landing page with animated feature demos and the knowledge base, built with [Astro](https://astro.build) + [Starlight](https://starlight.astro.build).
 
 ## Development
 
+From a clone of the OmniWM repository, enter the website directory:
+
 ```sh
+cd website
 npm ci
 npm run dev       # local dev server at localhost:4321
 npm run build     # static build into dist/
