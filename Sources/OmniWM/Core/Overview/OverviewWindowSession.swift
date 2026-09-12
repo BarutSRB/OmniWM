@@ -149,9 +149,20 @@ final class OverviewWindowSession {
     func updateAnimationProgress(
         _ progress: Double,
         on displayId: CGDirectDisplayID,
+        state: OverviewState,
         generation: UInt64,
         sequence: UInt64
     ) {
+        if case let .closing(targetWindow?) = state,
+           let layout = projection.updateClosingWindowFrames(for: targetWindow, on: displayId)
+        {
+            windowsByDisplayId[displayId]?.updateLayout(
+                layout,
+                state: state,
+                searchQuery: projection.searchQuery,
+                selectedWindowHandle: projection.selectedWindowHandle
+            )
+        }
         windowsByDisplayId[displayId]?.updateAnimationProgress(
             progress,
             generation: generation,

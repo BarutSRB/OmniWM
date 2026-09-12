@@ -24,6 +24,24 @@ final class OverviewViewportProjection {
         self.scale = scale
     }
 
+    func updateClosingWindowFrames(
+        for targetWindow: WindowHandle,
+        on displayId: CGDirectDisplayID
+    ) -> OverviewLayout? {
+        guard let wmController,
+              let entry = wmController.workspaceManager.entry(for: targetWindow),
+              wmController.activeWorkspace()?.id == entry.workspaceId,
+              wmController.workspaceManager.activeLayoutKind(for: entry.workspaceId) == .niri,
+              let monitor = wmController.workspaceManager.monitor(for: entry.workspaceId),
+              monitor.displayId == displayId,
+              let frames = wmController.niriEngine?.captureWindowFrames(in: entry.workspaceId),
+              var layout = layoutsByMonitor[monitor.id]
+        else { return nil }
+        layout.updateOriginalFrames(frames, monitorFrame: monitor.frame)
+        layoutsByMonitor[monitor.id] = layout
+        return layout
+    }
+
     func resetLayouts() {
         layoutsByMonitor = [:]
     }

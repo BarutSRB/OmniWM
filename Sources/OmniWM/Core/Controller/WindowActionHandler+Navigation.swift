@@ -6,7 +6,12 @@ import Foundation
 
 extension WindowActionHandler {
     @discardableResult
-    func navigateToWindowInternal(token: WindowToken, workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    func navigateToWindowInternal(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot = .disabled,
+        focusAfterLayout: Bool = true
+    ) -> Bool {
         guard let controller,
               let handle = controller.workspaceManager.handle(for: token),
               let entry = controller.workspaceManager.entry(for: token),
@@ -44,14 +49,25 @@ extension WindowActionHandler {
             }
         case .niri:
             guard let engine = controller.niriEngine else { return false }
-            prepareNiriNavigationTarget(token, workspaceId: workspaceId, engine: engine, controller: controller)
+            prepareNiriNavigationTarget(
+                token, workspaceId: workspaceId, engine: engine, controller: controller, motion: motion
+            )
+        }
+        if !focusAfterLayout {
+            controller.layoutRefreshController.requestImmediateRelayout(
+                reason: .overviewMutation,
+                affectedWorkspaceIds: [workspaceId]
+            )
+            controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+            return true
         }
         commitWindowNavigation(handle: handle, workspaceId: workspaceId, controller: controller)
         return true
     }
 
     private func prepareNiriNavigationTarget(
-        _ token: WindowToken, workspaceId: WorkspaceDescriptor.ID, engine: NiriLayoutEngine, controller: WMController
+        _ token: WindowToken, workspaceId: WorkspaceDescriptor.ID, engine: NiriLayoutEngine, controller: WMController,
+        motion: MotionSnapshot
     ) {
         var targetState = controller.workspaceManager.niriViewportState(for: workspaceId)
         if let niriWindow = engine.findNode(for: token, in: workspaceId) {
@@ -75,7 +91,7 @@ extension WindowActionHandler {
                         node: niriWindow,
                         context: .init(
                             workspaceId: workspaceId,
-                            motion: .disabled,
+                            motion: motion,
                             workingFrame: workingFrame,
                             gaps: gap,
                             orientation: orientation

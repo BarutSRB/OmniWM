@@ -283,6 +283,9 @@ extension OverviewController {
         let resolvedTargetWindow = reason == .selection ? targetWindow : nil
         focusSession.pendingDismissReason = reason
         focusSession.pendingFocusTargetWindow = resolvedTargetWindow
+        if let resolvedTargetWindow {
+            wmController?.windowActionHandler.prepareWindowFromOverview(resolvedTargetWindow, animated: animated)
+        }
         focusSession.pendingPostCloseHandoffValidity = focusSession.currentPostCloseHandoffValidity()
 
         state = .closing(targetWindow: resolvedTargetWindow)
@@ -336,7 +339,9 @@ extension OverviewController {
         generation: UInt64,
         sequence: UInt64
     ) {
-        windowSession.updateAnimationProgress(progress, on: displayId, generation: generation, sequence: sequence)
+        windowSession.updateAnimationProgress(
+            progress, on: displayId, state: state, generation: generation, sequence: sequence
+        )
     }
 
     private func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {
