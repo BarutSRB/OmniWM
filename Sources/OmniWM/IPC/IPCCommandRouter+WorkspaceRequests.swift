@@ -4,14 +4,7 @@
 import Foundation
 import OmniWMIPC
 
-@MainActor
-struct IPCWorkspaceRequestExecutor {
-    private let controller: WMController
-
-    init(controller: WMController) {
-        self.controller = controller
-    }
-
+extension IPCCommandRouter {
     func handle(_ request: IPCWorkspaceRequest) -> ExternalCommandResult {
         if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult

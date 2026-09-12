@@ -122,10 +122,6 @@ final class IPCCommandRouter {
         }
     }
 
-    func handle(_ request: IPCWorkspaceRequest) -> ExternalCommandResult {
-        IPCWorkspaceRequestExecutor(controller: controller).handle(request)
-    }
-
     func handle(_ request: IPCWindowRequest) -> ExternalCommandResult {
         IPCWindowRequestExecutor(controller: controller, sessionToken: sessionToken).handle(request)
     }
