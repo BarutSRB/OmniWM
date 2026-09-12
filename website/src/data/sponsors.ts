@@ -29,5 +29,6 @@ export const sponsors: Sponsor[] = [
   { name: 'ryoppippi', handle: 'ryoppippi', avatar: '/credits/sponsors/ryoppippi.jpg' },
   { name: 'Álvaro Barchín', handle: 'abarchin', avatar: '/credits/sponsors/abarchin.jpg' },
   { name: 'Marc Hendrichsen', handle: 'MarcHendrichsenO365', avatar: '/credits/sponsors/marchendrichseno365.png' },
+  { name: 'b-allan-w', handle: 'b-allan-w', avatar: '/credits/sponsors/b-allan-w.png' },
   { name: 'Private Sponsor', note: 'Contact Barut for public credit' },
 ];
