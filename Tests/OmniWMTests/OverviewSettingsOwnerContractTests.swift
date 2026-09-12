@@ -37,10 +37,10 @@ final class OverviewSettingsOwnerContractTests: XCTestCase {
         }
         let rawColor = SettingsColor(red: -2, green: 3, blue: 0.25, alpha: 0.4)
 
-        settings.setOverviewNormalBorderColor(rawColor)
+        settings.overview.normalBorderColor = rawColor
         XCTAssertEqual(changes.snapshot(), [])
-        settings.setOverviewBackdropColor(rawColor)
-        settings.setOverviewZoom(9)
+        settings.overview.backdropColor = rawColor
+        settings.overview.zoom = 9
 
         XCTAssertEqual(changes.snapshot(), ["backdrop"])
         XCTAssertEqual(settings.overview.backdropColor, rawColor)
@@ -53,7 +53,7 @@ final class OverviewSettingsOwnerContractTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let settings = makeSettings(directory: directory)
-        settings.setOverviewZoom(1.25)
+        settings.overview.zoom = 1.25
         let originalData = try Data(contentsOf: settings.settingsFileURL)
         let changes = OverviewSettingsChanges()
         observeAll(settings, changes: changes)
@@ -70,7 +70,7 @@ final class OverviewSettingsOwnerContractTests: XCTestCase {
         XCTAssertEqual(settings.overview.zoom, SettingsExport.defaults().overview.zoom)
         XCTAssertEqual(settings.overview.backdropColor, SettingsColor(red: 0, green: 1, blue: 0.08, alpha: 1))
         XCTAssertEqual(try Data(contentsOf: settings.settingsFileURL), originalData)
-        settings.setOverviewZoom(1.25)
+        settings.overview.zoom = 1.25
         XCTAssertEqual(try saved(settings), settings.toExport())
     }
 
@@ -84,7 +84,7 @@ final class OverviewSettingsOwnerContractTests: XCTestCase {
             weakSettings = settings
             binding = Binding(
                 get: { [settings] in settings.overview.zoom },
-                set: { [settings] in settings.setOverviewZoom($0) }
+                set: { [settings] in settings.overview.zoom = $0 }
             )
             var values = settings.toExport()
             values.overview.zoom = 1.4

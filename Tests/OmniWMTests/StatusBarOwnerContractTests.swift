@@ -119,21 +119,21 @@ final class StatusBarOwnerContractTests: XCTestCase {
     private func workspaceBinding(_ settings: SettingsStore) -> Binding<Bool> {
         Binding(
             get: { [settings] in settings.statusBar.showWorkspaceName },
-            set: { [settings] in settings.setStatusBarShowWorkspaceName($0) }
+            set: { [settings] in settings.statusBar.showWorkspaceName = $0 }
         )
     }
 
     private func appNamesBinding(_ settings: SettingsStore) -> Binding<Bool> {
         Binding(
             get: { [settings] in settings.statusBar.showAppNames },
-            set: { [settings] in settings.setStatusBarShowAppNames($0) }
+            set: { [settings] in settings.statusBar.showAppNames = $0 }
         )
     }
 
     private func workspaceIdBinding(_ settings: SettingsStore) -> Binding<Bool> {
         Binding(
             get: { [settings] in settings.statusBar.useWorkspaceId },
-            set: { [settings] in settings.setStatusBarUseWorkspaceId($0) }
+            set: { [settings] in settings.statusBar.useWorkspaceId = $0 }
         )
     }
 

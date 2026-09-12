@@ -5,14 +5,19 @@ import Observation
 
 @MainActor @Observable
 final class StatusBarSettings {
-    private(set) var showWorkspaceName: Bool
-    private(set) var showAppNames: Bool
-    private(set) var useWorkspaceId: Bool
+    private nonisolated static let defaults = SettingsExport.StatusBar.defaults()
+    @ObservationIgnored var onChange: (() -> Void)?
 
-    init(values: SettingsExport.StatusBar) {
-        showWorkspaceName = values.showWorkspaceName
-        showAppNames = values.showAppNames
-        useWorkspaceId = values.useWorkspaceId
+    var showWorkspaceName = StatusBarSettings.defaults.showWorkspaceName {
+        didSet { onChange?() }
+    }
+
+    var showAppNames = StatusBarSettings.defaults.showAppNames {
+        didSet { onChange?() }
+    }
+
+    var useWorkspaceId = StatusBarSettings.defaults.useWorkspaceId {
+        didSet { onChange?() }
     }
 
     func export() -> SettingsExport.StatusBar {
@@ -23,42 +28,9 @@ final class StatusBarSettings {
         )
     }
 
-    fileprivate func setShowWorkspaceName(_ value: Bool, didChange: () -> Void) {
-        showWorkspaceName = value
-        didChange()
-    }
-
-    fileprivate func setShowAppNames(_ value: Bool, didChange: () -> Void) {
-        showAppNames = value
-        didChange()
-    }
-
-    fileprivate func setUseWorkspaceId(_ value: Bool, didChange: () -> Void) {
-        useWorkspaceId = value
-        didChange()
-    }
-
-    fileprivate func apply(_ values: SettingsExport.StatusBar, didChange: () -> Void) {
-        setShowWorkspaceName(values.showWorkspaceName, didChange: didChange)
-        setShowAppNames(values.showAppNames, didChange: didChange)
-        setUseWorkspaceId(values.useWorkspaceId, didChange: didChange)
-    }
-}
-
-extension SettingsStore {
-    func setStatusBarShowWorkspaceName(_ value: Bool) {
-        statusBar.setShowWorkspaceName(value, didChange: scheduleSave)
-    }
-
-    func setStatusBarShowAppNames(_ value: Bool) {
-        statusBar.setShowAppNames(value, didChange: scheduleSave)
-    }
-
-    func setStatusBarUseWorkspaceId(_ value: Bool) {
-        statusBar.setUseWorkspaceId(value, didChange: scheduleSave)
-    }
-
-    func applyStatusBar(_ values: SettingsExport.StatusBar) {
-        statusBar.apply(values, didChange: scheduleSave)
+    func apply(_ values: SettingsExport.StatusBar) {
+        showWorkspaceName = values.showWorkspaceName
+        showAppNames = values.showAppNames
+        useWorkspaceId = values.useWorkspaceId
     }
 }

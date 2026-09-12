@@ -15,8 +15,8 @@ final class HiddenBarOwnerContractTests: XCTestCase {
         let settings = makeSettings(directory: directory)
         let identifiers = [" com.example.second ", "com.example.first", "com.example.second", ""]
 
-        settings.setHiddenBarHiddenBundleIDs(identifiers)
-        settings.setHiddenBarRehideIntervalSeconds(99)
+        settings.hiddenBar.hiddenBundleIDs = identifiers
+        settings.hiddenBar.rehideIntervalSeconds = 99
 
         XCTAssertEqual(settings.hiddenBar.hiddenBundleIDs, identifiers)
         XCTAssertEqual(settings.hiddenBar.rehideIntervalSeconds, 99)

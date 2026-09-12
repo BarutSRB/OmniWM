@@ -136,7 +136,7 @@ extension WMController {
     }
 
     func setClipboardHistoryEnabled(_ enabled: Bool) {
-        settings.setClipboardHistoryEnabled(enabled)
+        settings.clipboard.historyEnabled = enabled
         syncClipboardHistoryService()
     }
 

@@ -915,7 +915,7 @@ final class EventIntakeReplayTests: XCTestCase {
         XCTAssertEqual(border.windowId, scenario.tokenB.windowId)
         XCTAssertEqual(border.frame, frame)
 
-        controller.settings.setBordersEnabled(false)
+        controller.settings.borders.enabled = false
         let disabledWorld = WorldView(controller: controller, liveBoundsProvider: { _ in frame })
         XCTAssertNil(SurfaceDerivation.deriveBorder(world: disabledWorld))
     }

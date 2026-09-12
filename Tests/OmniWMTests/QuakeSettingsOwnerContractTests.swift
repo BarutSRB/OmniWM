@@ -30,12 +30,12 @@ final class QuakeSettingsOwnerContractTests: XCTestCase {
         observe(settings, \.quakeTerminal.widthPercent, label: "width", changes: changes)
         observe(settings, \.quakeTerminal.opacity, label: "opacity", changes: changes)
 
-        settings.setQuakeTerminalWidthPercent(200)
+        settings.quakeTerminal.widthPercent = 200
         XCTAssertEqual(changes.snapshot(), ["width"])
-        settings.setQuakeTerminalHeightPercent(-.infinity)
-        settings.setQuakeTerminalBackgroundBlurRadius(Int.max)
-        settings.setQuakeTerminalAnimationDuration(-0.25)
-        settings.setQuakeTerminalOpacity(1.5)
+        settings.quakeTerminal.heightPercent = -.infinity
+        settings.quakeTerminal.backgroundBlurRadius = Int.max
+        settings.quakeTerminal.animationDuration = -0.25
+        settings.quakeTerminal.opacity = 1.5
 
         XCTAssertEqual(changes.snapshot(), ["width", "opacity"])
         XCTAssertEqual(settings.quakeTerminal.widthPercent, 100)
@@ -44,8 +44,8 @@ final class QuakeSettingsOwnerContractTests: XCTestCase {
         XCTAssertEqual(settings.quakeTerminal.animationDuration, -0.25)
         XCTAssertEqual(settings.quakeTerminal.opacity, 1.5)
         XCTAssertEqual(try saved(settings), settings.toExport())
-        settings.setQuakeTerminalWidthPercent(.nan)
-        settings.setQuakeTerminalBackgroundBlurRadius(Int.min)
+        settings.quakeTerminal.widthPercent = .nan
+        settings.quakeTerminal.backgroundBlurRadius = Int.min
         XCTAssertEqual(settings.quakeTerminal.widthPercent, 50)
         XCTAssertEqual(settings.quakeTerminal.backgroundBlurRadius, 0)
         XCTAssertEqual(try saved(settings), settings.toExport())
@@ -72,7 +72,7 @@ final class QuakeSettingsOwnerContractTests: XCTestCase {
         XCTAssertEqual(settings.quakeTerminal.backgroundBlurRadius, 0)
         XCTAssertEqual(settings.quakeTerminal.monitorMode, .focusedWindow)
         XCTAssertEqual(try Data(contentsOf: settings.settingsFileURL), originalData)
-        settings.setQuakeTerminalEnabled(true)
+        settings.quakeTerminal.enabled = true
         XCTAssertEqual(try saved(settings), settings.toExport())
     }
 
@@ -85,7 +85,7 @@ final class QuakeSettingsOwnerContractTests: XCTestCase {
         settings.quakeTerminalUseCustomFrame = true
         settings.quakeTerminalCustomFrame = frame
 
-        settings.setQuakeTerminalWidthPercent(75)
+        settings.quakeTerminal.widthPercent = 75
         settings.applyExport(importValues(settings))
 
         XCTAssertTrue(settings.quakeTerminalUseCustomFrame)
@@ -106,7 +106,7 @@ final class QuakeSettingsOwnerContractTests: XCTestCase {
             weakSettings = settings
             binding = Binding(
                 get: { [settings] in settings.quakeTerminal.widthPercent },
-                set: { [settings] in settings.setQuakeTerminalWidthPercent($0) }
+                set: { [settings] in settings.quakeTerminal.widthPercent = $0 }
             )
             var values = settings.toExport()
             values.quakeTerminal.widthPercent = 75
@@ -121,11 +121,11 @@ final class QuakeSettingsOwnerContractTests: XCTestCase {
     }
 
     private func preparePriorValues(_ settings: SettingsStore) {
-        settings.setQuakeTerminalWidthPercent(60)
-        settings.setQuakeTerminalHeightPercent(70)
-        settings.setQuakeTerminalOpacity(0.5)
-        settings.setQuakeTerminalBackgroundBlurRadius(40)
-        settings.setQuakeTerminalMonitorMode(.mainMonitor)
+        settings.quakeTerminal.widthPercent = 60
+        settings.quakeTerminal.heightPercent = 70
+        settings.quakeTerminal.opacity = 0.5
+        settings.quakeTerminal.backgroundBlurRadius = 40
+        settings.quakeTerminal.monitorMode = .mainMonitor
     }
 
     private func importValues(_ settings: SettingsStore) -> SettingsExport {

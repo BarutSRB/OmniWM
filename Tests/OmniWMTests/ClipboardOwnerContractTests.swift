@@ -21,7 +21,7 @@ final class ClipboardOwnerContractTests: XCTestCase {
             changes.withLock { $0 += 1 }
         }
 
-        settings.setClipboardHistoryEnabled(true)
+        settings.clipboard.historyEnabled = true
         XCTAssertEqual(changes.withLock { $0 }, 0)
         var desired = settings.toExport()
         desired.clipboard.maxItems = 37
@@ -45,7 +45,7 @@ final class ClipboardOwnerContractTests: XCTestCase {
             observedData.withLock { $0 = try? Data(contentsOf: fileURL) }
         }
 
-        settings.setClipboardHistoryEnabled(true)
+        settings.clipboard.historyEnabled = true
 
         XCTAssertEqual(observedData.withLock { $0 }, originalData)
         let saved = try SettingsTOMLCodec.decode(Data(contentsOf: fileURL))
@@ -70,7 +70,7 @@ final class ClipboardOwnerContractTests: XCTestCase {
 
         XCTAssertEqual(settings.toExport(), desired)
         XCTAssertEqual(try Data(contentsOf: settings.settingsFileURL), originalData)
-        settings.setClipboardHistoryEnabled(false)
+        settings.clipboard.historyEnabled = false
         desired.clipboard.historyEnabled = false
         let saved = try SettingsTOMLCodec.decode(Data(contentsOf: settings.settingsFileURL))
         XCTAssertEqual(saved, desired)
@@ -94,7 +94,7 @@ final class ClipboardOwnerContractTests: XCTestCase {
         }
         defer { settings.onConfigNoticeChanged = nil }
 
-        settings.setClipboardHistoryEnabled(true)
+        settings.clipboard.historyEnabled = true
 
         XCTAssertEqual(events.withLock { $0 }, ["historyWillChange", "notice:true"])
         XCTAssertTrue(settings.settingsWritesBlocked)

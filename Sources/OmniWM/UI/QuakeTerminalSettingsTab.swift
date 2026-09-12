@@ -16,30 +16,21 @@ struct QuakeTerminalSettingsTab: View {
     var body: some View {
         Form {
             Section("Quake Terminal") {
-                Toggle("Enable Quake Terminal", isOn: Binding(
-                    get: { [settings] in settings.quakeTerminal.enabled },
-                    set: { [settings] in settings.setQuakeTerminalEnabled($0) }
-                ))
-                .onChange(of: settings.quakeTerminal.enabled) { _, newValue in
-                    controller.setQuakeTerminalEnabled(newValue)
-                }
+                Toggle("Enable Quake Terminal", isOn: Bindable(settings.quakeTerminal).enabled)
+                    .onChange(of: settings.quakeTerminal.enabled) { _, newValue in
+                        controller.setQuakeTerminalEnabled(newValue)
+                    }
             }
 
             if settings.quakeTerminal.enabled {
                 Section("Position & Size") {
-                    Picker("Position", selection: Binding(
-                        get: { [settings] in settings.quakeTerminal.position },
-                        set: { [settings] in settings.setQuakeTerminalPosition($0) }
-                    )) {
+                    Picker("Position", selection: Bindable(settings.quakeTerminal).position) {
                         ForEach(QuakeTerminalPosition.allCases, id: \.self) { position in
                             Text(position.displayName).tag(position)
                         }
                     }
 
-                    Picker("Show On", selection: Binding(
-                        get: { [settings] in settings.quakeTerminal.monitorMode },
-                        set: { [settings] in settings.setQuakeTerminalMonitorMode($0) }
-                    )) {
+                    Picker("Show On", selection: Bindable(settings.quakeTerminal).monitorMode) {
                         ForEach(QuakeTerminalMonitorMode.allCases, id: \.self) { mode in
                             Text(mode.displayName).tag(mode)
                         }
@@ -47,10 +38,7 @@ struct QuakeTerminalSettingsTab: View {
 
                     SettingsSliderRow(
                         label: "Width",
-                        value: Binding(
-                            get: { [settings] in settings.quakeTerminal.widthPercent },
-                            set: { [settings] in settings.setQuakeTerminalWidthPercent($0) }
-                        ),
+                        value: Bindable(settings.quakeTerminal).widthPercent,
                         range: 10 ... 100,
                         step: 5,
                         valueText: "\(Int(settings.quakeTerminal.widthPercent))%"
@@ -58,10 +46,7 @@ struct QuakeTerminalSettingsTab: View {
 
                     SettingsSliderRow(
                         label: "Height",
-                        value: Binding(
-                            get: { [settings] in settings.quakeTerminal.heightPercent },
-                            set: { [settings] in settings.setQuakeTerminalHeightPercent($0) }
-                        ),
+                        value: Bindable(settings.quakeTerminal).heightPercent,
                         range: 10 ... 100,
                         step: 5,
                         valueText: "\(Int(settings.quakeTerminal.heightPercent))%"
@@ -75,10 +60,7 @@ struct QuakeTerminalSettingsTab: View {
                 }
 
                 Section("Appearance") {
-                    Picker("Background Effect", selection: Binding(
-                        get: { [settings] in settings.quakeTerminal.backgroundEffect },
-                        set: { [settings] in settings.setQuakeTerminalBackgroundEffect($0) }
-                    )) {
+                    Picker("Background Effect", selection: Bindable(settings.quakeTerminal).backgroundEffect) {
                         ForEach(QuakeTerminalBackgroundEffect.allCases, id: \.self) { effect in
                             Text(effect.displayName).tag(effect)
                         }
@@ -89,10 +71,7 @@ struct QuakeTerminalSettingsTab: View {
 
                     SettingsSliderRow(
                         label: "Quake Background Opacity",
-                        value: Binding(
-                            get: { [settings] in settings.quakeTerminal.opacity },
-                            set: { [settings] in settings.setQuakeTerminalOpacity($0) }
-                        ),
+                        value: Bindable(settings.quakeTerminal).opacity,
                         range: 0.1 ... 1.0,
                         step: 0.05,
                         valueText: "\(Int(settings.quakeTerminal.opacity * 100))%"
@@ -105,7 +84,7 @@ struct QuakeTerminalSettingsTab: View {
                         label: "Background Blur",
                         value: Binding(
                             get: { [settings] in Double(settings.quakeTerminal.backgroundBlurRadius) },
-                            set: { [settings] in settings.setQuakeTerminalBackgroundBlurRadius(Int($0.rounded())) }
+                            set: { [settings] in settings.quakeTerminal.backgroundBlurRadius = Int($0.rounded()) }
                         ),
                         range: Double(QuakeTerminalAppearancePolicy.minimumBackgroundBlurRadius)
                             ... Double(QuakeTerminalAppearancePolicy.maximumBackgroundBlurRadius),
@@ -132,10 +111,7 @@ struct QuakeTerminalSettingsTab: View {
                 Section("Behavior") {
                     SettingsSliderRow(
                         label: "Animation Duration",
-                        value: Binding(
-                            get: { [settings] in settings.quakeTerminal.animationDuration },
-                            set: { [settings] in settings.setQuakeTerminalAnimationDuration($0) }
-                        ),
+                        value: Bindable(settings.quakeTerminal).animationDuration,
                         range: 0 ... 1,
                         step: 0.1,
                         valueText: "\(String(format: "%.1f", settings.quakeTerminal.animationDuration))s"
@@ -146,10 +122,7 @@ struct QuakeTerminalSettingsTab: View {
                         SettingsCaption("Ignored while global animations are disabled.")
                     }
 
-                    Toggle("Auto-hide on Focus Loss", isOn: Binding(
-                        get: { [settings] in settings.quakeTerminal.autoHide },
-                        set: { [settings] in settings.setQuakeTerminalAutoHide($0) }
-                    ))
+                    Toggle("Auto-hide on Focus Loss", isOn: Bindable(settings.quakeTerminal).autoHide)
                 }
             }
 

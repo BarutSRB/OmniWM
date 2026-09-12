@@ -89,7 +89,7 @@ final class HiddenBarSettingsTOMLTests: XCTestCase {
         var reconciliations = 0
 
         HiddenBarSettingsEdits.setEnabled(true) { enabled in
-            settings.setHiddenBarEnabled(enabled)
+            settings.hiddenBar.enabled = enabled
             reconciliations += 1
         }
         XCTAssertTrue(settings.hiddenBar.enabled)
