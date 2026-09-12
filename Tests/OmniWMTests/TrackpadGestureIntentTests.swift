@@ -6,6 +6,60 @@ import CoreGraphics
 import XCTest
 
 final class TrackpadGestureIntentTests: XCTestCase {
+    func testOverviewOnlyTriggersUpwardAtTwentyFourUnits() {
+        for (point, expected) in [
+            (CGPoint(x: 0, y: 23.9), false),
+            (CGPoint(x: 0, y: 24), true),
+            (CGPoint(x: 0, y: -140), false),
+            (CGPoint(x: 30, y: 24), false)
+        ] {
+            XCTAssertEqual(TrackpadGestureIntent.overviewTriggered(translation: point), expected)
+        }
+    }
+
+    func testOverviewSwipeRespectsDirectionAndExistingAxisBindings() {
+        var config = makeConfig(columnFingers: 4, workspaceFingers: 3)
+        config.overviewEnabled = true
+        XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
+            columnScrollAxis: .horizontal, columnContextAvailable: true
+        ), .overview)
+        XCTAssertNil(TrackpadGestureIntent.resolveMode(
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: -24),
+            columnScrollAxis: .horizontal, columnContextAvailable: true
+        ))
+        XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
+            columnScrollAxis: .vertical, columnContextAvailable: true
+        ), .columnScroll)
+
+        config.workspaceSwipeFingerCount = 4
+        XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
+            columnScrollAxis: .horizontal, columnContextAvailable: true
+        ), .workspaceSwitch(axis: .vertical))
+        config.workspaceSwipeAxis = .horizontal
+        XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+            config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
+            columnScrollAxis: .horizontal, columnContextAvailable: false
+        ), .overview)
+    }
+
+    func testOverviewOnlyConfigurationStartsWithoutColumnContext() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.overviewEnabled = true
+        for fingers in [3, 4] {
+            config.overviewFingerCount = fingers
+            XCTAssertTrue(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: fingers))
+            XCTAssertTrue(TrackpadGestureIntent.hasCandidateMode(
+                config,
+                fingerCount: fingers,
+                columnContextAvailable: false
+            ))
+            XCTAssertFalse(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: 7 - fingers))
+        }
+    }
+
     private func makeConfig(
         columnEnabled: Bool = true,
         columnFingers: Int = 3,

@@ -73,7 +73,7 @@ final class MouseEventHandler {
 
     func reconcileMultitouchSource() {
         guard let controller, controller.hasStartedServices else { return }
-        let shouldRun = controller.settings.gestures.scrollEnabled || controller.settings.gestures.workspaceSwipeEnabled
+        let shouldRun = controller.settings.gestures.trackpadGesturesEnabled
         if shouldRun {
             if let multitouchSource {
                 if !multitouchSource.startLifecycle() {

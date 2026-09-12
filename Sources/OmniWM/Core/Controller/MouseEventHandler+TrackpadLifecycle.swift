@@ -16,6 +16,7 @@ extension MouseEventHandler {
         if let axis = lockedContext.workspaceAxis {
             config.workspaceSwipeAxis = axis
         }
+        config.overviewEnabled = config.overviewEnabled && lockedContext.overviewCandidate
         guard let mode = TrackpadGestureIntent.resolveMode(
             config,
             fingerCount: lockedContext.fingerCount,
@@ -40,6 +41,20 @@ extension MouseEventHandler {
     ) {
         guard let controller else { return }
         switch state.activeGestureMode {
+        case .overview:
+            guard controller.settings.gestures.overviewGestureEnabled else {
+                abortActiveGestureIfNeeded()
+                return
+            }
+            guard TrackpadGestureIntent.overviewTriggered(
+                translation: CGPoint(x: metrics.cumulativeX, y: metrics.cumulativeY)
+            )
+            else { return }
+            state.suppressGestureStartUntilAllTouchesLift = true
+            state.consumeTrackpadScrollUntilAllTouchesLift = true
+            state.suppressTrackpadMomentumScroll = true
+            resetGestureState(settleViewportGesture: false)
+            controller.windowActionHandler.toggleOverview()
         case .columnScroll:
             guard let engine = controller.niriEngine else {
                 abortActiveGestureIfNeeded()
@@ -97,6 +112,8 @@ extension MouseEventHandler {
             return
         }
         switch state.activeGestureMode {
+        case .overview:
+            state.suppressTrackpadMomentumScroll = true
         case let .workspaceSwitch(axis):
             finalizeWorkspaceSwipe(
                 monitorId: lockedContext.monitorId,
@@ -244,7 +261,9 @@ extension MouseEventHandler {
 
     func abortActiveGestureIfNeeded() {
         if state.gesturePhase == .committed {
-            if case .workspaceSwitch = state.activeGestureMode {
+            if state.activeGestureMode == .overview {
+                state.suppressTrackpadMomentumScroll = true
+            } else if case .workspaceSwitch = state.activeGestureMode {
                 state.suppressTrackpadMomentumScroll = true
             } else if let lockedContext = state.lockedGestureContext {
                 if let engine = controller?.niriEngine {

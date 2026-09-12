@@ -23,8 +23,8 @@ final class GestureSettings {
     var scrollEnabled = GestureSettings.defaults.scrollEnabled {
         didSet {
             guard oldValue != scrollEnabled else { return }
-            if (oldValue || workspaceSwipeEnabled) != (scrollEnabled || workspaceSwipeEnabled) {
-                onAvailabilityChanged?(scrollEnabled || workspaceSwipeEnabled)
+            if (oldValue || workspaceSwipeEnabled || overviewGestureEnabled) != trackpadGesturesEnabled {
+                onAvailabilityChanged?(trackpadGesturesEnabled)
             }
             onChange?()
         }
@@ -68,8 +68,8 @@ final class GestureSettings {
     var workspaceSwipeEnabled = GestureSettings.defaults.workspaceSwipeEnabled {
         didSet {
             guard oldValue != workspaceSwipeEnabled else { return }
-            if (scrollEnabled || oldValue) != (scrollEnabled || workspaceSwipeEnabled) {
-                onAvailabilityChanged?(scrollEnabled || workspaceSwipeEnabled)
+            if (scrollEnabled || oldValue || overviewGestureEnabled) != trackpadGesturesEnabled {
+                onAvailabilityChanged?(trackpadGesturesEnabled)
             }
             onChange?()
         }
@@ -81,6 +81,24 @@ final class GestureSettings {
 
     var workspaceSwipeAxis = GestureSettings.defaults.workspaceSwipeAxis {
         didSet { onChange?() }
+    }
+
+    var overviewGestureEnabled = GestureSettings.defaults.overviewGestureEnabled ?? false {
+        didSet {
+            guard oldValue != overviewGestureEnabled else { return }
+            if (scrollEnabled || workspaceSwipeEnabled || oldValue) != trackpadGesturesEnabled {
+                onAvailabilityChanged?(trackpadGesturesEnabled)
+            }
+            onChange?()
+        }
+    }
+
+    var overviewGestureFingerCount = GestureSettings.defaults.overviewGestureFingerCount ?? .four {
+        didSet { onChange?() }
+    }
+
+    var trackpadGesturesEnabled: Bool {
+        scrollEnabled || workspaceSwipeEnabled || overviewGestureEnabled
     }
 
     var workspaceSwipeAxisLockedToVertical: Bool {
@@ -103,7 +121,9 @@ final class GestureSettings {
             trackpadScrollStyle: trackpadScrollStyle,
             workspaceSwipeEnabled: workspaceSwipeEnabled,
             workspaceSwipeFingerCount: workspaceSwipeFingerCount,
-            workspaceSwipeAxis: workspaceSwipeAxis
+            workspaceSwipeAxis: workspaceSwipeAxis,
+            overviewGestureEnabled: overviewGestureEnabled,
+            overviewGestureFingerCount: overviewGestureFingerCount
         )
     }
 
@@ -119,5 +139,7 @@ final class GestureSettings {
         workspaceSwipeEnabled = gestures.workspaceSwipeEnabled
         workspaceSwipeFingerCount = gestures.workspaceSwipeFingerCount
         workspaceSwipeAxis = gestures.workspaceSwipeAxis
+        overviewGestureEnabled = gestures.overviewGestureEnabled ?? false
+        overviewGestureFingerCount = gestures.overviewGestureFingerCount ?? .four
     }
 }

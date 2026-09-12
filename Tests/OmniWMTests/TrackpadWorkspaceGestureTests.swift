@@ -8,6 +8,86 @@ import XCTest
 
 @MainActor
 final class TrackpadWorkspaceGestureTests: XCTestCase {
+    func testOverviewSwipeOnlyOpensAndDoesNotSwitchWorkspace() throws {
+        for fingerCount in [OverviewGestureFingerCount.three, .four] {
+            for invertDirection in [false, true] {
+                let fixture = try makeFixture(workspaceSwipeEnabled: false)
+                fixture.controller.setAnimationsEnabled(false)
+                fixture.controller.settings.gestures.overviewGestureEnabled = true
+                fixture.controller.settings.gestures.overviewGestureFingerCount = fingerCount
+                fixture.controller.settings.gestures.invertDirection = invertDirection
+                let fingers = fingerCount.rawValue
+                defer {
+                    if fixture.controller.isOverviewOpen() { fixture.controller.windowActionHandler.toggleOverview() }
+                }
+                sendFrame(fixture, phase: .began, fingers: fingers, x: 0.5, y: 0.2, at: 100)
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.6, at: 100.1)
+                XCTAssertTrue(fixture.controller.isOverviewOpen())
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.1, at: 100.2)
+                XCTAssertTrue(fixture.controller.isOverviewOpen())
+
+                fixture.controller.windowActionHandler.toggleOverview()
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.2, at: 100.3)
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.6, at: 100.4)
+                XCTAssertFalse(fixture.controller.isOverviewOpen(), "Opening again requires lifting all fingers")
+                sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.5)
+
+                sendFrame(fixture, phase: .began, fingers: fingers, x: 0.5, y: 0.8, at: 101)
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.4, at: 101.1)
+                XCTAssertFalse(fixture.controller.isOverviewOpen(), "Downward swipes must not open Overview")
+                sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 101.2)
+
+                sendFrame(fixture, phase: .began, fingers: fingers, x: 0.5, y: 0.2, at: 102)
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.6, at: 102.1)
+                XCTAssertTrue(fixture.controller.isOverviewOpen())
+                XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+            }
+        }
+    }
+
+    func testOverviewRecognizesShortPhysicalSwipe() throws {
+        let fixture = try makeFixture(workspaceSwipeEnabled: false)
+        fixture.controller.setAnimationsEnabled(false)
+        fixture.controller.settings.gestures.overviewGestureEnabled = true
+        defer { if fixture.controller.isOverviewOpen() { fixture.controller.windowActionHandler.toggleOverview() } }
+
+        // Normalized centroids from a short physical four-finger upward swipe.
+        let points: [CGPoint] = [
+            .init(x: 0.46528, y: 0.47502), .init(x: 0.46700, y: 0.48904),
+            .init(x: 0.46936, y: 0.50272), .init(x: 0.47186, y: 0.51714),
+            .init(x: 0.47439, y: 0.53116), .init(x: 0.47697, y: 0.54634),
+            .init(x: 0.47967, y: 0.56112), .init(x: 0.48380, y: 0.58291),
+            .init(x: 0.48759, y: 0.60068)
+        ]
+        for (index, point) in points.enumerated() {
+            sendFrame(
+                fixture,
+                phase: index == 0 ? .began : .changed,
+                fingers: 4,
+                x: point.x,
+                y: point.y,
+                at: 100 + Double(index) * 0.008
+            )
+            if index < 4 { XCTAssertFalse(fixture.controller.isOverviewOpen()) }
+        }
+        XCTAssertTrue(fixture.controller.isOverviewOpen())
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+    }
+
+    func testArmedOverviewFingerChangeCannotBecomeWorkspaceSwipeUntilLift() throws {
+        let fixture = try makeFixture()
+        fixture.controller.settings.gestures.overviewGestureEnabled = true
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.2, at: 100.1)
+        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.3, at: 100.2)
+        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.8, at: 100.3)
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.4)
+        sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 101)
+        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.8, at: 101.1)
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws2)
+    }
+
     private final class GestureLivenessClock {
         var time: TimeInterval
 

@@ -486,6 +486,43 @@ final class SettingsTOMLCodecTests: XCTestCase {
         XCTAssertThrowsError(try SettingsTOMLCodec.decode(malformed))
     }
 
+    func testOverviewGestureSettingsRoundTripAndExistingConfigDefaults() throws {
+        var export = SettingsExport.defaults()
+        export.gestures.overviewGestureEnabled = true
+        export.gestures.overviewGestureFingerCount = .three
+        let encoded = try SettingsTOMLCodec.encode(export)
+        let decoded = try SettingsTOMLCodec.decode(encoded)
+        XCTAssertEqual(decoded.gestures.overviewGestureEnabled, true)
+        XCTAssertEqual(decoded.gestures.overviewGestureFingerCount, .three)
+
+        let oldConfig = String(decoding: encoded, as: UTF8.self)
+            .split(separator: "\n")
+            .filter { !$0.hasPrefix("overviewGesture") }
+            .joined(separator: "\n")
+        let defaults = try SettingsTOMLCodec.decode(Data(oldConfig.utf8))
+        XCTAssertEqual(defaults.gestures.overviewGestureEnabled, false)
+        XCTAssertEqual(defaults.gestures.overviewGestureFingerCount, .four)
+    }
+
+    @MainActor
+    func testOverviewOnlyGestureAvailabilityFollowsEnablement() {
+        let settings = makeSettingsStore()
+        settings.gestures.scrollEnabled = false
+        settings.gestures.workspaceSwipeEnabled = false
+        var changes: [Bool] = []
+        settings.onTrackpadGestureAvailabilityChanged = { changes.append($0) }
+        settings.gestures.overviewGestureEnabled = true
+        XCTAssertTrue(settings.gestures.trackpadGesturesEnabled)
+        settings.gestures.overviewGestureEnabled = false
+        XCTAssertFalse(settings.gestures.trackpadGesturesEnabled)
+        XCTAssertEqual(changes, [true, false])
+    }
+
+    func testOverviewGestureRejectsUnsupportedFingerCount() throws {
+        let data = try defaultsWithReplacements(("overviewGestureFingerCount = 4", "overviewGestureFingerCount = 2"))
+        XCTAssertThrowsError(try SettingsTOMLCodec.decode(data))
+    }
+
     func testWorkspaceSwipeSettingsRoundTrip() throws {
         let defaults = SettingsExport.defaults()
         XCTAssertFalse(defaults.gestures.workspaceSwipeEnabled)

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
-import wchar_h
-import xlocale
+import _xlocale_wchar_h
 
 private struct TerminalWidthLocale: ~Copyable, @unchecked Sendable {
     let value: locale_t

@@ -23,9 +23,11 @@ final class OverviewFocusSession {
         case focusWindow(WindowHandle)
     }
 
-    struct PostCloseHandoffValidity {
+    struct PostCloseHandoffValidity: Equatable {
         let intentIssuanceWatermark: IntentID
-        let focusEpochSeq: UInt64
+        let selectedManagedToken: WindowToken?
+        let nativeFocusOwner: NativeFocusOwner
+        let pendingFocusedToken: WindowToken?
     }
 
     var previousFrontmostApplicationPID: pid_t?
@@ -124,7 +126,9 @@ final class OverviewFocusSession {
         guard let wmController else { return nil }
         return PostCloseHandoffValidity(
             intentIssuanceWatermark: wmController.intentLedger.issuanceWatermark(),
-            focusEpochSeq: wmController.workspaceManager.worldSeq
+            selectedManagedToken: wmController.workspaceManager.selectedManagedToken,
+            nativeFocusOwner: wmController.workspaceManager.nativeFocusOwner,
+            pendingFocusedToken: wmController.workspaceManager.pendingFocusedToken
         )
     }
 
@@ -140,8 +144,7 @@ final class OverviewFocusSession {
                   let wmController,
                   self.postCloseHandoffGeneration == generation,
                   case .closed = self.state,
-                  wmController.intentLedger.issuanceWatermark() == validity.intentIssuanceWatermark,
-                  wmController.workspaceManager.isSeqEpochCurrent(validity.focusEpochSeq, domains: .focus)
+                  self.currentPostCloseHandoffValidity() == validity
             else {
                 return
             }

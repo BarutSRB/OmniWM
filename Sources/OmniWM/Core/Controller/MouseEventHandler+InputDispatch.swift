@@ -13,11 +13,13 @@ extension MouseEventHandler {
     var trackpadGestureConfig: TrackpadGestureIntent.Config? {
         guard let settings = controller?.settings else { return nil }
         return TrackpadGestureIntent.Config(
-            columnScrollEnabled: settings.gestures.scrollEnabled,
+            columnScrollEnabled: settings.gestures.scrollEnabled && controller?.isOverviewOpen() != true,
             columnScrollFingerCount: settings.gestures.fingerCount.rawValue,
-            workspaceSwipeEnabled: settings.gestures.workspaceSwipeEnabled,
+            workspaceSwipeEnabled: settings.gestures.workspaceSwipeEnabled && controller?.isOverviewOpen() != true,
             workspaceSwipeFingerCount: settings.gestures.workspaceSwipeFingerCount.rawValue,
-            workspaceSwipeAxis: settings.gestures.effectiveWorkspaceSwipeAxis
+            workspaceSwipeAxis: settings.gestures.effectiveWorkspaceSwipeAxis,
+            overviewEnabled: settings.gestures.overviewGestureEnabled && controller?.isOverviewOpen() != true,
+            overviewFingerCount: settings.gestures.overviewGestureFingerCount.rawValue
         )
     }
 
@@ -227,7 +229,7 @@ extension MouseEventHandler {
         if isTrackpad { return suppressTrackpadScroll(momentumPhase: momentumPhase, phase: phase) }
 
         guard let controller, controller.isEnabled,
-              controller.settings.gestures.scrollEnabled || controller.settings.gestures.workspaceSwipeEnabled
+              controller.settings.gestures.trackpadGesturesEnabled
         else {
             return false
         }

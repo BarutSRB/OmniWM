@@ -3,6 +3,7 @@
 
 import Foundation
 
+// Explicit access keeps the TaskLocal macro from joining the attribute and modifier.
 @TaskLocal
 @usableFromInline
 internal var appThreadToken: AppThreadToken?

@@ -51,7 +51,11 @@ extension MouseEventHandler {
                 finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
                 return
             }
+            let wasOverviewCandidate = state.lockedGestureContext?.overviewCandidate == true
             abortActiveGestureIfNeeded()
+            if wasOverviewCandidate {
+                state.suppressGestureStartUntilAllTouchesLift = true
+            }
             return
         }
 
@@ -70,14 +74,14 @@ extension MouseEventHandler {
     private func gestureFramePreconditionsSatisfied(at location: CGPoint) -> Bool {
         guard let controller else { return false }
         guard controller.isEnabled,
-              controller.settings.gestures.scrollEnabled || controller.settings.gestures.workspaceSwipeEnabled
+              controller.settings.gestures.trackpadGesturesEnabled
         else {
             abortActiveGestureIfNeeded()
             return false
         }
         if controller.isOverviewOpen() {
-            cancelActiveMouseInteraction()
             abortActiveGestureIfNeeded()
+            state.suppressGestureStartUntilAllTouchesLift = true
             return false
         }
         if shouldBlockOwnWindowInput(at: location) {
@@ -159,7 +163,8 @@ extension MouseEventHandler {
             fingerCount: fingerCount,
             columnScrollCandidate: columnScrollCandidate,
             columnScrollAxis: columnScrollAxis,
-            workspaceAxis: workspaceAxis
+            workspaceAxis: workspaceAxis,
+            overviewCandidate: config.overviewEnabled && fingerCount == config.overviewFingerCount
         )
     }
 
