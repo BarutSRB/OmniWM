@@ -10,6 +10,8 @@ struct CapturedIcon: Sendable {
 }
 
 enum HiddenBarIconCaptureService {
+    static let captureDeadline: Duration = .milliseconds(500)
+
     static func captureVisible(_ items: [ResolvedMenuBarItem]) async -> [MenuBarItemKey: CapturedIcon] {
         guard !items.isEmpty else { return [:] }
         guard CGPreflightScreenCaptureAccess() else { return [:] }

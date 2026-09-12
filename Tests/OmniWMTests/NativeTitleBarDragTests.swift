@@ -752,7 +752,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
         let fixture = try makeFixture(pid: 561_008)
         beginPlainDrag(fixture)
 
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(pid: fixture.token.pid)
+        fixture.controller.axEventHandler.handleAppTerminated(pid: fixture.token.pid)
 
         XCTAssertNil(fixture.handler.state.nativeTitleBarDrag)
         XCTAssertFalse(fixture.controller.axManager.isNativeTitleBarDragActive(for: fixture.token))
@@ -772,7 +772,7 @@ final class NativeTitleBarDragTests: NiriInteractionTestCase {
         XCTAssertEqual(fixture.handler.state.nativeTitleBarDragFallbackToken, fixture.token)
         XCTAssertTrue(fixture.handler.state.nativeTitleBarDragFallbackReleased)
 
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(pid: fixture.token.pid)
+        fixture.controller.axEventHandler.handleAppTerminated(pid: fixture.token.pid)
 
         XCTAssertFalse(fixture.handler.state.awaitsNativeTitleBarDragTarget)
         XCTAssertNil(fixture.handler.state.nativeTitleBarDragFallbackToken)

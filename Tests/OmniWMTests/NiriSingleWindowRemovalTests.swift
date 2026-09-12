@@ -10,7 +10,7 @@ import XCTest
 final class NiriSingleWindowRemovalTests: XCTestCase {
     func testRemovalIntoSingleWindowFitResetsViewportAndSlidesSurvivorToFillFrame() throws {
         let controller = makeController()
-        controller.settings.niriSingleWindowFit = .fullScreen
+        controller.settings.niri.singleWindowFit = .fullScreen
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         _ = controller.workspaceManager.focusWorkspace(named: "1")
         controller.niriLayoutHandler.enableNiriLayout()
@@ -182,7 +182,7 @@ final class NiriSingleWindowRemovalTests: XCTestCase {
 
     func testColumnWidthRemovalRestartsPendingViewportAnimation() throws {
         let controller = makeController()
-        controller.settings.niriSingleWindowFit = SingleWindowFit(mode: .containerPrimarySpan)
+        controller.settings.niri.singleWindowFit = SingleWindowFit(mode: .containerPrimarySpan)
         let workspaceId = try XCTUnwrap(controller.workspaceManager.workspaceId(for: "1", createIfMissing: true))
         _ = controller.workspaceManager.focusWorkspace(named: "1")
         controller.niriLayoutHandler.enableNiriLayout()

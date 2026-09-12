@@ -9,20 +9,20 @@ final class OverviewSettingsTOMLTests: XCTestCase {
     func testDefaultsMatchOverviewContract() {
         let defaults = SettingsExport.defaults()
 
-        XCTAssertEqual(defaults.overviewZoom, 1.0)
-        XCTAssertEqual(defaults.overviewBackdropColor, color(0.05, 0.05, 0.08, 1.0))
-        XCTAssertEqual(defaults.overviewNormalBorderColor, color(0.3, 0.3, 0.35, 0.5))
-        XCTAssertEqual(defaults.overviewHoveredBorderColor, color(0.4, 0.6, 1.0, 1.0))
-        XCTAssertEqual(defaults.overviewSelectedBorderColor, color(0.3, 0.8, 0.4, 1.0))
+        XCTAssertEqual(defaults.overview.zoom, 1.0)
+        XCTAssertEqual(defaults.overview.backdrop, color(0.05, 0.05, 0.08, 1.0))
+        XCTAssertEqual(defaults.overview.windowBorders.normal, color(0.3, 0.3, 0.35, 0.5))
+        XCTAssertEqual(defaults.overview.windowBorders.hovered, color(0.4, 0.6, 1.0, 1.0))
+        XCTAssertEqual(defaults.overview.windowBorders.selected, color(0.3, 0.8, 0.4, 1.0))
     }
 
     func testRoundTripsCanonicalOverviewTables() throws {
         var export = SettingsExport.defaults()
-        export.overviewZoom = 1.25
-        export.overviewBackdropColor = color(0.1, 0.2, 0.3, 0.4)
-        export.overviewNormalBorderColor = color(0.2, 0.3, 0.4, 0.5)
-        export.overviewHoveredBorderColor = color(0.3, 0.4, 0.5, 0.6)
-        export.overviewSelectedBorderColor = color(0.4, 0.5, 0.6, 0.7)
+        export.overview.zoom = 1.25
+        export.overview.backdrop = color(0.1, 0.2, 0.3, 0.4)
+        export.overview.windowBorders.normal = color(0.2, 0.3, 0.4, 0.5)
+        export.overview.windowBorders.hovered = color(0.3, 0.4, 0.5, 0.6)
+        export.overview.windowBorders.selected = color(0.4, 0.5, 0.6, 0.7)
 
         let data = try SettingsTOMLCodec.encode(export)
         let toml = String(decoding: data, as: UTF8.self)
@@ -33,11 +33,11 @@ final class OverviewSettingsTOMLTests: XCTestCase {
         XCTAssertTrue(toml.contains("[overview.windowBorders.normal]"))
         XCTAssertTrue(toml.contains("[overview.windowBorders.hovered]"))
         XCTAssertTrue(toml.contains("[overview.windowBorders.selected]"))
-        XCTAssertEqual(decoded.overviewZoom, export.overviewZoom)
-        XCTAssertEqual(decoded.overviewBackdropColor, export.overviewBackdropColor)
-        XCTAssertEqual(decoded.overviewNormalBorderColor, export.overviewNormalBorderColor)
-        XCTAssertEqual(decoded.overviewHoveredBorderColor, export.overviewHoveredBorderColor)
-        XCTAssertEqual(decoded.overviewSelectedBorderColor, export.overviewSelectedBorderColor)
+        XCTAssertEqual(decoded.overview.zoom, export.overview.zoom)
+        XCTAssertEqual(decoded.overview.backdrop, export.overview.backdrop)
+        XCTAssertEqual(decoded.overview.windowBorders.normal, export.overview.windowBorders.normal)
+        XCTAssertEqual(decoded.overview.windowBorders.hovered, export.overview.windowBorders.hovered)
+        XCTAssertEqual(decoded.overview.windowBorders.selected, export.overview.windowBorders.selected)
     }
 
     func testMalformedOverviewTypesRejectDecode() throws {
@@ -65,33 +65,33 @@ final class OverviewSettingsTOMLTests: XCTestCase {
     func testApplyExportClampsZoomAndColorComponents() {
         let defaults = SettingsExport.defaults()
         var export = defaults
-        export.overviewZoom = .nan
-        export.overviewBackdropColor = color(-1, 2, .nan, .infinity)
-        export.overviewNormalBorderColor = color(.infinity, -.infinity, 0.25, 0.75)
-        export.overviewHoveredBorderColor = color(1.5, -0.5, .nan, 0.4)
-        export.overviewSelectedBorderColor = color(0.2, .nan, 2, -1)
+        export.overview.zoom = .nan
+        export.overview.backdrop = color(-1, 2, .nan, .infinity)
+        export.overview.windowBorders.normal = color(.infinity, -.infinity, 0.25, 0.75)
+        export.overview.windowBorders.hovered = color(1.5, -0.5, .nan, 0.4)
+        export.overview.windowBorders.selected = color(0.2, .nan, 2, -1)
 
         let settings = makeSettingsStore()
         settings.applyExport(export)
 
-        XCTAssertEqual(settings.overviewZoom, defaults.overviewZoom)
-        XCTAssertEqual(settings.overviewBackdropColor, color(0, 1, defaults.overviewBackdropColor.blue, 1))
+        XCTAssertEqual(settings.overview.zoom, defaults.overview.zoom)
+        XCTAssertEqual(settings.overview.backdropColor, color(0, 1, defaults.overview.backdrop.blue, 1))
         XCTAssertEqual(
-            settings.overviewNormalBorderColor,
+            settings.overview.normalBorderColor,
             color(
-                defaults.overviewNormalBorderColor.red,
-                defaults.overviewNormalBorderColor.green,
+                defaults.overview.windowBorders.normal.red,
+                defaults.overview.windowBorders.normal.green,
                 0.25,
                 0.75
             )
         )
         XCTAssertEqual(
-            settings.overviewHoveredBorderColor,
-            color(1, 0, defaults.overviewHoveredBorderColor.blue, 0.4)
+            settings.overview.hoveredBorderColor,
+            color(1, 0, defaults.overview.windowBorders.hovered.blue, 0.4)
         )
         XCTAssertEqual(
-            settings.overviewSelectedBorderColor,
-            color(0.2, defaults.overviewSelectedBorderColor.green, 1, 0)
+            settings.overview.selectedBorderColor,
+            color(0.2, defaults.overview.windowBorders.selected.green, 1, 0)
         )
     }
 
@@ -100,14 +100,14 @@ final class OverviewSettingsTOMLTests: XCTestCase {
         let settings = makeSettingsStore()
         var export = SettingsExport.defaults()
 
-        export.overviewZoom = 0.25
+        export.overview.zoom = 0.25
         settings.applyExport(export)
-        XCTAssertEqual(settings.overviewZoom, 0.5)
+        XCTAssertEqual(settings.overview.zoom, 0.5)
 
-        export.overviewZoom = 2
+        export.overview.zoom = 2
         settings.applyExport(export)
-        XCTAssertEqual(settings.overviewZoom, 1.5)
-        XCTAssertEqual(settings.toExport().overviewZoom, 1.5)
+        XCTAssertEqual(settings.overview.zoom, 1.5)
+        XCTAssertEqual(settings.toExport().overview.zoom, 1.5)
     }
 
     @MainActor
@@ -131,18 +131,18 @@ final class OverviewSettingsTOMLTests: XCTestCase {
             autosaveEnabled: true
         )
 
-        settings.overviewZoom = 1.25
-        settings.overviewBackdropColor = color(0.1, 0.2, 0.3, 0.4)
-        settings.overviewNormalBorderColor = color(0.2, 0.3, 0.4, 0.5)
-        settings.overviewHoveredBorderColor = color(0.3, 0.4, 0.5, 0.6)
-        settings.overviewSelectedBorderColor = color(0.4, 0.5, 0.6, 0.7)
+        settings.setOverviewZoom(1.25)
+        settings.setOverviewBackdropColor(color(0.1, 0.2, 0.3, 0.4))
+        settings.setOverviewNormalBorderColor(color(0.2, 0.3, 0.4, 0.5))
+        settings.setOverviewHoveredBorderColor(color(0.3, 0.4, 0.5, 0.6))
+        settings.setOverviewSelectedBorderColor(color(0.4, 0.5, 0.6, 0.7))
 
         let persisted = try SettingsTOMLCodec.decode(Data(contentsOf: persistence.fileURL))
-        XCTAssertEqual(persisted.overviewZoom, settings.overviewZoom)
-        XCTAssertEqual(persisted.overviewBackdropColor, settings.overviewBackdropColor)
-        XCTAssertEqual(persisted.overviewNormalBorderColor, settings.overviewNormalBorderColor)
-        XCTAssertEqual(persisted.overviewHoveredBorderColor, settings.overviewHoveredBorderColor)
-        XCTAssertEqual(persisted.overviewSelectedBorderColor, settings.overviewSelectedBorderColor)
+        XCTAssertEqual(persisted.overview.zoom, settings.overview.zoom)
+        XCTAssertEqual(persisted.overview.backdrop, settings.overview.backdropColor)
+        XCTAssertEqual(persisted.overview.windowBorders.normal, settings.overview.normalBorderColor)
+        XCTAssertEqual(persisted.overview.windowBorders.hovered, settings.overview.hoveredBorderColor)
+        XCTAssertEqual(persisted.overview.windowBorders.selected, settings.overview.selectedBorderColor)
     }
 
     private func color(_ red: Double, _ green: Double, _ blue: Double, _ alpha: Double) -> SettingsColor {

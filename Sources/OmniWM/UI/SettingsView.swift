@@ -85,20 +85,29 @@ struct GeneralSettingsTab: View {
             }
 
             Section("Status Bar") {
-                Toggle("Show Workspace", isOn: $settings.statusBarShowWorkspaceName)
-                    .onChange(of: settings.statusBarShowWorkspaceName) { _, _ in
-                        controller.refreshStatusBar()
-                    }
-                Toggle("Use Workspace Number", isOn: $settings.statusBarUseWorkspaceId)
-                    .onChange(of: settings.statusBarUseWorkspaceId) { _, _ in
-                        controller.refreshStatusBar()
-                    }
-                    .disabled(!settings.statusBarShowWorkspaceName)
-                Toggle("Show Focused App", isOn: $settings.statusBarShowAppNames)
-                    .onChange(of: settings.statusBarShowAppNames) { _, _ in
-                        controller.refreshStatusBar()
-                    }
-                    .disabled(!settings.statusBarShowWorkspaceName)
+                Toggle("Show Workspace", isOn: Binding(
+                    get: { [settings] in settings.statusBar.showWorkspaceName },
+                    set: { [settings] in settings.setStatusBarShowWorkspaceName($0) }
+                ))
+                .onChange(of: settings.statusBar.showWorkspaceName) { _, _ in
+                    controller.refreshStatusBar()
+                }
+                Toggle("Use Workspace Number", isOn: Binding(
+                    get: { [settings] in settings.statusBar.useWorkspaceId },
+                    set: { [settings] in settings.setStatusBarUseWorkspaceId($0) }
+                ))
+                .onChange(of: settings.statusBar.useWorkspaceId) { _, _ in
+                    controller.refreshStatusBar()
+                }
+                .disabled(!settings.statusBar.showWorkspaceName)
+                Toggle("Show Focused App", isOn: Binding(
+                    get: { [settings] in settings.statusBar.showAppNames },
+                    set: { [settings] in settings.setStatusBarShowAppNames($0) }
+                ))
+                .onChange(of: settings.statusBar.showAppNames) { _, _ in
+                    controller.refreshStatusBar()
+                }
+                .disabled(!settings.statusBar.showWorkspaceName)
                 SettingsCaption("Shows the active workspace and focused app beside the menu bar icon")
             }
 
@@ -141,9 +150,9 @@ struct GeneralSettingsTab: View {
             MonitorScopeSection(
                 selectedMonitor: $selectedGapMonitor,
                 monitors: connectedMonitors,
-                hasOverrides: { settings.gapSettings(for: $0) != nil },
+                hasOverrides: { settings.gaps.settings(for: $0) != nil },
                 reset: { monitor in
-                    settings.removeGapSettings(for: monitor)
+                    settings.gaps.remove(for: monitor)
                     controller.updateMonitorGapSettings()
                 }
             )
@@ -154,8 +163,8 @@ struct GeneralSettingsTab: View {
                 {
                     OverridableSlider(
                         label: "Inner Gaps",
-                        value: settings.gapSettings(for: monitor)?.innerGap,
-                        globalValue: settings.gapSize,
+                        value: settings.gaps.settings(for: monitor)?.innerGap,
+                        globalValue: settings.gaps.size,
                         range: 0 ... 32,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
@@ -166,13 +175,13 @@ struct GeneralSettingsTab: View {
                 } else {
                     SettingsSliderRow(
                         label: "Inner Gaps",
-                        value: $settings.gapSize,
+                        value: Bindable(settings.gaps).size,
                         range: 0 ... 32,
                         step: 1,
-                        valueText: "\(Int(settings.gapSize)) px",
+                        valueText: "\(Int(settings.gaps.size)) px",
                         valueWidth: 64
                     )
-                    .onChange(of: settings.gapSize) { _, newValue in
+                    .onChange(of: settings.gaps.size) { _, newValue in
                         controller.setGapSize(newValue)
                     }
                 }
@@ -184,8 +193,8 @@ struct GeneralSettingsTab: View {
                 {
                     OverridableSlider(
                         label: "Left",
-                        value: settings.gapSettings(for: monitor)?.outerGapLeft,
-                        globalValue: settings.outerGapLeft,
+                        value: settings.gaps.settings(for: monitor)?.outerGapLeft,
+                        globalValue: settings.gaps.outerGapLeft,
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
@@ -194,8 +203,8 @@ struct GeneralSettingsTab: View {
                     )
                     OverridableSlider(
                         label: "Right",
-                        value: settings.gapSettings(for: monitor)?.outerGapRight,
-                        globalValue: settings.outerGapRight,
+                        value: settings.gaps.settings(for: monitor)?.outerGapRight,
+                        globalValue: settings.gaps.outerGapRight,
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
@@ -204,8 +213,8 @@ struct GeneralSettingsTab: View {
                     )
                     OverridableSlider(
                         label: "Top",
-                        value: settings.gapSettings(for: monitor)?.outerGapTop,
-                        globalValue: settings.outerGapTop,
+                        value: settings.gaps.settings(for: monitor)?.outerGapTop,
+                        globalValue: settings.gaps.outerGapTop,
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
@@ -214,8 +223,8 @@ struct GeneralSettingsTab: View {
                     )
                     OverridableSlider(
                         label: "Bottom",
-                        value: settings.gapSettings(for: monitor)?.outerGapBottom,
-                        globalValue: settings.outerGapBottom,
+                        value: settings.gaps.settings(for: monitor)?.outerGapBottom,
+                        globalValue: settings.gaps.outerGapBottom,
                         range: 0 ... 64,
                         step: 1,
                         formatter: { "\(Int($0)) px" },
@@ -224,8 +233,8 @@ struct GeneralSettingsTab: View {
                     )
                     OverridableToggle(
                         label: "Keep Outer Margins in Full Screen",
-                        value: settings.gapSettings(for: monitor)?.fullscreenUsesOuterGaps,
-                        globalValue: settings.fullscreenUsesOuterGaps,
+                        value: settings.gaps.settings(for: monitor)?.fullscreenUsesOuterGaps,
+                        globalValue: settings.gaps.fullscreenUsesOuterGaps,
                         onChange: { value in
                             updateGapSetting(for: monitor) { $0.fullscreenUsesOuterGaps = value }
                         },
@@ -234,7 +243,7 @@ struct GeneralSettingsTab: View {
                     SettingsCaption(
                         "Overrides selected global outer-margin values for \(monitor.name). "
                             + topGapCaption(
-                                settings.gapSettings(for: monitor)?.outerGapTop ?? settings.outerGapTop,
+                                settings.gaps.settings(for: monitor)?.outerGapTop ?? settings.gaps.outerGapTop,
                                 on: monitor
                             )
                     )
@@ -244,52 +253,52 @@ struct GeneralSettingsTab: View {
                 } else {
                     SettingsSliderRow(
                         label: "Left",
-                        value: $settings.outerGapLeft,
+                        value: Bindable(settings.gaps).outerGapLeft,
                         range: 0 ... 64,
                         step: 1,
-                        valueText: "\(Int(settings.outerGapLeft)) px",
+                        valueText: "\(Int(settings.gaps.outerGapLeft)) px",
                         valueWidth: 64
                     )
-                    .onChange(of: settings.outerGapLeft) { _, _ in syncOuterGaps() }
+                    .onChange(of: settings.gaps.outerGapLeft) { _, _ in syncOuterGaps() }
 
                     SettingsSliderRow(
                         label: "Right",
-                        value: $settings.outerGapRight,
+                        value: Bindable(settings.gaps).outerGapRight,
                         range: 0 ... 64,
                         step: 1,
-                        valueText: "\(Int(settings.outerGapRight)) px",
+                        valueText: "\(Int(settings.gaps.outerGapRight)) px",
                         valueWidth: 64
                     )
-                    .onChange(of: settings.outerGapRight) { _, _ in syncOuterGaps() }
+                    .onChange(of: settings.gaps.outerGapRight) { _, _ in syncOuterGaps() }
 
                     SettingsSliderRow(
                         label: "Top",
-                        value: $settings.outerGapTop,
+                        value: Bindable(settings.gaps).outerGapTop,
                         range: 0 ... 64,
                         step: 1,
-                        valueText: "\(Int(settings.outerGapTop)) px",
+                        valueText: "\(Int(settings.gaps.outerGapTop)) px",
                         valueWidth: 64
                     )
-                    .onChange(of: settings.outerGapTop) { _, _ in syncOuterGaps() }
+                    .onChange(of: settings.gaps.outerGapTop) { _, _ in syncOuterGaps() }
                     if let mainMonitor = connectedMonitors.first(where: \.isMain) {
-                        SettingsCaption(topGapCaption(settings.outerGapTop, on: mainMonitor))
+                        SettingsCaption(topGapCaption(settings.gaps.outerGapTop, on: mainMonitor))
                     }
 
                     SettingsSliderRow(
                         label: "Bottom",
-                        value: $settings.outerGapBottom,
+                        value: Bindable(settings.gaps).outerGapBottom,
                         range: 0 ... 64,
                         step: 1,
-                        valueText: "\(Int(settings.outerGapBottom)) px",
+                        valueText: "\(Int(settings.gaps.outerGapBottom)) px",
                         valueWidth: 64
                     )
-                    .onChange(of: settings.outerGapBottom) { _, _ in syncOuterGaps() }
+                    .onChange(of: settings.gaps.outerGapBottom) { _, _ in syncOuterGaps() }
 
                     Toggle(
                         "Keep Outer Margins in Full Screen",
-                        isOn: $settings.fullscreenUsesOuterGaps
+                        isOn: Bindable(settings.gaps).fullscreenUsesOuterGaps
                     )
-                    .onChange(of: settings.fullscreenUsesOuterGaps) { _, _ in
+                    .onChange(of: settings.gaps.fullscreenUsesOuterGaps) { _, _ in
                         controller.updateMonitorGapSettings()
                     }
 
@@ -317,11 +326,11 @@ struct GeneralSettingsTab: View {
     }
 
     private func updateGapSetting(for monitor: Monitor, _ update: (inout MonitorGapSettings) -> Void) {
-        var ms = settings.gapSettings(for: monitor) ?? MonitorGapSettings(
+        var ms = settings.gaps.settings(for: monitor) ?? MonitorGapSettings(
             monitorName: monitor.name
         )
         update(&ms)
-        settings.updateGapSettings(ms, for: monitor)
+        settings.gaps.update(ms, for: monitor)
         controller.updateMonitorGapSettings()
     }
 }

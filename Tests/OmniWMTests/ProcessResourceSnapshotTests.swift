@@ -61,6 +61,26 @@ final class ProcessResourceSnapshotTests: XCTestCase {
         XCTAssertNil(start.delta(to: end))
     }
 
+    func testRegressedQoSCounterRejectsDeltaWhenOtherCountersIncrease() {
+        let start = makeSnapshot(capturedAt: 1, energy: 100, base: 10)
+        let end = makeSnapshot(
+            capturedAt: 1_000_000_001,
+            energy: 200,
+            base: 20,
+            qosTime: .init(
+                background: 20,
+                maintenance: 20,
+                utility: 20,
+                default: 20,
+                userInitiated: 20,
+                userInteractive: 20,
+                legacy: 9
+            )
+        )
+
+        XCTAssertNil(start.delta(to: end))
+    }
+
     func testRegressedEnergyDoesNotDiscardOtherResourceDeltas() throws {
         let start = makeSnapshot(capturedAt: 1, energy: 200, base: 10)
         let end = makeSnapshot(capturedAt: 1_000_000_001, energy: 100, base: 20)
@@ -76,7 +96,8 @@ final class ProcessResourceSnapshotTests: XCTestCase {
         energy: UInt64,
         base: UInt64,
         resident: UInt64 = 1_000,
-        footprint: UInt64 = 2_000
+        footprint: UInt64 = 2_000,
+        qosTime: ProcessResourceSnapshot.QoSTime? = nil
     ) -> ProcessResourceSnapshot {
         ProcessResourceSnapshot(
             capturedAt: capturedAt,
@@ -86,7 +107,7 @@ final class ProcessResourceSnapshotTests: XCTestCase {
             runnableTime: base,
             packageIdleWakeups: base,
             interruptWakeups: base,
-            qosTime: .init(
+            qosTime: qosTime ?? .init(
                 background: base,
                 maintenance: base,
                 utility: base,

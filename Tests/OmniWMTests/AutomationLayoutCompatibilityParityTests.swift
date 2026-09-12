@@ -39,7 +39,7 @@ final class AutomationLayoutCompatibilityParityTests: XCTestCase {
         XCTAssertEqual(ActionCatalog.layoutCompatibility(for: .moveColumn(.up)), .dwindle)
         XCTAssertEqual(ActionCatalog.layoutCompatibility(for: .moveColumn(.down)), .dwindle)
         XCTAssertEqual(
-            IPCAutomationManifest.commandDescriptor(for: .moveColumn)?.layoutCompatibility,
+            IPCAutomationManifest.commandDescriptor(for: .column(.move))?.layoutCompatibility,
             .shared
         )
     }

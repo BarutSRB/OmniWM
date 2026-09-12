@@ -166,7 +166,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
                 )
                 : nil
 
-            let result = try AppAXContext.installWindowNotifications(
+            let result = try AppAXWindowNotificationInstaller.install(
                 element: element,
                 windowId: windowId,
                 ownedSubscription: owned,
@@ -220,7 +220,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             return .success
         }
 
-        let failed = try AppAXContext.installWindowNotifications(
+        let failed = try AppAXWindowNotificationInstaller.install(
             element: element,
             windowId: newWindowId,
             ownedSubscription: nil,
@@ -240,7 +240,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         for pending in failed.pendingRemovals {
             XCTAssertEqual(removeNotification(pending.notification), .success)
         }
-        let retried = try AppAXContext.installWindowNotifications(
+        let retried = try AppAXWindowNotificationInstaller.install(
             element: element,
             windowId: newWindowId,
             ownedSubscription: nil,
@@ -276,7 +276,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             return .success
         }
 
-        let first = try AppAXContext.installWindowNotifications(
+        let first = try AppAXWindowNotificationInstaller.install(
             element: element,
             windowId: firstWindowId,
             ownedSubscription: nil,
@@ -284,7 +284,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             removeNotification: removeNotification,
             alreadyRegisteredPolicy: .reject
         )
-        let second = try AppAXContext.installWindowNotifications(
+        let second = try AppAXWindowNotificationInstaller.install(
             element: element,
             windowId: secondWindowId,
             ownedSubscription: nil,
@@ -311,7 +311,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
                 removeNotification: removeNotification
             ).isEmpty
         )
-        let retry = try AppAXContext.installWindowNotifications(
+        let retry = try AppAXWindowNotificationInstaller.install(
             element: element,
             windowId: secondWindowId,
             ownedSubscription: nil,
@@ -370,17 +370,19 @@ final class AXFullRescanBoundaryTests: XCTestCase {
                 notifications: .lifecycle
             )
             let cleanup = try AppAXContext.commitWindowRebindCache(
-                oldWindow: oldWindow,
-                newWindow: newWindow,
-                destinationSubscription: destinationSubscription,
-                retireOldWindowState: true,
-                binding: AppAXWindowRebindBinding(
-                    destinationWindowElement: nil,
-                    destinationSubscription: nil,
-                    stagedSubscription: destinationSubscription,
-                    newlyInstalledNotifications: .lifecycle,
-                    requiresRetag: true,
-                    hasLifecycleObserver: true
+                commit: AppAXWindowRebindCommit(
+                    oldWindow: oldWindow,
+                    newWindow: newWindow,
+                    destinationSubscription: destinationSubscription,
+                    retireOldWindowState: true,
+                    binding: AppAXWindowRebindBinding(
+                        destinationWindowElement: nil,
+                        destinationSubscription: nil,
+                        stagedSubscription: destinationSubscription,
+                        newlyInstalledNotifications: .lifecycle,
+                        requiresRetag: true,
+                        hasLifecycleObserver: true
+                    )
                 ),
                 windows: windows,
                 subscribedWindows: subscriptions,
@@ -404,7 +406,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         var pending: [AppAXPendingNotificationRemoval] = []
 
         XCTAssertThrowsError(
-            try AppAXContext.installWindowNotifications(
+            try AppAXWindowNotificationInstaller.install(
                 element: element,
                 windowId: windowId,
                 ownedSubscription: nil,
@@ -432,6 +434,42 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         XCTAssertEqual(removed, [.destroyed])
         XCTAssertEqual(pending.map(\.notification), [.destroyed])
         XCTAssertTrue(pending.first.map { CFEqual($0.element, element) } == true)
+    }
+
+    func testCancellationAfterLifecycleInstallationRollsBackInReverseOrderOnce() {
+        let element = AXUIElementCreateApplication(71_040)
+        var cancellationChecks = 0
+        var added: [AppAXWindowNotification] = []
+        var removed: [AppAXWindowNotification] = []
+        var pendingDeliveries: [[AppAXPendingNotificationRemoval]] = []
+
+        XCTAssertThrowsError(try AppAXWindowNotificationInstaller.install(
+            element: element,
+            windowId: 71_041,
+            ownedSubscription: nil,
+            addNotification: { notification, _ in
+                added.append(notification)
+                return .success
+            },
+            removeNotification: { notification in
+                removed.append(notification)
+                return .cannotComplete
+            },
+            checkCancellation: {
+                cancellationChecks += 1
+                if cancellationChecks == 3 { throw CancellationError() }
+            },
+            recordPendingRemovals: { pendingDeliveries.append($0) }
+        )) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+
+        XCTAssertEqual(cancellationChecks, 3)
+        XCTAssertEqual(added, [.destroyed, .miniaturized])
+        XCTAssertEqual(removed, [.miniaturized, .destroyed])
+        XCTAssertEqual(pendingDeliveries.count, 1)
+        XCTAssertEqual(pendingDeliveries.first?.map(\.notification), [.miniaturized, .destroyed])
+        XCTAssertTrue(pendingDeliveries.first?.allSatisfy { CFEqual($0.element, element) } == true)
     }
 
     func testAuthoritativeBindingPrunesOrphanStateAndPreservesExactWorldTarget() throws {
@@ -484,14 +522,18 @@ final class AXFullRescanBoundaryTests: XCTestCase {
 
             let result = try AppAXContext.performWindowBinding(
                 [exactWindow.windowId: exactWindow],
-                bindingGeneration: epoch.advance(),
-                pruningUnboundState: true,
-                timeoutSeconds: 0,
-                windows: windows,
-                windowBindingEpoch: epoch,
-                axObserver: observer,
-                subscribedWindows: subscriptions,
-                pendingNotificationRemovals: pending,
+                options: AppAXWindowBindingOptions(
+                    generation: epoch.advance(),
+                    pruningUnboundState: true,
+                    timeoutSeconds: 0
+                ),
+                state: AppAXWindowOperationState(
+                    windows: windows,
+                    windowBindingEpoch: epoch,
+                    axObserver: observer,
+                    subscribedWindows: subscriptions,
+                    pendingNotificationRemovals: pending
+                ),
                 job: RunLoopJob()
             )
 
@@ -541,14 +583,18 @@ final class AXFullRescanBoundaryTests: XCTestCase {
 
             let result = try AppAXContext.performWindowBinding(
                 [target.windowId: target],
-                bindingGeneration: epoch.advance(),
-                pruningUnboundState: false,
-                timeoutSeconds: 0,
-                windows: windows,
-                windowBindingEpoch: epoch,
-                axObserver: observer,
-                subscribedWindows: subscriptions,
-                pendingNotificationRemovals: pending,
+                options: AppAXWindowBindingOptions(
+                    generation: epoch.advance(),
+                    pruningUnboundState: false,
+                    timeoutSeconds: 0
+                ),
+                state: AppAXWindowOperationState(
+                    windows: windows,
+                    windowBindingEpoch: epoch,
+                    axObserver: observer,
+                    subscribedWindows: subscriptions,
+                    pendingNotificationRemovals: pending
+                ),
                 job: RunLoopJob()
             )
 
@@ -589,14 +635,18 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             )
             let result = try AppAXContext.performWindowBinding(
                 [window.windowId: window],
-                bindingGeneration: bindingGeneration,
-                pruningUnboundState: false,
-                timeoutSeconds: 0,
-                windows: windows,
-                windowBindingEpoch: epoch,
-                axObserver: observer,
-                subscribedWindows: subscriptions,
-                pendingNotificationRemovals: pending,
+                options: AppAXWindowBindingOptions(
+                    generation: bindingGeneration,
+                    pruningUnboundState: false,
+                    timeoutSeconds: 0
+                ),
+                state: AppAXWindowOperationState(
+                    windows: windows,
+                    windowBindingEpoch: epoch,
+                    axObserver: observer,
+                    subscribedWindows: subscriptions,
+                    pendingNotificationRemovals: pending
+                ),
                 job: RunLoopJob()
             )
 
@@ -876,14 +926,18 @@ final class AXFullRescanBoundaryTests: XCTestCase {
 
             let result = try AppAXContext.performWindowBinding(
                 [window.windowId: window],
-                bindingGeneration: staleGeneration,
-                pruningUnboundState: false,
-                timeoutSeconds: 0,
-                windows: windows,
-                windowBindingEpoch: epoch,
-                axObserver: observer,
-                subscribedWindows: subscriptions,
-                pendingNotificationRemovals: pending,
+                options: AppAXWindowBindingOptions(
+                    generation: staleGeneration,
+                    pruningUnboundState: false,
+                    timeoutSeconds: 0
+                ),
+                state: AppAXWindowOperationState(
+                    windows: windows,
+                    windowBindingEpoch: epoch,
+                    axObserver: observer,
+                    subscribedWindows: subscriptions,
+                    pendingNotificationRemovals: pending
+                ),
                 job: RunLoopJob()
             )
 
@@ -921,14 +975,18 @@ final class AXFullRescanBoundaryTests: XCTestCase {
 
             let result = try AppAXContext.performWindowBinding(
                 [newWindow.windowId: newWindow],
-                bindingGeneration: epoch.advance(),
-                pruningUnboundState: false,
-                timeoutSeconds: 0,
-                windows: windows,
-                windowBindingEpoch: epoch,
-                axObserver: observer,
-                subscribedWindows: subscriptions,
-                pendingNotificationRemovals: pending,
+                options: AppAXWindowBindingOptions(
+                    generation: epoch.advance(),
+                    pruningUnboundState: false,
+                    timeoutSeconds: 0
+                ),
+                state: AppAXWindowOperationState(
+                    windows: windows,
+                    windowBindingEpoch: epoch,
+                    axObserver: observer,
+                    subscribedWindows: subscriptions,
+                    pendingNotificationRemovals: pending
+                ),
                 job: RunLoopJob()
             )
 
@@ -1025,7 +1083,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
 
     func testFullRescanRoutesEvidenceAndPreservedStateToPersistentContexts() {
         XCTAssertEqual(
-            AXManager.fullRescanEnumerationRoute(
+            AXWindowInspectionContext.fullRescanEnumerationRoute(
                 activationPolicy: .regular,
                 hasDiscoveryEvidence: true,
                 hasContext: false,
@@ -1034,7 +1092,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             .persistent
         )
         XCTAssertEqual(
-            AXManager.fullRescanEnumerationRoute(
+            AXWindowInspectionContext.fullRescanEnumerationRoute(
                 activationPolicy: .accessory,
                 hasDiscoveryEvidence: false,
                 hasContext: true,
@@ -1043,7 +1101,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             .persistent
         )
         XCTAssertEqual(
-            AXManager.fullRescanEnumerationRoute(
+            AXWindowInspectionContext.fullRescanEnumerationRoute(
                 activationPolicy: .accessory,
                 hasDiscoveryEvidence: false,
                 hasContext: false,
@@ -1055,7 +1113,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
 
     func testFullRescanRoutesOnlyEvidenceFreeRegularAppsToOneShotProbes() {
         XCTAssertEqual(
-            AXManager.fullRescanEnumerationRoute(
+            AXWindowInspectionContext.fullRescanEnumerationRoute(
                 activationPolicy: .regular,
                 hasDiscoveryEvidence: false,
                 hasContext: false,
@@ -1064,7 +1122,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             .oneShot
         )
         XCTAssertNil(
-            AXManager.fullRescanEnumerationRoute(
+            AXWindowInspectionContext.fullRescanEnumerationRoute(
                 activationPolicy: .accessory,
                 hasDiscoveryEvidence: false,
                 hasContext: false,
@@ -1072,7 +1130,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             )
         )
         XCTAssertNil(
-            AXManager.fullRescanEnumerationRoute(
+            AXWindowInspectionContext.fullRescanEnumerationRoute(
                 activationPolicy: .prohibited,
                 hasDiscoveryEvidence: true,
                 hasContext: true,
@@ -1510,13 +1568,13 @@ final class AXFullRescanBoundaryTests: XCTestCase {
     }
 
     func testFullRescanInspectionRequestsTitlesOnlyForMatchingAppRules() {
-        let matching = AXManager.fullRescanInspectionContext(
+        let matching = AXWindowInspectionContext.fullRescanInspectionContext(
             activationPolicy: .regular,
             bundleId: "example.titled",
             appName: "Titled App",
             requiresTitleForApp: { $0 == "example.titled" && $1 == "Titled App" }
         )
-        let nonmatching = AXManager.fullRescanInspectionContext(
+        let nonmatching = AXWindowInspectionContext.fullRescanInspectionContext(
             activationPolicy: .accessory,
             bundleId: "example.titled",
             appName: "Other App",
@@ -1930,12 +1988,12 @@ final class AXFullRescanBoundaryTests: XCTestCase {
             isManageable: false
         )
 
-        let selected = AXManager.selectFullRescanCandidates(
+        let selected = FullRescanCandidateSelection.selectFullRescanCandidates(
             [windowId: [losingProbe, persistent]],
             activationPolicyByPID: [persistentPID: .regular, oneShotPID: .regular],
             preservingPIDsByWindowId: [:]
         )
-        let promotions = AXManager.oneShotPromotionCandidatesByPID(selected)
+        let promotions = FullRescanCandidateSelection.oneShotPromotionCandidatesByPID(selected)
 
         XCTAssertEqual(selected.map(\.pid), [persistentPID])
         XCTAssertTrue(promotions.isEmpty)
@@ -1945,7 +2003,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         let pid: pid_t = 72_047
         let lowerWindowId = 72_048
         let higherWindowId = 72_049
-        let selected = AXManager.selectFullRescanCandidates(
+        let selected = FullRescanCandidateSelection.selectFullRescanCandidates(
             [
                 higherWindowId: [
                     candidate(
@@ -1987,7 +2045,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         var observedPIDs: [pid_t] = []
         var observedWindowIds: [[Int]] = []
 
-        await AXManager.forEachOneShotPromotionBatch(candidates) { pid, batch in
+        await FullRescanCandidateSelection.forEachOneShotPromotionBatch(candidates) { pid, batch in
             active += 1
             maximumActive = max(maximumActive, active)
             observedPIDs.append(pid)
@@ -2049,27 +2107,29 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         let nativeSpaceId: UInt64 = 72_207
 
         let resolution = try XCTUnwrap(
-            AXManager.fullRescanTargetResolution(
-                scope: .targeted(
-                    appPIDs: [explicitPID],
-                    nativeSpaceIds: [nativeSpaceId]
+            FullRescanTargetResolution.fullRescanTargetResolution(
+                FullRescanTargetInputs(
+                    scope: .targeted(
+                        appPIDs: [explicitPID],
+                        nativeSpaceIds: [nativeSpaceId]
+                    ),
+                    resolvedTargetPIDs: [resolvedPID],
+                    resolvedTargetWindowIds: [resolvedWindowId],
+                    preservingPIDsByWindowId: [
+                        explicitWindowId: explicitPID,
+                        resolvedWindowId: resolvedPID,
+                        unrelatedResolvedWindowId: resolvedPID
+                    ],
+                    identityDependencyPIDsByWindowId: [
+                        explicitWindowId: [explicitDependencyPID],
+                        resolvedWindowId: [resolvedDependencyPID],
+                        unrelatedResolvedWindowId: [72_208]
+                    ]
                 ),
-                resolvedTargetPIDs: [resolvedPID],
-                resolvedTargetWindowIds: [resolvedWindowId],
-                preservingPIDsByWindowId: [
-                    explicitWindowId: explicitPID,
-                    resolvedWindowId: resolvedPID,
-                    unrelatedResolvedWindowId: resolvedPID
-                ],
                 ownerPIDByWindowId: [
                     explicitWindowId: explicitPID,
                     resolvedWindowId: resolvedPID,
                     unrelatedResolvedWindowId: resolvedPID
-                ],
-                identityDependencyPIDsByWindowId: [
-                    explicitWindowId: [explicitDependencyPID],
-                    resolvedWindowId: [resolvedDependencyPID],
-                    unrelatedResolvedWindowId: [72_208]
                 ]
             )
         )
@@ -2112,7 +2172,7 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         let failedDependencyPID: pid_t = 72_212
         let successfulDependencyPID: pid_t = 72_213
 
-        let authoritative = AXManager.authoritativeFullRescanTargetPIDs(
+        let authoritative = FullRescanTargetResolution.authoritativeFullRescanTargetPIDs(
             targetPIDs: [firstTargetPID, secondTargetPID],
             successfullyEnumeratedPIDs: [
                 firstTargetPID,
@@ -2135,22 +2195,24 @@ final class AXFullRescanBoundaryTests: XCTestCase {
         let proxyPID: pid_t = 72_215
         let windowId = 72_216
         let resolution = try XCTUnwrap(
-            AXManager.fullRescanTargetResolution(
-                scope: .targeted(
-                    appPIDs: [logicalPID, proxyPID],
-                    nativeSpaceIds: []
+            FullRescanTargetResolution.fullRescanTargetResolution(
+                FullRescanTargetInputs(
+                    scope: .targeted(
+                        appPIDs: [logicalPID, proxyPID],
+                        nativeSpaceIds: []
+                    ),
+                    resolvedTargetPIDs: [],
+                    resolvedTargetWindowIds: [],
+                    preservingPIDsByWindowId: [windowId: logicalPID],
+                    identityDependencyPIDsByWindowId: [windowId: [proxyPID]]
                 ),
-                resolvedTargetPIDs: [],
-                resolvedTargetWindowIds: [],
-                preservingPIDsByWindowId: [windowId: logicalPID],
-                ownerPIDByWindowId: [windowId: logicalPID],
-                identityDependencyPIDsByWindowId: [windowId: [proxyPID]]
+                ownerPIDByWindowId: [windowId: logicalPID]
             )
         )
 
         XCTAssertEqual(resolution.dependencyPIDs, [proxyPID])
         XCTAssertEqual(resolution.targetPIDsByDependencyPID[proxyPID], [logicalPID])
-        XCTAssertTrue(AXManager.authoritativeFullRescanTargetPIDs(
+        XCTAssertTrue(FullRescanTargetResolution.authoritativeFullRescanTargetPIDs(
             targetPIDs: resolution.targetPIDs,
             successfullyEnumeratedPIDs: [logicalPID],
             failedPIDs: [proxyPID],
@@ -2551,25 +2613,27 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
                 started.signal()
                 release.wait()
                 _ = try AppAXContext.commitWindowRebindCache(
-                    oldWindow: oldWindow,
-                    newWindow: newWindow,
-                    destinationSubscription: AppAXWindowSubscription(
-                        windowId: newWindowId,
-                        element: newWindow.element,
-                        notifications: .lifecycle
-                    ),
-                    retireOldWindowState: true,
-                    binding: AppAXWindowRebindBinding(
-                        destinationWindowElement: nil,
-                        destinationSubscription: nil,
-                        stagedSubscription: AppAXWindowSubscription(
+                    commit: AppAXWindowRebindCommit(
+                        oldWindow: oldWindow,
+                        newWindow: newWindow,
+                        destinationSubscription: AppAXWindowSubscription(
                             windowId: newWindowId,
                             element: newWindow.element,
                             notifications: .lifecycle
                         ),
-                        newlyInstalledNotifications: .lifecycle,
-                        requiresRetag: false,
-                        hasLifecycleObserver: true
+                        retireOldWindowState: true,
+                        binding: AppAXWindowRebindBinding(
+                            destinationWindowElement: nil,
+                            destinationSubscription: nil,
+                            stagedSubscription: AppAXWindowSubscription(
+                                windowId: newWindowId,
+                                element: newWindow.element,
+                                notifications: .lifecycle
+                            ),
+                            newlyInstalledNotifications: .lifecycle,
+                            requiresRetag: false,
+                            hasLifecycleObserver: true
+                        )
                     ),
                     windows: windows,
                     subscribedWindows: subscriptions,
@@ -2626,17 +2690,19 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
                 return false
             }
             let cleanup = try AppAXContext.commitWindowRebindCache(
-                oldWindow: oldWindow,
-                newWindow: newWindow,
-                destinationSubscription: nil,
-                retireOldWindowState: true,
-                binding: AppAXWindowRebindBinding(
-                    destinationWindowElement: nil,
+                commit: AppAXWindowRebindCommit(
+                    oldWindow: oldWindow,
+                    newWindow: newWindow,
                     destinationSubscription: nil,
-                    stagedSubscription: nil,
-                    newlyInstalledNotifications: [],
-                    requiresRetag: false,
-                    hasLifecycleObserver: false
+                    retireOldWindowState: true,
+                    binding: AppAXWindowRebindBinding(
+                        destinationWindowElement: nil,
+                        destinationSubscription: nil,
+                        stagedSubscription: nil,
+                        newlyInstalledNotifications: [],
+                        requiresRetag: false,
+                        hasLifecycleObserver: false
+                    )
                 ),
                 windows: windows,
                 subscribedWindows: subscriptions,
@@ -2707,17 +2773,19 @@ final class AXRunLoopTimeoutBoundaryTests: XCTestCase {
                 return false
             }
             let cleanup = try AppAXContext.commitWindowRebindCache(
-                oldWindow: oldWindow,
-                newWindow: newWindow,
-                destinationSubscription: destinationSubscription,
-                retireOldWindowState: true,
-                binding: AppAXWindowRebindBinding(
-                    destinationWindowElement: nil,
-                    destinationSubscription: nil,
-                    stagedSubscription: destinationSubscription,
-                    newlyInstalledNotifications: .lifecycle,
-                    requiresRetag: false,
-                    hasLifecycleObserver: true
+                commit: AppAXWindowRebindCommit(
+                    oldWindow: oldWindow,
+                    newWindow: newWindow,
+                    destinationSubscription: destinationSubscription,
+                    retireOldWindowState: true,
+                    binding: AppAXWindowRebindBinding(
+                        destinationWindowElement: nil,
+                        destinationSubscription: nil,
+                        stagedSubscription: destinationSubscription,
+                        newlyInstalledNotifications: .lifecycle,
+                        requiresRetag: false,
+                        hasLifecycleObserver: true
+                    )
                 ),
                 windows: windows,
                 subscribedWindows: subscriptions,

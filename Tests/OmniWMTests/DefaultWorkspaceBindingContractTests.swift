@@ -11,8 +11,8 @@ final class DefaultWorkspaceBindingContractTests: XCTestCase {
 
         for binding in HotkeyBindingRegistry.defaults() where binding.binding != .unassigned {
             switch binding.command {
-            case let .switchWorkspace(index),
-                 let .moveToWorkspace(index):
+            case let .workspace(.switchTo(index)),
+                 let .workspace(.moveTo(index)):
                 boundIndices.append(index)
                 XCTAssertTrue(workspaceNames.contains(String(index + 1)), binding.id)
             default:

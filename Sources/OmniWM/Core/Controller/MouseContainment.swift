@@ -3,23 +3,24 @@
 
 import CoreGraphics
 
-enum MouseContainment {
+struct MouseContainment {
+    let layout: [MonitorRoutingSettings]
+    let monitors: [Monitor]
+
     enum Verdict: Equatable {
         case allow
         case wall(clamped: CGPoint)
     }
 
-    static func evaluate(
+    func evaluate(
         location: CGPoint,
         source: Monitor,
         destination: Monitor,
-        layout: [MonitorRoutingSettings],
-        monitors: [Monitor],
         margin: CGFloat
     ) -> Verdict {
         guard source.id != destination.id else { return .allow }
         guard MonitorRouting.completeLayout(layout, for: monitors) != nil else { return .allow }
-        guard let direction = physicalDirection(from: source, to: destination) else { return .allow }
+        guard let direction = Self.physicalDirection(from: source, to: destination) else { return .allow }
 
         switch MonitorRouting.gridAdjacent(
             from: source,
@@ -37,11 +38,11 @@ enum MouseContainment {
             break
         }
 
-        guard isReachable(from: source, to: destination, layout: layout, monitors: monitors) else {
+        guard isReachable(from: source, to: destination) else {
             return .allow
         }
 
-        return .wall(clamped: clamped(location, inside: source.frame, margin: margin))
+        return .wall(clamped: Self.clamped(location, inside: source.frame, margin: margin))
     }
 
     private static func physicalDirection(from source: Monitor, to destination: Monitor) -> Direction? {
@@ -57,11 +58,9 @@ enum MouseContainment {
         return dy > 0 ? .up : .down
     }
 
-    private static func isReachable(
+    private func isReachable(
         from source: Monitor,
-        to destination: Monitor,
-        layout: [MonitorRoutingSettings],
-        monitors: [Monitor]
+        to destination: Monitor
     ) -> Bool {
         let directions: [Direction] = [.left, .right, .up, .down]
         var visited = Set<Monitor.ID>()

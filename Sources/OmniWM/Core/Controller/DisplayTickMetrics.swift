@@ -3,6 +3,14 @@
 
 import Foundation
 
+struct DisplayTickTiming: Sendable {
+    let intervalMs: Double
+    let expectedMs: Double
+    let workMs: Double
+    let entrySlackMs: Double
+    let completionSlackMs: Double
+}
+
 struct DisplayTickClassification: Equatable, Sendable {
     let longTimestampGap: Bool
     let workExceededNominalPeriod: Bool
@@ -35,20 +43,16 @@ struct DisplayTickMetrics {
 
     @discardableResult
     mutating func record(
-        intervalMs: Double,
-        expectedMs: Double,
-        workMs: Double,
-        hasPreviousTick: Bool,
-        entrySlackMs: Double,
-        completionSlackMs: Double
+        _ timing: DisplayTickTiming,
+        hasPreviousTick: Bool
     ) -> DisplayTickClassification {
         let classification = DisplayTickClassification(
-            longTimestampGap: hasPreviousTick && intervalMs > 1.5 * expectedMs,
-            workExceededNominalPeriod: expectedMs > 0 && workMs > expectedMs,
-            completionPastTarget: completionSlackMs < 0
+            longTimestampGap: hasPreviousTick && timing.intervalMs > 1.5 * timing.expectedMs,
+            workExceededNominalPeriod: timing.expectedMs > 0 && timing.workMs > timing.expectedMs,
+            completionPastTarget: timing.completionSlackMs < 0
         )
-        let entrySlackMicros = Self.micros(entrySlackMs)
-        let completionSlackMicros = Self.micros(completionSlackMs)
+        let entrySlackMicros = Self.micros(timing.entrySlackMs)
+        let completionSlackMicros = Self.micros(timing.completionSlackMs)
         if tickCount == 0 {
             minEntrySlackMicros = entrySlackMicros
             minCompletionSlackMicros = completionSlackMicros
@@ -62,10 +66,10 @@ struct DisplayTickMetrics {
         if classification.completionPastTarget { completionPastTargetCount += 1 }
         if classification.timingAnomaly { timingAnomalyCount += 1 }
 
-        let workMicros = Self.micros(workMs)
+        let workMicros = Self.micros(timing.workMs)
         totalWorkMicros += workMicros
         maxWorkMicros = max(maxWorkMicros, workMicros)
-        maxIntervalMicros = max(maxIntervalMicros, Self.micros(intervalMs))
+        maxIntervalMicros = max(maxIntervalMicros, Self.micros(timing.intervalMs))
         return classification
     }
 

@@ -130,12 +130,12 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
         )
         manager.applyMonitorConfigurationChange([monitor])
         controller.settings.animationsEnabled = false
-        controller.settings.gapSize = 12
+        controller.settings.gaps.size = 12
         manager.setGaps(to: 12)
-        controller.settings.outerGapLeft = 0
-        controller.settings.outerGapRight = 0
-        controller.settings.outerGapTop = 0
-        controller.settings.outerGapBottom = 0
+        controller.settings.gaps.outerGapLeft = 0
+        controller.settings.gaps.outerGapRight = 0
+        controller.settings.gaps.outerGapTop = 0
+        controller.settings.gaps.outerGapBottom = 0
         controller.niriLayoutHandler.enableNiriLayout()
         let engine = try XCTUnwrap(controller.niriEngine)
         engine.defaultContainerPrimarySpan = 1.0 / 3.0

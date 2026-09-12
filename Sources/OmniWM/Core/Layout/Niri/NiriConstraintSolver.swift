@@ -67,104 +67,29 @@ extension NiriAxisSolver {
         }
         let weights = windows.map { sanitizedNonNegative($0.weight) }
 
-        var fixedValues: [CGFloat?] = windows.enumerated().map { index, window in
-            if window.hasFixedValue, let fixedValue = window.fixedValue {
-                return clampedFixedValue(
-                    fixedValue,
-                    minimum: minConstraints[index],
-                    maximum: maxConstraints[index]
-                )
-            }
-            if window.isConstraintFixed {
-                return clampedFixedValue(
-                    minConstraints[index],
-                    minimum: minConstraints[index],
-                    maximum: maxConstraints[index]
-                )
-            }
-            return nil
-        }
-
-        var fixedWasScaled = [Bool](repeating: false, count: windows.count)
-        var fixedSum = fixedValues.compactMap(\.self).reduce(0, +)
-        let nonFixedIndices = windows.indices.filter { fixedValues[$0] == nil }
-        let fixedBudget = max(
-            0,
-            usableSpace - nonFixedIndices.reduce(CGFloat.zero) { partialResult, index in
-                partialResult + max(Self.minimumRenderableSpan, minConstraints[index])
-            }
+        var fixedAllocation = FixedAllocation(
+            windows: windows,
+            minimums: minConstraints,
+            maximums: maxConstraints
         )
-        if fixedSum > fixedBudget, fixedSum > epsilon {
-            let fixedFloorSum = fixedValues.indices.reduce(CGFloat.zero) { partialResult, index in
-                fixedValues[index] == nil ? partialResult : partialResult + floors[index]
-            }
-            let allowedSurplus = max(0, fixedBudget - fixedFloorSum)
-            let surplus = fixedSum - fixedFloorSum
-            let surplusScale = surplus > epsilon ? allowedSurplus / surplus : 0
-            for index in fixedValues.indices {
-                guard let fixedValue = fixedValues[index] else { continue }
-                let scaledValue = floors[index] + max(0, fixedValue - floors[index]) * surplusScale
-                fixedWasScaled[index] = abs(scaledValue - fixedValue) > epsilon
-                fixedValues[index] = scaledValue
-            }
-            fixedSum = fixedValues.compactMap(\.self).reduce(0, +)
-        }
-        let remainingSpace = max(0, usableSpace - fixedSum)
-        var values = [CGFloat](repeating: 0, count: windows.count)
-
-        for (index, fixedValue) in fixedValues.enumerated() {
-            guard let fixedValue else { continue }
-            values[index] = fixedValue
-        }
-
-        var autoCandidates: [(index: Int, weight: CGFloat, minimum: CGFloat)] = []
-        autoCandidates.reserveCapacity(nonFixedIndices.count)
-        var pendingWeight: CGFloat = 0
-        for index in nonFixedIndices {
-            let weight = max(weights[index], epsilon)
-            autoCandidates.append((index: index, weight: weight, minimum: minConstraints[index]))
-            pendingWeight += weight
-        }
-        autoCandidates.sort { lhs, rhs in
-            let lhsThreshold = lhs.minimum / lhs.weight
-            let rhsThreshold = rhs.minimum / rhs.weight
-            if abs(lhsThreshold - rhsThreshold) > epsilon {
-                return lhsThreshold > rhsThreshold
-            }
-            return lhs.index < rhs.index
-        }
-
-        var pinnedMinimumSum: CGFloat = 0
-        var firstUnpinnedIndex = 0
-        while firstUnpinnedIndex < autoCandidates.count, pendingWeight > epsilon {
-            let distributableSpace = max(0, remainingSpace - pinnedMinimumSum)
-            let candidate = autoCandidates[firstUnpinnedIndex]
-            let share = distributableSpace * (candidate.weight / pendingWeight)
-            guard share + epsilon < candidate.minimum else {
-                break
-            }
-
-            values[candidate.index] = candidate.minimum
-            pinnedMinimumSum += candidate.minimum
-            pendingWeight -= candidate.weight
-            firstUnpinnedIndex += 1
-        }
-
-        if firstUnpinnedIndex < autoCandidates.count, pendingWeight > epsilon {
-            let distributableSpace = max(0, remainingSpace - pinnedMinimumSum)
-            for candidate in autoCandidates[firstUnpinnedIndex...] {
-                values[candidate.index] = distributableSpace * (candidate.weight / pendingWeight)
-            }
-        }
+        let remainingSpace = fixedAllocation.fit(availableSpace: usableSpace, floors: floors)
+        var values = fixedAllocation.values.map { $0 ?? 0 }
+        var weightedAllocation = WeightedAllocation(
+            indices: fixedAllocation.nonFixedIndices,
+            weights: weights,
+            minimums: minConstraints
+        )
+        weightedAllocation.distribute(remainingSpace: remainingSpace, values: &values)
 
         return windows.enumerated().map { index, window in
             let isAtMinimum = minConstraints[index] > epsilon &&
                 abs(values[index] - minConstraints[index]) <= epsilon
-            let isAtMaximum = fixedValues[index] != nil &&
+            let isAtMaximum = fixedAllocation.values[index] != nil &&
                 (maxConstraints[index].map { abs(values[index] - $0) <= epsilon } ?? false)
             return Output(
                 value: max(Self.minimumRenderableSpan, values[index]),
-                wasConstrained: window.isConstraintFixed || fixedWasScaled[index] || isAtMinimum || isAtMaximum
+                wasConstrained: window.isConstraintFixed || fixedAllocation
+                    .wasScaled[index] || isAtMinimum || isAtMaximum
             )
         }
     }
@@ -229,5 +154,110 @@ extension NiriAxisSolver {
             clamped = min(clamped, maximum)
         }
         return clamped
+    }
+}
+
+extension NiriAxisSolver {
+    struct FixedAllocation {
+        private(set) var values: [CGFloat?]
+        private(set) var wasScaled: [Bool]
+        let nonFixedIndices: [Int]
+
+        init(windows: [Input], minimums: [CGFloat], maximums: [CGFloat?]) {
+            let values: [CGFloat?] = windows.enumerated().map { index, window in
+                if window.hasFixedValue, let fixedValue = window.fixedValue {
+                    return clampedFixedValue(fixedValue, minimum: minimums[index], maximum: maximums[index])
+                }
+                if window.isConstraintFixed {
+                    return clampedFixedValue(minimums[index], minimum: minimums[index], maximum: maximums[index])
+                }
+                return nil
+            }
+            self.values = values
+            wasScaled = [Bool](repeating: false, count: windows.count)
+            nonFixedIndices = windows.indices.filter { values[$0] == nil }
+        }
+
+        mutating func fit(availableSpace: CGFloat, floors: [CGFloat]) -> CGFloat {
+            let epsilon: CGFloat = 0.001
+            var fixedSum = values.compactMap(\.self).reduce(0, +)
+            let fixedBudget = max(
+                0,
+                availableSpace - nonFixedIndices.reduce(CGFloat.zero) { $0 + floors[$1] }
+            )
+            if fixedSum > fixedBudget, fixedSum > epsilon {
+                let fixedFloorSum = values.indices.reduce(CGFloat.zero) { partialResult, index in
+                    values[index] == nil ? partialResult : partialResult + floors[index]
+                }
+                let allowedSurplus = max(0, fixedBudget - fixedFloorSum)
+                let surplus = fixedSum - fixedFloorSum
+                let surplusScale = surplus > epsilon ? allowedSurplus / surplus : 0
+                for index in values.indices {
+                    guard let fixedValue = values[index] else { continue }
+                    let scaledValue = floors[index] + max(0, fixedValue - floors[index]) * surplusScale
+                    wasScaled[index] = abs(scaledValue - fixedValue) > epsilon
+                    values[index] = scaledValue
+                }
+                fixedSum = values.compactMap(\.self).reduce(0, +)
+            }
+            return max(0, availableSpace - fixedSum)
+        }
+    }
+
+    struct WeightedCandidate {
+        let index: Int
+        let weight: CGFloat
+        let minimum: CGFloat
+    }
+
+    struct WeightedAllocation {
+        private let candidates: [WeightedCandidate]
+        private var pendingWeight: CGFloat = 0
+
+        init(indices: [Int], weights: [CGFloat], minimums: [CGFloat]) {
+            let epsilon: CGFloat = 0.001
+            var candidates: [WeightedCandidate] = []
+            candidates.reserveCapacity(indices.count)
+            for index in indices {
+                let weight = max(weights[index], epsilon)
+                candidates.append(WeightedCandidate(index: index, weight: weight, minimum: minimums[index]))
+                pendingWeight += weight
+            }
+            candidates.sort { lhs, rhs in
+                let lhsThreshold = lhs.minimum / lhs.weight
+                let rhsThreshold = rhs.minimum / rhs.weight
+                if abs(lhsThreshold - rhsThreshold) > epsilon {
+                    return lhsThreshold > rhsThreshold
+                }
+                return lhs.index < rhs.index
+            }
+            self.candidates = candidates
+        }
+
+        mutating func distribute(remainingSpace: CGFloat, values: inout [CGFloat]) {
+            let epsilon: CGFloat = 0.001
+            var pinnedMinimumSum: CGFloat = 0
+            var firstUnpinnedIndex = 0
+            while firstUnpinnedIndex < candidates.count, pendingWeight > epsilon {
+                let distributableSpace = max(0, remainingSpace - pinnedMinimumSum)
+                let candidate = candidates[firstUnpinnedIndex]
+                let share = distributableSpace * (candidate.weight / pendingWeight)
+                guard share + epsilon < candidate.minimum else {
+                    break
+                }
+
+                values[candidate.index] = candidate.minimum
+                pinnedMinimumSum += candidate.minimum
+                pendingWeight -= candidate.weight
+                firstUnpinnedIndex += 1
+            }
+
+            if firstUnpinnedIndex < candidates.count, pendingWeight > epsilon {
+                let distributableSpace = max(0, remainingSpace - pinnedMinimumSum)
+                for candidate in candidates[firstUnpinnedIndex...] {
+                    values[candidate.index] = distributableSpace * (candidate.weight / pendingWeight)
+                }
+            }
+        }
     }
 }

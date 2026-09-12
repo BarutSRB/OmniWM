@@ -15,13 +15,16 @@ final class DwindleGroupVisibilityTests: XCTestCase {
         let diff = fixture.handler.layoutDiff(
             windows: [snapshot(fixture.first), snapshot(fixture.second)],
             frames: frames,
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .left,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: false,
-            pendingParkWindowIds: []
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .left,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: false,
+                pendingParkWindowIds: [],
+                animationTime: nil
+            )
         )
 
         XCTAssertEqual(diff.frameChanges.map(\.token), [fixture.second])
@@ -46,13 +49,16 @@ final class DwindleGroupVisibilityTests: XCTestCase {
                 snapshot(fixture.second)
             ],
             frames: frames,
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .right,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: false,
-            pendingParkWindowIds: []
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .right,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: false,
+                pendingParkWindowIds: [],
+                animationTime: nil
+            )
         )
 
         XCTAssertEqual(diff.frameChanges.map(\.token), [fixture.first])
@@ -78,39 +84,48 @@ final class DwindleGroupVisibilityTests: XCTestCase {
         let steady = fixture.handler.layoutDiff(
             windows: windows,
             frames: frames,
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .right,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: false,
-            pendingParkWindowIds: []
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .right,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: false,
+                pendingParkWindowIds: [],
+                animationTime: nil
+            )
         )
         XCTAssertTrue(steady.visibilityChanges.isEmpty)
 
         let pending = fixture.handler.layoutDiff(
             windows: windows,
             frames: frames,
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .right,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: false,
-            pendingParkWindowIds: [fixture.first.windowId]
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .right,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: false,
+                pendingParkWindowIds: [fixture.first.windowId],
+                animationTime: nil
+            )
         )
         XCTAssertEqual(pending.visibilityChanges.count, 1)
 
         let settling = fixture.handler.layoutDiff(
             windows: windows,
             frames: frames,
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .right,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: true,
-            pendingParkWindowIds: []
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .right,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: true,
+                pendingParkWindowIds: [],
+                animationTime: nil
+            )
         )
         XCTAssertEqual(settling.visibilityChanges.count, 1)
     }
@@ -134,13 +149,16 @@ final class DwindleGroupVisibilityTests: XCTestCase {
                 )
             ],
             frames: [fixture.second: activeFrame],
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .left,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 2,
-            reassertHidden: false,
-            pendingParkWindowIds: []
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .left,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 2,
+                reassertHidden: false,
+                pendingParkWindowIds: [],
+                animationTime: nil
+            )
         )
 
         XCTAssertTrue(diff.frameChanges.isEmpty)

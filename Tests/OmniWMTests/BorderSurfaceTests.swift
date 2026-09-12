@@ -248,8 +248,8 @@ final class BorderSurfaceTests: XCTestCase {
     @MainActor
     private func reconcileFixture() throws -> (controller: WMController, entry: WindowState) {
         let controller = WindowAdmissionTestSupport.controller(prefix: "BorderMotionQueryTests")
-        controller.settings.workspaceBarEnabled = false
-        controller.settings.bordersEnabled = true
+        controller.settings.workspaceBar.enabled = false
+        controller.settings.setBordersEnabled(true)
         let monitor = Monitor(
             id: .init(displayId: 814_101), displayId: 814_101,
             frame: CGRect(x: 0, y: 0, width: 1600, height: 1000), visibleFrame: .zero,
@@ -1587,7 +1587,7 @@ final class WindowCornerRadiiTests: XCTestCase {
     func testCompletedBorderDerivationReturnsToLiveBoundsAfterAnimation() throws {
         let fixture = try borderFrameFixture()
         fixture.controller.hasStartedServices = true
-        fixture.controller.settings.bordersEnabled = true
+        fixture.controller.settings.setBordersEnabled(true)
         XCTAssertTrue(fixture.controller.workspaceManager.setManagedFocus(
             fixture.entry.token,
             in: fixture.entry.workspaceId

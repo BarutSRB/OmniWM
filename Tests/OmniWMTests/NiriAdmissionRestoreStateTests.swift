@@ -1023,10 +1023,9 @@ final class NiriAdmissionRestoreStateTests: XCTestCase {
             guard let moveResult = engine.moveColumnToWorkspace(
                 column,
                 from: sourceWorkspaceId,
-                to: targetWorkspaceId,
+                to: NiriWorkspaceDestination(workspaceId: targetWorkspaceId, orientation: .vertical),
                 sourceState: &sourceState,
-                targetState: &targetState,
-                targetOrientation: .vertical
+                targetState: &targetState
             ) else {
                 return nil
             }
@@ -1068,10 +1067,10 @@ final class NiriAdmissionRestoreStateTests: XCTestCase {
         let targetWorkspaceId = try XCTUnwrap(
             controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
         )
-        var configurations = controller.settings.workspaceConfigurations
+        var configurations = controller.settings.workspaces.configurations
         let targetIndex = try XCTUnwrap(configurations.firstIndex { $0.name == "2" })
         configurations[targetIndex] = configurations[targetIndex].with(layoutType: .dwindle)
-        controller.settings.workspaceConfigurations = configurations
+        controller.settings.workspaces.configurations = configurations
         controller.niriLayoutHandler.enableNiriLayout()
 
         let token = controller.workspaceManager.addWindow(

@@ -8,10 +8,7 @@ extension ViewportState {
     mutating func transitionToColumn(
         _ newIndex: Int,
         columns: [NiriContainer],
-        gap: CGFloat,
-        workingArea: CGRect,
-        orientation: Monitor.Orientation,
-        motion: MotionSnapshot,
+        context: NiriInteractionContext,
         animate: Bool,
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false,
@@ -21,16 +18,12 @@ extension ViewportState {
     ) {
         guard !columns.isEmpty else { return }
         let clampedIndex = newIndex.clamped(to: 0 ... (columns.count - 1))
-        let viewportSpan: CGFloat = switch orientation {
-        case .horizontal: workingArea.width
-        case .vertical: workingArea.height
-        }
 
         let oldActivePosition = containerPosition(
             at: activeColumnIndex,
             containers: columns,
-            gap: gap,
-            sizeKeyPath: orientation.renderedSpanKeyPath
+            gap: context.gaps,
+            sizeKeyPath: context.orientation.renderedSpanKeyPath
         )
 
         let prevActiveColumn = activeColumnIndex
@@ -39,8 +32,8 @@ extension ViewportState {
         let newActivePosition = containerPosition(
             at: clampedIndex,
             containers: columns,
-            gap: gap,
-            sizeKeyPath: orientation.renderedSpanKeyPath
+            gap: context.gaps,
+            sizeKeyPath: context.orientation.renderedSpanKeyPath
         )
         let offsetDelta = oldActivePosition - newActivePosition
 
@@ -49,23 +42,19 @@ extension ViewportState {
         let settledActivePosition = containerPosition(
             at: clampedIndex,
             containers: columns,
-            gap: gap,
-            sizeKeyPath: orientation.settledSpanKeyPath
+            gap: context.gaps,
+            sizeKeyPath: context.orientation.settledSpanKeyPath
         )
         let targetOffset = computeVisibleOffset(
             containerIndex: clampedIndex,
             containers: columns,
-            gap: gap,
-            viewportSpan: viewportSpan,
-            sizeKeyPath: orientation.settledSpanKeyPath,
+            context: context,
             currentViewStart: settledActivePosition + viewOffset,
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             fromContainerIndex: fromColumnIndex ?? prevActiveColumn,
             scale: scale,
-            workingArea: workingArea,
-            viewFrame: viewFrame,
-            orientation: orientation
+            viewFrame: viewFrame
         )
 
         let pixel: CGFloat = 1.0 / max(scale, 1.0)
@@ -78,7 +67,7 @@ extension ViewportState {
         }
 
         if animate {
-            animateToOffset(targetOffset, motion: motion)
+            animateToOffset(targetOffset, motion: context.motion)
         } else {
             jumpOffset(to: targetOffset)
         }
@@ -90,27 +79,23 @@ extension ViewportState {
     mutating func ensureContainerVisible(
         containerIndex: Int,
         containers: [NiriContainer],
-        gap: CGFloat,
-        viewportSpan: CGFloat,
-        motion: MotionSnapshot,
-        sizeKeyPath: KeyPath<NiriContainer, CGFloat>,
+        context: NiriInteractionContext,
         animate: Bool = true,
         centerMode: CenterFocusedColumn = .never,
         alwaysCenterSingleColumn: Bool = false,
         animationConfig: SpringConfig? = nil,
         fromContainerIndex: Int? = nil,
         scale: CGFloat = 2.0,
-        workingArea: CGRect? = nil,
-        viewFrame: CGRect? = nil,
-        orientation: Monitor.Orientation
+        viewFrame: CGRect? = nil
     ) {
         guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return }
 
+        let sizeKeyPath = context.orientation.settledSpanKeyPath
         let stationaryOffset = viewOffset
         let activePos = containerPosition(
             at: activeColumnIndex,
             containers: containers,
-            gap: gap,
+            gap: context.gaps,
             sizeKeyPath: sizeKeyPath
         )
         let stationaryViewStart = activePos + stationaryOffset
@@ -119,17 +104,13 @@ extension ViewportState {
         let targetOffset = computeVisibleOffset(
             containerIndex: containerIndex,
             containers: containers,
-            gap: gap,
-            viewportSpan: viewportSpan,
-            sizeKeyPath: sizeKeyPath,
+            context: context,
             currentViewStart: stationaryViewStart,
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             fromContainerIndex: fromContainerIndex,
             scale: scale,
-            workingArea: workingArea,
-            viewFrame: viewFrame,
-            orientation: orientation
+            viewFrame: viewFrame
         )
 
         if abs(targetOffset - stationaryOffset) <= pixelEpsilon {
@@ -139,12 +120,40 @@ extension ViewportState {
         if animate {
             animateToOffset(
                 targetOffset,
-                motion: motion,
+                motion: context.motion,
                 config: animationConfig,
                 scale: scale
             )
         } else {
             jumpOffset(to: targetOffset)
         }
+    }
+}
+
+extension ViewportState {
+    mutating func retargetColumn(
+        to targetIndex: Int,
+        columns: [NiriContainer],
+        gap: CGFloat,
+        orientation: Monitor.Orientation,
+        previousPosition: CGFloat? = nil
+    ) {
+        let oldActivePosition = previousPosition
+            ?? containerPosition(
+                at: activeColumnIndex,
+                containers: columns,
+                gap: gap,
+                sizeKeyPath: orientation.renderedSpanKeyPath
+            )
+        let newActivePosition = containerPosition(
+            at: targetIndex,
+            containers: columns,
+            gap: gap,
+            sizeKeyPath: orientation.renderedSpanKeyPath
+        )
+        rebaseOffset(by: oldActivePosition - newActivePosition)
+        activeColumnIndex = targetIndex
+        activatePrevColumnOnRemoval = nil
+        viewOffsetToRestore = nil
     }
 }

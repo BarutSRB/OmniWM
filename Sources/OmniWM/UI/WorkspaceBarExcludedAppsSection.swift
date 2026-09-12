@@ -13,8 +13,8 @@ enum WorkspaceBarExcludedAppsEdits {
         refresh: () -> Void
     ) -> Bool {
         let changed = excluded
-            ? settings.addWorkspaceBarExcludedBundleID(bundleID)
-            : settings.removeWorkspaceBarExcludedBundleID(bundleID)
+            ? settings.workspaceBar.addExcludedBundleID(bundleID)
+            : settings.workspaceBar.removeExcludedBundleID(bundleID)
         guard changed else { return false }
         refresh()
         return true
@@ -30,7 +30,7 @@ struct WorkspaceBarExcludedAppsSection: View {
     private var candidates: [WorkspaceBarAppCandidate] {
         WorkspaceBarAppCandidates.build(
             controller: controller,
-            configuredBundleIDs: Array(settings.workspaceBarExcludedBundleIDs)
+            configuredBundleIDs: Array(settings.workspaceBar.excludedBundleIDs)
         )
     }
 
@@ -66,7 +66,7 @@ struct WorkspaceBarExcludedAppsSection: View {
         guard let bundleID = WorkspaceBarAppCandidates.normalizedBundleID(newBundleID) else {
             return false
         }
-        return !settings.workspaceBarExcludedBundleIDs.contains {
+        return !settings.workspaceBar.excludedBundleIDs.contains {
             $0.caseInsensitiveCompare(bundleID) == .orderedSame
         }
     }
@@ -74,7 +74,7 @@ struct WorkspaceBarExcludedAppsSection: View {
     private func exclusionBinding(for bundleID: String) -> Binding<Bool> {
         Binding(
             get: {
-                settings.workspaceBarExcludedBundleIDs.contains {
+                settings.workspaceBar.excludedBundleIDs.contains {
                     $0.caseInsensitiveCompare(bundleID) == .orderedSame
                 }
             },

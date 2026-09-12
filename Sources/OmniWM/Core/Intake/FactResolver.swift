@@ -25,7 +25,7 @@ struct ActivationFacts: Sendable {
     let sameAppFocusCausality: SameAppFocusCausality?
     let callbackGeneration: UInt64?
     let appVisibilityGeneration: UInt64
-    let focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution?
+    let focusedAdmissionRetryExecution: AdmissionRetryExecution?
 
     init(
         pid: pid_t,
@@ -37,7 +37,7 @@ struct ActivationFacts: Sendable {
         sameAppFocusCausality: SameAppFocusCausality? = nil,
         callbackGeneration: UInt64? = nil,
         appVisibilityGeneration: UInt64 = 0,
-        focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution? = nil
+        focusedAdmissionRetryExecution: AdmissionRetryExecution? = nil
     ) {
         self.pid = pid
         self.source = source
@@ -69,7 +69,7 @@ final class FactResolver {
         let callbackGeneration: UInt64?
         let appVisibilityGeneration: UInt64
         let resolverGeneration: UInt64
-        let focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution?
+        let focusedAdmissionRetryExecution: AdmissionRetryExecution?
     }
 
     var factProvider: ((pid_t) -> FocusedWindowFact?)?
@@ -90,7 +90,7 @@ final class FactResolver {
         sameAppFocusCausality: SameAppFocusCausality? = nil,
         callbackGeneration: UInt64? = nil,
         appVisibilityGeneration: UInt64 = 0,
-        focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution? = nil
+        focusedAdmissionRetryExecution: AdmissionRetryExecution? = nil
     ) -> Bool {
         let request = ActivationFactRequest(
             pid: pid,
@@ -144,7 +144,7 @@ final class FactResolver {
             }
             return true
         }
-        nonisolated(unsafe) let thread = AppAXContext.contexts[request.pid]?.axThread ?? sharedResolverThread()
+        nonisolated(unsafe) let thread = AppAXContextRegistry.contexts[request.pid]?.axThread ?? sharedResolverThread()
         Task { @MainActor in
             let focusedWindow = (try? await thread.runInLoop { _ in
                 Self.readFocusedWindowFact(pid: request.pid)
@@ -184,7 +184,7 @@ final class FactResolver {
     func resolveWindowConstraints(token: WindowToken, axRef: AXWindowRef) {
         guard inFlightConstraintTokens.insert(token).inserted else { return }
         let generation = resolverGeneration
-        nonisolated(unsafe) let thread = AppAXContext.contexts[token.pid]?.axThread ?? sharedResolverThread()
+        nonisolated(unsafe) let thread = AppAXContextRegistry.contexts[token.pid]?.axThread ?? sharedResolverThread()
         Task { @MainActor in
             let constraints = try? await thread.runInLoop { _ in
                 AXWindowService.sizeConstraints(axRef)

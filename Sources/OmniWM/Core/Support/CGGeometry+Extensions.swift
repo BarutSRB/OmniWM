@@ -33,6 +33,17 @@ enum FrameTolerance {
     static let screenMatch: CGFloat = 2.0
 }
 
+extension CGSize {
+    func isWithinFrameTolerance(of other: CGSize) -> Bool {
+        abs(width - other.width) <= FrameTolerance.frameWrite
+            && abs(height - other.height) <= FrameTolerance.frameWrite
+    }
+
+    func hasFinitePositiveDimensions() -> Bool {
+        width.isFinite && height.isFinite && width > 0 && height > 0
+    }
+}
+
 extension CGRect {
     var center: CGPoint {
         CGPoint(x: midX, y: midY)

@@ -236,11 +236,7 @@ enum AXWindowEnumerationInspector {
         try setRemainingTimeout(on: element, until: deadline)
         defer { AXUIElementSetMessagingTimeout(element, 0) }
 
-        var windowIdRaw: CGWindowID = 0
-        let windowIdResult = _AXUIElementGetWindow(element, &windowIdRaw)
-        try checkCancellation()
-        guard windowIdResult == .success else { return nil }
-        return Int(windowIdRaw)
+        return try readWindowId(for: element, checkCancellation: checkCancellation)
     }
 
     static func inspect(
@@ -254,16 +250,9 @@ enum AXWindowEnumerationInspector {
         try setRemainingTimeout(on: element, until: deadline)
         defer { AXUIElementSetMessagingTimeout(element, 0) }
 
-        let windowId: Int
-        if let knownWindowId {
-            windowId = knownWindowId
-        } else {
-            var windowIdRaw: CGWindowID = 0
-            let windowIdResult = _AXUIElementGetWindow(element, &windowIdRaw)
-            try checkCancellation()
-            guard windowIdResult == .success else { return nil }
-            windowId = Int(windowIdRaw)
-        }
+        guard let windowId = try knownWindowId ?? readWindowId(
+            for: element, checkCancellation: checkCancellation
+        ) else { return nil }
 
         let resolvedPid = try resolvedPID(
             for: element,
@@ -306,6 +295,17 @@ enum AXWindowEnumerationInspector {
             fullscreenAttribute: value(at: 4, in: resolvedValues) as? Bool,
             decisionEvidence: evidence
         )
+    }
+
+    private static func readWindowId(
+        for element: AXUIElement,
+        checkCancellation: () throws -> Void
+    ) throws -> Int? {
+        var windowIdRaw: CGWindowID = 0
+        let windowIdResult = _AXUIElementGetWindow(element, &windowIdRaw)
+        try checkCancellation()
+        guard windowIdResult == .success else { return nil }
+        return Int(windowIdRaw)
     }
 
     private static func resolvedPID(
@@ -427,28 +427,8 @@ enum AXWindowEnumerationInspector {
         try checkCancellation()
         return WindowAdmissionGeometryEvidence(
             isSizeSettable: result == .success && isSizeSettable.boolValue,
-            frame: frame(from: values)
+            frame: AXAttributeValue.frame(positionValue: value(at: 2, in: values), sizeValue: value(at: 3, in: values))
         )
-    }
-
-    private static func frame(from values: [Any?]?) -> CGRect? {
-        guard let positionValue = value(at: 2, in: values),
-              let sizeValue = value(at: 3, in: values),
-              CFGetTypeID(positionValue as CFTypeRef) == AXValueGetTypeID(),
-              CFGetTypeID(sizeValue as CFTypeRef) == AXValueGetTypeID()
-        else {
-            return nil
-        }
-        let positionAXValue = unsafeDowncast(positionValue as AnyObject, to: AXValue.self)
-        let sizeAXValue = unsafeDowncast(sizeValue as AnyObject, to: AXValue.self)
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(positionAXValue, .cgPoint, &position),
-              AXValueGetValue(sizeAXValue, .cgSize, &size)
-        else {
-            return nil
-        }
-        return ScreenCoordinateSpace.toAppKit(rect: CGRect(origin: position, size: size))
     }
 
     private static func value(at index: Int, in values: [Any?]?) -> Any? {

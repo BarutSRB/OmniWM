@@ -1309,10 +1309,13 @@ final class FloatingCreatePlacementTests: XCTestCase {
             for: evaluation,
             axRef: nil,
             existingEntry: nil,
-            fallbackWorkspaceId: fixture.primaryWorkspace,
             placementMode: .tiling,
-            placementOrigin: .discovery,
-            createPlacementContext: placementContext(),
+            placementContext: WorkspacePlacementContext(
+                origin: .discovery,
+                createPlacementContext: placementContext(),
+                fallbackWorkspaceId: fixture.primaryWorkspace,
+                reevaluation: .automatic
+            ),
             windowFrame: capturedFrame
         )
 
@@ -1388,20 +1391,26 @@ final class FloatingCreatePlacementTests: XCTestCase {
         context: WindowRuleReevaluationContext = .automatic
     ) -> WorkspacePlacementResolution {
         PlacementResolver(workspaceManager: fixture.controller.workspaceManager).resolveWorkspacePlacement(
-            workspaceName: workspaceName,
-            axRef: axRef(pid, 10_000),
-            pid: pid,
-            parentWindowId: parentWindowId,
-            inheritTrackedParentWorkspace: inheritTrackedParentWorkspace,
-            structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
-            placementMode: placementMode,
-            allowsFloatingSpawnPlacement: allowsFloatingSpawnPlacement,
-            origin: origin,
-            createPlacementContext: createPlacementContext,
-            windowFrame: windowFrame,
-            existingEntry: existingEntry,
-            fallbackWorkspaceId: fallbackWorkspaceId,
-            context: context
+            window: WorkspacePlacementWindow(
+                axRef: axRef(pid, 10_000),
+                pid: pid,
+                parentWindowId: parentWindowId,
+                placementMode: placementMode,
+                windowFrame: windowFrame,
+                existingEntry: existingEntry
+            ),
+            rules: WorkspacePlacementRules(
+                workspaceName: workspaceName,
+                inheritTrackedParentWorkspace: inheritTrackedParentWorkspace,
+                structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+                allowsFloatingSpawnPlacement: allowsFloatingSpawnPlacement
+            ),
+            context: WorkspacePlacementContext(
+                origin: origin,
+                createPlacementContext: createPlacementContext,
+                fallbackWorkspaceId: fallbackWorkspaceId,
+                reevaluation: context
+            )
         )
     }
 

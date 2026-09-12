@@ -327,9 +327,9 @@ final class NiriKeyboardFocusTests: XCTestCase {
                 }
             )
         )
-        controller.settings.niriVisibleContainerCount = 3
-        controller.settings.niriInfiniteLoop = false
-        controller.settings.niriCenterFocusedColumn = .never
+        controller.settings.niri.visibleContainerCount = 3
+        controller.settings.niri.infiniteLoop = false
+        controller.settings.niri.centerFocusedColumn = .never
         controller.motionPolicy.animationsEnabled = true
         controller.layoutRefreshController.displayLinkActivationForTests = { _ in true }
         let monitor = Monitor(
@@ -340,7 +340,7 @@ final class NiriKeyboardFocusTests: XCTestCase {
             hasNotch: false,
             name: "Keyboard Focus"
         )
-        controller.settings.updateOrientationSettings(
+        controller.settings.monitors.updateOrientationSettings(
             MonitorOrientationSettings(
                 monitorName: monitor.name,
                 monitorDisplayId: monitor.displayId,

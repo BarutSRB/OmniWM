@@ -7,222 +7,43 @@ import Foundation
 import QuartzCore
 import ScreenCaptureKit
 
-enum OverviewHotkeyDisposition: Equatable {
-    case inactive
-    case handled
-    case blocked
-}
-
-enum OverviewPhysicalHotkeyAction: Equatable {
-    case dismissSelection
-    case closeSelection
-}
-
-@MainActor
-struct OverviewEnvironment {
-    var frontmostApplicationPID: () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
-    var currentProcessID: () -> pid_t = { getpid() }
-    var activateOmniWM: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
-    var activateApplication: (pid_t) -> Void = { pid in
-        NSRunningApplication(processIdentifier: pid)?.activate(options: [])
-    }
-
-    var addLocalEventMonitor: (
-        NSEvent.EventTypeMask,
-        @escaping (NSEvent) -> NSEvent?
-    ) -> Any? = { mask, handler in
-        NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
-    }
-
-    var removeEventMonitor: (Any) -> Void = { monitor in
-        NSEvent.removeMonitor(monitor)
-    }
-
-    var notificationCenter: NotificationCenter = .default
-    var selectionDismissDelayNanoseconds: UInt64 = 50_000_000
-    var schedulePostCloseHandoff: (@escaping @MainActor () -> Void) -> Void = { handoff in
-        Task { @MainActor in
-            await Task.yield()
-            handoff()
-        }
-    }
-
-    var windowTitle: (WindowState) -> String? = { entry in
-        AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId))
-    }
-
-    var windowFrame: (WindowState) -> CGRect? = { entry in
-        AXWindowService.framePreferFast(entry.axRef)
-    }
-
-    var onThumbnailCaptureStarted: () -> Void = {}
-    var onCachedProjectionRefreshed: (Set<WorkspaceDescriptor.ID>) -> Void = { _ in }
-}
-
-struct DwindleOverviewWorkspaceProjection {
-    let eligibleTokens: Set<WindowToken>
-    let inactiveTokens: Set<WindowToken>
-    let frames: [WindowToken: CGRect]
-    let groupCountByToken: [WindowToken: Int]
-
-    init(
-        engine: DwindleLayoutEngine,
-        workspaceId: WorkspaceDescriptor.ID,
-        eligibleTokens: Set<WindowToken>
-    ) {
-        self.eligibleTokens = eligibleTokens
-
-        var inactiveTokens = engine.inactiveGroupTokens(in: workspaceId)
-        var frames = engine.currentFrames(in: workspaceId)
-
-        var groupCounts: [WindowToken: Int] = [:]
-        for snapshot in engine.groupedTileSnapshots(in: workspaceId) {
-            let eligibleMembers = snapshot.members.filter { eligibleTokens.contains($0.token) }
-            let representative = eligibleMembers.first { $0.token == snapshot.activeToken }
-                ?? eligibleMembers.first
-            let frame = frames[snapshot.activeToken] ?? snapshot.contentFrame ?? snapshot.tileFrame
-
-            inactiveTokens.formUnion(snapshot.members.map(\.token))
-            for member in snapshot.members {
-                frames.removeValue(forKey: member.token)
-            }
-
-            guard let representative else { continue }
-            inactiveTokens.remove(representative.token)
-            if let frame {
-                frames[representative.token] = frame
-            }
-            if eligibleMembers.count > 1 {
-                groupCounts[representative.token] = eligibleMembers.count
-            }
-        }
-        self.inactiveTokens = inactiveTokens
-        self.frames = frames
-        groupCountByToken = groupCounts
-    }
-
-    func includes(_ token: WindowToken) -> Bool {
-        eligibleTokens.contains(token) && !inactiveTokens.contains(token)
-    }
-}
-
 @MainActor
 final class OverviewController {
-    private enum ScrollTuning {
-        static let preciseScrollMultiplier: CGFloat = 3.5
-        static let nonPreciseScrollMultiplier: CGFloat = 2.0
-        static let zoomStep: CGFloat = 0.05
-        static let zoomEpsilon: CGFloat = 0.0001
-    }
-
-    enum OverviewDismissReason {
-        case cancel
-        case selection
-        case externalDeactivation
-
-        var shouldRestorePreviousApplication: Bool {
-            switch self {
-            case .cancel:
-                true
-            case .selection,
-                 .externalDeactivation:
-                false
-            }
-        }
-    }
-
-    private enum PostCloseHandoff {
-        case activateApplication(pid_t)
-        case focusWindow(WindowHandle)
-    }
-
-    private struct PostCloseHandoffValidity {
-        let intentIssuanceWatermark: IntentID
-        let focusEpochSeq: UInt64
-    }
-
-    private struct OverviewSnapshot {
-        var workspaces: [OverviewWorkspaceLayoutItem] = []
-        var windows: [WindowHandle: OverviewWindowLayoutData] = [:]
-        var niriSnapshotsByWorkspace: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot] = [:]
-        var groupCountByHandle: [WindowHandle: Int] = [:]
-
-        var windowIds: [Int] {
-            windows.values.map(\.token.windowId).sorted()
-        }
-    }
-
-    private struct OverviewAppearance: Equatable {
-        let backdrop: SettingsColor
-        let normalBorder: SettingsColor
-        let hoveredBorder: SettingsColor
-        let selectedBorder: SettingsColor
-
-        @MainActor
-        init(settings: SettingsStore) {
-            backdrop = settings.overviewBackdropColor
-            normalBorder = settings.overviewNormalBorderColor
-            hoveredBorder = settings.overviewHoveredBorderColor
-            selectedBorder = settings.overviewSelectedBorderColor
-        }
-
-        var renderPalette: OverviewRenderPalette {
-            OverviewRenderPalette(
-                backdropColor: backdrop,
-                normalBorderColor: normalBorder,
-                hoveredBorderColor: hoveredBorder,
-                selectedBorderColor: selectedBorder
-            )
-        }
-    }
-
     private weak var wmController: WMController?
     private let motionPolicy: MotionPolicy
     private let environment: OverviewEnvironment
-    private let ownedWindowRegistry: OwnedWindowRegistry
 
     private(set) var state: OverviewState = .closed
-    private var overviewSnapshot = OverviewSnapshot()
-    private var layoutsByMonitor: [Monitor.ID: OverviewLayout] = [:]
-    private var searchQuery: String = ""
-    private var scale: CGFloat = 1.0
-    private var configuredScale: CGFloat = 1.0
-    private var appearance: OverviewAppearance
-    private var renderPalette: OverviewRenderPalette
-    private(set) var selectedWindowHandle: WindowHandle?
-    private(set) var activeInteractionMonitorId: Monitor.ID?
-
-    private var windows: [OverviewWindow] = []
-    private var windowsByDisplayId: [CGDirectDisplayID: OverviewWindow] = [:]
-    private var animator: OverviewAnimator?
-    private(set) var thumbnailCache: [Int: CGImage] = [:]
-    private var thumbnailCaptureTask: Task<Void, Never>?
-    private static let maxConcurrentThumbnailCaptures = 4
-
-    private struct ThumbnailCaptureItem: @unchecked Sendable {
-        let request: OverviewThumbnailCaptureRequest
-        let scWindow: SCWindow
+    private let overviewSnapshot: OverviewSnapshot
+    let drag: OverviewDragSession
+    private let mutationSession: OverviewMutationSession
+    private let structuralActions: OverviewStructuralActions
+    private let projection: OverviewViewportProjection
+    var selectedWindowHandle: WindowHandle? {
+        projection.selectedWindowHandle
     }
 
-    private var keyEventMonitor: Any?
-    private var flagsEventMonitor: Any?
-    private var applicationDidResignObserver: NSObjectProtocol?
-    private var screenParametersObserver: NSObjectProtocol?
-    private var previousFrontmostApplicationPID: pid_t?
-    private var pendingDismissReason: OverviewDismissReason = .cancel
-    private var pendingFocusTargetWindow: WindowHandle?
-    private var pendingPostCloseHandoffValidity: PostCloseHandoffValidity?
-    private var postCloseHandoffGeneration: UInt64 = 0
-    private var selectionDismissTask: Task<Void, Never>?
-    private var selectionDismissGeneration: UInt64 = 0
+    var activeInteractionMonitorId: Monitor.ID? {
+        projection.activeInteractionMonitorId
+    }
 
-    private var inputHandler: OverviewInputHandler?
-    private var dragGhostController: DragGhostController?
-    private var dragSession: DragSession?
-    private var structuralTransferGeneration: UInt64 = 0
-    private var activeStructuralTransferGeneration: UInt64?
-    private var projectionMutationGeneration: UInt64 = 0
-    private var pendingProjectionWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
+    private var presentation: OverviewPresentation
+
+    private let thumbnailCapture: OverviewThumbnailCapture
+    var thumbnailCache: [Int: CGImage] {
+        thumbnailCapture.thumbnailCache
+    }
+
+    private let windowSession: OverviewWindowSession
+    private var animator: OverviewAnimator?
+
+    private let focusSession: OverviewFocusSession
+    private let inputSession: OverviewInputSession
+    let input: OverviewInputHandler
+
+    var canPerformStructuralHotkey: Bool {
+        !mutationSession.isTransferring
+    }
 
     var onActivateWindow: ((WindowHandle, WorkspaceDescriptor.ID) -> Void)?
     var onCloseWindow: ((WindowHandle) -> Bool)?
@@ -238,92 +59,96 @@ final class OverviewController {
         displayLinkFactory: @escaping OverviewAnimator.DisplayLinkFactory = OverviewAnimator.makeLiveDisplayLink,
         animationMediaTimeProvider: @escaping OverviewAnimator.MediaTimeProvider = CACurrentMediaTime
     ) {
-        let appearance = OverviewAppearance(settings: wmController.settings)
-        let configuredScale = OverviewLayoutCalculator.clampedScale(CGFloat(wmController.settings.overviewZoom))
+        let presentation = OverviewPresentation(settings: wmController.settings)
+        self.presentation = presentation
+        let windowFacts = OverviewWindowFacts(wmController: wmController, environment: environment)
+        let structuralActions = OverviewStructuralActions(wmController: wmController, windowFacts: windowFacts)
+        self.structuralActions = structuralActions
+        let overviewSnapshot = OverviewSnapshot(wmController: wmController, facts: windowFacts)
+        self.overviewSnapshot = overviewSnapshot
+        let projection = OverviewViewportProjection(
+            wmController: wmController,
+            snapshot: overviewSnapshot,
+            scale: presentation.configuredScale
+        )
+        self.projection = projection
+        focusSession = OverviewFocusSession(
+            wmController: wmController,
+            environment: environment,
+            projection: projection,
+            snapshot: overviewSnapshot
+        )
+        let mutationSession = OverviewMutationSession(
+            wmController: wmController,
+            projection: projection,
+            windowFacts: windowFacts,
+            structuralActions: structuralActions
+        )
+        self.mutationSession = mutationSession
+        let windowSession = OverviewWindowSession(projection: projection, ownedWindowRegistry: ownedWindowRegistry)
+        self.windowSession = windowSession
+        drag = OverviewDragSession(
+            projection: projection,
+            snapshot: overviewSnapshot,
+            windowSession: windowSession,
+            structuralActions: structuralActions,
+            mutationSession: mutationSession
+        )
+        thumbnailCapture = OverviewThumbnailCapture(
+            wmController: wmController, environment: environment, ownedWindowRegistry: ownedWindowRegistry,
+            snapshot: overviewSnapshot, projection: projection, windowSession: windowSession
+        )
+        input = OverviewInputHandler(
+            projection: projection,
+            windowSession: windowSession,
+            focusSession: focusSession,
+            snapshot: overviewSnapshot
+        )
         self.wmController = wmController
         self.motionPolicy = motionPolicy
         self.environment = environment
-        self.ownedWindowRegistry = ownedWindowRegistry
-        self.configuredScale = configuredScale
-        scale = configuredScale
-        self.appearance = appearance
-        renderPalette = appearance.renderPalette
+        inputSession = OverviewInputSession(environment: environment)
+        connectSession(displayLinkFactory: displayLinkFactory, animationMediaTimeProvider: animationMediaTimeProvider)
+    }
+
+    private func connectSession(
+        displayLinkFactory: @escaping OverviewAnimator.DisplayLinkFactory,
+        animationMediaTimeProvider: @escaping OverviewAnimator.MediaTimeProvider
+    ) {
+        drag.connect(overview: self)
+        focusSession.connect(overview: self)
+        mutationSession.connect(overview: self)
         animator = OverviewAnimator(
             controller: self,
             displayLinkFactory: displayLinkFactory,
             mediaTimeProvider: animationMediaTimeProvider
         )
-        inputHandler = OverviewInputHandler(controller: self)
+        input.connect(controller: self)
     }
 
+    deinit {
+        MainActor.assumeIsolated {
+            endOwnedSession()
+            cleanup()
+        }
+    }
+}
+
+extension OverviewController {
     func toggle() {
         switch state {
         case .closed:
             open()
         case .opening,
              .open:
-            dismissToSelection(animated: true)
+            input.dismissToSelection(animated: true)
         case .closing:
             reverseClosingTransition()
         }
     }
 
-    func handleHotkeyInvocation(_ invocation: HotkeyInvocation) -> OverviewHotkeyDisposition {
-        guard state.isOpen else { return .inactive }
-        if let trigger = invocation.trigger,
-           let action = Self.physicalHotkeyAction(for: trigger)
-        {
-            guard !trigger.isRepeat else { return .handled }
-            switch action {
-            case .dismissSelection:
-                dismissToSelection(animated: true)
-            case .closeSelection:
-                closeSelectedWindow()
-            }
-            return .handled
-        }
-        return handleHotkeyCommand(invocation.command)
-    }
-
-    static func physicalHotkeyAction(for trigger: PhysicalHotkeyTrigger) -> OverviewPhysicalHotkeyAction? {
-        let relevantModifiers = trigger.modifiers
-            & UInt32(controlKey | optionKey | shiftKey | cmdKey)
-        switch trigger.keyCode {
-        case UInt32(kVK_Escape):
-            return .dismissSelection
-        case UInt32(kVK_Return),
-             UInt32(kVK_ANSI_KeypadEnter):
-            return relevantModifiers == 0 ? .dismissSelection : nil
-        case UInt32(kVK_ANSI_W):
-            return relevantModifiers == UInt32(cmdKey) ? .closeSelection : nil
-        default:
-            return nil
-        }
-    }
-
-    func handleHotkeyCommand(_ command: HotkeyCommand) -> OverviewHotkeyDisposition {
-        guard state.isOpen else { return .inactive }
-
-        switch command {
-        case .toggleOverview:
-            toggle()
-            return .handled
-        case let .focus(direction):
-            guard case .open = state, dragSession == nil else { return .handled }
-            navigateSelection(direction)
-            return .handled
-        default:
-            guard isStructuralHotkey(command) else { return .blocked }
-            guard case .open = state,
-                  dragSession == nil,
-                  activeStructuralTransferGeneration == nil
-            else {
-                return .handled
-            }
-            guard let selectedWindowHandle else { return .handled }
-            executeStructuralHotkey(command, selectedHandle: selectedWindowHandle)
-            return .handled
-        }
+    func performStructuralHotkey(_ command: HotkeyCommand, selectedHandle: WindowHandle) -> StructuralMutationOutcome? {
+        structuralActions.performStructuralHotkey(command, selectedHandle: selectedHandle)
     }
 
     @discardableResult
@@ -331,303 +156,30 @@ final class OverviewController {
         _ command: HotkeyCommand,
         selectedHandle: WindowHandle
     ) -> StructuralMutationOutcome? {
-        guard activeStructuralTransferGeneration == nil else { return .unchanged }
+        guard !mutationSession.isTransferring else { return .unchanged }
         let outcome = performStructuralHotkey(command, selectedHandle: selectedHandle)
         if let outcome, case let .changed(mutation) = outcome {
-            completeStructuralMutation(mutation)
+            mutationSession.completeStructuralMutation(mutation)
         }
         return outcome
-    }
-
-    func performStructuralHotkey(
-        _ command: HotkeyCommand,
-        selectedHandle: WindowHandle
-    ) -> StructuralMutationOutcome? {
-        guard let wmController,
-              let entry = visibleManagedEntry(for: selectedHandle)
-        else {
-            return .unchanged
-        }
-        let workspaceId = entry.workspaceId
-        let isNiri = wmController.workspaceManager.activeLayoutKind(for: workspaceId) == .niri
-
-        switch command {
-        case let .move(direction):
-            guard isNiri else { return .unchanged }
-            let outcome = wmController.niriLayoutHandler.moveWindow(
-                handle: selectedHandle,
-                direction: direction
-            )
-            if case .atWorkspaceEdge = outcome,
-               wmController.settings.moveCrossesMonitorAtEdge
-            {
-                return wmController.workspaceNavigationHandler.moveWindowToMonitor(
-                    handle: selectedHandle,
-                    direction: direction
-                )
-            }
-            return outcome
-        case let .moveWindowToMonitor(direction):
-            return wmController.workspaceNavigationHandler.moveWindowToMonitor(
-                handle: selectedHandle,
-                direction: direction
-            )
-        case .moveWindowDown:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveWindowWithinContainer(
-                handle: selectedHandle,
-                direction: .down
-            )
-        case .moveWindowUp:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveWindowWithinContainer(
-                handle: selectedHandle,
-                direction: .up
-            )
-        case .moveWindowDownOrToWorkspaceDown:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveWindowOrToAdjacentWorkspace(
-                handle: selectedHandle,
-                direction: .down
-            )
-        case .moveWindowUpOrToWorkspaceUp:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveWindowOrToAdjacentWorkspace(
-                handle: selectedHandle,
-                direction: .up
-            )
-        case .consumeWindowIntoColumn:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.consumeWindowIntoColumn(containing: selectedHandle)
-        case .expelWindowFromColumn:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.expelWindowFromColumn(containing: selectedHandle)
-        case let .moveColumn(direction):
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveColumn(
-                containing: selectedHandle,
-                direction: direction
-            )
-        case .moveColumnToFirst:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveColumnToFirst(containing: selectedHandle)
-        case .moveColumnToLast:
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveColumnToLast(containing: selectedHandle)
-        case let .moveColumnToIndex(index):
-            guard isNiri else { return .unchanged }
-            return wmController.niriLayoutHandler.moveColumn(
-                containing: selectedHandle,
-                toOneBasedIndex: index
-            )
-        case let .moveToWorkspace(index):
-            return wmController.workspaceNavigationHandler.moveWindow(
-                handle: selectedHandle,
-                toWorkspaceIndex: index
-            )
-        case .moveWindowToWorkspaceUp:
-            return wmController.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(
-                handle: selectedHandle,
-                direction: .up
-            )
-        case .moveWindowToWorkspaceDown:
-            return wmController.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(
-                handle: selectedHandle,
-                direction: .down
-            )
-        case let .moveColumnToWorkspace(index):
-            guard isNiri else { return .unchanged }
-            return wmController.workspaceNavigationHandler.moveColumn(
-                containing: selectedHandle,
-                toWorkspaceIndex: index
-            )
-        case .moveColumnToWorkspaceUp:
-            guard isNiri else { return .unchanged }
-            return wmController.workspaceNavigationHandler.moveColumnToAdjacentWorkspace(
-                containing: selectedHandle,
-                direction: .up
-            )
-        case .moveColumnToWorkspaceDown:
-            guard isNiri else { return .unchanged }
-            return wmController.workspaceNavigationHandler.moveColumnToAdjacentWorkspace(
-                containing: selectedHandle,
-                direction: .down
-            )
-        default:
-            return nil
-        }
-    }
-
-    private func isStructuralHotkey(_ command: HotkeyCommand) -> Bool {
-        switch command {
-        case .move,
-             .moveWindowToMonitor,
-             .moveWindowDown,
-             .moveWindowUp,
-             .moveWindowDownOrToWorkspaceDown,
-             .moveWindowUpOrToWorkspaceUp,
-             .consumeWindowIntoColumn,
-             .expelWindowFromColumn,
-             .moveColumn,
-             .moveColumnToFirst,
-             .moveColumnToLast,
-             .moveColumnToIndex,
-             .moveToWorkspace,
-             .moveWindowToWorkspaceUp,
-             .moveWindowToWorkspaceDown,
-             .moveColumnToWorkspace,
-             .moveColumnToWorkspaceUp,
-             .moveColumnToWorkspaceDown:
-            true
-        default:
-            false
-        }
-    }
-
-    private func completeStructuralMutation(_ mutation: StructuralMutation) {
-        guard let wmController, activateStructuralDestination(mutation) else { return }
-        let transferGeneration = serializesTransfer(mutation) ? beginStructuralTransfer() : nil
-        let projectionGeneration = beginProjectionMutation(
-            affectedWorkspaceIds: projectionWorkspaceIds(for: mutation)
-        )
-
-        wmController.layoutRefreshController.requestImmediateRelayout(
-            reason: .overviewMutation,
-            affectedWorkspaceIds: mutation.affectedWorkspaceIds,
-            postLayout: { [weak self] in
-                self?.finishStructuralMutation(
-                    mutation,
-                    projectionGeneration: projectionGeneration,
-                    transferGeneration: transferGeneration
-                )
-            },
-            postLayoutInvalidated: { [weak self] in
-                self?.finishStructuralMutation(
-                    mutation,
-                    projectionGeneration: projectionGeneration,
-                    transferGeneration: transferGeneration
-                )
-            }
-        )
-        if let scrollWorkspaceId = mutation.scrollWorkspaceId {
-            wmController.layoutRefreshController.startScrollAnimation(for: scrollWorkspaceId)
-        }
-    }
-
-    private func beginProjectionMutation(
-        affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>
-    ) -> UInt64 {
-        pendingProjectionWorkspaceIds.formUnion(affectedWorkspaceIds)
-        projectionMutationGeneration &+= 1
-        return projectionMutationGeneration
-    }
-
-    private func finishStructuralMutation(
-        _ mutation: StructuralMutation,
-        projectionGeneration: UInt64,
-        transferGeneration: UInt64?
-    ) {
-        defer { finishStructuralTransfer(transferGeneration) }
-        guard projectionMutationGeneration == projectionGeneration else { return }
-        synchronizeStructuralSelection(mutation)
-        pendingProjectionWorkspaceIds.formUnion(projectionWorkspaceIds(for: mutation))
-        let affectedWorkspaceIds = pendingProjectionWorkspaceIds
-        pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
-        refreshCachedOverviewProjection(
-            affectedWorkspaceIds: affectedWorkspaceIds
-        )
-    }
-
-    private func projectionWorkspaceIds(
-        for mutation: StructuralMutation
-    ) -> Set<WorkspaceDescriptor.ID> {
-        var workspaceIds = mutation.affectedWorkspaceIds
-        if let workspaceId = wmController?.workspaceManager.workspace(for: mutation.selectedHandle.id) {
-            workspaceIds.insert(workspaceId)
-        }
-        return workspaceIds
-    }
-
-    private func activateStructuralDestination(_ mutation: StructuralMutation) -> Bool {
-        guard let wmController,
-              let monitor = wmController.workspaceManager.monitorForWorkspace(mutation.destinationWorkspaceId)
-        else {
-            return false
-        }
-        guard wmController.workspaceManager.setActiveWorkspace(
-            mutation.destinationWorkspaceId,
-            on: monitor.id
-        ) else {
-            return false
-        }
-        _ = wmController.workspaceManager.setInteractionMonitor(monitor.id)
-        synchronizeStructuralSelection(mutation)
-        activeInteractionMonitorId = monitor.id
-        setSelectedWindowHandle(mutation.selectedHandle)
-        return true
-    }
-
-    private func synchronizeStructuralSelection(_ mutation: StructuralMutation) {
-        guard let wmController,
-              wmController.workspaceManager.workspace(for: mutation.selectedHandle.id)
-              == mutation.destinationWorkspaceId,
-              let monitor = wmController.workspaceManager.monitorForWorkspace(mutation.destinationWorkspaceId)
-        else {
-            return
-        }
-
-        let nodeId = wmController.niriEngine?
-            .findNode(for: mutation.selectedHandle, in: mutation.destinationWorkspaceId)?.id
-        _ = wmController.workspaceManager.commitWorkspaceSelection(
-            nodeId: nodeId,
-            focusedToken: mutation.selectedHandle.id,
-            in: mutation.destinationWorkspaceId,
-            onMonitor: monitor.id
-        )
-        if wmController.workspaceManager.activeLayoutKind(for: mutation.destinationWorkspaceId) == .dwindle,
-           let engine = wmController.dwindleEngine,
-           let node = engine.findNode(for: mutation.selectedHandle.id, in: mutation.destinationWorkspaceId)
-        {
-            wmController.workspaceManager.withEngineMutationScope(in: mutation.destinationWorkspaceId) {
-                engine.setSelectedNode(node, in: mutation.destinationWorkspaceId)
-            }
-        }
-    }
-
-    private func serializesTransfer(_ mutation: StructuralMutation) -> Bool {
-        guard mutation.sourceWorkspaceId != mutation.destinationWorkspaceId,
-              let wmController
-        else {
-            return false
-        }
-        return wmController.workspaceManager.activeLayoutKind(for: mutation.sourceWorkspaceId)
-            != wmController.workspaceManager.activeLayoutKind(for: mutation.destinationWorkspaceId)
-    }
-
-    private func beginStructuralTransfer() -> UInt64? {
-        guard activeStructuralTransferGeneration == nil else { return nil }
-        structuralTransferGeneration &+= 1
-        activeStructuralTransferGeneration = structuralTransferGeneration
-        return structuralTransferGeneration
-    }
-
-    private func finishStructuralTransfer(_ generation: UInt64?) {
-        guard let generation, activeStructuralTransferGeneration == generation else { return }
-        activeStructuralTransferGeneration = nil
     }
 
     func open() {
         guard case .closed = state else { return }
         guard wmController != nil else { return }
 
-        invalidateSelectionDismissal()
-        advancePostCloseHandoffGeneration()
-        pendingPostCloseHandoffValidity = nil
+        focusSession.invalidateSelectionDismissal()
+        focusSession.advancePostCloseHandoffGeneration()
+        focusSession.pendingPostCloseHandoffValidity = nil
 
         prepareOpenState()
-        createWindows()
+        windowSession.createWindows(
+            controller: self,
+            monitors: wmController?.workspaceManager.monitors ?? [],
+            palette: presentation.renderPalette
+        )
         beginOwnedSession()
-        startThumbnailCapture()
+        thumbnailCapture.startThumbnailCapture()
 
         if motionPolicy.animationsEnabled {
             state = .opening
@@ -637,29 +189,29 @@ final class OverviewController {
         }
 
         updateWindowDisplays()
-        showWindows()
+        windowSession.showWindows()
         activateOwnedSession()
-        primaryOverviewWindow()?.show(asKeyWindow: true)
+        windowSession.primaryOverviewWindow()?.show(asKeyWindow: true)
         if motionPolicy.animationsEnabled {
-            animator?.startOpenAnimation(displayIds: windows.map(\.displayId))
+            animator?.startOpenAnimation(displayIds: windowSession.displayIds)
         }
     }
 
     private func reverseClosingTransition() {
         guard case .closing = state else { return }
 
-        invalidateSelectionDismissal()
-        advancePostCloseHandoffGeneration()
-        pendingDismissReason = .cancel
-        pendingFocusTargetWindow = nil
-        pendingPostCloseHandoffValidity = nil
+        focusSession.invalidateSelectionDismissal()
+        focusSession.advancePostCloseHandoffGeneration()
+        focusSession.pendingDismissReason = .cancel
+        focusSession.pendingFocusTargetWindow = nil
+        focusSession.pendingPostCloseHandoffValidity = nil
         state = motionPolicy.animationsEnabled ? .opening : .open
         updateWindowDisplays()
         activateOwnedSession()
-        primaryOverviewWindow()?.show(asKeyWindow: true)
+        windowSession.primaryOverviewWindow()?.show(asKeyWindow: true)
 
         if motionPolicy.animationsEnabled {
-            animator?.startOpenAnimation(displayIds: windows.map(\.displayId))
+            animator?.startOpenAnimation(displayIds: windowSession.displayIds)
         } else {
             animator?.cancelAnimation()
         }
@@ -668,51 +220,38 @@ final class OverviewController {
     func prepareOpenState() {
         guard let wmController else { return }
 
-        activeInteractionMonitorId = wmController.monitorForInteraction()?.id
-        configuredScale = OverviewLayoutCalculator.clampedScale(CGFloat(wmController.settings.overviewZoom))
-        scale = configuredScale
-        appearance = OverviewAppearance(settings: wmController.settings)
-        renderPalette = appearance.renderPalette
-        buildOverviewSnapshot()
+        projection.activeInteractionMonitorId = wmController.monitorForInteraction()?.id
+        presentation = OverviewPresentation(settings: wmController.settings)
+        projection.scale = presentation.configuredScale
+        overviewSnapshot.build()
 
         if let focusedHandle = wmController.workspaceManager.selectedManagedHandle,
            overviewSnapshot.windows[focusedHandle] != nil
         {
-            selectedWindowHandle = focusedHandle
+            projection.selectedWindowHandle = focusedHandle
         }
 
-        rebuildProjectedLayouts()
+        projection.rebuildProjectedLayouts()
     }
 
     func updateSettings() {
         guard let wmController else { return }
 
-        let nextConfiguredScale = OverviewLayoutCalculator.clampedScale(CGFloat(wmController.settings.overviewZoom))
-        let nextAppearance = OverviewAppearance(settings: wmController.settings)
-        let scaleChanged = abs(nextConfiguredScale - configuredScale) > ScrollTuning.zoomEpsilon
-        let appearanceChanged = nextAppearance != appearance
-
-        configuredScale = nextConfiguredScale
-        if appearanceChanged {
-            appearance = nextAppearance
-            renderPalette = nextAppearance.renderPalette
-        }
+        let (scaleChanged, appearanceChanged) = presentation.update(settings: wmController.settings)
 
         guard state.isOpen else {
-            scale = nextConfiguredScale
+            projection.scale = presentation.configuredScale
             return
         }
         guard scaleChanged || appearanceChanged else { return }
 
         if scaleChanged {
-            let anchors = captureSelectedViewportAnchors()
-            scale = nextConfiguredScale
-            rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
-            updateWindowDisplays(palette: appearanceChanged ? renderPalette : nil)
+            let anchors = projection.captureSelectedViewportAnchors()
+            projection.scale = presentation.configuredScale
+            projection.rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
+            updateWindowDisplays(palette: appearanceChanged ? presentation.renderPalette : nil)
         } else {
-            for window in windows {
-                window.updatePalette(renderPalette)
-            }
+            windowSession.updatePalette(presentation.renderPalette)
         }
     }
 
@@ -726,9 +265,9 @@ final class OverviewController {
             return
         case .closing:
             if reason == .externalDeactivation {
-                pendingDismissReason = .externalDeactivation
-                pendingFocusTargetWindow = nil
-                pendingPostCloseHandoffValidity = nil
+                focusSession.pendingDismissReason = .externalDeactivation
+                focusSession.pendingFocusTargetWindow = nil
+                focusSession.pendingPostCloseHandoffValidity = nil
             }
             return
         case .opening,
@@ -736,77 +275,29 @@ final class OverviewController {
             break
         }
 
-        invalidateSelectionDismissal()
+        focusSession.invalidateSelectionDismissal()
         if hasActiveDragSession {
-            cancelDrag()
+            drag.cancelDrag()
         }
 
         let resolvedTargetWindow = reason == .selection ? targetWindow : nil
-        pendingDismissReason = reason
-        pendingFocusTargetWindow = resolvedTargetWindow
+        focusSession.pendingDismissReason = reason
+        focusSession.pendingFocusTargetWindow = resolvedTargetWindow
         if let resolvedTargetWindow {
             wmController?.windowActionHandler.prepareWindowFromOverview(resolvedTargetWindow, animated: animated)
         }
-        pendingPostCloseHandoffValidity = currentPostCloseHandoffValidity()
+        focusSession.pendingPostCloseHandoffValidity = focusSession.currentPostCloseHandoffValidity()
 
         state = .closing(targetWindow: resolvedTargetWindow)
 
         if animated && motionPolicy.animationsEnabled {
             animator?.startCloseAnimation(
                 targetWindow: resolvedTargetWindow,
-                displayIds: windows.map(\.displayId)
+                displayIds: windowSession.displayIds
             )
         } else {
             completeCloseTransition(targetWindow: resolvedTargetWindow)
         }
-    }
-
-    private func buildOverviewSnapshot() {
-        guard let wmController else { return }
-        let workspaceManager = wmController.workspaceManager
-
-        var workspaces: [OverviewWorkspaceLayoutItem] = []
-        var windowData: [WindowHandle: OverviewWindowLayoutData] = [:]
-        var groupCountByHandle: [WindowHandle: Int] = [:]
-
-        for monitor in workspaceManager.monitors {
-            let activeWs = workspaceManager.activeWorkspace(on: monitor.id)
-
-            for ws in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append(OverviewWorkspaceLayoutItem(
-                    id: ws.id,
-                    name: wmController.settings.displayName(for: ws.name),
-                    isActive: ws.id == activeWs?.id
-                ))
-
-                let dwindleProjection = dwindleOverviewProjection(for: ws.id)
-
-                for entry in workspaceManager.entries(in: ws.id) {
-                    guard isOverviewEligible(entry, workspaceManager: workspaceManager),
-                          dwindleProjection?.includes(entry.token) != false,
-                          let handle = workspaceManager.handle(for: entry.token)
-                    else {
-                        continue
-                    }
-
-                    windowData[handle] = makeOverviewWindowData(
-                        for: entry,
-                        preferredFrame: dwindleProjection?.frames[entry.token],
-                        appInfoCache: wmController.appInfoCache
-                    )
-                    if let count = dwindleProjection?.groupCountByToken[entry.token], count > 1 {
-                        groupCountByHandle[handle] = count
-                    }
-                }
-            }
-        }
-
-        overviewSnapshot = OverviewSnapshot(
-            workspaces: workspaces,
-            windows: windowData,
-            groupCountByHandle: groupCountByHandle
-        )
-        overviewSnapshot.niriSnapshotsByWorkspace = buildNiriOverviewSnapshots()
     }
 
     func refreshCachedOverviewProjection(
@@ -815,675 +306,31 @@ final class OverviewController {
     ) {
         guard state.isOpen, let wmController else { return }
         environment.onCachedProjectionRefreshed(affectedWorkspaceIds)
-        let anchors = captureSelectedViewportAnchors()
+        let anchors = projection.captureSelectedViewportAnchors()
         let workspaceManager = wmController.workspaceManager
         let previousWindowIds = Set(overviewSnapshot.windowIds)
 
-        var workspaces: [OverviewWorkspaceLayoutItem] = []
-        for monitor in workspaceManager.monitors {
-            let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
-            for workspace in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append(OverviewWorkspaceLayoutItem(
-                    id: workspace.id,
-                    name: wmController.settings.displayName(for: workspace.name),
-                    isActive: workspace.id == activeWorkspaceId
-                ))
-            }
-        }
-        overviewSnapshot.workspaces = workspaces
-
-        let staleGroupHandles = overviewSnapshot.groupCountByHandle.keys.filter { handle in
-            overviewSnapshot.windows[handle].map { affectedWorkspaceIds.contains($0.workspaceId) } == true
-        }
-        for handle in staleGroupHandles {
-            overviewSnapshot.groupCountByHandle.removeValue(forKey: handle)
-        }
-
-        var engineFrames: [WindowToken: CGRect] = [:]
-        var niriWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
-        var dwindleProjections: [WorkspaceDescriptor.ID: DwindleOverviewWorkspaceProjection] = [:]
-        for workspaceId in affectedWorkspaceIds {
-            switch workspaceManager.activeLayoutKind(for: workspaceId) {
-            case .niri:
-                niriWorkspaceIds.insert(workspaceId)
-                if let frames = wmController.niriEngine?.captureWindowFrames(in: workspaceId) {
-                    engineFrames.merge(frames) { _, new in new }
-                }
-                if let snapshot = wmController.niriEngine?.overviewSnapshot(for: workspaceId),
-                   let filteredSnapshot = cachedNiriSnapshot(snapshot)
-                {
-                    overviewSnapshot.niriSnapshotsByWorkspace[workspaceId] = filteredSnapshot
-                } else {
-                    overviewSnapshot.niriSnapshotsByWorkspace.removeValue(forKey: workspaceId)
-                }
-            case .dwindle:
-                if let projection = dwindleOverviewProjection(for: workspaceId) {
-                    dwindleProjections[workspaceId] = projection
-                    engineFrames.merge(projection.frames) { _, new in new }
-                }
-                overviewSnapshot.niriSnapshotsByWorkspace.removeValue(forKey: workspaceId)
-            }
-        }
-
-        var staleHandles: [WindowHandle] = []
-        for (handle, data) in overviewSnapshot.windows {
-            guard let entry = visibleManagedEntry(for: handle) else {
-                staleHandles.append(handle)
-                continue
-            }
-            let frame = engineFrames[entry.token] ?? data.frame
-            if entry.token != data.token || entry.workspaceId != data.workspaceId || frame != data.frame {
-                overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
-                    token: entry.token,
-                    workspaceId: entry.workspaceId,
-                    title: data.title,
-                    appName: data.appName,
-                    appIcon: data.appIcon,
-                    frame: frame
-                )
-            }
-        }
-        for handle in staleHandles {
-            overviewSnapshot.windows.removeValue(forKey: handle)
-            overviewSnapshot.groupCountByHandle.removeValue(forKey: handle)
-        }
-
-        for workspaceId in niriWorkspaceIds {
-            reconcileNiriOverviewProjection(
-                workspaceId: workspaceId,
-                frames: engineFrames
-            )
-        }
-
-        for (workspaceId, projection) in dwindleProjections {
-            reconcileDwindleOverviewProjection(
-                projection,
-                workspaceId: workspaceId
-            )
-        }
-
-        overviewSnapshot.groupCountByHandle = overviewSnapshot.groupCountByHandle.filter {
-            overviewSnapshot.windows[$0.key] != nil
-        }
+        overviewSnapshot.refresh(affectedWorkspaceIds: affectedWorkspaceIds)
 
         if let selectedHandle,
            overviewSnapshot.windows[selectedHandle] != nil,
            workspaceManager.entry(for: selectedHandle) != nil
         {
-            selectedWindowHandle = selectedHandle
+            projection.selectedWindowHandle = selectedHandle
         }
-        rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
+        projection.rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
         updateWindowDisplays()
 
         let addedWindowIds = Set(overviewSnapshot.windowIds).subtracting(previousWindowIds)
         let uncachedAddedWindowIds = addedWindowIds.filter { thumbnailCache[$0] == nil }
         if !uncachedAddedWindowIds.isEmpty {
             let uncachedWindowIds = Set(overviewSnapshot.windowIds.filter { thumbnailCache[$0] == nil })
-            startThumbnailCapture(windowIds: uncachedWindowIds)
+            thumbnailCapture.startThumbnailCapture(windowIds: uncachedWindowIds)
         }
     }
 
-    private func dwindleOverviewProjection(
-        for workspaceId: WorkspaceDescriptor.ID
-    ) -> DwindleOverviewWorkspaceProjection? {
-        guard let wmController,
-              wmController.workspaceManager.activeLayoutKind(for: workspaceId) == .dwindle,
-              let engine = wmController.dwindleEngine
-        else {
-            return nil
-        }
-        let eligibleTokens = Set(
-            wmController.workspaceManager.entries(in: workspaceId).lazy
-                .filter { self.isOverviewEligible($0, workspaceManager: wmController.workspaceManager) }
-                .map(\.token)
-        )
-        return DwindleOverviewWorkspaceProjection(
-            engine: engine,
-            workspaceId: workspaceId,
-            eligibleTokens: eligibleTokens
-        )
-    }
-
-    private func reconcileDwindleOverviewProjection(
-        _ projection: DwindleOverviewWorkspaceProjection,
-        workspaceId: WorkspaceDescriptor.ID
-    ) {
-        guard let wmController else { return }
-        let workspaceManager = wmController.workspaceManager
-        var desiredHandles: Set<WindowHandle> = []
-
-        for entry in workspaceManager.entries(in: workspaceId) {
-            guard isOverviewEligible(entry, workspaceManager: workspaceManager),
-                  projection.includes(entry.token),
-                  let handle = workspaceManager.handle(for: entry.token)
-            else {
-                continue
-            }
-
-            desiredHandles.insert(handle)
-            let frame = projection.frames[entry.token]
-                ?? overviewSnapshot.windows[handle]?.frame
-                ?? environment.windowFrame(entry)
-                ?? .zero
-            if let data = overviewSnapshot.windows[handle] {
-                if data.token != entry.token || data.workspaceId != workspaceId || data.frame != frame {
-                    overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
-                        token: entry.token,
-                        workspaceId: workspaceId,
-                        title: data.title,
-                        appName: data.appName,
-                        appIcon: data.appIcon,
-                        frame: frame
-                    )
-                }
-            } else {
-                overviewSnapshot.windows[handle] = makeOverviewWindowData(
-                    for: entry,
-                    preferredFrame: frame,
-                    appInfoCache: wmController.appInfoCache
-                )
-            }
-
-            if let count = projection.groupCountByToken[entry.token], count > 1 {
-                overviewSnapshot.groupCountByHandle[handle] = count
-            }
-        }
-
-        let staleHandles = overviewSnapshot.windows.compactMap { handle, data in
-            data.workspaceId == workspaceId && !desiredHandles.contains(handle) ? handle : nil
-        }
-        for handle in staleHandles {
-            overviewSnapshot.windows.removeValue(forKey: handle)
-            overviewSnapshot.groupCountByHandle.removeValue(forKey: handle)
-        }
-    }
-
-    private func reconcileNiriOverviewProjection(
-        workspaceId: WorkspaceDescriptor.ID,
-        frames: [WindowToken: CGRect]
-    ) {
-        guard let wmController else { return }
-        let workspaceManager = wmController.workspaceManager
-        var desiredHandles: Set<WindowHandle> = []
-
-        for entry in workspaceManager.entries(in: workspaceId) {
-            guard isOverviewEligible(entry, workspaceManager: workspaceManager),
-                  let handle = workspaceManager.handle(for: entry.token)
-            else {
-                continue
-            }
-
-            desiredHandles.insert(handle)
-            let frame = frames[entry.token]
-                ?? overviewSnapshot.windows[handle]?.frame
-                ?? environment.windowFrame(entry)
-                ?? .zero
-            if let data = overviewSnapshot.windows[handle] {
-                if data.token != entry.token || data.workspaceId != workspaceId || data.frame != frame {
-                    overviewSnapshot.windows[handle] = OverviewWindowLayoutData(
-                        token: entry.token,
-                        workspaceId: workspaceId,
-                        title: data.title,
-                        appName: data.appName,
-                        appIcon: data.appIcon,
-                        frame: frame
-                    )
-                }
-            } else {
-                overviewSnapshot.windows[handle] = makeOverviewWindowData(
-                    for: entry,
-                    preferredFrame: frame,
-                    appInfoCache: wmController.appInfoCache
-                )
-            }
-        }
-
-        let staleHandles = overviewSnapshot.windows.compactMap { handle, data in
-            data.workspaceId == workspaceId && !desiredHandles.contains(handle) ? handle : nil
-        }
-        for handle in staleHandles {
-            overviewSnapshot.windows.removeValue(forKey: handle)
-            overviewSnapshot.groupCountByHandle.removeValue(forKey: handle)
-        }
-    }
-
-    private func makeOverviewWindowData(
-        for entry: WindowState,
-        preferredFrame: CGRect?,
-        appInfoCache: AppInfoCache
-    ) -> OverviewWindowLayoutData {
-        let title = environment.windowTitle(entry) ?? ""
-        let appInfo = appInfoCache.info(for: entry.pid)
-        return OverviewWindowLayoutData(
-            token: entry.token,
-            workspaceId: entry.workspaceId,
-            title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
-            appName: appInfo?.name ?? "Unknown",
-            appIcon: appInfo?.icon,
-            frame: preferredFrame ?? environment.windowFrame(entry) ?? .zero
-        )
-    }
-
-    private func visibleManagedEntry(for handle: WindowHandle) -> WindowState? {
-        guard let workspaceManager = wmController?.workspaceManager,
-              workspaceManager.handle(for: handle.id) === handle,
-              let entry = workspaceManager.entry(for: handle),
-              isOverviewEligible(entry, workspaceManager: workspaceManager)
-        else {
-            return nil
-        }
-        return entry
-    }
-
-    private func isOverviewEligible(
-        _ entry: WindowState,
-        workspaceManager: WorkspaceManager
-    ) -> Bool {
-        entry.layoutReason == .standard
-            && !workspaceManager.isAppHidden(pid: entry.pid)
-    }
-
-    private func cachedNiriSnapshot(
-        _ snapshot: NiriOverviewWorkspaceSnapshot
-    ) -> NiriOverviewWorkspaceSnapshot? {
-        let columns = snapshot.columns.compactMap { column -> NiriOverviewColumnSnapshot? in
-            let tiles = column.tiles.filter { tile in
-                guard let workspaceManager = wmController?.workspaceManager,
-                      let entry = workspaceManager.entry(for: tile.token)
-                else {
-                    return false
-                }
-                return entry.workspaceId == snapshot.workspaceId
-                    && isOverviewEligible(entry, workspaceManager: workspaceManager)
-            }
-            guard !tiles.isEmpty else { return nil }
-            return NiriOverviewColumnSnapshot(
-                index: 0,
-                widthWeight: column.widthWeight,
-                preferredWidth: column.preferredWidth,
-                tiles: tiles
-            )
-        }.enumerated().map { index, column in
-            NiriOverviewColumnSnapshot(
-                index: index,
-                widthWeight: column.widthWeight,
-                preferredWidth: column.preferredWidth,
-                tiles: column.tiles
-            )
-        }
-        guard !columns.isEmpty else { return nil }
-        return NiriOverviewWorkspaceSnapshot(workspaceId: snapshot.workspaceId, columns: columns)
-    }
-
-    private struct SelectedViewportAnchor {
-        let handle: WindowHandle
-        let midpointY: CGFloat
-    }
-
-    private func rebuildProjectedLayouts(
-        preservingSelectedAnchors anchors: [Monitor.ID: SelectedViewportAnchor] = [:]
-    ) {
-        guard let wmController else { return }
-
-        let previousLayouts = layoutsByMonitor
-        let monitors = wmController.workspaceManager.monitors
-
-        if let selectedWindowHandle,
-           overviewSnapshot.windows[selectedWindowHandle] == nil
-        {
-            self.selectedWindowHandle = nil
-        }
-
-        layoutsByMonitor = [:]
-        for monitor in monitors {
-            var layout = projectedLayout(
-                for: monitor,
-                niriSnapshotsByWorkspace: overviewSnapshot.niriSnapshotsByWorkspace
-            )
-            let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
-            let previousOffset = previousLayouts[monitor.id]?.scrollOffset ?? 0
-            layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
-                previousOffset,
-                layout: layout,
-                screenFrame: viewportFrame
-            )
-            layout.dragTarget = previousLayouts[monitor.id]?.dragTarget
-            layoutsByMonitor[monitor.id] = layout
-        }
-
-        reconcileSelectedWindowHandle()
-
-        if let activeInteractionMonitorId,
-           layoutsByMonitor[activeInteractionMonitorId] == nil
-        {
-            self.activeInteractionMonitorId = nil
-        }
-
-        if activeInteractionMonitorId == nil {
-            activeInteractionMonitorId = monitors.first?.id
-        }
-
-        restoreSelectedViewportAnchors(anchors)
-        revealSelectedWindow(on: activeInteractionMonitorId)
-    }
-
-    private func projectedLayout(
-        for monitor: Monitor,
-        niriSnapshotsByWorkspace: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot]
-    ) -> OverviewLayout {
-        let localizedWindowData = overviewSnapshot.windows.mapValues { windowData in
-            OverviewWindowLayoutData(
-                token: windowData.token,
-                workspaceId: windowData.workspaceId,
-                title: windowData.title,
-                appName: windowData.appName,
-                appIcon: windowData.appIcon,
-                frame: OverviewLayoutCalculator.localizedFrame(windowData.frame, to: monitor.frame)
-            )
-        }
-
-        let viewportFrame = OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
-        var layout = OverviewLayoutCalculator(
-            screenFrame: viewportFrame,
-            scale: scale
-        ).calculateLayout(
-            workspaces: overviewSnapshot.workspaces,
-            windows: localizedWindowData,
-            niriSnapshotsByWorkspace: niriSnapshotsByWorkspace,
-            searchQuery: searchQuery
-        )
-        layout.updateGroupCounts(overviewSnapshot.groupCountByHandle)
-        return layout
-    }
-
-    private func buildNiriOverviewSnapshots() -> [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot] {
-        guard let engine = wmController?.niriEngine else { return [:] }
-
-        var snapshots: [WorkspaceDescriptor.ID: NiriOverviewWorkspaceSnapshot] = [:]
-        snapshots.reserveCapacity(overviewSnapshot.workspaces.count)
-
-        for workspace in overviewSnapshot.workspaces {
-            guard isNiriLayout(workspaceId: workspace.id),
-                  let snapshot = engine.overviewSnapshot(for: workspace.id),
-                  let filteredSnapshot = cachedNiriSnapshot(snapshot)
-            else {
-                continue
-            }
-            snapshots[workspace.id] = filteredSnapshot
-        }
-
-        return snapshots
-    }
-
-    private func createWindows() {
-        closeWindows()
-
-        guard let wmController else { return }
-
-        for monitor in wmController.workspaceManager.monitors {
-            let window = OverviewWindow(monitor: monitor, palette: renderPalette)
-
-            window.onWindowSelected = { [weak self] monitorId, handle in
-                self?.activeInteractionMonitorId = monitorId
-                self?.selectAndActivateWindow(handle)
-            }
-            window.onWindowClosed = { [weak self] monitorId, handle in
-                self?.activeInteractionMonitorId = monitorId
-                self?.closeWindow(handle)
-            }
-            window.onDismiss = { [weak self] monitorId in
-                self?.activeInteractionMonitorId = monitorId
-                self?.dismissToSelection(animated: true)
-            }
-            window.onScroll = { [weak self] monitorId, delta in
-                self?.adjustScrollOffset(by: delta, on: monitorId)
-            }
-            window.onScrollWithModifiers = { [weak self] monitorId, delta, modifiers, isPrecise in
-                self?.handleScroll(
-                    delta: delta,
-                    modifiers: modifiers,
-                    isPrecise: isPrecise,
-                    on: monitorId
-                )
-            }
-            window.onDragBegin = { [weak self] monitorId, handle, start in
-                self?.beginDrag(on: monitorId, handle: handle, startPoint: start)
-            }
-            window.onDragUpdate = { [weak self] monitorId, point in
-                self?.updateDrag(on: monitorId, at: point)
-            }
-            window.onDragEnd = { [weak self] monitorId, point in
-                self?.endDrag(on: monitorId, at: point)
-            }
-            window.onDragCancel = { [weak self] in
-                self?.cancelDrag()
-            }
-
-            windows.append(window)
-            windowsByDisplayId[monitor.displayId] = window
-        }
-    }
-
-    private func showWindows() {
-        let primaryWindow = primaryOverviewWindow()
-
-        if let primaryWindow {
-            primaryWindow.show(asKeyWindow: true)
-            ownedWindowRegistry.register(
-                primaryWindow,
-                surfaceId: "overview-\(String(describing: primaryWindow.monitorId))",
-                policy: SurfacePolicy(
-                    kind: .overview,
-                    hitTestPolicy: .interactive,
-                    capturePolicy: .included,
-                    suppressesManagedFocusRecovery: true
-                )
-            )
-        }
-
-        for window in windows where primaryWindow == nil || window !== primaryWindow {
-            window.show(asKeyWindow: false)
-            ownedWindowRegistry.register(
-                window,
-                surfaceId: "overview-\(String(describing: window.monitorId))",
-                policy: SurfacePolicy(
-                    kind: .overview,
-                    hitTestPolicy: .interactive,
-                    capturePolicy: .included,
-                    suppressesManagedFocusRecovery: true
-                )
-            )
-        }
-    }
-
-    private func primaryOverviewWindow() -> OverviewWindow? {
-        guard let primaryMonitorId = activeInteractionMonitorId ?? windows.first?.monitorId else { return nil }
-        return windows.first(where: { $0.monitorId == primaryMonitorId })
-    }
-
-    private func closeWindows() {
-        for window in windows {
-            ownedWindowRegistry.unregister(surfaceId: "overview-\(String(describing: window.monitorId))")
-            window.hide()
-            window.close()
-        }
-        windows.removeAll()
-        windowsByDisplayId.removeAll(keepingCapacity: true)
-    }
-
-    private func updateWindowDisplays(
-        palette: OverviewRenderPalette? = nil,
-        thumbnails: [Int: CGImage]? = nil
-    ) {
-        for window in windows {
-            let layout = layoutsByMonitor[window.monitorId] ?? .init()
-            window.updateLayout(
-                layout,
-                state: state,
-                searchQuery: searchQuery,
-                selectedWindowHandle: selectedWindowHandle,
-                palette: palette,
-                thumbnails: thumbnails
-            )
-        }
-    }
-
-    private func updateWindowThumbnails() {
-        for window in windows {
-            window.updateThumbnails(thumbnailCache)
-        }
-    }
-
-    private func startThumbnailCapture(windowIds: Set<Int>? = nil) {
-        guard CGPreflightScreenCaptureAccess() else {
-            thumbnailCaptureTask?.cancel()
-            return
-        }
-        startThumbnailCapture { [weak self] in
-            await self?.captureThumbnails(windowIds: windowIds)
-        }
-    }
-
-    @discardableResult
-    private func startThumbnailCapture(_ capture: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
-        thumbnailCaptureTask?.cancel()
-        environment.onThumbnailCaptureStarted()
-        let task = Task(operation: capture)
-        thumbnailCaptureTask = task
-        return task
-    }
-
-    private func captureThumbnails(windowIds: Set<Int>?) async {
-        let requests = thumbnailCaptureRequests(windowIds: windowIds)
-
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let eligibleWindows = content.windows.compactMap { scWindow -> (CGWindowID, SCWindow)? in
-                let windowNumber = Int(scWindow.windowID)
-                guard ownedWindowRegistry.isCaptureEligible(windowNumber: windowNumber) else { return nil }
-                return (scWindow.windowID, scWindow)
-            }
-            let windowMap = Dictionary(uniqueKeysWithValues: eligibleWindows)
-            let captures = requests.compactMap { request -> ThumbnailCaptureItem? in
-                guard let scWindow = windowMap[CGWindowID(request.windowId)] else { return nil }
-                return ThumbnailCaptureItem(request: request, scWindow: scWindow)
-            }
-
-            await captureThumbnails(captures) { item in
-                guard !Task.isCancelled else { return (item.request.windowId, nil) }
-                return (
-                    item.request.windowId,
-                    await Self.captureWindowThumbnail(scWindow: item.scWindow, request: item.request)
-                )
-            }
-        } catch {
-            FallbackFiringRecorder.shared.note(.capture, "overviewContentException")
-            return
-        }
-    }
-
-    private func captureThumbnails<Capture: Sendable>(
-        _ captures: [Capture],
-        capture: @escaping @Sendable (Capture) async -> (windowId: Int, thumbnail: CGImage?)
-    ) async {
-        await withTaskGroup(of: (windowId: Int, thumbnail: CGImage?).self) { group in
-            var nextIndex = 0
-            func addNextCapture() {
-                guard nextIndex < captures.count, !Task.isCancelled else { return }
-                let item = captures[nextIndex]
-                nextIndex += 1
-                group.addTask { await capture(item) }
-            }
-
-            for _ in 0 ..< min(Self.maxConcurrentThumbnailCaptures, captures.count) {
-                addNextCapture()
-            }
-            while let result = await group.next() {
-                guard !Task.isCancelled else { return }
-                if let thumbnail = result.thumbnail {
-                    thumbnailCache[result.windowId] = thumbnail
-                }
-                addNextCapture()
-            }
-        }
-
-        guard !Task.isCancelled else { return }
-        updateWindowThumbnails()
-    }
-
-    #if DEBUG
-        @discardableResult
-        func startThumbnailCaptureForTests(
-            windowId: Int,
-            capture: @escaping @Sendable () async -> CGImage?
-        ) -> Task<Void, Never> {
-            startThumbnailCapture {
-                await self.captureThumbnails([windowId]) { windowId in
-                    (windowId, await capture())
-                }
-            }
-        }
-    #endif
-
-    private func thumbnailCaptureRequests(windowIds: Set<Int>? = nil) -> [OverviewThumbnailCaptureRequest] {
-        guard let wmController else { return [] }
-
-        let scaleByMonitorId = wmController.workspaceManager.monitors
-            .reduce(into: [Monitor.ID: CGFloat]()) { scales, monitor in
-                scales[monitor.id] = monitorBackingScaleFactor(for: monitor.displayId)
-            }
-
-        var projections: [OverviewThumbnailProjection] = []
-        projections.reserveCapacity(layoutsByMonitor.values.reduce(0) { partialResult, layout in
-            partialResult + layout.allWindows.count
-        })
-
-        for (monitorId, layout) in layoutsByMonitor {
-            let scaleFactor = scaleByMonitorId[monitorId] ?? 1.0
-            for window in layout.allWindows {
-                projections.append(
-                    OverviewThumbnailProjection(
-                        windowId: window.windowId,
-                        overviewFrame: window.overviewFrame,
-                        backingScaleFactor: scaleFactor
-                    )
-                )
-            }
-        }
-
-        return OverviewThumbnailSizing.captureRequests(
-            windowIds: windowIds.map { Array($0).sorted() } ?? overviewSnapshot.windowIds,
-            projections: projections
-        )
-    }
-
-    private nonisolated static func captureWindowThumbnail(
-        scWindow: SCWindow,
-        request: OverviewThumbnailCaptureRequest
-    ) async -> CGImage? {
-        let filter = SCContentFilter(desktopIndependentWindow: scWindow)
-        let config = SCStreamConfiguration()
-
-        config.width = request.pixelWidth
-        config.height = request.pixelHeight
-        config.showsCursor = false
-        config.capturesAudio = false
-        config.scalesToFit = true
-
-        do {
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            return image
-        } catch {
-            FallbackFiringRecorder.shared.note(.capture, "screenshotException")
-            return nil
-        }
-    }
-
-    private func monitorBackingScaleFactor(for displayId: CGDirectDisplayID) -> CGFloat {
-        NSScreen.screens.first(where: { $0.displayId == displayId })?.backingScaleFactor ?? 1.0
+    private func updateWindowDisplays(palette: OverviewRenderPalette? = nil, thumbnails: [Int: CGImage]? = nil) {
+        windowSession.updateWindowDisplays(state: state, palette: palette, thumbnails: thumbnails)
     }
 
     func updateAnimationProgress(
@@ -1492,31 +339,25 @@ final class OverviewController {
         generation: UInt64,
         sequence: UInt64
     ) {
-        if case let .closing(targetWindow?) = state,
-           let wmController,
-           let entry = wmController.workspaceManager.entry(for: targetWindow),
-           wmController.activeWorkspace()?.id == entry.workspaceId,
-           isNiriLayout(workspaceId: entry.workspaceId),
-           let monitor = wmController.workspaceManager.monitor(for: entry.workspaceId),
-           monitor.displayId == displayId,
-           let frames = wmController.niriEngine?.captureWindowFrames(in: entry.workspaceId),
-           var layout = layoutsByMonitor[monitor.id]
-        {
-            layout.updateOriginalFrames(frames, monitorFrame: monitor.frame)
-            layoutsByMonitor[monitor.id] = layout
-            windowsByDisplayId[displayId]?.updateLayout(
-                layout,
-                state: state,
-                searchQuery: searchQuery,
-                selectedWindowHandle: selectedWindowHandle
-            )
-        }
-        windowsByDisplayId[displayId]?.updateAnimationProgress(
-            progress,
-            generation: generation,
-            sequence: sequence
+        windowSession.updateAnimationProgress(
+            progress, on: displayId, state: state, generation: generation, sequence: sequence
         )
     }
+
+    private func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {
+        guard state.isOpen else { return }
+        windowSession.handleModifierFlagsChanged(modifierFlags)
+    }
+
+    #if DEBUG
+        @discardableResult
+        func startThumbnailCaptureForTests(
+            windowId: Int,
+            capture: @escaping @Sendable () async -> CGImage?
+        ) -> Task<Void, Never> {
+            thumbnailCapture.startThumbnailCaptureForTests(windowId: windowId, capture: capture)
+        }
+    #endif
 
     func onAnimationComplete(state: OverviewState) {
         self.state = state
@@ -1524,81 +365,12 @@ final class OverviewController {
     }
 
     func completeCloseTransition(targetWindow: WindowHandle?) {
-        let dismissReason = pendingDismissReason
-        let previousFrontmostApplicationPID = previousFrontmostApplicationPID
-        let requestedTargetWindow = pendingFocusTargetWindow ?? targetWindow
-        let handoffValidity = pendingPostCloseHandoffValidity ?? currentPostCloseHandoffValidity()
-        let resolvedTargetWindow = requestedTargetWindow.flatMap { handle in
-            wmController?.workspaceManager.handle(for: handle.id) === handle ? handle : nil
-        }
-        let handoff: PostCloseHandoff?
-        if dismissReason.shouldRestorePreviousApplication
-            || dismissReason == .selection && resolvedTargetWindow == nil,
-            let previousFrontmostApplicationPID
-        {
-            handoff = .activateApplication(previousFrontmostApplicationPID)
-        } else if dismissReason == .selection,
-                  let resolvedTargetWindow
-        {
-            handoff = .focusWindow(resolvedTargetWindow)
-        } else {
-            handoff = nil
-        }
-        let handoffGeneration = advancePostCloseHandoffGeneration()
-
-        animator?.cancelAnimation()
-        state = .closed
-        cleanup()
-        endOwnedSession()
-        updateWindowDisplays()
-
-        if let handoff, let handoffValidity {
-            schedulePostCloseHandoff(
-                handoff,
-                validity: handoffValidity,
-                generation: handoffGeneration
-            )
-        }
-    }
-
-    @discardableResult
-    private func advancePostCloseHandoffGeneration() -> UInt64 {
-        postCloseHandoffGeneration &+= 1
-        return postCloseHandoffGeneration
-    }
-
-    private func currentPostCloseHandoffValidity() -> PostCloseHandoffValidity? {
-        guard let wmController else { return nil }
-        return PostCloseHandoffValidity(
-            intentIssuanceWatermark: wmController.intentLedger.issuanceWatermark(),
-            focusEpochSeq: wmController.workspaceManager.worldSeq
-        )
-    }
-
-    private func schedulePostCloseHandoff(
-        _ handoff: PostCloseHandoff,
-        validity: PostCloseHandoffValidity,
-        generation: UInt64
-    ) {
-        guard let wmController else { return }
-        environment.schedulePostCloseHandoff { [weak self, weak wmController] in
-            guard let self,
-                  let wmController,
-                  self.postCloseHandoffGeneration == generation,
-                  case .closed = self.state,
-                  wmController.intentLedger.issuanceWatermark() == validity.intentIssuanceWatermark,
-                  wmController.workspaceManager.isSeqEpochCurrent(validity.focusEpochSeq, domains: .focus)
-            else {
-                return
-            }
-
-            switch handoff {
-            case let .activateApplication(pid):
-                self.environment.activateApplication(pid)
-            case let .focusWindow(handle):
-                guard wmController.workspaceManager.handle(for: handle.id) === handle else { return }
-                self.focusTargetWindow(handle)
-            }
+        focusSession.completeCloseTransition(targetWindow: targetWindow) {
+            animator?.cancelAnimation()
+            state = .closed
+            cleanup()
+            endOwnedSession()
+            updateWindowDisplays()
         }
     }
 
@@ -1613,49 +385,12 @@ final class OverviewController {
         onActivateWindow?(handle, entry.workspaceId)
     }
 
-    func selectAndActivateWindow(_ handle: WindowHandle) {
-        guard case .open = state else { return }
-        setSelectedWindowHandle(handle)
-        updateWindowDisplays()
-
-        invalidateSelectionDismissal()
-        let generation = selectionDismissGeneration
-        let delayNanoseconds = environment.selectionDismissDelayNanoseconds
-        selectionDismissTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: delayNanoseconds)
-            } catch {
-                return
-            }
-            guard let self,
-                  self.selectionDismissGeneration == generation
-            else {
-                return
-            }
-            self.selectionDismissTask = nil
-            guard case .open = self.state,
-                  self.selectedWindowHandle === handle,
-                  self.wmController?.workspaceManager.handle(for: handle.id) === handle,
-                  self.overviewSnapshot.windows[handle] != nil
-            else {
-                return
-            }
-            self.dismiss(reason: .selection, targetWindow: handle, animated: true)
-        }
-    }
-
-    private func invalidateSelectionDismissal() {
-        selectionDismissGeneration &+= 1
-        selectionDismissTask?.cancel()
-        selectionDismissTask = nil
-    }
-
     func invalidateDeferredActionsForServiceStop() {
-        invalidateSelectionDismissal()
-        advancePostCloseHandoffGeneration()
-        pendingDismissReason = .externalDeactivation
-        pendingFocusTargetWindow = nil
-        pendingPostCloseHandoffValidity = nil
+        focusSession.invalidateSelectionDismissal()
+        focusSession.advancePostCloseHandoffGeneration()
+        focusSession.pendingDismissReason = .externalDeactivation
+        focusSession.pendingFocusTargetWindow = nil
+        focusSession.pendingPostCloseHandoffValidity = nil
         guard state.isOpen else { return }
         completeCloseTransition(targetWindow: nil)
     }
@@ -1668,26 +403,26 @@ final class OverviewController {
 
     func handleManagedWindowRemoved(_ entry: WindowState) {
         guard state.isOpen else { return }
-        thumbnailCache.removeValue(forKey: entry.windowId)
+        thumbnailCapture.remove(windowId: entry.windowId)
         guard let removedHandle = overviewSnapshot.windows.first(where: { $0.value.token == entry.token })?.key else {
             return
         }
-        let visibleOrder = canonicalLayout()?.allWindows
+        let visibleOrder = projection.canonicalLayout()?.allWindows
             .filter(\.matchesSearch)
             .map(\.handle) ?? []
-        guard overviewSnapshot.windows.removeValue(forKey: removedHandle) != nil else { return }
+        guard overviewSnapshot.remove(removedHandle) != nil else { return }
 
-        var nextSelection = selectedWindowHandle
-        if selectedWindowHandle == removedHandle {
-            nextSelection = Self.selectionAfterRemoving(
+        var nextSelection = projection.selectedWindowHandle
+        if projection.selectedWindowHandle == removedHandle {
+            nextSelection = OverviewNavigation.selectionAfterRemoving(
                 removedHandle,
                 from: visibleOrder,
                 availableHandles: Set(overviewSnapshot.windows.keys)
             )
-            selectedWindowHandle = nextSelection
+            projection.selectedWindowHandle = nextSelection
         }
-        if pendingFocusTargetWindow == removedHandle {
-            pendingFocusTargetWindow = nextSelection
+        if focusSession.pendingFocusTargetWindow == removedHandle {
+            focusSession.pendingFocusTargetWindow = nextSelection
         }
 
         refreshCachedOverviewProjection(
@@ -1696,140 +431,17 @@ final class OverviewController {
         )
     }
 
-    static func selectionAfterRemoving(
-        _ removedHandle: WindowHandle,
-        from visibleOrder: [WindowHandle],
-        availableHandles: Set<WindowHandle>
-    ) -> WindowHandle? {
-        guard let removedIndex = visibleOrder.firstIndex(of: removedHandle) else {
-            return visibleOrder.first { availableHandles.contains($0) }
-        }
-        if removedIndex + 1 < visibleOrder.count,
-           let next = visibleOrder[(removedIndex + 1)...].first(where: { availableHandles.contains($0) })
-        {
-            return next
-        }
-        return visibleOrder[..<removedIndex].reversed().first { availableHandles.contains($0) }
-    }
-
-    func updateSearchQuery(_ query: String) {
-        searchQuery = query
-        inputHandler?.searchQuery = query
-        rebuildProjectedLayouts()
-        updateWindowDisplays()
-    }
-
-    func navigateSelection(_ direction: Direction, on monitorId: Monitor.ID? = nil) {
-        performSelectionNavigation(on: monitorId) { layout, currentHandle in
-            OverviewNavigation.findNextWindow(
-                in: layout,
-                from: currentHandle,
-                direction: direction
-            )
-        }
-    }
-
-    func cycleSelection(forward: Bool, on monitorId: Monitor.ID? = nil) {
-        performSelectionNavigation(on: monitorId) { layout, currentHandle in
-            OverviewNavigation.findCycledWindow(
-                in: layout,
-                from: currentHandle,
-                forward: forward
-            )
-        }
-    }
-
-    private func performSelectionNavigation(
-        on monitorId: Monitor.ID?,
-        resolveNextHandle: (OverviewLayout, WindowHandle?) -> WindowHandle?
-    ) {
-        guard case .open = state else { return }
-        let targetMonitorId = monitorId ?? activeInteractionMonitorId
-        if let targetMonitorId {
-            activeInteractionMonitorId = targetMonitorId
-        }
-
-        guard let layout = canonicalLayout(preferredMonitorId: targetMonitorId),
-              let nextHandle = resolveNextHandle(layout, selectedWindowHandle)
-        else { return }
-
-        let selectionChanged = nextHandle != selectedWindowHandle
-        if selectionChanged {
-            setSelectedWindowHandle(nextHandle)
-        }
-        let viewportChanged = revealSelectedWindow(on: targetMonitorId)
-        guard selectionChanged || viewportChanged else { return }
-        updateWindowDisplays()
-    }
-
-    func activateSelectedWindow() {
-        guard let selectedWindowHandle else { return }
-        selectAndActivateWindow(selectedWindowHandle)
-    }
-
-    func dismissToSelection(animated: Bool) {
-        guard let selectedWindowHandle,
-              overviewSnapshot.windows[selectedWindowHandle] != nil
-        else {
-            dismiss(reason: .cancel, animated: animated)
-            return
-        }
-        dismiss(reason: .selection, targetWindow: selectedWindowHandle, animated: animated)
-    }
-
-    func closeSelectedWindow() {
-        guard case .open = state, let selectedWindowHandle else { return }
-        closeWindow(selectedWindowHandle)
-    }
-
-    func adjustScrollOffset(by delta: CGFloat, on monitorId: Monitor.ID) {
-        activeInteractionMonitorId = monitorId
-        mutateLayout(for: monitorId) { layout in
-            let screenFrame = viewportFrame(for: monitorId)
-            let nextOffset = layout.scrollOffset + delta
-            layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
-                nextOffset,
-                layout: layout,
-                screenFrame: screenFrame
-            )
-        }
-        updateWindowDisplays()
-    }
-
-    func handleScroll(
-        delta: CGFloat,
-        modifiers: NSEvent.ModifierFlags,
-        isPrecise: Bool,
-        on monitorId: Monitor.ID
-    ) {
-        activeInteractionMonitorId = monitorId
-
-        if modifiers.contains([.option, .shift]) {
-            guard abs(delta) > ScrollTuning.zoomEpsilon else { return }
-            let step: CGFloat = delta > 0 ? ScrollTuning.zoomStep : -ScrollTuning.zoomStep
-            let nextScale = (scale + step).clamped(to: 0.5 ... 1.5)
-            guard abs(nextScale - scale) > ScrollTuning.zoomEpsilon else { return }
-            let anchors = captureSelectedViewportAnchors()
-            scale = nextScale
-            rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
-            updateWindowDisplays()
-            return
-        }
-
-        let multiplier = isPrecise
-            ? ScrollTuning.preciseScrollMultiplier
-            : ScrollTuning.nonPreciseScrollMultiplier
-        adjustScrollOffset(by: delta * multiplier, on: monitorId)
-    }
-
     func beginOwnedSession() {
-        capturePreviousFrontmostApplication()
-        installEventMonitors()
-        installApplicationDidResignObserver()
-        installScreenParametersObserver()
-        pendingDismissReason = .cancel
-        pendingFocusTargetWindow = nil
-        pendingPostCloseHandoffValidity = nil
+        focusSession.capturePreviousFrontmostApplication()
+        inputSession.start(
+            inputHandler: input,
+            onFlagsChanged: { [weak self] in self?.handleModifierFlagsChanged($0) },
+            onResignActive: { [weak self] in self?.handleApplicationDidResignActive() },
+            onDisplayChange: { [weak self] in self?.handleDisplayConfigurationChanged() }
+        )
+        focusSession.pendingDismissReason = .cancel
+        focusSession.pendingFocusTargetWindow = nil
+        focusSession.pendingPostCloseHandoffValidity = nil
     }
 
     func activateOwnedSession() {
@@ -1842,106 +454,18 @@ final class OverviewController {
     }
 
     private func cleanup() {
-        invalidateSelectionDismissal()
-        thumbnailCaptureTask?.cancel()
-        thumbnailCaptureTask = nil
-        thumbnailCache.removeAll()
-        inputHandler?.reset()
-        searchQuery = ""
-        scale = 1.0
-        selectedWindowHandle = nil
-        activeInteractionMonitorId = nil
-        overviewSnapshot = .init()
-        layoutsByMonitor = [:]
-        dragGhostController?.endDrag()
-        dragGhostController = nil
-        dragSession = nil
-        activeStructuralTransferGeneration = nil
-        projectionMutationGeneration &+= 1
-        pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
-        closeWindows()
-    }
-
-    private func capturePreviousFrontmostApplication() {
-        guard let frontmostPID = environment.frontmostApplicationPID(),
-              frontmostPID != environment.currentProcessID()
-        else {
-            previousFrontmostApplicationPID = nil
-            return
-        }
-
-        previousFrontmostApplicationPID = frontmostPID
-    }
-
-    private func installEventMonitors() {
-        removeEventMonitors()
-        keyEventMonitor = environment.addLocalEventMonitor([.keyDown]) { [weak self] event in
-            guard let self else { return event }
-            return self.inputHandler?.handleKeyDown(event) == true ? nil : event
-        }
-        flagsEventMonitor = environment.addLocalEventMonitor([.flagsChanged]) { [weak self] event in
-            self?.handleModifierFlagsChanged(event.modifierFlags)
-            return event
-        }
-    }
-
-    private func removeEventMonitors() {
-        if let keyEventMonitor {
-            environment.removeEventMonitor(keyEventMonitor)
-            self.keyEventMonitor = nil
-        }
-        if let flagsEventMonitor {
-            environment.removeEventMonitor(flagsEventMonitor)
-            self.flagsEventMonitor = nil
-        }
-    }
-
-    private func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {
-        guard state.isOpen else { return }
-        let optionPressed = modifierFlags.contains(.option)
-        for window in windows {
-            window.cancelPendingDragIfNeeded(optionPressed: optionPressed)
-        }
-    }
-
-    private func installApplicationDidResignObserver() {
-        removeApplicationDidResignObserver()
-        applicationDidResignObserver = environment.notificationCenter.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.handleApplicationDidResignActive()
-            }
-        }
-    }
-
-    private func removeApplicationDidResignObserver() {
-        if let applicationDidResignObserver {
-            environment.notificationCenter.removeObserver(applicationDidResignObserver)
-            self.applicationDidResignObserver = nil
-        }
-    }
-
-    private func installScreenParametersObserver() {
-        removeScreenParametersObserver()
-        screenParametersObserver = environment.notificationCenter.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.handleDisplayConfigurationChanged()
-            }
-        }
-    }
-
-    private func removeScreenParametersObserver() {
-        if let screenParametersObserver {
-            environment.notificationCenter.removeObserver(screenParametersObserver)
-            self.screenParametersObserver = nil
-        }
+        focusSession.invalidateSelectionDismissal()
+        thumbnailCapture.clear()
+        input.reset()
+        projection.searchQuery = ""
+        projection.scale = 1.0
+        projection.selectedWindowHandle = nil
+        projection.activeInteractionMonitorId = nil
+        overviewSnapshot.reset()
+        projection.resetLayouts()
+        drag.reset()
+        mutationSession.reset()
+        windowSession.closeWindows()
     }
 
     private func handleDisplayConfigurationChanged() {
@@ -1950,525 +474,14 @@ final class OverviewController {
     }
 
     private func endOwnedSession() {
-        removeEventMonitors()
-        removeApplicationDidResignObserver()
-        removeScreenParametersObserver()
-        previousFrontmostApplicationPID = nil
-        pendingDismissReason = .cancel
-        pendingFocusTargetWindow = nil
-        pendingPostCloseHandoffValidity = nil
-    }
-
-    private func canonicalLayout(preferredMonitorId: Monitor.ID? = nil) -> OverviewLayout? {
-        let monitorId = preferredMonitorId
-            ?? activeInteractionMonitorId
-            ?? wmController?.workspaceManager.monitors.first?.id
-        if let monitorId,
-           let layout = layoutsByMonitor[monitorId]
-        {
-            return layout
-        }
-        return layoutsByMonitor.values.first
-    }
-
-    private func captureSelectedViewportAnchors() -> [Monitor.ID: SelectedViewportAnchor] {
-        guard let selectedWindowHandle else { return [:] }
-
-        var anchors: [Monitor.ID: SelectedViewportAnchor] = [:]
-        anchors.reserveCapacity(layoutsByMonitor.count)
-        for (monitorId, layout) in layoutsByMonitor {
-            guard let window = layout.window(for: selectedWindowHandle), window.matchesSearch else { continue }
-            anchors[monitorId] = SelectedViewportAnchor(
-                handle: selectedWindowHandle,
-                midpointY: window.overviewFrame.midY - layout.scrollOffset
-            )
-        }
-        return anchors
-    }
-
-    private func restoreSelectedViewportAnchors(_ anchors: [Monitor.ID: SelectedViewportAnchor]) {
-        guard let selectedWindowHandle else { return }
-
-        for (monitorId, anchor) in anchors where anchor.handle == selectedWindowHandle {
-            mutateLayout(for: monitorId) { layout in
-                guard let window = layout.window(for: selectedWindowHandle), window.matchesSearch else { return }
-                let screenFrame = viewportFrame(for: monitorId)
-                layout.scrollOffset = OverviewLayoutCalculator.clampedScrollOffset(
-                    window.overviewFrame.midY - anchor.midpointY,
-                    layout: layout,
-                    screenFrame: screenFrame
-                )
-            }
-        }
-    }
-
-    @discardableResult
-    private func revealSelectedWindow(on monitorId: Monitor.ID?) -> Bool {
-        guard let monitorId,
-              let selectedWindowHandle,
-              var layout = layoutsByMonitor[monitorId],
-              let window = layout.window(for: selectedWindowHandle),
-              window.matchesSearch
-        else {
-            return false
-        }
-        let scrollOffset = OverviewLayoutCalculator.scrollOffsetRevealing(
-            targetFrame: window.overviewFrame,
-            currentOffset: layout.scrollOffset,
-            layout: layout,
-            screenFrame: viewportFrame(for: monitorId)
-        )
-        guard scrollOffset != layout.scrollOffset else { return false }
-        layout.scrollOffset = scrollOffset
-        layoutsByMonitor[monitorId] = layout
-        return true
-    }
-
-    private func setSelectedWindowHandle(_ handle: WindowHandle?) {
-        selectedWindowHandle = handle
-    }
-
-    private func reconcileSelectedWindowHandle() {
-        guard let layout = canonicalLayout(preferredMonitorId: activeInteractionMonitorId) else {
-            selectedWindowHandle = nil
-            return
-        }
-
-        if let selectedWindowHandle,
-           let selectedWindow = layout.window(for: selectedWindowHandle),
-           selectedWindow.matchesSearch
-        {
-            return
-        }
-
-        selectedWindowHandle = OverviewSearchFilter.firstMatchingWindow(in: layout)?.handle
-    }
-
-    private func mutateLayout(
-        for monitorId: Monitor.ID,
-        _ mutate: (inout OverviewLayout) -> Void
-    ) {
-        guard var layout = layoutsByMonitor[monitorId] else { return }
-        mutate(&layout)
-        layoutsByMonitor[monitorId] = layout
-    }
-
-    private func setDragTarget(_ target: OverviewDragTarget?, for monitorId: Monitor.ID) {
-        for id in layoutsByMonitor.keys {
-            mutateLayout(for: id) { layout in
-                layout.dragTarget = id == monitorId ? target : nil
-            }
-        }
-    }
-
-    private func clearDragTargets() {
-        for monitorId in layoutsByMonitor.keys {
-            mutateLayout(for: monitorId) { layout in
-                layout.dragTarget = nil
-            }
-        }
-    }
-
-    private func viewportFrame(for monitorId: Monitor.ID) -> CGRect {
-        guard let wmController,
-              let monitor = wmController.workspaceManager.monitor(byId: monitorId)
-        else {
-            return .zero
-        }
-        return OverviewLayoutCalculator.viewportFrame(for: monitor.frame)
-    }
-
-    private func globalPoint(from localPoint: CGPoint, on monitorId: Monitor.ID) -> CGPoint {
-        guard let wmController,
-              let monitor = wmController.workspaceManager.monitor(byId: monitorId)
-        else {
-            return localPoint
-        }
-        return CGPoint(
-            x: monitor.frame.minX + localPoint.x,
-            y: monitor.frame.minY + localPoint.y
-        )
+        inputSession.stop()
+        focusSession.previousFrontmostApplicationPID = nil
+        focusSession.pendingDismissReason = .cancel
+        focusSession.pendingFocusTargetWindow = nil
+        focusSession.pendingPostCloseHandoffValidity = nil
     }
 
     var hasActiveDragSession: Bool {
-        dragSession != nil
-    }
-
-    deinit {
-        MainActor.assumeIsolated {
-            endOwnedSession()
-            cleanup()
-        }
-    }
-}
-
-extension OverviewController {
-    enum DragMutationOutcome {
-        case changed(StructuralMutation)
-        case awaitingAdmission(StructuralMutation, OverviewDragTarget)
-        case unchanged
-    }
-
-    struct DragSession {
-        let handle: WindowHandle
-        let windowId: Int
-        let workspaceId: WorkspaceDescriptor.ID
-        let monitorId: Monitor.ID
-        let startPoint: CGPoint
-    }
-}
-
-extension OverviewController {
-    func beginDrag(on monitorId: Monitor.ID, handle: WindowHandle, startPoint: CGPoint) {
-        guard case .open = state,
-              activeStructuralTransferGeneration == nil
-        else {
-            return
-        }
-        guard let entry = visibleManagedEntry(for: handle) else { return }
-
-        activeInteractionMonitorId = monitorId
-        dragSession = DragSession(
-            handle: handle,
-            windowId: entry.windowId,
-            workspaceId: entry.workspaceId,
-            monitorId: monitorId,
-            startPoint: startPoint
-        )
-
-        if let frame = overviewSnapshot.windows[handle]?.frame {
-            if dragGhostController == nil {
-                dragGhostController = DragGhostController()
-            }
-            dragGhostController?.beginDrag(
-                windowId: entry.windowId,
-                originalFrame: frame,
-                cursorLocation: globalPoint(from: startPoint, on: monitorId)
-            )
-        }
-    }
-
-    func updateDrag(on monitorId: Monitor.ID, at point: CGPoint) {
-        guard case .open = state else {
-            cancelDrag()
-            return
-        }
-        guard dragSession != nil else { return }
-        activeInteractionMonitorId = monitorId
-        dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
-
-        let target = resolveDragTarget(at: point, on: monitorId)
-        let currentTarget = layoutsByMonitor[monitorId]?.dragTarget
-        if target != currentTarget {
-            setDragTarget(target, for: monitorId)
-            updateWindowDisplays()
-        }
-    }
-
-    func endDrag(on monitorId: Monitor.ID, at point: CGPoint) {
-        guard case .open = state else {
-            cancelDrag()
-            return
-        }
-        guard let session = dragSession else { return }
-        activeInteractionMonitorId = monitorId
-        dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
-
-        let target = layoutsByMonitor[monitorId]?.dragTarget
-        clearDragTargets()
-        dragGhostController?.endDrag()
-        dragSession = nil
-
-        guard let target else {
-            updateWindowDisplays()
-            return
-        }
-
-        let outcome = performDragAction(
-            session: session,
-            target: target
-        )
-        switch outcome {
-        case let .changed(mutation):
-            completeStructuralMutation(mutation)
-        case let .awaitingAdmission(mutation, deferredTarget):
-            completeDeferredDragMutation(mutation, target: deferredTarget)
-        case .unchanged:
-            updateWindowDisplays()
-        }
-    }
-
-    static func deferredColumnInsertIndex(
-        requestedIndex: Int,
-        admittedColumnIndex: Int?
-    ) -> Int {
-        if let admittedColumnIndex, admittedColumnIndex < requestedIndex {
-            return requestedIndex + 1
-        }
-        return requestedIndex
-    }
-}
-
-extension OverviewController {
-    fileprivate func cancelDrag() {
-        clearDragTargets()
-        dragGhostController?.endDrag()
-        dragSession = nil
-        updateWindowDisplays()
-    }
-
-    fileprivate func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
-        guard let layout = layoutsByMonitor[monitorId] else { return nil }
-        return layout.resolveDragTarget(at: point, draggedHandle: dragSession?.handle)
-    }
-
-    fileprivate func performDragAction(session: DragSession, target: OverviewDragTarget) -> DragMutationOutcome {
-        guard let wmController,
-              visibleManagedEntry(for: session.handle) != nil
-        else {
-            return .unchanged
-        }
-
-        switch target {
-        case let .workspaceMove(targetWsId):
-            guard targetWsId != session.workspaceId else { return .unchanged }
-            guard case let .changed(mutation) = wmController.workspaceNavigationHandler.moveWindow(
-                handle: session.handle,
-                toWorkspaceId: targetWsId
-            ) else { return .unchanged }
-            return .changed(mutation)
-
-        case let .niriWindowInsert(targetWsId, targetHandle, position):
-            guard isNiriLayout(workspaceId: targetWsId),
-                  visibleManagedEntry(for: targetHandle) != nil
-            else {
-                return .unchanged
-            }
-            var transferMutation: StructuralMutation?
-            if targetWsId != session.workspaceId {
-                guard case let .changed(mutation) = wmController.workspaceNavigationHandler.moveWindow(
-                    handle: session.handle,
-                    toWorkspaceId: targetWsId
-                ) else { return .unchanged }
-                transferMutation = mutation
-                if !isNiriLayout(workspaceId: session.workspaceId) {
-                    return .awaitingAdmission(mutation, target)
-                }
-            }
-            let niriPosition = overviewInsertPositionToNiri(position)
-            guard wmController.niriLayoutHandler.insertWindow(
-                handle: session.handle,
-                targetHandle: targetHandle,
-                position: niriPosition,
-                in: targetWsId,
-                source: .mouse
-            ) else {
-                return transferMutation.map(DragMutationOutcome.changed) ?? .unchanged
-            }
-            return .changed(
-                StructuralMutation(
-                    sourceWorkspaceId: session.workspaceId,
-                    destinationWorkspaceId: targetWsId,
-                    selectedHandle: session.handle,
-                    movedTokens: [session.handle.id],
-                    scrollWorkspaceId: targetWsId
-                )
-            )
-
-        case let .niriColumnInsert(targetWsId, insertIndex):
-            guard isNiriLayout(workspaceId: targetWsId) else { return .unchanged }
-            let shouldInheritSizing = targetWsId != session.workspaceId
-                && isNiriLayout(workspaceId: session.workspaceId)
-            let sizingPolicy: NiriLayoutEngine.NewContainerSizingPolicy = shouldInheritSizing
-                ? .inheritSource
-                : .workspaceDefault
-            var transferMutation: StructuralMutation?
-            if targetWsId != session.workspaceId {
-                guard case let .changed(mutation) = wmController.workspaceNavigationHandler.moveWindow(
-                    handle: session.handle,
-                    toWorkspaceId: targetWsId
-                ) else { return .unchanged }
-                transferMutation = mutation
-                if !isNiriLayout(workspaceId: session.workspaceId) {
-                    return .awaitingAdmission(mutation, target)
-                }
-            }
-            guard wmController.niriLayoutHandler.insertWindowInNewColumn(
-                handle: session.handle,
-                insertIndex: insertIndex,
-                in: targetWsId,
-                sizingPolicy: sizingPolicy,
-                source: .mouse
-            ) else {
-                return transferMutation.map(DragMutationOutcome.changed) ?? .unchanged
-            }
-            return .changed(
-                StructuralMutation(
-                    sourceWorkspaceId: session.workspaceId,
-                    destinationWorkspaceId: targetWsId,
-                    selectedHandle: session.handle,
-                    movedTokens: [session.handle.id],
-                    scrollWorkspaceId: targetWsId
-                )
-            )
-        }
-    }
-
-    fileprivate func completeDeferredDragMutation(
-        _ mutation: StructuralMutation,
-        target: OverviewDragTarget
-    ) {
-        guard let wmController, activateStructuralDestination(mutation) else { return }
-        guard let transferGeneration = beginStructuralTransfer() else { return }
-        let projectionGeneration = beginProjectionMutation(
-            affectedWorkspaceIds: projectionWorkspaceIds(for: mutation)
-        )
-        wmController.layoutRefreshController.requestImmediateRelayout(
-            reason: .overviewMutation,
-            affectedWorkspaceIds: mutation.affectedWorkspaceIds,
-            postLayout: { [weak self] in
-                self?.applyDeferredDragPlacement(
-                    mutation,
-                    target: target,
-                    transferGeneration: transferGeneration,
-                    projectionGeneration: projectionGeneration
-                )
-            },
-            postLayoutInvalidated: { [weak self] in
-                self?.finishDeferredDragMutation(
-                    mutation,
-                    transferGeneration: transferGeneration,
-                    projectionGeneration: projectionGeneration
-                )
-            }
-        )
-    }
-
-    fileprivate func applyDeferredDragPlacement(
-        _ mutation: StructuralMutation,
-        target: OverviewDragTarget,
-        transferGeneration: UInt64,
-        projectionGeneration: UInt64
-    ) {
-        guard let wmController,
-              case .open = state,
-              projectionMutationGeneration == projectionGeneration,
-              activeStructuralTransferGeneration == transferGeneration,
-              let selectedEntry = visibleManagedEntry(for: mutation.selectedHandle),
-              selectedEntry.workspaceId == mutation.destinationWorkspaceId
-        else {
-            finishDeferredDragMutation(
-                mutation,
-                transferGeneration: transferGeneration,
-                projectionGeneration: projectionGeneration
-            )
-            return
-        }
-
-        let inserted: Bool
-        switch target {
-        case let .niriWindowInsert(workspaceId, targetHandle, position):
-            guard visibleManagedEntry(for: targetHandle) != nil else {
-                finishDeferredDragMutation(
-                    mutation,
-                    transferGeneration: transferGeneration,
-                    projectionGeneration: projectionGeneration
-                )
-                return
-            }
-            inserted = wmController.niriLayoutHandler.insertWindow(
-                handle: mutation.selectedHandle,
-                targetHandle: targetHandle,
-                position: overviewInsertPositionToNiri(position),
-                in: workspaceId,
-                source: .mouse
-            )
-        case let .niriColumnInsert(workspaceId, insertIndex):
-            let admittedColumnIndex = wmController.niriEngine
-                .flatMap { engine in
-                    engine.findNode(for: mutation.selectedHandle, in: workspaceId)
-                        .flatMap { engine.findColumn(containing: $0, in: workspaceId) }
-                        .flatMap { column in
-                            column.windowNodes.count == 1
-                                ? engine.columnIndex(of: column, in: workspaceId)
-                                : nil
-                        }
-                }
-            let resolvedInsertIndex = Self.deferredColumnInsertIndex(
-                requestedIndex: insertIndex,
-                admittedColumnIndex: admittedColumnIndex
-            )
-            inserted = wmController.niriLayoutHandler.insertWindowInNewColumn(
-                handle: mutation.selectedHandle,
-                insertIndex: resolvedInsertIndex,
-                in: workspaceId,
-                sizingPolicy: .workspaceDefault,
-                source: .mouse
-            )
-        case .workspaceMove:
-            inserted = false
-        }
-
-        guard inserted else {
-            finishDeferredDragMutation(
-                mutation,
-                transferGeneration: transferGeneration,
-                projectionGeneration: projectionGeneration
-            )
-            return
-        }
-        wmController.layoutRefreshController.requestImmediateRelayout(
-            reason: .overviewMutation,
-            affectedWorkspaceIds: mutation.affectedWorkspaceIds,
-            postLayout: { [weak self] in
-                self?.finishDeferredDragMutation(
-                    mutation,
-                    transferGeneration: transferGeneration,
-                    projectionGeneration: projectionGeneration
-                )
-            },
-            postLayoutInvalidated: { [weak self] in
-                self?.finishDeferredDragMutation(
-                    mutation,
-                    transferGeneration: transferGeneration,
-                    projectionGeneration: projectionGeneration
-                )
-            }
-        )
-        wmController.layoutRefreshController.startScrollAnimation(for: mutation.destinationWorkspaceId)
-    }
-
-    fileprivate func finishDeferredDragMutation(
-        _ mutation: StructuralMutation,
-        transferGeneration: UInt64,
-        projectionGeneration: UInt64
-    ) {
-        defer { finishStructuralTransfer(transferGeneration) }
-        guard self.projectionMutationGeneration == projectionGeneration else { return }
-        synchronizeStructuralSelection(mutation)
-        pendingProjectionWorkspaceIds.formUnion(projectionWorkspaceIds(for: mutation))
-        let affectedWorkspaceIds = pendingProjectionWorkspaceIds
-        pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
-        refreshCachedOverviewProjection(
-            affectedWorkspaceIds: affectedWorkspaceIds
-        )
-    }
-
-    fileprivate func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let wmController else { return false }
-        guard let name = wmController.workspaceManager.descriptor(for: workspaceId)?.name else { return false }
-        let layoutType = wmController.settings.layoutType(for: name)
-        return layoutType != .dwindle
-    }
-
-    fileprivate func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
-        switch position {
-        case .before:
-            return .after
-        case .after:
-            return .before
-        case .swap:
-            return .swap
-        }
+        drag.isActive
     }
 }

@@ -5,6 +5,21 @@ import AppKit
 import Foundation
 
 extension NiriLayoutEngine {
+    func cancelInteractiveResize(
+        for column: NiriContainer,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) {
+        guard let resize = interactiveResize, resize.workspaceId == workspaceId else { return }
+        guard let resizeWindow = findNode(by: resize.windowId, in: workspaceId) as? NiriWindow,
+              let resizeColumn = findColumn(containing: resizeWindow, in: workspaceId),
+              resizeColumn === column
+        else {
+            return
+        }
+
+        clearInteractiveResize()
+    }
+
     func hitTestTiled(
         point: CGPoint,
         in workspaceId: WorkspaceDescriptor.ID
@@ -100,7 +115,7 @@ extension NiriLayoutEngine {
         return projectedHeightBounds(for: column, workspaceId: workspaceId).min
     }
 
-    private func calculateHorizontalPixelsPerWeightUnit(
+    func calculateHorizontalPixelsPerWeightUnit(
         column: NiriContainer,
         workspaceId: WorkspaceDescriptor.ID,
         monitorFrame: CGRect,
@@ -142,6 +157,42 @@ extension NiriLayoutEngine {
             return false
         }
 
+        let baseline = interactiveResizeBaseline(
+            windowNode,
+            column: column,
+            edges: edges,
+            workspaceId: workspaceId,
+            orientation: orientation
+        )
+        let isLeadingPrimaryEdge = switch orientation {
+        case .horizontal: edges.contains(.left)
+        case .vertical: edges.contains(.bottom)
+        }
+
+        interactiveResize = InteractiveResize(
+            windowId: windowId,
+            workspaceId: workspaceId,
+            originalContainerSpan: baseline.containerSpan,
+            originalWindowBaseline: baseline.window,
+            edges: edges,
+            startMouseLocation: startLocation,
+            columnIndex: colIdx,
+            orientation: orientation,
+            originalViewOffset: isLeadingPrimaryEdge ? viewOffset : nil
+        )
+
+        NiriLayoutTrace.record(
+            .resize,
+            workspaceId: workspaceId,
+            "begin win=\(windowId) col=\(colIdx) edges=\(String(describing: edges))"
+        )
+        return true
+    }
+
+    private func interactiveResizeBaseline(
+        _ windowNode: NiriWindow, column: NiriContainer, edges: ResizeEdge,
+        workspaceId: WorkspaceDescriptor.ID, orientation: Monitor.Orientation
+    ) -> (containerSpan: CGFloat?, window: InteractiveResize.WindowBaseline?) {
         let originalContainerSpan: CGFloat?
         let originalWindowBaseline: InteractiveResize.WindowBaseline?
         switch orientation {
@@ -171,29 +222,7 @@ extension NiriLayoutEngine {
                 originalWindowBaseline = edges.hasHorizontal ? .weight(windowNode.widthWeight) : nil
             }
         }
-        let isLeadingPrimaryEdge = switch orientation {
-        case .horizontal: edges.contains(.left)
-        case .vertical: edges.contains(.bottom)
-        }
-
-        interactiveResize = InteractiveResize(
-            windowId: windowId,
-            workspaceId: workspaceId,
-            originalContainerSpan: originalContainerSpan,
-            originalWindowBaseline: originalWindowBaseline,
-            edges: edges,
-            startMouseLocation: startLocation,
-            columnIndex: colIdx,
-            orientation: orientation,
-            originalViewOffset: isLeadingPrimaryEdge ? viewOffset : nil
-        )
-
-        NiriLayoutTrace.record(
-            .resize,
-            workspaceId: workspaceId,
-            "begin win=\(windowId) col=\(colIdx) edges=\(String(describing: edges))"
-        )
-        return true
+        return (originalContainerSpan, originalWindowBaseline)
     }
 
     func interactiveResizeUpdate(
@@ -219,145 +248,17 @@ extension NiriLayoutEngine {
             y: currentLocation.y - resize.startMouseLocation.y
         )
 
-        var changed = false
-
+        let context = ResizeUpdateContext(resize: resize, delta: delta, monitorFrame: monitorFrame, gaps: gaps)
         switch resize.orientation {
         case .horizontal:
-            if resize.edges.hasHorizontal, let originalWidth = resize.originalContainerSpan {
-                column.widthAnimation = nil
-                column.targetWidth = nil
-
-                var dx = delta.x
-
-                if resize.edges.contains(.left) {
-                    dx = -dx
-                }
-
-                let widthBounds = projectedWidthBounds(for: column, workspaceId: resize.workspaceId)
-                let minWidth = widthBounds.min
-                let viewportMaxWidth = monitorFrame.width - gaps.horizontal
-                let maxWidth = max(
-                    minWidth,
-                    min(viewportMaxWidth, widthBounds.max ?? viewportMaxWidth)
-                )
-
-                let newWidth = originalWidth + dx
-                column.cachedWidth = newWidth.clamped(to: minWidth ... maxWidth)
-                column.width = .fixed(column.cachedWidth)
-                column.presetWidthIdx = nil
-                column.isFullWidth = false
-                column.savedWidth = nil
-                column.hasManualSingleWindowWidthOverride = true
-                changed = true
-
-                if resize.edges.contains(.left), let origOffset = resize.originalViewOffset {
-                    let widthDelta = column.cachedWidth - originalWidth
-                    viewportState { state in
-                        state.jumpOffset(to: origOffset + widthDelta)
-                    }
-                }
-            }
-
-            if resize.edges.hasVertical,
-               case let .weight(originalHeight)? = resize.originalWindowBaseline
-            {
-                var dy = delta.y
-
-                if resize.edges.contains(.bottom) {
-                    dy = -dy
-                }
-
-                let pixelsPerWeight = calculateVerticalPixelsPerWeightUnit(
-                    column: column,
-                    workspaceId: resize.workspaceId,
-                    monitorFrame: monitorFrame,
-                    gaps: gaps
-                )
-
-                if pixelsPerWeight > 0 {
-                    let weightDelta = dy / pixelsPerWeight
-                    let newWeight = originalHeight + weightDelta
-                    windowNode.size = newWeight.clamped(
-                        to: resizeConfiguration.minWindowWeight ... resizeConfiguration.maxWindowWeight
-                    )
-                    changed = true
-                }
-            }
+            let widthChanged = resizeHorizontalColumn(column, context: context, viewportState: viewportState)
+            let heightChanged = resizeHorizontalWindow(windowNode, column: column, context: context)
+            return widthChanged || heightChanged
         case .vertical:
-            if resize.edges.hasHorizontal, let windowBaseline = resize.originalWindowBaseline {
-                var dx = delta.x
-
-                if resize.edges.contains(.left) {
-                    dx = -dx
-                }
-
-                switch windowBaseline {
-                case let .fixedPixels(originalWidth):
-                    let constraints = windowNode.constraints.normalized()
-                    let minWidth = constraints.minSize.width
-                    let viewportMaxWidth = monitorFrame.width - gaps.horizontal
-                    let constrainedMaxWidth = constraints.hasMaxWidth
-                        ? constraints.maxSize.width
-                        : viewportMaxWidth
-                    let maxWidth = max(minWidth, min(viewportMaxWidth, constrainedMaxWidth))
-                    let newWidth = (originalWidth + dx).clamped(to: minWidth ... maxWidth)
-                    windowNode.windowWidth = .fixed(newWidth)
-                    changed = true
-                case let .weight(originalWidthWeight):
-                    let pixelsPerWeight = calculateHorizontalPixelsPerWeightUnit(
-                        column: column,
-                        workspaceId: resize.workspaceId,
-                        monitorFrame: monitorFrame,
-                        gaps: gaps
-                    )
-
-                    if pixelsPerWeight > 0 {
-                        let weightDelta = dx / pixelsPerWeight
-                        let newWeight = (originalWidthWeight + weightDelta).clamped(
-                            to: resizeConfiguration.minWindowWeight ... resizeConfiguration.maxWindowWeight
-                        )
-                        let constrainedWidth = windowNode.constraints.clampWidth(
-                            newWeight * pixelsPerWeight
-                        )
-                        windowNode.windowWidth = .auto(weight: constrainedWidth / pixelsPerWeight)
-                        changed = true
-                    }
-                }
-            }
-
-            if resize.edges.hasVertical, let originalHeight = resize.originalContainerSpan {
-                var dy = delta.y
-
-                if resize.edges.contains(.bottom) {
-                    dy = -dy
-                }
-
-                let heightBounds = projectedHeightBounds(for: column, workspaceId: resize.workspaceId)
-                let minHeight = heightBounds.min
-                let viewportMaxHeight = monitorFrame.height - gaps.vertical
-                let maxHeight = max(
-                    minHeight,
-                    min(viewportMaxHeight, heightBounds.max ?? viewportMaxHeight)
-                )
-
-                let newHeight = originalHeight + dy
-                column.cachedHeight = newHeight.clamped(to: minHeight ... maxHeight)
-                column.height = .fixed(column.cachedHeight)
-                column.isFullHeight = false
-                column.savedHeight = nil
-                column.hasManualSingleWindowHeightOverride = true
-                changed = true
-
-                if resize.edges.contains(.bottom), let origOffset = resize.originalViewOffset {
-                    let heightDelta = column.cachedHeight - originalHeight
-                    viewportState { state in
-                        state.jumpOffset(to: origOffset + heightDelta)
-                    }
-                }
-            }
+            let widthChanged = resizeVerticalWindow(windowNode, column: column, context: context)
+            let heightChanged = resizeVerticalColumn(column, context: context, viewportState: viewportState)
+            return widthChanged || heightChanged
         }
-
-        return changed
     }
 
     func projectedWidthBounds(
@@ -431,12 +332,14 @@ extension NiriLayoutEngine {
             )
             if resize.originalContainerSpan != nil {
                 recoverSettledCoverage(
-                    in: resize.workspaceId,
-                    motion: motion,
-                    state: &state,
-                    workingFrame: workingFrame,
-                    gaps: gaps,
-                    orientation: resize.orientation
+                    context: .init(
+                        workspaceId: resize.workspaceId,
+                        motion: motion,
+                        workingFrame: workingFrame,
+                        gaps: gaps,
+                        orientation: resize.orientation
+                    ),
+                    state: &state
                 )
             }
         }

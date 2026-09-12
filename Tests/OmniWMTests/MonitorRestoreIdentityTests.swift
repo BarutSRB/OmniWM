@@ -234,8 +234,8 @@ final class MonitorRestoreIdentityTests: XCTestCase {
                 rescueEligible: false
             )
         )
-        let plan = RestorePlanner().planPersistedHydration(
-            RestorePlanner.PersistedHydrationInput(
+        let plan = PersistedRestorePlanner.plan(
+            PersistedRestorePlanner.Input(
                 token: token,
                 metadata: metadata,
                 catalog: PersistedWindowRestoreCatalog(entries: [entry]),

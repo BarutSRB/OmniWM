@@ -31,7 +31,7 @@ extension AXEventHandler {
         let token = entry.token
         let workspaceId = entry.workspaceId
         let layoutType = controller.workspaceManager.descriptor(for: workspaceId)
-            .map { controller.settings.layoutType(for: $0.name) } ?? .defaultLayout
+            .map { controller.settings.workspaces.layoutType(for: $0.name) } ?? .defaultLayout
         let ownsLiveFocus = controller.workspaceManager.nativeManagedFocusToken == token
             || controller.workspaceManager.externalFocusToken == token
         let removesScratchpadResources = controller.workspaceManager.isScratchpadToken(token)
@@ -48,23 +48,7 @@ extension AXEventHandler {
             removedNiriColumn = node.flatMap { engine.column(of: $0) }?.windowNodes.count == 1
         }
 
-        clearTerminalFrameFailure(windowId: token.windowId)
-        cancelCreatedWindowRetry(windowId: token.windowId)
-        cancelSameAppCloseProbe(matchingFocusedToken: token, reason: policy.traceReason)
-        if let request = controller.intentLedger.activeManagedRequest(for: token),
-           case .awaitingSameAppActivation = request.phase
-        {
-            controller.cancelManagedFocusRequestAndRestoreSource(request)
-        } else {
-            clearManagedFocusState(
-                matching: token,
-                workspaceId: workspaceId,
-                preservesExternalFocusIdentity: policy.preservesLiveFocusAsExternal && ownsLiveFocus
-            )
-        }
-        if policy.preservesLiveFocusAsExternal, ownsLiveFocus {
-            _ = controller.workspaceManager.externalizeNativeFocus(matching: token)
-        }
+        prepareRetirementFocus(entry, policy: policy, ownsLiveFocus: ownsLiveFocus, controller: controller)
         controller.mouseEventHandler.discardNativeTitleBarDrag(for: token)
         _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         noteManagedWindowSubscriptionIdentityChanged()
@@ -79,13 +63,15 @@ extension AXEventHandler {
         }
 
         controller.layoutRefreshController.requestWindowRemoval(
-            workspaceId: workspaceId,
-            layoutType: layoutType,
-            removedNodeId: removedNodeId,
-            removedNiriColumn: removedNiriColumn,
-            niriOldFrames: oldFrames,
-            shouldRecoverFocus: policy.shouldRecoverFocus,
-            allowsPreferredRecoveryToken: policy.allowsPreferredRecoveryToken
+            .init(
+                workspaceId: workspaceId,
+                layoutType: layoutType,
+                removedNodeId: removedNodeId,
+                removedNiriColumn: removedNiriColumn,
+                niriOldFrames: oldFrames,
+                shouldRecoverFocus: policy.shouldRecoverFocus,
+                allowsPreferredRecoveryToken: policy.allowsPreferredRecoveryToken
+            )
         )
         if case .terminalFrameRefusal = reason {
             controller.surfaceReconciler.noteRestackOccurred()
@@ -246,5 +232,32 @@ extension AXEventHandler {
             )
         )
         retireManagedWindow(entry, reason: .terminalFrameRefusal)
+    }
+
+    private func prepareRetirementFocus(
+        _ entry: WindowState,
+        policy: ManagedWindowRetirementPolicy,
+        ownsLiveFocus: Bool,
+        controller: WMController
+    ) {
+        let token = entry.token
+        let workspaceId = entry.workspaceId
+        clearTerminalFrameFailure(windowId: token.windowId)
+        cancelCreatedWindowRetry(windowId: token.windowId)
+        cancelSameAppCloseProbe(matchingFocusedToken: token, reason: policy.traceReason)
+        if let request = controller.intentLedger.activeManagedRequest(for: token),
+           case .awaitingSameAppActivation = request.phase
+        {
+            controller.cancelManagedFocusRequestAndRestoreSource(request)
+        } else {
+            clearManagedFocusState(
+                matching: token,
+                workspaceId: workspaceId,
+                preservesExternalFocusIdentity: policy.preservesLiveFocusAsExternal && ownsLiveFocus
+            )
+        }
+        if policy.preservesLiveFocusAsExternal, ownsLiveFocus {
+            _ = controller.workspaceManager.externalizeNativeFocus(matching: token)
+        }
     }
 }

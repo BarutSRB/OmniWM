@@ -129,7 +129,7 @@ final class ScratchpadRevealTests: XCTestCase {
             fixture.controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
         )
         _ = fixture.controller.workspaceManager.focusWorkspace(named: "2")
-        fixture.controller.rehomeRevealedScratchpad(activeWorkspaceIds: [second])
+        fixture.controller.scratchpadStacking.rehomeRevealedScratchpad(activeWorkspaceIds: [second])
 
         XCTAssertEqual(fixture.controller.workspaceManager.workspace(for: token), second)
     }
@@ -144,7 +144,7 @@ final class ScratchpadRevealTests: XCTestCase {
             fixture.controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
         )
         _ = fixture.controller.workspaceManager.focusWorkspace(named: "2")
-        fixture.controller.rehomeRevealedScratchpad(activeWorkspaceIds: [second])
+        fixture.controller.scratchpadStacking.rehomeRevealedScratchpad(activeWorkspaceIds: [second])
 
         XCTAssertEqual(fixture.controller.workspaceManager.workspace(for: token), parkedWorkspace)
     }
@@ -180,12 +180,12 @@ final class ScratchpadRevealTests: XCTestCase {
             in: fixture
         )
         XCTAssertEqual(fixture.focusRecorder.focusedWindowIds, [UInt32(first.windowId)])
-        fixture.controller.noteScratchpadStackingAppActivation(
+        fixture.controller.scratchpadStacking.noteScratchpadStackingAppActivation(
             pid: second.pid,
             source: .workspaceDidActivateApplication
         )
         XCTAssertEqual(fixture.focusRecorder.focusedWindowIds, [UInt32(first.windowId)])
-        fixture.controller.noteScratchpadStackingAppActivation(
+        fixture.controller.scratchpadStacking.noteScratchpadStackingAppActivation(
             pid: first.pid,
             source: .workspaceDidActivateApplication
         )
@@ -194,7 +194,7 @@ final class ScratchpadRevealTests: XCTestCase {
             [UInt32(first.windowId), UInt32(second.windowId)]
         )
         XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
-        fixture.controller.noteScratchpadStackingAppActivation(
+        fixture.controller.scratchpadStacking.noteScratchpadStackingAppActivation(
             pid: second.pid,
             source: .workspaceDidActivateApplication
         )
@@ -441,9 +441,10 @@ final class ScratchpadRevealTests: XCTestCase {
 
     func testDeferredDwindleGroupFocusAbortsStacking() throws {
         let fixture = try makeFixture()
-        fixture.controller.settings.workspaceConfigurations = fixture.controller.settings.workspaceConfigurations.map {
-            $0.name == "1" ? $0.with(layoutType: .dwindle) : $0
-        }
+        fixture.controller.settings.workspaces.configurations = fixture.controller.settings.workspaces.configurations
+            .map {
+                $0.name == "1" ? $0.with(layoutType: .dwindle) : $0
+            }
         fixture.controller.workspaceManager.applySettings()
         fixture.controller.dwindleLayoutHandler.enableDwindleLayout()
         let engine = try XCTUnwrap(fixture.controller.dwindleEngine)
@@ -522,12 +523,12 @@ final class ScratchpadRevealTests: XCTestCase {
         )
         fixture.controller.reassignManagedWindow(workspaceFocus, to: secondWorkspace)
         _ = fixture.controller.workspaceManager.focusWorkspace(named: "2")
-        fixture.controller.rehomeRevealedScratchpad(activeWorkspaceIds: [secondWorkspace])
+        fixture.controller.scratchpadStacking.rehomeRevealedScratchpad(activeWorkspaceIds: [secondWorkspace])
         fixture.focusRecorder.reset()
 
         fixture.controller.focusWindow(workspaceFocus)
         fixture.focusRecorder.frontmostPID = nil
-        fixture.controller.resumeRehomedScratchpadStackingAfterFocusHandoff()
+        fixture.controller.scratchpadStacking.resumeRehomedScratchpadStackingAfterFocusHandoff()
         XCTAssertEqual(
             fixture.focusRecorder.focusedWindowIds,
             [UInt32(workspaceFocus.windowId)]
@@ -544,7 +545,7 @@ final class ScratchpadRevealTests: XCTestCase {
         )
 
         fixture.focusRecorder.frontmostPID = workspaceFocus.pid
-        fixture.controller.noteScratchpadStackingAppActivation(
+        fixture.controller.scratchpadStacking.noteScratchpadStackingAppActivation(
             pid: workspaceFocus.pid,
             source: .workspaceDidActivateApplication
         )
@@ -791,7 +792,7 @@ final class ScratchpadRevealTests: XCTestCase {
         let entry = try XCTUnwrap(fixture.controller.workspaceManager.entry(for: token))
         let hiddenState = try XCTUnwrap(fixture.controller.workspaceManager.hiddenState(for: token))
         var priorGroupCompletions = 0
-        let priorGroupId = fixture.controller.layoutRefreshController.beginScratchpadRevealGroup(index: 7) { _ in
+        let priorGroupId = fixture.controller.layoutRefreshController.revealGroups.begin(index: 7) { _ in
             priorGroupCompletions += 1
         }
         let transactionId = try XCTUnwrap(
@@ -803,7 +804,7 @@ final class ScratchpadRevealTests: XCTestCase {
                 revealGroupId: priorGroupId
             )
         )
-        fixture.controller.layoutRefreshController.sealScratchpadRevealGroup(priorGroupId)
+        fixture.controller.layoutRefreshController.revealGroups.seal(priorGroupId)
         fixture.focusRecorder.reset()
 
         XCTAssertEqual(fixture.controller.toggleScratchpad(7), .executed)
@@ -1103,7 +1104,7 @@ final class ScratchpadRevealTests: XCTestCase {
             fixture.controller.workspaceManager.workspaceId(for: "3", createIfMissing: true)
         )
         _ = fixture.controller.workspaceManager.focusWorkspace(named: "3")
-        fixture.controller.rehomeRevealedScratchpad(activeWorkspaceIds: [thirdWorkspace])
+        fixture.controller.scratchpadStacking.rehomeRevealedScratchpad(activeWorkspaceIds: [thirdWorkspace])
 
         XCTAssertEqual(fixture.controller.workspaceManager.workspace(for: visible), thirdWorkspace)
         XCTAssertEqual(fixture.controller.workspaceManager.workspace(for: appHidden), thirdWorkspace)
@@ -1252,7 +1253,7 @@ final class ScratchpadRevealTests: XCTestCase {
             controller.surfaceReconciler.cleanup()
             controller.axManager.cleanup()
         }
-        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map {
+        controller.settings.workspaces.configurations = controller.settings.workspaces.configurations.map {
             $0.name == "1" ? $0.with(layoutType: layout) : $0
         }
         manager.applySettings()
@@ -1312,7 +1313,7 @@ final class ScratchpadRevealTests: XCTestCase {
         XCTAssertNil(manager.hiddenState(for: first))
         let destination = try XCTUnwrap(manager.workspaceId(for: "2", createIfMissing: true))
         _ = manager.focusWorkspace(named: "2")
-        controller.rehomeRevealedScratchpad(activeWorkspaceIds: [destination])
+        controller.scratchpadStacking.rehomeRevealedScratchpad(activeWorkspaceIds: [destination])
         XCTAssertEqual(manager.workspace(for: first), fixture.workspaceId)
         XCTAssertEqual(manager.workspace(for: second), destination)
     }

@@ -655,13 +655,13 @@ final class HotkeyChordTests: XCTestCase {
 
     func testCommandHotkeyTapMatcherRespectsModifierSide() {
         let leftOption = KeyBinding(keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(optionKey)).settingSide(.left)
-        let entries = [CommandHotkeyTapMatcher.Entry(binding: leftOption, command: .switchWorkspace(0))]
+        let entries = [CommandHotkeyTapMatcher.Entry(binding: leftOption, command: .workspace(.switchTo(0)))]
         let leftFlags = CGEventFlags.maskAlternate.rawValue | UInt64(NX_DEVICELALTKEYMASK)
         let rightFlags = CGEventFlags.maskAlternate.rawValue | UInt64(NX_DEVICERALTKEYMASK)
 
         XCTAssertEqual(
             CommandHotkeyTapMatcher.match(keyCode: UInt32(kVK_ANSI_1), rawFlags: leftFlags, entries: entries),
-            .switchWorkspace(0)
+            .workspace(.switchTo(0))
         )
         XCTAssertNil(CommandHotkeyTapMatcher.match(keyCode: UInt32(kVK_ANSI_1), rawFlags: rightFlags, entries: entries))
         XCTAssertNil(CommandHotkeyTapMatcher.match(keyCode: UInt32(kVK_ANSI_2), rawFlags: leftFlags, entries: entries))
@@ -669,23 +669,23 @@ final class HotkeyChordTests: XCTestCase {
 
     func testCommandHotkeyTapMatcherEitherSideMatchesBothSides() {
         let eitherOption = KeyBinding(keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(optionKey))
-        let entries = [CommandHotkeyTapMatcher.Entry(binding: eitherOption, command: .focusPrevious)]
+        let entries = [CommandHotkeyTapMatcher.Entry(binding: eitherOption, command: .focusNavigation(.previous))]
         let leftFlags = CGEventFlags.maskAlternate.rawValue | UInt64(NX_DEVICELALTKEYMASK)
         let rightFlags = CGEventFlags.maskAlternate.rawValue | UInt64(NX_DEVICERALTKEYMASK)
 
         XCTAssertEqual(
             CommandHotkeyTapMatcher.match(keyCode: UInt32(kVK_ANSI_1), rawFlags: leftFlags, entries: entries),
-            .focusPrevious
+            .focusNavigation(.previous)
         )
         XCTAssertEqual(
             CommandHotkeyTapMatcher.match(keyCode: UInt32(kVK_ANSI_1), rawFlags: rightFlags, entries: entries),
-            .focusPrevious
+            .focusNavigation(.previous)
         )
     }
 
     func testCommandHotkeyTapMatcherRejectsExtraModifiers() {
         let leftOption = KeyBinding(keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(optionKey)).settingSide(.left)
-        let entries = [CommandHotkeyTapMatcher.Entry(binding: leftOption, command: .switchWorkspace(0))]
+        let entries = [CommandHotkeyTapMatcher.Entry(binding: leftOption, command: .workspace(.switchTo(0)))]
         let leftOptionWithShift = CGEventFlags.maskAlternate.rawValue
             | UInt64(NX_DEVICELALTKEYMASK)
             | CGEventFlags.maskShift.rawValue
@@ -725,7 +725,7 @@ final class HotkeyChordTests: XCTestCase {
             modifiers: KeySymbolMapper.hyperModifiers,
             sidedModifiers: SidedModifiers(left: KeySymbolMapper.hyperModifiers)
         )
-        let entries = [CommandHotkeyTapMatcher.Entry(binding: leftHyper, command: .focusPrevious)]
+        let entries = [CommandHotkeyTapMatcher.Entry(binding: leftHyper, command: .focusNavigation(.previous))]
         let onlyLeftControl = CGEventFlags.maskControl.rawValue | UInt64(NX_DEVICELCTLKEYMASK)
 
         XCTAssertNil(
@@ -736,7 +736,7 @@ final class HotkeyChordTests: XCTestCase {
             rawFlags: onlyLeftControl,
             entries: entries
         )
-        XCTAssertEqual(nearMiss?.entry.command, .focusPrevious)
+        XCTAssertEqual(nearMiss?.entry.command, .focusNavigation(.previous))
         XCTAssertEqual(nearMiss?.reason, "needs ⌥")
     }
 

@@ -17,6 +17,28 @@ final class SettingsFilePersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testPersistenceReleasesWithAndWithoutInitialWatchers() throws {
+        for startWatching in [false, true] {
+            let fixture = try makeFixture()
+            defer { fixture.remove() }
+            try SettingsTOMLCodec.encode(.defaults()).write(to: settingsURL(in: fixture))
+            weak var releasedPersistence: SettingsFilePersistence?
+
+            do {
+                let persistence = SettingsFilePersistence(
+                    directory: fixture.configDirectory,
+                    startWatching: startWatching,
+                    deferSaves: false
+                )
+                releasedPersistence = persistence
+                XCTAssertNotNil(releasedPersistence)
+            }
+
+            XCTAssertNil(releasedPersistence)
+        }
+    }
+
+    @MainActor
     func testSaveThroughAbsoluteSymlinkPreservesLinkTargetAndPermissions() throws {
         let fixture = try makeFixture()
         defer { fixture.remove() }
@@ -30,11 +52,11 @@ final class SettingsFilePersistenceTests: XCTestCase {
 
         let persistence = makePersistence(in: fixture)
         var export = persistence.load()
-        export.gapSize += 1
+        export.gaps.size += 1
         try persistence.saveImmediately(export)
 
         try assertSymlink(at: linkURL, destination: targetURL.path)
-        XCTAssertEqual(try SettingsTOMLCodec.decode(Data(contentsOf: targetURL)).gapSize, export.gapSize)
+        XCTAssertEqual(try SettingsTOMLCodec.decode(Data(contentsOf: targetURL)).gaps.size, export.gaps.size)
         let attributes = try FileManager.default.attributesOfItem(atPath: targetURL.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o640)
     }
@@ -60,11 +82,11 @@ final class SettingsFilePersistenceTests: XCTestCase {
 
         let persistence = makePersistence(in: fixture)
         var export = persistence.load()
-        export.gapSize += 1
+        export.gaps.size += 1
         try persistence.saveImmediately(export)
 
         try assertSymlink(at: linkURL, destination: destination)
-        XCTAssertEqual(try SettingsTOMLCodec.decode(Data(contentsOf: targetURL)).gapSize, export.gapSize)
+        XCTAssertEqual(try SettingsTOMLCodec.decode(Data(contentsOf: targetURL)).gaps.size, export.gaps.size)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("omniwm.toml").path))
     }
 
@@ -91,7 +113,7 @@ final class SettingsFilePersistenceTests: XCTestCase {
         XCTAssertTrue(persistence.settingsWritesBlocked)
 
         var appeared = SettingsExport.defaults()
-        appeared.gapSize = 37
+        appeared.gaps.size = 37
         let appearedData = try SettingsTOMLCodec.encode(appeared)
         try appearedData.write(to: targetURL)
         XCTAssertThrowsError(try persistence.saveImmediately(.defaults())) { error in
@@ -196,7 +218,7 @@ final class SettingsFilePersistenceTests: XCTestCase {
         defer { fixture.remove() }
 
         var initial = SettingsExport.defaults()
-        initial.gapSize = 17
+        initial.gaps.size = 17
         try SettingsTOMLCodec.encode(initial).write(to: settingsURL(in: fixture))
         let persistence = makePersistence(in: fixture)
         let loaded = persistence.load()
@@ -214,7 +236,7 @@ final class SettingsFilePersistenceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: corruptURL(in: fixture, index: 1).path))
 
         var desired = loaded
-        desired.gapSize = 29
+        desired.gaps.size = 29
         let saveNotice = try XCTUnwrap(persistence.saveImmediately(desired))
         guard case let .recoveredInvalid(backupURL, recoveredReason) = saveNotice else {
             return XCTFail("Expected recovered-invalid save notice")
@@ -245,14 +267,14 @@ final class SettingsFilePersistenceTests: XCTestCase {
             autosaveEnabled: true
         )
         var restored = settings.toExport()
-        restored.outerGapTop = 41
+        restored.gaps.outer.top = 41
 
-        settings.gapSize = 20
+        settings.gaps.size = 20
         try SettingsTOMLCodec.encode(restored).write(to: persistence.fileURL, options: .atomic)
         persistence.handlePossibleSettingsFileChange()
 
-        XCTAssertEqual(settings.outerGapTop, 41)
-        XCTAssertEqual(settings.gapSize, restored.gapSize)
+        XCTAssertEqual(settings.gaps.outerGapTop, 41)
+        XCTAssertEqual(settings.gaps.size, restored.gaps.size)
 
         settings.flushNow()
         for _ in 0 ..< 4 {
@@ -308,7 +330,7 @@ final class SettingsFilePersistenceTests: XCTestCase {
         try invalidData.write(to: settingsURL(in: fixture))
         let persistence = makePersistence(in: fixture)
         var desired = persistence.load()
-        desired.gapSize = 23
+        desired.gaps.size = 23
 
         let saveNotice = try XCTUnwrap(persistence.saveImmediately(desired))
 
@@ -341,6 +363,32 @@ final class SettingsFilePersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testSaveRecoveryReusesMatchingSecondBackupBeforeCreatingAbsentFirstSlot() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+
+        let invalidData = Data([0xFF, 0x10, 0xFE])
+        let matchingBackupURL = corruptURL(in: fixture, index: 1)
+        try invalidData.write(to: settingsURL(in: fixture))
+        try invalidData.write(to: matchingBackupURL)
+        let originalInode = try fileInode(at: matchingBackupURL)
+
+        let persistence = makePersistence(in: fixture)
+        XCTAssertEqual(persistence.load(), SettingsExport.defaults())
+        XCTAssertEqual(try Data(contentsOf: settingsURL(in: fixture)), invalidData)
+        let notice = try XCTUnwrap(persistence.saveImmediately(.defaults()))
+
+        guard case let .recoveredInvalid(backupURL, _) = notice else {
+            return XCTFail("Expected recovery to reuse the matching backup")
+        }
+        XCTAssertEqual(backupURL, matchingBackupURL)
+        XCTAssertEqual(try fileInode(at: matchingBackupURL), originalInode)
+        XCTAssertEqual(try Data(contentsOf: matchingBackupURL), invalidData)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: corruptURL(in: fixture).path))
+        XCTAssertEqual(try SettingsTOMLCodec.decode(Data(contentsOf: settingsURL(in: fixture))), .defaults())
+    }
+
+    @MainActor
     func testStrictDecodeFailuresAreBackedUpBeforeLiveReplacement() throws {
         let invalidInputs = try [
             canonicalData { lines in
@@ -364,7 +412,7 @@ final class SettingsFilePersistenceTests: XCTestCase {
             try SettingsTOMLCodec.encode(.defaults()).write(to: settingsURL(in: fixture))
             let persistence = makePersistence(in: fixture)
             var desired = persistence.load()
-            desired.gapSize += 7
+            desired.gaps.size += 7
             try invalidData.write(to: settingsURL(in: fixture), options: .atomic)
 
             try persistence.saveImmediately(desired)
@@ -402,7 +450,7 @@ final class SettingsFilePersistenceTests: XCTestCase {
         try SettingsTOMLCodec.encode(.defaults()).write(to: settingsURL(in: fixture))
         let persistence = makePersistence(in: fixture)
         var desired = persistence.load()
-        desired.gapSize += 4
+        desired.gaps.size += 4
         try Data([0x01]).write(to: corruptURL(in: fixture))
         try Data([0x02]).write(to: corruptURL(in: fixture, index: 1))
         let thirdInvalidData = Data([0xFF, 0x30, 0xFE])
@@ -533,7 +581,7 @@ final class SettingsFilePersistenceTests: XCTestCase {
         try originalData.write(to: settingsURL(in: fixture))
         let persistence = makePersistence(in: fixture)
         var desired = persistence.load()
-        desired.gapSize += 3
+        desired.gaps.size += 3
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: settingsURL(in: fixture).path)
 
         XCTAssertThrowsError(try persistence.saveImmediately(desired))

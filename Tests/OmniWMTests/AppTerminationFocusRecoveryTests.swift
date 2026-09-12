@@ -33,7 +33,7 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
             for: fixture.workspaceId
         )
 
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(
+        fixture.controller.axEventHandler.handleAppTerminated(
             pid: fixture.departingToken.pid,
             frontmostPID: fixture.finderToken.pid
         )
@@ -56,15 +56,15 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
 
         XCTAssertTrue(
             fixture.controller.eventIntake.enqueue(
-                .axFocusedWindowChanged(
+                .axWindow(.focusedWindowChanged(
                     pid: fixture.fallbackToken.pid,
                     callbackGeneration: nil
-                )
+                ))
             )
         )
         XCTAssertTrue(
             fixture.controller.eventIntake.enqueue(
-                .appActivated(pid: fixture.finderToken.pid)
+                .application(.activated(pid: fixture.finderToken.pid))
             )
         )
         fixture.controller.eventIntake.drainNow()
@@ -88,7 +88,7 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
                 source: .cgsFrontAppChanged
             )
         )
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(
+        fixture.controller.axEventHandler.handleAppTerminated(
             pid: fixture.departingToken.pid,
             frontmostPID: fixture.finderToken.pid
         )
@@ -163,7 +163,7 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
             )
         )
 
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(
+        fixture.controller.axEventHandler.handleAppTerminated(
             pid: fixture.departingToken.pid,
             frontmostPID: fixture.finderToken.pid
         )
@@ -211,7 +211,7 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
             fixture.finderToken.pid
         }
 
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(
+        fixture.controller.axEventHandler.handleAppTerminated(
             pid: fixture.departingToken.pid,
             frontmostPID: fixture.finderToken.pid
         )
@@ -230,7 +230,7 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
     func testRecoveryIntentRekeysExactTokensAndCancelsAcrossPID() throws {
         let fixture = try makeFixture(suffix: 8)
         defer { stop(fixture) }
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(
+        fixture.controller.axEventHandler.handleAppTerminated(
             pid: fixture.departingToken.pid,
             frontmostPID: fixture.finderToken.pid
         )
@@ -361,7 +361,7 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
         controller.eventIntake.open(sink: controller.eventInterpreter)
         recorder.operations.removeAll()
 
-        controller.serviceLifecycleManager.handleAppTerminated(
+        controller.axEventHandler.handleAppTerminated(
             pid: departingToken.pid,
             frontmostPID: finderToken.pid
         )

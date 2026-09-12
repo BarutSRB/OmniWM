@@ -217,9 +217,11 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
                 targetColumn,
                 adding: windows[1],
                 in: workspaceId,
-                workingFrame: frame,
-                gaps: gaps,
-                orientation: .vertical
+                geometry: NiriSizingGeometry(
+                    workingFrame: frame,
+                    gaps: gaps,
+                    orientation: .vertical
+                )
             )
         )
         XCTAssertTrue(
@@ -227,9 +229,11 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
                 targetColumn,
                 adding: windows[1],
                 in: workspaceId,
-                workingFrame: CGRect(x: 0, y: 0, width: 1000, height: 1200),
-                gaps: gaps,
-                orientation: .vertical
+                geometry: NiriSizingGeometry(
+                    workingFrame: CGRect(x: 0, y: 0, width: 1000, height: 1200),
+                    gaps: gaps,
+                    orientation: .vertical
+                )
             )
         )
     }

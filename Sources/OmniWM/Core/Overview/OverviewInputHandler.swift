@@ -37,11 +37,34 @@ final class OverviewInputHandler {
     }
 
     private weak var controller: OverviewController?
+    private let projection: OverviewViewportProjection
+    private let windowSession: OverviewWindowSession
+    private let focusSession: OverviewFocusSession
+    private let overviewSnapshot: OverviewSnapshot
+    private var state: OverviewState {
+        controller?.state ?? .closed
+    }
 
     var searchQuery: String = ""
 
-    init(controller: OverviewController) {
+    init(
+        projection: OverviewViewportProjection,
+        windowSession: OverviewWindowSession,
+        focusSession: OverviewFocusSession,
+        snapshot: OverviewSnapshot
+    ) {
+        self.projection = projection
+        self.windowSession = windowSession
+        self.focusSession = focusSession
+        overviewSnapshot = snapshot
+    }
+
+    func connect(controller: OverviewController) {
         self.controller = controller
+    }
+
+    private func updateWindowDisplays() {
+        windowSession.updateWindowDisplays(state: state)
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
@@ -65,9 +88,9 @@ final class OverviewInputHandler {
         case .opening:
             switch result.action {
             case .dismissSelection:
-                controller.dismissToSelection(animated: true)
+                dismissToSelection(animated: true)
             case .activateSelection:
-                controller.dismissToSelection(animated: true)
+                dismissToSelection(animated: true)
             case .closeSelection,
                  .navigate,
                  .cycleSelection,
@@ -81,29 +104,33 @@ final class OverviewInputHandler {
             break
         }
 
-        switch result.action {
+        performAction(result.action, controller: controller)
+        return true
+    }
+
+    private func performAction(_ action: KeyAction, controller: OverviewController) {
+        switch action {
         case .dismissSelection:
-            controller.dismissToSelection(animated: true)
+            dismissToSelection(animated: true)
         case .activateSelection:
-            controller.activateSelectedWindow()
+            activateSelectedWindow()
         case .closeSelection:
-            controller.closeSelectedWindow()
+            closeSelectedWindow()
         case let .navigate(direction):
-            controller.navigateSelection(direction)
+            navigateSelection(direction)
         case let .cycleSelection(forward):
-            controller.cycleSelection(forward: forward)
+            cycleSelection(forward: forward)
         case .deleteBackward:
             if !searchQuery.isEmpty {
                 searchQuery = String(searchQuery.dropLast())
-                controller.updateSearchQuery(searchQuery)
+                updateSearchQuery(searchQuery)
             }
         case let .appendToSearch(text):
             searchQuery += text
-            controller.updateSearchQuery(searchQuery)
+            updateSearchQuery(searchQuery)
         case .consume:
             break
         }
-        return true
     }
 
     static func keyHandlingResult(
@@ -124,18 +151,12 @@ final class OverviewInputHandler {
             guard relevantModifiers.isEmpty else { break }
             guard !isRepeat else { return .init(action: .consume, shouldConsume: true) }
             return .init(action: .activateSelection, shouldConsume: true)
-        case KeyCode.leftArrow:
-            guard relevantModifiers.isEmpty else { break }
-            return .init(action: .navigate(.left), shouldConsume: true)
-        case KeyCode.rightArrow:
-            guard relevantModifiers.isEmpty else { break }
-            return .init(action: .navigate(.right), shouldConsume: true)
-        case KeyCode.downArrow:
-            guard relevantModifiers.isEmpty else { break }
-            return .init(action: .navigate(.down), shouldConsume: true)
-        case KeyCode.upArrow:
-            guard relevantModifiers.isEmpty else { break }
-            return .init(action: .navigate(.up), shouldConsume: true)
+        case KeyCode.leftArrow,
+             KeyCode.rightArrow,
+             KeyCode.downArrow,
+             KeyCode.upArrow:
+            guard relevantModifiers.isEmpty, let direction = navigationDirection(for: keyCode) else { break }
+            return .init(action: .navigate(direction), shouldConsume: true)
         case KeyCode.tab:
             guard relevantModifiers.isEmpty || relevantModifiers == .shift else { break }
             return .init(
@@ -163,7 +184,147 @@ final class OverviewInputHandler {
         return .init(action: .consume, shouldConsume: true)
     }
 
+    private static func navigationDirection(for keyCode: UInt16) -> Direction? {
+        switch keyCode {
+        case KeyCode.leftArrow: .left
+        case KeyCode.rightArrow: .right
+        case KeyCode.downArrow: .down
+        case KeyCode.upArrow: .up
+        default: nil
+        }
+    }
+
     func reset() {
         searchQuery = ""
+    }
+}
+
+extension OverviewInputHandler {
+    func handleHotkeyInvocation(_ invocation: HotkeyInvocation) -> OverviewHotkeyDisposition {
+        guard state.isOpen else { return .inactive }
+        if let trigger = invocation.trigger,
+           let action = Self.physicalHotkeyAction(for: trigger)
+        {
+            guard !trigger.isRepeat else { return .handled }
+            switch action {
+            case .dismissSelection:
+                dismissToSelection(animated: true)
+            case .closeSelection:
+                closeSelectedWindow()
+            }
+            return .handled
+        }
+        return handleHotkeyCommand(invocation.command)
+    }
+
+    static func physicalHotkeyAction(for trigger: PhysicalHotkeyTrigger) -> OverviewPhysicalHotkeyAction? {
+        let relevantModifiers = trigger.modifiers
+            & UInt32(controlKey | optionKey | shiftKey | cmdKey)
+        switch trigger.keyCode {
+        case UInt32(kVK_Escape):
+            return .dismissSelection
+        case UInt32(kVK_Return),
+             UInt32(kVK_ANSI_KeypadEnter):
+            return relevantModifiers == 0 ? .dismissSelection : nil
+        case UInt32(kVK_ANSI_W):
+            return relevantModifiers == UInt32(cmdKey) ? .closeSelection : nil
+        default:
+            return nil
+        }
+    }
+
+    func handleHotkeyCommand(_ command: HotkeyCommand) -> OverviewHotkeyDisposition {
+        guard state.isOpen else { return .inactive }
+
+        switch command {
+        case .presentation(.overview):
+            controller?.toggle()
+            return .handled
+        case let .focus(direction):
+            guard case .open = state, controller?.hasActiveDragSession == false else { return .handled }
+            navigateSelection(direction)
+            return .handled
+        default:
+            guard OverviewStructuralActions.isStructuralHotkey(command) else { return .blocked }
+            guard case .open = state,
+                  controller?.hasActiveDragSession == false,
+                  controller?.canPerformStructuralHotkey == true
+            else {
+                return .handled
+            }
+            guard let selectedWindowHandle = projection.selectedWindowHandle else { return .handled }
+            controller?.executeStructuralHotkey(command, selectedHandle: selectedWindowHandle)
+            return .handled
+        }
+    }
+
+    func selectAndActivateWindow(_ handle: WindowHandle) {
+        guard case .open = state else { return }
+        projection.setSelectedWindowHandle(handle)
+        updateWindowDisplays()
+
+        focusSession.scheduleSelectionDismissal(handle)
+    }
+
+    func updateSearchQuery(_ query: String) {
+        projection.searchQuery = query
+        searchQuery = query
+        projection.rebuildProjectedLayouts()
+        updateWindowDisplays()
+    }
+
+    func navigateSelection(_ direction: Direction, on monitorId: Monitor.ID? = nil) {
+        guard case .open = state else { return }
+        let changed = projection.performSelectionNavigation(on: monitorId) { layout, currentHandle in
+            OverviewNavigation.findNextWindow(
+                in: layout,
+                from: currentHandle,
+                direction: direction
+            )
+        }
+        if changed { updateWindowDisplays() }
+    }
+
+    func cycleSelection(forward: Bool, on monitorId: Monitor.ID? = nil) {
+        guard case .open = state else { return }
+        let changed = projection.performSelectionNavigation(on: monitorId) { layout, currentHandle in
+            OverviewNavigation.findCycledWindow(
+                in: layout,
+                from: currentHandle,
+                forward: forward
+            )
+        }
+        if changed { updateWindowDisplays() }
+    }
+
+    func activateSelectedWindow() {
+        guard let selectedWindowHandle = projection.selectedWindowHandle else { return }
+        selectAndActivateWindow(selectedWindowHandle)
+    }
+
+    func dismissToSelection(animated: Bool) {
+        guard let selectedWindowHandle = projection.selectedWindowHandle,
+              overviewSnapshot.windows[selectedWindowHandle] != nil
+        else {
+            controller?.dismiss(reason: .cancel, animated: animated)
+            return
+        }
+        controller?.dismiss(reason: .selection, targetWindow: selectedWindowHandle, animated: animated)
+    }
+
+    func closeSelectedWindow() {
+        guard case .open = state, let selectedWindowHandle = projection.selectedWindowHandle else { return }
+        controller?.closeWindow(selectedWindowHandle)
+    }
+
+    func adjustScrollOffset(by delta: CGFloat, on monitorId: Monitor.ID) {
+        projection.adjustScrollOffset(by: delta, on: monitorId)
+        updateWindowDisplays()
+    }
+
+    func handleScroll(delta: CGFloat, modifiers: NSEvent.ModifierFlags, isPrecise: Bool, on monitorId: Monitor.ID) {
+        if projection.handleScroll(delta: delta, modifiers: modifiers, isPrecise: isPrecise, on: monitorId) {
+            updateWindowDisplays()
+        }
     }
 }

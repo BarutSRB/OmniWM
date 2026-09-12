@@ -84,6 +84,42 @@ enum QuakeGhosttyInputBridge {
         return action
     }
 
+    static func keyEquivalentCharacters(
+        for event: NSEvent,
+        lastPerformKeyEvent: inout TimeInterval?
+    ) -> String? {
+        switch event.charactersIgnoringModifiers ?? "" {
+        case "\r":
+            guard event.modifierFlags.contains(.control) else { return nil }
+            return "\r"
+
+        case "/":
+            guard event.modifierFlags.contains(.control),
+                  event.modifierFlags.isDisjoint(with: [.shift, .command, .option])
+            else {
+                return nil
+            }
+            return "_"
+
+        default:
+            guard event.timestamp != 0 else { return nil }
+            guard event.modifierFlags.contains(.command) || event.modifierFlags.contains(.control) else {
+                lastPerformKeyEvent = nil
+                return nil
+            }
+
+            if let previousTimestamp = lastPerformKeyEvent {
+                lastPerformKeyEvent = nil
+                if previousTimestamp == event.timestamp {
+                    return event.characters ?? ""
+                }
+            }
+
+            lastPerformKeyEvent = event.timestamp
+            return nil
+        }
+    }
+
     static func committedText(from value: Any) -> String? {
         switch value {
         case let value as NSAttributedString:

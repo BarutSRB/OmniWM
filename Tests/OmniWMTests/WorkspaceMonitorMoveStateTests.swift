@@ -1777,7 +1777,7 @@ final class WorkspaceMonitorMoveStateTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        settings.workspaceConfigurations = assignments.map { name, monitorIndex in
+        settings.workspaces.configurations = assignments.map { name, monitorIndex in
             WorkspaceConfiguration(
                 name: name,
                 monitorAssignment: .specificDisplay(OutputId(from: monitors[monitorIndex])),

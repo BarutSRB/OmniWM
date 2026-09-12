@@ -51,13 +51,13 @@ final class AXWriteMetricsBenchmarkTests: XCTestCase {
         let writers = 8
         var report: [String] = []
 
-        report.append(timed("clock-only baseline", iterations: iterations) { _ in }.formatted)
+        report.append(Self.timed("clock-only baseline", iterations: iterations) { _ in }.formatted)
 
         let uncontended = AXWriteMetrics()
         let token = AXWriteMetrics.ContextToken(pid: 4_242, callbackGeneration: 1)
         uncontended.register(token, app: "Uncontended", bundleId: nil)
         report.append(
-            timed("uncontended record", iterations: iterations) { index in
+            Self.timed("uncontended record", iterations: iterations) { index in
                 uncontended.record(token, lane: .ordinary, nanoseconds: UInt64(index), succeeded: true)
             }.formatted
         )
@@ -97,7 +97,7 @@ final class AXWriteMetricsBenchmarkTests: XCTestCase {
         print("AXWriteMetrics.record latency\n" + report.joined(separator: "\n"))
     }
 
-    private func timed(_ label: String, iterations: Int, _ body: (Int) -> Void) -> Distribution {
+    private static func timed(_ label: String, iterations: Int, _ body: (Int) -> Void) -> Distribution {
         var samples: [UInt64] = []
         samples.reserveCapacity(iterations)
         for index in 0 ..< iterations {
@@ -129,7 +129,7 @@ final class AXWriteMetricsBenchmarkTests: XCTestCase {
                 return
             }
             let token = tokens[index]
-            let samples = timed(label, iterations: iterations) { write in
+            let samples = Self.timed(label, iterations: iterations) { write in
                 metrics.record(token, lane: .ordinary, nanoseconds: UInt64(write), succeeded: true)
             }.samples
             merged.withLock { $0.append(contentsOf: samples) }

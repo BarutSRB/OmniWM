@@ -360,7 +360,7 @@ final class AnimationRegistrationLivenessTests: XCTestCase {
 
     func testInactiveDwindleRelayoutDoesNotDisplaceActiveDisplaySession() throws {
         let controller = WindowAdmissionTestSupport.controller()
-        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map {
+        controller.settings.workspaces.configurations = controller.settings.workspaces.configurations.map {
             $0.name == "1" || $0.name == "2" ? $0.with(layoutType: .dwindle) : $0
         }
         controller.workspaceManager.applySettings()
@@ -774,14 +774,16 @@ final class AnimationRegistrationLivenessTests: XCTestCase {
                 )
             ],
             frames: targetFrames,
-            engine: engine,
-            workspaceId: workspaceId,
-            preferredHideSide: .right,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: false,
-            pendingParkWindowIds: [],
-            animationTime: 10
+            context: .init(
+                engine: engine,
+                workspaceId: workspaceId,
+                preferredHideSide: .right,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: false,
+                pendingParkWindowIds: [],
+                animationTime: 10
+            )
         )
 
         XCTAssertEqual(try XCTUnwrap(diff.frameChanges.first).frame, oldFrame)

@@ -16,422 +16,124 @@ final class IPCCommandRouter {
 
     func handle(_ request: IPCCommandRequest) -> ExternalCommandResult {
         switch request {
-        case let .focus(ipcDirection):
-            return controller.commandHandler.performCommand(.focus(direction(for: ipcDirection)))
-        case .focusPrevious:
-            return controller.commandHandler.performCommand(.focusPrevious)
-        case .focusDownOrLeft:
-            return controller.commandHandler.performCommand(.focusDownOrLeft)
-        case .focusUpOrRight:
-            return controller.commandHandler.performCommand(.focusUpOrRight)
-        case let .focusWindowInColumn(windowIndex):
-            guard windowIndex >= 0 else {
-                return .invalidArguments
-            }
-            return controller.commandHandler.performCommand(.focusWindowInColumn(windowIndex))
-        case .focusWindowTop:
-            return controller.commandHandler.performCommand(.focusWindowTop)
-        case .focusWindowBottom:
-            return controller.commandHandler.performCommand(.focusWindowBottom)
-        case .focusWindowDownOrTop:
-            return controller.commandHandler.performCommand(.focusWindowDownOrTop)
-        case .focusWindowUpOrBottom:
-            return controller.commandHandler.performCommand(.focusWindowUpOrBottom)
-        case .focusWindowOrWorkspaceDown:
-            return controller.commandHandler.performCommand(.focusWindowOrWorkspaceDown)
-        case .focusWindowOrWorkspaceUp:
-            return controller.commandHandler.performCommand(.focusWindowOrWorkspaceUp)
-        case let .focusColumn(columnIndex):
-            guard let zeroBasedIndex = zeroBasedIndex(from: columnIndex) else {
-                return .invalidArguments
-            }
-            return controller.commandHandler.performCommand(.focusColumn(zeroBasedIndex))
-        case .focusColumnFirst:
-            return controller.commandHandler.performCommand(.focusColumnFirst)
-        case .focusColumnLast:
-            return controller.commandHandler.performCommand(.focusColumnLast)
-        case .centerColumn:
-            return controller.commandHandler.performCommand(.centerColumn)
-        case .centerVisibleColumns:
-            return controller.commandHandler.performCommand(.centerVisibleColumns)
-        case let .move(ipcDirection):
-            return controller.commandHandler.performCommand(.move(direction(for: ipcDirection)))
-        case .moveWindowDown:
-            return controller.commandHandler.performCommand(.moveWindowDown)
-        case .moveWindowUp:
-            return controller.commandHandler.performCommand(.moveWindowUp)
-        case .moveWindowDownOrToWorkspaceDown:
-            return controller.commandHandler.performCommand(.moveWindowDownOrToWorkspaceDown)
-        case .moveWindowUpOrToWorkspaceUp:
-            return controller.commandHandler.performCommand(.moveWindowUpOrToWorkspaceUp)
-        case .consumeOrExpelWindowLeft:
-            return controller.commandHandler.performCommand(.consumeOrExpelWindowLeft)
-        case .consumeOrExpelWindowRight:
-            return controller.commandHandler.performCommand(.consumeOrExpelWindowRight)
-        case .consumeWindowIntoColumn:
-            return controller.commandHandler.performCommand(.consumeWindowIntoColumn)
-        case .expelWindowFromColumn:
-            return controller.commandHandler.performCommand(.expelWindowFromColumn)
-        case let .switchWorkspace(workspaceNumber):
-            guard let target = workspaceTarget(from: workspaceNumber) else {
-                return .invalidArguments
-            }
-            return switchWorkspace(to: target)
-        case .switchWorkspaceNext:
-            return switchWorkspace(using: .switchWorkspaceNext)
-        case .switchWorkspacePrevious:
-            return switchWorkspace(using: .switchWorkspacePrevious)
-        case .switchWorkspaceBackAndForth:
-            return switchWorkspace(using: .workspaceBackAndForth)
-        case let .switchWorkspaceAnywhere(workspaceNumber):
-            guard let target = workspaceTarget(from: workspaceNumber) else {
-                return .invalidArguments
-            }
-            return switchWorkspaceAnywhere(to: target)
-        case let .switchWorkspaceSlot(slotNumber):
-            return switchWorkspaceSlot(slotNumber)
-        case let .moveToWorkspaceSlot(slotNumber):
-            return moveFocusedWindow(toWorkspaceSlot: slotNumber)
-        case let .moveToWorkspace(workspaceNumber):
-            guard let target = workspaceTarget(from: workspaceNumber) else {
-                return .invalidArguments
-            }
-            return moveFocusedWindow(to: target)
-        case .moveToWorkspaceUp:
-            return moveFocusedWindow(using: .moveWindowToWorkspaceUp)
-        case .moveToWorkspaceDown:
-            return moveFocusedWindow(using: .moveWindowToWorkspaceDown)
-        case let .moveToWorkspaceOnMonitor(workspaceNumber, ipcDirection):
-            guard let target = workspaceTarget(from: workspaceNumber) else {
-                return .invalidArguments
-            }
-            return moveFocusedWindow(
-                to: target,
-                onMonitor: direction(for: ipcDirection)
-            )
-        case let .moveToMonitor(ipcDirection):
-            return moveFocusedWindowToMonitor(direction(for: ipcDirection))
-        case .focusMonitorPrevious:
-            return focusMonitor(previous: true)
-        case .focusMonitorNext:
-            return focusMonitor(previous: false)
-        case .focusMonitorLast:
-            return focusLastMonitor()
-        case let .moveColumn(ipcDirection):
-            return controller.commandHandler.performCommand(.moveColumn(direction(for: ipcDirection)))
-        case .moveColumnToFirst:
-            return controller.commandHandler.performCommand(.moveColumnToFirst)
-        case .moveColumnToLast:
-            return controller.commandHandler.performCommand(.moveColumnToLast)
-        case let .moveColumnToIndex(columnIndex):
-            guard columnIndex >= 0 else {
-                return .invalidArguments
-            }
-            return controller.commandHandler.performCommand(.moveColumnToIndex(columnIndex))
-        case let .moveColumnToWorkspace(workspaceNumber):
-            guard let workspaceIndex = zeroBasedIndex(from: workspaceNumber) else {
-                return .invalidArguments
-            }
-            return controller.commandHandler.performCommand(.moveColumnToWorkspace(workspaceIndex))
-        case .moveColumnToWorkspaceUp:
-            return controller.commandHandler.performCommand(.moveColumnToWorkspaceUp)
-        case .moveColumnToWorkspaceDown:
-            return controller.commandHandler.performCommand(.moveColumnToWorkspaceDown)
-        case .toggleColumnTabbed:
-            return controller.commandHandler.performCommand(.toggleColumnTabbed)
-        case .cycleSizeForward:
-            return controller.commandHandler.performCommand(.cycleSizeForward)
-        case .cycleSizeBackward:
-            return controller.commandHandler.performCommand(.cycleSizeBackward)
-        case .cycleWindowPrimarySpanForward:
-            return controller.commandHandler.performCommand(.cycleWindowPrimarySpanForward)
-        case .cycleWindowPrimarySpanBackward:
-            return controller.commandHandler.performCommand(.cycleWindowPrimarySpanBackward)
-        case .cycleWindowSecondarySpanForward:
-            return controller.commandHandler.performCommand(.cycleWindowSecondarySpanForward)
-        case .cycleWindowSecondarySpanBackward:
-            return controller.commandHandler.performCommand(.cycleWindowSecondarySpanBackward)
-        case .toggleContainerFullPrimarySpan:
-            return controller.commandHandler.performCommand(.toggleContainerFullPrimarySpan)
-        case .expandContainerToAvailablePrimarySpan:
-            return controller.commandHandler.performCommand(.expandContainerToAvailablePrimarySpan)
-        case .resetWindowSecondarySpan:
-            return controller.commandHandler.performCommand(.resetWindowSecondarySpan)
-        case let .setContainerPrimarySpan(change):
-            return controller.commandHandler.performCommand(.setContainerPrimarySpan(sizeChange(for: change)))
-        case let .setWindowPrimarySpan(change):
-            return controller.commandHandler.performCommand(.setWindowPrimarySpan(sizeChange(for: change)))
-        case let .setWindowSecondarySpan(change):
-            return controller.commandHandler.performCommand(.setWindowSecondarySpan(sizeChange(for: change)))
+        case let .focus(command):
+            guard let hotkey = HotkeyCommand(ipc: command) else { return .invalidArguments }
+            return controller.commandHandler.performCommand(hotkey)
+        case let .windowMovement(command):
+            return controller.commandHandler.performCommand(HotkeyCommand(ipc: command))
+        case let .workspace(command):
+            return handle(command)
+        case let .monitorFocus(command):
+            return handle(command)
+        case let .column(command):
+            guard let hotkey = HotkeyCommand(ipc: command) else { return .invalidArguments }
+            return controller.commandHandler.performCommand(hotkey)
+        case let .sizing(command):
+            return controller.commandHandler.performCommand(HotkeyCommand(ipc: command))
         case let .swapWorkspaceWithMonitor(ipcDirection):
-            return swapWorkspaceWithMonitor(direction: direction(for: ipcDirection))
-        case .balanceSizes:
-            return controller.commandHandler.performCommand(.balanceSizes)
-        case .moveToRoot:
-            return controller.commandHandler.performCommand(.moveToRoot)
-        case .toggleSplit:
-            return controller.commandHandler.performCommand(.toggleSplit)
-        case .swapSplit:
-            return controller.commandHandler.performCommand(.swapSplit)
-        case let .resize(axis, operation):
-            return controller.commandHandler.performCommand(
-                .resizeAlongAxis(dwindleOrientation(for: axis), operation == .grow)
-            )
-        case let .resizeFocused(operation):
-            return controller.commandHandler.performCommand(.resizeFocusedWindow(operation == .grow))
-        case let .preselect(ipcDirection):
-            return controller.commandHandler.performCommand(.preselect(direction(for: ipcDirection)))
-        case .preselectClear:
-            return controller.commandHandler.performCommand(.preselectClear)
+            return swapWorkspaceWithMonitor(direction: Direction(ipc: ipcDirection))
+        case let .dwindle(command):
+            return controller.commandHandler.performCommand(HotkeyCommand(ipc: command))
         case .openCommandPalette:
             return controller.commandHandler.performCommand(.openCommandPalette)
         case .raiseAllFloatingWindows:
             return raiseAllFloatingWindows()
         case .rescueOffscreenWindows:
             return rescueOffscreenWindows()
-        case .toggleWorkspaceLayout:
-            return controller.commandHandler.performCommand(.toggleWorkspaceLayout)
-        case let .setWorkspaceLayout(layout):
-            if let guardResult = validateControllerState() {
-                return guardResult
-            }
-            return controller.commandHandler.setWorkspaceLayout(layoutType(for: layout)) ? .executed : .noChange
-        case .toggleFullscreen:
-            return controller.commandHandler.performCommand(.toggleFullscreen)
-        case .toggleNativeFullscreen:
-            return controller.commandHandler.performCommand(.toggleNativeFullscreen)
-        case .toggleOverview:
-            return controller.commandHandler.performCommand(.toggleOverview)
-        case .toggleSystemStats:
-            return controller.commandHandler.performCommand(.toggleSystemStats)
-        case .toggleQuakeTerminal:
-            return controller.commandHandler.performCommand(.toggleQuakeTerminal)
-        case .toggleWorkspaceBar:
-            return controller.commandHandler.performCommand(.toggleWorkspaceBarVisibility)
-        case .hiddenBarPanel:
-            return controller.commandHandler.performCommand(.toggleHiddenBarPanel)
-        case .toggleFocusedWindowFloating:
-            return toggleFocusedWindowFloating()
-        case .closeFocusedWindow:
-            return controller.commandHandler.performCommand(.closeFocusedWindow)
-        case let .scratchpadAssign(index):
-            return assignFocusedWindowToScratchpad(index)
-        case let .scratchpadToggle(index):
-            return toggleScratchpad(index)
+        case let .workspaceLayout(command):
+            return handle(command)
+        case let .fullscreen(command):
+            return controller.commandHandler.performCommand(.fullscreen(command))
+        case let .presentation(command):
+            return controller.commandHandler.performCommand(.presentation(command))
+        case let .windowState(command):
+            return controller.commandHandler.performCommand(.windowState(command))
+        case let .scratchpad(command):
+            return controller.commandHandler.performCommand(HotkeyCommand(ipc: command))
         case .openMenuAnywhere:
             return controller.commandHandler.performCommand(.openMenuAnywhere)
         }
     }
 
+    private func handle(_ command: IPCWorkspaceCommand) -> ExternalCommandResult {
+        switch command {
+        case let .switchTo(workspaceNumber):
+            guard let target = WorkspaceTarget(workspaceNumber: workspaceNumber) else {
+                return .invalidArguments
+            }
+            return switchWorkspace(to: target)
+        case .next:
+            return switchWorkspace(using: .workspace(.next))
+        case .previous:
+            return switchWorkspace(using: .workspace(.previous))
+        case .backAndForth:
+            return switchWorkspace(using: .workspace(.backAndForth))
+        case let .switchAnywhere(workspaceNumber):
+            guard let target = WorkspaceTarget(workspaceNumber: workspaceNumber) else {
+                return .invalidArguments
+            }
+            return switchWorkspaceAnywhere(to: target)
+        case let .switchSlot(slotNumber):
+            return switchWorkspaceSlot(slotNumber)
+        case let .moveTo(workspaceNumber):
+            guard let target = WorkspaceTarget(workspaceNumber: workspaceNumber) else {
+                return .invalidArguments
+            }
+            return moveFocusedWindow(to: target)
+        case .moveUp:
+            return moveFocusedWindow(using: .workspace(.moveUp))
+        case .moveDown:
+            return moveFocusedWindow(using: .workspace(.moveDown))
+        case let .moveToOnMonitor(workspaceNumber, ipcDirection):
+            guard let target = WorkspaceTarget(workspaceNumber: workspaceNumber) else {
+                return .invalidArguments
+            }
+            return moveFocusedWindow(
+                to: target,
+                onMonitor: Direction(ipc: ipcDirection)
+            )
+        case let .moveToSlot(slotNumber):
+            return moveFocusedWindow(toWorkspaceSlot: slotNumber)
+        case let .moveToMonitor(ipcDirection):
+            return moveFocusedWindowToMonitor(Direction(ipc: ipcDirection))
+        }
+    }
+
+    private func handle(_ command: IPCMonitorFocusCommand) -> ExternalCommandResult {
+        switch command {
+        case .previous:
+            return focusMonitor(previous: true)
+        case .next:
+            return focusMonitor(previous: false)
+        case .last:
+            return focusLastMonitor()
+        }
+    }
+
+    private func handle(_ command: IPCWorkspaceLayoutCommand) -> ExternalCommandResult {
+        switch command {
+        case .toggle:
+            return controller.commandHandler.performCommand(.workspace(.toggleLayout))
+        case let .set(layout):
+            if let guardResult = IPCCommandValidation.controllerState(controller) {
+                return guardResult
+            }
+            return controller.commandHandler.setWorkspaceLayout(LayoutType(ipc: layout)) ? .executed : .noChange
+        }
+    }
+
     func handle(_ request: IPCWorkspaceRequest) -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
-            return guardResult
-        }
-
-        switch request {
-        case let .focusName(target):
-            return focusWorkspace(target)
-        case let .moveToMonitor(target, ipcDirection, force):
-            return moveWorkspaceToMonitor(
-                target,
-                direction: direction(for: ipcDirection),
-                force: force
-            )
-        case let .rename(target, displayName):
-            return renameWorkspace(target, displayName: displayName)
-        }
-    }
-
-    private func focusWorkspace(_ target: WorkspaceTarget) -> ExternalCommandResult {
-        let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
-        case let .success(resolved):
-            rawWorkspaceID = resolved
-        case let .failure(result):
-            return result
-        }
-
-        guard controller.activeWorkspace()?.name != rawWorkspaceID else { return .noChange }
-        return controller.windowActionHandler.focusWorkspaceFromBar(named: rawWorkspaceID) ? .executed : .notFound
-    }
-
-    private func moveWorkspaceToMonitor(
-        _ target: WorkspaceTarget,
-        direction: Direction,
-        force: Bool
-    ) -> ExternalCommandResult {
-        let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
-        case let .success(resolved):
-            rawWorkspaceID = resolved
-        case let .failure(result):
-            return result
-        }
-
-        guard let workspaceId = controller.workspaceManager.workspaceId(
-            for: rawWorkspaceID,
-            createIfMissing: false
-        ),
-            let outcome = controller.workspaceNavigationHandler.moveWorkspaceToMonitor(
-                workspaceId,
-                direction: direction,
-                force: force
-            )
-        else {
-            return .notFound
-        }
-
-        switch outcome.status {
-        case .executed:
-            return .executed
-        case .conflict:
-            return .workspaceAssignmentConflict
-        case .stateConflict:
-            return .workspaceStateConflict
-        case .notFound:
-            return .notFound
-        }
-    }
-
-    private func renameWorkspace(_ target: WorkspaceTarget, displayName: String) -> ExternalCommandResult {
-        guard !displayName.contains(where: \.isNewline) else { return .invalidArguments }
-        let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
-        case let .success(resolved):
-            rawWorkspaceID = resolved
-        case let .failure(result):
-            return result
-        }
-
-        var configs = controller.settings.workspaceConfigurations
-        guard let index = configs.firstIndex(where: { $0.name == rawWorkspaceID }) else { return .notFound }
-        let normalized: String? = displayName.isEmpty || displayName == rawWorkspaceID ? nil : displayName
-        guard configs[index].displayName != normalized else { return .noChange }
-
-        configs[index].displayName = normalized
-        controller.settings.workspaceConfigurations = configs
-        controller.requestWorkspaceBarRefresh()
-        return .executed
+        IPCWorkspaceRequestExecutor(controller: controller).handle(request)
     }
 
     func handle(_ request: IPCWindowRequest) -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
-            return guardResult
-        }
-
-        switch IPCWindowOpaqueID.validate(request.windowId, expectingSessionToken: sessionToken) {
-        case .invalid:
-            return .invalidArguments
-        case .stale:
-            return .staleWindowId
-        case let .valid(pid, windowId):
-            let token = WindowToken(pid: pid, windowId: windowId)
-            switch request.name {
-            case .focus:
-                return controller.windowActionHandler.focusWindowFromBar(token: token)
-                    ? .executed
-                    : .notFound
-            case .navigate:
-                guard let handle = controller.workspaceManager.handle(for: token) else {
-                    return .notFound
-                }
-                return controller.windowActionHandler.navigateToWindow(handle: handle)
-                    ? .executed
-                    : .notFound
-            case .summonRight:
-                guard let handle = controller.workspaceManager.handle(for: token) else {
-                    return .notFound
-                }
-                return controller.windowActionHandler.summonWindowRight(handle: handle)
-                    ? .executed
-                    : .notFound
-            case .close:
-                guard let handle = controller.workspaceManager.handle(for: token) else { return .notFound }
-                return controller.windowActionHandler.closeWindow(handle: handle) ? .executed : .windowActionFailed
-            case .moveToWorkspace:
-                guard let target = request.workspaceTarget else { return .invalidArguments }
-                guard let handle = controller.workspaceManager.handle(for: token) else { return .notFound }
-                return moveWindow(handle, to: target)
-            }
-        }
-    }
-
-    private func moveWindow(_ handle: WindowHandle, to target: WorkspaceTarget) -> ExternalCommandResult {
-        let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
-        case let .failure(result):
-            return result
-        case let .success(resolved):
-            rawWorkspaceID = resolved
-        }
-        guard let targetWorkspaceId = controller.workspaceManager.workspaceId(
-            for: rawWorkspaceID,
-            createIfMissing: false
-        ) else { return .notFound }
-        guard !isAlreadyOnWorkspace(handle.id, rawWorkspaceID: rawWorkspaceID) else { return .noChange }
-        if case .changed = controller.workspaceNavigationHandler.commitWindowMove(
-            handle: handle,
-            toWorkspaceId: targetWorkspaceId
-        ) {
-            return .executed
-        }
-        return .workspaceStateConflict
-    }
-
-    private func validateControllerState() -> ExternalCommandResult? {
-        guard controller.isEnabled else { return .ignoredDisabled }
-        guard !controller.isOverviewOpen() else { return .ignoredOverview }
-        return nil
-    }
-
-    private func direction(for value: IPCDirection) -> Direction {
-        switch value {
-        case .left:
-            .left
-        case .right:
-            .right
-        case .up:
-            .up
-        case .down:
-            .down
-        }
-    }
-
-    private func dwindleOrientation(for axis: IPCResizeAxis) -> DwindleOrientation {
-        switch axis {
-        case .horizontal:
-            .horizontal
-        case .vertical:
-            .vertical
-        }
-    }
-
-    private func sizeChange(for change: IPCSizeChange) -> NiriSizeChange {
-        switch change.kind {
-        case .setFixed:
-            .setFixed(change.value)
-        case .setProportion:
-            .setProportion(change.value)
-        case .adjustFixed:
-            .adjustFixed(change.value)
-        case .adjustProportion:
-            .adjustProportion(change.value)
-        }
-    }
-
-    private func zeroBasedIndex(from oneBasedValue: Int) -> Int? {
-        guard oneBasedValue > 0 else { return nil }
-        return oneBasedValue - 1
-    }
-
-    private func workspaceTarget(from workspaceNumber: Int) -> WorkspaceTarget? {
-        WorkspaceTarget(workspaceNumber: workspaceNumber)
+        IPCWindowRequestExecutor(controller: controller, sessionToken: sessionToken).handle(request)
     }
 
     private func focusMonitor(previous: Bool) -> ExternalCommandResult {
         let previousMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id
-        let result = controller.commandHandler.performCommand(previous ? .focusMonitorPrevious : .focusMonitorNext)
+        let result = controller.commandHandler.performCommand(.monitorFocus(previous ? .previous : .next))
         guard result == .executed else { return result }
         let currentMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id
@@ -441,22 +143,11 @@ final class IPCCommandRouter {
     private func focusLastMonitor() -> ExternalCommandResult {
         let previousMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id
-        let result = controller.commandHandler.performCommand(.focusMonitorLast)
+        let result = controller.commandHandler.performCommand(.monitorFocus(.last))
         guard result == .executed else { return result }
         let currentMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
             .id
         return currentMonitorId == previousMonitorId ? .noChange : .executed
-    }
-
-    private func layoutType(for value: IPCWorkspaceLayout) -> LayoutType {
-        switch value {
-        case .defaultLayout:
-            .defaultLayout
-        case .niri:
-            .niri
-        case .dwindle:
-            .dwindle
-        }
     }
 
     private func switchWorkspace(using command: HotkeyCommand) -> ExternalCommandResult {
@@ -480,13 +171,7 @@ final class IPCCommandRouter {
               let monitorId = controller.workspaceManager.monitorId(for: workspaceId),
               controller.workspaceManager.adjacentMonitor(from: monitorId, direction: direction) != nil
         else { return .notFound }
-        return moveFocusedWindow(using: .moveWindowToMonitor(direction))
-    }
-
-    private func isAlreadyOnWorkspace(_ token: WindowToken, rawWorkspaceID: String) -> Bool {
-        guard let targetId = controller.workspaceManager.workspaceId(for: rawWorkspaceID, createIfMissing: false)
-        else { return false }
-        return controller.workspaceManager.workspace(for: token) == targetId
+        return moveFocusedWindow(using: .workspace(.moveToMonitor(direction)))
     }
 
     private func swapWorkspaceWithMonitor(direction: Direction) -> ExternalCommandResult {
@@ -495,13 +180,13 @@ final class IPCCommandRouter {
             controller.workspaceManager.adjacentMonitor(from: monitorId, direction: direction) != nil
         else { return .notFound }
         let previousWorkspaceId = controller.activeWorkspace()?.id
-        let result = controller.commandHandler.performCommand(.swapWorkspaceWithMonitor(direction))
+        let result = controller.commandHandler.performCommand(.workspace(.swapWithMonitor(direction)))
         guard result == .executed else { return result }
         return controller.activeWorkspace()?.id == previousWorkspaceId ? .noChange : .executed
     }
 
     private func raiseAllFloatingWindows() -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         guard controller.windowActionHandler.hasRaisableFloatingWindows() else {
@@ -511,30 +196,18 @@ final class IPCCommandRouter {
     }
 
     private func rescueOffscreenWindows() -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         return controller.rescueOffscreenWindows() > 0 ? .executed : .noChange
     }
 
-    private func toggleFocusedWindowFloating() -> ExternalCommandResult {
-        controller.commandHandler.performCommand(.toggleFocusedWindowFloating)
-    }
-
-    private func assignFocusedWindowToScratchpad(_ index: Int) -> ExternalCommandResult {
-        controller.commandHandler.performCommand(.assignFocusedWindowToScratchpad(index))
-    }
-
-    private func toggleScratchpad(_ index: Int) -> ExternalCommandResult {
-        controller.commandHandler.performCommand(.toggleScratchpad(index))
-    }
-
     private func switchWorkspace(to target: WorkspaceTarget) -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
+        switch IPCCommandValidation.workspaceTarget(target, controller: controller) {
         case let .failure(result):
             return result
         case let .success(resolved):
@@ -548,11 +221,11 @@ final class IPCCommandRouter {
     }
 
     private func switchWorkspaceAnywhere(to target: WorkspaceTarget) -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
+        switch IPCCommandValidation.workspaceTarget(target, controller: controller) {
         case let .failure(result):
             return result
         case let .success(resolved):
@@ -573,7 +246,7 @@ final class IPCCommandRouter {
 
     private func switchWorkspaceSlot(_ slot: Int) -> ExternalCommandResult {
         guard slot >= 1 else { return .invalidArguments }
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         guard let target = controller.workspaceNavigationHandler.workspaceSlot(slot) else { return .notFound }
@@ -583,7 +256,7 @@ final class IPCCommandRouter {
 
     private func moveFocusedWindow(toWorkspaceSlot slot: Int) -> ExternalCommandResult {
         guard slot >= 1 else { return .invalidArguments }
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         guard let token = controller.workspaceManager.selectedManagedToken,
@@ -596,19 +269,20 @@ final class IPCCommandRouter {
     }
 
     private func moveFocusedWindow(to target: WorkspaceTarget) -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         guard let token = controller.workspaceManager.selectedManagedToken else { return .notFound }
         let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
+        switch IPCCommandValidation.workspaceTarget(target, controller: controller) {
         case let .failure(result):
             return result
         case let .success(resolved):
             rawWorkspaceID = resolved
         }
 
-        guard !isAlreadyOnWorkspace(token, rawWorkspaceID: rawWorkspaceID) else { return .noChange }
+        guard !IPCCommandValidation.isAlreadyOnWorkspace(token, rawWorkspaceID: rawWorkspaceID, controller: controller)
+        else { return .noChange }
         let previousWorkspaceId = controller.workspaceManager.workspace(for: token)
         controller.workspaceNavigationHandler.moveFocusedWindow(toRawWorkspaceID: rawWorkspaceID)
         return controller.workspaceManager.workspace(for: token) == previousWorkspaceId ? .notFound : .executed
@@ -618,41 +292,25 @@ final class IPCCommandRouter {
         to target: WorkspaceTarget,
         onMonitor monitorDirection: Direction
     ) -> ExternalCommandResult {
-        if let guardResult = validateControllerState() {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
             return guardResult
         }
         guard let token = controller.workspaceManager.selectedManagedToken else { return .notFound }
         let rawWorkspaceID: String
-        switch resolveWorkspaceTarget(target) {
+        switch IPCCommandValidation.workspaceTarget(target, controller: controller) {
         case let .failure(result):
             return result
         case let .success(resolved):
             rawWorkspaceID = resolved
         }
 
-        guard !isAlreadyOnWorkspace(token, rawWorkspaceID: rawWorkspaceID) else { return .noChange }
+        guard !IPCCommandValidation.isAlreadyOnWorkspace(token, rawWorkspaceID: rawWorkspaceID, controller: controller)
+        else { return .noChange }
         let previousWorkspaceId = controller.workspaceManager.workspace(for: token)
         controller.workspaceNavigationHandler.moveWindowToWorkspaceOnMonitor(
             rawWorkspaceID: rawWorkspaceID,
             monitorDirection: monitorDirection
         )
         return controller.workspaceManager.workspace(for: token) == previousWorkspaceId ? .notFound : .executed
-    }
-
-    private func resolveWorkspaceTarget(_ target: WorkspaceTarget) -> Result<String, ExternalCommandResult> {
-        let resolver = WorkspaceTargetResolver(
-            settings: controller.settings,
-            workspaceManager: controller.workspaceManager
-        )
-
-        switch resolver.resolve(target) {
-        case let .success(rawWorkspaceID):
-            return .success(rawWorkspaceID)
-        case .failure(.notFound):
-            return .failure(.notFound)
-        case .failure(.invalidTarget),
-             .failure(.ambiguousDisplayName):
-            return .failure(.invalidArguments)
-        }
     }
 }

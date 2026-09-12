@@ -23,6 +23,7 @@ final class NiriPortraitRevealIntegrationTests: XCTestCase {
             column.cachedHeight = 600
         }
 
+        let workspaceId = WorkspaceDescriptor.ID()
         let scenarios: [(orientation: Monitor.Orientation, frame: CGRect, expectedOffset: CGFloat)] = [
             (.horizontal, CGRect(x: 0, y: 0, width: 1_000, height: 800), -300),
             (.vertical, CGRect(x: 0, y: 0, width: 1_000, height: 800), -100)
@@ -33,10 +34,13 @@ final class NiriPortraitRevealIntegrationTests: XCTestCase {
             state.transitionToColumn(
                 2,
                 columns: columns,
-                gap: 0,
-                workingArea: scenario.frame,
-                orientation: scenario.orientation,
-                motion: .disabled,
+                context: NiriInteractionContext(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: scenario.frame,
+                    gaps: 0,
+                    orientation: scenario.orientation
+                ),
                 animate: false,
                 centerMode: .always,
                 scale: 1,

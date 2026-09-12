@@ -518,7 +518,7 @@ final class WindowAdmissionTraceTests: XCTestCase {
         let preserved = fullRescanCandidate(pid: preservedPID, windowId: windowId)
         let owner = fullRescanCandidate(pid: ownerPID, windowId: windowId)
 
-        let preference = AXManager.fullRescanCandidatePreference(
+        let preference = FullRescanCandidateSelection.fullRescanCandidatePreference(
             preserved,
             over: owner,
             activationPolicyByPID: [preservedPID: .regular, ownerPID: .regular],
@@ -552,6 +552,47 @@ final class WindowAdmissionTraceTests: XCTestCase {
         XCTAssertEqual(object["action"] as? String, "admission_pending")
         XCTAssertEqual(object["windowId"] as? Int, 8_402)
         XCTAssertEqual(object["retryGeneration"] as? Int, 7)
+    }
+
+    func testForEachLineStopsAfterRejectedRulesLine() throws {
+        let recorder = WindowAdmissionTrace(capacity: 4)
+        let observation = classificationObservation(rulesRevision: 7)
+        recorder.beginCapture()
+        recorder.record(.init(
+            action: .classificationObserved,
+            observation: observation,
+            classificationRulesSnapshot: .init(revision: 7, rules: [])
+        ))
+        var delivered: [String] = []
+
+        recorder.forEachLine { line in
+            delivered.append(line)
+            return false
+        }
+
+        XCTAssertEqual(delivered.count, 1)
+        let line = try XCTUnwrap(delivered.first)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        XCTAssertEqual(object["kind"] as? String, "rules_snapshot")
+        XCTAssertEqual(recorder.recordsSnapshot().count, 1)
+    }
+
+    func testForEachLineStopsAfterRejectedOmittedRulesMarker() {
+        let recorder = WindowAdmissionTrace(capacity: 4)
+        recorder.beginCapture()
+        recorder.record(.init(
+            action: .classificationObserved,
+            observation: classificationObservation(rulesRevision: 7)
+        ))
+        var delivered: [String] = []
+
+        recorder.forEachLine { line in
+            delivered.append(line)
+            return false
+        }
+
+        XCTAssertEqual(delivered, ["{\"kind\":\"rules_snapshots_truncated\",\"omittedCount\":1}"])
+        XCTAssertEqual(recorder.recordsSnapshot().count, 1)
     }
 
     func testRepeatedClassificationObservationsAreRetained() {

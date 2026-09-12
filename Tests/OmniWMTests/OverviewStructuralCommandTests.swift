@@ -11,9 +11,9 @@ import XCTest
 @MainActor
 final class OverviewStructuralCommandTests: XCTestCase {
     func testOverviewGuardExemptsOnlyToggleOverview() {
-        XCTAssertFalse(CommandHandler.shouldIgnoreCommand(.toggleOverview, isOverviewOpen: true))
-        XCTAssertTrue(CommandHandler.shouldIgnoreCommand(.moveColumnToFirst, isOverviewOpen: true))
-        XCTAssertFalse(CommandHandler.shouldIgnoreCommand(.moveColumnToFirst, isOverviewOpen: false))
+        XCTAssertFalse(CommandHandler.shouldIgnoreCommand(.presentation(.overview), isOverviewOpen: true))
+        XCTAssertTrue(CommandHandler.shouldIgnoreCommand(.column(.moveToFirst), isOverviewOpen: true))
+        XCTAssertFalse(CommandHandler.shouldIgnoreCommand(.column(.moveToFirst), isOverviewOpen: false))
     }
 
     func testPerformCommandToggleOverviewClosesOpenOverview() throws {
@@ -27,15 +27,15 @@ final class OverviewStructuralCommandTests: XCTestCase {
         }
         XCTAssertTrue(fixture.controller.isOverviewOpen())
 
-        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.moveColumnToFirst), .ignoredOverview)
-        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.toggleOverview), .executed)
+        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.column(.moveToFirst)), .ignoredOverview)
+        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.presentation(.overview)), .executed)
         XCTAssertFalse(fixture.controller.isOverviewOpen())
 
         let router = IPCCommandRouter(controller: fixture.controller, sessionToken: "test")
-        XCTAssertEqual(router.handle(IPCCommandRequest.toggleOverview), .executed)
+        XCTAssertEqual(router.handle(IPCCommandRequest.presentation(.overview)), .executed)
         XCTAssertTrue(fixture.controller.isOverviewOpen())
-        XCTAssertEqual(router.handle(IPCCommandRequest.moveColumnToFirst), .ignoredOverview)
-        XCTAssertEqual(router.handle(IPCCommandRequest.toggleOverview), .executed)
+        XCTAssertEqual(router.handle(IPCCommandRequest.column(.moveToFirst)), .ignoredOverview)
+        XCTAssertEqual(router.handle(IPCCommandRequest.presentation(.overview)), .executed)
         XCTAssertFalse(fixture.controller.isOverviewOpen())
     }
 
@@ -69,8 +69,8 @@ final class OverviewStructuralCommandTests: XCTestCase {
             motionPolicy: fixture.controller.motionPolicy
         )
         let cases = [
-            ("consumeOrExpelWindowLeft", HotkeyCommand.consumeOrExpelWindowLeft),
-            ("consumeOrExpelWindowRight", .consumeOrExpelWindowRight)
+            ("consumeOrExpelWindowLeft", HotkeyCommand.windowMovement(.consumeOrExpelLeft)),
+            ("consumeOrExpelWindowRight", .windowMovement(.consumeOrExpelRight))
         ]
 
         for (id, command) in cases {
@@ -94,7 +94,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             wmController: fixture.controller,
             motionPolicy: fixture.controller.motionPolicy
         )
-        let outcome = overview.performStructuralHotkey(.moveColumnToLast, selectedHandle: selected)
+        let outcome = overview.performStructuralHotkey(.column(.moveToLast), selectedHandle: selected)
         let mutation = try XCTUnwrap(outcome?.mutation)
 
         XCTAssertEqual(
@@ -120,7 +120,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             hasNotch: false,
             name: "Overview Structural Target"
         )
-        fixture.controller.settings.workspaceConfigurations.append(contentsOf: [
+        fixture.controller.settings.workspaces.configurations.append(contentsOf: [
             WorkspaceConfiguration(
                 name: "2",
                 monitorAssignment: .specificDisplay(OutputId(from: targetMonitor)),
@@ -185,7 +185,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
 
         let outcome = withBlockedLayoutRefreshes(fixture) {
             overview.executeStructuralHotkey(
-                .moveWindowToMonitor(.right),
+                .workspace(.moveToMonitor(.right)),
                 selectedHandle: selected
             )
         }
@@ -231,7 +231,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         XCTAssertEqual(
             fixture.controller.commandHandler.handleHotkeyInvocation(
                 HotkeyInvocation(
-                    command: .moveColumnToLast,
+                    command: .column(.moveToLast),
                     trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
                 )
             ),
@@ -243,17 +243,17 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.moveColumnToFirst),
+            fixture.controller.commandHandler.performCommand(.column(.moveToFirst)),
             .ignoredOverview
         )
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.moveColumnToFirst),
+            fixture.controller.commandHandler.performCommand(.column(.moveToFirst)),
             .ignoredOverview
         )
         XCTAssertEqual(
             fixture.controller.commandHandler.handleHotkeyInvocation(
                 HotkeyInvocation(
-                    command: .toggleFullscreen,
+                    command: .fullscreen(.managed),
                     trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
                 )
             ),
@@ -262,7 +262,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         XCTAssertEqual(
             fixture.controller.commandHandler.handleHotkeyInvocation(
                 HotkeyInvocation(
-                    command: .moveWindowToMonitor(.right),
+                    command: .workspace(.moveToMonitor(.right)),
                     trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
                 )
             ),
@@ -271,7 +271,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         XCTAssertEqual(
             fixture.controller.commandHandler.handleHotkeyInvocation(
                 HotkeyInvocation(
-                    command: .moveWorkspaceToMonitor(.right),
+                    command: .workspace(.moveWorkspaceToMonitor(.right)),
                     trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
                 )
             ),
@@ -322,13 +322,13 @@ final class OverviewStructuralCommandTests: XCTestCase {
 
         XCTAssertTrue(
             overview.executeStructuralHotkey(
-                .moveColumnToLast,
+                .column(.moveToLast),
                 selectedHandle: firstSelected
             )?.didMutate == true
         )
         XCTAssertTrue(
             overview.executeStructuralHotkey(
-                .moveColumnToLast,
+                .column(.moveToLast),
                 selectedHandle: secondSelected
             )?.didMutate == true
         )
@@ -379,7 +379,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             motionPolicy: fixture.controller.motionPolicy
         )
         let outcome = withBlockedLayoutRefreshes(fixture) {
-            overview.executeStructuralHotkey(.moveToWorkspace(1), selectedHandle: selected)
+            overview.executeStructuralHotkey(.workspace(.moveTo(1)), selectedHandle: selected)
         }
         let mutation = try XCTUnwrap(outcome?.mutation)
 
@@ -421,7 +421,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             wmController: fixture.controller,
             motionPolicy: fixture.controller.motionPolicy
         )
-        let outcome = overview.performStructuralHotkey(.moveToWorkspace(1), selectedHandle: selected)
+        let outcome = overview.performStructuralHotkey(.workspace(.moveTo(1)), selectedHandle: selected)
         let mutation = try XCTUnwrap(outcome?.mutation)
 
         XCTAssertEqual(mutation.sourceWorkspaceId, sourceWorkspaceId)
@@ -448,7 +448,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             wmController: fixture.controller,
             motionPolicy: fixture.controller.motionPolicy
         )
-        let outcome = overview.performStructuralHotkey(.moveColumnToFirst, selectedHandle: first)
+        let outcome = overview.performStructuralHotkey(.column(.moveToFirst), selectedHandle: first)
 
         XCTAssertEqual(outcome, StructuralMutationOutcome.unchanged)
         XCTAssertEqual(engine.columns(in: workspaceId).flatMap { $0.windowNodes.map(\.token) }, originalOrder)
@@ -480,7 +480,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
 
         let outcome = overview.performStructuralHotkey(
-            .moveColumnToFirst,
+            .column(.moveToFirst),
             selectedHandle: selected
         )
 
@@ -512,7 +512,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             motionPolicy: fixture.controller.motionPolicy
         )
         let outcome = overview.performStructuralHotkey(
-            .moveWindowDownOrToWorkspaceDown,
+            .windowMovement(.downOrToWorkspaceDown),
             selectedHandle: selected
         )
         let createdWorkspaceId = try XCTUnwrap(
@@ -591,7 +591,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             motionPolicy: fixture.controller.motionPolicy
         )
         let outcome = overview.performStructuralHotkey(
-            .moveColumnToWorkspace(1),
+            .column(.moveToWorkspace(1)),
             selectedHandle: selected
         )
         let mutation = try XCTUnwrap(outcome?.mutation)
@@ -635,7 +635,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             motionPolicy: fixture.controller.motionPolicy
         )
         let outcome = overview.performStructuralHotkey(
-            .moveColumnToWorkspace(1),
+            .column(.moveToWorkspace(1)),
             selectedHandle: selected
         )
 
@@ -710,7 +710,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
 
         let outcome = overview.performStructuralHotkey(
-            .moveColumnToWorkspaceDown,
+            .column(.moveToWorkspaceDown),
             selectedHandle: selected
         )
 
@@ -721,7 +721,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
 
     func testColumnMoveDoesNotCreateIncompatibleDynamicWorkspace() throws {
         let fixture = try makeFixture(layouts: [.niri])
-        fixture.controller.settings.defaultLayoutType = .dwindle
+        fixture.controller.settings.workspaces.defaultLayoutType = .dwindle
         let workspaceId = fixture.workspaceIds[0]
         let selected = try addManagedWindow(
             pid: 461_012,
@@ -735,7 +735,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
 
         let outcome = overview.performStructuralHotkey(
-            .moveColumnToWorkspaceDown,
+            .column(.moveToWorkspaceDown),
             selectedHandle: selected
         )
 
@@ -754,7 +754,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             hasNotch: false,
             name: "Overview Structural Secondary"
         )
-        fixture.controller.settings.workspaceConfigurations.append(
+        fixture.controller.settings.workspaces.configurations.append(
             WorkspaceConfiguration(name: "2", monitorAssignment: .secondary, layoutType: .niri)
         )
         fixture.controller.workspaceManager.applyMonitorConfigurationChange([fixture.monitor, secondary])
@@ -780,7 +780,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
 
         let outcome = overview.performStructuralHotkey(
-            .moveWindowDownOrToWorkspaceDown,
+            .windowMovement(.downOrToWorkspaceDown),
             selectedHandle: selected
         )
         let mutation = try XCTUnwrap(outcome?.mutation)
@@ -837,7 +837,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             source: .service
         )
 
-        prepared.overview.beginDrag(
+        prepared.overview.drag.beginDrag(
             on: fixture.monitor.id,
             handle: handle,
             startPoint: .zero
@@ -870,15 +870,15 @@ final class OverviewStructuralCommandTests: XCTestCase {
         let engine = try XCTUnwrap(fixture.controller.niriEngine)
         let originalColumns = engine.columns(in: workspaceId).map { $0.windowNodes.map(\.token) }
 
-        prepared.overview.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
-        prepared.overview.updateDrag(on: fixture.monitor.id, at: dropPoint)
+        prepared.overview.drag.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
+        prepared.overview.drag.updateDrag(on: fixture.monitor.id, at: dropPoint)
         XCTAssertTrue(prepared.overview.hasActiveDragSession)
         fixture.controller.workspaceManager.setAppHidden(
             true,
             pid: dragged.pid,
             source: .service
         )
-        prepared.overview.endDrag(on: fixture.monitor.id, at: dropPoint)
+        prepared.overview.drag.endDrag(on: fixture.monitor.id, at: dropPoint)
 
         XCTAssertFalse(prepared.overview.hasActiveDragSession)
         XCTAssertEqual(
@@ -903,9 +903,9 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
 
         withBlockedLayoutRefreshes(fixture) {
-            prepared.overview.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
-            prepared.overview.updateDrag(on: fixture.monitor.id, at: dropPoint)
-            prepared.overview.endDrag(on: fixture.monitor.id, at: dropPoint)
+            prepared.overview.drag.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
+            prepared.overview.drag.updateDrag(on: fixture.monitor.id, at: dropPoint)
+            prepared.overview.drag.endDrag(on: fixture.monitor.id, at: dropPoint)
         }
 
         let engine = try XCTUnwrap(fixture.controller.niriEngine)
@@ -934,9 +934,9 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
 
         withBlockedLayoutRefreshes(fixture) {
-            prepared.overview.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
-            prepared.overview.updateDrag(on: fixture.monitor.id, at: dropPoint)
-            prepared.overview.endDrag(on: fixture.monitor.id, at: dropPoint)
+            prepared.overview.drag.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
+            prepared.overview.drag.updateDrag(on: fixture.monitor.id, at: dropPoint)
+            prepared.overview.drag.endDrag(on: fixture.monitor.id, at: dropPoint)
         }
 
         let engine = try XCTUnwrap(fixture.controller.niriEngine)
@@ -965,9 +965,9 @@ final class OverviewStructuralCommandTests: XCTestCase {
         let dropPoint = CGPoint(x: gap.frame.midX, y: gap.frame.midY)
 
         withBlockedLayoutRefreshes(fixture) {
-            prepared.overview.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
-            prepared.overview.updateDrag(on: fixture.monitor.id, at: dropPoint)
-            prepared.overview.endDrag(on: fixture.monitor.id, at: dropPoint)
+            prepared.overview.drag.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
+            prepared.overview.drag.updateDrag(on: fixture.monitor.id, at: dropPoint)
+            prepared.overview.drag.endDrag(on: fixture.monitor.id, at: dropPoint)
         }
 
         let engine = try XCTUnwrap(fixture.controller.niriEngine)
@@ -999,9 +999,9 @@ final class OverviewStructuralCommandTests: XCTestCase {
         let destinationFrame = try XCTUnwrap(prepared.layout.window(for: destination)?.overviewFrame)
         let dropPoint = CGPoint(x: destinationFrame.midX, y: destinationFrame.midY)
 
-        prepared.overview.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
-        prepared.overview.updateDrag(on: fixture.monitor.id, at: dropPoint)
-        prepared.overview.endDrag(on: fixture.monitor.id, at: dropPoint)
+        prepared.overview.drag.beginDrag(on: fixture.monitor.id, handle: dragged, startPoint: .zero)
+        prepared.overview.drag.updateDrag(on: fixture.monitor.id, at: dropPoint)
+        prepared.overview.drag.endDrag(on: fixture.monitor.id, at: dropPoint)
         try await waitForLayoutRefreshes(fixture)
 
         let engine = try XCTUnwrap(fixture.controller.dwindleEngine)
@@ -1021,35 +1021,35 @@ final class OverviewStructuralCommandTests: XCTestCase {
 
     func testDeferredColumnInsertIndexPreservesOriginalGap() {
         XCTAssertEqual(
-            OverviewController.deferredColumnInsertIndex(
+            OverviewStructuralActions.deferredColumnInsertIndex(
                 requestedIndex: 0,
                 admittedColumnIndex: 2
             ),
             0
         )
         XCTAssertEqual(
-            OverviewController.deferredColumnInsertIndex(
+            OverviewStructuralActions.deferredColumnInsertIndex(
                 requestedIndex: 1,
                 admittedColumnIndex: 0
             ),
             2
         )
         XCTAssertEqual(
-            OverviewController.deferredColumnInsertIndex(
+            OverviewStructuralActions.deferredColumnInsertIndex(
                 requestedIndex: 1,
                 admittedColumnIndex: 1
             ),
             1
         )
         XCTAssertEqual(
-            OverviewController.deferredColumnInsertIndex(
+            OverviewStructuralActions.deferredColumnInsertIndex(
                 requestedIndex: 3,
                 admittedColumnIndex: 0
             ),
             4
         )
         XCTAssertEqual(
-            OverviewController.deferredColumnInsertIndex(
+            OverviewStructuralActions.deferredColumnInsertIndex(
                 requestedIndex: 3,
                 admittedColumnIndex: nil
             ),
@@ -1073,7 +1073,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
             autosaveEnabled: false
         )
         settings.animationsEnabled = false
-        settings.workspaceConfigurations = layouts.enumerated().map { index, layout in
+        settings.workspaces.configurations = layouts.enumerated().map { index, layout in
             WorkspaceConfiguration(name: String(index + 1), monitorAssignment: .main, layoutType: layout)
         }
         let focusRecorder = FocusRecorder()
@@ -1181,7 +1181,7 @@ final class OverviewStructuralCommandTests: XCTestCase {
         let layout = OverviewLayoutCalculator(
             screenFrame: OverviewLayoutCalculator.viewportFrame(for: fixture.monitor.frame),
             scale: OverviewLayoutCalculator.clampedScale(
-                CGFloat(fixture.controller.settings.overviewZoom)
+                CGFloat(fixture.controller.settings.overview.zoom)
             )
         ).calculateLayout(
             workspaces: workspaces,

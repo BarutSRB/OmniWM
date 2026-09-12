@@ -28,4 +28,9 @@ enum HiddenBarSettingsPolicy {
         }
         return normalized
     }
+
+    @MainActor static func validatedRehideIntervalSeconds(_ value: Double) -> Double {
+        guard value.isFinite else { return SettingsExport.HiddenBar.defaults().rehideIntervalSeconds }
+        return min(max(value, 2), 30)
+    }
 }

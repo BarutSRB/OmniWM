@@ -108,7 +108,7 @@ final class NiriDirectionalOrientationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.moveWindowUp),
+            fixture.controller.commandHandler.performCommand(.windowMovement(.up)),
             .executed
         )
         XCTAssertEqual(fixture.engine.columns(in: fixture.workspaceId).count, 1)
@@ -119,7 +119,7 @@ final class NiriDirectionalOrientationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.moveWindowDown),
+            fixture.controller.commandHandler.performCommand(.windowMovement(.down)),
             .executed
         )
         XCTAssertEqual(fixture.engine.columns(in: fixture.workspaceId).count, 1)
@@ -135,7 +135,7 @@ final class NiriDirectionalOrientationTests: XCTestCase {
             frame: CGRect(x: 0, y: 0, width: 900, height: 1_600),
             topology: .containers
         )
-        fixture.controller.settings.moveCrossesMonitorAtEdge = true
+        fixture.controller.settings.focus.moveCrossesMonitorAtEdge = true
 
         XCTAssertEqual(
             fixture.controller.niriLayoutHandler.moveWindow(direction: .down),
@@ -383,7 +383,7 @@ final class NiriDirectionalOrientationTests: XCTestCase {
             on: fixture.controller
         )
 
-        XCTAssertEqual(descriptor.name, .consumeOrExpelWindowLeft)
+        XCTAssertEqual(descriptor.name, .windowMovement(.consumeOrExpelLeft))
         XCTAssertEqual(descriptor.layoutCompatibility, .niri)
         XCTAssertEqual(fixture.engine.columns(in: fixture.workspaceId).count, 1)
         XCTAssertEqual(
@@ -597,11 +597,11 @@ extension NiriDirectionalOrientationTests {
             prefix: "OmniWMNiriDirectionalOrientationTests"
         )
         controller.motionPolicy.animationsEnabled = false
-        controller.settings.focusCrossesMonitorAtEdge = false
-        controller.settings.moveCrossesMonitorAtEdge = false
+        controller.settings.focus.crossesMonitorAtEdge = false
+        controller.settings.focus.moveCrossesMonitorAtEdge = false
         let monitor = makeMonitor(frame: frame)
         if let forcedOrientation {
-            controller.settings.updateOrientationSettings(
+            controller.settings.monitors.updateOrientationSettings(
                 MonitorOrientationSettings(
                     monitorName: monitor.name,
                     monitorDisplayId: monitor.displayId,
@@ -659,7 +659,7 @@ extension NiriDirectionalOrientationTests {
             prefix: "OmniWMNiriDirectionalOrientationTests"
         )
         controller.motionPolicy.animationsEnabled = false
-        controller.settings.moveCrossesMonitorAtEdge = true
+        controller.settings.focus.moveCrossesMonitorAtEdge = true
         let (source, target) = mixedMonitors()
         controller.workspaceManager.applyMonitorConfigurationChange([source, target])
         let sourceWorkspaceId = try XCTUnwrap(
@@ -712,7 +712,7 @@ extension NiriDirectionalOrientationTests {
         )
         controller.layoutRefreshController.displayLinkActivationForTests = { _ in true }
         controller.motionPolicy.animationsEnabled = false
-        controller.settings.moveCrossesMonitorAtEdge = false
+        controller.settings.focus.moveCrossesMonitorAtEdge = false
 
         let sourceMonitor = Monitor(
             id: .init(displayId: 47_410),
