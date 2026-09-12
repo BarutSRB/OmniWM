@@ -142,10 +142,10 @@ final class QuakeTerminalAppearanceSettingsTests: XCTestCase {
     func testAssigningOutOfRangeBackgroundBlurRadiusNormalizesInPlace() {
         let settings = makeSettingsStore()
 
-        settings.setQuakeTerminalBackgroundBlurRadius(250)
+        settings.quakeTerminal.backgroundBlurRadius = 250
         XCTAssertEqual(settings.quakeTerminal.backgroundBlurRadius, 100)
 
-        settings.setQuakeTerminalBackgroundBlurRadius(-1)
+        settings.quakeTerminal.backgroundBlurRadius = -1
         XCTAssertEqual(settings.quakeTerminal.backgroundBlurRadius, 0)
     }
 
@@ -170,8 +170,8 @@ final class QuakeTerminalAppearanceSettingsTests: XCTestCase {
             autosaveEnabled: true
         )
 
-        settings.setQuakeTerminalBackgroundBlurRadius(40)
-        settings.setQuakeTerminalBackgroundEffect(.glassClear)
+        settings.quakeTerminal.backgroundBlurRadius = 40
+        settings.quakeTerminal.backgroundEffect = .glassClear
 
         let persisted = try SettingsTOMLCodec.decode(Data(contentsOf: persistence.fileURL))
         XCTAssertEqual(persisted.quakeTerminal.backgroundBlurRadius, 40)

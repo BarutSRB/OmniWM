@@ -5,14 +5,19 @@ import Observation
 
 @MainActor @Observable
 final class HiddenBarSettings {
-    private(set) var enabled: Bool
-    private(set) var hiddenBundleIDs: [String]
-    private(set) var rehideIntervalSeconds: Double
+    private nonisolated static let defaults = SettingsExport.HiddenBar.defaults()
+    @ObservationIgnored var onChange: (() -> Void)?
 
-    init(values: SettingsExport.HiddenBar) {
-        enabled = values.enabled
-        hiddenBundleIDs = values.hiddenBundleIDs
-        rehideIntervalSeconds = values.rehideIntervalSeconds
+    var enabled = HiddenBarSettings.defaults.enabled {
+        didSet { onChange?() }
+    }
+
+    var hiddenBundleIDs = HiddenBarSettings.defaults.hiddenBundleIDs {
+        didSet { onChange?() }
+    }
+
+    var rehideIntervalSeconds = HiddenBarSettings.defaults.rehideIntervalSeconds {
+        didSet { onChange?() }
     }
 
     func export() -> SettingsExport.HiddenBar {
@@ -23,45 +28,9 @@ final class HiddenBarSettings {
         )
     }
 
-    fileprivate func setEnabled(_ value: Bool, didChange: () -> Void) {
-        enabled = value
-        didChange()
-    }
-
-    fileprivate func setHiddenBundleIDs(_ value: [String], didChange: () -> Void) {
-        hiddenBundleIDs = value
-        didChange()
-    }
-
-    fileprivate func setRehideIntervalSeconds(_ value: Double, didChange: () -> Void) {
-        rehideIntervalSeconds = value
-        didChange()
-    }
-
-    fileprivate func apply(_ values: SettingsExport.HiddenBar, didChange: () -> Void) {
-        setEnabled(values.enabled, didChange: didChange)
-        setHiddenBundleIDs(HiddenBarSettingsPolicy.normalizedBundleIDs(values.hiddenBundleIDs), didChange: didChange)
-        setRehideIntervalSeconds(
-            HiddenBarSettingsPolicy.validatedRehideIntervalSeconds(values.rehideIntervalSeconds),
-            didChange: didChange
-        )
-    }
-}
-
-extension SettingsStore {
-    func setHiddenBarEnabled(_ value: Bool) {
-        hiddenBar.setEnabled(value, didChange: scheduleSave)
-    }
-
-    func setHiddenBarHiddenBundleIDs(_ value: [String]) {
-        hiddenBar.setHiddenBundleIDs(value, didChange: scheduleSave)
-    }
-
-    func setHiddenBarRehideIntervalSeconds(_ value: Double) {
-        hiddenBar.setRehideIntervalSeconds(value, didChange: scheduleSave)
-    }
-
-    func applyHiddenBar(_ values: SettingsExport.HiddenBar) {
-        hiddenBar.apply(values, didChange: scheduleSave)
+    func apply(_ values: SettingsExport.HiddenBar) {
+        enabled = values.enabled
+        hiddenBundleIDs = HiddenBarSettingsPolicy.normalizedBundleIDs(values.hiddenBundleIDs)
+        rehideIntervalSeconds = HiddenBarSettingsPolicy.validatedRehideIntervalSeconds(values.rehideIntervalSeconds)
     }
 }

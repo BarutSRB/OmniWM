@@ -18,7 +18,7 @@ final class ClipboardOwnerLifetimeTests: XCTestCase {
                 runtimeState: RuntimeStateStore(directory: directory, deferSaves: false),
                 autosaveEnabled: false
             )
-            settings.setClipboardHistoryEnabled(true)
+            settings.clipboard.historyEnabled = true
             releasedStore = settings
             section = settings.clipboard
         }

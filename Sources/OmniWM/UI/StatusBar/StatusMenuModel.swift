@@ -257,7 +257,7 @@ final class StatusMenuModel {
                 isOn: Binding(
                     get: { settings.borders.enabled },
                     set: {
-                        settings.setBordersEnabled($0)
+                        settings.borders.enabled = $0
                         controller?.borderSettingsChanged()
                     }
                 )

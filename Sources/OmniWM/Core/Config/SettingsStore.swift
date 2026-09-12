@@ -49,9 +49,9 @@ final class SettingsStore {
         }
     }
 
-    let borders = BorderSettings(values: SettingsStore.defaultExport.borders)
+    let borders = BorderSettings()
 
-    let overview = OverviewSettings(values: SettingsStore.defaultExport.overview)
+    let overview = OverviewSettings()
 
     var hotkeyBindings = SettingsStore.defaultExport.hotkeyBindings {
         didSet { scheduleSave() }
@@ -117,9 +117,9 @@ final class SettingsStore {
         }
     }
 
-    let statusBar = StatusBarSettings(values: SettingsStore.defaultExport.statusBar)
+    let statusBar = StatusBarSettings()
 
-    let hiddenBar = HiddenBarSettings(values: SettingsStore.defaultExport.hiddenBar)
+    let hiddenBar = HiddenBarSettings()
 
     var commandPaletteLastMode = RuntimeStateStore.defaultCommandPaletteLastMode {
         didSet { runtimeState.commandPaletteLastMode = commandPaletteLastMode }
@@ -129,9 +129,9 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
-    let clipboard = ClipboardSettings(values: SettingsStore.defaultExport.clipboard)
+    let clipboard = ClipboardSettings()
 
-    let quakeTerminal = QuakeTerminalSettings(values: SettingsStore.defaultExport.quakeTerminal)
+    let quakeTerminal = QuakeTerminalSettings()
 
     var quakeTerminalUseCustomFrame = RuntimeStateStore.defaultQuakeTerminalUseCustomFrame {
         didSet {
@@ -217,6 +217,12 @@ final class SettingsStore {
         gestures.onChange = { [weak self] in self?.scheduleSave() }
         workspaceBar.onChange = { [weak self] in self?.scheduleSave() }
         workspaces.onChange = { [weak self] in self?.scheduleSave() }
+        borders.onChange = { [weak self] in self?.scheduleSave() }
+        overview.onChange = { [weak self] in self?.scheduleSave() }
+        statusBar.onChange = { [weak self] in self?.scheduleSave() }
+        hiddenBar.onChange = { [weak self] in self?.scheduleSave() }
+        clipboard.onChange = { [weak self] in self?.scheduleSave() }
+        quakeTerminal.onChange = { [weak self] in self?.scheduleSave() }
         gestures.onAvailabilityChanged = { [weak self] available in
             guard let self, !self.isApplyingExport else { return }
             self.onTrackpadGestureAvailabilityChanged?(available)
@@ -368,9 +374,9 @@ extension SettingsStore {
         workspaces.configurations = WorkspaceSettings.normalizedConfigurations(export.workspaceConfigurations)
         workspaces.defaultLayoutType = export.defaultLayoutType
 
-        applyBorders(export.borders)
+        borders.apply(export.borders)
 
-        applyOverview(export.overview, baseline: baseline.overview)
+        overview.apply(export.overview, baseline: baseline.overview)
 
         hyperKeyModifiersStorage = export.hyperKeyModifiers
         KeySymbolMapper.setHyperKeyModifiers(export.hyperKeyModifiers)
@@ -393,12 +399,12 @@ extension SettingsStore {
         updateChecksEnabled = export.updateChecksEnabled
         ipcEnabled = export.ipcEnabled
         gestures.apply(export.gestures)
-        applyStatusBar(export.statusBar)
-        applyHiddenBar(export.hiddenBar)
+        statusBar.apply(export.statusBar)
+        hiddenBar.apply(export.hiddenBar)
         animationsEnabled = export.animationsEnabled
-        applyClipboard(export.clipboard)
+        clipboard.apply(export.clipboard)
 
-        applyQuakeTerminal(export.quakeTerminal, baseline: baseline.quakeTerminal)
+        quakeTerminal.apply(export.quakeTerminal, baseline: baseline.quakeTerminal)
 
         appearanceMode = export.appearanceMode
     }

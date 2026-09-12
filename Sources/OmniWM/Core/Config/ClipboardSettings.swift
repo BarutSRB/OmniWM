@@ -5,16 +5,23 @@ import Observation
 
 @MainActor @Observable
 final class ClipboardSettings {
-    private(set) var historyEnabled: Bool
-    private(set) var maxItems: Int
-    private(set) var maxItemBytes: Int
-    private(set) var maxTotalBytes: Int
+    private nonisolated static let defaults = SettingsExport.Clipboard.defaults()
+    @ObservationIgnored var onChange: (() -> Void)?
 
-    init(values: SettingsExport.Clipboard) {
-        historyEnabled = values.historyEnabled
-        maxItems = values.maxItems
-        maxItemBytes = values.maxItemBytes
-        maxTotalBytes = values.maxTotalBytes
+    var historyEnabled = ClipboardSettings.defaults.historyEnabled {
+        didSet { onChange?() }
+    }
+
+    var maxItems = ClipboardSettings.defaults.maxItems {
+        didSet { onChange?() }
+    }
+
+    var maxItemBytes = ClipboardSettings.defaults.maxItemBytes {
+        didSet { onChange?() }
+    }
+
+    var maxTotalBytes = ClipboardSettings.defaults.maxTotalBytes {
+        didSet { onChange?() }
     }
 
     func export() -> SettingsExport.Clipboard {
@@ -26,28 +33,10 @@ final class ClipboardSettings {
         )
     }
 
-    fileprivate func setHistoryEnabled(_ enabled: Bool, didChange: () -> Void) {
-        historyEnabled = enabled
-        didChange()
-    }
-
-    fileprivate func apply(_ values: SettingsExport.Clipboard, didChange: () -> Void) {
-        setHistoryEnabled(values.historyEnabled, didChange: didChange)
+    func apply(_ values: SettingsExport.Clipboard) {
+        historyEnabled = values.historyEnabled
         maxItems = values.maxItems
-        didChange()
         maxItemBytes = values.maxItemBytes
-        didChange()
         maxTotalBytes = values.maxTotalBytes
-        didChange()
-    }
-}
-
-extension SettingsStore {
-    func setClipboardHistoryEnabled(_ enabled: Bool) {
-        clipboard.setHistoryEnabled(enabled, didChange: scheduleSave)
-    }
-
-    func applyClipboard(_ values: SettingsExport.Clipboard) {
-        clipboard.apply(values, didChange: scheduleSave)
     }
 }

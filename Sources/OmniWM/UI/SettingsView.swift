@@ -85,29 +85,20 @@ struct GeneralSettingsTab: View {
             }
 
             Section("Status Bar") {
-                Toggle("Show Workspace", isOn: Binding(
-                    get: { [settings] in settings.statusBar.showWorkspaceName },
-                    set: { [settings] in settings.setStatusBarShowWorkspaceName($0) }
-                ))
-                .onChange(of: settings.statusBar.showWorkspaceName) { _, _ in
-                    controller.refreshStatusBar()
-                }
-                Toggle("Use Workspace Number", isOn: Binding(
-                    get: { [settings] in settings.statusBar.useWorkspaceId },
-                    set: { [settings] in settings.setStatusBarUseWorkspaceId($0) }
-                ))
-                .onChange(of: settings.statusBar.useWorkspaceId) { _, _ in
-                    controller.refreshStatusBar()
-                }
-                .disabled(!settings.statusBar.showWorkspaceName)
-                Toggle("Show Focused App", isOn: Binding(
-                    get: { [settings] in settings.statusBar.showAppNames },
-                    set: { [settings] in settings.setStatusBarShowAppNames($0) }
-                ))
-                .onChange(of: settings.statusBar.showAppNames) { _, _ in
-                    controller.refreshStatusBar()
-                }
-                .disabled(!settings.statusBar.showWorkspaceName)
+                Toggle("Show Workspace", isOn: Bindable(settings.statusBar).showWorkspaceName)
+                    .onChange(of: settings.statusBar.showWorkspaceName) { _, _ in
+                        controller.refreshStatusBar()
+                    }
+                Toggle("Use Workspace Number", isOn: Bindable(settings.statusBar).useWorkspaceId)
+                    .onChange(of: settings.statusBar.useWorkspaceId) { _, _ in
+                        controller.refreshStatusBar()
+                    }
+                    .disabled(!settings.statusBar.showWorkspaceName)
+                Toggle("Show Focused App", isOn: Bindable(settings.statusBar).showAppNames)
+                    .onChange(of: settings.statusBar.showAppNames) { _, _ in
+                        controller.refreshStatusBar()
+                    }
+                    .disabled(!settings.statusBar.showWorkspaceName)
                 SettingsCaption("Shows the active workspace and focused app beside the menu bar icon")
             }
 

@@ -26,12 +26,12 @@ enum HiddenBarSettingsEdits {
         }
         let normalized = HiddenBarSettingsPolicy.normalizedBundleIDs(bundleIDs)
         guard settings.hiddenBar.hiddenBundleIDs != normalized else { return }
-        settings.setHiddenBarHiddenBundleIDs(normalized)
+        settings.hiddenBar.hiddenBundleIDs = normalized
         reconcile()
     }
 
     static func setRehideInterval(_ value: Double, settings: SettingsStore) {
-        settings.setHiddenBarRehideIntervalSeconds(HiddenBarSettingsPolicy.validatedRehideIntervalSeconds(value))
+        settings.hiddenBar.rehideIntervalSeconds = HiddenBarSettingsPolicy.validatedRehideIntervalSeconds(value)
     }
 }
 

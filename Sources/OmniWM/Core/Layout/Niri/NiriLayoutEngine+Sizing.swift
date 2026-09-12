@@ -107,17 +107,9 @@ extension NiriLayoutEngine {
             gaps: context.gaps
         )
 
-        ensureContainerSelectionVisible(column, context: context, state: &state)
-        recoverSettledCoverage(
-            context: .init(
-                workspaceId: context.workspaceId,
-                motion: context.motion,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: .vertical
-            ),
-            state: &state
-        )
+        let verticalContext = context.oriented(.vertical)
+        ensureContainerSelectionVisible(column, context: verticalContext, state: &state)
+        recoverSettledCoverage(context: verticalContext, state: &state)
     }
 
     private func toggleContainerHeight(
@@ -187,10 +179,11 @@ extension NiriLayoutEngine {
         guard abs(column.cachedHeight - previousHeight) > 0.001 else { return }
 
         let settings = effectiveSettings(in: context.workspaceId)
+        let verticalContext = context.oriented(.vertical)
         if settings.centerFocusedColumn == .always
             || (settings.alwaysCenterSingleColumn && containers.count == 1)
         {
-            ensureContainerSelectionVisible(column, context: context, state: &state)
+            ensureContainerSelectionVisible(column, context: verticalContext, state: &state)
         } else {
             let currentActivePosition = state.containerPosition(
                 at: activeIndex,
@@ -200,16 +193,7 @@ extension NiriLayoutEngine {
             )
             state.rebaseOffset(by: previousActivePosition - currentActivePosition)
         }
-        recoverSettledCoverage(
-            context: .init(
-                workspaceId: context.workspaceId,
-                motion: context.motion,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: .vertical
-            ),
-            state: &state
-        )
+        recoverSettledCoverage(context: verticalContext, state: &state)
     }
 
     func toggleContainerPrimarySpan(

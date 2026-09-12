@@ -64,8 +64,6 @@ extension DwindleLayoutHandler {
         }
     }
 
-    // MARK: - Layout Engine Configuration
-
     func enableDwindleLayout() {
         guard let controller else { return }
         let engine = DwindleLayoutEngine()

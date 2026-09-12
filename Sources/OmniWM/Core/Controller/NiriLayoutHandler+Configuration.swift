@@ -85,6 +85,4 @@ extension NiriLayoutHandler {
         refreshResolvedMonitorSettings()
         controller.layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)
     }
-
-    // MARK: - Node Activation & Operation Context
 }
