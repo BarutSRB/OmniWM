@@ -15,6 +15,7 @@ export const contributors: Contributor[] = [
   { name: 'chen259456754', handle: 'chen259456754' },
   { name: 'Cristian Álvarez Belaustegui', handle: 'crbelaus' },
   { name: 'Filippo Zaffoni', handle: 'nekonora' },
+  { name: 'Henrik Larsson Hestnes', handle: 'henrikhestnes' },
   { name: 'Henry Perschk', handle: 'henry-p' },
   { name: 'Jan Hesters', handle: 'janhesters' },
   { name: 'Janek Thomaschewski', handle: 'jthomaschewski' },
