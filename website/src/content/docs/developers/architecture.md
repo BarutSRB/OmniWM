@@ -183,7 +183,8 @@ snapshot are outside scope.
 `AppDelegate.finishBootstrap()` (`App/AppDelegate.swift`) builds the object graph in dependency order:
 
 1. **`OmniWMStoragePaths.live`** — resolves config and state locations from absolute `XDG_CONFIG_HOME` /
-   `XDG_STATE_HOME` overrides, falling back to `~/.config/omniwm` and `~/.local/state/omniwm`.
+   `XDG_STATE_HOME` overrides, falling back to `~/.config/omniwm` and `~/.local/state/omniwm`. The fixed Dev bundle
+   identity `com.barut.OmniWM.dev` selects `omniwm-dev` beneath the same base directories.
 2. **`RuntimeStateStore`** — JSON store for non-settings runtime state (`runtime-state.json`).
 3. **`SettingsStore`** — `@MainActor @Observable`, loaded from `settings.toml` in the resolved config directory.
    `UserDefaults` is not used for settings; TOML is the single source of truth. `SettingsTOMLCodec` first reads the

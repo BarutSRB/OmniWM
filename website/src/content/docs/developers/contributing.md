@@ -5,11 +5,11 @@ sidebar:
   order: 3
 ---
 
-OmniWM welcomes bug fixes, documentation improvements, performance work, focused cleanups, features, and thoughtful ideas — along with demos, examples, and tutorials that help others use the project.
+OmniWM welcomes bug fixes, documentation improvements, focused features, performance work, and ideas that help people use the project. Draft pull requests and questions are welcome.
 
-On direction: keep contributions in Swift so the codebase stays cohesive, and keep changes focused — smaller, well-explained pull requests are much easier to review and merge. Refactors are fine when they solve a real problem, but they should come with a detailed reason: what is not working well today, why the refactor is needed, and what it improves. For larger changes, open an issue or start a discussion first so we can align on direction.
+Start with the **[contributor guide](https://github.com/BarutSRB/OmniWM/blob/main/CONTRIBUTING.md)**. It is the canonical reference for first-time setup, running an isolated Dev app, verification, and the pull request workflow. For larger changes, open an issue or discussion first.
 
-The canonical, always-current guide — pull request expectations, trace files, and the full workflow — is [CONTRIBUTING.md on GitHub](https://github.com/BarutSRB/OmniWM/blob/main/CONTRIBUTING.md). To build and verify your change locally, see [Building from Source](/developers/building/).
+Keep each contribution focused and describe the problem, resulting behavior, and what you checked. The guide explains the automated checks, including the maintainer approval that may be needed before a first-time contributor's checks start.
 
 ## Contributing to These Docs
 

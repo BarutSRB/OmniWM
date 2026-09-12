@@ -952,23 +952,7 @@ initialContainerPrimarySpan = 0.5
 
 ## Building from Source
 
-Requirements:
-- SwiftPM with Swift 6.4+
-- macOS 26.0+
-- A complete GhosttyKit xcframework at `Frameworks/GhosttyKit.xcframework`. Download the latest
-  `GhosttyKit.xcframework-v<version>.zip` asset from [Releases](https://github.com/BarutSRB/OmniWM/releases) and extract
-  it into `Frameworks/`, or replace the complete bundle with one you build from Ghostty.
-- The build preflight verifies the internal arm64 archive at the path pinned in `Scripts/build-metadata.env` (currently
-  `Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty-internal.a`) is arm64-only and matches the pinned SHA-256.
-  If you rebuild GhosttyKit, replace the complete xcframework and update the metadata pin.
-
-Use the bundled Debug launch for day-to-day development:
-
-```bash
-make run
-```
-
-`make run` builds, packages, development-signs, and opens `dist/OmniWM.app` through LaunchServices. This is the canonical development launch because it gives OmniWM its normal app identity. OmniWM uses its native status bar item while Hidden Bar concealment is inactive. While concealment is active, it uses a separate fallback icon beside a visible workspace bar, or near the display's top center when no workspace bar is visible, because macOS can conceal the app-owned status item with the other restricted items. This behavior applies to both bundled and raw `swift run OmniWM` launches and is not specific to Debug builds.
+Follow the [contributor quick start](CONTRIBUTING.md#quick-start) for Xcode requirements, automatic dependency setup, and a separate **OmniWM Dev** app with independent settings. The guide covers rebuilding, switching back to your normal app, and verifying a pull request.
 
 ## Community Integrations
 
