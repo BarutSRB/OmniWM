@@ -13,12 +13,15 @@ struct OverviewSettingsTab: View {
             Section("Layout") {
                 SettingsSliderRow(
                     label: "Default Zoom",
-                    value: $settings.overviewZoom,
+                    value: Binding(
+                        get: { [settings] in settings.overview.zoom },
+                        set: { [settings] in settings.setOverviewZoom($0) }
+                    ),
                     range: 0.5 ... 1.5,
                     step: 0.05,
-                    valueText: "\(Int((settings.overviewZoom * 100).rounded()))%"
+                    valueText: "\(Int((settings.overview.zoom * 100).rounded()))%"
                 )
-                .onChange(of: settings.overviewZoom) { _, _ in
+                .onChange(of: settings.overview.zoom) { _, _ in
                     scheduleUpdate()
                 }
             }
@@ -26,22 +29,22 @@ struct OverviewSettingsTab: View {
             Section("Appearance") {
                 ColorPicker(
                     "Backdrop Color",
-                    selection: colorBinding(\.overviewBackdropColor),
+                    selection: colorBinding(\.backdropColor, set: settings.setOverviewBackdropColor),
                     supportsOpacity: true
                 )
                 ColorPicker(
                     "Normal Window Border",
-                    selection: colorBinding(\.overviewNormalBorderColor),
+                    selection: colorBinding(\.normalBorderColor, set: settings.setOverviewNormalBorderColor),
                     supportsOpacity: true
                 )
                 ColorPicker(
                     "Hovered Window Border",
-                    selection: colorBinding(\.overviewHoveredBorderColor),
+                    selection: colorBinding(\.hoveredBorderColor, set: settings.setOverviewHoveredBorderColor),
                     supportsOpacity: true
                 )
                 ColorPicker(
                     "Selected Window Border",
-                    selection: colorBinding(\.overviewSelectedBorderColor),
+                    selection: colorBinding(\.selectedBorderColor, set: settings.setOverviewSelectedBorderColor),
                     supportsOpacity: true
                 )
             }
@@ -49,12 +52,15 @@ struct OverviewSettingsTab: View {
         .formStyle(.grouped)
     }
 
-    private func colorBinding(_ keyPath: ReferenceWritableKeyPath<SettingsStore, SettingsColor>) -> Binding<Color> {
+    private func colorBinding(
+        _ keyPath: KeyPath<OverviewSettings, SettingsColor>,
+        set: @escaping @MainActor (SettingsColor) -> Void
+    ) -> Binding<Color> {
         Binding(
-            get: { settings[keyPath: keyPath].swiftUIColor },
+            get: { [settings] in settings.overview[keyPath: keyPath].swiftUIColor },
             set: { color in
                 guard let converted = SettingsColor(color: color) else { return }
-                settings[keyPath: keyPath] = converted
+                set(converted)
                 scheduleUpdate()
             }
         )

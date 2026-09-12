@@ -78,9 +78,9 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         defer { fixture.controller.layoutRefreshController.resetState() }
         let token = addFocusedWindow(to: fixture.workspace1, in: fixture)
 
-        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.moveToWorkspaceSlot(2)), .executed)
+        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.workspace(.moveToSlot(2))), .executed)
         XCTAssertEqual(fixture.manager.workspace(for: token), fixture.workspace3)
-        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.switchWorkspaceSlot(2)), .executed)
+        XCTAssertEqual(fixture.controller.commandHandler.performCommand(.workspace(.switchSlot(2))), .executed)
         XCTAssertEqual(fixture.manager.activeWorkspace(on: fixture.monitorA.id)?.id, fixture.workspace3)
     }
 
@@ -88,19 +88,25 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
         let fixture = try makeFixture()
         defer { fixture.controller.layoutRefreshController.resetState() }
 
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspaceSlot(slotNumber: 0)), .invalidArguments)
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspaceSlot(slotNumber: 9)), .notFound)
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspaceSlot(slotNumber: 1)), .noChange)
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.switchWorkspaceSlot(slotNumber: 2)), .executed)
+        XCTAssertEqual(
+            fixture.router.handle(IPCCommandRequest.workspace(.switchSlot(slotNumber: 0))),
+            .invalidArguments
+        )
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.workspace(.switchSlot(slotNumber: 9))), .notFound)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.workspace(.switchSlot(slotNumber: 1))), .noChange)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.workspace(.switchSlot(slotNumber: 2))), .executed)
         XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.workspace3)
 
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.moveToWorkspaceSlot(slotNumber: 0)), .invalidArguments)
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.moveToWorkspaceSlot(slotNumber: 1)), .notFound)
+        XCTAssertEqual(
+            fixture.router.handle(IPCCommandRequest.workspace(.moveToSlot(slotNumber: 0))),
+            .invalidArguments
+        )
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.workspace(.moveToSlot(slotNumber: 1))), .notFound)
 
         let token = addFocusedWindow(to: fixture.workspace3, in: fixture)
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.moveToWorkspaceSlot(slotNumber: 2)), .noChange)
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.moveToWorkspaceSlot(slotNumber: 9)), .notFound)
-        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.moveToWorkspaceSlot(slotNumber: 1)), .executed)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.workspace(.moveToSlot(slotNumber: 2))), .noChange)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.workspace(.moveToSlot(slotNumber: 9))), .notFound)
+        XCTAssertEqual(fixture.router.handle(IPCCommandRequest.workspace(.moveToSlot(slotNumber: 1))), .executed)
         XCTAssertEqual(fixture.manager.workspace(for: token), fixture.workspace1)
     }
 
@@ -145,7 +151,7 @@ final class WorkspaceSlotNavigationTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: monitorA)),

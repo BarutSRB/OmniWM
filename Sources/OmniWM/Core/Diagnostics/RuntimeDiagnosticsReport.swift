@@ -53,7 +53,7 @@ enum RuntimeDiagnosticsReport {
         var lines = snapshots
             .flatMap { snapshot -> [String] in
                 let axManagerHidden = controller.axManager.macOSHiddenAppPIDs.contains(snapshot.pid)
-                let appAXHidden = AppAXContext.isMacOSAppHidden(pid: snapshot.pid)
+                let appAXHidden = AppAXContextRegistry.isMacOSAppHidden(pid: snapshot.pid)
                 let osHidden = NSRunningApplication(processIdentifier: snapshot.pid)?.isHidden
                 let fenceConsistent = snapshot.worldHidden == axManagerHidden
                     && snapshot.worldHidden == appAXHidden

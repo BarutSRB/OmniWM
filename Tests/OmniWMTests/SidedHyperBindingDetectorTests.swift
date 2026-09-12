@@ -9,7 +9,7 @@ final class SidedHyperBindingDetectorTests: XCTestCase {
     private func hyperBinding(id: String, side: ModifierSide) -> HotkeyBinding {
         let chord = KeyBinding(keyCode: UInt32(kVK_ANSI_1), modifiers: KeySymbolMapper.hyperModifiers)
             .settingSide(side)
-        return HotkeyBinding(id: id, command: .focusPrevious, binding: chord)
+        return HotkeyBinding(id: id, command: .focusNavigation(.previous), binding: chord)
     }
 
     func testFiresForLeftSidedHyperBinding() {
@@ -27,7 +27,7 @@ final class SidedHyperBindingDetectorTests: XCTestCase {
     func testIgnoresUnsidedHyperBinding() {
         let binding = HotkeyBinding(
             id: "c",
-            command: .focusPrevious,
+            command: .focusNavigation(.previous),
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_1), modifiers: KeySymbolMapper.hyperModifiers)
         )
         XCTAssertTrue(SidedHyperBindingDetector.issues(currentBindings: [binding]).isEmpty)
@@ -36,7 +36,7 @@ final class SidedHyperBindingDetectorTests: XCTestCase {
     func testIgnoresSidedNonHyperBinding() {
         let binding = HotkeyBinding(
             id: "d",
-            command: .focusPrevious,
+            command: .focusNavigation(.previous),
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(shiftKey)).settingSide(.left)
         )
         XCTAssertTrue(SidedHyperBindingDetector.issues(currentBindings: [binding]).isEmpty)

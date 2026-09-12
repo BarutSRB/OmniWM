@@ -78,20 +78,24 @@ final class NiriProjectionCommandTests: XCTestCase {
         baselineState.jumpOffset(to: 300)
         XCTAssertEqual(
             projected.engine.recoverSettledCoverage(
-                in: projected.workspaceId,
-                motion: .disabled,
-                state: &projectedState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: projected.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &projectedState
             ),
             baseline.engine.recoverSettledCoverage(
-                in: baseline.workspaceId,
-                motion: .disabled,
-                state: &baselineState,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: .horizontal
+                context: .init(
+                    workspaceId: baseline.workspaceId,
+                    motion: .disabled,
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: .horizontal
+                ),
+                state: &baselineState
             )
         )
         XCTAssertEqual(projectedState.viewOffset, baselineState.viewOffset, accuracy: 0.001)
@@ -538,17 +542,21 @@ final class NiriProjectionCommandTests: XCTestCase {
                 projected.a,
                 change: .setProportion(70),
                 in: projected.workspaceId,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: orientation
+                geometry: NiriSizingGeometry(
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: orientation
+                )
             )
             baseline.engine.setWindowSecondarySpan(
                 baseline.a,
                 change: .setProportion(70),
                 in: baseline.workspaceId,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: orientation
+                geometry: NiriSizingGeometry(
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: orientation
+                )
             )
 
             let projectedFrames = layout(
@@ -586,9 +594,11 @@ final class NiriProjectionCommandTests: XCTestCase {
                 projected.a,
                 forwards: true,
                 in: projected.workspaceId,
-                workingFrame: workingFrame,
-                gaps: gap,
-                orientation: orientation
+                geometry: NiriSizingGeometry(
+                    workingFrame: workingFrame,
+                    gaps: gap,
+                    orientation: orientation
+                )
             )
             XCTAssertEqual(secondarySize(of: projected.a, orientation: orientation), .preset(1))
             XCTAssertTrue(secondarySize(of: projected.b, orientation: orientation).isAuto)
@@ -621,9 +631,11 @@ final class NiriProjectionCommandTests: XCTestCase {
             fixture.a,
             change: .setProportion(50),
             in: fixture.workspaceId,
-            workingFrame: workingFrame,
-            gaps: gap,
-            orientation: .vertical
+            geometry: NiriSizingGeometry(
+                workingFrame: workingFrame,
+                gaps: gap,
+                orientation: .vertical
+            )
         )
 
         let frame = try XCTUnwrap(layout(

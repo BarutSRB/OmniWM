@@ -188,7 +188,7 @@ final class ForeignTransientFocusRecoveryTests: XCTestCase {
             )
         )
 
-        terminationFixture.controller.serviceLifecycleManager.handleAppTerminated(
+        terminationFixture.controller.axEventHandler.handleAppTerminated(
             pid: terminatedPopupToken.pid
         )
 

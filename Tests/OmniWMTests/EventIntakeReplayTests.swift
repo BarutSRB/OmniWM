@@ -30,7 +30,7 @@ final class EventIntakeReplayTests: XCTestCase {
             received.append(stamped)
             guard !didReenter else { return }
             didReenter = true
-            intake.enqueue(.appHidden(pid: 3))
+            intake.enqueue(.application(.hidden(pid: 3)))
         }
     }
 
@@ -59,21 +59,21 @@ final class EventIntakeReplayTests: XCTestCase {
         intake.open(sink: sink)
         defer { intake.close() }
 
-        intake.enqueue(.appActivated(pid: 1))
+        intake.enqueue(.application(.activated(pid: 1)))
         intake.enqueue(.cgs(.frameChanged(windowId: 7)))
-        intake.enqueue(.appDeactivated(pid: 1))
+        intake.enqueue(.application(.deactivated(pid: 1)))
         intake.drainNow()
-        intake.enqueue(.appHidden(pid: 1))
+        intake.enqueue(.application(.hidden(pid: 1)))
         intake.drainNow()
 
         XCTAssertEqual(sink.received.count, 4)
         let seqs = sink.received.map(\.seq)
         XCTAssertEqual(seqs, seqs.sorted())
         XCTAssertEqual(Set(seqs).count, seqs.count)
-        guard case .appActivated = sink.received[0].event,
+        guard case .application(.activated) = sink.received[0].event,
               case .cgs(.frameChanged) = sink.received[1].event,
-              case .appDeactivated = sink.received[2].event,
-              case .appHidden = sink.received[3].event
+              case .application(.deactivated) = sink.received[2].event,
+              case .application(.hidden) = sink.received[3].event
         else {
             return XCTFail("Events drained out of order: \(sink.received)")
         }
@@ -86,15 +86,15 @@ final class EventIntakeReplayTests: XCTestCase {
         intake.open(sink: sink)
         defer { intake.close() }
 
-        intake.enqueue(.appActivated(pid: 1))
-        intake.enqueue(.appDeactivated(pid: 2))
+        intake.enqueue(.application(.activated(pid: 1)))
+        intake.enqueue(.application(.deactivated(pid: 2)))
         intake.drainNow()
         intake.drainNow()
 
         XCTAssertEqual(sink.received.map(\.seq), [1, 2, 3])
-        guard case .appActivated = sink.received[0].event,
-              case .appDeactivated = sink.received[1].event,
-              case .appHidden = sink.received[2].event
+        guard case .application(.activated) = sink.received[0].event,
+              case .application(.deactivated) = sink.received[1].event,
+              case .application(.hidden) = sink.received[2].event
         else {
             return XCTFail("Reentrant enqueue lost or reordered a batch: \(sink.received)")
         }
@@ -106,12 +106,12 @@ final class EventIntakeReplayTests: XCTestCase {
         let sink = ClosingSink(intake: intake)
         intake.open(sink: sink)
 
-        intake.enqueue(.appActivated(pid: 1))
-        intake.enqueue(.appDeactivated(pid: 2))
+        intake.enqueue(.application(.activated(pid: 1)))
+        intake.enqueue(.application(.deactivated(pid: 2)))
         intake.drainNow()
 
         XCTAssertEqual(sink.received.map(\.seq), [1, 2])
-        XCTAssertFalse(intake.enqueue(.appHidden(pid: 3)))
+        XCTAssertFalse(intake.enqueue(.application(.hidden(pid: 3))))
         XCTAssertFalse(intake.hasPendingEvents)
     }
 
@@ -126,7 +126,7 @@ final class EventIntakeReplayTests: XCTestCase {
             token: WindowToken(pid: 42, windowId: 7),
             constraints: .fixed(size: CGSize(width: 320, height: 240))
         )
-        intake.enqueue(.appActivated(pid: 42))
+        intake.enqueue(.application(.activated(pid: 42)))
         intake.enqueue(.windowConstraintsResolved(fact))
         intake.enqueue(.windowConstraintsResolved(fact))
         intake.drainNow()
@@ -208,22 +208,22 @@ final class EventIntakeReplayTests: XCTestCase {
             intake.enqueue(.cgs(.titleChanged(windowId: 5)))
         }
         for _ in 0 ..< 2 {
-            intake.enqueue(.axFocusedWindowChanged(pid: 9_001, callbackGeneration: nil))
+            intake.enqueue(.axWindow(.focusedWindowChanged(pid: 9_001, callbackGeneration: nil)))
         }
         intake.enqueue(
-            .axWindowDestroyed(
+            .axWindow(.windowDestroyed(
                 pid: 9_001,
                 axRef: axRef,
                 callbackGeneration: nil
-            )
+            ))
         )
         for _ in 0 ..< 2 {
             intake.enqueue(
-                .axWindowMiniaturized(
+                .axWindow(.windowMiniaturized(
                     pid: 9_001,
                     windowId: axRef.windowId,
                     callbackGeneration: nil
-                )
+                ))
             )
         }
 
@@ -291,7 +291,7 @@ final class EventIntakeReplayTests: XCTestCase {
                 windowIdUnderPointer: 8
             )
         )
-        intake.enqueue(.appActivated(pid: 1))
+        intake.enqueue(.application(.activated(pid: 1)))
         intake.drainNow()
 
         XCTAssertEqual(sink.received.count, 2)
@@ -305,7 +305,7 @@ final class EventIntakeReplayTests: XCTestCase {
         XCTAssertEqual(location, CGPoint(x: 20, y: 20))
         XCTAssertEqual(modifiersRawValue, 2)
         XCTAssertEqual(windowIdUnderPointer, 8)
-        guard case .appActivated = sink.received[1].event else {
+        guard case .application(.activated) = sink.received[1].event else {
             return XCTFail("Expected appActivated second: \(sink.received)")
         }
     }
@@ -318,7 +318,7 @@ final class EventIntakeReplayTests: XCTestCase {
         defer { intake.close() }
 
         let invocation = HotkeyInvocation(
-            command: .focusPrevious,
+            command: .focusNavigation(.previous),
             trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
         )
         intake.enqueue(.mouseDragged(button: .left, location: CGPoint(x: 10, y: 10)))
@@ -792,7 +792,7 @@ final class EventIntakeReplayTests: XCTestCase {
         )
         let observationStream: [IntakeEvent] = [
             .cgs(.frontAppChanged(pid: pid)),
-            .axFocusedWindowChanged(pid: pid, callbackGeneration: nil)
+            .axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil))
         ]
 
         var outcomes: [String] = []
@@ -814,8 +814,8 @@ final class EventIntakeReplayTests: XCTestCase {
     func testStaleFocusEchoOfConfirmedIntentDoesNotPreemptNewerIntent() throws {
         let pid: pid_t = 100
         let echoStream: [IntakeEvent] = [
-            .axFocusedWindowChanged(pid: pid, callbackGeneration: nil),
-            .axFocusedWindowChanged(pid: pid, callbackGeneration: nil)
+            .axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil)),
+            .axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil))
         ]
         let hintStream: [IntakeEvent] = [
             .cgs(.frontAppChanged(pid: pid))
@@ -859,7 +859,7 @@ final class EventIntakeReplayTests: XCTestCase {
         }
 
         system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
+        controller.eventIntake.enqueue(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil)))
         scenario.drainToQuiescence()
 
         XCTAssertEqual(controller.workspaceManager.systemModalFocusToken, scenario.tokenB)
@@ -869,7 +869,7 @@ final class EventIntakeReplayTests: XCTestCase {
 
         reportSystemModal = false
         system.focusedWindowIdByPid[pid] = scenario.tokenA.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
+        controller.eventIntake.enqueue(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil)))
         scenario.drainToQuiescence()
 
         XCTAssertNil(controller.workspaceManager.systemModalFocusToken)
@@ -884,7 +884,7 @@ final class EventIntakeReplayTests: XCTestCase {
         let system = scenario.system
 
         system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
+        controller.eventIntake.enqueue(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil)))
         scenario.drainToQuiescence()
 
         controller.workspaceManager.setSystemModalFocus(scenario.tokenA)
@@ -906,7 +906,7 @@ final class EventIntakeReplayTests: XCTestCase {
         let controller = scenario.controller
 
         scenario.system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
+        controller.eventIntake.enqueue(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil)))
         scenario.drainToQuiescence()
 
         let frame = CGRect(x: 0, y: 0, width: 200, height: 150)
@@ -915,7 +915,7 @@ final class EventIntakeReplayTests: XCTestCase {
         XCTAssertEqual(border.windowId, scenario.tokenB.windowId)
         XCTAssertEqual(border.frame, frame)
 
-        controller.settings.bordersEnabled = false
+        controller.settings.setBordersEnabled(false)
         let disabledWorld = WorldView(controller: controller, liveBoundsProvider: { _ in frame })
         XCTAssertNil(SurfaceDerivation.deriveBorder(world: disabledWorld))
     }
@@ -928,7 +928,7 @@ final class EventIntakeReplayTests: XCTestCase {
         let controller = scenario.controller
 
         scenario.system.focusedWindowIdByPid[pid] = scenario.tokenB.windowId
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
+        controller.eventIntake.enqueue(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil)))
         scenario.drainToQuiescence()
 
         let world = WorldView(controller: controller, liveBoundsProvider: { _ in .zero })
@@ -981,7 +981,7 @@ final class EventIntakeReplayTests: XCTestCase {
         )
 
         controller.focusWindow(tokenA)
-        controller.eventIntake.enqueue(.axFocusedWindowChanged(pid: pid, callbackGeneration: nil))
+        controller.eventIntake.enqueue(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: nil)))
         scenario.drainToQuiescence()
         XCTAssertEqual(controller.workspaceManager.selectedManagedToken, tokenA)
 

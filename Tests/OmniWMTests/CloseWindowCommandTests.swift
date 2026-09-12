@@ -11,26 +11,26 @@ import XCTest
 
 final class CloseWindowCommandTests: XCTestCase {
     func testCloseFocusedWindowSpecRegistered() throws {
-        let spec = try XCTUnwrap(ActionCatalog.spec(for: .closeFocusedWindow))
+        let spec = try XCTUnwrap(ActionCatalog.spec(for: .windowState(.close)))
 
         XCTAssertEqual(spec.id, "closeFocusedWindow")
         XCTAssertEqual(spec.title, "Close Focused Window")
         XCTAssertEqual(spec.layoutCompatibility, .shared)
         XCTAssertEqual(spec.defaultBinding, .unassigned)
-        XCTAssertEqual(spec.ipcCommandName, .closeFocusedWindow)
+        XCTAssertEqual(spec.ipcCommandName, .windowState(.close))
         XCTAssertNotNil(spec.ipcDescriptor)
-        XCTAssertEqual(HotkeyBindingRegistry.command(for: "closeFocusedWindow"), .closeFocusedWindow)
+        XCTAssertEqual(HotkeyBindingRegistry.command(for: "closeFocusedWindow"), .windowState(.close))
     }
 
     func testCloseFocusedWindowJSONRoundTripAndManifestResolves() throws {
-        XCTAssertEqual(IPCCommandRequest.closeFocusedWindow.name, .closeFocusedWindow)
-        let data = try JSONEncoder().encode(IPCCommandRequest.closeFocusedWindow)
-        XCTAssertEqual(try JSONDecoder().decode(IPCCommandRequest.self, from: data), .closeFocusedWindow)
+        XCTAssertEqual(IPCCommandRequest.windowState(.close).name, .windowState(.close))
+        let data = try JSONEncoder().encode(IPCCommandRequest.windowState(.close))
+        XCTAssertEqual(try JSONDecoder().decode(IPCCommandRequest.self, from: data), .windowState(.close))
 
         let descriptors = IPCAutomationManifest.commandDescriptors(matching: ["close-focused-window"])
-        let descriptor = try XCTUnwrap(descriptors.first { $0.name == .closeFocusedWindow })
+        let descriptor = try XCTUnwrap(descriptors.first { $0.name == .windowState(.close) })
         XCTAssertEqual(descriptor.commandWords, ["close-focused-window"])
-        XCTAssertEqual(try IPCCommandRequest(name: descriptor.name, argumentValues: []), .closeFocusedWindow)
+        XCTAssertEqual(try IPCCommandRequest(name: descriptor.name, argumentValues: []), .windowState(.close))
     }
 
     func testParserBuildsWindowCloseRequest() throws {

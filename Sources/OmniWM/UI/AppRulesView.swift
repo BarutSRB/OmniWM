@@ -109,7 +109,7 @@ struct AppRulesView: View {
     }
 
     private var workspaceNames: [String] {
-        settings.workspaceConfigurations.map(\.name)
+        settings.workspaces.configurations.map(\.name)
     }
 
     private var isSearching: Bool {

@@ -739,7 +739,7 @@ final class FloatingMonitorRebindFocusTests: XCTestCase {
             autosaveEnabled: false
         )
         settings.animationsEnabled = false
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: sourceMonitor)),

@@ -69,19 +69,19 @@ class BorderLayerPanel: NSPanel {
     }
 
     func updateBorder(
-        surfaceFrame: CGRect,
-        targetFrame: CGRect,
+        geometry: BorderConfig.ResolvedGeometry,
         cornerRadii: WindowCornerRadii,
-        width: CGFloat,
         color: CGColor,
         scale: CGFloat
     ) {
         let path = CGMutablePath()
-        path.addPath(BorderWindow.roundedRectPath(in: surfaceFrame, radii: cornerRadii.adding(width)))
-        path.addPath(BorderWindow.roundedRectPath(in: targetFrame, radii: cornerRadii))
+        path.addPath(BorderWindow.roundedRectPath(
+            in: geometry.surfaceFrame, radii: cornerRadii.adding(geometry.width)
+        ))
+        path.addPath(BorderWindow.roundedRectPath(in: geometry.targetFrame, radii: cornerRadii))
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        borderLayer.bounds = surfaceFrame
+        borderLayer.bounds = geometry.surfaceFrame
         containerLayer.contentsScale = scale
         borderLayer.contentsScale = scale
         borderLayer.path = path

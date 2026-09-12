@@ -238,7 +238,7 @@ final class WindowServerSubscriptionTests: XCTestCase {
         handler.refreshWindowSubscriptions()
         let failedRevision = handler.windowSubscriptionIdentityRevision
 
-        controller.serviceLifecycleManager.handleAppTerminated(pid: terminated.pid)
+        controller.axEventHandler.handleAppTerminated(pid: terminated.pid)
 
         XCTAssertEqual(submissions, [
             [UInt32(terminated.windowId), UInt32(remaining.windowId)],

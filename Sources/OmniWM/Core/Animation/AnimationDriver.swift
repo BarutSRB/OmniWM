@@ -8,86 +8,6 @@ import QuartzCore
 final class AnimationDriver {
     nonisolated static let gestureWorkingAreaMovement: Double = 1200.0
 
-    struct GestureSessionID: Equatable {
-        fileprivate let rawValue: UInt64
-    }
-
-    final class ViewportGesture {
-        private static let minimumFlingVelocity: Double = 100.0
-
-        let tracker = SwipeTracker()
-        let isTrackpad: Bool
-        let sessionID: GestureSessionID
-        private(set) var normFactor: Double = 1.0
-        private(set) var lastUpdateTime: TimeInterval
-
-        init(
-            isTrackpad: Bool,
-            sessionID: GestureSessionID,
-            livenessTimestamp: TimeInterval
-        ) {
-            self.isTrackpad = isTrackpad
-            self.sessionID = sessionID
-            lastUpdateTime = livenessTimestamp
-        }
-
-        var relativeOffset: Double {
-            let offset = tracker.position * normFactor
-            return offset.isFinite ? offset : 0
-        }
-
-        var velocity: Double {
-            let scaledVelocity = tracker.velocity() * normFactor
-            guard scaledVelocity.isFinite else { return 0 }
-            return abs(scaledVelocity) < Self.minimumFlingVelocity ? 0 : scaledVelocity
-        }
-
-        var relativeProjectedOffset: Double {
-            let projectedOffset = relativeOffset - velocity / DecelerationAnimation.decayRate
-            return projectedOffset.isFinite ? projectedOffset : relativeOffset
-        }
-
-        func update(
-            delta: Double,
-            timestamp: TimeInterval,
-            viewportWidth: Double,
-            livenessTimestamp: TimeInterval
-        ) {
-            guard delta.isFinite,
-                  timestamp.isFinite,
-                  viewportWidth.isFinite,
-                  livenessTimestamp.isFinite
-            else { return }
-            guard tracker.push(delta: delta, timestamp: timestamp) else { return }
-            lastUpdateTime = livenessTimestamp
-            if isTrackpad {
-                let nextNormFactor = viewportWidth / AnimationDriver.gestureWorkingAreaMovement
-                normFactor = nextNormFactor.isFinite ? nextNormFactor : 1
-            }
-        }
-    }
-
-    enum ViewportMotion {
-        case gesture(ViewportGesture)
-        case spring(SpringAnimation)
-        case deceleration(DecelerationAnimation)
-    }
-
-    enum TickResult: Equatable {
-        case inactive
-        case running
-        case expiredGesture(relativeOffset: Double, sessionID: GestureSessionID)
-
-        var isRunning: Bool {
-            self == .running
-        }
-    }
-
-    struct GestureEndSample {
-        let relativeOffset: Double
-        let relativeProjectedOffset: Double
-    }
-
     private var motions: [WorkspaceDescriptor.ID: ViewportMotion] = [:]
     private var nextGestureSessionID: UInt64 = 1
     private static let gestureLivenessInterval: TimeInterval = 1
@@ -372,5 +292,87 @@ final class AnimationDriver {
         for workspaceId in workspaceIds {
             motions.removeValue(forKey: workspaceId)
         }
+    }
+}
+
+extension AnimationDriver {
+    struct GestureSessionID: Equatable {
+        fileprivate let rawValue: UInt64
+    }
+
+    final class ViewportGesture {
+        private static let minimumFlingVelocity: Double = 100.0
+
+        let tracker = SwipeTracker()
+        let isTrackpad: Bool
+        let sessionID: GestureSessionID
+        private(set) var normFactor: Double = 1.0
+        private(set) var lastUpdateTime: TimeInterval
+
+        init(
+            isTrackpad: Bool,
+            sessionID: GestureSessionID,
+            livenessTimestamp: TimeInterval
+        ) {
+            self.isTrackpad = isTrackpad
+            self.sessionID = sessionID
+            lastUpdateTime = livenessTimestamp
+        }
+
+        var relativeOffset: Double {
+            let offset = tracker.position * normFactor
+            return offset.isFinite ? offset : 0
+        }
+
+        var velocity: Double {
+            let scaledVelocity = tracker.velocity() * normFactor
+            guard scaledVelocity.isFinite else { return 0 }
+            return abs(scaledVelocity) < Self.minimumFlingVelocity ? 0 : scaledVelocity
+        }
+
+        var relativeProjectedOffset: Double {
+            let projectedOffset = relativeOffset - velocity / DecelerationAnimation.decayRate
+            return projectedOffset.isFinite ? projectedOffset : relativeOffset
+        }
+
+        func update(
+            delta: Double,
+            timestamp: TimeInterval,
+            viewportWidth: Double,
+            livenessTimestamp: TimeInterval
+        ) {
+            guard delta.isFinite,
+                  timestamp.isFinite,
+                  viewportWidth.isFinite,
+                  livenessTimestamp.isFinite
+            else { return }
+            guard tracker.push(delta: delta, timestamp: timestamp) else { return }
+            lastUpdateTime = livenessTimestamp
+            if isTrackpad {
+                let nextNormFactor = viewportWidth / AnimationDriver.gestureWorkingAreaMovement
+                normFactor = nextNormFactor.isFinite ? nextNormFactor : 1
+            }
+        }
+    }
+
+    enum ViewportMotion {
+        case gesture(ViewportGesture)
+        case spring(SpringAnimation)
+        case deceleration(DecelerationAnimation)
+    }
+
+    enum TickResult: Equatable {
+        case inactive
+        case running
+        case expiredGesture(relativeOffset: Double, sessionID: GestureSessionID)
+
+        var isRunning: Bool {
+            self == .running
+        }
+    }
+
+    struct GestureEndSample {
+        let relativeOffset: Double
+        let relativeProjectedOffset: Double
     }
 }

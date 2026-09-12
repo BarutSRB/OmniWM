@@ -241,3 +241,21 @@ enum OverviewNavigation {
         return candidate.handle.windowId < current.handle.windowId
     }
 }
+
+extension OverviewNavigation {
+    static func selectionAfterRemoving(
+        _ removedHandle: WindowHandle,
+        from visibleOrder: [WindowHandle],
+        availableHandles: Set<WindowHandle>
+    ) -> WindowHandle? {
+        guard let removedIndex = visibleOrder.firstIndex(of: removedHandle) else {
+            return visibleOrder.first { availableHandles.contains($0) }
+        }
+        if removedIndex + 1 < visibleOrder.count,
+           let next = visibleOrder[(removedIndex + 1)...].first(where: { availableHandles.contains($0) })
+        {
+            return next
+        }
+        return visibleOrder[..<removedIndex].reversed().first { availableHandles.contains($0) }
+    }
+}

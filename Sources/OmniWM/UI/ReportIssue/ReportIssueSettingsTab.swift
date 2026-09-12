@@ -22,8 +22,8 @@ struct ReportIssueSettingsTab: View {
         crashPrefill = pendingCrashReport
         let settings = controller.settings
         _model = State(initialValue: ReportIssueViewModel(
-            defaultLayout: controller.activeWorkspace().map { settings.layoutType(for: $0.name) }
-                ?? settings.defaultLayoutType,
+            defaultLayout: controller.activeWorkspace().map { settings.workspaces.layoutType(for: $0.name) }
+                ?? settings.workspaces.defaultLayoutType,
             prepareDiagnosticAttachment: {
                 try await controller.prepareDiagnosticAttachment(evidence: $0)
             },

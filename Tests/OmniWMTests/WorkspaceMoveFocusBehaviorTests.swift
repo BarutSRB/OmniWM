@@ -456,9 +456,9 @@ final class WorkspaceMoveFocusBehaviorTests: XCTestCase {
                     controller: fixture.controller,
                     affectedWorkspaceId: fixture.sourceWorkspaceId
                 ) {
-                    XCTAssertFalse(fixture.controller.settings.moveCrossesMonitorAtEdge)
+                    XCTAssertFalse(fixture.controller.settings.focus.moveCrossesMonitorAtEdge)
                     XCTAssertEqual(
-                        fixture.controller.commandHandler.performCommand(.moveWindowToMonitor(.right)),
+                        fixture.controller.commandHandler.performCommand(.workspace(.moveToMonitor(.right))),
                         .executed
                     )
 
@@ -513,7 +513,7 @@ final class WorkspaceMoveFocusBehaviorTests: XCTestCase {
         let noFocusWorldSeq = manager.worldSeq
         XCTAssertNil(manager.selectedManagedToken)
         XCTAssertEqual(
-            controller.commandHandler.performCommand(.moveWindowToMonitor(.right)),
+            controller.commandHandler.performCommand(.workspace(.moveToMonitor(.right))),
             .executed
         )
         XCTAssertEqual(manager.worldSeq, noFocusWorldSeq)
@@ -537,7 +537,7 @@ final class WorkspaceMoveFocusBehaviorTests: XCTestCase {
         let noAdjacentWorldSeq = manager.worldSeq
 
         XCTAssertEqual(
-            controller.commandHandler.performCommand(.moveWindowToMonitor(.left)),
+            controller.commandHandler.performCommand(.workspace(.moveToMonitor(.left))),
             .executed
         )
         XCTAssertEqual(manager.workspace(for: window.id), fixture.sourceWorkspaceId)
@@ -587,10 +587,10 @@ extension WorkspaceMoveFocusBehaviorTests {
             autosaveEnabled: false
         )
         settings.animationsEnabled = false
-        settings.focusFollowsWindowToMonitor = followsFocus
-        settings.moveCrossesMonitorAtEdge = false
-        settings.defaultLayoutType = layout
-        settings.workspaceConfigurations = [
+        settings.focus.followsWindowToMonitor = followsFocus
+        settings.focus.moveCrossesMonitorAtEdge = false
+        settings.workspaces.defaultLayoutType = layout
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: sourceMonitor)),
@@ -732,9 +732,9 @@ extension WorkspaceMoveFocusBehaviorTests {
             autosaveEnabled: false
         )
         settings.animationsEnabled = false
-        settings.focusFollowsWindowToMonitor = followsFocus
-        settings.defaultLayoutType = layouts.first ?? .niri
-        settings.workspaceConfigurations = layouts.enumerated().map { index, layout in
+        settings.focus.followsWindowToMonitor = followsFocus
+        settings.workspaces.defaultLayoutType = layouts.first ?? .niri
+        settings.workspaces.configurations = layouts.enumerated().map { index, layout in
             WorkspaceConfiguration(
                 name: String(index + 1),
                 monitorAssignment: .main,

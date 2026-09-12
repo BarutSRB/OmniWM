@@ -87,7 +87,7 @@ final class IPCSessionEventPublicationTests: XCTestCase {
         let lifecycle = fixture.controller.serviceLifecycleManager
         let second = makeMonitor(displayId: 2, name: "Second", width: 1440)
 
-        lifecycle.applyMonitorConfigurationChanged(
+        lifecycle.monitorConfiguration.applyMonitorConfigurationChanged(
             currentMonitors: [fixture.monitor, second],
             performPostUpdateActions: false
         )
@@ -95,7 +95,7 @@ final class IPCSessionEventPublicationTests: XCTestCase {
         let added = try displays(in: addedEvent)
         XCTAssertEqual(added.map(\.name), ["Events", "Second"])
 
-        lifecycle.applyMonitorConfigurationChanged(
+        lifecycle.monitorConfiguration.applyMonitorConfigurationChanged(
             currentMonitors: [fixture.monitor, makeMonitor(displayId: 2, name: "Second", width: 1920)],
             performPostUpdateActions: false
         )
@@ -104,13 +104,19 @@ final class IPCSessionEventPublicationTests: XCTestCase {
         XCTAssertEqual(reconfigured.map(\.name), ["Events", "Second"])
         XCTAssertNotEqual(reconfigured[1].frame, added[1].frame)
 
-        lifecycle.applyMonitorConfigurationChanged(currentMonitors: [fixture.monitor], performPostUpdateActions: false)
+        lifecycle.monitorConfiguration.applyMonitorConfigurationChanged(
+            currentMonitors: [fixture.monitor],
+            performPostUpdateActions: false
+        )
         let removedEvent = await iterator.next()
         let removed = try displays(in: removedEvent)
         XCTAssertEqual(removed.map(\.name), ["Events"])
 
-        lifecycle.applyMonitorConfigurationChanged(currentMonitors: [fixture.monitor], performPostUpdateActions: false)
-        lifecycle.applyMonitorConfigurationChanged(
+        lifecycle.monitorConfiguration.applyMonitorConfigurationChanged(
+            currentMonitors: [fixture.monitor],
+            performPostUpdateActions: false
+        )
+        lifecycle.monitorConfiguration.applyMonitorConfigurationChanged(
             currentMonitors: [fixture.monitor, makeMonitor(displayId: 3, name: "Transient", width: 1)],
             performPostUpdateActions: false
         )

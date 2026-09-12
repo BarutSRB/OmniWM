@@ -278,7 +278,6 @@ final class SpringAnimation {
         initialVelocity: Double,
         config: SpringConfig
     ) -> TimeInterval {
-        let delta: Double = 0.001
         let (beta, omega0) = params(config)
 
         if !beta.isFinite || !omega0.isFinite || beta.magnitude <= Double.ulpOfOne || beta < 0 {
@@ -290,13 +289,31 @@ final class SpringAnimation {
         }
 
         let epsilon = max(config.epsilon, Double.leastNonzeroMagnitude)
-        var x0 = -log(epsilon) / beta
-        guard x0.isFinite, x0 >= 0 else { return 0 }
+        let estimate = -log(epsilon) / beta
+        guard estimate.isFinite, estimate >= 0 else { return 0 }
 
         if abs(beta - omega0) <= Double(Float.ulpOfOne) || beta < omega0 {
-            return x0
+            return estimate
         }
 
+        return overdampedDuration(
+            from: from,
+            target: target,
+            initialVelocity: initialVelocity,
+            config: config,
+            estimate: estimate
+        )
+    }
+
+    private static func overdampedDuration(
+        from: Double,
+        target: Double,
+        initialVelocity: Double,
+        config: SpringConfig,
+        estimate: TimeInterval
+    ) -> TimeInterval {
+        let delta: Double = 0.001
+        var x0 = estimate
         var y0 = oscillate(x0, from: from, target: target, initialVelocity: initialVelocity, config: config)
         var slope = (
             oscillate(x0 + delta, from: from, target: target, initialVelocity: initialVelocity, config: config) - y0

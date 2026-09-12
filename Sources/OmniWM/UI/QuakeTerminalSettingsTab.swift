@@ -8,29 +8,38 @@ struct QuakeTerminalSettingsTab: View {
     @Bindable var controller: WMController
 
     private var blurValueText: String {
-        settings.quakeTerminalBackgroundBlurRadius == QuakeTerminalAppearancePolicy.disabledBackgroundBlurRadius
+        settings.quakeTerminal.backgroundBlurRadius == QuakeTerminalAppearancePolicy.disabledBackgroundBlurRadius
             ? "Off"
-            : "\(settings.quakeTerminalBackgroundBlurRadius)"
+            : "\(settings.quakeTerminal.backgroundBlurRadius)"
     }
 
     var body: some View {
         Form {
             Section("Quake Terminal") {
-                Toggle("Enable Quake Terminal", isOn: $settings.quakeTerminalEnabled)
-                    .onChange(of: settings.quakeTerminalEnabled) { _, newValue in
-                        controller.setQuakeTerminalEnabled(newValue)
-                    }
+                Toggle("Enable Quake Terminal", isOn: Binding(
+                    get: { [settings] in settings.quakeTerminal.enabled },
+                    set: { [settings] in settings.setQuakeTerminalEnabled($0) }
+                ))
+                .onChange(of: settings.quakeTerminal.enabled) { _, newValue in
+                    controller.setQuakeTerminalEnabled(newValue)
+                }
             }
 
-            if settings.quakeTerminalEnabled {
+            if settings.quakeTerminal.enabled {
                 Section("Position & Size") {
-                    Picker("Position", selection: $settings.quakeTerminalPosition) {
+                    Picker("Position", selection: Binding(
+                        get: { [settings] in settings.quakeTerminal.position },
+                        set: { [settings] in settings.setQuakeTerminalPosition($0) }
+                    )) {
                         ForEach(QuakeTerminalPosition.allCases, id: \.self) { position in
                             Text(position.displayName).tag(position)
                         }
                     }
 
-                    Picker("Show On", selection: $settings.quakeTerminalMonitorMode) {
+                    Picker("Show On", selection: Binding(
+                        get: { [settings] in settings.quakeTerminal.monitorMode },
+                        set: { [settings] in settings.setQuakeTerminalMonitorMode($0) }
+                    )) {
                         ForEach(QuakeTerminalMonitorMode.allCases, id: \.self) { mode in
                             Text(mode.displayName).tag(mode)
                         }
@@ -38,18 +47,24 @@ struct QuakeTerminalSettingsTab: View {
 
                     SettingsSliderRow(
                         label: "Width",
-                        value: $settings.quakeTerminalWidthPercent,
+                        value: Binding(
+                            get: { [settings] in settings.quakeTerminal.widthPercent },
+                            set: { [settings] in settings.setQuakeTerminalWidthPercent($0) }
+                        ),
                         range: 10 ... 100,
                         step: 5,
-                        valueText: "\(Int(settings.quakeTerminalWidthPercent))%"
+                        valueText: "\(Int(settings.quakeTerminal.widthPercent))%"
                     )
 
                     SettingsSliderRow(
                         label: "Height",
-                        value: $settings.quakeTerminalHeightPercent,
+                        value: Binding(
+                            get: { [settings] in settings.quakeTerminal.heightPercent },
+                            set: { [settings] in settings.setQuakeTerminalHeightPercent($0) }
+                        ),
                         range: 10 ... 100,
                         step: 5,
-                        valueText: "\(Int(settings.quakeTerminalHeightPercent))%"
+                        valueText: "\(Int(settings.quakeTerminal.heightPercent))%"
                     )
 
                     if settings.quakeTerminalUseCustomFrame {
@@ -60,49 +75,55 @@ struct QuakeTerminalSettingsTab: View {
                 }
 
                 Section("Appearance") {
-                    Picker("Background Effect", selection: $settings.quakeTerminalBackgroundEffect) {
+                    Picker("Background Effect", selection: Binding(
+                        get: { [settings] in settings.quakeTerminal.backgroundEffect },
+                        set: { [settings] in settings.setQuakeTerminalBackgroundEffect($0) }
+                    )) {
                         ForEach(QuakeTerminalBackgroundEffect.allCases, id: \.self) { effect in
                             Text(effect.displayName).tag(effect)
                         }
                     }
-                    .onChange(of: settings.quakeTerminalBackgroundEffect) { _, _ in
+                    .onChange(of: settings.quakeTerminal.backgroundEffect) { _, _ in
                         controller.reloadQuakeTerminalBackgroundEffect()
                     }
 
                     SettingsSliderRow(
                         label: "Quake Background Opacity",
-                        value: $settings.quakeTerminalOpacity,
+                        value: Binding(
+                            get: { [settings] in settings.quakeTerminal.opacity },
+                            set: { [settings] in settings.setQuakeTerminalOpacity($0) }
+                        ),
                         range: 0.1 ... 1.0,
                         step: 0.05,
-                        valueText: "\(Int(settings.quakeTerminalOpacity * 100))%"
+                        valueText: "\(Int(settings.quakeTerminal.opacity * 100))%"
                     )
-                    .onChange(of: settings.quakeTerminalOpacity) { _, _ in
+                    .onChange(of: settings.quakeTerminal.opacity) { _, _ in
                         controller.reloadQuakeTerminalOpacity()
                     }
 
                     SettingsSliderRow(
                         label: "Background Blur",
                         value: Binding(
-                            get: { Double(settings.quakeTerminalBackgroundBlurRadius) },
-                            set: { settings.quakeTerminalBackgroundBlurRadius = Int($0.rounded()) }
+                            get: { [settings] in Double(settings.quakeTerminal.backgroundBlurRadius) },
+                            set: { [settings] in settings.setQuakeTerminalBackgroundBlurRadius(Int($0.rounded())) }
                         ),
                         range: Double(QuakeTerminalAppearancePolicy.minimumBackgroundBlurRadius)
                             ... Double(QuakeTerminalAppearancePolicy.maximumBackgroundBlurRadius),
                         step: 5,
                         valueText: blurValueText
                     )
-                    .onChange(of: settings.quakeTerminalBackgroundBlurRadius) { _, _ in
+                    .onChange(of: settings.quakeTerminal.backgroundBlurRadius) { _, _ in
                         controller.reloadQuakeTerminalBackgroundBlur()
                     }
-                    .disabled(settings.quakeTerminalBackgroundEffect != .standardBlur)
+                    .disabled(settings.quakeTerminal.backgroundEffect != .standardBlur)
 
-                    if settings.quakeTerminalBackgroundEffect != .standardBlur {
+                    if settings.quakeTerminal.backgroundEffect != .standardBlur {
                         SettingsCaption(
                             "The saved Standard Blur radius is preserved and becomes active again when Standard Blur is selected."
                         )
                     } else if QuakeTerminalAppearancePolicy.backgroundBlurIsHiddenByOpaqueBackground(
-                        radius: settings.quakeTerminalBackgroundBlurRadius,
-                        opacity: settings.quakeTerminalOpacity
+                        radius: settings.quakeTerminal.backgroundBlurRadius,
+                        opacity: settings.quakeTerminal.opacity
                     ) {
                         SettingsCaption("Blur only shows through a translucent terminal - lower the opacity to see it.")
                     }
@@ -111,10 +132,13 @@ struct QuakeTerminalSettingsTab: View {
                 Section("Behavior") {
                     SettingsSliderRow(
                         label: "Animation Duration",
-                        value: $settings.quakeTerminalAnimationDuration,
+                        value: Binding(
+                            get: { [settings] in settings.quakeTerminal.animationDuration },
+                            set: { [settings] in settings.setQuakeTerminalAnimationDuration($0) }
+                        ),
                         range: 0 ... 1,
                         step: 0.1,
-                        valueText: "\(String(format: "%.1f", settings.quakeTerminalAnimationDuration))s"
+                        valueText: "\(String(format: "%.1f", settings.quakeTerminal.animationDuration))s"
                     )
                     .disabled(!controller.motionPolicy.animationsEnabled)
 
@@ -122,7 +146,10 @@ struct QuakeTerminalSettingsTab: View {
                         SettingsCaption("Ignored while global animations are disabled.")
                     }
 
-                    Toggle("Auto-hide on Focus Loss", isOn: $settings.quakeTerminalAutoHide)
+                    Toggle("Auto-hide on Focus Loss", isOn: Binding(
+                        get: { [settings] in settings.quakeTerminal.autoHide },
+                        set: { [settings] in settings.setQuakeTerminalAutoHide($0) }
+                    ))
                 }
             }
 

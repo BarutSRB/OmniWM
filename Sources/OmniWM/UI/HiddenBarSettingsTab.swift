@@ -16,7 +16,7 @@ enum HiddenBarSettingsEdits {
         settings: SettingsStore,
         reconcile: () -> Void
     ) {
-        var bundleIDs = settings.hiddenBarHiddenBundleIDs
+        var bundleIDs = settings.hiddenBar.hiddenBundleIDs
         if hidden {
             if !bundleIDs.contains(bundleID) {
                 bundleIDs.append(bundleID)
@@ -25,13 +25,13 @@ enum HiddenBarSettingsEdits {
             bundleIDs.removeAll { $0 == bundleID }
         }
         let normalized = HiddenBarSettingsPolicy.normalizedBundleIDs(bundleIDs)
-        guard settings.hiddenBarHiddenBundleIDs != normalized else { return }
-        settings.hiddenBarHiddenBundleIDs = normalized
+        guard settings.hiddenBar.hiddenBundleIDs != normalized else { return }
+        settings.setHiddenBarHiddenBundleIDs(normalized)
         reconcile()
     }
 
     static func setRehideInterval(_ value: Double, settings: SettingsStore) {
-        settings.hiddenBarRehideIntervalSeconds = SettingsStore.validatedHiddenBarRehideIntervalSeconds(value)
+        settings.setHiddenBarRehideIntervalSeconds(HiddenBarSettingsPolicy.validatedRehideIntervalSeconds(value))
     }
 }
 
@@ -51,7 +51,7 @@ struct HiddenBarSettingsTab: View {
                 icon: NSRunningApplication(processIdentifier: app.pid)?.icon
             )
         }
-        for bundleID in settings.hiddenBarHiddenBundleIDs where byBundle[bundleID] == nil {
+        for bundleID in settings.hiddenBar.hiddenBundleIDs where byBundle[bundleID] == nil {
             byBundle[bundleID] = HiddenBarAppRow(
                 bundleID: bundleID,
                 name: controller.hiddenBarDisplayName(for: bundleID),
@@ -77,7 +77,7 @@ struct HiddenBarSettingsTab: View {
                 }
             }
 
-            if settings.hiddenBarEnabled {
+            if settings.hiddenBar.enabled {
                 appsSection
                     .disabled(!controller.isHiddenBarHidingAvailable)
                 panelSection
@@ -129,7 +129,7 @@ struct HiddenBarSettingsTab: View {
                 value: rehideIntervalBinding,
                 range: 2 ... 30,
                 step: 1,
-                valueText: "\(Int(settings.hiddenBarRehideIntervalSeconds)) s"
+                valueText: "\(Int(settings.hiddenBar.rehideIntervalSeconds)) s"
             )
             SettingsCaption("How long a clicked icon stays revealed. The countdown pauses while its menu is open.")
         }
@@ -137,8 +137,8 @@ struct HiddenBarSettingsTab: View {
 
     private var enabledBinding: Binding<Bool> {
         Binding(
-            get: { settings.hiddenBarEnabled },
-            set: { enabled in
+            get: { [settings] in settings.hiddenBar.enabled },
+            set: { [controller] enabled in
                 HiddenBarSettingsEdits.setEnabled(enabled) {
                     controller.setHiddenBarEnabled($0)
                 }
@@ -148,15 +148,15 @@ struct HiddenBarSettingsTab: View {
 
     private var rehideIntervalBinding: Binding<Double> {
         Binding(
-            get: { settings.hiddenBarRehideIntervalSeconds },
-            set: { HiddenBarSettingsEdits.setRehideInterval($0, settings: settings) }
+            get: { [settings] in settings.hiddenBar.rehideIntervalSeconds },
+            set: { [settings] in HiddenBarSettingsEdits.setRehideInterval($0, settings: settings) }
         )
     }
 
     private func binding(for bundleID: String) -> Binding<Bool> {
         Binding(
-            get: { settings.hiddenBarHiddenBundleIDs.contains(bundleID) },
-            set: { isHidden in
+            get: { [settings, bundleID] in settings.hiddenBar.hiddenBundleIDs.contains(bundleID) },
+            set: { [settings, controller, bundleID] isHidden in
                 HiddenBarSettingsEdits.setHidden(
                     isHidden,
                     bundleID: bundleID,

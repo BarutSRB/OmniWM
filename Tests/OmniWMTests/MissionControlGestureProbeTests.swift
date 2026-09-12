@@ -178,22 +178,22 @@ final class MissionControlGestureProbeTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        settings.scrollGestureEnabled = true
-        settings.gestureFingerCount = .three
-        settings.workspaceSwipeEnabled = false
-        settings.workspaceSwipeFingerCount = .three
-        settings.workspaceSwipeAxis = .horizontal
+        settings.gestures.scrollEnabled = true
+        settings.gestures.fingerCount = .three
+        settings.gestures.workspaceSwipeEnabled = false
+        settings.gestures.workspaceSwipeFingerCount = .three
+        settings.gestures.workspaceSwipeAxis = .horizontal
 
         let fixture = Fixture()
         fixture.set(NSNumber(value: true), key: authoritativeKey, domain: dockDomain)
         let probe = fixture.makeProbe()
         probe.refresh()
 
-        XCTAssertTrue(settings.workspaceSwipeAxisLockedToVertical)
-        XCTAssertEqual(settings.effectiveWorkspaceSwipeAxis, .vertical)
+        XCTAssertTrue(settings.gestures.workspaceSwipeAxisLockedToVertical)
+        XCTAssertEqual(settings.gestures.effectiveWorkspaceSwipeAxis, .vertical)
         XCTAssertTrue(probe.shouldWarn(
-            axis: settings.effectiveWorkspaceSwipeAxis,
-            fingerCount: settings.workspaceSwipeFingerCount
+            axis: settings.gestures.effectiveWorkspaceSwipeAxis,
+            fingerCount: settings.gestures.workspaceSwipeFingerCount
         ))
     }
 

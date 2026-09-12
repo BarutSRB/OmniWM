@@ -26,31 +26,10 @@ extension AXEventHandler {
     }
 
     func handleAppHidden(pid: pid_t, source: WMEventSource = .ax) {
-        guard let controller else {
-            AppVisibilityTrace.record(
-                .stateTransition,
-                pid: pid,
-                visibility: .hidden,
-                outcome: .rejected,
-                reason: .controllerUnavailable,
-                source: source
-            )
-            return
-        }
-        guard !controller.workspaceManager.isAppHidden(pid: pid) else {
-            AppVisibilityTrace.record(
-                .stateTransition,
-                pid: pid,
-                visibility: .hidden,
-                outcome: .duplicate,
-                generation: controller.workspaceManager.appVisibilityGeneration(for: pid),
-                source: source
-            )
-            return
-        }
+        guard let controller = acceptAppVisibilityChange(hidden: true, pid: pid, source: source) else { return }
         let entries = controller.workspaceManager.entries(forPid: pid)
         let affectedWorkspaceIds = Set(entries.map(\.workspaceId))
-        controller.dwindleLayoutHandler.cancelPendingGroupReveals(pid: pid)
+        controller.dwindleLayoutHandler.groupReveals.cancelPendingGroupReveals(pid: pid)
         for entry in entries {
             controller.layoutRefreshController.cancelPendingScratchpadReveal(for: entry.token)
         }
@@ -76,7 +55,7 @@ extension AXEventHandler {
                 workspaceId: activeRequest.workspaceId,
                 requestId: activeRequest.requestId
             )
-            controller.abortScratchpadStacking(matching: activeRequest.requestId)
+            controller.scratchpadStacking.abortScratchpadStacking(matching: activeRequest.requestId)
             controller.intentLedger.discardPendingFocus(activeRequest.token)
         }
         if controller.workspaceManager.renderableFocusToken?.pid == pid {
@@ -86,66 +65,18 @@ extension AXEventHandler {
             affectedWorkspaceIds: affectedWorkspaceIds
         )
 
-        let activeAffectedWorkspaceIds = activeWorkspaceIds(
-            in: affectedWorkspaceIds,
+        requestAppHideRefresh(
+            pid: pid,
+            source: source,
+            managedWindowCount: entries.count,
+            affectedWorkspaceIds: affectedWorkspaceIds,
             controller: controller
         )
-        if !activeAffectedWorkspaceIds.isEmpty {
-            AppVisibilityTrace.record(
-                .refresh,
-                pid: pid,
-                visibility: .hidden,
-                outcome: .requested,
-                generation: controller.workspaceManager.appVisibilityGeneration(for: pid),
-                managedWindowCount: entries.count,
-                affectedWorkspaceCount: affectedWorkspaceIds.count,
-                activeWorkspaceCount: activeAffectedWorkspaceIds.count,
-                source: source
-            )
-            controller.layoutRefreshController.requestVisibilityRefresh(
-                reason: .appHidden,
-                affectedWorkspaceIds: activeAffectedWorkspaceIds
-            )
-        } else {
-            AppVisibilityTrace.record(
-                .refresh,
-                pid: pid,
-                visibility: .hidden,
-                outcome: .skipped,
-                generation: controller.workspaceManager.appVisibilityGeneration(for: pid),
-                managedWindowCount: entries.count,
-                affectedWorkspaceCount: affectedWorkspaceIds.count,
-                activeWorkspaceCount: 0,
-                reason: .noActiveWorkspace,
-                source: source
-            )
-        }
         controller.surfaceReconciler.noteWorldChanged()
     }
 
     func handleAppUnhidden(pid: pid_t, source: WMEventSource = .ax) {
-        guard let controller else {
-            AppVisibilityTrace.record(
-                .stateTransition,
-                pid: pid,
-                visibility: .visible,
-                outcome: .rejected,
-                reason: .controllerUnavailable,
-                source: source
-            )
-            return
-        }
-        guard controller.workspaceManager.isAppHidden(pid: pid) else {
-            AppVisibilityTrace.record(
-                .stateTransition,
-                pid: pid,
-                visibility: .visible,
-                outcome: .duplicate,
-                generation: controller.workspaceManager.appVisibilityGeneration(for: pid),
-                source: source
-            )
-            return
-        }
+        guard let controller = acceptAppVisibilityChange(hidden: false, pid: pid, source: source) else { return }
         let entries = controller.workspaceManager.entries(forPid: pid)
         let affectedWorkspaceIds = Set(entries.map(\.workspaceId))
         let revealIntent = controller.intentLedger.openAppRevealFocusIntent(pid: pid)
@@ -159,21 +90,7 @@ extension AXEventHandler {
         controller.windowActionHandler.refreshOverviewProjection(
             affectedWorkspaceIds: affectedWorkspaceIds
         )
-        let revealReady = revealIntent.flatMap { revealIntent in
-            controller.intentLedger.drainAppRevealFocus(
-                intentId: revealIntent.intent.id,
-                pid: pid,
-                appVisibilityGeneration: controller.workspaceManager.appVisibilityGeneration(for: pid)
-            )
-        } == .ready
-        let completeReveal: LayoutRefreshController.PostLayoutAction?
-        if revealReady, let revealIntentId = revealIntent?.intent.id {
-            completeReveal = { [weak controller] in
-                _ = controller?.windowActionHandler.completeAppRevealFocus(intentId: revealIntentId)
-            }
-        } else {
-            completeReveal = nil
-        }
+        let completeReveal = appRevealCompletion(revealIntent, pid: pid, controller: controller)
         let activeAffectedWorkspaceIds = activeWorkspaceIds(
             in: affectedWorkspaceIds,
             controller: controller
@@ -208,5 +125,96 @@ extension AXEventHandler {
             }
             return controller.workspaceManager.activeWorkspace(on: monitorId)?.id == workspaceId
         })
+    }
+
+    private func acceptAppVisibilityChange(hidden: Bool, pid: pid_t, source: WMEventSource) -> WMController? {
+        let visibility: AppVisibilityTrace.Visibility = hidden ? .hidden : .visible
+        guard let controller else {
+            AppVisibilityTrace.record(
+                .stateTransition,
+                pid: pid,
+                visibility: visibility,
+                outcome: .rejected,
+                reason: .controllerUnavailable,
+                source: source
+            )
+            return nil
+        }
+        guard controller.workspaceManager.isAppHidden(pid: pid) != hidden else {
+            AppVisibilityTrace.record(
+                .stateTransition,
+                pid: pid,
+                visibility: visibility,
+                outcome: .duplicate,
+                generation: controller.workspaceManager.appVisibilityGeneration(for: pid),
+                source: source
+            )
+            return nil
+        }
+        return controller
+    }
+
+    private func requestAppHideRefresh(
+        pid: pid_t,
+        source: WMEventSource,
+        managedWindowCount: Int,
+        affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>,
+        controller: WMController
+    ) {
+        let activeAffectedWorkspaceIds = activeWorkspaceIds(
+            in: affectedWorkspaceIds,
+            controller: controller
+        )
+        if !activeAffectedWorkspaceIds.isEmpty {
+            AppVisibilityTrace.record(
+                .refresh,
+                pid: pid,
+                visibility: .hidden,
+                outcome: .requested,
+                generation: controller.workspaceManager.appVisibilityGeneration(for: pid),
+                managedWindowCount: managedWindowCount,
+                affectedWorkspaceCount: affectedWorkspaceIds.count,
+                activeWorkspaceCount: activeAffectedWorkspaceIds.count,
+                source: source
+            )
+            controller.layoutRefreshController.requestVisibilityRefresh(
+                reason: .appHidden,
+                affectedWorkspaceIds: activeAffectedWorkspaceIds
+            )
+        } else {
+            AppVisibilityTrace.record(
+                .refresh,
+                pid: pid,
+                visibility: .hidden,
+                outcome: .skipped,
+                generation: controller.workspaceManager.appVisibilityGeneration(for: pid),
+                managedWindowCount: managedWindowCount,
+                affectedWorkspaceCount: affectedWorkspaceIds.count,
+                activeWorkspaceCount: 0,
+                reason: .noActiveWorkspace,
+                source: source
+            )
+        }
+    }
+
+    private func appRevealCompletion(
+        _ revealIntent: (intent: Intent, payload: AppRevealFocusPayload)?,
+        pid: pid_t,
+        controller: WMController
+    ) -> LayoutRefreshController.PostLayoutAction? {
+        let revealReady = revealIntent.flatMap { revealIntent in
+            controller.intentLedger.drainAppRevealFocus(
+                intentId: revealIntent.intent.id,
+                pid: pid,
+                appVisibilityGeneration: controller.workspaceManager.appVisibilityGeneration(for: pid)
+            )
+        } == .ready
+        if revealReady, let revealIntentId = revealIntent?.intent.id {
+            return { [weak controller] in
+                _ = controller?.windowActionHandler.completeAppRevealFocus(intentId: revealIntentId)
+            }
+        } else {
+            return nil
+        }
     }
 }

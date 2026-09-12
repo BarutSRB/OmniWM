@@ -16,9 +16,9 @@ struct WorkspaceBarSettingsTab: View {
             MonitorScopeSection(
                 selectedMonitor: $selectedMonitor,
                 monitors: connectedMonitors,
-                hasOverrides: { settings.barSettings(for: $0) != nil },
+                hasOverrides: { settings.workspaceBar.settings(for: $0) != nil },
                 reset: { monitor in
-                    settings.removeBarSettings(for: monitor)
+                    settings.workspaceBar.remove(for: monitor)
                     controller.updateWorkspaceBarSettings()
                 }
             )
@@ -62,97 +62,97 @@ private struct GlobalBarSettingsSection: View {
 
     var body: some View {
         Section("Workspace Bar") {
-            Toggle("Enable Workspace Bar", isOn: $settings.workspaceBarEnabled)
-                .onChange(of: settings.workspaceBarEnabled) { _, newValue in
+            Toggle("Enable Workspace Bar", isOn: Bindable(settings.workspaceBar).enabled)
+                .onChange(of: settings.workspaceBar.enabled) { _, newValue in
                     controller.setWorkspaceBarEnabled(newValue)
                 }
 
-            if settings.workspaceBarEnabled {
-                Toggle("Show Workspace Labels", isOn: $settings.workspaceBarShowLabels)
-                    .onChange(of: settings.workspaceBarShowLabels) { _, _ in
+            if settings.workspaceBar.enabled {
+                Toggle("Show Workspace Labels", isOn: Bindable(settings.workspaceBar).showLabels)
+                    .onChange(of: settings.workspaceBar.showLabels) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
 
-                Toggle("Show Floating Windows", isOn: $settings.workspaceBarShowFloatingWindows)
-                    .onChange(of: settings.workspaceBarShowFloatingWindows) { _, _ in
+                Toggle("Show Floating Windows", isOn: Bindable(settings.workspaceBar).showFloatingWindows)
+                    .onChange(of: settings.workspaceBar.showFloatingWindows) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
 
-                Toggle("Deduplicate App Icons", isOn: $settings.workspaceBarDeduplicateAppIcons)
-                    .onChange(of: settings.workspaceBarDeduplicateAppIcons) { _, _ in
+                Toggle("Deduplicate App Icons", isOn: Bindable(settings.workspaceBar).deduplicateAppIcons)
+                    .onChange(of: settings.workspaceBar.deduplicateAppIcons) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
                     .help("Group workspace windows by app with badge counts; scratchpad pills always group by app")
 
-                Toggle("Hide Empty Workspaces", isOn: $settings.workspaceBarHideEmptyWorkspaces)
-                    .onChange(of: settings.workspaceBarHideEmptyWorkspaces) { _, _ in
+                Toggle("Hide Empty Workspaces", isOn: Bindable(settings.workspaceBar).hideEmptyWorkspaces)
+                    .onChange(of: settings.workspaceBar.hideEmptyWorkspaces) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
 
-                Toggle("Reserve Space for Workspace Bar", isOn: $settings.workspaceBarReserveLayoutSpace)
-                    .onChange(of: settings.workspaceBarReserveLayoutSpace) { _, _ in
+                Toggle("Reserve Space for Workspace Bar", isOn: Bindable(settings.workspaceBar).reserveLayoutSpace)
+                    .onChange(of: settings.workspaceBar.reserveLayoutSpace) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
                     .help(
                         "Reserve tiled layout space using the configured workspace bar height."
                     )
 
-                Picker("Reveal on Modifier Hold", selection: $settings.workspaceBarRevealModifier) {
+                Picker("Reveal on Modifier Hold", selection: Bindable(settings.workspaceBar).revealModifier) {
                     ForEach(WorkspaceBarRevealModifier.allCases, id: \.self) { modifier in
                         Text(modifier.displayName).tag(modifier)
                     }
                 }
-                .onChange(of: settings.workspaceBarRevealModifier) { _, _ in
+                .onChange(of: settings.workspaceBar.revealModifier) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
                 .help("Show the workspace bar as an overlay only while the selected modifiers are held")
 
-                if settings.workspaceBarRevealModifier != .off {
+                if settings.workspaceBar.revealModifier != .off {
                     SettingsSliderRow(
                         label: "Reveal Hold Delay",
-                        value: $settings.workspaceBarRevealHoldMilliseconds,
+                        value: Bindable(settings.workspaceBar).revealHoldMilliseconds,
                         range: 0 ... 1000,
                         step: 50,
-                        valueText: "\(Int(settings.workspaceBarRevealHoldMilliseconds)) ms"
+                        valueText: "\(Int(settings.workspaceBar.revealHoldMilliseconds)) ms"
                     )
-                    .onChange(of: settings.workspaceBarRevealHoldMilliseconds) { _, _ in
+                    .onChange(of: settings.workspaceBar.revealHoldMilliseconds) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
                 }
 
-                Toggle("Hide in Native Fullscreen", isOn: $settings.workspaceBarHideInNativeFullscreen)
-                    .onChange(of: settings.workspaceBarHideInNativeFullscreen) { _, _ in
+                Toggle("Hide in Native Fullscreen", isOn: Bindable(settings.workspaceBar).hideInNativeFullscreen)
+                    .onChange(of: settings.workspaceBar.hideInNativeFullscreen) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
                     .help(
                         "Hide the bar on a monitor while it shows a native fullscreen window"
                     )
 
-                Toggle("System Stats Button", isOn: $settings.workspaceBarSystemStatsButton)
-                    .onChange(of: settings.workspaceBarSystemStatsButton) { _, _ in
+                Toggle("System Stats Button", isOn: Bindable(settings.workspaceBar).systemStatsButton)
+                    .onChange(of: settings.workspaceBar.systemStatsButton) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
                     .help("Show a small workspace bar button that opens a system stats popup")
 
-                Picker("Notch Mode", selection: $settings.workspaceBarNotchMode) {
+                Picker("Notch Mode", selection: Bindable(settings.workspaceBar).notchMode) {
                     ForEach(WorkspaceBarNotchMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
-                .onChange(of: settings.workspaceBarNotchMode) { _, _ in
+                .onChange(of: settings.workspaceBar.notchMode) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
                 .help("Move the bar below the notch, or split it into islands on both sides of the notch")
 
-                if settings.workspaceBarNotchMode.isSplit {
+                if settings.workspaceBar.notchMode.isSplit {
                     SettingsSliderRow(
                         label: "Active Zone Width",
-                        value: $settings.workspaceBarNotchActiveZoneWidth,
+                        value: Bindable(settings.workspaceBar).notchActiveZoneWidth,
                         range: 100 ... 400,
                         step: 10,
-                        valueText: "\(Int(settings.workspaceBarNotchActiveZoneWidth)) px"
+                        valueText: "\(Int(settings.workspaceBar.notchActiveZoneWidth)) px"
                     )
-                    .onChange(of: settings.workspaceBarNotchActiveZoneWidth) { _, _ in
+                    .onChange(of: settings.workspaceBar.notchActiveZoneWidth) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
                     .help("Width of the zone next to the notch that the focused workspace stays centered in")
@@ -160,23 +160,23 @@ private struct GlobalBarSettingsSection: View {
             }
         }
 
-        if settings.workspaceBarEnabled {
+        if settings.workspaceBar.enabled {
             Section("Position & Level") {
-                Picker("Position", selection: $settings.workspaceBarPosition) {
+                Picker("Position", selection: Bindable(settings.workspaceBar).position) {
                     ForEach(WorkspaceBarPosition.allCases) { position in
                         Text(position.displayName).tag(position)
                     }
                 }
-                .onChange(of: settings.workspaceBarPosition) { _, _ in
+                .onChange(of: settings.workspaceBar.position) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
 
-                Picker("Window Level", selection: $settings.workspaceBarWindowLevel) {
+                Picker("Window Level", selection: Bindable(settings.workspaceBar).windowLevel) {
                     ForEach(WorkspaceBarWindowLevel.allCases) { level in
                         Text(level.displayName).tag(level)
                     }
                 }
-                .onChange(of: settings.workspaceBarWindowLevel) { _, _ in
+                .onChange(of: settings.workspaceBar.windowLevel) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
             }
@@ -184,23 +184,23 @@ private struct GlobalBarSettingsSection: View {
             Section("Position Offset") {
                 SettingsNumberStepperRow(
                     label: "X Offset",
-                    value: $settings.workspaceBarXOffset,
+                    value: Bindable(settings.workspaceBar).xOffset,
                     step: 10,
-                    valueText: "\(Int(settings.workspaceBarXOffset)) px"
+                    valueText: "\(Int(settings.workspaceBar.xOffset)) px"
                 )
                 .help("Horizontal offset (negative = left, positive = right)")
-                .onChange(of: settings.workspaceBarXOffset) { _, _ in
+                .onChange(of: settings.workspaceBar.xOffset) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
 
                 SettingsNumberStepperRow(
                     label: "Y Offset",
-                    value: $settings.workspaceBarYOffset,
+                    value: Bindable(settings.workspaceBar).yOffset,
                     step: 10,
-                    valueText: "\(Int(settings.workspaceBarYOffset)) px"
+                    valueText: "\(Int(settings.workspaceBar.yOffset)) px"
                 )
                 .help("Vertical offset (negative = down, positive = up)")
-                .onChange(of: settings.workspaceBarYOffset) { _, _ in
+                .onChange(of: settings.workspaceBar.yOffset) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
             }
@@ -208,35 +208,35 @@ private struct GlobalBarSettingsSection: View {
             Section("Appearance") {
                 SettingsSliderRow(
                     label: "Bar Height",
-                    value: $settings.workspaceBarHeight,
+                    value: Bindable(settings.workspaceBar).height,
                     range: 20 ... 40,
                     step: 2,
-                    valueText: "\(Int(settings.workspaceBarHeight)) px"
+                    valueText: "\(Int(settings.workspaceBar.height)) px"
                 )
-                .onChange(of: settings.workspaceBarHeight) { _, _ in
+                .onChange(of: settings.workspaceBar.height) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
 
                 SettingsSliderRow(
                     label: "Background Opacity",
-                    value: $settings.workspaceBarBackgroundOpacity,
+                    value: Bindable(settings.workspaceBar).backgroundOpacity,
                     range: 0 ... 0.5,
                     step: 0.05,
-                    valueText: "\(Int(settings.workspaceBarBackgroundOpacity * 100))%"
+                    valueText: "\(Int(settings.workspaceBar.backgroundOpacity * 100))%"
                 )
-                .onChange(of: settings.workspaceBarBackgroundOpacity) { _, _ in
+                .onChange(of: settings.workspaceBar.backgroundOpacity) { _, _ in
                     controller.updateWorkspaceBarSettings()
                 }
 
                 Toggle("Custom Accent Color", isOn: customAccentColorBinding)
 
-                if settings.workspaceBarAccentColor != nil {
+                if settings.workspaceBar.accentColor != nil {
                     ColorPicker("Accent Color", selection: accentColorBinding, supportsOpacity: false)
                 }
 
                 Toggle("Custom Text Color", isOn: customTextColorBinding)
 
-                if settings.workspaceBarTextColor != nil {
+                if settings.workspaceBar.textColor != nil {
                     ColorPicker("Text Color", selection: textColorBinding, supportsOpacity: false)
                 }
             }
@@ -245,10 +245,10 @@ private struct GlobalBarSettingsSection: View {
 
     private var customAccentColorBinding: Binding<Bool> {
         Binding(
-            get: { settings.workspaceBarAccentColor != nil },
+            get: { settings.workspaceBar.accentColor != nil },
             set: { enabled in
-                settings.workspaceBarAccentColor = enabled ? settings
-                    .workspaceBarAccentColor ?? defaultAccentColor : nil
+                settings.workspaceBar.accentColor = enabled ? settings
+                    .workspaceBar.accentColor ?? defaultAccentColor : nil
                 debouncedAppearanceSync()
             }
         )
@@ -256,9 +256,9 @@ private struct GlobalBarSettingsSection: View {
 
     private var customTextColorBinding: Binding<Bool> {
         Binding(
-            get: { settings.workspaceBarTextColor != nil },
+            get: { settings.workspaceBar.textColor != nil },
             set: { enabled in
-                settings.workspaceBarTextColor = enabled ? settings.workspaceBarTextColor ?? defaultTextColor : nil
+                settings.workspaceBar.textColor = enabled ? settings.workspaceBar.textColor ?? defaultTextColor : nil
                 debouncedAppearanceSync()
             }
         )
@@ -266,10 +266,10 @@ private struct GlobalBarSettingsSection: View {
 
     private var accentColorBinding: Binding<Color> {
         Binding(
-            get: { (settings.workspaceBarAccentColor ?? defaultAccentColor).swiftUIColor },
+            get: { (settings.workspaceBar.accentColor ?? defaultAccentColor).swiftUIColor },
             set: { newColor in
                 if let color = SettingsColor(color: newColor, preservesAlpha: false) {
-                    settings.workspaceBarAccentColor = color
+                    settings.workspaceBar.accentColor = color
                     debouncedAppearanceSync()
                 }
             }
@@ -278,10 +278,10 @@ private struct GlobalBarSettingsSection: View {
 
     private var textColorBinding: Binding<Color> {
         Binding(
-            get: { (settings.workspaceBarTextColor ?? defaultTextColor).swiftUIColor },
+            get: { (settings.workspaceBar.textColor ?? defaultTextColor).swiftUIColor },
             set: { newColor in
                 if let color = SettingsColor(color: newColor, preservesAlpha: false) {
-                    settings.workspaceBarTextColor = color
+                    settings.workspaceBar.textColor = color
                     debouncedAppearanceSync()
                 }
             }
@@ -314,7 +314,7 @@ private struct MonitorBarSettingsSection: View {
     let monitor: Monitor
 
     private var monitorSettings: MonitorBarSettings {
-        settings.barSettings(for: monitor) ?? MonitorBarSettings(
+        settings.workspaceBar.settings(for: monitor) ?? MonitorBarSettings(
             monitorName: monitor.name
         )
     }
@@ -322,7 +322,7 @@ private struct MonitorBarSettingsSection: View {
     private func updateSetting(_ update: (inout MonitorBarSettings) -> Void) {
         var ms = monitorSettings
         update(&ms)
-        settings.updateBarSettings(ms, for: monitor)
+        settings.workspaceBar.update(ms, for: monitor)
         controller.updateWorkspaceBarSettings()
     }
 
@@ -333,7 +333,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableToggle(
                 label: "Enable Workspace Bar",
                 value: ms.enabled,
-                globalValue: settings.workspaceBarEnabled,
+                globalValue: settings.workspaceBar.enabled,
                 onChange: { newValue in updateSetting { $0.enabled = newValue } },
                 onReset: { updateSetting { $0.enabled = nil } }
             )
@@ -341,7 +341,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableToggle(
                 label: "Show Workspace Labels",
                 value: ms.showLabels,
-                globalValue: settings.workspaceBarShowLabels,
+                globalValue: settings.workspaceBar.showLabels,
                 onChange: { newValue in updateSetting { $0.showLabels = newValue } },
                 onReset: { updateSetting { $0.showLabels = nil } }
             )
@@ -349,7 +349,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableToggle(
                 label: "Show Floating Windows",
                 value: ms.showFloatingWindows,
-                globalValue: settings.workspaceBarShowFloatingWindows,
+                globalValue: settings.workspaceBar.showFloatingWindows,
                 onChange: { newValue in updateSetting { $0.showFloatingWindows = newValue } },
                 onReset: { updateSetting { $0.showFloatingWindows = nil } }
             )
@@ -357,7 +357,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableToggle(
                 label: "Deduplicate App Icons",
                 value: ms.deduplicateAppIcons,
-                globalValue: settings.workspaceBarDeduplicateAppIcons,
+                globalValue: settings.workspaceBar.deduplicateAppIcons,
                 onChange: { newValue in updateSetting { $0.deduplicateAppIcons = newValue } },
                 onReset: { updateSetting { $0.deduplicateAppIcons = nil } }
             )
@@ -366,7 +366,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableToggle(
                 label: "Hide Empty Workspaces",
                 value: ms.hideEmptyWorkspaces,
-                globalValue: settings.workspaceBarHideEmptyWorkspaces,
+                globalValue: settings.workspaceBar.hideEmptyWorkspaces,
                 onChange: { newValue in updateSetting { $0.hideEmptyWorkspaces = newValue } },
                 onReset: { updateSetting { $0.hideEmptyWorkspaces = nil } }
             )
@@ -374,7 +374,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableToggle(
                 label: "Reserve Space for Workspace Bar",
                 value: ms.reserveLayoutSpace,
-                globalValue: settings.workspaceBarReserveLayoutSpace,
+                globalValue: settings.workspaceBar.reserveLayoutSpace,
                 onChange: { newValue in updateSetting { $0.reserveLayoutSpace = newValue } },
                 onReset: { updateSetting { $0.reserveLayoutSpace = nil } }
             )
@@ -385,7 +385,7 @@ private struct MonitorBarSettingsSection: View {
             OverridablePicker(
                 label: "Notch Mode",
                 value: ms.notchMode,
-                globalValue: settings.workspaceBarNotchMode,
+                globalValue: settings.workspaceBar.notchMode,
                 options: WorkspaceBarNotchMode.allCases,
                 displayName: { $0.displayName },
                 onChange: { newValue in updateSetting { $0.notchMode = newValue } },
@@ -396,7 +396,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableSlider(
                 label: "Active Zone Width",
                 value: ms.notchActiveZoneWidth,
-                globalValue: settings.workspaceBarNotchActiveZoneWidth,
+                globalValue: settings.workspaceBar.notchActiveZoneWidth,
                 range: 100 ... 400,
                 step: 10,
                 formatter: { "\(Int($0)) px" },
@@ -410,7 +410,7 @@ private struct MonitorBarSettingsSection: View {
             OverridablePicker(
                 label: "Position",
                 value: ms.position,
-                globalValue: settings.workspaceBarPosition,
+                globalValue: settings.workspaceBar.position,
                 options: WorkspaceBarPosition.allCases,
                 displayName: { $0.displayName },
                 onChange: { newValue in updateSetting { $0.position = newValue } },
@@ -420,7 +420,7 @@ private struct MonitorBarSettingsSection: View {
             OverridablePicker(
                 label: "Window Level",
                 value: ms.windowLevel,
-                globalValue: settings.workspaceBarWindowLevel,
+                globalValue: settings.workspaceBar.windowLevel,
                 options: WorkspaceBarWindowLevel.allCases,
                 displayName: { $0.displayName },
                 onChange: { newValue in updateSetting { $0.windowLevel = newValue } },
@@ -432,7 +432,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableStepper(
                 label: "X Offset",
                 value: ms.xOffset,
-                globalValue: settings.workspaceBarXOffset,
+                globalValue: settings.workspaceBar.xOffset,
                 step: 10,
                 formatter: { "\(Int($0)) px" },
                 onChange: { newValue in updateSetting { $0.xOffset = newValue } },
@@ -443,7 +443,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableStepper(
                 label: "Y Offset",
                 value: ms.yOffset,
-                globalValue: settings.workspaceBarYOffset,
+                globalValue: settings.workspaceBar.yOffset,
                 step: 10,
                 formatter: { "\(Int($0)) px" },
                 onChange: { newValue in updateSetting { $0.yOffset = newValue } },
@@ -456,7 +456,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableSlider(
                 label: "Bar Height",
                 value: ms.height,
-                globalValue: settings.workspaceBarHeight,
+                globalValue: settings.workspaceBar.height,
                 range: 20 ... 40,
                 step: 2,
                 formatter: { "\(Int($0)) px" },
@@ -467,7 +467,7 @@ private struct MonitorBarSettingsSection: View {
             OverridableSlider(
                 label: "Background Opacity",
                 value: ms.backgroundOpacity,
-                globalValue: settings.workspaceBarBackgroundOpacity,
+                globalValue: settings.workspaceBar.backgroundOpacity,
                 range: 0 ... 0.5,
                 step: 0.05,
                 formatter: { "\(Int($0 * 100))%" },

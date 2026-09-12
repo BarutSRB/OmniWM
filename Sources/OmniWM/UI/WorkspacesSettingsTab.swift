@@ -11,7 +11,7 @@ enum WorkspaceConfigurationDeletePolicy {
         settings: SettingsStore,
         workspaceManager: WorkspaceManager
     ) -> Bool {
-        if settings.workspaceConfigurations.count <= 1 {
+        if settings.workspaces.configurations.count <= 1 {
             return false
         }
         guard let workspaceId = workspaceManager.workspaceId(named: config.name) else { return true }
@@ -23,7 +23,7 @@ enum WorkspaceConfigurationDeletePolicy {
         settings: SettingsStore,
         workspaceManager: WorkspaceManager
     ) -> String {
-        if settings.workspaceConfigurations.count <= 1 {
+        if settings.workspaces.configurations.count <= 1 {
             return "OmniWM requires at least one configured workspace"
         }
         guard let workspaceId = workspaceManager.workspaceId(named: config.name) else {
@@ -57,18 +57,18 @@ struct WorkspacesSettingsTab: View {
     var body: some View {
         Form {
             Section("Default Layout") {
-                Picker("Layout Algorithm", selection: $settings.defaultLayoutType) {
+                Picker("Layout Algorithm", selection: Bindable(settings.workspaces).defaultLayoutType) {
                     ForEach(LayoutType.allCases.filter { $0 != .defaultLayout }) { layout in
                         Text(layout.displayName).tag(layout)
                     }
                 }
-                .onChange(of: settings.defaultLayoutType) { _, _ in
+                .onChange(of: settings.workspaces.defaultLayoutType) { _, _ in
                     controller.updateWorkspaceConfig()
                 }
             }
 
             Section {
-                if settings.workspaceConfigurations.isEmpty {
+                if settings.workspaces.configurations.isEmpty {
                     Text("No workspaces configured")
                         .foregroundColor(.secondary)
                         .italic()
@@ -121,7 +121,7 @@ struct WorkspacesSettingsTab: View {
             WorkspaceEditSheet(
                 configuration: WorkspaceConfiguration(
                     name: WorkspaceConfigurationAddPolicy
-                        .nextAvailableWorkspaceName(in: settings.workspaceConfigurations),
+                        .nextAvailableWorkspaceName(in: settings.workspaces.configurations),
                     monitorAssignment: .main
                 ),
                 isNew: true,
@@ -148,7 +148,7 @@ struct WorkspacesSettingsTab: View {
     }
 
     private var sortedConfigurations: [WorkspaceConfiguration] {
-        settings.workspaceConfigurations.sorted { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
+        settings.workspaces.configurations.sorted { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
     }
 
     private var isConfirmingDelete: Binding<Bool> {
@@ -192,22 +192,22 @@ struct WorkspacesSettingsTab: View {
     }
 
     private func addConfiguration(_ config: WorkspaceConfiguration) {
-        settings.workspaceConfigurations.append(config)
-        settings.workspaceConfigurations.sort { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
+        settings.workspaces.configurations.append(config)
+        settings.workspaces.configurations.sort { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
         controller.updateWorkspaceConfig()
     }
 
     private func updateConfiguration(_ config: WorkspaceConfiguration) {
-        if let index = settings.workspaceConfigurations.firstIndex(where: { $0.id == config.id }) {
-            settings.workspaceConfigurations[index] = config
-            settings.workspaceConfigurations.sort { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
+        if let index = settings.workspaces.configurations.firstIndex(where: { $0.id == config.id }) {
+            settings.workspaces.configurations[index] = config
+            settings.workspaces.configurations.sort { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
             controller.updateWorkspaceConfig()
         }
     }
 
     private func deleteConfiguration(_ config: WorkspaceConfiguration) {
         guard canDeleteConfiguration(config) else { return }
-        settings.workspaceConfigurations.removeAll { $0.id == config.id }
+        settings.workspaces.configurations.removeAll { $0.id == config.id }
         for index in settings.appRules.indices where settings.appRules[index].assignToWorkspace == config.name {
             settings.appRules[index].assignToWorkspace = nil
         }

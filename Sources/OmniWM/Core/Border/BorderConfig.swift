@@ -8,6 +8,18 @@ struct BorderConfig: Equatable {
         let targetFrame: CGRect
         let surfaceFrame: CGRect
         let width: CGFloat
+
+        func localized() -> Self {
+            let localSurfaceFrame = CGRect(origin: .zero, size: surfaceFrame.size)
+            return Self(
+                targetFrame: CGRect(
+                    origin: CGPoint(x: width, y: width),
+                    size: targetFrame.size
+                ),
+                surfaceFrame: localSurfaceFrame,
+                width: width
+            )
+        }
     }
 
     var enabled: Bool
@@ -26,9 +38,9 @@ struct BorderConfig: Equatable {
 
     @MainActor static func from(settings: SettingsStore) -> BorderConfig {
         return BorderConfig(
-            enabled: settings.bordersEnabled,
-            width: CGFloat(settings.borderWidth),
-            color: settings.borderColor
+            enabled: settings.borders.enabled,
+            width: CGFloat(settings.borders.width),
+            color: settings.borders.color
         )
     }
 

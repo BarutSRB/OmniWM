@@ -89,7 +89,7 @@ final class GhosttySurfaceSizingTests: XCTestCase {
         let windowList: [[String: Any]] = [
             makeWindow(pid: 42, layer: 0, x: 1200, y: 100, width: 400, height: 300)
         ]
-        let result = QuakeTerminalController.focusedWindowDisplayId(
+        let result = QuakeFocusedWindowScreen.displayId(
             monitors: monitors,
             windowList: windowList,
             ownPID: 7,
@@ -107,7 +107,7 @@ final class GhosttySurfaceSizingTests: XCTestCase {
             makeWindow(pid: 42, layer: 0, x: 100, y: 100, width: 40, height: 40),
             makeWindow(pid: 99, layer: 0, x: 500, y: 500, width: 200, height: 200)
         ]
-        let result = QuakeTerminalController.focusedWindowDisplayId(
+        let result = QuakeFocusedWindowScreen.displayId(
             monitors: monitors,
             windowList: windowList,
             ownPID: 7,

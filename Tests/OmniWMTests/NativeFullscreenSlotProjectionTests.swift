@@ -482,7 +482,8 @@ final class NativeFullscreenSlotProjectionTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            fixture.controller.surfaceReconciler.nativeFullscreenProjectedWorkspaceIds.contains(missingWorkspaceId)
+            fixture.controller.surfaceReconciler.nativeFullscreenState.projectedWorkspaceIds
+                .contains(missingWorkspaceId)
         )
     }
 
@@ -551,6 +552,9 @@ final class NativeFullscreenSlotProjectionTests: XCTestCase {
             autosaveEnabled: false
         )
         let controller = WMController(settings: settings)
+        addTeardownBlock { @MainActor [controller] in
+            controller.nativeFullscreenPlaceholderManager.removeAll()
+        }
         controller.hasStartedServices = true
         let monitor = Monitor(
             id: .init(displayId: 98_101),

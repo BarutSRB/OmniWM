@@ -483,9 +483,11 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
             fixture.first,
             change: .setFixed(300),
             in: fixture.workspaceId,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            geometry: NiriSizingGeometry(
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            )
         )
         XCTAssertEqual(
             try XCTUnwrap(
@@ -503,9 +505,11 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
             fixture.first,
             forwards: true,
             in: fixture.workspaceId,
-            workingFrame: portraitFrame,
-            gaps: 0,
-            orientation: .vertical
+            geometry: NiriSizingGeometry(
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            )
         )
         XCTAssertEqual(
             try XCTUnwrap(

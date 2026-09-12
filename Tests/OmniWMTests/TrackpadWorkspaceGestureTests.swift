@@ -13,9 +13,9 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             for invertDirection in [false, true] {
                 let fixture = try makeFixture(workspaceSwipeEnabled: false)
                 fixture.controller.setAnimationsEnabled(false)
-                fixture.controller.settings.overviewGestureEnabled = true
-                fixture.controller.settings.overviewGestureFingerCount = fingerCount
-                fixture.controller.settings.gestureInvertDirection = invertDirection
+                fixture.controller.settings.gestures.overviewGestureEnabled = true
+                fixture.controller.settings.gestures.overviewGestureFingerCount = fingerCount
+                fixture.controller.settings.gestures.invertDirection = invertDirection
                 let fingers = fingerCount.rawValue
                 defer {
                     if fixture.controller.isOverviewOpen() { fixture.controller.windowActionHandler.toggleOverview() }
@@ -48,7 +48,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
     func testOverviewRecognizesShortPhysicalSwipe() throws {
         let fixture = try makeFixture(workspaceSwipeEnabled: false)
         fixture.controller.setAnimationsEnabled(false)
-        fixture.controller.settings.overviewGestureEnabled = true
+        fixture.controller.settings.gestures.overviewGestureEnabled = true
         defer { if fixture.controller.isOverviewOpen() { fixture.controller.windowActionHandler.toggleOverview() } }
 
         // Normalized centroids from a short physical four-finger upward swipe.
@@ -76,7 +76,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
     func testArmedOverviewFingerChangeCannotBecomeWorkspaceSwipeUntilLift() throws {
         let fixture = try makeFixture()
-        fixture.controller.settings.overviewGestureEnabled = true
+        fixture.controller.settings.gestures.overviewGestureEnabled = true
         sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
         sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.2, at: 100.1)
         sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.3, at: 100.2)
@@ -139,11 +139,11 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             windowFocusOperations: windowFocusOperations
         )
         controller.layoutRefreshController.displayLinkActivationForTests = { _ in true }
-        controller.settings.scrollGestureEnabled = scrollGestureEnabled
-        controller.settings.gestureFingerCount = columnFingers
-        controller.settings.workspaceSwipeEnabled = workspaceSwipeEnabled
-        controller.settings.workspaceSwipeFingerCount = workspaceFingers
-        controller.settings.workspaceSwipeAxis = workspaceAxis
+        controller.settings.gestures.scrollEnabled = scrollGestureEnabled
+        controller.settings.gestures.fingerCount = columnFingers
+        controller.settings.gestures.workspaceSwipeEnabled = workspaceSwipeEnabled
+        controller.settings.gestures.workspaceSwipeFingerCount = workspaceFingers
+        controller.settings.gestures.workspaceSwipeAxis = workspaceAxis
         if enableNiri {
             controller.enableNiriLayout()
         }
@@ -244,13 +244,14 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             name: "TestB"
         )
         let controller = fixture.controller
-        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map { configuration in
-            var configuration = configuration
-            configuration.monitorAssignment = workspaceNames.contains(configuration.name)
-                ? .specificDisplay(OutputId(from: monitor))
-                : .specificDisplay(OutputId(from: fixture.monitor))
-            return configuration
-        }
+        controller.settings.workspaces.configurations = controller.settings.workspaces.configurations
+            .map { configuration in
+                var configuration = configuration
+                configuration.monitorAssignment = workspaceNames.contains(configuration.name)
+                    ? .specificDisplay(OutputId(from: monitor))
+                    : .specificDisplay(OutputId(from: fixture.monitor))
+                return configuration
+            }
         controller.workspaceManager.applyMonitorConfigurationChange([fixture.monitor, monitor])
         controller.workspaceManager.applySettings()
         let workspaceIds = try workspaceNames.sorted().map { name in
@@ -354,7 +355,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
     func testInvertedDirectionFlipsVerticalMapping() throws {
         let fixture = try makeFixture()
-        fixture.controller.settings.gestureInvertDirection = false
+        fixture.controller.settings.gestures.invertDirection = false
         let lastWorkspace = fixture.controller.workspaceManager.workspaces(on: fixture.monitor.id).last?.id
         _ = performVerticalSwipe(fixture, totalUnits: 220, startTime: 100)
         XCTAssertEqual(activeWorkspace(fixture), lastWorkspace)
@@ -615,7 +616,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
                     raiseWindow: { _ in }
                 )
             )
-            fixture.controller.settings.trackpadScrollStyle = style
+            fixture.controller.settings.gestures.trackpadScrollStyle = style
             try addColumnGestureWindows(to: fixture)
             let manager = fixture.controller.workspaceManager
             let driver = manager.animationDriver
@@ -1024,9 +1025,10 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
     func testDwindleWorkspaceGestureDoesNotClaimViewportWhileArmed() throws {
         let fixture = try makeFixture(scrollGestureEnabled: true, enableNiri: false)
-        fixture.controller.settings.workspaceConfigurations = fixture.controller.settings.workspaceConfigurations.map {
-            $0.with(layoutType: .dwindle)
-        }
+        fixture.controller.settings.workspaces.configurations = fixture.controller.settings.workspaces.configurations
+            .map {
+                $0.with(layoutType: .dwindle)
+            }
         fixture.controller.enableDwindleLayout()
         sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 100)
 
@@ -1108,14 +1110,14 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         momentumPhase: UInt32,
         phase: UInt32
     ) -> Bool {
-        fixture.controller.mouseEventHandler.receiveTapScrollWheel(
-            at: CGPoint(x: 800, y: 450),
+        fixture.controller.mouseEventHandler.receiveTapScrollWheel(MouseScrollIntake(
+            location: CGPoint(x: 800, y: 450),
             deltaX: 0,
             deltaY: 8,
             momentumPhase: momentumPhase,
             phase: phase,
-            modifiers: []
-        )
+            modifiersRawValue: 0
+        ))
     }
 
     func testCommittedPartialLiftLatchesAndBlocksChainedGesture() throws {
@@ -1189,9 +1191,10 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
     func testDwindleWorkspaceSwipeSwitchesWorkspaces() throws {
         let fixture = try makeFixture(enableNiri: false)
-        fixture.controller.settings.workspaceConfigurations = fixture.controller.settings.workspaceConfigurations.map {
-            $0.with(layoutType: .dwindle)
-        }
+        fixture.controller.settings.workspaces.configurations = fixture.controller.settings.workspaces.configurations
+            .map {
+                $0.with(layoutType: .dwindle)
+            }
         fixture.controller.enableDwindleLayout()
 
         _ = performVerticalSwipe(fixture, totalUnits: 220, startTime: 100)
@@ -1231,7 +1234,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         XCTAssertTrue(manager.setActiveWorkspace(wsB1, on: secondary.monitor.id))
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.switchWorkspaceNext),
+            fixture.controller.commandHandler.performCommand(.workspace(.next)),
             .executed
         )
 
@@ -1242,11 +1245,11 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
     func testCollidingConfigForcesVerticalAndPreservesStoredAxis() throws {
         let fixture = try makeFixture(workspaceAxis: .horizontal, scrollGestureEnabled: true)
-        XCTAssertTrue(fixture.controller.settings.workspaceSwipeAxisLockedToVertical)
-        XCTAssertEqual(fixture.controller.settings.effectiveWorkspaceSwipeAxis, .vertical)
+        XCTAssertTrue(fixture.controller.settings.gestures.workspaceSwipeAxisLockedToVertical)
+        XCTAssertEqual(fixture.controller.settings.gestures.effectiveWorkspaceSwipeAxis, .vertical)
         _ = performVerticalSwipe(fixture, totalUnits: 220, startTime: 100)
         XCTAssertEqual(activeWorkspace(fixture), fixture.ws2)
-        XCTAssertEqual(fixture.controller.settings.workspaceSwipeAxis, .horizontal)
+        XCTAssertEqual(fixture.controller.settings.gestures.workspaceSwipeAxis, .horizontal)
     }
 
     func testColumnOnlyConfigDoesNotArmWithoutColumnContext() throws {

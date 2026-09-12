@@ -14,7 +14,7 @@ final class GhosttyNumericLocaleTests: XCTestCase {
         XCTAssertNotNil(setlocale(LC_ALL, "de_DE.UTF-8"))
         XCTAssertEqual(String(cString: setlocale(LC_NUMERIC, nil)), "de_DE.UTF-8")
 
-        QuakeTerminalController.restoreCNumericLocale()
+        QuakeGhosttyRuntime.restoreCNumericLocale()
 
         XCTAssertEqual(String(cString: setlocale(LC_NUMERIC, nil)), "C")
         XCTAssertEqual(String(cString: setlocale(LC_CTYPE, nil)), "de_DE.UTF-8")

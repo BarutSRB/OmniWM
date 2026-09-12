@@ -864,7 +864,7 @@ final class RescanScopeTests: XCTestCase {
         let refreshController = controller.layoutRefreshController
         defer { refreshController.resetState() }
 
-        controller.serviceLifecycleManager.handleAppTerminated(pid: helperPID)
+        controller.axEventHandler.handleAppTerminated(pid: helperPID)
 
         let activeRefresh = try XCTUnwrap(refreshController.layoutState.activeRefresh)
         XCTAssertEqual(activeRefresh.kind, .fullRescan)

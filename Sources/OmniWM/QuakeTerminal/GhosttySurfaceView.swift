@@ -5,42 +5,6 @@ import AppKit
 import GhosttyKit
 import QuartzCore
 
-struct GhosttySurfaceResizeEdgeClassifier {
-    private static let perimeterTolerance: CGFloat = 0.5
-
-    static func classifyEdges(
-        at point: CGPoint,
-        localBounds: CGRect,
-        paneFrame: CGRect,
-        containerBounds: CGRect,
-        threshold: CGFloat
-    ) -> ResizeEdge {
-        var edges: ResizeEdge = []
-
-        if point.x <= threshold,
-           abs(paneFrame.minX - containerBounds.minX) <= perimeterTolerance
-        {
-            edges.insert(.left)
-        } else if point.x >= localBounds.width - threshold,
-                  abs(paneFrame.maxX - containerBounds.maxX) <= perimeterTolerance
-        {
-            edges.insert(.right)
-        }
-
-        if point.y <= threshold,
-           abs(paneFrame.minY - containerBounds.minY) <= perimeterTolerance
-        {
-            edges.insert(.bottom)
-        } else if point.y >= localBounds.height - threshold,
-                  abs(paneFrame.maxY - containerBounds.maxY) <= perimeterTolerance
-        {
-            edges.insert(.top)
-        }
-
-        return edges
-    }
-}
-
 @MainActor
 final class GhosttySurfaceCallbackContext {
     weak var controller: QuakeTerminalController?
@@ -49,121 +13,35 @@ final class GhosttySurfaceCallbackContext {
     init(controller: QuakeTerminalController) {
         self.controller = controller
     }
-}
 
-@MainActor
-final class GhosttyProtectedClipboardRequest {
-    let payload: GhosttyClipboardPayload
-    private var state: UnsafeMutableRawPointer?
-
-    init(payload: GhosttyClipboardPayload, state: UnsafeMutableRawPointer?) {
-        self.payload = payload
-        self.state = state
-    }
-
-    func complete(on surface: ghostty_surface_t, allowing allowed: Bool, remember: Bool = false) {
-        guard let state else { return }
-        self.state = nil
-        if allowed {
-            payload.complete(on: surface, state: state, confirmed: true, remember: remember)
-        } else {
-            ghostty_surface_deny_clipboard_request(surface, state)
+    static func installCloseCallback(in runtimeConfig: inout ghostty_runtime_config_s) {
+        runtimeConfig.close_surface_cb = { userdata, processAlive in
+            guard let userdata else { return }
+            let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+            DispatchQueue.main.async {
+                guard let controller = context.controller, let view = context.view else { return }
+                controller.surfaceClosed(view: view, processAlive: processAlive)
+            }
         }
     }
 }
 
 @MainActor
-final class QuakeClipboardPromptCoordinator {
-    private final class ActivePrompt {
-        private(set) weak var origin: AnyObject?
-        let isOriginAttached: @MainActor () -> Bool
-        let dismiss: @MainActor () -> Void
-        let resolve: @MainActor (Bool) -> Void
-
-        init(
-            origin: AnyObject,
-            isOriginAttached: @escaping @MainActor () -> Bool,
-            dismiss: @escaping @MainActor () -> Void,
-            resolve: @escaping @MainActor (Bool) -> Void
-        ) {
-            self.origin = origin
-            self.isOriginAttached = isOriginAttached
-            self.dismiss = dismiss
-            self.resolve = resolve
-        }
-    }
-
-    private var activePrompt: ActivePrompt?
-
-    var hasActivePrompt: Bool {
-        activePrompt != nil
-    }
-
-    func request(
-        origin: AnyObject,
-        isOriginAttached: @escaping @MainActor () -> Bool,
-        present: (@escaping @MainActor (Bool) -> Void) -> Void,
-        dismiss: @escaping @MainActor () -> Void,
-        resolve: @escaping @MainActor (Bool) -> Void
-    ) {
-        guard activePrompt == nil, isOriginAttached() else {
-            resolve(false)
-            return
-        }
-
-        let prompt = ActivePrompt(
-            origin: origin,
-            isOriginAttached: isOriginAttached,
-            dismiss: dismiss,
-            resolve: resolve
-        )
-        activePrompt = prompt
-        present { [weak self] allowed in
-            self?.finish(prompt, allowed: allowed)
-        }
-    }
-
-    func cancelPrompt(for origin: AnyObject) {
-        guard let activePrompt, activePrompt.origin === origin else { return }
-        cancelActivePrompt()
-    }
-
-    func cancelActivePrompt() {
-        guard let prompt = activePrompt else { return }
-        activePrompt = nil
-        prompt.dismiss()
-        prompt.resolve(false)
-    }
-
-    private func finish(_ prompt: ActivePrompt, allowed: Bool) {
-        guard activePrompt === prompt else { return }
-        activePrompt = nil
-        prompt.resolve(allowed && prompt.isOriginAttached())
-    }
-}
-
-@MainActor
-final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
+final class GhosttySurfaceView: NSView {
     private(set) var ghosttySurface: ghostty_surface_t?
     private var retainedCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    private var markedText: NSMutableAttributedString = NSMutableAttributedString()
-    private var keyTextAccumulator: [String]?
-    private var lastPerformKeyEvent: TimeInterval?
+    private lazy var textInput = GhosttySurfaceTextInput(view: self)
     private var lastAppliedSurfacePixelSize: GhosttySurfacePixelSize?
     private var lastAppliedContentScale: CGFloat?
     private var lastAppliedDisplayId: UInt32?
     private var occlusionHandlerForTests: ((Bool) -> Void)?
 
-    private let resizeEdgeThreshold: CGFloat = 8.0
+    private let windowInteraction = QuakeWindowInteraction()
 
-    private enum InteractionMode {
-        case terminal
-        case windowMove(startOrigin: CGPoint, startMouseLocation: CGPoint)
-        case windowResize(edges: ResizeEdge, startFrame: NSRect, startMouseLocation: CGPoint)
+    var isInteracting: Bool {
+        windowInteraction.isInteracting
     }
 
-    private var interactionMode: InteractionMode = .terminal
-    private(set) var isInteracting: Bool = false
     private var pendingProtectedClipboardRequests: [GhosttyProtectedClipboardRequest] = []
     var onFrameChanged: ((NSRect) -> Void)?
 
@@ -402,197 +280,36 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard let surface = ghosttySurface else {
-            interpretKeyEvents([event])
-            return
-        }
-
-        let translationEvent = event.quakeTranslationEvent(surface: surface)
-        let markedTextBefore = markedText.length > 0
-        let keyboardLayoutBefore = markedTextBefore ? nil : QuakeGhosttyInputBridge.keyboardLayoutID
-        keyTextAccumulator = []
-        defer { keyTextAccumulator = nil }
-
-        let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
-        lastPerformKeyEvent = nil
-
-        interpretKeyEvents([translationEvent])
-
-        if !markedTextBefore && keyboardLayoutBefore != QuakeGhosttyInputBridge.keyboardLayoutID {
-            return
-        }
-
-        syncPreedit(clearIfNeeded: markedTextBefore)
-
-        if let accumulated = keyTextAccumulator, !accumulated.isEmpty {
-            for text in accumulated {
-                _ = keyAction(
-                    action,
-                    event: event,
-                    translationEvent: translationEvent,
-                    text: text
-                )
-            }
-            return
-        }
-
-        _ = keyAction(
-            action,
-            event: event,
-            translationEvent: translationEvent,
-            text: translationEvent.quakeGhosttyCharacters,
-            composing: markedText.length > 0 || markedTextBefore
-        )
+        textInput.keyDown(with: event)
     }
 
     override func keyUp(with event: NSEvent) {
-        _ = keyAction(GHOSTTY_ACTION_RELEASE, event: event)
+        textInput.keyUp(with: event)
     }
 
     override func flagsChanged(with event: NSEvent) {
-        if hasMarkedText() { return }
-        guard let action = QuakeGhosttyInputBridge.modifierAction(for: event) else { return }
-        _ = keyAction(action, event: event)
+        textInput.flagsChanged(with: event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        guard window?.firstResponder === self, window?.isKeyWindow == true else { return false }
-
-        if keyEventIsBinding(event) {
-            keyDown(with: event)
-            return true
-        }
-
-        let equivalent: String
-        switch event.charactersIgnoringModifiers ?? "" {
-        case "\r":
-            guard event.modifierFlags.contains(.control) else { return false }
-            equivalent = "\r"
-
-        case "/":
-            guard event.modifierFlags.contains(.control),
-                  event.modifierFlags.isDisjoint(with: [.shift, .command, .option])
-            else {
-                return false
-            }
-            equivalent = "_"
-
-        default:
-            if event.timestamp == 0 {
-                return false
-            }
-
-            if !event.modifierFlags.contains(.command) &&
-                !event.modifierFlags.contains(.control)
-            {
-                lastPerformKeyEvent = nil
-                return false
-            }
-
-            if let lastPerformKeyEvent {
-                self.lastPerformKeyEvent = nil
-                if lastPerformKeyEvent == event.timestamp {
-                    equivalent = event.characters ?? ""
-                    break
-                }
-            }
-
-            lastPerformKeyEvent = event.timestamp
-            return false
-        }
-
-        guard let translatedEvent = NSEvent.keyEvent(
-            with: .keyDown,
-            location: event.locationInWindow,
-            modifierFlags: event.modifierFlags,
-            timestamp: event.timestamp,
-            windowNumber: event.windowNumber,
-            context: nil,
-            characters: equivalent,
-            charactersIgnoringModifiers: equivalent,
-            isARepeat: event.isARepeat,
-            keyCode: event.keyCode
-        ) else {
-            return false
-        }
-
-        keyDown(with: translatedEvent)
-        return true
+        textInput.performKeyEquivalent(with: event)
     }
 
     override func doCommand(by selector: Selector) {
-        if let lastPerformKeyEvent,
-           let current = NSApp.currentEvent,
-           lastPerformKeyEvent == current.timestamp
-        {
-            NSApp.sendEvent(current)
-            return
-        }
-
-        switch selector {
-        case #selector(moveToBeginningOfDocument(_:)):
-            performBindingAction("scroll_to_top")
-        case #selector(moveToEndOfDocument(_:)):
-            performBindingAction("scroll_to_bottom")
-        default:
-            break
-        }
+        textInput.doCommand(by: selector)
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard let window else {
+        if !windowInteraction.handleMouseDown(event, in: self) {
             handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_PRESS)
-            return
         }
-
-        let point = convert(event.locationInWindow, from: nil)
-        let edges = detectResizeEdges(at: point)
-
-        if !edges.isEmpty {
-            isInteracting = true
-            interactionMode = .windowResize(
-                edges: edges,
-                startFrame: window.frame,
-                startMouseLocation: NSEvent.mouseLocation
-            )
-            return
-        }
-
-        if event.modifierFlags.contains(.option) {
-            isInteracting = true
-            interactionMode = .windowMove(startOrigin: window.frame.origin, startMouseLocation: NSEvent.mouseLocation)
-            NSCursor.closedHand.set()
-            return
-        }
-
-        handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_PRESS)
     }
 
     override func mouseUp(with event: NSEvent) {
-        switch interactionMode {
-        case .terminal:
+        if !windowInteraction.handleMouseUp(in: self, onFrameChanged: onFrameChanged) {
             handleMouseButton(event, button: GHOSTTY_MOUSE_LEFT, state: GHOSTTY_MOUSE_RELEASE)
-        case let .windowMove(startOrigin, _):
-            if let frame = window?.frame,
-               let changedFrame = QuakeTerminalGeometryPolicy.changedFrame(
-                   from: CGRect(origin: startOrigin, size: frame.size),
-                   to: frame
-               )
-            {
-                onFrameChanged?(changedFrame)
-            }
-            NSCursor.arrow.set()
-        case let .windowResize(_, startFrame, _):
-            if let frame = window?.frame,
-               let changedFrame = QuakeTerminalGeometryPolicy.changedFrame(from: startFrame, to: frame)
-            {
-                onFrameChanged?(changedFrame)
-            }
-            NSCursor.arrow.set()
         }
-        isInteracting = false
-        interactionMode = .terminal
+        windowInteraction.finishMouseUp()
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -612,31 +329,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        let edges = detectResizeEdges(at: point)
-
-        if !edges.isEmpty {
-            edges.cursor.set()
-        } else {
-            NSCursor.arrow.set()
-        }
-
+        windowInteraction.updateCursor(for: event, in: self)
         handleMouseMove(event)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        switch interactionMode {
-        case .terminal:
+        if !windowInteraction.handleMouseDrag(in: self) {
             handleMouseMove(event)
-        case let .windowMove(startOrigin, startMouseLocation):
-            let current = NSEvent.mouseLocation
-            let delta = CGPoint(x: current.x - startMouseLocation.x, y: current.y - startMouseLocation.y)
-            window?.setFrameOrigin(CGPoint(x: startOrigin.x + delta.x, y: startOrigin.y + delta.y))
-        case let .windowResize(edges, startFrame, startMouseLocation):
-            let current = NSEvent.mouseLocation
-            let delta = CGPoint(x: current.x - startMouseLocation.x, y: current.y - startMouseLocation.y)
-            let newFrame = calculateResizedFrame(startFrame: startFrame, edges: edges, delta: delta)
-            window?.setFrame(newFrame, display: true)
         }
     }
 
@@ -675,79 +374,19 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         let flippedY = bounds.height - point.y
         ghostty_surface_mouse_pos(surface, point.x, flippedY, mods)
     }
+}
 
-    private func detectResizeEdges(at point: CGPoint) -> ResizeEdge {
-        GhosttySurfaceResizeEdgeClassifier.classifyEdges(
-            at: point,
-            localBounds: bounds,
-            paneFrame: frame,
-            containerBounds: superview?.bounds ?? frame,
-            threshold: resizeEdgeThreshold
-        )
-    }
-
-    private func calculateResizedFrame(startFrame: NSRect, edges: ResizeEdge, delta: CGPoint) -> NSRect {
-        var frame = startFrame
-        let minWidth: CGFloat = 200
-        let minHeight: CGFloat = 100
-
-        if edges.contains(.right) {
-            frame.size.width = max(minWidth, startFrame.width + delta.x)
-        }
-        if edges.contains(.left) {
-            let proposed = startFrame.width - delta.x
-            if proposed >= minWidth {
-                frame.origin.x = startFrame.origin.x + delta.x
-                frame.size.width = proposed
-            }
-        }
-        if edges.contains(.top) {
-            frame.size.height = max(minHeight, startFrame.height + delta.y)
-        }
-        if edges.contains(.bottom) {
-            let proposed = startFrame.height - delta.y
-            if proposed >= minHeight {
-                frame.origin.y = startFrame.origin.y + delta.y
-                frame.size.height = proposed
-            }
-        }
-        return frame
-    }
-
+extension GhosttySurfaceView: @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
-        guard let text = QuakeGhosttyInputBridge.committedText(from: string) else { return }
-
-        unmarkText()
-
-        if var accumulated = keyTextAccumulator {
-            accumulated.append(text)
-            keyTextAccumulator = accumulated
-            return
-        }
-
-        sendSurfaceText(text)
+        textInput.insertText(string, replacementRange: replacementRange)
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        switch string {
-        case let value as NSAttributedString:
-            markedText = NSMutableAttributedString(attributedString: value)
-        case let value as String:
-            markedText = NSMutableAttributedString(string: value)
-        default:
-            return
-        }
-
-        if keyTextAccumulator == nil {
-            syncPreedit()
-        }
+        textInput.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
     }
 
     func unmarkText() {
-        if markedText.length > 0 {
-            markedText.mutableString.setString("")
-            syncPreedit()
-        }
+        textInput.unmarkText()
     }
 
     func selectedRange() -> NSRange {
@@ -755,14 +394,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func markedRange() -> NSRange {
-        if markedText.length > 0 {
-            return NSRange(location: 0, length: markedText.length)
-        }
-        return NSRange(location: NSNotFound, length: 0)
+        textInput.markedRange()
     }
 
     func hasMarkedText() -> Bool {
-        markedText.length > 0
+        textInput.hasMarkedText()
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
@@ -781,82 +417,5 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     func characterIndex(for point: NSPoint) -> Int {
         0
-    }
-
-    @discardableResult
-    private func keyAction(
-        _ action: ghostty_input_action_e,
-        event: NSEvent,
-        translationEvent: NSEvent? = nil,
-        text: String? = nil,
-        composing: Bool = false
-    ) -> Bool {
-        guard let surface = ghosttySurface else { return false }
-
-        var keyEvent = event.quakeGhosttyKeyEvent(action, translationMods: translationEvent?.modifierFlags)
-        keyEvent.composing = composing
-
-        if let text,
-           !text.isEmpty,
-           let codepoint = text.utf8.first,
-           codepoint >= 0x20
-        {
-            return text.withCString { ptr in
-                keyEvent.text = ptr
-                return ghostty_surface_key(surface, keyEvent)
-            }
-        }
-
-        return ghostty_surface_key(surface, keyEvent)
-    }
-
-    private func keyEventIsBinding(_ event: NSEvent) -> Bool {
-        guard let surface = ghosttySurface else { return false }
-
-        var keyEvent = event.quakeGhosttyKeyEvent(GHOSTTY_ACTION_PRESS)
-        let text = event.characters ?? ""
-        return text.withCString { ptr in
-            var bindingFlags = ghostty_binding_flags_e(0)
-            keyEvent.text = ptr
-            return ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags)
-        }
-    }
-
-    private func sendSurfaceText(_ text: String) {
-        guard let surface = ghosttySurface else { return }
-
-        let length = text.utf8.count
-        guard length > 0 else { return }
-
-        text.withCString { ptr in
-            ghostty_surface_text(surface, ptr, UInt(length))
-        }
-    }
-
-    private func syncPreedit(clearIfNeeded: Bool = true) {
-        if markedText.length > 0 {
-            let text = markedText.string
-
-            guard let surface = ghosttySurface else { return }
-            let length = text.utf8.count
-            guard length > 0 else { return }
-
-            text.withCString { ptr in
-                ghostty_surface_preedit(surface, ptr, UInt(length))
-            }
-        } else if clearIfNeeded {
-            guard let surface = ghosttySurface else { return }
-            ghostty_surface_preedit(surface, nil, 0)
-        }
-    }
-
-    private func performBindingAction(_ action: String) {
-        guard let surface = ghosttySurface else { return }
-        let length = action.utf8.count
-        guard length > 0 else { return }
-
-        action.withCString { ptr in
-            _ = ghostty_surface_binding_action(surface, ptr, UInt(length))
-        }
     }
 }

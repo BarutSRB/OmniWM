@@ -14,6 +14,10 @@ struct GhosttyClipboardContent: Equatable {
         String(data: data, encoding: .utf8)
     }
 
+    static func firstPlainText(in contents: [GhosttyClipboardContent]) -> String? {
+        contents.first(where: { $0.mime == "text/plain" })?.string
+    }
+
     init(mime: String, data: Data) {
         self.mime = mime
         self.data = data
@@ -71,7 +75,7 @@ struct GhosttyClipboardPayload: Equatable {
     }
 
     var preview: String {
-        if let text = contents.first(where: { $0.mime == "text/plain" })?.string {
+        if let text = GhosttyClipboardContent.firstPlainText(in: contents) {
             return text
         }
         return contents.map { "\($0.mime) (\($0.data.count) bytes)" }.joined(separator: "\n")
@@ -140,6 +144,27 @@ struct GhosttyClipboardPayload: Equatable {
     }
 }
 
+@MainActor
+final class GhosttyProtectedClipboardRequest {
+    let payload: GhosttyClipboardPayload
+    private var state: UnsafeMutableRawPointer?
+
+    init(payload: GhosttyClipboardPayload, state: UnsafeMutableRawPointer?) {
+        self.payload = payload
+        self.state = state
+    }
+
+    func complete(on surface: ghostty_surface_t, allowing allowed: Bool, remember: Bool = false) {
+        guard let state else { return }
+        self.state = nil
+        if allowed {
+            payload.complete(on: surface, state: state, confirmed: true, remember: remember)
+        } else {
+            ghostty_surface_deny_clipboard_request(surface, state)
+        }
+    }
+}
+
 extension NSPasteboard.PasteboardType {
     init?(ghosttyMIMEType mime: String) {
         if mime == "text/plain" {
@@ -168,6 +193,33 @@ extension NSPasteboard {
         default:
             nil
         }
+    }
+
+    func ghosttyReadPayload(
+        forMIMEs mimes: UnsafeBufferPointer<UnsafePointer<CChar>?>?,
+        list: Bool
+    ) -> GhosttyClipboardPayload? {
+        let contents = ghosttyContents(forMIMEs: mimes)
+        let available = list ? ghosttyAvailableMIMEs() : []
+        guard !contents.isEmpty || list else { return nil }
+        return GhosttyClipboardPayload(contents: contents, available: available)
+    }
+
+    private func ghosttyContents(forMIMEs mimes: UnsafeBufferPointer<UnsafePointer<CChar>?>?)
+        -> [GhosttyClipboardContent]
+    {
+        var contents: [GhosttyClipboardContent] = []
+        var seen: Set<String> = []
+        if let mimes {
+            for mimePointer in mimes {
+                guard let mimePointer else { continue }
+                let mime = String(cString: mimePointer)
+                guard seen.insert(mime).inserted,
+                      let data = ghosttyData(forMIME: mime) else { continue }
+                contents.append(GhosttyClipboardContent(mime: mime, data: data))
+            }
+        }
+        return contents
     }
 
     func ghosttyData(forMIME mime: String) -> Data? {

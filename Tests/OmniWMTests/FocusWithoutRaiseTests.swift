@@ -977,7 +977,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
         fixture.controller.focusWindow(target, origin: .focusFollowsMouse)
         let requestId = try XCTUnwrap(fixture.controller.intentLedger.activeManagedRequest?.requestId)
 
-        fixture.controller.settings.raiseOnMouseFocus = true
+        fixture.controller.settings.focus.raiseOnMouseFocus = true
         fixture.controller.axEventHandler.handleIntentExpired(requestId)
 
         XCTAssertEqual(
@@ -1284,13 +1284,21 @@ final class FocusWithoutRaiseTests: XCTestCase {
         fixture.controller.axEventHandler.admissionRetryStateByWindowId[UInt32(replacement.windowId)] = rebindState
 
         await fixture.controller.axEventHandler.completeManagedWindowIdentityRebind(
-            from: AXManagedWindowIdentity(token: target, axRef: targetEntry.axRef),
-            to: AXManagedWindowIdentity(token: replacement, axRef: replacementRef),
-            windowId: UInt32(replacement.windowId),
-            retryGeneration: rebindState.generation,
-            executionOwner: executionOwner,
-            managedReplacementMetadata: nil,
-            admissionHints: nil
+            rebind: .init(
+                oldWindow: AXManagedWindowIdentity(token: target, axRef: targetEntry.axRef),
+                newWindow: AXManagedWindowIdentity(
+                    token: replacement,
+                    axRef: replacementRef
+                ),
+                managedReplacementMetadata: nil,
+                admissionHints: nil,
+                sizeConstraints: nil
+            ),
+            execution: .init(
+                windowId: UInt32(replacement.windowId),
+                generation: rebindState.generation,
+                executionOwner: executionOwner
+            )
         )
 
         XCTAssertEqual(
@@ -1403,9 +1411,9 @@ final class FocusWithoutRaiseTests: XCTestCase {
         let request = try XCTUnwrap(fixture.controller.intentLedger.activeManagedRequest)
         fixture.recorder.operations.removeAll()
 
-        fixture.controller.settings.raiseOnMouseFocus = true
+        fixture.controller.settings.focus.raiseOnMouseFocus = true
         fixture.controller.retryManagedFocusFronting(request)
-        fixture.controller.settings.raiseOnMouseFocus = false
+        fixture.controller.settings.focus.raiseOnMouseFocus = false
         fixture.controller.retryManagedFocusFronting(request)
 
         XCTAssertEqual(
@@ -1488,7 +1496,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
             controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
         )
         _ = controller.workspaceManager.focusWorkspace(named: "1")
-        controller.settings.raiseOnMouseFocus = raiseOnMouseFocus
+        controller.settings.focus.raiseOnMouseFocus = raiseOnMouseFocus
         controller.setFocusFollowsMouse(focusFollowsMouseEnabled)
         return (controller, workspaceId, recorder)
     }

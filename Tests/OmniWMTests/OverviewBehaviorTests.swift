@@ -559,9 +559,9 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        let disposition = overview.handleHotkeyInvocation(
+        let disposition = overview.input.handleHotkeyInvocation(
             HotkeyInvocation(
-                command: .toggleFullscreen,
+                command: .fullscreen(.managed),
                 trigger: PhysicalHotkeyTrigger(
                     keyCode: UInt32(kVK_Escape),
                     modifiers: UInt32(optionKey),
@@ -594,7 +594,7 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        XCTAssertEqual(overview.handleHotkeyCommand(.toggleOverview), .handled)
+        XCTAssertEqual(overview.input.handleHotkeyCommand(.presentation(.overview)), .handled)
 
         XCTAssertNil(activatedHandle)
         XCTAssertEqual(handoffScheduler.count, 1)
@@ -619,7 +619,7 @@ final class OverviewBehaviorTests: XCTestCase {
         }
 
         let repeated = HotkeyInvocation(
-            command: .toggleFullscreen,
+            command: .fullscreen(.managed),
             trigger: PhysicalHotkeyTrigger(
                 keyCode: UInt32(kVK_ANSI_W),
                 modifiers: UInt32(cmdKey),
@@ -627,7 +627,7 @@ final class OverviewBehaviorTests: XCTestCase {
             )
         )
         let initial = HotkeyInvocation(
-            command: .toggleFullscreen,
+            command: .fullscreen(.managed),
             trigger: PhysicalHotkeyTrigger(
                 keyCode: UInt32(kVK_ANSI_W),
                 modifiers: UInt32(cmdKey),
@@ -635,9 +635,9 @@ final class OverviewBehaviorTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(overview.handleHotkeyInvocation(repeated), .handled)
+        XCTAssertEqual(overview.input.handleHotkeyInvocation(repeated), .handled)
         XCTAssertEqual(closeCount, 0)
-        XCTAssertEqual(overview.handleHotkeyInvocation(initial), .handled)
+        XCTAssertEqual(overview.input.handleHotkeyInvocation(initial), .handled)
         XCTAssertEqual(closeCount, 1)
         XCTAssertTrue(overview.state.isOpen)
     }
@@ -646,7 +646,7 @@ final class OverviewBehaviorTests: XCTestCase {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
         let result = fixture.controller.commandHandler.handleHotkeyInvocation(
             HotkeyInvocation(
-                command: .toggleOverview,
+                command: .presentation(.overview),
                 trigger: PhysicalHotkeyTrigger(
                     keyCode: UInt32(kVK_ANSI_O),
                     modifiers: UInt32(optionKey),
@@ -665,7 +665,7 @@ final class OverviewBehaviorTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            OverviewController.selectionAfterRemoving(
+            OverviewNavigation.selectionAfterRemoving(
                 handles[1],
                 from: handles,
                 availableHandles: [handles[0], handles[2]]
@@ -673,7 +673,7 @@ final class OverviewBehaviorTests: XCTestCase {
             handles[2]
         )
         XCTAssertEqual(
-            OverviewController.selectionAfterRemoving(
+            OverviewNavigation.selectionAfterRemoving(
                 handles[2],
                 from: handles,
                 availableHandles: [handles[0], handles[1]]
@@ -681,7 +681,7 @@ final class OverviewBehaviorTests: XCTestCase {
             handles[1]
         )
         XCTAssertNil(
-            OverviewController.selectionAfterRemoving(
+            OverviewNavigation.selectionAfterRemoving(
                 handles[0],
                 from: handles,
                 availableHandles: []
@@ -711,7 +711,7 @@ final class OverviewBehaviorTests: XCTestCase {
             wasOpenAtActivation = overview.state.isOpen
         }
 
-        overview.dismissToSelection(animated: false)
+        overview.input.dismissToSelection(animated: false)
 
         XCTAssertNil(activatedHandle)
         XCTAssertEqual(handoffScheduler.count, 1)
@@ -743,7 +743,7 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.dismissToSelection(animated: false)
+        overview.input.dismissToSelection(animated: false)
         // Niri can reveal another column before the deferred focus handoff runs.
         fixture.controller.workspaceManager.setHiddenState(nil, for: otherHandle.id)
         handoffScheduler.runNext()
@@ -767,7 +767,7 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.dismissToSelection(animated: false)
+        overview.input.dismissToSelection(animated: false)
         XCTAssertEqual(handoffScheduler.count, 1)
 
         overview.open()
@@ -794,7 +794,7 @@ final class OverviewBehaviorTests: XCTestCase {
             var activatedHandle: WindowHandle?
             overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-            overview.dismissToSelection(animated: false)
+            overview.input.dismissToSelection(animated: false)
             if externalFocusChange {
                 fixture.controller.workspaceManager.recordExternalFocus(pid: 91_299, windowId: 91_399)
             } else {
@@ -824,7 +824,7 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.dismissToSelection(animated: false)
+        overview.input.dismissToSelection(animated: false)
         _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
         handoffScheduler.runNext()
 
@@ -846,7 +846,7 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.dismissToSelection(animated: false)
+        overview.input.dismissToSelection(animated: false)
         fixture.controller.intentLedger.reset()
         handoffScheduler.runNext()
 
@@ -868,7 +868,7 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.dismissToSelection(animated: false)
+        overview.input.dismissToSelection(animated: false)
         overview.invalidateDeferredActionsForServiceStop()
         handoffScheduler.runNext()
 
@@ -890,7 +890,7 @@ final class OverviewBehaviorTests: XCTestCase {
         )
         overview.open()
         overview.onAnimationComplete(state: .open)
-        overview.dismissToSelection(animated: true)
+        overview.input.dismissToSelection(animated: true)
 
         overview.invalidateDeferredActionsForServiceStop()
 
@@ -916,7 +916,7 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
         _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
 
-        overview.dismissToSelection(animated: false)
+        overview.input.dismissToSelection(animated: false)
         _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
         handoffScheduler.runNext()
 
@@ -944,7 +944,7 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.dismissToSelection(animated: true)
+        overview.input.dismissToSelection(animated: true)
         guard case .closing = overview.state else {
             return XCTFail("Expected selection dismissal to remain in closing state")
         }
@@ -1037,14 +1037,14 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.prepareOpenState()
         overview.onAnimationComplete(state: .open)
         let originalSelection = try XCTUnwrap(overview.selectedWindowHandle)
-        overview.cycleSelection(forward: true)
+        overview.input.cycleSelection(forward: true)
 
         let closingSelection = try XCTUnwrap(overview.selectedWindowHandle)
         XCTAssertNotEqual(closingSelection, originalSelection)
         overview.onAnimationComplete(state: .closing(targetWindow: closingSelection))
 
-        overview.cycleSelection(forward: false)
-        overview.selectAndActivateWindow(originalSelection)
+        overview.input.cycleSelection(forward: false)
+        overview.input.selectAndActivateWindow(originalSelection)
 
         XCTAssertEqual(overview.selectedWindowHandle, closingSelection)
     }
@@ -1069,16 +1069,16 @@ final class OverviewBehaviorTests: XCTestCase {
         var activatedHandle: WindowHandle?
         overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.beginDrag(on: monitorId, handle: selectedHandle, startPoint: .zero)
+        overview.drag.beginDrag(on: monitorId, handle: selectedHandle, startPoint: .zero)
         XCTAssertTrue(overview.hasActiveDragSession)
 
-        overview.dismissToSelection(animated: true)
+        overview.input.dismissToSelection(animated: true)
 
         XCTAssertFalse(overview.hasActiveDragSession)
         guard case .closing = overview.state else {
             return XCTFail("Expected animated dismissal to remain in closing state")
         }
-        overview.endDrag(on: monitorId, at: CGPoint(x: 500, y: 500))
+        overview.drag.endDrag(on: monitorId, at: CGPoint(x: 500, y: 500))
         XCTAssertEqual(
             fixture.controller.workspaceManager.workspace(for: selectedHandle.id),
             fixture.workspaceId
@@ -1347,7 +1347,7 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.onAnimationComplete(state: .open)
         let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
 
-        overview.selectAndActivateWindow(selectedHandle)
+        overview.input.selectAndActivateWindow(selectedHandle)
         overview.toggle()
         overview.toggle()
         await Task.yield()
@@ -1371,8 +1371,8 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.onAnimationComplete(state: .open)
         let originalSelection = try XCTUnwrap(overview.selectedWindowHandle)
 
-        overview.selectAndActivateWindow(originalSelection)
-        overview.cycleSelection(forward: true)
+        overview.input.selectAndActivateWindow(originalSelection)
+        overview.input.cycleSelection(forward: true)
         let currentSelection = try XCTUnwrap(overview.selectedWindowHandle)
         XCTAssertFalse(currentSelection === originalSelection)
         await Task.yield()
@@ -1473,11 +1473,11 @@ final class OverviewBehaviorTests: XCTestCase {
             overview.handleManagedWindowRemoved(entry)
         }
 
-        overview.closeSelectedWindow()
+        overview.input.closeSelectedWindow()
         XCTAssertEqual(overview.selectedWindowHandle, removedHandle)
 
         closeAccepted = true
-        overview.closeSelectedWindow()
+        overview.input.closeSelectedWindow()
         XCTAssertEqual(overview.selectedWindowHandle, removedHandle)
 
         _ = fixture.controller.workspaceManager.removeWindow(
