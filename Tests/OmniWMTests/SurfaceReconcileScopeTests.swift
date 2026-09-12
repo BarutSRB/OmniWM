@@ -178,7 +178,7 @@ final class SurfaceReconcileScopeTests: XCTestCase {
     func testBorderColorChangeSchedulesOnlyOneBorderPass() {
         let controller = WindowAdmissionTestSupport.controller(prefix: "SurfaceReconcileScopeTests")
         controller.surfaceReconciler.reconcileNow()
-        controller.settings.setBorderColor(SettingsColor(red: 1, green: 0, blue: 0, alpha: 1))
+        controller.settings.borders.color = SettingsColor(red: 1, green: 0, blue: 0, alpha: 1)
 
         controller.borderSettingsChanged()
 
@@ -189,13 +189,13 @@ final class SurfaceReconcileScopeTests: XCTestCase {
 
     func testClearanceChangingBorderWidthSchedulesFullSceneAndLayout() {
         let controller = WindowAdmissionTestSupport.controller(prefix: "SurfaceReconcileScopeTests")
-        controller.settings.setBordersEnabled(true)
-        controller.settings.setBorderWidth(5)
+        controller.settings.borders.enabled = true
+        controller.settings.borders.width = 5
         controller.borderSettingsChanged()
         controller.surfaceReconciler.reconcileNow()
         controller.layoutRefreshController.layoutState.activeRefresh = nil
         controller.layoutRefreshController.layoutState.pendingRefresh = nil
-        controller.settings.setBorderWidth(6)
+        controller.settings.borders.width = 6
 
         controller.borderSettingsChanged()
 

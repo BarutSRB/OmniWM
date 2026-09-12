@@ -18,7 +18,7 @@ final class StatusBarOwnerLifetimeTests: XCTestCase {
                 runtimeState: RuntimeStateStore(directory: directory, deferSaves: false),
                 autosaveEnabled: false
             )
-            settings.setStatusBarShowWorkspaceName(true)
+            settings.statusBar.showWorkspaceName = true
             releasedStore = settings
             section = settings.statusBar
         }

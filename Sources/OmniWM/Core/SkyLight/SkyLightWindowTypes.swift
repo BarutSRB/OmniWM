@@ -35,10 +35,6 @@ struct WindowCornerRadii: Equatable, Sendable {
 
     static let zero = WindowCornerRadii(uniform: 0)
 
-    /// Server radius queries can transiently report zero radii for windows whose
-    /// rounded-corner metadata is not yet materialized (observed when cycling focus
-    /// quickly across columns). A user-selected square corner is stored as a small
-    /// nonzero radius, so only an exactly-zero sample is an invalid reading.
     var isAllZero: Bool {
         topLeft == 0 && topRight == 0 && bottomLeft == 0 && bottomRight == 0
     }

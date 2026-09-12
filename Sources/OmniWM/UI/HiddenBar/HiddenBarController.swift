@@ -95,7 +95,7 @@ final class HiddenBarController {
             additionalProtectedBundleIDs: [Bundle.main.bundleIdentifier ?? "com.barut.OmniWM"]
         )
         if settings.hiddenBar.hiddenBundleIDs != normalizedBundleIDs {
-            settings.setHiddenBarHiddenBundleIDs(normalizedBundleIDs)
+            settings.hiddenBar.hiddenBundleIDs = normalizedBundleIDs
         }
         let configured = Set(normalizedBundleIDs)
         temporarilyRevealed.formIntersection(configured)
@@ -126,7 +126,7 @@ final class HiddenBarController {
     }
 
     func setEnabled(_ enabled: Bool) {
-        settings.setHiddenBarEnabled(enabled)
+        settings.hiddenBar.enabled = enabled
         applySettings()
     }
 

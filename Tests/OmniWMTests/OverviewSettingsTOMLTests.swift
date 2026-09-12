@@ -131,11 +131,11 @@ final class OverviewSettingsTOMLTests: XCTestCase {
             autosaveEnabled: true
         )
 
-        settings.setOverviewZoom(1.25)
-        settings.setOverviewBackdropColor(color(0.1, 0.2, 0.3, 0.4))
-        settings.setOverviewNormalBorderColor(color(0.2, 0.3, 0.4, 0.5))
-        settings.setOverviewHoveredBorderColor(color(0.3, 0.4, 0.5, 0.6))
-        settings.setOverviewSelectedBorderColor(color(0.4, 0.5, 0.6, 0.7))
+        settings.overview.zoom = 1.25
+        settings.overview.backdropColor = color(0.1, 0.2, 0.3, 0.4)
+        settings.overview.normalBorderColor = color(0.2, 0.3, 0.4, 0.5)
+        settings.overview.hoveredBorderColor = color(0.3, 0.4, 0.5, 0.6)
+        settings.overview.selectedBorderColor = color(0.4, 0.5, 0.6, 0.7)
 
         let persisted = try SettingsTOMLCodec.decode(Data(contentsOf: persistence.fileURL))
         XCTAssertEqual(persisted.overview.zoom, settings.overview.zoom)

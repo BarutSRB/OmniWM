@@ -400,7 +400,7 @@ final class PerformanceCaptureTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let settings = makeSettingsStore()
         let privateIdentifier = "com.omniwm.private-performance-sentinel"
-        settings.setHiddenBarHiddenBundleIDs([privateIdentifier])
+        settings.hiddenBar.hiddenBundleIDs = [privateIdentifier]
         let controller = WMController(settings: settings, diagnosticsDirectory: directory)
 
         guard case .started = await controller.toggleTraceCapture(

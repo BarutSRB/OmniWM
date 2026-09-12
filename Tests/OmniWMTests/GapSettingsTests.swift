@@ -210,8 +210,8 @@ final class GapSettingsTests: XCTestCase {
     func testDwindleGeneralGapUsesDisplayOverrideWithoutChangingSpecificGapPrecedence() {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.setBordersEnabled(true)
-        settings.setBorderWidth(8)
+        settings.borders.enabled = true
+        settings.borders.width = 8
         settings.gaps.size = 16
         settings.dwindle.useGlobalGaps = true
         settings.gaps.update(
@@ -328,7 +328,7 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     private func assertLayoutRoutesInnerGapByWorkspaceDisplay(_ layout: LayoutType) throws {
         let settings = makeSettingsStore()
-        settings.setBordersEnabled(false)
+        settings.borders.enabled = false
         let left = makeMonitor(displayId: 1, name: "Left", originX: 0)
         let right = makeMonitor(displayId: 2, name: "Right", originX: 1440)
         settings.workspaces.configurations = [
@@ -400,7 +400,7 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testTopGapIsMeasuredFromPhysicalTopAcrossDisplays() {
         let settings = makeSettingsStore()
-        settings.setBordersEnabled(false)
+        settings.borders.enabled = false
         settings.workspaceBar.enabled = false
         settings.gaps.outerGapLeft = 0
         settings.gaps.outerGapRight = 0
@@ -434,7 +434,7 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testLiveReloadOfDisplayTopGapOverrideMovesNextLayout() throws {
         let settings = makeSettingsStore()
-        settings.setBordersEnabled(false)
+        settings.borders.enabled = false
         settings.workspaceBar.enabled = false
         settings.gaps.size = 0
         settings.gaps.outerGapTop = 50
@@ -513,8 +513,8 @@ final class GapSettingsTests: XCTestCase {
         let connectedDisplayIds = Set(NSScreen.screens.map(\.displayId))
         let displayId = try XCTUnwrap((1 ... CGDirectDisplayID.max).first { !connectedDisplayIds.contains($0) })
         let monitor = makeMonitor(displayId: displayId, name: "Built-in")
-        settings.setBordersEnabled(true)
-        settings.setBorderWidth(5.2)
+        settings.borders.enabled = true
+        settings.borders.width = 5.2
         settings.gaps.size = 0
         settings.gaps.outerGapLeft = 0
         settings.gaps.outerGapRight = 0
@@ -554,8 +554,8 @@ final class GapSettingsTests: XCTestCase {
     func testNiriInteractionGeometryUsesOneResolvedScaleForFrameAndGap() {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.setBordersEnabled(true)
-        settings.setBorderWidth(5.2)
+        settings.borders.enabled = true
+        settings.borders.width = 5.2
         settings.gaps.size = 0
         settings.gaps.outerGapLeft = 0
         settings.gaps.outerGapRight = 0
@@ -587,7 +587,7 @@ final class GapSettingsTests: XCTestCase {
     func testDisabledBordersPreserveZeroGapGeometry() {
         let settings = makeSettingsStore()
         let monitor = makeMonitor(displayId: 1, name: "Built-in")
-        settings.setBordersEnabled(false)
+        settings.borders.enabled = false
         settings.gaps.size = 0
         settings.gaps.outerGapLeft = 0
         settings.gaps.outerGapRight = 0
@@ -614,8 +614,8 @@ final class GapSettingsTests: XCTestCase {
     @MainActor
     func testBorderClearanceFloorsTopAfterMenuBarNormalization() {
         let settings = makeSettingsStore()
-        settings.setBordersEnabled(true)
-        settings.setBorderWidth(8)
+        settings.borders.enabled = true
+        settings.borders.width = 8
         settings.gaps.outerGapLeft = 0
         settings.gaps.outerGapRight = 0
         settings.gaps.outerGapTop = 46

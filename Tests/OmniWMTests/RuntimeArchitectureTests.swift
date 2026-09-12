@@ -2487,7 +2487,7 @@ final class RuntimeArchitectureTests: XCTestCase {
     func testAnimationBorderDerivationDropsExternalSurfaceWithoutBoundsQuery() {
         let controller = Self.controller()
         controller.hasStartedServices = true
-        controller.settings.setBordersEnabled(true)
+        controller.settings.borders.enabled = true
         let token = WindowToken(pid: 765_019, windowId: 765_119)
         _ = controller.workspaceManager.recordExternalFocus(pid: token.pid, windowId: token.windowId)
         let previous = DesiredBorderSurface(

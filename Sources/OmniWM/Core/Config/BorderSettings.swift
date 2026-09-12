@@ -5,58 +5,34 @@ import Observation
 
 @MainActor @Observable
 final class BorderSettings {
-    private(set) var enabled: Bool
-    private(set) var width: Double
-    private(set) var color: SettingsColor
+    private nonisolated static let defaults = SettingsExport.Borders.defaults()
+    @ObservationIgnored var onChange: (() -> Void)?
 
-    init(values: SettingsExport.Borders) {
-        enabled = values.enabled
-        width = values.width
-        color = SettingsColor(
-            red: values.color.red,
-            green: values.color.green,
-            blue: values.color.blue,
-            alpha: values.color.alpha
-        )
+    var enabled = BorderSettings.defaults.enabled {
+        didSet { onChange?() }
+    }
+
+    var width = BorderSettings.defaults.width {
+        didSet { onChange?() }
+    }
+
+    var color = BorderSettings.defaults.color {
+        didSet { onChange?() }
     }
 
     func export() -> SettingsExport.Borders {
-        SettingsExport.Borders(
-            enabled: enabled,
-            width: width,
-            color: SettingsColor(
-                red: color.red,
-                green: color.green,
-                blue: color.blue,
-                alpha: color.alpha
-            )
-        )
+        SettingsExport.Borders(enabled: enabled, width: width, color: color)
     }
 
-    fileprivate func setEnabled(_ value: Bool, didChange: () -> Void) {
-        enabled = value
-        didChange()
-    }
-
-    fileprivate func setWidth(_ value: Double, didChange: () -> Void) {
-        width = value
-        didChange()
-    }
-
-    fileprivate func setColor(_ value: SettingsColor, didChange: () -> Void) {
-        color = value
-        didChange()
-    }
-
-    fileprivate func apply(_ values: SettingsExport.Borders, didChange: () -> Void) {
-        setEnabled(values.enabled, didChange: didChange)
-        setWidth(Self.validatedWidth(values.width), didChange: didChange)
-        setColor(SettingsColor(
+    func apply(_ values: SettingsExport.Borders) {
+        enabled = values.enabled
+        width = Self.validatedWidth(values.width)
+        color = SettingsColor(
             red: Self.validatedColorComponent(values.color.red),
             green: Self.validatedColorComponent(values.color.green),
             blue: Self.validatedColorComponent(values.color.blue),
             alpha: Self.validatedColorComponent(values.color.alpha)
-        ), didChange: didChange)
+        )
     }
 
     private static func validatedWidth(_ width: Double) -> Double {
@@ -65,23 +41,5 @@ final class BorderSettings {
 
     private static func validatedColorComponent(_ value: Double) -> Double {
         min(1.0, max(0.0, value))
-    }
-}
-
-extension SettingsStore {
-    func setBordersEnabled(_ value: Bool) {
-        borders.setEnabled(value, didChange: scheduleSave)
-    }
-
-    func setBorderWidth(_ value: Double) {
-        borders.setWidth(value, didChange: scheduleSave)
-    }
-
-    func setBorderColor(_ value: SettingsColor) {
-        borders.setColor(value, didChange: scheduleSave)
-    }
-
-    func applyBorders(_ values: SettingsExport.Borders) {
-        borders.apply(values, didChange: scheduleSave)
     }
 }

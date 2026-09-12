@@ -10,21 +10,15 @@ struct BorderSettingsTab: View {
     var body: some View {
         Form {
             Section("Window Borders") {
-                Toggle("Enable Borders", isOn: Binding(
-                    get: { [settings] in settings.borders.enabled },
-                    set: { [settings] in settings.setBordersEnabled($0) }
-                ))
-                .onChange(of: settings.borders.enabled) { _, _ in
-                    controller.borderSettingsChanged()
-                }
+                Toggle("Enable Borders", isOn: Bindable(settings.borders).enabled)
+                    .onChange(of: settings.borders.enabled) { _, _ in
+                        controller.borderSettingsChanged()
+                    }
 
                 if settings.borders.enabled {
                     SettingsSliderRow(
                         label: "Border Width",
-                        value: Binding(
-                            get: { [settings] in settings.borders.width },
-                            set: { [settings] in settings.setBorderWidth($0) }
-                        ),
+                        value: Bindable(settings.borders).width,
                         range: 1 ... 12,
                         step: 0.5,
                         valueText: String(format: "%.1f px", settings.borders.width),
@@ -59,7 +53,7 @@ struct BorderSettingsTab: View {
             },
             set: { [settings, controller] newColor in
                 guard let converted = SettingsColor(color: newColor) else { return }
-                settings.setBorderColor(converted)
+                settings.borders.color = converted
                 controller.borderSettingsChanged()
             }
         )

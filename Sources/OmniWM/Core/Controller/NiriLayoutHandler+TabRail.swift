@@ -186,8 +186,6 @@ extension NiriLayoutHandler {
         }
     }
 
-    // MARK: - Layout Capability Commands
-
     private struct TabSelection {
         let column: NiriContainer
         let target: NiriWindow
