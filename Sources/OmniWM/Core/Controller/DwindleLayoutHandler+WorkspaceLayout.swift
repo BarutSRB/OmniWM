@@ -45,6 +45,4 @@ extension DwindleLayoutHandler {
     ) {
         controller?.workspaceManager.recordLayoutOperation(operation, in: workspaceId, source: source)
     }
-
-    // MARK: - Layout Capability Commands
 }

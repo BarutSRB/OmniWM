@@ -330,6 +330,4 @@ extension NiriLayoutHandler {
             controller.layoutRefreshController.requestLayoutCommandRelayout(affectedWorkspaceIds: changed)
         }
     }
-
-    // MARK: - Layout Engine Configuration
 }

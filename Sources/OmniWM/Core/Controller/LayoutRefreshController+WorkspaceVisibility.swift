@@ -115,10 +115,6 @@ extension LayoutRefreshController {
         guard let controller else { return }
         let workspaceEntries = workspaceEntriesSnapshot(on: controller)
 
-        // Rebuild the workspace-level frame suppression set (live check in applyFramesParallel).
-        // Note: this is also called earlier in executeEffectPlan to unblock frame
-        // writes for newly-active workspaces. The rebuild here keeps the set consistent with
-        // the snapshot used for the hide pass below.
         var allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)] = []
         allEntries.reserveCapacity(workspaceEntries.reduce(into: 0) { $0 += $1.entries.count })
         for snapshot in workspaceEntries {
@@ -132,8 +128,6 @@ extension LayoutRefreshController {
             nativeInactiveWindowIds: nativeInactiveWindowIds()
         )
 
-        // Bulk cancel in-flight frame jobs for all inactive workspace windows upfront,
-        // before the per-window hide loop, to prevent AX batch races with SkyLight moves.
         var inactiveWindowJobs: [(pid: pid_t, windowId: Int)] = []
         let hiddenPlacementMonitors = controller.workspaceManager.monitors.map(HiddenPlacementMonitorContext.init)
         for snapshot in workspaceEntries where !activeWorkspaceIds.contains(snapshot.workspace.id) {
