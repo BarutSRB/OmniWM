@@ -157,7 +157,7 @@ Border drawn around the focused window.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Draws the focused-window border. |
-| `width` | float | `5.0` | Exterior border width in points. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
+| `width` | float | `5.0` | Exterior border width in points; configured values are clamped to 1–12 points when applied. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
 | `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Border color (default is a cyan accent). |
 
 ## overview
@@ -326,8 +326,10 @@ Array of workspace definitions.
 | `id` | string (UUID) | Stable identity; keep it unchanged when editing. |
 | `name` | string | Workspace name; numeric names define the ordering and number-key targets. |
 | `displayName` *(optional)* | string | Label shown in the bar instead of `name` (emoji welcome). |
-| `monitorAssignment` | table | `type` = `main`, `secondary`, or `specificDisplay` (the latter carries an `output` value identifying the display). |
+| `monitorAssignment` | table | `type` = `main`, `secondary`, or `specificDisplay`. For `specificDisplay`, the `output` sub-table contains a required `name` (string), optional `displayUUID` (string), and optional `displayId` (integer). |
 | `layoutType` | string | `default` (follow `general.defaultLayoutType`), `niri`, or `dwindle`. |
+
+For `specificDisplay`, `displayUUID` takes precedence when present. Without it, `displayId` and `name` must match a monitor that has no display UUID. A name alone cannot identify the target monitor.
 
 Default: nine workspaces named `1`–`9`, all Niri — `1`–`5` and `8`–`9` on the main monitor, `6` (shown as ❤️) and `7` (shown as 🚀) on the secondary, matching the default `Option + 1`–`9` bindings.
 

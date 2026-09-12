@@ -98,9 +98,9 @@ body:
   - type: textarea
     id: diagnostics-bundle
     attributes:
-      label: Diagnostics bundle (strongly recommended)
+      label: Diagnostics log (strongly recommended)
       description: |
-        The single most useful thing you can attach. In OmniWM: open **Settings → Diagnostics → Start Recording**, reproduce the bug, then **Stop & Save Recording**. Drag the resulting `omniwm-bundle-*.zip` (saved in `~/.local/state/omniwm/diagnostics/`) into this box to upload it. It bundles the trace, any crash log, a focused-window snapshot, and your settings.
+        The single most useful thing you can attach. In OmniWM: open **Settings → Troubleshooting** and click **Start Recording**, reproduce the bug, then click **Stop & Save Recording**. Drag the resulting `omniwm-trace-*.log` file into this box to upload it.
     validations:
       required: false
   - type: textarea

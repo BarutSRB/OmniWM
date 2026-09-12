@@ -140,7 +140,7 @@ The authorization token is a random UUID generated each time the IPC server star
 
 The protocol uses **newline-delimited JSON (NDJSON)** — one JSON object per line, terminated by `0x0A`.
 
-- Maximum request size: **64 KB**
+- Maximum request line size: **64 KiB (65,536 bytes)**, excluding the newline
 - Encoding: UTF-8
 - JSON keys: sorted, `camelCase`
 

@@ -1029,7 +1029,7 @@ CLIRenderer displays the result
 2. **Add the action spec** in the relevant `Core/Input/ActionCatalog+*.swift` extension (title, keywords, category, layout compatibility, default binding, and visibility). `ActionCatalog.swift` assembles these specs and is the source of truth for command metadata and shortcut assignability; `.unassignable` specs are omitted from default bindings while retaining metadata for non-hotkey command surfaces.
 3. **Handle it** in `Core/Controller/CommandHandler.swift` or `CommandHandler+Actions.swift` — set the right `LayoutCompatibility` so the guard accepts it under the active layout. Mutations must reach the world through `WorkspaceManager.recordReconcileEvent`, never by touching `WindowModel`/engines directly.
 4. **Route structural Overview behavior** when applicable in `OverviewController`, using an explicit-`WindowHandle` entry point owned by `NiriLayoutHandler` or `WorkspaceNavigationHandler`; do not fall back to the desktop-focused window.
-5. **Expose via IPC** (optional) in `IPC/IPCCommandRouter.swift` and the manifest (`OmniWMIPC/IPCAutomationManifest.swift`); add the CLI name in `OmniWMCtl/CLIParser.swift`.
+5. **Expose via IPC** (optional): add the public command/request definitions and construction under `OmniWMIPC/`, route through `IPC/IPCCommandRouter.swift`, and register the descriptor in `OmniWMIPC/IPCAutomationManifest+Commands.swift`. `omniwmctl` reads command names and argument descriptors from the manifest, so commands using existing argument kinds need no per-command entry in `OmniWMCtl/CLIParser.swift`. New argument kinds also require typed parsing support in `OmniWMCtl/CLIArgumentParser.swift`.
 
 ### 6.2 Adding a New IPC Query
 

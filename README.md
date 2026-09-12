@@ -656,6 +656,8 @@ Settings hides advanced actions from the shortcut list by default. Turn on `Incl
 |--------|------------------|--------|
 | Switch to Workspace 1-9 | `Option + 1-9` | `Shared` |
 | Move Window to Workspace 1-9 | `Option + Shift + 1-9` | `Shared` |
+| Switch to Workspace Slot 1-9 (position on the current monitor) | `Unassigned` | `Shared` |
+| Move to Workspace Slot 1-9 (position on the current monitor) | `Unassigned` | `Shared` |
 | Switch to Last Active Workspace (Back and Forth) | `Control + Option + Tab` | `Shared` |
 | Switch to Next Workspace | `Unassigned` | `Shared` |
 | Switch to Previous Workspace (Sequential) | `Unassigned` | `Shared` |
@@ -682,6 +684,7 @@ Settings hides advanced actions from the shortcut list by default. Turn on `Incl
 | Focus Window 1-9 in Column | `Unassigned` | `Niri` |
 | Toggle Command Palette | `Control + Option + Space` | `Shared` |
 | Open Menu Anywhere | `Control + Option + M` | `Shared` |
+| Close Focused Window | `Unassigned` | `Shared` |
 | Toggle Workspace Bar | `Unassigned` | `Shared` |
 | Toggle Hidden Icons Bar | `Unassigned` | `Shared` |
 | Toggle Quake Terminal | `` Option + ` `` | `Shared` |
@@ -903,6 +906,8 @@ that draw their own window chrome may ignore it. Affected apps must be fully qui
 applies.
 
 OmniWM stores its editable config at `${XDG_CONFIG_HOME:-$HOME/.config}/omniwm/settings.toml`; that file is the canonical settings source and is live-reloaded when saved from an editor.
+
+`XDG_CONFIG_HOME` and `XDG_STATE_HOME` are honored only when set to absolute paths; otherwise OmniWM uses `~/.config` and `~/.local/state`, respectively.
 
 Most configuration is also editable in Settings. **Start at Login** is managed by macOS, and **System-wide Window Corners** changes a macOS preference; neither is stored in `settings.toml`. Clipboard retention limits and scratchpad labels are edited in TOML.
 
