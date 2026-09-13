@@ -122,7 +122,7 @@ final class GhosttySurfaceView: NSView {
 
     private var displayId: UInt32? {
         guard let screen = window?.screen ?? NSScreen.main else { return nil }
-        return screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
+        return screen.displayId
     }
 
     override func viewDidMoveToWindow() {
