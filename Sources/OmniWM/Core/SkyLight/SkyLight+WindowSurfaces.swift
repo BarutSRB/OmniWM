@@ -5,13 +5,34 @@ import CoreGraphics
 import Foundation
 
 extension SkyLight {
+    private static let windowTitleKey = "kCGSWindowTitle" as CFString
+
     func getWindowTitle(_ windowId: UInt32) -> String? {
-        let options: CGWindowListOption = [.optionIncludingWindow]
-        guard let windowList = CGWindowListCopyWindowInfo(options, CGWindowID(windowId)) as? [[String: Any]],
-              let windowInfo = windowList.first,
-              let title = windowInfo[kCGWindowName as String] as? String
-        else { return nil }
-        return title
+        Self.windowTitle(windowId, connectionID: getMainConnectionID(), copyProperty: surfaces.copyWindowProperty) {
+            let options: CGWindowListOption = [.optionIncludingWindow]
+            guard let windowList = CGWindowListCopyWindowInfo(options, CGWindowID(windowId)) as? [[String: Any]],
+                  let windowInfo = windowList.first,
+                  let title = windowInfo[kCGWindowName as String] as? String
+            else { return nil }
+            return title
+        }
+    }
+
+    static func windowTitle(
+        _ windowId: UInt32,
+        connectionID: Int32,
+        copyProperty: SkyLightSurfaceFunctions.CopyWindowPropertyFunc?,
+        fallback: () -> String?
+    ) -> String? {
+        if connectionID != 0, let copyProperty {
+            var value: CFTypeRef?
+            if copyProperty(connectionID, windowId, windowTitleKey, &value) == .success,
+               let title = value as? String
+            {
+                return title
+            }
+        }
+        return fallback()
     }
 
     func createBorderWindow(frame: CGRect) -> UInt32 {
