@@ -31,10 +31,17 @@ extension AXManager {
         _ app: NSRunningApplication,
         route: FullRescanEnumerationRoute,
         inspectionContext: AXWindowInspectionContext,
-        includedWindowIds: Set<Int>?
+        includedWindowIds: Set<Int>?,
+        isAppUnresponsive: @Sendable (pid_t) -> Bool? = SkyLight.isAppUnresponsive
     ) async throws -> FullRescanAppEnumerationResult {
         try Task.checkCancellation()
         let pid = app.processIdentifier
+        let unresponsive = isAppUnresponsive(pid)
+        try Task.checkCancellation()
+        if unresponsive == true {
+            recordFullRescanEnumerationFailure(app, reason: "app_unresponsive")
+            return .failed(pid: pid, route: route, callbackGeneration: nil)
+        }
         var callbackGeneration: UInt64?
         do {
             let windows: [AXEnumeratedWindow]
