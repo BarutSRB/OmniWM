@@ -332,6 +332,8 @@ final class WMController {
     var currentMouseLocation: () -> CGPoint = { NSEvent.mouseLocation }
     @ObservationIgnored
     weak var ipcApplicationBridge: IPCApplicationBridge?
+    @ObservationIgnored
+    private var effectiveAppearanceObserver: NSKeyValueObservation?
 
     let animationClock = AnimationClock()
     let motionPolicy: MotionPolicy
@@ -468,6 +470,7 @@ final class WMController {
         self.hiddenBarController.fallbackPlacementsProvider = { [weak self] in
             self?.hiddenBarFallbackIconPlacements() ?? []
         }
+        installEffectiveAppearanceObserver()
     }
 
     func applyPersistedSettings(_ settings: SettingsStore, startServices: Bool = true) {
@@ -554,6 +557,24 @@ final class WMController {
         settings.appearanceMode.apply()
         workspaceBarManager.updateAppearance()
         surfaceReconciler.noteWorldChanged()
+    }
+
+    /// Re-derives appearance-aware surfaces when macOS switches appearance.
+    private func handleEffectiveAppearanceChanged() {
+        applyCurrentAppearanceMode()
+    }
+
+    /// Observes effective appearance changes so borders follow the system.
+    private func installEffectiveAppearanceObserver() {
+        guard effectiveAppearanceObserver == nil else { return }
+        effectiveAppearanceObserver = NSApplication.shared.observe(
+            \.effectiveAppearance,
+            options: [.new]
+        ) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.handleEffectiveAppearanceChanged()
+            }
+        }
     }
 
     func setEnabled(_ enabled: Bool) {

@@ -30,6 +30,7 @@ struct BorderSettingsTab: View {
                     }
 
                     ColorPicker("Border Color", selection: colorBinding, supportsOpacity: true)
+                    ColorPicker("Dark Mode Border Color", selection: darkColorBinding, supportsOpacity: true)
 
                     Toggle("Gradient Border", isOn: gradientEnabledBinding)
                     if settings.borderGradient?.enabled == true {
@@ -40,6 +41,12 @@ struct BorderSettingsTab: View {
                         }
                         ColorPicker("Gradient Start", selection: gradientStartBinding, supportsOpacity: true)
                         ColorPicker("Gradient End", selection: gradientEndBinding, supportsOpacity: true)
+                        ColorPicker(
+                            "Dark Mode Gradient Start",
+                            selection: gradientDarkStartBinding,
+                            supportsOpacity: true
+                        )
+                        ColorPicker("Dark Mode Gradient End", selection: gradientDarkEndBinding, supportsOpacity: true)
                     }
 
                     Toggle("Glow", isOn: glowEnabledBinding)
@@ -71,6 +78,11 @@ struct BorderSettingsTab: View {
                 Text("Gradient and glow are visual effects. Glow does not change layout gaps or window size.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
+                Text(
+                    "Dark Mode colors apply when macOS uses the dark appearance. Unset dark colors fall back to the light values."
+                )
+                .font(.footnote)
+                .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -124,6 +136,44 @@ struct BorderSettingsTab: View {
                 guard let converted = SettingsColor(color: newColor) else { return }
                 var gradient = settings.borderGradient ?? .default
                 gradient.end = converted
+                settings.borderGradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the dark-appearance gradient start color to validated settings.
+    private var gradientDarkStartBinding: Binding<Color> {
+        Binding(
+            get: {
+                let gradient = settings.borderGradient
+                return swiftUIColor(gradient?.dark?.start ?? gradient?.start ?? BorderGradient.default.start)
+            },
+            set: { newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var gradient = settings.borderGradient ?? .default
+                var dark = gradient.dark ?? BorderGradientColors(start: gradient.start, end: gradient.end)
+                dark.start = converted
+                gradient.dark = dark
+                settings.borderGradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the dark-appearance gradient end color to validated settings.
+    private var gradientDarkEndBinding: Binding<Color> {
+        Binding(
+            get: {
+                let gradient = settings.borderGradient
+                return swiftUIColor(gradient?.dark?.end ?? gradient?.end ?? BorderGradient.default.end)
+            },
+            set: { newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var gradient = settings.borderGradient ?? .default
+                var dark = gradient.dark ?? BorderGradientColors(start: gradient.start, end: gradient.end)
+                dark.end = converted
+                gradient.dark = dark
                 settings.borderGradient = gradient
                 controller.borderSettingsChanged()
             }
@@ -188,6 +238,18 @@ struct BorderSettingsTab: View {
             set: { newColor in
                 guard let converted = SettingsColor(color: newColor) else { return }
                 settings.borderColor = converted
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the dark-appearance solid border color to validated settings.
+    private var darkColorBinding: Binding<Color> {
+        Binding(
+            get: { swiftUIColor(settings.borderColorDark ?? settings.borderColor) },
+            set: { newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                settings.borderColorDark = converted
                 controller.borderSettingsChanged()
             }
         )

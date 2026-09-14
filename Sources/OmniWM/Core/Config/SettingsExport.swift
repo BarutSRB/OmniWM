@@ -18,11 +18,18 @@ enum BorderGradientDirection: String, Codable, CaseIterable, Equatable, Hashable
     case topRightToBottomLeft
 }
 
+/// Optional dark-appearance overrides for gradient endpoint colors.
+struct BorderGradientColors: Codable, Equatable {
+    var start: SettingsColor
+    var end: SettingsColor
+}
+
 struct BorderGradient: Codable, Equatable {
     var enabled: Bool
     var start: SettingsColor
     var end: SettingsColor
     var direction: BorderGradientDirection
+    var dark: BorderGradientColors?
 
     static let `default` = BorderGradient(
         enabled: false,
@@ -78,6 +85,7 @@ struct SettingsExport: Equatable {
     var borderColorGreen: Double
     var borderColorBlue: Double
     var borderColorAlpha: Double
+    var borderColorDark: SettingsColor?
     var borderGradient: BorderGradient?
     var borderGlow: BorderGlow?
 
@@ -210,6 +218,7 @@ extension SettingsExport {
             borderColorGreen: 1.0,
             borderColorBlue: 0.97930003794467602,
             borderColorAlpha: 1.0,
+            borderColorDark: nil,
             borderGradient: nil,
             borderGlow: nil,
             overviewZoom: 1.0,

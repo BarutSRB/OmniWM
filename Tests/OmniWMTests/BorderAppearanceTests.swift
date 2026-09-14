@@ -14,6 +14,7 @@ final class BorderAppearanceTests: XCTestCase {
 
         XCTAssertNil(defaults.borderGradient)
         XCTAssertNil(defaults.borderGlow)
+        XCTAssertNil(defaults.borderColorDark)
         XCTAssertTrue(defaults.bordersEnabled)
         XCTAssertEqual(defaults.borderWidth, 5)
     }
@@ -188,6 +189,154 @@ final class BorderAppearanceTests: XCTestCase {
     /// Confirms a missing glow remains absent during validation.
     func testNilGlowPassesThroughValidation() {
         XCTAssertNil(SettingsStore.validatedBorderGlow(nil, fallback: .default))
+    }
+
+    // MARK: - Appearance-resolved colors
+
+    /// Confirms light appearance always uses the base color.
+    func testLightAppearanceUsesBaseColor() {
+        XCTAssertEqual(BorderConfig.resolvedColor(solidRed, dark: solidBlue, isDark: false), solidRed)
+        XCTAssertEqual(BorderConfig.resolvedColor(solidRed, dark: nil, isDark: false), solidRed)
+    }
+
+    /// Confirms dark appearance prefers the dark override color.
+    func testDarkAppearancePrefersDarkColor() {
+        XCTAssertEqual(BorderConfig.resolvedColor(solidRed, dark: solidBlue, isDark: true), solidBlue)
+    }
+
+    /// Confirms dark appearance falls back to the base color when unset.
+    func testDarkAppearanceFallsBackToBaseColorWhenUnset() {
+        XCTAssertEqual(BorderConfig.resolvedColor(solidRed, dark: nil, isDark: true), solidRed)
+    }
+
+    /// Confirms gradient resolution resolves both stops and drops the override.
+    func testResolvedGradientResolvesStopsAndDropsDarkOverride() {
+        let gradient = BorderGradient(
+            enabled: true,
+            start: solidRed,
+            end: solidBlue,
+            direction: .topRightToBottomLeft,
+            dark: BorderGradientColors(
+                start: SettingsColor(red: 1, green: 1, blue: 0, alpha: 1),
+                end: SettingsColor(red: 0, green: 1, blue: 1, alpha: 1)
+            )
+        )
+
+        let darkResolved = BorderConfig.resolvedGradient(gradient, isDark: true)
+        XCTAssertEqual(darkResolved.start, gradient.dark?.start)
+        XCTAssertEqual(darkResolved.end, gradient.dark?.end)
+        XCTAssertNil(darkResolved.dark)
+
+        let lightResolved = BorderConfig.resolvedGradient(gradient, isDark: false)
+        XCTAssertEqual(lightResolved.start, solidRed)
+        XCTAssertEqual(lightResolved.end, solidBlue)
+        XCTAssertNil(lightResolved.dark)
+    }
+
+    /// Confirms gradient resolution falls back per stop when dark stops differ.
+    func testResolvedGradientFallsBackPerStop() {
+        let gradient = BorderGradient(
+            enabled: true,
+            start: solidRed,
+            end: solidBlue,
+            direction: .topLeftToBottomRight,
+            dark: BorderGradientColors(start: solidBlue, end: solidBlue)
+        )
+
+        XCTAssertEqual(BorderConfig.resolvedGradient(gradient, isDark: true).start, solidBlue)
+    }
+
+    // MARK: - Dark appearance settings round-trips
+
+    /// Confirms the dark border color survives TOML round trips.
+    func testDarkBorderColorRoundTripsThroughTOML() throws {
+        var export = SettingsExport.defaults()
+        export.borderColorDark = solidBlue
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let toml = String(decoding: data, as: UTF8.self)
+        let decoded = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertTrue(toml.contains("[borders.darkColor]"))
+        XCTAssertEqual(decoded.borderColorDark, solidBlue)
+    }
+
+    /// Confirms legacy TOML without a dark color decodes nil and omits the table.
+    func testLegacyTOMLWithoutDarkColorStaysBackwardCompatible() throws {
+        let data = try SettingsTOMLCodec.encode(.defaults())
+        let toml = String(decoding: data, as: UTF8.self)
+        let decoded = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertFalse(toml.contains("darkColor"))
+        XCTAssertNil(decoded.borderColorDark)
+    }
+
+    /// Confirms dark gradient colors survive TOML round trips.
+    func testGradientDarkColorsRoundTripThroughTOML() throws {
+        var export = SettingsExport.defaults()
+        var gradient = BorderGradient.default
+        gradient.enabled = true
+        gradient.dark = BorderGradientColors(start: solidBlue, end: solidRed)
+        export.borderGradient = gradient
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let toml = String(decoding: data, as: UTF8.self)
+        let decoded = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertTrue(toml.contains("[borders.gradient.dark]"))
+        XCTAssertEqual(decoded.borderGradient?.dark, gradient.dark)
+    }
+
+    /// Confirms legacy gradient TOML without dark colors decodes nil.
+    func testLegacyGradientTOMLDecodesWithoutDarkColors() throws {
+        var export = SettingsExport.defaults()
+        export.borderGradient = BorderGradient.default
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let toml = String(decoding: data, as: UTF8.self)
+        let decoded = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertFalse(toml.contains("gradient.dark"))
+        XCTAssertNil(decoded.borderGradient?.dark)
+    }
+
+    /// Confirms dark gradient colors survive Codable round trips.
+    func testGradientDarkColorsRoundTripAsCodableValues() throws {
+        var gradient = BorderGradient.default
+        gradient.dark = BorderGradientColors(start: solidBlue, end: solidRed)
+        let data = try JSONEncoder().encode(gradient)
+        let decoded = try JSONDecoder().decode(BorderGradient.self, from: data)
+
+        XCTAssertEqual(decoded.dark, gradient.dark)
+    }
+
+    /// Confirms a non-finite dark gradient color uses the prior valid configuration.
+    func testInvalidDarkGradientColorFallsBack() {
+        let fallback = BorderGradient.default
+        var invalid = fallback
+        invalid.enabled = true
+        invalid.dark = BorderGradientColors(
+            start: SettingsColor(red: .infinity, green: 0, blue: 0, alpha: 1),
+            end: fallback.end
+        )
+
+        XCTAssertEqual(SettingsStore.validatedBorderGradient(invalid, fallback: fallback), fallback)
+    }
+
+    /// Confirms finite dark gradient components are clamped to unit range.
+    func testValidGradientClampsDarkComponentsToUnitRange() {
+        var wide = BorderGradient.default
+        wide.enabled = true
+        wide.dark = BorderGradientColors(
+            start: SettingsColor(red: -0.1, green: 1.5, blue: 0.5, alpha: 2.0),
+            end: SettingsColor(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.6)
+        )
+        let result = SettingsStore.validatedBorderGradient(wide, fallback: nil)
+
+        XCTAssertNotNil(result?.dark)
+        XCTAssertEqual(result?.dark?.start.red, 0)
+        XCTAssertEqual(result?.dark?.start.green, 1)
+        XCTAssertEqual(result?.dark?.start.alpha, 1)
     }
 
     // MARK: - Render padding

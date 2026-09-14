@@ -189,6 +189,10 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var borderColorDark = SettingsStore.defaultExport.borderColorDark {
+        didSet { scheduleSave() }
+    }
+
     var borderGradient = SettingsStore.defaultExport.borderGradient {
         didSet { scheduleSave() }
     }
@@ -786,6 +790,7 @@ final class SettingsStore {
             borderColorGreen: borderColorGreen,
             borderColorBlue: borderColorBlue,
             borderColorAlpha: borderColorAlpha,
+            borderColorDark: borderColorDark,
             borderGradient: borderGradient,
             borderGlow: borderGlow,
             overviewZoom: overviewZoom,
@@ -930,6 +935,7 @@ final class SettingsStore {
             blue: SettingsStore.validatedColorComponent(export.borderColorBlue),
             alpha: SettingsStore.validatedColorComponent(export.borderColorAlpha)
         )
+        borderColorDark = export.borderColorDark.map(SettingsStore.validatedColor)
         borderGradient = SettingsStore.validatedBorderGradient(
             export.borderGradient,
             fallback: previousBorderGradient ?? baseline.borderGradient
@@ -1408,12 +1414,18 @@ final class SettingsStore {
     ) -> BorderGradient? {
         guard var gradient else { return nil }
         guard isFinite(gradient.start),
-              isFinite(gradient.end)
+              isFinite(gradient.end),
+              gradient.dark.map({ isFinite($0.start) && isFinite($0.end) }) ?? true
         else {
             return fallback
         }
         gradient.start = validatedColor(gradient.start)
         gradient.end = validatedColor(gradient.end)
+        if var dark = gradient.dark {
+            dark.start = validatedColor(dark.start)
+            dark.end = validatedColor(dark.end)
+            gradient.dark = dark
+        }
         return gradient
     }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
+import AppKit
 import CoreGraphics
 
 struct BorderConfig: Equatable {
@@ -40,13 +41,41 @@ struct BorderConfig: Equatable {
 
     /// Builds the render configuration from the live settings store.
     @MainActor static func from(settings: SettingsStore) -> BorderConfig {
-        return BorderConfig(
+        from(settings: settings, isDark: systemAppearanceUsesDarkAqua)
+    }
+
+    /// Builds the render configuration with colors resolved for an appearance.
+    @MainActor static func from(settings: SettingsStore, isDark: Bool) -> BorderConfig {
+        BorderConfig(
             enabled: settings.bordersEnabled,
             width: CGFloat(settings.borderWidth),
-            color: settings.borderColor,
-            gradient: settings.borderGradient,
+            color: resolvedColor(settings.borderColor, dark: settings.borderColorDark, isDark: isDark),
+            gradient: settings.borderGradient.map { resolvedGradient($0, isDark: isDark) },
             glow: settings.borderGlow
         )
+    }
+
+    /// Reports whether the system appearance currently resolves to dark Aqua.
+    @MainActor static var systemAppearanceUsesDarkAqua: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    /// Returns the appearance-resolved color, falling back to the base color.
+    static func resolvedColor(
+        _ base: SettingsColor,
+        dark: SettingsColor?,
+        isDark: Bool
+    ) -> SettingsColor {
+        isDark ? (dark ?? base) : base
+    }
+
+    /// Returns a gradient whose endpoint colors are resolved for an appearance.
+    static func resolvedGradient(_ gradient: BorderGradient, isDark: Bool) -> BorderGradient {
+        var resolved = gradient
+        resolved.start = resolvedColor(gradient.start, dark: gradient.dark?.start, isDark: isDark)
+        resolved.end = resolvedColor(gradient.end, dark: gradient.dark?.end, isDark: isDark)
+        resolved.dark = nil
+        return resolved
     }
 
     /// Returns width-based layout clearance without glow padding.
