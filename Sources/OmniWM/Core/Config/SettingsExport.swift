@@ -18,10 +18,11 @@ enum BorderGradientDirection: String, Codable, CaseIterable, Equatable, Hashable
     case topRightToBottomLeft
 }
 
-/// Optional dark-appearance overrides for gradient endpoint colors.
+/// Optional dark-appearance overrides for gradient endpoint colors. Each stop
+/// is optional; an absent stop falls back to the matching gradient color.
 struct BorderGradientColors: Codable, Equatable {
-    var start: SettingsColor
-    var end: SettingsColor
+    var start: SettingsColor?
+    var end: SettingsColor?
 }
 
 struct BorderGradient: Codable, Equatable {

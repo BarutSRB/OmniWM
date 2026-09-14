@@ -305,7 +305,8 @@ final class BorderWindow {
 
     func updateConfig(_ newConfig: BorderConfig) {
         guard config != newConfig else { return }
-        if config.color != newConfig.color || config.width != newConfig.width {
+        if config.color != newConfig.color || config.width != newConfig.width
+            || config.gradient != newConfig.gradient || config.glow != newConfig.glow {
             needsRedraw = true
         }
         config = newConfig

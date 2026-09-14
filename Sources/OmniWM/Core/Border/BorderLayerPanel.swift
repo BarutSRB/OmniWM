@@ -177,10 +177,14 @@ class BorderLayerPanel: NSPanel {
             gradientStrokeLayer.isHidden = true
         }
 
+        // Both glow layers span the overlay surface. Assigning frames before
+        // any glow band rebuild keeps band paths sized to the current surface
+        // on the first draw and after resizes.
+        glowColorLayer.frame = surfaceBounds
+        glowMaskLayer.frame = surfaceBounds
+
         if hasGlow {
             glowColorLayer.isHidden = false
-            glowColorLayer.bounds = surfaceBounds
-            glowColorLayer.position = surfaceBounds.origin
             if hasGradient, let gradientStart, let gradientEnd, let gradientPoints {
                 glowColorLayer.colors = [gradientStart, gradientEnd]
                 glowColorLayer.startPoint = gradientPoints.start
@@ -191,6 +195,7 @@ class BorderLayerPanel: NSPanel {
                 glowColorLayer.endPoint = CGPoint(x: 0, y: 1)
             }
             updateGlowBands(
+                surface: surfaceBounds,
                 ringFrame: ringFrame,
                 cornerRadii: cornerRadii,
                 width: geometry.width,
@@ -206,8 +211,6 @@ class BorderLayerPanel: NSPanel {
         CATransaction.setDisableActions(true)
         glowColorLayer.contentsScale = scale
         glowMaskLayer.contentsScale = scale
-        glowMaskLayer.bounds = surfaceBounds
-        glowMaskLayer.position = surfaceBounds.origin
         gradientStrokeLayer.contentsScale = scale
         gradientRingMaskLayer.contentsScale = scale
         // The gradient stroke replaces the rim visually, so fade the native
@@ -218,6 +221,7 @@ class BorderLayerPanel: NSPanel {
 
     /// Rebuilds the concentric band falloff for the current surface geometry.
     private func updateGlowBands(
+        surface: CGRect,
         ringFrame: CGRect,
         cornerRadii: WindowCornerRadii,
         width: CGFloat,
@@ -232,7 +236,7 @@ class BorderLayerPanel: NSPanel {
         ensureGlowBandCount(bandCount)
         let bandWidth = padding / CGFloat(bandCount)
         let radii = cornerRadii.normalized(to: ringFrame.insetBy(dx: width, dy: width).size)
-        let bounds = CGRect(origin: .zero, size: glowMaskLayer.bounds.size)
+        let bounds = CGRect(origin: .zero, size: surface.size)
         for index in 0 ..< bandCount {
             let innerOffset = CGFloat(index) * bandWidth
             // Sampling the outer edge keeps the outermost band at zero alpha,

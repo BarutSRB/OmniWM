@@ -824,6 +824,50 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    /// Gradient- and glow-only config changes must trigger a redraw even when
+    /// no resize or scale event fires, since draw(geometry:) is the only place
+    /// updateEffects runs. Glow radius stays fixed so the surface never resizes.
+    func testGradientAndGlowOnlyConfigChangesRedrawWithoutResize() throws {
+        let baseConfig = BorderConfig(
+            enabled: true,
+            width: 4,
+            color: configRed.color,
+            glow: BorderGlow(enabled: true, radius: 8, opacity: 0)
+        )
+        let recorder = BorderOperationsRecorder()
+        let window = BorderWindow(config: baseConfig, operations: recorder.operations())
+        defer { window.destroy() }
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        let panel = try XCTUnwrap(recorder.layerPanels.first)
+        XCTAssertTrue(panel.gradientStrokeLayer.isHidden)
+        XCTAssertTrue(panel.glowColorLayer.isHidden)
+        XCTAssertEqual(panel.borderUpdateCount, 1)
+
+        var gradientConfig = baseConfig
+        gradientConfig.gradient = BorderGradient(
+            enabled: true,
+            start: configRed.color,
+            end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
+            direction: .topLeftToBottomRight
+        )
+        window.updateConfig(gradientConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertFalse(panel.gradientStrokeLayer.isHidden)
+        XCTAssertEqual(panel.borderUpdateCount, 2)
+
+        var glowConfig = gradientConfig
+        glowConfig.glow = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        window.updateConfig(glowConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertFalse(panel.glowColorLayer.isHidden)
+        XCTAssertEqual(panel.borderUpdateCount, 3)
+
+        window.updateConfig(glowConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertEqual(panel.borderUpdateCount, 3)
+    }
+
+    @MainActor
     func testFiveHundredSameDisplayTranslationsAvoidLevelAndScaleQueriesReshapesAndRedraws() {
         let recorder = BorderOperationsRecorder()
         let window = BorderWindow(config: configRed, operations: recorder.operations())

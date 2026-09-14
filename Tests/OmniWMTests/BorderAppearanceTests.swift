@@ -185,6 +185,30 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(decoded.borders.gradient?.dark, gradient.dark)
     }
 
+    /// Confirms a dark gradient table with only a start stop decodes and falls
+    /// back per stop when resolving dark appearance.
+    func testPartialDarkGradientTOMLDecodesWithPerStopFallback() throws {
+        var export = SettingsExport.defaults()
+        var gradient = BorderGradient.default
+        gradient.enabled = true
+        gradient.dark = BorderGradientColors(start: solidBlue, end: nil)
+        export.borders.gradient = gradient
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let toml = String(decoding: data, as: UTF8.self)
+        let decoded = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertTrue(toml.contains("[borders.gradient.dark]"))
+        XCTAssertFalse(toml.contains("gradient.dark.end"))
+        XCTAssertEqual(decoded.borders.gradient?.dark?.start, solidBlue)
+        XCTAssertNil(decoded.borders.gradient?.dark?.end)
+
+        let resolved = BorderConfig.resolvedGradient(try XCTUnwrap(decoded.borders.gradient), isDark: true)
+        XCTAssertEqual(resolved.start, solidBlue)
+        XCTAssertEqual(resolved.end, BorderGradient.default.end)
+        XCTAssertNil(resolved.dark)
+    }
+
     /// Confirms legacy gradient TOML without dark colors decodes nil.
     func testLegacyGradientTOMLDecodesWithoutDarkColors() throws {
         var export = SettingsExport.defaults()
@@ -299,9 +323,9 @@ final class BorderAppearanceTests: XCTestCase {
         settings.apply(export)
 
         XCTAssertNotNil(settings.gradient?.dark)
-        XCTAssertEqual(settings.gradient?.dark?.start.red, 0)
-        XCTAssertEqual(settings.gradient?.dark?.start.green, 1)
-        XCTAssertEqual(settings.gradient?.dark?.start.alpha, 1)
+        XCTAssertEqual(settings.gradient?.dark?.start?.red, 0)
+        XCTAssertEqual(settings.gradient?.dark?.start?.green, 1)
+        XCTAssertEqual(settings.gradient?.dark?.start?.alpha, 1)
     }
 
     /// Confirms a missing gradient remains absent after validation.
@@ -327,6 +351,40 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(settings.darkColor?.red, 0)
         XCTAssertEqual(settings.darkColor?.green, 1)
         XCTAssertEqual(settings.darkColor?.alpha, 1)
+    }
+
+    /// Confirms a non-finite border color keeps the prior valid color.
+    func testInvalidColorFallsBackToPreviousValue() {
+        let settings = BorderSettings()
+        settings.color = solidRed
+
+        var export = SettingsExport.defaults().borders
+        export.color = SettingsColor(red: .nan, green: 0, blue: 0, alpha: 1)
+        settings.apply(export)
+
+        XCTAssertEqual(settings.color, solidRed)
+    }
+
+    /// Confirms a non-finite dark border color keeps the prior dark color.
+    func testInvalidDarkColorFallsBackToPreviousValue() {
+        let settings = BorderSettings()
+        settings.darkColor = solidBlue
+
+        var export = SettingsExport.defaults().borders
+        export.darkColor = SettingsColor(red: .nan, green: 0, blue: 0, alpha: 1)
+        settings.apply(export)
+
+        XCTAssertEqual(settings.darkColor, solidBlue)
+    }
+
+    /// Confirms an absent dark border color still clears the override.
+    func testNilDarkColorClearsPreviousValue() {
+        let settings = BorderSettings()
+        settings.darkColor = solidBlue
+
+        settings.apply(SettingsExport.defaults().borders)
+
+        XCTAssertNil(settings.darkColor)
     }
 
     // MARK: - Render padding

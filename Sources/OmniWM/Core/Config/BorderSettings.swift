@@ -43,11 +43,15 @@ final class BorderSettings {
         )
     }
 
+    /// Applies exported values. Non-finite colors keep the previous valid
+    /// appearance per the documented settings contract.
     func apply(_ values: SettingsExport.Borders) {
         enabled = values.enabled
         width = Self.validatedWidth(values.width)
-        color = Self.validatedColor(values.color)
-        darkColor = values.darkColor.map(Self.validatedColor)
+        if Self.isFinite(values.color) {
+            color = Self.validatedColor(values.color)
+        }
+        darkColor = Self.validatedColor(values.darkColor, keepingPrevious: darkColor)
         gradient = Self.validatedGradient(values.gradient, fallback: gradient)
         glow = Self.validatedGlow(values.glow, fallback: glow)
     }
@@ -70,6 +74,17 @@ final class BorderSettings {
         )
     }
 
+    /// Validates an optional settings color, keeping the previous value when a
+    /// present color is non-finite. A nil color clears the override.
+    private static func validatedColor(
+        _ newValue: SettingsColor?,
+        keepingPrevious previous: SettingsColor?
+    ) -> SettingsColor? {
+        guard let newValue else { return nil }
+        guard isFinite(newValue) else { return previous }
+        return validatedColor(newValue)
+    }
+
     /// Reports whether every component of a settings color is finite.
     private static func isFinite(_ color: SettingsColor) -> Bool {
         color.red.isFinite && color.green.isFinite && color.blue.isFinite && color.alpha.isFinite
@@ -81,17 +96,20 @@ final class BorderSettings {
         fallback: BorderGradient?
     ) -> BorderGradient? {
         guard var gradient else { return nil }
+        let darkStopsFinite = gradient.dark.map {
+            ($0.start.map(Self.isFinite) ?? true) && ($0.end.map(Self.isFinite) ?? true)
+        } ?? true
         guard isFinite(gradient.start),
               isFinite(gradient.end),
-              gradient.dark.map({ isFinite($0.start) && isFinite($0.end) }) ?? true
+              darkStopsFinite
         else {
             return fallback
         }
         gradient.start = validatedColor(gradient.start)
         gradient.end = validatedColor(gradient.end)
         if var dark = gradient.dark {
-            dark.start = validatedColor(dark.start)
-            dark.end = validatedColor(dark.end)
+            dark.start = dark.start.map(Self.validatedColor)
+            dark.end = dark.end.map(Self.validatedColor)
             gradient.dark = dark
         }
         return gradient
