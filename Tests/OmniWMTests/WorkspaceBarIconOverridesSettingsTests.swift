@@ -9,7 +9,7 @@ import XCTest
 final class WorkspaceBarIconOverridesSettingsTests: XCTestCase {
     func testDottedBundleIDRoundTripsAndUnknownKeysArePreserved() throws {
         var export = SettingsExport.defaults()
-        export.workspaceBarIconOverrides = [
+        export.workspaceBar.iconOverrides = [
             "com.example.App": "bundle-resource:AppIconDark",
             "org.example.Other": "/tmp/other.png"
         ]
@@ -23,8 +23,8 @@ final class WorkspaceBarIconOverridesSettingsTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            try SettingsTOMLCodec.decode(canonical).workspaceBarIconOverrides,
-            export.workspaceBarIconOverrides
+            try SettingsTOMLCodec.decode(canonical).workspaceBar.iconOverrides,
+            export.workspaceBar.iconOverrides
         )
         XCTAssertTrue(SettingsTOMLCodec.unknownKeyPaths(in: canonical).isEmpty)
 
@@ -42,8 +42,8 @@ final class WorkspaceBarIconOverridesSettingsTests: XCTestCase {
         XCTAssertTrue(preservingText.contains("[workspaceBar.futureAppearance]"))
         XCTAssertTrue(preservingText.contains("glow = true"))
         XCTAssertEqual(
-            try SettingsTOMLCodec.decode(preserving).workspaceBarIconOverrides,
-            export.workspaceBarIconOverrides
+            try SettingsTOMLCodec.decode(preserving).workspaceBar.iconOverrides,
+            export.workspaceBar.iconOverrides
         )
         XCTAssertTrue(
             SettingsTOMLCodec.unknownKeyPaths(in: preserving).contains(
@@ -65,9 +65,9 @@ final class WorkspaceBarIconOverridesSettingsTests: XCTestCase {
         let first = makeSettingsStore()
         let second = makeSettingsStore()
         var firstExport = SettingsExport.defaults()
-        firstExport.workspaceBarIconOverrides = forward
+        firstExport.workspaceBar.iconOverrides = forward
         var secondExport = SettingsExport.defaults()
-        secondExport.workspaceBarIconOverrides = reversed
+        secondExport.workspaceBar.iconOverrides = reversed
 
         first.applyExport(firstExport)
         second.applyExport(secondExport)
@@ -76,35 +76,35 @@ final class WorkspaceBarIconOverridesSettingsTests: XCTestCase {
             "COM.EXAMPLE.APP": "alpha.icns",
             "org.example.Other": "other.png"
         ]
-        XCTAssertEqual(first.workspaceBarIconOverrides, expected)
-        XCTAssertEqual(second.workspaceBarIconOverrides, expected)
-        XCTAssertEqual(first.toExport().workspaceBarIconOverrides, expected)
+        XCTAssertEqual(first.workspaceBar.iconOverrides, expected)
+        XCTAssertEqual(second.workspaceBar.iconOverrides, expected)
+        XCTAssertEqual(first.toExport().workspaceBar.iconOverrides, expected)
     }
 
     func testMutatorsTrimMatchCaseInsensitivelyAndReportNoOps() {
         let settings = makeSettingsStore()
 
-        XCTAssertFalse(settings.setWorkspaceBarIconOverride("icon.png", for: " \n"))
-        XCTAssertFalse(settings.setWorkspaceBarIconOverride("\n", for: "com.example.App"))
-        XCTAssertTrue(settings.setWorkspaceBarIconOverride(" icons/first.icns ", for: " com.Example.App "))
+        XCTAssertFalse(settings.workspaceBar.setIconOverride("icon.png", for: " \n"))
+        XCTAssertFalse(settings.workspaceBar.setIconOverride("\n", for: "com.example.App"))
+        XCTAssertTrue(settings.workspaceBar.setIconOverride(" icons/first.icns ", for: " com.Example.App "))
         XCTAssertEqual(
-            settings.workspaceBarIconOverrideValue(for: "COM.EXAMPLE.APP"),
+            settings.workspaceBar.iconOverrideValue(for: "COM.EXAMPLE.APP"),
             "icons/first.icns"
         )
         XCTAssertFalse(
-            settings.setWorkspaceBarIconOverride("icons/first.icns", for: "COM.EXAMPLE.APP")
+            settings.workspaceBar.setIconOverride("icons/first.icns", for: "COM.EXAMPLE.APP")
         )
         XCTAssertTrue(
-            settings.setWorkspaceBarIconOverride("/tmp/replacement.png", for: "COM.EXAMPLE.APP")
+            settings.workspaceBar.setIconOverride("/tmp/replacement.png", for: "COM.EXAMPLE.APP")
         )
         XCTAssertEqual(
-            settings.workspaceBarIconOverrides,
+            settings.workspaceBar.iconOverrides,
             ["com.Example.App": "/tmp/replacement.png"]
         )
-        XCTAssertNil(settings.workspaceBarIconOverrideValue(for: " \n"))
-        XCTAssertTrue(settings.removeWorkspaceBarIconOverride(for: " COM.EXAMPLE.APP "))
-        XCTAssertTrue(settings.workspaceBarIconOverrides.isEmpty)
-        XCTAssertFalse(settings.removeWorkspaceBarIconOverride(for: "com.example.App"))
+        XCTAssertNil(settings.workspaceBar.iconOverrideValue(for: " \n"))
+        XCTAssertTrue(settings.workspaceBar.removeIconOverride(for: " COM.EXAMPLE.APP "))
+        XCTAssertTrue(settings.workspaceBar.iconOverrides.isEmpty)
+        XCTAssertFalse(settings.workspaceBar.removeIconOverride(for: "com.example.App"))
     }
 
     func testExternalSettingsReloadReplacesAndNormalizesLiveOverrides() async throws {
@@ -127,14 +127,14 @@ final class WorkspaceBarIconOverridesSettingsTests: XCTestCase {
             autosaveEnabled: false
         )
         XCTAssertTrue(
-            settings.setWorkspaceBarIconOverride("before.png", for: "com.example.Before")
+            settings.workspaceBar.setIconOverride("before.png", for: "com.example.Before")
         )
         var externalReloadCount = 0
         settings.onExternalSettingsReloaded = {
             externalReloadCount += 1
         }
         var external = SettingsExport.defaults()
-        external.workspaceBarIconOverrides = [
+        external.workspaceBar.iconOverrides = [
             "  com.example.After  ": " icons/after.icns ",
             "org.example.Blank": "\n"
         ]
@@ -147,10 +147,10 @@ final class WorkspaceBarIconOverridesSettingsTests: XCTestCase {
 
         XCTAssertEqual(externalReloadCount, 1)
         XCTAssertEqual(
-            settings.workspaceBarIconOverrides,
+            settings.workspaceBar.iconOverrides,
             ["com.example.After": "icons/after.icns"]
         )
-        XCTAssertNil(settings.workspaceBarIconOverrideValue(for: "com.example.Before"))
+        XCTAssertNil(settings.workspaceBar.iconOverrideValue(for: "com.example.Before"))
     }
 
     private func removingTOMLTable(named tableName: String, from text: String) -> String {

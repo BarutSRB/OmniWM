@@ -24,6 +24,20 @@ struct WorkspaceFloatingRelocation: Equatable {
     let frame: CGRect
 }
 
+struct WorkspaceMonitorRelocation {
+    let workspaceId: WorkspaceDescriptor.ID
+    let targetMonitor: Monitor
+    let floatingStates: [WindowToken: FloatingState]
+}
+
+struct WorkspaceMonitorMoveVisibility {
+    let sourceWasVisible: Bool
+    let destinationWorkspaceId: WorkspaceDescriptor.ID?
+    let sourceReplacementWorkspaceId: WorkspaceDescriptor.ID?
+    let makesMovedWorkspaceVisible: Bool
+    let transfersManagedFocus: Bool
+}
+
 struct WorkspaceMonitorMoveOutcome: Equatable {
     enum Status: Equatable {
         case executed
@@ -49,4 +63,29 @@ struct WorkspaceNativeFullscreenRecord: Equatable {
     var workspaceId: WorkspaceDescriptor.ID
     var transition: WorkspaceNativeFullscreenTransition
     var transitionGeneration: Int = 0
+}
+
+extension WorkspaceMonitorMoveOutcome {
+    init(unchanged status: Status) {
+        self.init(status: status, affectedWorkspaces: [], floatingRelocations: [])
+    }
+}
+
+extension WorkspaceFloatingRelocation {
+    static func precedes(_ lhs: Self, _ rhs: Self) -> Bool {
+        if lhs.token.pid != rhs.token.pid {
+            return lhs.token.pid < rhs.token.pid
+        }
+        return lhs.token.windowId < rhs.token.windowId
+    }
+}
+
+extension WorkspaceManager {
+    struct MonitorResolutionContext {
+        let monitors: [Monitor]
+        let sortedMonitors: [Monitor]
+        let topologyProfile: TopologyProfile
+        let configuredWorkspaceNames: Set<String>
+        let monitorDescriptionByWorkspaceName: [String: MonitorDescription]
+    }
 }

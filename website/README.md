@@ -42,7 +42,9 @@ Content starts here — no `# H1`, Starlight renders the title.
 
 The sidebar is generated automatically; `sidebar.order` controls position within the group. Use `:::note`, `:::tip`, and `:::caution` asides where helpful. Internal links are root-relative with a trailing slash (`/guides/install/`); links to repository files use absolute GitHub URLs. Every published page has an "Edit page" link that opens the file on GitHub, so small fixes can be PRed straight from the site.
 
-Keep facts in sync with the app: defaults belong to `Sources/OmniWM/Core/Config/SettingsExport.swift`, the TOML schema to `CanonicalTOMLConfig.swift`, and default hotkeys to `Core/Input/ActionCatalog.swift`. The command palette uses substring matching with tiered ranking (not fuzzy search), and the quake terminal's default position is Center, which fades rather than slides.
+The full contributor guide is published at `/developers/contributing/`, and this website-development guide at `/developers/website/`. Keep their Markdown pages in sync with the repository copies in `CONTRIBUTING.md` and `website/README.md`; adapt navigation links to stay within the website.
+
+Keep facts in sync with the app: defaults belong to `Sources/OmniWM/Core/Config/SettingsExport.swift` and its `SettingsExport+*.swift` extensions; the domain settings types consume those defaults and map live values to/from the export. The TOML schema lives in `CanonicalTOMLConfig.swift`, and default hotkeys are assembled by `Core/Input/ActionCatalog.swift` from its `ActionCatalog+*.swift` extensions. The command palette uses substring matching with tiered ranking (not fuzzy search), and the quake terminal's default position is Center, which fades rather than slides.
 
 ## Landing page
 

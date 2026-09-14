@@ -69,12 +69,12 @@ final class StatusBarController: NSObject {
         }
         let host = StatusMenuHost(model: model, controller: controller)
         host.isExemptWindow = { [weak hiddenBarController] in
-            hiddenBarController?.ownsStatusItemWindow($0) == true
+            hiddenBarController?.statusItems.ownsStatusItemWindow($0) == true
         }
         menuHost = host
 
-        hiddenBarController.bind(omniButton: button, statusItem: ownedStatusItem)
-        hiddenBarController.onFallbackIconClick = { [weak self] event, anchor in
+        hiddenBarController.statusItems.bind(omniButton: button, statusItem: ownedStatusItem)
+        hiddenBarController.statusItems.onFallbackIconClick = { [weak self] event, anchor in
             self?.routeClick(event: event, anchor: anchor)
         }
         hiddenBarController.setup()
@@ -207,13 +207,13 @@ final class StatusBarController: NSObject {
     }
 
     private func updateButtonAccessibility(_ button: NSStatusBarButton) {
-        let summary = settings.statusBarShowWorkspaceName
+        let summary = settings.statusBar.showWorkspaceName
             ? controller?.activeStatusBarWorkspaceSummary()
             : nil
         let workspaceLabel = summary.map {
-            settings.statusBarUseWorkspaceId ? $0.workspaceRawName : $0.workspaceLabel
+            settings.statusBar.useWorkspaceId ? $0.workspaceRawName : $0.workspaceLabel
         }
-        let focusedAppName = settings.statusBarShowAppNames ? summary?.focusedAppName : nil
+        let focusedAppName = settings.statusBar.showAppNames ? summary?.focusedAppName : nil
         button.setAccessibilityLabel("OmniWM")
         button.setAccessibilityValue(
             Self.statusButtonAccessibilityValue(
@@ -230,7 +230,7 @@ final class StatusBarController: NSObject {
 
         updateButtonAppearance()
 
-        guard settings.statusBarShowWorkspaceName,
+        guard settings.statusBar.showWorkspaceName,
               let summary = controller?.activeStatusBarWorkspaceSummary()
         else {
             button.title = ""
@@ -238,8 +238,8 @@ final class StatusBarController: NSObject {
             return
         }
 
-        let workspaceLabel = settings.statusBarUseWorkspaceId ? summary.workspaceRawName : summary.workspaceLabel
-        let focusedAppName = settings.statusBarShowAppNames ? summary.focusedAppName : nil
+        let workspaceLabel = settings.statusBar.useWorkspaceId ? summary.workspaceRawName : summary.workspaceLabel
+        let focusedAppName = settings.statusBar.showAppNames ? summary.focusedAppName : nil
         button.title = Self.statusButtonTitle(workspaceLabel: workspaceLabel, focusedAppName: focusedAppName)
         button.imagePosition = .imageLeft
     }

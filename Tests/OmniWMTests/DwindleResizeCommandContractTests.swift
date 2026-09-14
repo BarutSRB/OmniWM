@@ -17,39 +17,39 @@ final class DwindleResizeCommandContractTests: XCTestCase {
         let expected = [
             ExpectedAction(
                 id: "resizeGrow.horizontal",
-                command: .resizeAlongAxis(.horizontal, true),
+                command: .dwindle(.resizeAlongAxis(.horizontal, true)),
                 title: "Grow Horizontally",
-                ipcCommandName: .resize
+                ipcCommandName: .dwindle(.resize)
             ),
             ExpectedAction(
                 id: "resizeGrow.vertical",
-                command: .resizeAlongAxis(.vertical, true),
+                command: .dwindle(.resizeAlongAxis(.vertical, true)),
                 title: "Grow Vertically",
-                ipcCommandName: .resize
+                ipcCommandName: .dwindle(.resize)
             ),
             ExpectedAction(
                 id: "resizeShrink.horizontal",
-                command: .resizeAlongAxis(.horizontal, false),
+                command: .dwindle(.resizeAlongAxis(.horizontal, false)),
                 title: "Shrink Horizontally",
-                ipcCommandName: .resize
+                ipcCommandName: .dwindle(.resize)
             ),
             ExpectedAction(
                 id: "resizeShrink.vertical",
-                command: .resizeAlongAxis(.vertical, false),
+                command: .dwindle(.resizeAlongAxis(.vertical, false)),
                 title: "Shrink Vertically",
-                ipcCommandName: .resize
+                ipcCommandName: .dwindle(.resize)
             ),
             ExpectedAction(
                 id: "resizeFocusedWindow.grow",
-                command: .resizeFocusedWindow(true),
+                command: .dwindle(.resizeFocusedWindow(true)),
                 title: "Grow Focused Window",
-                ipcCommandName: .resizeFocused
+                ipcCommandName: .dwindle(.resizeFocused)
             ),
             ExpectedAction(
                 id: "resizeFocusedWindow.shrink",
-                command: .resizeFocusedWindow(false),
+                command: .dwindle(.resizeFocusedWindow(false)),
                 title: "Shrink Focused Window",
-                ipcCommandName: .resizeFocused
+                ipcCommandName: .dwindle(.resizeFocused)
             )
         ]
 

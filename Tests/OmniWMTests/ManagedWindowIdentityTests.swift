@@ -293,7 +293,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -372,9 +373,11 @@ final class ManagedWindowIdentityTests: XCTestCase {
 
         XCTAssertFalse(
             controller.axEventHandler.deferDestroyedPendingManagedWindowIdentityRebind(
-                windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
-                executionOwner: executionOwner,
+                execution: .init(
+                    windowId: pending.windowId,
+                    generation: pending.state.generation,
+                    executionOwner: executionOwner
+                ),
                 oldWindow: pending.oldWindow,
                 newWindow: pending.newWindow,
                 axRef: pending.newWindow.axRef
@@ -719,7 +722,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -834,7 +838,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -1316,7 +1321,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -1363,7 +1369,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -1395,7 +1402,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -1439,7 +1447,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -1571,7 +1580,8 @@ final class ManagedWindowIdentityTests: XCTestCase {
                 from: pending.oldWindow,
                 to: pending.newWindow,
                 windowId: pending.windowId,
-                retryGeneration: pending.state.generation,
+                retryGeneration: pending.state
+                    .generation,
                 managedReplacementMetadata: nil,
                 admissionHints: nil
             )
@@ -1669,14 +1679,14 @@ private extension AXEventHandler {
             return
         }
         await completeManagedWindowIdentityRebind(
-            from: oldWindow,
-            to: newWindow,
-            windowId: windowId,
-            retryGeneration: retryGeneration,
-            executionOwner: executionOwner,
-            managedReplacementMetadata: managedReplacementMetadata,
-            admissionHints: admissionHints,
-            sizeConstraints: sizeConstraints
+            rebind: .init(
+                oldWindow: oldWindow,
+                newWindow: newWindow,
+                managedReplacementMetadata: managedReplacementMetadata,
+                admissionHints: admissionHints,
+                sizeConstraints: sizeConstraints
+            ),
+            execution: .init(windowId: windowId, generation: retryGeneration, executionOwner: executionOwner)
         )
     }
 }

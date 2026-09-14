@@ -6,22 +6,22 @@ import XCTest
 
 final class HiddenBarLifecyclePolicyTests: XCTestCase {
     func testRefreshRequiresEnabledAvailableAndConfiguredHiddenApp() {
-        XCTAssertFalse(HiddenBarController.wantsRefresh(
+        XCTAssertFalse(HiddenBarConcealmentPolicy.wantsRefresh(
             enabled: false,
             available: true,
             hiddenBundleIDs: ["a"]
         ))
-        XCTAssertFalse(HiddenBarController.wantsRefresh(
+        XCTAssertFalse(HiddenBarConcealmentPolicy.wantsRefresh(
             enabled: true,
             available: false,
             hiddenBundleIDs: ["a"]
         ))
-        XCTAssertFalse(HiddenBarController.wantsRefresh(
+        XCTAssertFalse(HiddenBarConcealmentPolicy.wantsRefresh(
             enabled: true,
             available: true,
             hiddenBundleIDs: []
         ))
-        XCTAssertTrue(HiddenBarController.wantsRefresh(
+        XCTAssertTrue(HiddenBarConcealmentPolicy.wantsRefresh(
             enabled: true,
             available: true,
             hiddenBundleIDs: ["a"]
@@ -30,7 +30,7 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
 
     func testTemporaryRevealAndPendingCaptureStayAllowed() {
         XCTAssertEqual(
-            HiddenBarController.effectiveHiddenBundleIDs(
+            HiddenBarConcealmentPolicy.effectiveHiddenBundleIDs(
                 configured: ["revealed", "capturing", "concealed"],
                 temporarilyRevealed: ["revealed"],
                 pendingCapture: ["capturing"]
@@ -44,16 +44,16 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         let controller = WindowAdmissionTestSupport.controller(prefix: "HiddenBarTopologyDebounce")
         let hiddenBar = controller.hiddenBarController
         var refreshes = 0
-        hiddenBar.topologyRefreshSleeper = { _ in await Task.yield() }
-        hiddenBar.onTopologyRefreshForTests = { refreshes += 1 }
+        hiddenBar.observation.topologyRefreshSleeper = { _ in await Task.yield() }
+        hiddenBar.observation.onTopologyRefreshForTests = { refreshes += 1 }
 
-        hiddenBar.scheduleTopologyRefresh()
-        hiddenBar.scheduleTopologyRefresh()
+        hiddenBar.observation.scheduleTopologyRefresh()
+        hiddenBar.observation.scheduleTopologyRefresh()
         let didRefresh = await waitUntil { refreshes == 1 }
 
         XCTAssertTrue(didRefresh)
         XCTAssertEqual(refreshes, 1)
-        XCTAssertFalse(hiddenBar.hasPendingTopologyRefreshForTests)
+        XCTAssertFalse(hiddenBar.observation.hasPendingTopologyRefreshForTests)
         hiddenBar.cleanup()
     }
 
@@ -62,20 +62,20 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         let controller = WindowAdmissionTestSupport.controller(prefix: "HiddenBarTopologyCleanup")
         let hiddenBar = controller.hiddenBarController
         var refreshes = 0
-        hiddenBar.topologyRefreshSleeper = { _ in try await Task.sleep(for: .seconds(60)) }
-        hiddenBar.onTopologyRefreshForTests = { refreshes += 1 }
+        hiddenBar.observation.topologyRefreshSleeper = { _ in try await Task.sleep(for: .seconds(60)) }
+        hiddenBar.observation.onTopologyRefreshForTests = { refreshes += 1 }
         hiddenBar.setup()
-        XCTAssertTrue(hiddenBar.hasScreenParametersObserverForTests)
+        XCTAssertTrue(hiddenBar.observation.hasScreenParametersObserverForTests)
 
-        hiddenBar.scheduleTopologyRefresh()
-        XCTAssertTrue(hiddenBar.hasPendingTopologyRefreshForTests)
+        hiddenBar.observation.scheduleTopologyRefresh()
+        XCTAssertTrue(hiddenBar.observation.hasPendingTopologyRefreshForTests)
         hiddenBar.cleanup()
         for _ in 0 ..< 8 {
             await Task.yield()
         }
 
-        XCTAssertFalse(hiddenBar.hasScreenParametersObserverForTests)
-        XCTAssertFalse(hiddenBar.hasPendingTopologyRefreshForTests)
+        XCTAssertFalse(hiddenBar.observation.hasScreenParametersObserverForTests)
+        XCTAssertFalse(hiddenBar.observation.hasPendingTopologyRefreshForTests)
         XCTAssertEqual(refreshes, 0)
     }
 
@@ -84,19 +84,19 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         let controller = WindowAdmissionTestSupport.controller(prefix: "HiddenBarObserverCleanup")
         let hiddenBar = controller.hiddenBarController
         hiddenBar.setup()
-        hiddenBar.beginPerformanceCapture()
+        hiddenBar.performance.begin()
 
-        hiddenBar.enqueueDidBecomeActiveForTests()
+        hiddenBar.observation.enqueueDidBecomeActiveForTests()
         hiddenBar.cleanup()
         for _ in 0 ..< 8 {
             await Task.yield()
         }
 
-        XCTAssertEqual(hiddenBar.endPerformanceCapture()?.refreshEvents, 0)
+        XCTAssertEqual(hiddenBar.performance.end()?.refreshEvents, 0)
     }
 
     func testLaunchCaptureStaysAllowedDuringAnotherAppsReveal() {
-        let effectiveHidden = HiddenBarController.effectiveHiddenBundleIDs(
+        let effectiveHidden = HiddenBarConcealmentPolicy.effectiveHiddenBundleIDs(
             configured: ["revealed", "newly-launched", "concealed"],
             temporarilyRevealed: ["revealed"],
             pendingCapture: ["newly-launched"]
@@ -113,7 +113,7 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
 
     func testOpenMenuDoesNotConsumeRehideTime() {
         XCTAssertEqual(
-            HiddenBarController.rehideRemaining(
+            HiddenBarMenuGuardPolicy.rehideRemaining(
                 remaining: .seconds(5),
                 elapsed: .seconds(2),
                 previousMenuOpen: false,
@@ -125,7 +125,7 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
 
     func testUnknownMenuStateDoesNotConsumeRehideTime() {
         XCTAssertEqual(
-            HiddenBarController.rehideRemaining(
+            HiddenBarMenuGuardPolicy.rehideRemaining(
                 remaining: .seconds(5),
                 elapsed: .seconds(2),
                 previousMenuOpen: false,
@@ -137,25 +137,25 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
 
     func testClosedIntervalsAccumulateUntilRehideExpires() {
         var remaining = Duration.seconds(5)
-        remaining = HiddenBarController.rehideRemaining(
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
             remaining: remaining,
             elapsed: .seconds(2),
             previousMenuOpen: false,
             menuOpen: false
         )
-        remaining = HiddenBarController.rehideRemaining(
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
             remaining: remaining,
             elapsed: .seconds(4),
             previousMenuOpen: false,
             menuOpen: true
         )
-        remaining = HiddenBarController.rehideRemaining(
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
             remaining: remaining,
             elapsed: .seconds(3),
             previousMenuOpen: true,
             menuOpen: false
         )
-        remaining = HiddenBarController.rehideRemaining(
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
             remaining: remaining,
             elapsed: .seconds(3),
             previousMenuOpen: false,
@@ -166,7 +166,7 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
 
     func testNegativeElapsedTimeDoesNotIncreaseCountdown() {
         XCTAssertEqual(
-            HiddenBarController.rehideRemaining(
+            HiddenBarMenuGuardPolicy.rehideRemaining(
                 remaining: .seconds(5),
                 elapsed: .seconds(-2),
                 previousMenuOpen: false,
@@ -178,7 +178,7 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
 
     func testFirstClosedSampleStartsCountdownWithFullInterval() {
         XCTAssertEqual(
-            HiddenBarController.rehideRemaining(
+            HiddenBarMenuGuardPolicy.rehideRemaining(
                 remaining: .seconds(5),
                 elapsed: .seconds(2),
                 previousMenuOpen: nil,
@@ -189,20 +189,20 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
     }
 
     func testMenuGuardPollingBacksOffAndCaps() {
-        XCTAssertEqual(HiddenBarController.menuGuardRetryDelay(consecutiveDeferrals: 0), .milliseconds(250))
-        XCTAssertEqual(HiddenBarController.menuGuardRetryDelay(consecutiveDeferrals: 1), .milliseconds(500))
-        XCTAssertEqual(HiddenBarController.menuGuardRetryDelay(consecutiveDeferrals: 2), .seconds(1))
-        XCTAssertEqual(HiddenBarController.menuGuardRetryDelay(consecutiveDeferrals: 20), .seconds(2))
+        XCTAssertEqual(HiddenBarMenuGuardPolicy.menuGuardRetryDelay(consecutiveDeferrals: 0), .milliseconds(250))
+        XCTAssertEqual(HiddenBarMenuGuardPolicy.menuGuardRetryDelay(consecutiveDeferrals: 1), .milliseconds(500))
+        XCTAssertEqual(HiddenBarMenuGuardPolicy.menuGuardRetryDelay(consecutiveDeferrals: 2), .seconds(1))
+        XCTAssertEqual(HiddenBarMenuGuardPolicy.menuGuardRetryDelay(consecutiveDeferrals: 20), .seconds(2))
     }
 
     func testMenuGuardUnknownStateHasThreeQueryBound() {
-        XCTAssertFalse(HiddenBarController.shouldTerminateMenuGuardForUnknownState(consecutiveUnknownStates: 2))
-        XCTAssertTrue(HiddenBarController.shouldTerminateMenuGuardForUnknownState(consecutiveUnknownStates: 3))
+        XCTAssertFalse(HiddenBarMenuGuardPolicy.shouldTerminateMenuGuardForUnknownState(consecutiveUnknownStates: 2))
+        XCTAssertTrue(HiddenBarMenuGuardPolicy.shouldTerminateMenuGuardForUnknownState(consecutiveUnknownStates: 3))
     }
 
     func testMenuGuardWatchdogHasSixtySecondBound() {
-        XCTAssertFalse(HiddenBarController.menuGuardWatchdogExpired(elapsed: .seconds(59)))
-        XCTAssertTrue(HiddenBarController.menuGuardWatchdogExpired(elapsed: .seconds(60)))
+        XCTAssertFalse(HiddenBarMenuGuardPolicy.menuGuardWatchdogExpired(elapsed: .seconds(59)))
+        XCTAssertTrue(HiddenBarMenuGuardPolicy.menuGuardWatchdogExpired(elapsed: .seconds(60)))
     }
 
     @MainActor
@@ -210,18 +210,18 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         let controller = WindowAdmissionTestSupport.controller(prefix: "HiddenBarUnknownGuard")
         let hiddenBar = controller.hiddenBarController
         var now = ContinuousClock().now
-        hiddenBar.menuGuardNow = { now }
-        hiddenBar.menuGuardSleeper = { delay in
+        hiddenBar.reconcealment.menuGuardNow = { now }
+        hiddenBar.reconcealment.menuGuardSleeper = { delay in
             now = now.advanced(by: delay)
             await Task.yield()
         }
-        hiddenBar.menuOpenProviderForTests = { _ in nil }
-        hiddenBar.beginPerformanceCapture()
+        hiddenBar.reconcealment.menuOpenProviderForTests = { _ in nil }
+        hiddenBar.performance.begin()
 
         hiddenBar.startReconcealForTests(revealedBundleIDs: ["com.omniwm.unknown"])
         await driveReconcealTask(hiddenBar)
 
-        let snapshot = hiddenBar.endPerformanceCapture()
+        let snapshot = hiddenBar.performance.end()
         XCTAssertEqual(snapshot?.menuGuardQueries, 3)
         XCTAssertEqual(snapshot?.terminalReason, .unknownStateLimit)
         XCTAssertTrue(hiddenBar.temporarilyRevealedBundleIDsForTests.isEmpty)
@@ -233,26 +233,26 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         let controller = WindowAdmissionTestSupport.controller(prefix: "HiddenBarWatchdog")
         let hiddenBar = controller.hiddenBarController
         var now = ContinuousClock().now
-        hiddenBar.menuGuardNow = { now }
-        hiddenBar.menuGuardSleeper = { delay in
+        hiddenBar.reconcealment.menuGuardNow = { now }
+        hiddenBar.reconcealment.menuGuardSleeper = { delay in
             now = now.advanced(by: delay)
             await Task.yield()
         }
-        hiddenBar.menuOpenProviderForTests = { _ in true }
-        hiddenBar.beginPerformanceCapture()
+        hiddenBar.reconcealment.menuOpenProviderForTests = { _ in true }
+        hiddenBar.performance.begin()
 
         hiddenBar.startReconcealForTests(revealedBundleIDs: ["com.omniwm.open"])
         await driveReconcealTask(hiddenBar)
 
-        let terminalSnapshot = hiddenBar.performanceSnapshot()
+        let terminalSnapshot = hiddenBar.performance.snapshot()
         for _ in 0 ..< 8 {
             await Task.yield()
         }
         XCTAssertEqual(
-            hiddenBar.performanceSnapshot()?.menuGuardQueries,
+            hiddenBar.performance.snapshot()?.menuGuardQueries,
             terminalSnapshot?.menuGuardQueries
         )
-        let snapshot = hiddenBar.endPerformanceCapture()
+        let snapshot = hiddenBar.performance.end()
         XCTAssertGreaterThan(snapshot?.menuGuardQueries ?? 0, 3)
         XCTAssertEqual(snapshot?.terminalReason, .watchdog)
         XCTAssertTrue(hiddenBar.temporarilyRevealedBundleIDsForTests.isEmpty)
@@ -260,15 +260,15 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
     }
 
     func testFailedRevealDoesNotStartCountdownDuringPriorActivation() {
-        XCTAssertFalse(HiddenBarController.shouldResumeReconcealAfterFailedReveal(
+        XCTAssertFalse(HiddenBarActivationPolicy.shouldResumeReconcealAfterFailedReveal(
             hasTemporaryReveals: true,
             activationInFlight: true
         ))
-        XCTAssertTrue(HiddenBarController.shouldResumeReconcealAfterFailedReveal(
+        XCTAssertTrue(HiddenBarActivationPolicy.shouldResumeReconcealAfterFailedReveal(
             hasTemporaryReveals: true,
             activationInFlight: false
         ))
-        XCTAssertFalse(HiddenBarController.shouldResumeReconcealAfterFailedReveal(
+        XCTAssertFalse(HiddenBarActivationPolicy.shouldResumeReconcealAfterFailedReveal(
             hasTemporaryReveals: false,
             activationInFlight: false
         ))
@@ -279,28 +279,28 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
             MenuBarAppCandidate(bundleID: "target", pid: 42, name: "Target"),
             MenuBarAppCandidate(bundleID: "target", pid: 43, name: "Replacement")
         ]
-        XCTAssertTrue(HiddenBarController.activationContextIsValid(
+        XCTAssertTrue(HiddenBarActivationPolicy.activationContextIsValid(
             bundleID: "target",
             pid: 42,
             configuredBundleIDs: ["target"],
             temporarilyRevealedBundleIDs: ["target"],
             runningCandidates: candidates
         ))
-        XCTAssertFalse(HiddenBarController.activationContextIsValid(
+        XCTAssertFalse(HiddenBarActivationPolicy.activationContextIsValid(
             bundleID: "target",
             pid: 42,
             configuredBundleIDs: [],
             temporarilyRevealedBundleIDs: ["target"],
             runningCandidates: candidates
         ))
-        XCTAssertFalse(HiddenBarController.activationContextIsValid(
+        XCTAssertFalse(HiddenBarActivationPolicy.activationContextIsValid(
             bundleID: "target",
             pid: 42,
             configuredBundleIDs: ["target"],
             temporarilyRevealedBundleIDs: [],
             runningCandidates: candidates
         ))
-        XCTAssertFalse(HiddenBarController.activationContextIsValid(
+        XCTAssertFalse(HiddenBarActivationPolicy.activationContextIsValid(
             bundleID: "target",
             pid: 44,
             configuredBundleIDs: ["target"],
@@ -323,7 +323,7 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
     @MainActor
     private func driveReconcealTask(_ hiddenBar: HiddenBarController) async {
         for _ in 0 ..< 256 {
-            if hiddenBar.performanceSnapshot()?.terminalReason != nil {
+            if hiddenBar.performance.snapshot()?.terminalReason != nil {
                 return
             }
             await Task.yield()

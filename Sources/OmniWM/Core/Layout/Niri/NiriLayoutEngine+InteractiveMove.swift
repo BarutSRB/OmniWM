@@ -49,10 +49,7 @@ extension NiriLayoutEngine {
         state.transitionToColumn(
             colIdx,
             columns: cols,
-            gap: context.gaps,
-            workingArea: context.workingFrame,
-            orientation: context.orientation,
-            motion: context.motion,
+            context: context,
             animate: false,
             centerMode: settings.centerFocusedColumn,
             alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
@@ -220,43 +217,21 @@ extension NiriLayoutEngine {
                 adding: sourceWindow,
                 removing: targetWindow,
                 in: context.workspaceId,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation
+                geometry: context.sizingGeometry
             ), columnCanAcceptTransfer(
                 sourceColumn,
                 adding: targetWindow,
                 removing: sourceWindow,
                 in: context.workspaceId,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation
+                geometry: context.sizingGeometry
             ) else {
                 return false
             }
 
-            let sourceSize = sourceWindow.size
-            let sourceHeight = sourceWindow.height
-            let targetSize = targetWindow.size
-            let targetHeight = targetWindow.height
-
-            sourceWindow.detach()
-            targetWindow.detach()
-
-            sourceColumn.insertChild(targetWindow, at: sourceIdx)
-            targetColumn.insertChild(sourceWindow, at: targetIdx)
-
-            sourceWindow.size = targetSize
-            sourceWindow.height = targetHeight
-            targetWindow.size = sourceSize
-            targetWindow.height = sourceHeight
-
-            if sourceColumn.isTabbed {
-                sourceColumn.clampActiveTileIdx()
-            }
-            if targetColumn.isTabbed {
-                targetColumn.clampActiveTileIdx()
-            }
+            swapColumnMembers(
+                source: (sourceWindow, sourceColumn), target: (targetWindow, targetColumn),
+                indices: (sourceIdx, targetIdx)
+            )
         }
 
         ensureSelectionVisible(
@@ -266,6 +241,35 @@ extension NiriLayoutEngine {
         )
 
         return true
+    }
+
+    private func swapColumnMembers(
+        source: (window: NiriWindow, column: NiriContainer),
+        target: (window: NiriWindow, column: NiriContainer),
+        indices: (source: Int, target: Int)
+    ) {
+        let sourceSize = source.window.size
+        let sourceHeight = source.window.height
+        let targetSize = target.window.size
+        let targetHeight = target.window.height
+
+        source.window.detach()
+        target.window.detach()
+
+        source.column.insertChild(target.window, at: indices.source)
+        target.column.insertChild(source.window, at: indices.target)
+
+        source.window.size = targetSize
+        source.window.height = targetHeight
+        target.window.size = sourceSize
+        target.window.height = sourceHeight
+
+        if source.column.isTabbed {
+            source.column.clampActiveTileIdx()
+        }
+        if target.column.isTabbed {
+            target.column.clampActiveTileIdx()
+        }
     }
 
     func insertWindowByMove(
@@ -300,9 +304,7 @@ extension NiriLayoutEngine {
                 targetColumn,
                 adding: sourceWindow,
                 in: context.workspaceId,
-                workingFrame: context.workingFrame,
-                gaps: context.gaps,
-                orientation: context.orientation
+                geometry: context.sizingGeometry
             ) else {
                 return false
             }
@@ -323,7 +325,23 @@ extension NiriLayoutEngine {
         sourceWindow.size = 1.0
         sourceWindow.height = .default
 
-        if sourceColumnWillBeEmpty {
+        finishMoveColumns(sourceColumn, target: targetColumn, removeSource: sourceColumnWillBeEmpty)
+
+        ensureSelectionVisible(
+            node: sourceWindow,
+            context: context,
+            state: &state
+        )
+
+        return true
+    }
+
+    private func finishMoveColumns(
+        _ sourceColumn: NiriContainer,
+        target targetColumn: NiriContainer,
+        removeSource: Bool
+    ) {
+        if removeSource {
             sourceColumn.remove()
         }
 
@@ -333,14 +351,6 @@ extension NiriLayoutEngine {
         if targetColumn.isTabbed {
             targetColumn.clampActiveTileIdx()
         }
-
-        ensureSelectionVisible(
-            node: sourceWindow,
-            context: context,
-            state: &state
-        )
-
-        return true
     }
 
     func insertionDropzoneFrame(

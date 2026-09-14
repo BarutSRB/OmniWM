@@ -33,9 +33,9 @@ final class MonitorSettingsIdentityTests: XCTestCase {
 
         settings.applyExport(export)
 
-        XCTAssertEqual(settings.niriSettings(for: first)?.visibleContainerCount, 1)
-        XCTAssertEqual(settings.niriSettings(for: second)?.visibleContainerCount, 4)
-        XCTAssertEqual(settings.monitorNiriSettings, export.monitorNiriSettings)
+        XCTAssertEqual(settings.niri.settings(for: first)?.visibleContainerCount, 1)
+        XCTAssertEqual(settings.niri.settings(for: second)?.visibleContainerCount, 4)
+        XCTAssertEqual(settings.niri.monitorOverrides, export.monitorNiriSettings)
     }
 
     @MainActor
@@ -53,8 +53,8 @@ final class MonitorSettingsIdentityTests: XCTestCase {
 
         settings.applyExport(export)
 
-        XCTAssertNil(settings.niriSettings(for: monitor))
-        XCTAssertEqual(settings.monitorNiriSettings, export.monitorNiriSettings)
+        XCTAssertNil(settings.niri.settings(for: monitor))
+        XCTAssertEqual(settings.niri.monitorOverrides, export.monitorNiriSettings)
     }
 
     @MainActor
@@ -88,16 +88,16 @@ final class MonitorSettingsIdentityTests: XCTestCase {
         let before = try Data(contentsOf: settings.settingsFileURL)
         let controller = WMController(settings: settings)
 
-        controller.serviceLifecycleManager.applyMonitorConfigurationChanged(
+        controller.serviceLifecycleManager.monitorConfiguration.applyMonitorConfigurationChanged(
             currentMonitors: [primary, secondary],
             performPostUpdateActions: false
         )
 
         let after = try Data(contentsOf: settings.settingsFileURL)
         XCTAssertEqual(after, before)
-        XCTAssertEqual(settings.monitorNiriSettings, export.monitorNiriSettings)
-        XCTAssertNil(settings.niriSettings(for: primary))
-        XCTAssertNil(settings.niriSettings(for: secondary))
+        XCTAssertEqual(settings.niri.monitorOverrides, export.monitorNiriSettings)
+        XCTAssertNil(settings.niri.settings(for: primary))
+        XCTAssertNil(settings.niri.settings(for: secondary))
     }
 
     @MainActor
@@ -110,7 +110,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
         XCTAssertEqual(controller.workspaceManager.monitors, [stale])
         XCTAssertFalse(controller.hasStartedServices)
 
-        controller.serviceLifecycleManager.refreshMonitorConfigurationForServiceStart(
+        controller.serviceLifecycleManager.monitorConfiguration.refreshForServiceStart(
             currentMonitors: [current]
         )
 
@@ -133,7 +133,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
         let controller = WMController(settings: makeSettingsStore())
         controller.workspaceManager.applyMonitorConfigurationChange([stale])
 
-        controller.serviceLifecycleManager.refreshMonitorConfigurationForServiceStart(
+        controller.serviceLifecycleManager.monitorConfiguration.refreshForServiceStart(
             currentMonitors: [transient]
         )
 
@@ -148,7 +148,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
         controller.workspaceManager.applyMonitorConfigurationChange([current])
         let worldSeq = controller.workspaceManager.worldSeq
 
-        controller.serviceLifecycleManager.refreshMonitorConfigurationForServiceStart(
+        controller.serviceLifecycleManager.monitorConfiguration.refreshForServiceStart(
             currentMonitors: [current]
         )
 
@@ -366,7 +366,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
 
     func testAllOverrideTypesPersistUUIDWithoutRuntimeDisplayId() throws {
         var export = SettingsExport.defaults()
-        export.monitorArrangements = [MonitorArrangement(monitors: [
+        export.routing.arrangements = [MonitorArrangement(monitors: [
             MonitorRoutingSettings(
                 monitorName: "Display",
                 monitorDisplayUUID: displayUUIDA,
@@ -422,13 +422,13 @@ final class MonitorSettingsIdentityTests: XCTestCase {
 
         XCTAssertEqual(toml.components(separatedBy: "monitorDisplayUUID =").count - 1, 6)
         XCTAssertFalse(toml.contains("monitorDisplayId ="))
-        XCTAssertEqual(decoded.monitorArrangements.first?.monitors.first?.monitorDisplayUUID, displayUUIDA)
+        XCTAssertEqual(decoded.routing.arrangements.first?.monitors.first?.monitorDisplayUUID, displayUUIDA)
         XCTAssertEqual(decoded.monitorBarSettings.first?.monitorDisplayUUID, displayUUIDA)
         XCTAssertEqual(decoded.monitorOrientationSettings.first?.monitorDisplayUUID, displayUUIDA)
         XCTAssertEqual(decoded.monitorNiriSettings.first?.monitorDisplayUUID, displayUUIDA)
         XCTAssertEqual(decoded.monitorDwindleSettings.first?.monitorDisplayUUID, displayUUIDA)
         XCTAssertEqual(decoded.monitorGapSettings.first?.monitorDisplayUUID, displayUUIDA)
-        XCTAssertNil(decoded.monitorArrangements.first?.monitors.first?.monitorDisplayId)
+        XCTAssertNil(decoded.routing.arrangements.first?.monitors.first?.monitorDisplayId)
         XCTAssertNil(decoded.monitorBarSettings.first?.monitorDisplayId)
         XCTAssertNil(decoded.monitorOrientationSettings.first?.monitorDisplayId)
         XCTAssertNil(decoded.monitorNiriSettings.first?.monitorDisplayId)
@@ -441,7 +441,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
         let monitor = makeMonitor(displayId: 42, name: "Selected", displayUUID: displayUUIDA)
         let settings = makeSettingsStore()
 
-        settings.updateBarSettings(
+        settings.workspaceBar.update(
             MonitorBarSettings(
                 monitorName: "Wrong",
                 monitorDisplayUUID: displayUUIDB,
@@ -450,7 +450,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
             ),
             for: monitor
         )
-        settings.updateOrientationSettings(
+        settings.monitors.updateOrientationSettings(
             MonitorOrientationSettings(
                 monitorName: "Wrong",
                 monitorDisplayUUID: displayUUIDB,
@@ -459,7 +459,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
             ),
             for: monitor
         )
-        settings.updateNiriSettings(
+        settings.niri.update(
             MonitorNiriSettings(
                 monitorName: "Wrong",
                 monitorDisplayUUID: displayUUIDB,
@@ -468,7 +468,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
             ),
             for: monitor
         )
-        settings.updateDwindleSettings(
+        settings.dwindle.update(
             MonitorDwindleSettings(
                 monitorName: "Wrong",
                 monitorDisplayUUID: displayUUIDB,
@@ -477,7 +477,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
             ),
             for: monitor
         )
-        settings.updateGapSettings(
+        settings.gaps.update(
             MonitorGapSettings(
                 monitorName: "Wrong",
                 monitorDisplayUUID: displayUUIDB,
@@ -488,17 +488,17 @@ final class MonitorSettingsIdentityTests: XCTestCase {
             for: monitor
         )
 
-        assertIdentity(try XCTUnwrap(settings.monitorBarSettings.first), monitor: monitor)
-        assertIdentity(try XCTUnwrap(settings.monitorOrientationSettings.first), monitor: monitor)
-        assertIdentity(try XCTUnwrap(settings.monitorNiriSettings.first), monitor: monitor)
-        assertIdentity(try XCTUnwrap(settings.monitorDwindleSettings.first), monitor: monitor)
-        assertIdentity(try XCTUnwrap(settings.monitorGapSettings.first), monitor: monitor)
-        XCTAssertEqual(settings.monitorGapSettings.first?.fullscreenUsesOuterGaps, false)
+        assertIdentity(try XCTUnwrap(settings.workspaceBar.monitorOverrides.first), monitor: monitor)
+        assertIdentity(try XCTUnwrap(settings.monitors.orientationOverrides.first), monitor: monitor)
+        assertIdentity(try XCTUnwrap(settings.niri.monitorOverrides.first), monitor: monitor)
+        assertIdentity(try XCTUnwrap(settings.dwindle.monitorOverrides.first), monitor: monitor)
+        assertIdentity(try XCTUnwrap(settings.gaps.monitorOverrides.first), monitor: monitor)
+        XCTAssertEqual(settings.gaps.monitorOverrides.first?.fullscreenUsesOuterGaps, false)
     }
 
     func testAllOverrideTypesPreserveRuntimeIdWhenUUIDIsUnavailable() throws {
         var export = SettingsExport.defaults()
-        export.monitorArrangements = [MonitorArrangement(monitors: [
+        export.routing.arrangements = [MonitorArrangement(monitors: [
             MonitorRoutingSettings(monitorName: "Display", monitorDisplayId: 7, gridColumn: 0, gridRow: 0)
         ])]
         export.monitorBarSettings = [
@@ -523,7 +523,7 @@ final class MonitorSettingsIdentityTests: XCTestCase {
 
         XCTAssertEqual(toml.components(separatedBy: "monitorDisplayId =").count - 1, 6)
         XCTAssertFalse(toml.contains("monitorDisplayUUID ="))
-        XCTAssertEqual(decoded.monitorArrangements.first?.monitors.first?.monitorDisplayId, 7)
+        XCTAssertEqual(decoded.routing.arrangements.first?.monitors.first?.monitorDisplayId, 7)
         XCTAssertEqual(decoded.monitorBarSettings.first?.monitorDisplayId, 7)
         XCTAssertEqual(decoded.monitorOrientationSettings.first?.monitorDisplayId, 7)
         XCTAssertEqual(decoded.monitorNiriSettings.first?.monitorDisplayId, 7)
@@ -807,8 +807,8 @@ final class MonitorSettingsIdentityTests: XCTestCase {
 
         settings.applyExport(export)
 
-        XCTAssertEqual(settings.workspaceConfigurations, export.workspaceConfigurations)
-        guard case let .specificDisplay(loadedOutput) = settings.workspaceConfigurations[0].monitorAssignment else {
+        XCTAssertEqual(settings.workspaces.configurations, export.workspaceConfigurations)
+        guard case let .specificDisplay(loadedOutput) = settings.workspaces.configurations[0].monitorAssignment else {
             return XCTFail("Expected specific display assignment")
         }
         XCTAssertNil(loadedOutput.displayUUID)

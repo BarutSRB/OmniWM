@@ -58,10 +58,10 @@ struct MonitorSetupGuide: View {
         self.onSkip = onSkip
         _draft = State(initialValue: MonitorSetupDraft(
             monitors: sortedMonitors,
-            routingMode: settings.monitorRoutingMode,
-            arrangements: settings.monitorArrangements,
-            mouseWarpEnabled: settings.mouseWarpEnabled,
-            workspaceConfigurations: settings.workspaceConfigurations
+            routingMode: settings.monitors.routingMode,
+            arrangements: settings.monitors.arrangements,
+            mouseWarpEnabled: settings.pointer.enabled,
+            workspaceConfigurations: settings.workspaces.configurations
         ))
         _draftMonitors = State(initialValue: sortedMonitors)
         _liveMonitors = State(initialValue: sortedMonitors)
@@ -240,10 +240,10 @@ struct MonitorSetupGuide: View {
         draftMonitors = monitors
         draft = MonitorSetupDraft(
             monitors: monitors,
-            routingMode: settings.monitorRoutingMode,
-            arrangements: settings.monitorArrangements,
+            routingMode: settings.monitors.routingMode,
+            arrangements: settings.monitors.arrangements,
             mouseWarpEnabled: draft.mouseWarpEnabled,
-            workspaceConfigurations: settings.workspaceConfigurations
+            workspaceConfigurations: settings.workspaces.configurations
         )
         selectedMonitor = monitors.first?.id
         confirmedMacOSArrangement = false
@@ -257,7 +257,7 @@ struct MonitorSetupGuide: View {
               let routingSettings = draft.routingSettings(monitors: liveMonitors)
         else { return }
 
-        let workspaceConfigurationsChanged = settings.workspaceConfigurations != draft.workspaceConfigurations
+        let workspaceConfigurationsChanged = settings.workspaces.configurations != draft.workspaceConfigurations
         settings.applyMonitorSetup(
             routingSettings: routingSettings,
             monitors: liveMonitors,

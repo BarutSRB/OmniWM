@@ -407,7 +407,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
         let directory = try makeDiagnosticsDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let settings = makeSettingsStore()
-        settings.focusFollowsMouse = true
+        settings.focus.followsMouse = true
 
         let controller = WMController(settings: settings, diagnosticsDirectory: directory)
         let report = try controller.writeDiagnosticsReport()
@@ -560,7 +560,7 @@ final class DiagnosticsTraceCaptureTests: XCTestCase {
         let controller = WMController(settings: settings, diagnosticsDirectory: directory)
         let trace = directory.appendingPathComponent("omniwm-trace-settings.log", isDirectory: false)
         try "== Evidence Settings ==\nfollowsMouse = false".write(to: trace, atomically: true, encoding: .utf8)
-        settings.focusFollowsMouse = true
+        settings.focus.followsMouse = true
         let result = try await controller.prepareDiagnosticAttachment(evidence: .trace(trace))
         let body = try String(contentsOf: result.url, encoding: .utf8)
         let freshSettings = try XCTUnwrap(body.range(of: "followsMouse = true"))

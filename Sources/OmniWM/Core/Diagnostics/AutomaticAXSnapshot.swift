@@ -50,16 +50,9 @@ private final class AutomaticAXSnapshotContinuation: @unchecked Sendable {
     }
 }
 
-private struct AutomaticAXSnapshotRead {
-    let snapshot: AXDirectSnapshot
-    let values: [Any?]?
-    let succeeded: Bool
-}
-
 final class AutomaticAXSnapshotCollector: @unchecked Sendable {
     static let shared = AutomaticAXSnapshotCollector()
 
-    private static let arrayLimit = 64
     private static let encodedLimit = 512 * 1024
     private static let messagingTimeoutSeconds: Float = 0.5
     private static let overallTimeoutSeconds = 2.5
@@ -124,14 +117,7 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
             kAXMainWindowAttribute as String,
             kAXWindowsAttribute as String
         ]
-        let appRead = withMessagingTimeout(appElement) {
-            snapshot(
-                element: appElement,
-                attributes: appAttributes,
-                writableAttributes: [],
-                deadline: deadline
-            )
-        }
+        let appRead = readApplication(appElement, attributes: appAttributes, deadline: deadline)
         if ProcessInfo.processInfo.systemUptime >= deadline {
             return AutomaticAXSnapshot(
                 generatedAt: Date().ISO8601Format(),
@@ -161,36 +147,24 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
 
         var windowRead: AutomaticAXSnapshotRead?
         if let windowElement, ProcessInfo.processInfo.systemUptime < deadline {
-            windowRead = withMessagingTimeout(windowElement) {
-                snapshot(
-                    element: windowElement,
-                    attributes: [
-                        kAXRoleAttribute as String,
-                        kAXSubroleAttribute as String,
-                        kAXTitleAttribute as String,
-                        kAXIdentifierAttribute as String,
-                        kAXPositionAttribute as String,
-                        kAXSizeAttribute as String,
-                        kAXMinimizedAttribute as String,
-                        "AXFullScreen",
-                        kAXMainAttribute as String,
-                        kAXFocusedAttribute as String,
-                        kAXModalAttribute as String,
-                        kAXParentAttribute as String,
-                        kAXTopLevelUIElementAttribute as String,
-                        kAXCloseButtonAttribute as String,
-                        kAXMinimizeButtonAttribute as String,
-                        kAXZoomButtonAttribute as String,
-                        kAXFullScreenButtonAttribute as String
-                    ],
-                    writableAttributes: [
-                        kAXPositionAttribute as String,
-                        kAXSizeAttribute as String
-                    ],
-                    deadline: deadline
-                )
-            }
+            windowRead = readWindow(windowElement, deadline: deadline)
         }
+        return captureResult(
+            for: request,
+            appRead: appRead,
+            windowRead: windowRead,
+            resolvedWindowId: resolvedWindowId,
+            deadline: deadline
+        )
+    }
+
+    private static func captureResult(
+        for request: AutomaticAXSnapshotRequest,
+        appRead: AutomaticAXSnapshotRead,
+        windowRead: AutomaticAXSnapshotRead?,
+        resolvedWindowId: Int?,
+        deadline: TimeInterval
+    ) -> AutomaticAXSnapshot {
         let status = if ProcessInfo.processInfo.systemUptime >= deadline {
             "timed_out"
         } else if !appRead.succeeded {
@@ -213,6 +187,56 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
         )
     }
 
+    private static func readApplication(
+        _ appElement: AXUIElement,
+        attributes: [String],
+        deadline: TimeInterval
+    ) -> AutomaticAXSnapshotRead {
+        withMessagingTimeout(appElement) {
+            AutomaticAXSnapshotRead.read(
+                element: appElement,
+                attributes: attributes,
+                writableAttributes: [],
+                deadline: deadline
+            )
+        }
+    }
+
+    private static func readWindow(
+        _ windowElement: AXUIElement,
+        deadline: TimeInterval
+    ) -> AutomaticAXSnapshotRead {
+        withMessagingTimeout(windowElement) {
+            AutomaticAXSnapshotRead.read(
+                element: windowElement,
+                attributes: [
+                    kAXRoleAttribute as String,
+                    kAXSubroleAttribute as String,
+                    kAXTitleAttribute as String,
+                    kAXIdentifierAttribute as String,
+                    kAXPositionAttribute as String,
+                    kAXSizeAttribute as String,
+                    kAXMinimizedAttribute as String,
+                    "AXFullScreen",
+                    kAXMainAttribute as String,
+                    kAXFocusedAttribute as String,
+                    kAXModalAttribute as String,
+                    kAXParentAttribute as String,
+                    kAXTopLevelUIElementAttribute as String,
+                    kAXCloseButtonAttribute as String,
+                    kAXMinimizeButtonAttribute as String,
+                    kAXZoomButtonAttribute as String,
+                    kAXFullScreenButtonAttribute as String
+                ],
+                writableAttributes: [
+                    kAXPositionAttribute as String,
+                    kAXSizeAttribute as String
+                ],
+                deadline: deadline
+            )
+        }
+    }
+
     private static func selectedWindowElement(
         windowId: Int?,
         values: [Any?]?,
@@ -226,9 +250,7 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
         } ?? []
         let focusedWindow = focusedIndex.flatMap { index -> AXUIElement? in
             guard values.indices.contains(index), let rawValue = values[index] else { return nil }
-            let value = rawValue as CFTypeRef
-            guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-            return unsafeDowncast(value, to: AXUIElement.self)
+            return AXUIElement.from(rawValue as CFTypeRef)
         }
         return selectWindowElement(
             windowId: windowId,
@@ -255,7 +277,9 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
         resolveWindowId: (AXUIElement) -> Int?
     ) -> AXUIElement? {
         guard let windowId else { return focusedWindow }
-        if let window = windows.prefix(arrayLimit).first(where: { resolveWindowId($0) == windowId }) {
+        if let window = windows.prefix(RuntimeTraceLimits.axArrayElements)
+            .first(where: { resolveWindowId($0) == windowId })
+        {
             return window
         }
         guard let focusedWindow,
@@ -275,151 +299,6 @@ final class AutomaticAXSnapshotCollector: @unchecked Sendable {
         setter(element, timeoutSeconds)
         defer { setter(element, 0) }
         return try operation()
-    }
-
-    private static func snapshot(
-        element: AXUIElement,
-        attributes: [String],
-        writableAttributes: [String],
-        deadline: TimeInterval
-    ) -> AutomaticAXSnapshotRead {
-        guard ProcessInfo.processInfo.systemUptime < deadline else {
-            return AutomaticAXSnapshotRead(
-                snapshot: AXDirectSnapshot(
-                    attributes: [:],
-                    writable: [],
-                    failures: ["deadline_exceeded"]
-                ),
-                values: nil,
-                succeeded: false
-            )
-        }
-        var copiedValues: CFArray?
-        let result = AXUIElementCopyMultipleAttributeValues(
-            element,
-            attributes as CFArray,
-            AXCopyMultipleAttributeOptions(rawValue: 0),
-            &copiedValues
-        )
-        var values: [String: String] = [:]
-        var failures: [String] = []
-        if result == .success, let copiedValues = copiedValues as? [Any?] {
-            for (index, attribute) in attributes.enumerated() {
-                guard ProcessInfo.processInfo.systemUptime < deadline else {
-                    failures.append("deadline_exceeded")
-                    break
-                }
-                guard index < copiedValues.count,
-                      let value = copiedValues[index],
-                      !(value is NSError)
-                else {
-                    failures.append(attribute)
-                    continue
-                }
-                let cfValue = value as CFTypeRef
-                if let error = attributeError(cfValue) {
-                    failures.append("\(attribute)(ax=\(error.rawValue))")
-                    continue
-                }
-                values[attribute] = describe(cfValue)
-            }
-        } else {
-            failures.append("AXCopyMultipleAttributeValues(ax=\(result.rawValue))")
-        }
-
-        var writable: [String] = []
-        for attribute in writableAttributes {
-            guard ProcessInfo.processInfo.systemUptime < deadline else {
-                failures.append("deadline_exceeded")
-                break
-            }
-            var settable = DarwinBoolean(false)
-            let status = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
-            if status == .success {
-                if settable.boolValue {
-                    writable.append(attribute)
-                }
-            } else {
-                failures.append("\(attribute).settable(ax=\(status.rawValue))")
-            }
-        }
-        return AutomaticAXSnapshotRead(
-            snapshot: AXDirectSnapshot(
-                attributes: values,
-                writable: writable.sorted(),
-                failures: failures.sorted()
-            ),
-            values: copiedValues as? [Any?],
-            succeeded: result == .success && !values.isEmpty
-        )
-    }
-
-    private static func attributeError(_ value: CFTypeRef) -> AXError? {
-        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
-        let value = unsafeDowncast(value, to: AXValue.self)
-        guard AXValueGetType(value) == .axError else { return nil }
-        var error = AXError.success
-        guard AXValueGetValue(value, .axError, &error) else { return nil }
-        return error
-    }
-
-    private static func describe(_ value: CFTypeRef) -> String {
-        let typeId = CFGetTypeID(value)
-        if typeId == CFStringGetTypeID() {
-            return bounded(value as? String ?? "")
-        }
-        if typeId == CFBooleanGetTypeID(), let value = value as? Bool {
-            return value ? "true" : "false"
-        }
-        if typeId == CFNumberGetTypeID(), let value = value as? NSNumber {
-            return value.stringValue
-        }
-        if typeId == AXValueGetTypeID() {
-            return describeAXValue(unsafeDowncast(value, to: AXValue.self))
-        }
-        if typeId == AXUIElementGetTypeID() {
-            return describeElement(unsafeDowncast(value, to: AXUIElement.self))
-        }
-        if typeId == CFArrayGetTypeID() {
-            let values = (value as? [AnyObject]) ?? []
-            var descriptions = values.prefix(arrayLimit).map { describe($0 as CFTypeRef) }
-            if values.count > arrayLimit {
-                descriptions.append("truncated=\(values.count - arrayLimit)")
-            }
-            return bounded("[\(descriptions.joined(separator: ", "))]")
-        }
-        return bounded(String(describing: value))
-    }
-
-    private static func describeAXValue(_ value: AXValue) -> String {
-        switch AXValueGetType(value) {
-        case .cgPoint:
-            var point = CGPoint.zero
-            AXValueGetValue(value, .cgPoint, &point)
-            return "point(x=\(point.x),y=\(point.y))"
-        case .cgSize:
-            var size = CGSize.zero
-            AXValueGetValue(value, .cgSize, &size)
-            return "size(w=\(size.width),h=\(size.height))"
-        case .cgRect:
-            var rect = CGRect.zero
-            AXValueGetValue(value, .cgRect, &rect)
-            return "rect(x=\(rect.minX),y=\(rect.minY),w=\(rect.width),h=\(rect.height))"
-        case .cfRange:
-            var range = CFRange()
-            AXValueGetValue(value, .cfRange, &range)
-            return "range(location=\(range.location),length=\(range.length))"
-        default:
-            return "axvalue"
-        }
-    }
-
-    private static func describeElement(_ element: AXUIElement) -> String {
-        "AXUIElement(reference=\(CFHash(element)))"
-    }
-
-    private static func bounded(_ value: String) -> String {
-        RuntimeTraceLimits.boundedString(value)
     }
 
     private static func failure(

@@ -275,12 +275,14 @@ final class NiriSettledCoverageTests: NiriInteractionTestCase {
         engine.centerFocusedColumn = .always
         XCTAssertFalse(
             engine.recoverSettledCoverage(
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: traceWorkingFrame,
-                gaps: 16,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: traceWorkingFrame,
+                    gaps: 16,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
         XCTAssertEqual(state.viewOffset, -16, accuracy: 0.001)
@@ -289,12 +291,14 @@ final class NiriSettledCoverageTests: NiriInteractionTestCase {
         windows[2].sizingMode = .fullscreen
         XCTAssertFalse(
             engine.recoverSettledCoverage(
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: traceWorkingFrame,
-                gaps: 16,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: traceWorkingFrame,
+                    gaps: 16,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
         XCTAssertEqual(state.viewOffset, -16, accuracy: 0.001)
@@ -302,12 +306,14 @@ final class NiriSettledCoverageTests: NiriInteractionTestCase {
         windows[2].sizingMode = .normal
         XCTAssertTrue(
             engine.recoverSettledCoverage(
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: traceWorkingFrame,
-                gaps: 16,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: traceWorkingFrame,
+                    gaps: 16,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
         XCTAssertEqual(state.viewOffset, -1_241, accuracy: 0.001)
@@ -316,12 +322,14 @@ final class NiriSettledCoverageTests: NiriInteractionTestCase {
         windows[0].sizingMode = .maximized
         XCTAssertFalse(
             engine.recoverSettledCoverage(
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: traceWorkingFrame,
-                gaps: 16,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: traceWorkingFrame,
+                    gaps: 16,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
         XCTAssertEqual(state.viewOffset, -16, accuracy: 0.001)
@@ -349,12 +357,14 @@ final class NiriSettledCoverageTests: NiriInteractionTestCase {
 
         XCTAssertFalse(
             engine.recoverSettledCoverage(
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: traceWorkingFrame,
-                gaps: 16,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: traceWorkingFrame,
+                    gaps: 16,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
         XCTAssertEqual(state.viewOffset, 37, accuracy: 0.001)
@@ -363,12 +373,14 @@ final class NiriSettledCoverageTests: NiriInteractionTestCase {
         engine.alwaysCenterSingleColumn = true
         XCTAssertFalse(
             engine.recoverSettledCoverage(
-                in: workspaceId,
-                motion: .disabled,
-                state: &state,
-                workingFrame: traceWorkingFrame,
-                gaps: 16,
-                orientation: .vertical
+                context: .init(
+                    workspaceId: workspaceId,
+                    motion: .disabled,
+                    workingFrame: traceWorkingFrame,
+                    gaps: 16,
+                    orientation: .vertical
+                ),
+                state: &state
             )
         )
         XCTAssertEqual(state.viewOffset, 37, accuracy: 0.001)

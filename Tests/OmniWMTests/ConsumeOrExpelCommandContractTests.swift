@@ -8,8 +8,8 @@ import XCTest
 final class ConsumeOrExpelCommandContractTests: XCTestCase {
     func testUnassignableActionsRetainCommandMetadata() throws {
         let cases: [(String, HotkeyCommand, IPCCommandName)] = [
-            ("consumeOrExpelWindowLeft", .consumeOrExpelWindowLeft, .consumeOrExpelWindowLeft),
-            ("consumeOrExpelWindowRight", .consumeOrExpelWindowRight, .consumeOrExpelWindowRight)
+            ("consumeOrExpelWindowLeft", .windowMovement(.consumeOrExpelLeft), .windowMovement(.consumeOrExpelLeft)),
+            ("consumeOrExpelWindowRight", .windowMovement(.consumeOrExpelRight), .windowMovement(.consumeOrExpelRight))
         ]
 
         for (id, command, ipcName) in cases {
@@ -47,10 +47,10 @@ final class ConsumeOrExpelCommandContractTests: XCTestCase {
         )
         let spec = try XCTUnwrap(ActionCatalog.spec(for: id))
 
-        XCTAssertEqual(binding.command, .consumeWindowIntoColumn)
+        XCTAssertEqual(binding.command, .windowMovement(.consumeIntoColumn))
         XCTAssertEqual(binding.binding, .unassigned)
         XCTAssertEqual(spec.visibility, .advanced)
-        XCTAssertEqual(HotkeyBindingRegistry.command(for: id), .consumeWindowIntoColumn)
+        XCTAssertEqual(HotkeyBindingRegistry.command(for: id), .windowMovement(.consumeIntoColumn))
     }
 
     func testEveryRegistryDefaultMapsToAnAssignableCatalogSpec() throws {

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import Foundation
+import OmniWMIPC
 
 struct PhysicalHotkeyTrigger: Equatable, Hashable, Sendable {
     let keyCode: UInt32
@@ -25,99 +26,29 @@ enum LayoutCompatibility: String {
     case dwindle = "Dwindle"
 }
 
-enum HotkeyCommand: Codable, Equatable, Hashable {
+enum HotkeyCommand: Equatable, Hashable {
     case focus(Direction)
-    case focusPrevious
     case move(Direction)
-    case moveToWorkspace(Int)
-    case moveWindowToWorkspaceUp
-    case moveWindowToWorkspaceDown
-    case moveWindowToMonitor(Direction)
-    case moveColumnToWorkspace(Int)
-    case moveColumnToWorkspaceUp
-    case moveColumnToWorkspaceDown
-    case switchWorkspace(Int)
-    case switchWorkspaceSlot(Int)
-    case moveToWorkspaceSlot(Int)
-    case switchWorkspaceNext
-    case switchWorkspacePrevious
-    case focusMonitorPrevious
-    case focusMonitorNext
-    case focusMonitorLast
-    case toggleFullscreen
-    case toggleNativeFullscreen
+    case monitorFocus(IPCMonitorFocusCommand)
+    case fullscreen(IPCFullscreenCommand)
     case moveColumn(Direction)
-    case moveColumnToFirst
-    case moveColumnToLast
-    case moveColumnToIndex(Int)
-    case moveWindowDown
-    case moveWindowUp
-    case moveWindowDownOrToWorkspaceDown
-    case moveWindowUpOrToWorkspaceUp
-    case consumeOrExpelWindowLeft
-    case consumeOrExpelWindowRight
-    case consumeWindowIntoColumn
-    case expelWindowFromColumn
-    case toggleColumnTabbed
-
-    case focusDownOrLeft
-    case focusUpOrRight
-    case focusWindowInColumn(Int)
-    case focusWindowTop
-    case focusWindowBottom
-    case focusWindowDownOrTop
-    case focusWindowUpOrBottom
-    case focusWindowOrWorkspaceDown
-    case focusWindowOrWorkspaceUp
-    case focusColumnFirst
-    case focusColumnLast
-    case focusColumn(Int)
-    case centerColumn
-    case centerVisibleColumns
-    case cycleSizeForward
-    case cycleSizeBackward
-    case cycleWindowPrimarySpanForward
-    case cycleWindowPrimarySpanBackward
-    case cycleWindowSecondarySpanForward
-    case cycleWindowSecondarySpanBackward
-    case toggleContainerFullPrimarySpan
-    case expandContainerToAvailablePrimarySpan
-    case resetWindowSecondarySpan
-    case setContainerPrimarySpan(NiriSizeChange)
-    case setWindowPrimarySpan(NiriSizeChange)
-    case setWindowSecondarySpan(NiriSizeChange)
-
-    case moveWorkspaceToMonitor(Direction)
-    case swapWorkspaceWithMonitor(Direction)
-
-    case balanceSizes
-    case moveToRoot
-    case toggleSplit
-    case swapSplit
-    case resizeAlongAxis(DwindleOrientation, Bool)
-    case resizeFocusedWindow(Bool)
-    case preselect(Direction)
-    case preselectClear
-
-    case workspaceBackAndForth
 
     case openCommandPalette
 
     case raiseAllFloatingWindows
     case rescueOffscreenWindows
-    case toggleFocusedWindowFloating
-    case closeFocusedWindow
-    case assignFocusedWindowToScratchpad(Int)
-    case toggleScratchpad(Int)
+    case windowState(IPCWindowStateCommand)
 
     case openMenuAnywhere
 
-    case toggleWorkspaceBarVisibility
-    case toggleHiddenBarPanel
-    case toggleQuakeTerminal
-    case toggleWorkspaceLayout
-    case toggleOverview
-    case toggleSystemStats
+    case presentation(IPCPresentationCommand)
+    case focusNavigation(FocusNavigationAction)
+    case windowMovement(WindowMovementAction)
+    case column(ColumnAction)
+    case workspace(WorkspaceAction)
+    case sizing(SizingAction)
+    case dwindle(DwindleAction)
+    case scratchpad(ScratchpadAction)
 
     var displayName: String {
         ActionCatalog.title(for: self) ?? String(describing: self)

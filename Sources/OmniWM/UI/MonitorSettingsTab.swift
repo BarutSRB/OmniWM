@@ -32,7 +32,7 @@ struct MonitorSettingsTab: View {
 
     private var routingEditorLayout: MonitorSettingsTabModel.RoutingEditorLayout {
         MonitorSettingsTabModel.routingEditorLayout(
-            arrangements: settings.monitorArrangements,
+            arrangements: settings.monitors.arrangements,
             monitors: sortedMonitors
         )
     }
@@ -72,9 +72,9 @@ struct MonitorSettingsTab: View {
 
     private var routingModeSelection: Binding<MonitorRoutingMode> {
         Binding(
-            get: { settings.monitorRoutingMode },
+            get: { settings.monitors.routingMode },
             set: { mode in
-                settings.monitorRoutingMode = mode
+                settings.monitors.routingMode = mode
                 guard mode == .custom else { return }
                 ensureRoutingSeeded()
             }
@@ -115,7 +115,7 @@ struct MonitorSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
 
-                if settings.monitorRoutingMode == .custom {
+                if settings.monitors.routingMode == .custom {
                     if routingTiles.isEmpty {
                         Text(
                             connectedMonitors.isEmpty ?
@@ -179,26 +179,26 @@ struct MonitorSettingsTab: View {
             }
 
             Section("Cross-Monitor Behavior") {
-                Toggle("Focus Across Monitor at Edge", isOn: $settings.focusCrossesMonitorAtEdge)
-                Toggle("Move Window Across Monitor at Edge", isOn: $settings.moveCrossesMonitorAtEdge)
-                Toggle("Follow Window to Monitor", isOn: $settings.focusFollowsWindowToMonitor)
-                Toggle(isOn: $settings.mouseWarpEnabled) {
+                Toggle("Focus Across Monitor at Edge", isOn: Bindable(settings.focus).crossesMonitorAtEdge)
+                Toggle("Move Window Across Monitor at Edge", isOn: Bindable(settings.focus).moveCrossesMonitorAtEdge)
+                Toggle("Follow Window to Monitor", isOn: Bindable(settings.focus).followsWindowToMonitor)
+                Toggle(isOn: Bindable(settings.pointer).enabled) {
                     HStack(spacing: 8) {
                         Text("Mouse Warp")
                         MonitorBadge(text: "Recommended")
                     }
                 }
-                Toggle("Constrain Cursor to Arrangement", isOn: $settings.cursorContainmentEnabled)
-                    .disabled(!settings.mouseWarpEnabled || settings.monitorRoutingMode != .custom)
+                Toggle("Constrain Cursor to Arrangement", isOn: Bindable(settings.pointer).constrainToArrangement)
+                    .disabled(!settings.pointer.enabled || settings.monitors.routingMode != .custom)
 
                 LabeledContent("Mouse Warp Margin") {
-                    Stepper(value: $settings.mouseWarpMargin, in: 1 ... 10) {
-                        Text("\(settings.mouseWarpMargin) px")
+                    Stepper(value: Bindable(settings.pointer).margin, in: 1 ... 10) {
+                        Text("\(settings.pointer.margin) px")
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
                 }
-                .disabled(!settings.mouseWarpEnabled)
+                .disabled(!settings.pointer.enabled)
 
                 SettingsCaption(
                     "Mouse Warp moves the pointer across matching display edges using the OmniWM routing arrangement. "
@@ -275,16 +275,16 @@ struct MonitorSettingsTab: View {
     }
 
     private func ensureRoutingSeeded() {
-        guard settings.monitorRoutingMode == .custom else { return }
+        guard settings.monitors.routingMode == .custom else { return }
         guard MonitorSettingsTabModel.shouldSeedRouting(
-            arrangements: settings.monitorArrangements,
+            arrangements: settings.monitors.arrangements,
             monitors: connectedMonitors
         ) else { return }
         seedFromMacOS()
     }
 
     private func seedFromMacOS() {
-        settings.storeRoutingLayout(MonitorRouting.seedLayout(from: connectedMonitors), for: connectedMonitors)
+        settings.monitors.storeRoutingLayout(MonitorRouting.seedLayout(from: connectedMonitors), for: connectedMonitors)
     }
 
     private func placeRouting(_ monitorID: Monitor.ID, column: Int, row: Int) {
@@ -303,7 +303,7 @@ struct MonitorSettingsTab: View {
             monitors: monitors,
             cells: cells.mapValues { (column: $0.column, row: $0.row) }
         )
-        settings.storeRoutingLayout(updated, for: monitors)
+        settings.monitors.storeRoutingLayout(updated, for: monitors)
     }
 
     private func moveRouting(_ monitorID: Monitor.ID, _ direction: Direction) {
@@ -362,11 +362,11 @@ private struct SelectedMonitorDetails: View {
     let displayLabel: MonitorDisplayLabel
 
     private var orientationOverride: Monitor.Orientation? {
-        settings.orientationSettings(for: monitor)?.orientation
+        settings.monitors.orientationSettings(for: monitor)?.orientation
     }
 
     private var effectiveOrientation: Monitor.Orientation {
-        settings.effectiveOrientation(for: monitor)
+        settings.monitors.effectiveOrientation(for: monitor)
     }
 
     var body: some View {
@@ -421,9 +421,9 @@ private struct SelectedMonitorDetails: View {
         )
 
         if orientation == nil {
-            settings.removeOrientationSettings(for: monitor)
+            settings.monitors.removeOrientationSettings(for: monitor)
         } else {
-            settings.updateOrientationSettings(newSettings, for: monitor)
+            settings.monitors.updateOrientationSettings(newSettings, for: monitor)
         }
 
         controller.updateMonitorOrientations()

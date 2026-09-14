@@ -230,7 +230,7 @@ final class MenuExtractorTests: XCTestCase {
     }
 
     func testDecoderOmitsNullNoValueAndUnsupportedSlots() throws {
-        let decoded = try MenuExtractor.decodeAttributeValues(
+        let decoded = try MenuAXReader.decodeAttributeValues(
             names: ["title", "null", "missing", "unsupported"],
             values: [
                 "Visible",
@@ -249,7 +249,7 @@ final class MenuExtractorTests: XCTestCase {
             let value = try XCTUnwrap(menuAXErrorValue(axError))
 
             XCTAssertThrowsError(
-                try MenuExtractor.decodeAttributeValues(names: ["value"], values: [value])
+                try MenuAXReader.decodeAttributeValues(names: ["value"], values: [value])
             ) { error in
                 XCTAssertEqual(error as? MenuExtractionError, .ax(axError))
             }
@@ -258,7 +258,7 @@ final class MenuExtractorTests: XCTestCase {
 
     func testDecoderRejectsMismatchedValueCount() {
         XCTAssertThrowsError(
-            try MenuExtractor.decodeAttributeValues(names: ["one", "two"], values: ["value"])
+            try MenuAXReader.decodeAttributeValues(names: ["one", "two"], values: ["value"])
         ) { error in
             XCTAssertEqual(error as? MenuExtractionError, .invalidResponse)
         }
@@ -339,7 +339,7 @@ final class MenuExtractorTests: XCTestCase {
         var timeouts: [Float] = []
 
         XCTAssertThrowsError(
-            try MenuExtractor.withMessagingTimeout(
+            try MenuAXReader.withMessagingTimeout(
                 on: element,
                 timeout: 0.25,
                 setter: { configuredElement, timeout in

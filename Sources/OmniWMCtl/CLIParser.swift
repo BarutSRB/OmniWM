@@ -36,15 +36,11 @@ struct ParsedCLICommand: Equatable {
 }
 
 enum CLIParser {
-    private static var ruleDefinitionOptionFlags: Set<String> {
-        Set(IPCAutomationManifest.ruleDefinitionOptionDescriptors.map(\.flag))
-    }
-
     static func parse(
         arguments: [String],
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> ParsedCLICommand {
-        let normalized = normalize(arguments: arguments)
+        let normalized = CLINormalizedArguments(arguments: arguments)
         guard let command = normalized.arguments.first else {
             throw CLIParseError.usage(usageText)
         }
@@ -91,9 +87,9 @@ enum CLIParser {
         case "command":
             return try parseCommandRequest(id: id, arguments: arguments)
         case "query":
-            return try parseQueryRequest(id: id, arguments: arguments)
+            return try IPCRequest(id: id, query: CLIQueryArguments.parse(arguments: arguments))
         case "rule":
-            return try parseRuleRequest(id: id, arguments: arguments)
+            return try CLIRuleParser.parseRuleRequest(id: id, arguments: arguments)
         case "capture":
             return try parseCaptureRequest(id: id, arguments: arguments)
         case "workspace":
@@ -113,7 +109,7 @@ enum CLIParser {
         guard outputFormat.prefersJSON else {
             throw CLIParseError.usage(usageText)
         }
-        let parsed = try parseSubscriptionArguments(arguments: arguments, allowExec: false)
+        let parsed = try CLISubscriptionParser.parse(arguments: arguments, allowExec: false)
         return ParsedCLICommand(
             invocation: .remote(IPCRequest(id: id, subscribe: parsed.request)),
             outputFormat: outputFormat,
@@ -124,49 +120,8 @@ enum CLIParser {
     }
 
     static func outputFormat(arguments: [String]) -> CLIOutputFormat {
-        let normalized = normalize(arguments: arguments)
+        let normalized = CLINormalizedArguments(arguments: arguments)
         return normalized.outputFormat ?? CLIOutputFormat.defaultFormat(for: normalized.arguments.first)
-    }
-
-    private struct NormalizedArguments {
-        let arguments: [String]
-        let outputFormat: CLIOutputFormat?
-    }
-
-    private struct ParsedSubscriptionArguments {
-        let request: IPCSubscribeRequest
-        let reconnect: Bool
-        let execArguments: [String]?
-    }
-
-    private static func normalize(arguments: [String]) -> NormalizedArguments {
-        let rawArguments = Array(arguments.dropFirst())
-        let execIndex = rawArguments.firstIndex(of: "--exec") ?? rawArguments.endIndex
-
-        var filteredArguments: [String] = []
-        var outputFormat: CLIOutputFormat?
-        var index = 0
-
-        while index < rawArguments.count {
-            let argument = rawArguments[index]
-            if index < execIndex, argument == "--format", index + 1 < rawArguments.count,
-               let format = CLIOutputFormat(rawValue: rawArguments[index + 1])
-            {
-                outputFormat = format
-                index += 2
-                continue
-            }
-            if index < execIndex, argument == "--json" {
-                outputFormat = .json
-                index += 1
-                continue
-            }
-
-            filteredArguments.append(argument)
-            index += 1
-        }
-
-        return NormalizedArguments(arguments: filteredArguments, outputFormat: outputFormat)
     }
 
     private static func parseCommandRequest(id: String, arguments: [String]) throws -> IPCRequest {
@@ -183,7 +138,8 @@ enum CLIParser {
 
             let argumentTokens = Array(arguments.dropFirst(commandWordCount))
             do {
-                let argumentValues = try zip(descriptor.arguments, argumentTokens).map(parseCommandArgumentValue)
+                let argumentValues = try zip(descriptor.arguments, argumentTokens)
+                    .map(CLIArgumentParser.parseCommandArgumentValue)
                 let request = try IPCCommandRequest(name: descriptor.name, argumentValues: argumentValues)
                 return IPCRequest(id: id, command: request)
             } catch {
@@ -192,213 +148,6 @@ enum CLIParser {
         }
 
         throw CLIParseError.usage(usageText)
-    }
-
-    private static func parseQueryRequest(id: String, arguments: [String]) throws -> IPCRequest {
-        guard let rawName = arguments.first else {
-            throw CLIParseError.usage(usageText)
-        }
-
-        guard let queryName = IPCQueryName(rawValue: rawName),
-              let descriptor = IPCAutomationManifest.queryDescriptor(for: queryName)
-        else {
-            throw CLIParseError.usage(usageText)
-        }
-
-        var selectors = IPCQuerySelectors()
-        var fields: [String] = []
-        var index = 1
-        var seenSelectors: Set<IPCQuerySelectorName> = []
-        var sawFields = false
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            if argument == "--fields" {
-                guard !sawFields, index + 1 < arguments.count else {
-                    throw CLIParseError.usage(usageText)
-                }
-                let parsedFields = arguments[index + 1]
-                    .split(separator: ",")
-                    .map(String.init)
-                guard !parsedFields.isEmpty,
-                      !descriptor.fields.isEmpty,
-                      parsedFields.allSatisfy({ descriptor.fields.contains($0) })
-                else {
-                    throw CLIParseError.usage(usageText)
-                }
-                fields = parsedFields
-                sawFields = true
-                index += 2
-                continue
-            }
-
-            guard argument.hasPrefix("--") else {
-                throw CLIParseError.usage(usageText)
-            }
-
-            let selectorName = String(argument.dropFirst(2))
-            guard let selector = IPCQuerySelectorName(rawValue: selectorName),
-                  descriptor.selectors.contains(where: { $0.name == selector }),
-                  seenSelectors.insert(selector).inserted
-            else {
-                throw CLIParseError.usage(usageText)
-            }
-
-            if selector.expectsValue {
-                guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                    throw CLIParseError.usage(usageText)
-                }
-                selectors = selectors.setting(selector, value: arguments[index + 1])
-                index += 2
-            } else {
-                selectors = selectors.setting(selector)
-                index += 1
-            }
-        }
-
-        return IPCRequest(id: id, query: IPCQueryRequest(name: queryName, selectors: selectors, fields: fields))
-    }
-
-    private static func parseRuleRequest(id: String, arguments: [String]) throws -> IPCRequest {
-        guard let actionToken = arguments.first,
-              let action = IPCRuleActionName(rawValue: actionToken)
-        else {
-            throw CLIParseError.usage(usageText)
-        }
-
-        switch action {
-        case .add:
-            let rule = try parseRuleDefinition(arguments: Array(arguments.dropFirst()))
-            return IPCRequest(id: id, rule: .add(rule: rule))
-        case .replace:
-            guard arguments.count >= 2, UUID(uuidString: arguments[1]) != nil else {
-                throw CLIParseError.usage(usageText)
-            }
-            let rule = try parseRuleDefinition(arguments: Array(arguments.dropFirst(2)))
-            return IPCRequest(id: id, rule: .replace(id: arguments[1], rule: rule))
-        case .remove:
-            guard arguments.count == 2, UUID(uuidString: arguments[1]) != nil else {
-                throw CLIParseError.usage(usageText)
-            }
-            return IPCRequest(id: id, rule: .remove(id: arguments[1]))
-        case .move:
-            guard arguments.count == 3,
-                  UUID(uuidString: arguments[1]) != nil
-            else {
-                throw CLIParseError.usage(usageText)
-            }
-            return IPCRequest(
-                id: id,
-                rule: .move(id: arguments[1], position: try parsePositiveInteger(arguments[2]))
-            )
-        case .apply:
-            let target = try parseRuleApplyTarget(arguments: Array(arguments.dropFirst()))
-            return IPCRequest(id: id, rule: .apply(target: target))
-        }
-    }
-
-    private static func parseRuleDefinition(arguments: [String]) throws -> IPCRuleDefinition {
-        var bundleId: String?
-        var appNameSubstring: String?
-        var titleSubstring: String?
-        var titleRegex: String?
-        var axRole: String?
-        var axSubrole: String?
-        var layout: IPCRuleLayout = .auto
-        var assignToWorkspace: String?
-        var initialContainerPrimarySpan: Double?
-        var minWidth: Double?
-        var minHeight: Double?
-        var seenFlags: Set<String> = []
-        var index = 0
-
-        while index < arguments.count {
-            let flag = arguments[index]
-            guard ruleDefinitionOptionFlags.contains(flag),
-                  seenFlags.insert(flag).inserted,
-                  index + 1 < arguments.count,
-                  !arguments[index + 1].hasPrefix("--")
-            else {
-                throw CLIParseError.usage(usageText)
-            }
-
-            let value = arguments[index + 1]
-            switch flag {
-            case "--bundle-id":
-                bundleId = value
-            case "--app-name-substring":
-                appNameSubstring = value
-            case "--title-substring":
-                titleSubstring = value
-            case "--title-regex":
-                titleRegex = value
-            case "--ax-role":
-                axRole = value
-            case "--ax-subrole":
-                axSubrole = value
-            case "--layout":
-                guard let parsedLayout = IPCRuleLayout(rawValue: value) else {
-                    throw CLIParseError.usage(usageText)
-                }
-                layout = parsedLayout
-            case "--assign-to-workspace":
-                assignToWorkspace = value
-            case "--initial-container-primary-span":
-                initialContainerPrimarySpan = try parseInitialContainerPrimarySpan(value)
-            case "--min-width":
-                minWidth = try parsePositiveDouble(value)
-            case "--min-height":
-                minHeight = try parsePositiveDouble(value)
-            default:
-                throw CLIParseError.usage(usageText)
-            }
-
-            index += 2
-        }
-
-        let definition = IPCRuleDefinition(
-            bundleId: bundleId ?? "",
-            appNameSubstring: appNameSubstring,
-            titleSubstring: titleSubstring,
-            titleRegex: titleRegex,
-            axRole: axRole,
-            axSubrole: axSubrole,
-            layout: layout,
-            assignToWorkspace: assignToWorkspace,
-            initialContainerPrimarySpan: initialContainerPrimarySpan,
-            minWidth: minWidth,
-            minHeight: minHeight
-        )
-
-        guard IPCRuleValidator.validate(definition).isValid else {
-            throw CLIParseError.usage(usageText)
-        }
-
-        return definition
-    }
-
-    private static func parseRuleApplyTarget(arguments: [String]) throws -> IPCRuleApplyTarget {
-        switch arguments.first {
-        case nil:
-            return .focused
-        case "--focused":
-            guard arguments.count == 1 else {
-                throw CLIParseError.usage(usageText)
-            }
-            return .focused
-        case "--window":
-            guard arguments.count == 2, !arguments[1].hasPrefix("--") else {
-                throw CLIParseError.usage(usageText)
-            }
-            return .window(windowId: arguments[1])
-        case "--pid":
-            guard arguments.count == 2, !arguments[1].hasPrefix("--") else {
-                throw CLIParseError.usage(usageText)
-            }
-            return .pid(try parsePID(arguments[1]))
-        default:
-            throw CLIParseError.usage(usageText)
-        }
     }
 
     private static func parseWorkspaceRequest(id: String, arguments: [String]) throws -> IPCRequest {
@@ -434,7 +183,7 @@ enum CLIParser {
 
                 workspace = .moveToMonitor(
                     target: WorkspaceTarget(resolvingInput: positionals[0]),
-                    direction: try parseDirection(positionals[1]),
+                    direction: try CLIArgumentParser.parseDirection(positionals[1]),
                     force: flags.contains("--force")
                 )
             case .rename:
@@ -508,7 +257,7 @@ enum CLIParser {
         arguments: [String],
         outputFormat: CLIOutputFormat
     ) throws -> ParsedCLICommand {
-        let parsed = try parseSubscriptionArguments(arguments: arguments, allowExec: true)
+        let parsed = try CLISubscriptionParser.parse(arguments: arguments, allowExec: true)
         guard let execArguments = parsed.execArguments else {
             throw CLIParseError.usage(usageText)
         }
@@ -529,189 +278,6 @@ enum CLIParser {
             throw CLIParseError.usage(usageText)
         }
         return .completion(shell)
-    }
-
-    private static func parseSubscriptionArguments(
-        arguments: [String],
-        allowExec: Bool
-    ) throws -> ParsedSubscriptionArguments {
-        var channels: [IPCSubscriptionChannel] = []
-        var allChannels = false
-        var sendInitial = true
-        var reconnect = false
-        var sawChannelList = false
-        var index = 0
-        var execArguments: [String]?
-
-        while index < arguments.count {
-            let argument = arguments[index]
-
-            if allowExec, argument == "--exec" {
-                let remaining = Array(arguments.dropFirst(index + 1))
-                guard !remaining.isEmpty, execArguments == nil else {
-                    throw CLIParseError.usage(usageText)
-                }
-                execArguments = remaining
-                index = arguments.count
-                break
-            }
-
-            switch argument {
-            case "--all":
-                guard !allChannels else { throw CLIParseError.usage(usageText) }
-                allChannels = true
-                index += 1
-            case "--no-send-initial":
-                guard sendInitial else { throw CLIParseError.usage(usageText) }
-                sendInitial = false
-                index += 1
-            case "--reconnect":
-                guard !reconnect else { throw CLIParseError.usage(usageText) }
-                reconnect = true
-                index += 1
-            default:
-                guard !argument.hasPrefix("--"), !sawChannelList else {
-                    throw CLIParseError.usage(usageText)
-                }
-                let parsedChannels = argument
-                    .split(separator: ",")
-                    .map(String.init)
-                guard !parsedChannels.isEmpty else {
-                    throw CLIParseError.usage(usageText)
-                }
-                let resolvedChannels = parsedChannels.compactMap(IPCSubscriptionChannel.init(rawValue:))
-                guard resolvedChannels.count == parsedChannels.count else {
-                    throw CLIParseError.usage(usageText)
-                }
-                channels = resolvedChannels
-                sawChannelList = true
-                index += 1
-            }
-        }
-
-        guard allChannels || !channels.isEmpty else {
-            throw CLIParseError.usage(usageText)
-        }
-
-        if allowExec, execArguments == nil {
-            throw CLIParseError.usage(usageText)
-        }
-
-        return ParsedSubscriptionArguments(
-            request: IPCSubscribeRequest(
-                channels: channels,
-                allChannels: allChannels,
-                sendInitial: sendInitial
-            ),
-            reconnect: reconnect,
-            execArguments: execArguments
-        )
-    }
-
-    private static func parseDirection(_ rawValue: String) throws -> IPCDirection {
-        guard let direction = IPCDirection(rawValue: rawValue) else {
-            throw CLIParseError.usage(usageText)
-        }
-        return direction
-    }
-
-    private static func parseResizeAxis(_ rawValue: String) throws -> IPCResizeAxis {
-        guard let axis = IPCResizeAxis(rawValue: rawValue) else {
-            throw CLIParseError.usage(usageText)
-        }
-        return axis
-    }
-
-    private static func parseScratchpadIndex(_ rawValue: String) throws -> Int {
-        guard let index = Int(rawValue), IPCScratchpadSlots.range.contains(index) else {
-            throw CLIParseError.usage(usageText)
-        }
-        return index
-    }
-
-    private static func parsePositiveInteger(_ rawValue: String) throws -> Int {
-        guard let value = Int(rawValue), value > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return value
-    }
-
-    private static func parsePositiveDouble(_ rawValue: String) throws -> Double {
-        guard let value = Double(rawValue), value > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return value
-    }
-
-    private static func parseInitialContainerPrimarySpan(_ rawValue: String) throws -> Double {
-        guard let value = Double(rawValue), value.isFinite, (0.05 ... 1.0).contains(value) else {
-            throw CLIParseError.usage(usageText)
-        }
-        return value
-    }
-
-    private static func parsePID(_ rawValue: String) throws -> Int32 {
-        guard let value = Int32(rawValue), value > 0 else {
-            throw CLIParseError.usage(usageText)
-        }
-        return value
-    }
-
-    private static func parseResizeOperation(_ rawValue: String) throws -> IPCResizeOperation {
-        guard let operation = IPCResizeOperation(rawValue: rawValue) else {
-            throw CLIParseError.usage(usageText)
-        }
-        return operation
-    }
-
-    private static func parseWorkspaceLayout(_ rawValue: String) throws -> IPCWorkspaceLayout {
-        guard let layout = IPCWorkspaceLayout(rawValue: rawValue) else {
-            throw CLIParseError.usage(usageText)
-        }
-        return layout
-    }
-
-    private static func parseSizeChange(_ rawValue: String) throws -> IPCSizeChange {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw CLIParseError.usage(usageText)
-        }
-
-        let isProportion = trimmed.hasSuffix("%")
-        let numericText = isProportion ? String(trimmed.dropLast()) : trimmed
-        guard let value = Double(numericText), value.isFinite else {
-            throw CLIParseError.usage(usageText)
-        }
-
-        if trimmed.hasPrefix("+") || trimmed.hasPrefix("-") {
-            return isProportion ? .adjustProportion(value) : .adjustFixed(value)
-        }
-        return isProportion ? .setProportion(value) : .setFixed(value)
-    }
-
-    private static func parseCommandArgumentValue(
-        _ pair: (IPCCommandArgumentDescriptor, String)
-    ) throws -> IPCCommandArgumentValue {
-        let (descriptor, token) = pair
-
-        switch descriptor.kind {
-        case .direction:
-            return .direction(try parseDirection(token))
-        case .workspaceNumber,
-             .columnIndex,
-             .windowIndex:
-            return .integer(try parsePositiveInteger(token))
-        case .scratchpadIndex:
-            return .integer(try parseScratchpadIndex(token))
-        case .layout:
-            return .layout(try parseWorkspaceLayout(token))
-        case .resizeAxis:
-            return .resizeAxis(try parseResizeAxis(token))
-        case .resizeOperation:
-            return .resizeOperation(try parseResizeOperation(token))
-        case .sizeChange:
-            return .sizeChange(try parseSizeChange(token))
-        }
     }
 
     static let usageText: String = {

@@ -40,6 +40,20 @@ extension NiriLayoutEngine {
         }
     }
 
+    func clearExcludedColumnFrames(
+        in workspaceId: WorkspaceDescriptor.ID,
+        excluding excludedTokens: Set<WindowToken>
+    ) {
+        if !excludedTokens.isEmpty {
+            for column in columns(in: workspaceId)
+                where column.windowNodes.allSatisfy({ excludedTokens.contains($0.token) })
+            {
+                column.frame = nil
+                column.renderedFrame = nil
+            }
+        }
+    }
+
     func projectionExclusions(in workspaceId: WorkspaceDescriptor.ID) -> Set<WindowToken> {
         excludedTokensByWorkspace[workspaceId] ?? []
     }
@@ -277,40 +291,23 @@ extension NiriLayoutEngine {
 
         withProjectedPrimarySpans(
             projectedColumns,
-            workingFrame: context.workingFrame,
-            gap: context.gaps,
-            orientation: context.orientation
+            context: context
         ) {
             let containers = projectedColumns.map(\.column)
-            let viewportSpan: CGFloat = switch context.orientation {
-            case .horizontal: context.workingFrame.width
-            case .vertical: context.workingFrame.height
-            }
 
             var projectedState = state
-            let currentProjectedIndex = projectedActiveColumnIndex(
+            projectedState.activeColumnIndex = projectedActiveColumnIndex(
                 state: state,
                 columns: projectedColumns,
                 in: context.workspaceId
             )
-            projectedState.activeColumnIndex = currentProjectedIndex
-            let oldActivePosition = previousProjectedAnchor?.primaryPosition
-                ?? projectedState.containerPosition(
-                    at: currentProjectedIndex,
-                    containers: containers,
-                    gap: context.gaps,
-                    sizeKeyPath: context.orientation.renderedSpanKeyPath
-                )
-            let newActivePosition = projectedState.containerPosition(
-                at: targetProjectedIndex,
-                containers: containers,
+            projectedState.retargetColumn(
+                to: targetProjectedIndex,
+                columns: containers,
                 gap: context.gaps,
-                sizeKeyPath: context.orientation.renderedSpanKeyPath
+                orientation: context.orientation,
+                previousPosition: previousProjectedAnchor?.primaryPosition
             )
-            projectedState.rebaseOffset(by: oldActivePosition - newActivePosition)
-            projectedState.activeColumnIndex = targetProjectedIndex
-            projectedState.activatePrevColumnOnRemoval = nil
-            projectedState.viewOffsetToRestore = nil
 
             let projectedFromIndex = previousProjectedAnchor?.projectedIndex
                 ?? fromContainerIndex.flatMap { durableIndex in
@@ -320,19 +317,14 @@ extension NiriLayoutEngine {
             projectedState.ensureContainerVisible(
                 containerIndex: targetProjectedIndex,
                 containers: containers,
-                gap: context.gaps,
-                viewportSpan: viewportSpan,
-                motion: context.motion,
-                sizeKeyPath: context.orientation.settledSpanKeyPath,
+                context: context,
                 animate: true,
                 centerMode: settings.centerFocusedColumn,
                 alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
                 animationConfig: animationConfig,
                 fromContainerIndex: projectedFromIndex,
                 scale: displayScale(in: context.workspaceId),
-                workingArea: context.workingFrame,
-                viewFrame: monitorForWorkspace(context.workspaceId)?.frame,
-                orientation: context.orientation
+                viewFrame: monitorForWorkspace(context.workspaceId)?.frame
             )
             state = projectedState
             state.activeColumnIndex = projectedColumns[targetProjectedIndex].durableIndex
@@ -342,50 +334,48 @@ extension NiriLayoutEngine {
     @discardableResult
     func endProjectedGesture(
         state: inout ViewportState,
-        in workspaceId: WorkspaceDescriptor.ID,
+        context: NiriInteractionContext,
         currentOffset: Double,
         projectedOffset: Double,
-        gap: CGFloat,
-        viewportSpan: CGFloat,
-        orientation: Monitor.Orientation,
-        motion: MotionSnapshot,
         snapToColumn: Bool = true,
         centerMode: CenterFocusedColumn = .never,
         alwaysCenterSingleColumn: Bool = false,
-        workingArea: CGRect? = nil,
         viewFrame: CGRect? = nil,
         scale: CGFloat = 2
     ) -> NiriWindow? {
-        let projectedColumns = projectedColumns(in: workspaceId)
+        let projectedColumns = projectedColumns(in: context.workspaceId)
         guard !projectedColumns.isEmpty else { return nil }
-        let workingFrame = workingArea ?? viewFrame ?? .zero
 
         return withProjectedPrimarySpans(
             projectedColumns,
-            workingFrame: workingFrame,
-            gap: gap,
-            orientation: orientation
+            context: context
         ) {
             var projectedState = state
             projectedState.activeColumnIndex = projectedActiveColumnIndex(
                 state: state,
                 columns: projectedColumns,
-                in: workspaceId
+                in: context.workspaceId
             )
+            let viewportSpan: CGFloat = switch context.orientation {
+            case .horizontal: context.workingFrame.width
+            case .vertical: context.workingFrame.height
+            }
             projectedState.endGesture(
                 currentOffset: currentOffset,
                 projectedOffset: projectedOffset,
                 columns: projectedColumns.map(\.column),
-                gap: gap,
-                viewportSpan: viewportSpan,
-                orientation: orientation,
-                motion: motion,
+                geometry: NiriViewportGeometry(
+                    gap: context.gaps,
+                    viewportSpan: viewportSpan,
+                    orientation: context.orientation,
+                    workingArea: context.workingFrame,
+                    viewFrame: viewFrame,
+                    scale: scale
+                ),
+                motion: context.motion,
                 snapToColumn: snapToColumn,
                 centerMode: centerMode,
-                alwaysCenterSingleColumn: alwaysCenterSingleColumn,
-                workingArea: workingArea,
-                viewFrame: viewFrame,
-                scale: scale
+                alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
 
             let projectedIndex = projectedState.activeColumnIndex
@@ -401,22 +391,20 @@ extension NiriLayoutEngine {
 
     func withProjectedPrimarySpans<Result>(
         _ projectedColumns: [NiriProjectedColumn],
-        workingFrame: CGRect,
-        gap: CGFloat,
-        orientation: Monitor.Orientation,
+        context: NiriInteractionContext,
         _ operation: () -> Result
     ) -> Result {
         let originalSpans = projectedColumns.map {
-            orientation == .horizontal ? $0.column.cachedWidth : $0.column.cachedHeight
+            context.orientation == .horizontal ? $0.column.cachedWidth : $0.column.cachedHeight
         }
         for projectedColumn in projectedColumns {
             let span = projectedPrimarySpan(
                 for: projectedColumn,
-                workingFrame: workingFrame,
-                gap: gap,
-                orientation: orientation
+                workingFrame: context.workingFrame,
+                gap: context.gaps,
+                orientation: context.orientation
             )
-            switch orientation {
+            switch context.orientation {
             case .horizontal:
                 projectedColumn.column.cachedWidth = span
             case .vertical:
@@ -425,7 +413,7 @@ extension NiriLayoutEngine {
         }
         defer {
             for (projectedColumn, span) in zip(projectedColumns, originalSpans) {
-                switch orientation {
+                switch context.orientation {
                 case .horizontal:
                     projectedColumn.column.cachedWidth = span
                 case .vertical:
@@ -438,26 +426,21 @@ extension NiriLayoutEngine {
 
     func withProjectedViewport<Result>(
         state: inout ViewportState,
-        in workspaceId: WorkspaceDescriptor.ID,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation,
+        context: NiriInteractionContext,
         _ operation: ([NiriContainer], inout ViewportState) -> Result
     ) -> Result? {
-        let projectedColumns = projectedColumns(in: workspaceId)
+        let projectedColumns = projectedColumns(in: context.workspaceId)
         guard !projectedColumns.isEmpty else { return nil }
 
         var projectedState = state
         projectedState.activeColumnIndex = projectedActiveColumnIndex(
             state: state,
             columns: projectedColumns,
-            in: workspaceId
+            in: context.workspaceId
         )
         let result = withProjectedPrimarySpans(
             projectedColumns,
-            workingFrame: workingFrame,
-            gap: gaps,
-            orientation: orientation
+            context: context
         ) {
             operation(projectedColumns.map(\.column), &projectedState)
         }

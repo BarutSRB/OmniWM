@@ -68,8 +68,8 @@ final class DwindleGroupCommandContractTests: XCTestCase {
         }
 
         let wrappingCases: [(HotkeyCommand, String, IPCCommandName)] = [
-            (.focusWindowDownOrTop, "focusWindowDownOrTop", .focusWindowDownOrTop),
-            (.focusWindowUpOrBottom, "focusWindowUpOrBottom", .focusWindowUpOrBottom)
+            (.focusNavigation(.windowDownOrTop), "focusWindowDownOrTop", .focus(.windowDownOrTop)),
+            (.focusNavigation(.windowUpOrBottom), "focusWindowUpOrBottom", .focus(.windowUpOrBottom))
         ]
 
         for (command, id, ipcName) in wrappingCases {
@@ -111,8 +111,8 @@ final class DwindleGroupCommandContractTests: XCTestCase {
 
     func testWindowReorderActionsAreSharedAdvancedActions() throws {
         let cases: [(HotkeyCommand, String, String, IPCCommandName)] = [
-            (.moveWindowDown, "moveWindowDown", "Reorder Window Down", .moveWindowDown),
-            (.moveWindowUp, "moveWindowUp", "Reorder Window Up", .moveWindowUp)
+            (.windowMovement(.down), "moveWindowDown", "Reorder Window Down", .windowMovement(.down)),
+            (.windowMovement(.up), "moveWindowUp", "Reorder Window Up", .windowMovement(.up))
         ]
 
         for (command, id, title, ipcName) in cases {
@@ -161,11 +161,11 @@ final class DwindleGroupCommandContractTests: XCTestCase {
             XCTAssertEqual(spec.layoutCompatibility, compatibility)
             XCTAssertEqual(spec.visibility, .advanced)
             XCTAssertEqual(spec.defaultBinding, binding)
-            XCTAssertEqual(spec.ipcCommandName, .moveColumn)
+            XCTAssertEqual(spec.ipcCommandName, .column(.move))
             assertSearchTerms(["container", "tile", "group"], in: spec)
         }
 
-        let descriptor = try XCTUnwrap(IPCAutomationManifest.commandDescriptor(for: .moveColumn))
+        let descriptor = try XCTUnwrap(IPCAutomationManifest.commandDescriptor(for: .column(.move)))
 
         XCTAssertEqual(descriptor.commandWords, ["move-column"])
         XCTAssertEqual(descriptor.path, "command move-column <left|right|up|down>")
@@ -186,11 +186,11 @@ final class DwindleGroupCommandContractTests: XCTestCase {
 
     func testReusedIPCRequestsRetainCanonicalWireShapes() throws {
         let requests: [IPCCommandRequest] = [
-            .focus(direction: .down),
-            .focusWindowDownOrTop,
-            .move(direction: .left),
-            .moveWindowUp,
-            .moveColumn(direction: .down)
+            .focus(.spatial(direction: .down)),
+            .focus(.windowDownOrTop),
+            .windowMovement(.spatial(direction: .left)),
+            .windowMovement(.up),
+            .column(.move(direction: .down))
         ]
 
         for request in requests {
@@ -200,11 +200,11 @@ final class DwindleGroupCommandContractTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            try IPCCommandRequest(name: .moveColumn, argumentValues: [.direction(.up)]),
-            .moveColumn(direction: .up)
+            try IPCCommandRequest(name: .column(.move), argumentValues: [.direction(.up)]),
+            .column(.move(direction: .up))
         )
 
-        let data = try JSONEncoder().encode(IPCCommandRequest.moveColumn(direction: .down))
+        let data = try JSONEncoder().encode(IPCCommandRequest.column(.move(direction: .down)))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let arguments = try XCTUnwrap(object["arguments"] as? [String: Any])
 

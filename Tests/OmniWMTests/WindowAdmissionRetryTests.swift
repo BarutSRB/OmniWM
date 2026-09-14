@@ -877,11 +877,8 @@ final class WindowAdmissionRetryTests: XCTestCase {
         )
 
         controller.axEventHandler.finishRuleReevaluationRetry(
-            windowId: windowId,
-            generation: generation,
-            executionOwner: executionOwner,
-            token: retryToken,
-            axRef: retryAXRef,
+            execution: .init(windowId: windowId, generation: generation, executionOwner: executionOwner),
+            identity: .init(token: retryToken, axRef: retryAXRef),
             reason: .factsDeferred,
             stale: false
         )
@@ -918,7 +915,7 @@ final class WindowAdmissionRetryTests: XCTestCase {
                 observationGeneration: 0,
                 requestedAtSeq: 0,
                 focusedWindow: nil,
-                focusedAdmissionRetryExecution: FocusedAdmissionRetryExecution(
+                focusedAdmissionRetryExecution: AdmissionRetryExecution(
                     windowId: windowId,
                     generation: 84,
                     executionOwner: 24
@@ -1401,7 +1398,7 @@ final class WindowAdmissionRetryTests: XCTestCase {
         axRef: AXWindowRef,
         generation: UInt64,
         executionOwner: UInt64
-    ) -> FocusedAdmissionRetryExecution {
+    ) -> AdmissionRetryExecution {
         controller.axEventHandler.admissionRetryStateByWindowId[windowId] = AdmissionRetryState(
             expectedToken: token,
             axRef: axRef,
@@ -1418,7 +1415,7 @@ final class WindowAdmissionRetryTests: XCTestCase {
             executionPhase: .running(executionOwner),
             task: Task {}
         )
-        return FocusedAdmissionRetryExecution(
+        return AdmissionRetryExecution(
             windowId: windowId,
             generation: generation,
             executionOwner: executionOwner

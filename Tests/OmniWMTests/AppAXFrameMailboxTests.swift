@@ -181,13 +181,19 @@ final class AppAXFrameMailboxTests: XCTestCase {
         generations.invalidateAndRemove(request.windowId)
         AppAXContextRuntimeMetrics.shared.beginCapture()
 
-        let results = AppAXContext.executeFrameWriteRequests(
-            [request],
-            pid: request.pid,
-            axApp: AXUIElementCreateApplication(request.pid),
+        let results = AppAXFrameBatchWriter(
             generations: generations,
             suppression: nil,
             hardSuppression: nil,
+            trace: .init(
+                context: .init(pid: request.pid, callbackGeneration: 0),
+                bundleId: nil,
+                lane: .ordinary,
+                drainId: 0
+            )
+        ).execute(
+            [request],
+            axApp: AXUIElementCreateApplication(request.pid),
             isCancelled: { false }
         )
         AppAXContextRuntimeMetrics.shared.endCapture()
@@ -196,6 +202,44 @@ final class AppAXFrameMailboxTests: XCTestCase {
         XCTAssertEqual(results.first?.writeResult.failureReason, .cancelled)
         XCTAssertEqual(snapshot.staleBeforeIPC, 1)
         XCTAssertEqual(snapshot.enhancedUICalls, 0)
+    }
+
+    func testCancellationAfterPreflightSkipsWriteAndPreservesTraceAttribution() {
+        let generations = LockedWindowGenerationMap()
+        let request = request(id: 17, windowId: 410_104, generations: generations)
+        let cache = LockedEnhancedUIStateMap.shared
+        cache.store(false, for: request.pid)
+        AppAXContextRuntimeMetrics.shared.beginCapture()
+        AXWriteLatencyTrace.shared.beginCapture()
+        defer {
+            cache.invalidate(request.pid)
+            AppAXContextRuntimeMetrics.shared.endCapture()
+            AXWriteLatencyTrace.shared.endCapture()
+        }
+        var cancellationChecks = 0
+        let results = AppAXFrameBatchWriter(
+            generations: generations,
+            suppression: nil,
+            hardSuppression: nil,
+            trace: .init(
+                context: .init(pid: request.pid, callbackGeneration: 41),
+                bundleId: "test.ax-writer",
+                lane: .park,
+                drainId: 29
+            )
+        ).execute([request], axApp: AXUIElementCreateApplication(request.pid)) {
+            cancellationChecks += 1
+            return cancellationChecks == 2
+        }
+        XCTAssertEqual(cancellationChecks, 2)
+        XCTAssertEqual(results.map(\.requestId), [request.requestId])
+        XCTAssertEqual(results.first?.writeResult.failureReason, .cancelled)
+        XCTAssertEqual(AppAXContextRuntimeMetrics.shared.snapshot().enhancedUICalls, 0)
+        let trace = AXWriteLatencyTrace.shared.dump()
+        XCTAssertTrue(trace.contains("bundle=test.ax-writer context=41 lane=park submission=0 drain=29"))
+        XCTAssertTrue(trace.contains("event=attempt win=410104 attempt=0"))
+        XCTAssertTrue(trace.contains("outcome=failure/cancelled"))
+        XCTAssertTrue(trace.contains("event=batch count=1"))
     }
 
     func testDisabledEnhancedUICacheExpiresExactlyAfterOneSecond() {
@@ -512,13 +556,19 @@ final class AppAXFrameMailboxTests: XCTestCase {
         _ request: AppAXFrameWriteRequest,
         generations: LockedWindowGenerationMap
     ) -> [AXFrameApplyResult] {
-        AppAXContext.executeFrameWriteRequests(
-            [request],
-            pid: request.pid,
-            axApp: AXUIElementCreateApplication(request.pid),
+        AppAXFrameBatchWriter(
             generations: generations,
             suppression: nil,
             hardSuppression: nil,
+            trace: .init(
+                context: .init(pid: request.pid, callbackGeneration: 0),
+                bundleId: nil,
+                lane: .ordinary,
+                drainId: 0
+            )
+        ).execute(
+            [request],
+            axApp: AXUIElementCreateApplication(request.pid),
             isCancelled: { false }
         )
     }

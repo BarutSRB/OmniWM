@@ -31,7 +31,7 @@ final class IPCProtocolEnvelopeTests: XCTestCase {
 
         XCTAssertEqual(
             try JSONDecoder().decode(IPCCommandRequest.self, from: data),
-            .scratchpadAssign(index: 4)
+            .scratchpad(.assign(index: 4))
         )
     }
 
@@ -39,7 +39,7 @@ final class IPCProtocolEnvelopeTests: XCTestCase {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
-        let data = try encoder.encode(IPCCommandRequest.scratchpadToggle(index: 10))
+        let data = try encoder.encode(IPCCommandRequest.scratchpad(.toggle(index: 10)))
 
         XCTAssertEqual(
             String(decoding: data, as: UTF8.self),

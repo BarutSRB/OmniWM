@@ -7,7 +7,7 @@ import QuartzCore
 @MainActor
 final class BorderWindow {
     struct Operations {
-        var createLayerPanel: @MainActor (CGRect) -> BorderLayerPanel
+        var createLayerPanel: @MainActor (CGRect) -> BorderLayerPanel?
         var excludeFromScreencaptureSelection: @MainActor (UInt32) -> Void
         var queryWindowInfoDeferred: @MainActor (UInt32) async throws -> WindowServerInfo?
         var backingScaleForFrame: @MainActor (CGRect) -> (scale: CGFloat, screenFrame: CGRect)
@@ -63,18 +63,15 @@ final class BorderWindow {
     private let defaultCornerRadii = WindowCornerRadii(uniform: 9.0)
     private static let borderColorSpace = CGColorSpaceCreateDeviceRGB()
 
-    /// Creates a reusable border surface controller.
     init(config: BorderConfig, operations: Operations = .live) {
         self.config = config
         self.operations = operations
     }
 
-    /// Releases the border surface when its controller is deallocated.
     isolated deinit {
         destroy()
     }
 
-    /// Permanently closes and releases the owned border surface.
     func destroy() {
         invalidateDeferredLevel(target: nil)
         if wid != 0 {
@@ -91,7 +88,6 @@ final class BorderWindow {
         currentCornerRadii = defaultCornerRadii
     }
 
-    /// Applies the focused target frame and presents the border surface.
     @discardableResult
     func update(
         frame targetFrame: CGRect,
@@ -108,27 +104,17 @@ final class BorderWindow {
         let surfaceFrame = geometry.surfaceFrame
         appliedTargetFrame = geometry.targetFrame
         appliedSurfaceFrame = surfaceFrame
-        let localSurfaceFrame = CGRect(origin: .zero, size: surfaceFrame.size)
-        let localTargetFrame = CGRect(
-            origin: CGPoint(
-                x: geometry.width + geometry.surfacePadding,
-                y: geometry.width + geometry.surfacePadding
-            ),
-            size: geometry.targetFrame.size
-        )
+        let localGeometry = geometry.localized()
         let targetChanged = appliedTargetToken != targetToken
         if targetChanged {
             pendingTargetLevelRetryToken = nil
             invalidateDeferredLevel(target: targetToken)
         }
 
-        let createdWindow: Bool
-        if wid == 0 {
+        let createdWindow = wid == 0
+        if createdWindow {
             createWindow(scale: scale)
             guard wid != 0 else { return false }
-            createdWindow = true
-        } else {
-            createdWindow = false
         }
 
         if scale != lastConfiguredScale, wid != 0 {
@@ -137,23 +123,18 @@ final class BorderWindow {
             needsRedraw = true
         }
 
-        if localSurfaceFrame.size != currentSurfaceFrame.size {
+        if localGeometry.surfaceFrame.size != currentSurfaceFrame.size {
             BorderOpMetricsRecorder.shared.noteReshape()
             needsRedraw = true
         }
         if currentCornerRadii != resolvedCornerRadii {
             needsRedraw = true
         }
-        currentSurfaceFrame = localSurfaceFrame
+        currentSurfaceFrame = localGeometry.surfaceFrame
         currentCornerRadii = resolvedCornerRadii
 
         if needsRedraw {
-            draw(
-                surfaceFrame: localSurfaceFrame,
-                targetFrame: localTargetFrame,
-                borderWidth: geometry.width,
-                surfacePadding: geometry.surfacePadding
-            )
+            draw(geometry: localGeometry)
         }
 
         let retryingTargetLevel = pendingTargetLevelRetryToken == targetToken
@@ -171,28 +152,8 @@ final class BorderWindow {
         return true
     }
 
-    /// Forces the next update to resolve display scale and redraw.
-    func invalidateScaleCache() {
-        cachedScale = 0
-        cachedScaleScreenFrame = .null
-        lastConfiguredScale = 0
-        needsRedraw = true
-    }
-
-    /// Returns the cached or current display scale for a target frame.
-    private func backingScale(for targetFrame: CGRect) -> CGFloat {
-        if cachedScale > 0, cachedScaleScreenFrame.contains(targetFrame.center) {
-            return cachedScale
-        }
-        let (scale, screenFrame) = operations.backingScaleForFrame(targetFrame)
-        cachedScale = scale
-        cachedScaleScreenFrame = screenFrame
-        return scale
-    }
-
-    /// Creates the AppKit panel and registers it as an owned surface.
     private func createWindow(scale: CGFloat) {
-        let panel = operations.createLayerPanel(appliedSurfaceFrame)
+        guard let panel = operations.createLayerPanel(appliedSurfaceFrame) else { return }
         guard let windowId = UInt32(exactly: panel.windowNumber), windowId != 0 else {
             panel.close()
             return
@@ -206,119 +167,13 @@ final class BorderWindow {
         operations.excludeFromScreencaptureSelection(wid)
     }
 
-    /// Draws the border and glow layers from the current configuration.
-    private func draw(
-        surfaceFrame: CGRect,
-        targetFrame: CGRect,
-        borderWidth: CGFloat,
-        surfacePadding: CGFloat
-    ) {
-        guard let layerPanel else { return }
-        var gradientStart: CGColor?
-        var gradientEnd: CGColor?
-        var gradientPoints: (start: CGPoint, end: CGPoint)?
-        if let gradientStyle = config.gradient, gradientStyle.enabled {
-            gradientStart = Self.cgColor(gradientStyle.start)
-            gradientEnd = Self.cgColor(gradientStyle.end)
-            gradientPoints = Self.gradientUnitPoints(for: gradientStyle.direction)
-        }
-        var glowOpacity: CGFloat = 0
-        if let glow = config.glow, glow.enabled {
-            glowOpacity = Self.component(glow.opacity)
-        }
-        layerPanel.updateBorder(
-            surfaceFrame: surfaceFrame, targetFrame: targetFrame,
-            cornerRadii: currentCornerRadii, width: borderWidth,
-            color: Self.cgColor(config.color), scale: lastConfiguredScale,
-            surfacePadding: surfacePadding,
-            gradientStart: gradientStart, gradientEnd: gradientEnd,
-            gradientPoints: gradientPoints,
-            glowOpacity: glowOpacity
-        )
-        needsRedraw = false
-        BorderOpMetricsRecorder.shared.noteRedraw(rasterizedArea: surfaceFrame.width * surfaceFrame.height)
-    }
-
-    /// Converts a validated settings color into a device-RGB color.
-    private static func cgColor(_ color: SettingsColor) -> CGColor {
-        CGColor(
-            colorSpace: borderColorSpace,
-            components: [
-                component(color.red),
-                component(color.green),
-                component(color.blue),
-                component(color.alpha)
-            ]
-        )!
-    }
-
-    /// Clamps a finite scalar to the Core Animation component interval.
-    private static func component(_ value: Double) -> CGFloat {
-        guard value.isFinite else { return 0 }
-        return CGFloat(min(max(value, 0), 1))
-    }
-
-    /// Maps user-facing corner directions into unflipped layer coordinates.
-    private static func gradientUnitPoints(
-        for direction: BorderGradientDirection
-    ) -> (start: CGPoint, end: CGPoint) {
-        // The border panel uses an unflipped NSView, so CALayer unit coordinates
-        // start at the bottom-left corner.
-        switch direction {
-        case .topLeftToBottomRight:
-            return (start: CGPoint(x: 0, y: 1), end: CGPoint(x: 1, y: 0))
-        case .topRightToBottomLeft:
-            return (start: CGPoint(x: 1, y: 1), end: CGPoint(x: 0, y: 0))
-        }
-    }
-
-    /// Builds a normalized rounded-rectangle path with per-corner radii.
-    static func roundedRectPath(in rect: CGRect, radii: WindowCornerRadii) -> CGPath {
-        let path = CGMutablePath()
-        guard rect.width > 0, rect.height > 0, !rect.isInfinite, !rect.isNull else { return path }
-        let radii = radii.normalized(to: rect.size)
-
-        path.move(to: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - radii.bottomRight, y: rect.minY))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
-            tangent2End: CGPoint(x: rect.maxX, y: rect.minY + radii.bottomRight),
-            radius: radii.bottomRight
-        )
-
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radii.topRight))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
-            tangent2End: CGPoint(x: rect.maxX - radii.topRight, y: rect.maxY),
-            radius: radii.topRight
-        )
-
-        path.addLine(to: CGPoint(x: rect.minX + radii.topLeft, y: rect.maxY))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
-            tangent2End: CGPoint(x: rect.minX, y: rect.maxY - radii.topLeft),
-            radius: radii.topLeft
-        )
-
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radii.bottomLeft))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.minX, y: rect.minY),
-            tangent2End: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY),
-            radius: radii.bottomLeft
-        )
-
-        path.closeSubpath()
-        return path
-    }
-
-    /// Moves the reusable panel and restores its ordering below the target.
     private func move(
         relativeTo targetToken: WindowToken,
         targetWid: UInt32,
         needsOrdering: Bool,
         retryingTargetLevel: Bool
     ) {
-        layerPanel?.applyFrame(appliedSurfaceFrame)
+        layerPanel?.applyFrame(targetFrame: appliedTargetFrame, surfaceFrame: appliedSurfaceFrame)
         if needsOrdering {
             BorderOpMetricsRecorder.shared.noteMoveAndOrder()
             let level = resolvedTargetLevel(
@@ -339,7 +194,6 @@ final class BorderWindow {
         BorderOpMetricsRecorder.shared.noteMoveOnly()
     }
 
-    /// Resolves the target level used to place the border below the window.
     private func resolvedTargetLevel(
         for targetToken: WindowToken,
         retrying: Bool
@@ -358,13 +212,11 @@ final class BorderWindow {
         return cachedLevel(for: targetToken)
     }
 
-    /// Returns a previously resolved level for the target token, if available.
     private func cachedLevel(for targetToken: WindowToken) -> Int32 {
         guard let cachedTargetLevel, cachedTargetLevel.token == targetToken else { return 0 }
         return cachedTargetLevel.level
     }
 
-    /// Accepts matching WindowServer level evidence and schedules retries otherwise.
     private func acceptTargetLevel(
         _ info: WindowServerInfo?, for targetToken: WindowToken, retrying: Bool
     ) -> Int32 {
@@ -384,7 +236,6 @@ final class BorderWindow {
         return cachedLevel(for: targetToken)
     }
 
-    /// Cancels deferred level work that no longer belongs to the active target.
     private func invalidateDeferredLevel(target: WindowToken?) {
         deferredLevelGeneration &+= 1
         deferredLevelTarget = target
@@ -394,7 +245,6 @@ final class BorderWindow {
         needsWindowLevelRetry = false
     }
 
-    /// Starts one guarded asynchronous WindowServer level query.
     private func startDeferredLevelQuery(for targetToken: WindowToken, retrying: Bool) {
         guard deferredLevelTask == nil,
               let targetWid = UInt32(exactly: targetToken.windowId)
@@ -424,7 +274,6 @@ final class BorderWindow {
         }
     }
 
-    /// Reorders the visible panel below a new target without redrawing.
     func reorder(relativeTo targetToken: WindowToken) {
         needsWindowLevelRetry = false
         guard wid != 0,
@@ -443,28 +292,20 @@ final class BorderWindow {
         lastOrderedTargetToken = targetToken
     }
 
-    /// Hides the panel and clears retained drawing content before ordering out.
     func hide() {
         invalidateDeferredLevel(target: nil)
         guard wid != 0 else { return }
         BorderOpMetricsRecorder.shared.noteHide()
-        layerPanel?.setContentVisible(false)
         layerPanel?.orderOut(nil)
         isVisible = false
-        needsRedraw = true
         lastOrderedTargetToken = nil
         pendingTargetLevelRetryToken = nil
         needsWindowLevelRetry = false
     }
 
-    /// Applies a new border appearance and invalidates drawing when necessary.
     func updateConfig(_ newConfig: BorderConfig) {
         guard config != newConfig else { return }
-        if config.color != newConfig.color
-            || config.width != newConfig.width
-            || config.gradient != newConfig.gradient
-            || config.glow != newConfig.glow
-        {
+        if config.color != newConfig.color || config.width != newConfig.width {
             needsRedraw = true
         }
         config = newConfig
@@ -480,5 +321,51 @@ final class BorderWindow {
 
     var targetFrameOnScreen: CGRect? {
         wid == 0 || !isVisible ? nil : appliedTargetFrame
+    }
+}
+
+extension BorderWindow {
+    func invalidateScaleCache() {
+        cachedScale = 0
+        cachedScaleScreenFrame = .null
+        lastConfiguredScale = 0
+        needsRedraw = true
+    }
+
+    private func backingScale(for targetFrame: CGRect) -> CGFloat {
+        if cachedScale > 0, cachedScaleScreenFrame.contains(targetFrame.center) {
+            return cachedScale
+        }
+        let (scale, screenFrame) = operations.backingScaleForFrame(targetFrame)
+        cachedScale = scale
+        cachedScaleScreenFrame = screenFrame
+        return scale
+    }
+
+    private func draw(geometry: BorderConfig.ResolvedGeometry) {
+        guard let layerPanel else { return }
+        layerPanel.updateBorder(
+            geometry: geometry, cornerRadii: currentCornerRadii,
+            color: Self.cgColor(config.color), scale: lastConfiguredScale
+        )
+        needsRedraw = false
+        BorderOpMetricsRecorder.shared.noteRedraw()
+    }
+
+    private static func cgColor(_ color: SettingsColor) -> CGColor {
+        CGColor(
+            colorSpace: borderColorSpace,
+            components: [
+                component(color.red),
+                component(color.green),
+                component(color.blue),
+                component(color.alpha)
+            ]
+        )!
+    }
+
+    private static func component(_ value: Double) -> CGFloat {
+        guard value.isFinite else { return 0 }
+        return CGFloat(min(max(value, 0), 1))
     }
 }

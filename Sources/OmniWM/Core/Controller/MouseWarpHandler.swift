@@ -73,12 +73,12 @@ final class MouseWarpHandler: NSObject {
         guard let controller else { return }
         guard !state.isWarping else { return }
         guard controller.isEnabled else { return }
-        guard controller.settings.mouseWarpEnabled else { return }
+        guard controller.settings.pointer.enabled else { return }
 
         let monitors = controller.workspaceManager.monitors
         guard monitors.count > 1 else { return }
 
-        let margin = CGFloat(controller.settings.mouseWarpMargin)
+        let margin = CGFloat(controller.settings.pointer.margin)
 
         if attemptContainment(location: location, monitors: monitors, margin: margin) { return }
 
@@ -149,8 +149,8 @@ final class MouseWarpHandler: NSObject {
 
     private func attemptContainment(location: CGPoint, monitors: [Monitor], margin: CGFloat) -> Bool {
         guard let controller else { return false }
-        guard controller.settings.cursorContainmentEnabled else { return false }
-        guard controller.settings.monitorRoutingMode == .custom else { return false }
+        guard controller.settings.pointer.constrainToArrangement else { return false }
+        guard controller.settings.monitors.routingMode == .custom else { return false }
         guard let sourceMonitorId = state.lastMonitorId,
               let source = controller.workspaceManager.monitor(byId: sourceMonitorId)
         else { return false }
@@ -167,12 +167,13 @@ final class MouseWarpHandler: NSObject {
             return true
         }
 
-        switch MouseContainment.evaluate(
+        switch MouseContainment(
+            layout: MonitorRouting.layout(for: monitors, in: controller.settings.monitors.arrangements),
+            monitors: monitors
+        ).evaluate(
             location: location,
             source: source,
             destination: destination,
-            layout: MonitorRouting.layout(for: monitors, in: controller.settings.monitorArrangements),
-            monitors: monitors,
             margin: margin
         ) {
         case .allow:
@@ -261,10 +262,10 @@ final class MouseWarpHandler: NSObject {
         state.isWarping = false
         guard let controller else { return }
         guard controller.isEnabled else { return }
-        guard controller.settings.mouseWarpEnabled else { return }
+        guard controller.settings.pointer.enabled else { return }
         let monitors = controller.workspaceManager.monitors
         guard monitors.count > 1 else { return }
-        let margin = CGFloat(controller.settings.mouseWarpMargin)
+        let margin = CGFloat(controller.settings.pointer.margin)
         _ = attemptContainment(
             location: controller.currentMouseLocation(),
             monitors: monitors,

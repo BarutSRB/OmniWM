@@ -76,7 +76,7 @@ final class WorldStoreCommitTests: XCTestCase {
             snapshot: { Self.snapshot(world: world) },
             resolvePlan: { plan, _, _ in plan }
         )
-        XCTAssertNotNil(world.entry(for: token))
+        XCTAssertNotNil(world.windows.entry(for: token))
 
         var snapshotCount = 0
         let transaction = world.commit(
@@ -94,7 +94,7 @@ final class WorldStoreCommitTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshotCount, 2)
-        XCTAssertNil(world.entry(for: token))
+        XCTAssertNil(world.windows.entry(for: token))
         XCTAssertFalse(transaction.snapshot.windows.contains { $0.token == token })
     }
 
@@ -138,14 +138,14 @@ final class WorldStoreCommitTests: XCTestCase {
 
         XCTAssertEqual(snapshotCount, 1)
         XCTAssertTrue(transaction.plan.isEmpty)
-        XCTAssertEqual(world.entry(for: token)?.lifetimeAuthority, .axTopLevelInventory)
+        XCTAssertEqual(world.windows.entry(for: token)?.lifetimeAuthority, .axTopLevelInventory)
         XCTAssertEqual(transaction.snapshot.windows.first?.lifetimeAuthority, .axTopLevelInventory)
     }
 
     private static func snapshot(world: WorldStore) -> ReconcileSnapshot {
         snapshot(
             focus: world.focus,
-            windows: world.allEntries().map {
+            windows: world.windows.allEntries().map {
                 ReconcileWindowSnapshot(
                     token: $0.token,
                     workspaceId: $0.workspaceId,

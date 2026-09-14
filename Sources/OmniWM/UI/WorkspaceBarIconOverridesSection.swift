@@ -39,7 +39,7 @@ enum WorkspaceBarIconOverrideEdits {
             return false
         }
 
-        let changed = settings.setWorkspaceBarIconOverride(source.storedValue, for: bundleID)
+        let changed = settings.workspaceBar.setIconOverride(source.storedValue, for: bundleID)
         refresh(true)
         return changed
     }
@@ -50,7 +50,7 @@ enum WorkspaceBarIconOverrideEdits {
         settings: SettingsStore,
         refresh: (Bool) -> Void
     ) -> Bool {
-        guard settings.removeWorkspaceBarIconOverride(for: bundleID) else {
+        guard settings.workspaceBar.removeIconOverride(for: bundleID) else {
             return false
         }
         refresh(false)
@@ -81,7 +81,7 @@ struct WorkspaceBarIconOverridesSection: View {
     private var candidates: [WorkspaceBarAppCandidate] {
         WorkspaceBarAppCandidates.build(
             controller: controller,
-            configuredBundleIDs: Array(settings.workspaceBarIconOverrides.keys)
+            configuredBundleIDs: Array(settings.workspaceBar.iconOverrides.keys)
         )
     }
 
@@ -98,7 +98,7 @@ struct WorkspaceBarIconOverridesSection: View {
                 ForEach(candidates) { candidate in
                     WorkspaceBarIconOverrideRow(
                         candidate: candidate,
-                        configuredValue: settings.workspaceBarIconOverrideValue(
+                        configuredValue: settings.workspaceBar.iconOverrideValue(
                             for: candidate.bundleID
                         ),
                         resolution: controller.workspaceBarIconResolver.overrideResolution(

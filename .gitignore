@@ -31,6 +31,7 @@ Frameworks/
 # Codex
 .codex-home/
 .claude/
+/.agents/
 .tmp/
 .cache/
 .codex-cache/

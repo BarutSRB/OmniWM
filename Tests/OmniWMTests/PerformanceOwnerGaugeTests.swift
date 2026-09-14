@@ -13,7 +13,7 @@ final class PerformanceOwnerGaugeTests: XCTestCase {
         defer { intake.close() }
 
         XCTAssertTrue(intake.enqueue(.activeSpaceChanged))
-        XCTAssertTrue(intake.enqueue(.appActivated(pid: 901)))
+        XCTAssertTrue(intake.enqueue(.application(.activated(pid: 901))))
         XCTAssertTrue(intake.enqueue(.systemWake))
         intake.beginPerformanceCapture()
 

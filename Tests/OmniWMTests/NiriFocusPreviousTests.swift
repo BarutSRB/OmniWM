@@ -117,7 +117,7 @@ final class NiriFocusPreviousTests: XCTestCase {
         let blocker = blockLayoutRefresh(fixture.controller, workspaceId: fixture.workspaceB)
         defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
 
-        let result = fixture.controller.commandHandler.performCommand(.focusPrevious)
+        let result = fixture.controller.commandHandler.performCommand(.focusNavigation(.previous))
 
         XCTAssertEqual(result, .executed)
         XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.workspaceA)
@@ -165,7 +165,7 @@ final class NiriFocusPreviousTests: XCTestCase {
         defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.focusPrevious),
+            fixture.controller.commandHandler.performCommand(.focusNavigation(.previous)),
             .executed
         )
         XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.workspaceB)
@@ -188,12 +188,13 @@ final class NiriFocusPreviousTests: XCTestCase {
         let workspaceB = try XCTUnwrap(
             controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
         )
-        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map { configuration in
-            guard configuration.name == "1" else { return configuration }
-            var configuration = configuration
-            configuration.layoutType = .dwindle
-            return configuration
-        }
+        controller.settings.workspaces.configurations = controller.settings.workspaces.configurations
+            .map { configuration in
+                guard configuration.name == "1" else { return configuration }
+                var configuration = configuration
+                configuration.layoutType = .dwindle
+                return configuration
+            }
         controller.workspaceManager.applySettings()
         _ = controller.workspaceManager.focusWorkspace(named: "2")
         controller.niriLayoutHandler.enableNiriLayout()
@@ -219,7 +220,7 @@ final class NiriFocusPreviousTests: XCTestCase {
         let blocker = blockLayoutRefresh(controller, workspaceId: workspaceB)
         defer { unblockLayoutRefresh(controller, blocker: blocker) }
 
-        XCTAssertEqual(controller.commandHandler.performCommand(.focusPrevious), .executed)
+        XCTAssertEqual(controller.commandHandler.performCommand(.focusNavigation(.previous)), .executed)
         XCTAssertEqual(
             controller.workspaceManager.mostRecentlyFocusedTiledToken(excluding: tokenA),
             tokenB
@@ -301,7 +302,7 @@ final class NiriFocusPreviousTests: XCTestCase {
         defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.focusPrevious),
+            fixture.controller.commandHandler.performCommand(.focusNavigation(.previous)),
             .executed
         )
         let postLayout = try XCTUnwrap(
@@ -329,7 +330,7 @@ final class NiriFocusPreviousTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.focusPrevious),
+            fixture.controller.commandHandler.performCommand(.focusNavigation(.previous)),
             .executed
         )
         let postLayout = try XCTUnwrap(
@@ -364,13 +365,14 @@ final class NiriFocusPreviousTests: XCTestCase {
             hasNotch: false,
             name: "Secondary"
         )
-        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map { configuration in
-            var configuration = configuration
-            configuration.monitorAssignment = ["6", "7"].contains(configuration.name)
-                ? .specificDisplay(OutputId(from: secondary))
-                : .specificDisplay(OutputId(from: primary))
-            return configuration
-        }
+        controller.settings.workspaces.configurations = controller.settings.workspaces.configurations
+            .map { configuration in
+                var configuration = configuration
+                configuration.monitorAssignment = ["6", "7"].contains(configuration.name)
+                    ? .specificDisplay(OutputId(from: secondary))
+                    : .specificDisplay(OutputId(from: primary))
+                return configuration
+            }
         controller.workspaceManager.applyMonitorConfigurationChange([primary, secondary])
         controller.workspaceManager.applySettings()
         let workspaceA = try XCTUnwrap(
@@ -402,7 +404,7 @@ final class NiriFocusPreviousTests: XCTestCase {
         let blocker = blockLayoutRefresh(controller, workspaceId: workspaceB)
         defer { unblockLayoutRefresh(controller, blocker: blocker) }
 
-        XCTAssertEqual(controller.commandHandler.performCommand(.focusPrevious), .executed)
+        XCTAssertEqual(controller.commandHandler.performCommand(.focusNavigation(.previous)), .executed)
         let postLayout = try XCTUnwrap(
             controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
         )
@@ -426,7 +428,7 @@ final class NiriFocusPreviousTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.focusPrevious),
+            fixture.controller.commandHandler.performCommand(.focusNavigation(.previous)),
             .executed
         )
         let postLayout = try XCTUnwrap(

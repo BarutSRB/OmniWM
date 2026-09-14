@@ -443,9 +443,7 @@ final class DwindleGroupingEngineTests: XCTestCase {
         )
         let newFrames = engine.calculateLayout(for: workspace, screen: screen)
         engine.animateWindowMovements(
-            oldFrames: oldFrames,
-            previousTargetFrames: previousTargets,
-            newFrames: newFrames,
+            .init(oldFrames: oldFrames, previousTargetFrames: previousTargets, newFrames: newFrames),
             in: workspace,
             startTime: 100,
             motion: .enabled
@@ -481,9 +479,7 @@ final class DwindleGroupingEngineTests: XCTestCase {
         )
         let newFrames = engine.calculateLayout(for: workspace, screen: screen)
         engine.animateWindowMovements(
-            oldFrames: oldFrames,
-            previousTargetFrames: previousTargets,
-            newFrames: newFrames,
+            .init(oldFrames: oldFrames, previousTargetFrames: previousTargets, newFrames: newFrames),
             in: workspace,
             startTime: 100,
             motion: .enabled

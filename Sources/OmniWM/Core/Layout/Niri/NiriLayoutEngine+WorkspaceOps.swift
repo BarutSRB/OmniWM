@@ -72,11 +72,11 @@ extension NiriLayoutEngine {
     func moveColumnToWorkspace(
         _ column: NiriContainer,
         from sourceWorkspaceId: WorkspaceDescriptor.ID,
-        to targetWorkspaceId: WorkspaceDescriptor.ID,
+        to destination: NiriWorkspaceDestination,
         sourceState: inout ViewportState,
-        targetState: inout ViewportState,
-        targetOrientation: Monitor.Orientation
+        targetState: inout ViewportState
     ) -> WorkspaceMoveResult? {
+        let targetWorkspaceId = destination.workspaceId
         assertSanctionedMutation()
         guard sourceWorkspaceId != targetWorkspaceId else { return nil }
 
@@ -111,7 +111,7 @@ extension NiriLayoutEngine {
 
         column.detach()
         targetRoot.appendChild(column)
-        column.invalidateCachedPrimarySpan(orientation: targetOrientation)
+        column.invalidateCachedPrimarySpan(orientation: destination.orientation)
 
         for window in movedWindows {
             sourceWorkspaceState.unindex(window)

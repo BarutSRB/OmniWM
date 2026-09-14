@@ -112,7 +112,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
         defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.focusWindowDownOrTop),
+            fixture.controller.commandHandler.performCommand(.focusNavigation(.windowDownOrTop)),
             .executed
         )
         XCTAssertEqual(fixture.engine.activeToken(in: fixture.sourceWorkspaceId), fixture.firstToken)
@@ -122,13 +122,13 @@ final class DwindleCommandRoutingTests: XCTestCase {
         )
         fixture.controller.layoutRefreshController.layoutState.pendingRefresh = nil
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.focusWindowUpOrBottom),
+            fixture.controller.commandHandler.performCommand(.focusNavigation(.windowUpOrBottom)),
             .executed
         )
         XCTAssertEqual(fixture.engine.activeToken(in: fixture.sourceWorkspaceId), fixture.activeToken)
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.moveWindowUp),
+            fixture.controller.commandHandler.performCommand(.windowMovement(.up)),
             .executed
         )
         XCTAssertEqual(
@@ -139,7 +139,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
             [fixture.activeToken, fixture.firstToken]
         )
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.moveWindowUp),
+            fixture.controller.commandHandler.performCommand(.windowMovement(.up)),
             .executed
         )
         XCTAssertEqual(
@@ -150,7 +150,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
             [fixture.activeToken, fixture.firstToken]
         )
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.moveWindowDown),
+            fixture.controller.commandHandler.performCommand(.windowMovement(.down)),
             .executed
         )
         XCTAssertEqual(
@@ -164,8 +164,8 @@ final class DwindleCommandRoutingTests: XCTestCase {
 
     func testMoveAtSingletonEdgeTransfersToAdjacentMonitor() throws {
         let fixture = try makeFixture(groupedSource: false, includeTargetCandidate: false)
-        fixture.controller.settings.moveCrossesMonitorAtEdge = true
-        fixture.controller.settings.focusFollowsWindowToMonitor = false
+        fixture.controller.settings.focus.moveCrossesMonitorAtEdge = true
+        fixture.controller.settings.focus.followsWindowToMonitor = false
         let blocker = blockLayoutRefresh(fixture)
         defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
 
@@ -195,7 +195,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
 
     func testEligibilityBlockedMoveDoesNotTransferToAdjacentMonitor() throws {
         let fixture = try makeFixture(groupedSource: true, includeTargetCandidate: false)
-        fixture.controller.settings.moveCrossesMonitorAtEdge = true
+        fixture.controller.settings.focus.moveCrossesMonitorAtEdge = true
         let before = try XCTUnwrap(
             fixture.engine.tileSnapshot(for: fixture.activeToken, in: fixture.sourceWorkspaceId)
         )
@@ -228,7 +228,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
 
     func testMoveContainerSwapsWholeGroupAndNeverTransfersAtMonitorEdge() throws {
         let fixture = try makeFixture(groupedSource: true, includeTargetCandidate: false)
-        fixture.controller.settings.moveCrossesMonitorAtEdge = true
+        fixture.controller.settings.focus.moveCrossesMonitorAtEdge = true
         let thirdToken = addWindow(
             pid: 31_104,
             windowId: 31_204,
@@ -333,7 +333,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
         fixture.controller.layoutRefreshController.layoutState.pendingRefresh = nil
 
         XCTAssertEqual(
-            fixture.controller.commandHandler.performCommand(.cycleSizeForward),
+            fixture.controller.commandHandler.performCommand(.sizing(.cycleSizeForward)),
             .executed
         )
 
@@ -374,10 +374,10 @@ final class DwindleCommandRoutingTests: XCTestCase {
         let router = IPCCommandRouter(controller: fixture.controller, sessionToken: "test")
         let root = try XCTUnwrap(fixture.engine.root(for: fixture.sourceWorkspaceId))
 
-        XCTAssertEqual(router.handle(.resize(axis: .horizontal, operation: .grow)), .executed)
+        XCTAssertEqual(router.handle(.dwindle(.resize(axis: .horizontal, operation: .grow))), .executed)
         XCTAssertEqual(root.splitRatio ?? 0, 1.1, accuracy: 0.000_001)
 
-        XCTAssertEqual(router.handle(.resize(axis: .horizontal, operation: .shrink)), .executed)
+        XCTAssertEqual(router.handle(.dwindle(.resize(axis: .horizontal, operation: .shrink))), .executed)
         XCTAssertEqual(root.splitRatio ?? 0, 1.0, accuracy: 0.000_001)
     }
 
@@ -385,8 +385,8 @@ final class DwindleCommandRoutingTests: XCTestCase {
         let fixture = try makeFixture(groupedSource: false, includeTargetCandidate: false)
 
         for command in [
-            HotkeyCommand.consumeOrExpelWindowLeft,
-            .consumeOrExpelWindowRight
+            HotkeyCommand.windowMovement(.consumeOrExpelLeft),
+            .windowMovement(.consumeOrExpelRight)
         ] {
             XCTAssertEqual(
                 fixture.controller.commandHandler.performCommand(command),
@@ -429,7 +429,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: sourceMonitor)),
@@ -441,7 +441,7 @@ final class DwindleCommandRoutingTests: XCTestCase {
                 layoutType: .dwindle
             )
         ]
-        settings.focusCrossesMonitorAtEdge = true
+        settings.focus.crossesMonitorAtEdge = true
         let controller = WMController(
             settings: settings,
             windowFocusOperations: WindowFocusOperations(

@@ -7,19 +7,19 @@ import XCTest
 
 final class WorkspaceBarNotchModeSettingsTests: XCTestCase {
     func testNotchModeRoundTrips() throws {
-        XCTAssertEqual(SettingsExport.defaults().workspaceBarNotchMode, .moveBelowMenuBar)
+        XCTAssertEqual(SettingsExport.defaults().workspaceBar.notchMode, .moveBelowMenuBar)
 
         var export = SettingsExport.defaults()
-        export.workspaceBarNotchMode = .splitActiveLeft
-        export.workspaceBarNotchActiveZoneWidth = 220
+        export.workspaceBar.notchMode = .splitActiveLeft
+        export.workspaceBar.notchActiveZoneWidth = 220
         let data = try SettingsTOMLCodec.encode(export)
         let toml = String(decoding: data, as: UTF8.self)
 
         XCTAssertTrue(toml.contains("notchMode = \"splitActiveLeft\""))
         XCTAssertTrue(toml.contains("notchActiveZoneWidth = 220"))
         let decoded = try SettingsTOMLCodec.decode(data)
-        XCTAssertEqual(decoded.workspaceBarNotchMode, .splitActiveLeft)
-        XCTAssertEqual(decoded.workspaceBarNotchActiveZoneWidth, 220)
+        XCTAssertEqual(decoded.workspaceBar.notchMode, .splitActiveLeft)
+        XCTAssertEqual(decoded.workspaceBar.notchActiveZoneWidth, 220)
     }
 
     func testMonitorOverrideNotchModeRoundTrips() throws {
@@ -48,7 +48,7 @@ final class WorkspaceBarNotchModeSettingsTests: XCTestCase {
         )
 
         XCTAssertTrue(SettingsTOMLCodec.unknownKeyPaths(in: withLegacyKey).contains("workspaceBar.notchAware"))
-        XCTAssertEqual(try SettingsTOMLCodec.decode(withLegacyKey).workspaceBarNotchMode, .moveBelowMenuBar)
+        XCTAssertEqual(try SettingsTOMLCodec.decode(withLegacyKey).workspaceBar.notchMode, .moveBelowMenuBar)
     }
 
     @MainActor
@@ -56,20 +56,20 @@ final class WorkspaceBarNotchModeSettingsTests: XCTestCase {
         let settings = makeSettingsStore()
 
         var export = SettingsExport.defaults()
-        export.workspaceBarNotchActiveZoneWidth = 12
+        export.workspaceBar.notchActiveZoneWidth = 12
         settings.applyExport(export)
-        XCTAssertEqual(settings.workspaceBarNotchActiveZoneWidth, 100)
+        XCTAssertEqual(settings.workspaceBar.notchActiveZoneWidth, 100)
 
-        export.workspaceBarNotchActiveZoneWidth = 9999
+        export.workspaceBar.notchActiveZoneWidth = 9999
         settings.applyExport(export)
-        XCTAssertEqual(settings.workspaceBarNotchActiveZoneWidth, 400)
+        XCTAssertEqual(settings.workspaceBar.notchActiveZoneWidth, 400)
     }
 
     @MainActor
     func testResolvedBarSettingsMergesNotchOverrides() {
         let settings = makeSettingsStore()
-        settings.workspaceBarNotchMode = .splitActiveLeft
-        settings.workspaceBarNotchActiveZoneWidth = 180
+        settings.workspaceBar.notchMode = .splitActiveLeft
+        settings.workspaceBar.notchActiveZoneWidth = 180
         let monitor = Monitor(
             id: .init(displayId: 7),
             displayId: 7,
@@ -79,11 +79,11 @@ final class WorkspaceBarNotchModeSettingsTests: XCTestCase {
             name: "Built-in"
         )
 
-        let global = settings.resolvedBarSettings(for: monitor)
+        let global = settings.workspaceBar.resolved(for: monitor)
         XCTAssertEqual(global.notchMode, .splitActiveLeft)
         XCTAssertEqual(global.notchActiveZoneWidth, 180)
 
-        settings.updateBarSettings(
+        settings.workspaceBar.update(
             MonitorBarSettings(
                 monitorName: "Built-in",
                 monitorDisplayId: 7,
@@ -93,7 +93,7 @@ final class WorkspaceBarNotchModeSettingsTests: XCTestCase {
             for: monitor
         )
 
-        let resolved = settings.resolvedBarSettings(for: monitor)
+        let resolved = settings.workspaceBar.resolved(for: monitor)
         XCTAssertEqual(resolved.notchMode, .off)
         XCTAssertEqual(resolved.notchActiveZoneWidth, 300)
     }

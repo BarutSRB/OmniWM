@@ -66,7 +66,7 @@ final class QuakeTerminalScreenSelectionTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        settings.quakeTerminalMonitorMode = mode
+        settings.quakeTerminal.monitorMode = mode
         return QuakeTerminalController(
             settings: settings,
             motionPolicy: MotionPolicy(),

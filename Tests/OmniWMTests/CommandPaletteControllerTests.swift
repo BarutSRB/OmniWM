@@ -100,54 +100,48 @@ final class CommandPaletteControllerTests: XCTestCase {
 
     func testModeHintsKeepDirectShortcutsVisible() {
         XCTAssertEqual(
-            CommandPaletteController.modeHint(for: .windows),
+            CommandPalettePresentation.modeHint(for: .windows),
             .init(title: "Windows", shortcut: "⌘1")
         )
         XCTAssertEqual(
-            CommandPaletteController.modeHint(for: .menu),
+            CommandPalettePresentation.modeHint(for: .menu),
             .init(title: "Menu", shortcut: "⌘2")
         )
         XCTAssertEqual(
-            CommandPaletteController.modeHint(for: .clipboard),
+            CommandPalettePresentation.modeHint(for: .clipboard),
             .init(title: "Clipboard", shortcut: "⌘3")
         )
     }
 
     func testHiddenManagedRowsRemainSearchableAndSortAfterVisibleRows() throws {
         let (wmController, visibleToken, hiddenToken) = try makeWindowFixture()
-        let palette = CommandPaletteController(
-            motionPolicy: MotionPolicy(animationsEnabled: false)
-        )
 
-        let items = palette.buildWindowItems(from: wmController)
+        let items = CommandPaletteSearch.buildWindowItems(from: wmController)
 
         XCTAssertEqual(items.map(\.id), [visibleToken, hiddenToken])
         XCTAssertEqual(items.map(\.isAppHidden), [false, true])
         XCTAssertTrue(items[0].handle === wmController.workspaceManager.handle(for: visibleToken))
         XCTAssertTrue(items[1].handle === wmController.workspaceManager.handle(for: hiddenToken))
-        XCTAssertEqual(palette.filterWindowItems(items, query: "hidden").map(\.id), [hiddenToken])
-        XCTAssertTrue(CommandPaletteController.allowsSummonRight(items[0]))
-        XCTAssertFalse(CommandPaletteController.allowsSummonRight(items[1]))
+        XCTAssertEqual(CommandPaletteSearch.filterWindowItems(items, query: "hidden").map(\.id), [hiddenToken])
+        XCTAssertTrue(CommandPalettePresentation.allowsSummonRight(items[0]))
+        XCTAssertFalse(CommandPalettePresentation.allowsSummonRight(items[1]))
     }
 
     func testWindowStatusTextDescribesSelectedHiddenWindowPrimaryAction() throws {
         let (wmController, _, hiddenToken) = try makeWindowFixture()
-        let palette = CommandPaletteController(
-            motionPolicy: MotionPolicy(animationsEnabled: false)
-        )
         let hiddenItem = try XCTUnwrap(
-            palette.buildWindowItems(from: wmController).first { $0.id == hiddenToken }
+            CommandPaletteSearch.buildWindowItems(from: wmController).first { $0.id == hiddenToken }
         )
 
         XCTAssertEqual(
-            CommandPaletteController.windowsStatusText(
+            CommandPalettePresentation.windowsStatusText(
                 selectedItem: hiddenItem,
                 isSummonRightAvailable: true
             ),
             "Return · Unhide & Focus"
         )
         XCTAssertEqual(
-            CommandPaletteController.windowsStatusText(
+            CommandPalettePresentation.windowsStatusText(
                 selectedItem: hiddenItem,
                 isSummonRightAvailable: false
             ),
@@ -157,22 +151,19 @@ final class CommandPaletteControllerTests: XCTestCase {
 
     func testWindowStatusTextPreservesVisibleWindowGuidance() throws {
         let (wmController, visibleToken, _) = try makeWindowFixture()
-        let palette = CommandPaletteController(
-            motionPolicy: MotionPolicy(animationsEnabled: false)
-        )
         let visibleItem = try XCTUnwrap(
-            palette.buildWindowItems(from: wmController).first { $0.id == visibleToken }
+            CommandPaletteSearch.buildWindowItems(from: wmController).first { $0.id == visibleToken }
         )
 
         XCTAssertEqual(
-            CommandPaletteController.windowsStatusText(
+            CommandPalettePresentation.windowsStatusText(
                 selectedItem: visibleItem,
                 isSummonRightAvailable: true
             ),
             "Enter jumps. Shift-Enter summons right."
         )
         XCTAssertEqual(
-            CommandPaletteController.windowsStatusText(
+            CommandPalettePresentation.windowsStatusText(
                 selectedItem: visibleItem,
                 isSummonRightAvailable: false
             ),
@@ -192,7 +183,7 @@ final class CommandPaletteControllerTests: XCTestCase {
         isMenuModeAvailable: Bool = true,
         modifiers: NSEvent.ModifierFlags = []
     ) -> CommandPaletteMode? {
-        CommandPaletteController.modeNavigationTarget(
+        CommandPalettePresentation.modeNavigationTarget(
             currentMode: currentMode,
             isMenuModeAvailable: isMenuModeAvailable,
             keyCode: UInt16(kVK_Tab),
@@ -206,7 +197,7 @@ final class CommandPaletteControllerTests: XCTestCase {
         characters: String,
         isMenuModeAvailable: Bool = true
     ) -> CommandPaletteMode? {
-        CommandPaletteController.modeNavigationTarget(
+        CommandPalettePresentation.modeNavigationTarget(
             currentMode: .windows,
             isMenuModeAvailable: isMenuModeAvailable,
             keyCode: keyCode,

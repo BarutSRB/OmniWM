@@ -17,9 +17,11 @@ final class FullRescanReadmissionTests: XCTestCase {
         XCTAssertFalse(
             LayoutRefreshController.shouldReadmitTrackedWindow(
                 entry: entry,
-                workspaceId: workspaceId,
-                mode: .tiling,
-                ruleEffects: entry.ruleEffects,
+                target: .init(
+                    workspaceId: workspaceId,
+                    mode: .tiling,
+                    ruleEffects: entry.ruleEffects
+                ),
                 shouldPreservePreFullscreenState: false,
                 appFullscreen: false
             )
@@ -36,9 +38,11 @@ final class FullRescanReadmissionTests: XCTestCase {
         XCTAssertTrue(
             LayoutRefreshController.shouldReadmitTrackedWindow(
                 entry: entry,
-                workspaceId: otherWorkspaceId,
-                mode: .tiling,
-                ruleEffects: entry.ruleEffects,
+                target: .init(
+                    workspaceId: otherWorkspaceId,
+                    mode: .tiling,
+                    ruleEffects: entry.ruleEffects
+                ),
                 shouldPreservePreFullscreenState: false,
                 appFullscreen: false
             )
@@ -46,9 +50,11 @@ final class FullRescanReadmissionTests: XCTestCase {
         XCTAssertTrue(
             LayoutRefreshController.shouldReadmitTrackedWindow(
                 entry: entry,
-                workspaceId: workspaceId,
-                mode: .floating,
-                ruleEffects: entry.ruleEffects,
+                target: .init(
+                    workspaceId: workspaceId,
+                    mode: .floating,
+                    ruleEffects: entry.ruleEffects
+                ),
                 shouldPreservePreFullscreenState: false,
                 appFullscreen: false
             )
@@ -56,9 +62,11 @@ final class FullRescanReadmissionTests: XCTestCase {
         XCTAssertTrue(
             LayoutRefreshController.shouldReadmitTrackedWindow(
                 entry: entry,
-                workspaceId: workspaceId,
-                mode: .tiling,
-                ruleEffects: entry.ruleEffects,
+                target: .init(
+                    workspaceId: workspaceId,
+                    mode: .tiling,
+                    ruleEffects: entry.ruleEffects
+                ),
                 shouldPreservePreFullscreenState: true,
                 appFullscreen: false
             )
@@ -66,9 +74,11 @@ final class FullRescanReadmissionTests: XCTestCase {
         XCTAssertTrue(
             LayoutRefreshController.shouldReadmitTrackedWindow(
                 entry: entry,
-                workspaceId: workspaceId,
-                mode: .tiling,
-                ruleEffects: entry.ruleEffects,
+                target: .init(
+                    workspaceId: workspaceId,
+                    mode: .tiling,
+                    ruleEffects: entry.ruleEffects
+                ),
                 shouldPreservePreFullscreenState: false,
                 appFullscreen: true
             )

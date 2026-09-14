@@ -4,40 +4,6 @@
 import CoreGraphics
 import Foundation
 
-enum WorkspacePlacementRung: String, Sendable {
-    case existingEntry = "existing_entry"
-    case structuralReplacement = "structural_replacement"
-    case trackedParent = "tracked_parent"
-    case workspaceRule = "workspace_rule"
-    case pendingFocusContext = "pending_focus_context"
-    case interactionWorkspace = "interaction_workspace"
-    case focusedContext = "focused_context"
-    case nativeSpace = "native_space"
-    case floatingSpawn = "floating_spawn"
-    case liveManagedFocus = "live_managed_focus"
-    case frame = "frame"
-    case axFrame = "ax_frame"
-    case interactionMonitor = "interaction_monitor"
-    case fallbackWorkspace = "fallback_workspace"
-    case defaultWorkspace = "default_workspace"
-}
-
-enum WorkspacePlacementOrigin: Equatable, Sendable {
-    case liveCreate
-    case discovery
-}
-
-enum WorkspaceRuleSkipReason: String, Sendable {
-    case workspaceNotMaterialized = "workspace_not_materialized"
-    case appAlreadyHasEntries = "app_already_has_entries"
-}
-
-struct WorkspacePlacementResolution: Equatable {
-    let workspaceId: WorkspaceDescriptor.ID
-    let rung: WorkspacePlacementRung
-    var ruleSkipReason: WorkspaceRuleSkipReason?
-}
-
 @MainActor
 final class PlacementResolver {
     private struct WorkspacePlacementTarget {
@@ -67,27 +33,18 @@ final class PlacementResolver {
     }
 
     func resolveWorkspacePlacement(
-        workspaceName: String?,
-        axRef: AXWindowRef?,
-        pid: pid_t?,
-        parentWindowId: UInt32?,
-        inheritTrackedParentWorkspace: Bool,
-        structuralReplacementWorkspaceId: WorkspaceDescriptor.ID?,
-        placementMode: TrackedWindowMode,
-        allowsFloatingSpawnPlacement: Bool,
-        origin: WorkspacePlacementOrigin,
-        createPlacementContext: WindowCreatePlacementContext?,
-        windowFrame: CGRect?,
-        existingEntry: WindowState?,
-        fallbackWorkspaceId: WorkspaceDescriptor.ID?,
-        context: WindowRuleReevaluationContext
+        window: WorkspacePlacementWindow,
+        rules: WorkspacePlacementRules,
+        context: WorkspacePlacementContext
     ) -> WorkspacePlacementResolution {
-        if context == .automatic, let existingEntry {
+        let existingEntry = window.existingEntry
+
+        if context.reevaluation == .automatic, let existingEntry {
             return WorkspacePlacementResolution(workspaceId: existingEntry.workspaceId, rung: .existingEntry)
         }
 
         if existingEntry == nil,
-           let structuralReplacementWorkspaceId,
+           let structuralReplacementWorkspaceId = rules.structuralReplacementWorkspaceId,
            workspaceManager.descriptor(for: structuralReplacementWorkspaceId) != nil
         {
             return WorkspacePlacementResolution(
@@ -97,19 +54,22 @@ final class PlacementResolver {
         }
 
         if existingEntry == nil,
-           inheritTrackedParentWorkspace,
-           let parentWorkspaceId = workspaceForTrackedParentWindow(parentWindowId: parentWindowId, pid: pid)
+           rules.inheritTrackedParentWorkspace,
+           let parentWorkspaceId = workspaceForTrackedParentWindow(
+               parentWindowId: window.parentWindowId,
+               pid: window.pid
+           )
         {
             return WorkspacePlacementResolution(workspaceId: parentWorkspaceId, rung: .trackedParent)
         }
 
         var ruleSkipReason: WorkspaceRuleSkipReason?
-        if let workspaceName {
+        if let workspaceName = rules.workspaceName {
             let resolvedRuleWorkspaceId = workspaceManager.workspaceId(
                 for: workspaceName,
                 createIfMissing: false
             )
-            if !shouldApplyWorkspaceRule(pid: pid, context: context) {
+            if !shouldApplyWorkspaceRule(pid: window.pid, context: context.reevaluation) {
                 ruleSkipReason = .appAlreadyHasEntries
             } else if let resolvedRuleWorkspaceId {
                 return WorkspacePlacementResolution(
@@ -129,16 +89,7 @@ final class PlacementResolver {
             )
         }
 
-        let placementTarget = createPlacementTarget(
-            axRef: axRef,
-            pid: pid,
-            placementMode: placementMode,
-            allowsFloatingSpawnPlacement: allowsFloatingSpawnPlacement,
-            origin: origin,
-            createPlacementContext: createPlacementContext,
-            windowFrame: windowFrame,
-            fallbackWorkspaceId: fallbackWorkspaceId
-        )
+        let placementTarget = createPlacementTarget(window: window, rules: rules, context: context)
 
         var resolution = defaultWorkspacePlacement(placementTarget: placementTarget)
         resolution.ruleSkipReason = ruleSkipReason
@@ -206,77 +157,27 @@ final class PlacementResolver {
         }
         fatal("resolveWorkspaceForNewWindow: no workspaces exist")
     }
+}
 
+extension PlacementResolver {
     private func createPlacementTarget(
-        axRef: AXWindowRef?,
-        pid: pid_t?,
-        placementMode: TrackedWindowMode,
-        allowsFloatingSpawnPlacement: Bool,
-        origin: WorkspacePlacementOrigin,
-        createPlacementContext: WindowCreatePlacementContext?,
-        windowFrame: CGRect?,
-        fallbackWorkspaceId: WorkspaceDescriptor.ID?
+        window: WorkspacePlacementWindow,
+        rules: WorkspacePlacementRules,
+        context: WorkspacePlacementContext
     ) -> WorkspacePlacementTarget {
+        let axRef = window.axRef
+        let placementMode = window.placementMode
+        let windowFrame = window.windowFrame
+        let createPlacementContext = context.createPlacementContext
+
         let preferManagedFocusPlacement = placementMode == .tiling
-        let nativeSpaceTarget: WorkspacePlacementTarget? = if let monitorId = createPlacementContext?
-            .nativeSpaceMonitorId,
-            let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
-        {
-            WorkspacePlacementTarget(
-                workspaceId: workspace.id,
-                rung: .nativeSpace
-            )
-        } else {
-            nil
-        }
-        let floatingSpawnTarget: WorkspacePlacementTarget? = if allowsFloatingSpawnPlacement,
-                                                                !preferManagedFocusPlacement,
-                                                                let pid,
-                                                                let monitorId = floatingSpawnMonitorId(pid: pid),
-                                                                let workspace = workspaceManager.activeWorkspaceOrFirst(
-                                                                    on: monitorId
-                                                                )
-        {
-            WorkspacePlacementTarget(
-                workspaceId: workspace.id,
-                rung: .floatingSpawn
-            )
-        } else {
-            nil
-        }
+        let nativeSpaceTarget = nativeSpacePlacement(context.createPlacementContext)
+        let floatingSpawnTarget = floatingSpawnPlacement(window: window, rules: rules)
 
-        if origin == .liveCreate {
-            if let target = managedFocusPlacementTarget(
-                createPlacementContext?.pendingFocusedWorkspaceId,
-                createPlacementContext?.pendingFocusedMonitorId,
-                rung: .pendingFocusContext
-            ) {
-                return target
-            }
-
-            if let floatingSpawnTarget {
-                if let nativeSpaceTarget {
-                    return nativeSpaceTarget
-                }
-                return floatingSpawnTarget
-            }
-
-            if let target = capturedInteractionPlacementTarget(createPlacementContext) {
-                return target
-            }
-
-            if let target = liveInteractionPlacementTarget() {
-                return target
-            }
-        } else if preferManagedFocusPlacement,
-                  let target = managedFocusPlacementTarget(
-                      createPlacementContext?.pendingFocusedWorkspaceId,
-                      createPlacementContext?.pendingFocusedMonitorId,
-                      rung: .pendingFocusContext
-                  )
-        {
-            return target
-        }
+        if let target = initialCreatePlacement(
+            context: context, preferManagedFocusPlacement: preferManagedFocusPlacement,
+            nativeSpaceTarget: nativeSpaceTarget, floatingSpawnTarget: floatingSpawnTarget
+        ) { return target }
 
         if preferManagedFocusPlacement {
             if let target = managedFocusPlacementTarget(
@@ -322,6 +223,97 @@ final class PlacementResolver {
             )
         }
 
+        return fallbackCreatePlacement(context: context, preferManagedFocusPlacement: preferManagedFocusPlacement)
+    }
+
+    private func nativeSpacePlacement(_ createPlacementContext: WindowCreatePlacementContext?)
+        -> WorkspacePlacementTarget?
+    {
+        return if let monitorId = createPlacementContext?
+            .nativeSpaceMonitorId,
+            let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
+        {
+            WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                rung: .nativeSpace
+            )
+        } else {
+            nil
+        }
+    }
+
+    private func floatingSpawnPlacement(
+        window: WorkspacePlacementWindow,
+        rules: WorkspacePlacementRules
+    ) -> WorkspacePlacementTarget? {
+        let allowsFloatingSpawnPlacement = rules.allowsFloatingSpawnPlacement
+        let preferManagedFocusPlacement = window.placementMode == .tiling
+        let pid = window.pid
+        return if allowsFloatingSpawnPlacement,
+                  !preferManagedFocusPlacement,
+                  let pid,
+                  let monitorId = floatingSpawnMonitorId(pid: pid),
+                  let workspace = workspaceManager.activeWorkspaceOrFirst(
+                      on: monitorId
+                  )
+        {
+            WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                rung: .floatingSpawn
+            )
+        } else {
+            nil
+        }
+    }
+
+    private func initialCreatePlacement(
+        context: WorkspacePlacementContext, preferManagedFocusPlacement: Bool,
+        nativeSpaceTarget: WorkspacePlacementTarget?, floatingSpawnTarget: WorkspacePlacementTarget?
+    ) -> WorkspacePlacementTarget? {
+        let origin = context.origin
+        let createPlacementContext = context.createPlacementContext
+        if origin == .liveCreate {
+            if let target = managedFocusPlacementTarget(
+                createPlacementContext?.pendingFocusedWorkspaceId,
+                createPlacementContext?.pendingFocusedMonitorId,
+                rung: .pendingFocusContext
+            ) {
+                return target
+            }
+
+            if let floatingSpawnTarget {
+                if let nativeSpaceTarget {
+                    return nativeSpaceTarget
+                }
+                return floatingSpawnTarget
+            }
+
+            if let target = capturedInteractionPlacementTarget(createPlacementContext) {
+                return target
+            }
+
+            if let target = liveInteractionPlacementTarget() {
+                return target
+            }
+        } else if preferManagedFocusPlacement,
+                  let target = managedFocusPlacementTarget(
+                      createPlacementContext?.pendingFocusedWorkspaceId,
+                      createPlacementContext?.pendingFocusedMonitorId,
+                      rung: .pendingFocusContext
+                  )
+        {
+            return target
+        }
+
+        return nil
+    }
+
+    private func fallbackCreatePlacement(
+        context: WorkspacePlacementContext, preferManagedFocusPlacement: Bool
+    ) -> WorkspacePlacementTarget {
+        let origin = context.origin
+        let createPlacementContext = context.createPlacementContext
+        let fallbackWorkspaceId = context.fallbackWorkspaceId
         if !preferManagedFocusPlacement {
             if origin == .discovery,
                let target = managedFocusPlacementTarget(

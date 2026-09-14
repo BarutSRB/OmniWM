@@ -13,12 +13,12 @@ struct OverviewSettingsTab: View {
             Section("Layout") {
                 SettingsSliderRow(
                     label: "Default Zoom",
-                    value: $settings.overviewZoom,
+                    value: Bindable(settings.overview).zoom,
                     range: 0.5 ... 1.5,
                     step: 0.05,
-                    valueText: "\(Int((settings.overviewZoom * 100).rounded()))%"
+                    valueText: "\(Int((settings.overview.zoom * 100).rounded()))%"
                 )
-                .onChange(of: settings.overviewZoom) { _, _ in
+                .onChange(of: settings.overview.zoom) { _, _ in
                     scheduleUpdate()
                 }
             }
@@ -26,22 +26,22 @@ struct OverviewSettingsTab: View {
             Section("Appearance") {
                 ColorPicker(
                     "Backdrop Color",
-                    selection: colorBinding(\.overviewBackdropColor),
+                    selection: colorBinding(\.backdropColor),
                     supportsOpacity: true
                 )
                 ColorPicker(
                     "Normal Window Border",
-                    selection: colorBinding(\.overviewNormalBorderColor),
+                    selection: colorBinding(\.normalBorderColor),
                     supportsOpacity: true
                 )
                 ColorPicker(
                     "Hovered Window Border",
-                    selection: colorBinding(\.overviewHoveredBorderColor),
+                    selection: colorBinding(\.hoveredBorderColor),
                     supportsOpacity: true
                 )
                 ColorPicker(
                     "Selected Window Border",
-                    selection: colorBinding(\.overviewSelectedBorderColor),
+                    selection: colorBinding(\.selectedBorderColor),
                     supportsOpacity: true
                 )
             }
@@ -49,12 +49,12 @@ struct OverviewSettingsTab: View {
         .formStyle(.grouped)
     }
 
-    private func colorBinding(_ keyPath: ReferenceWritableKeyPath<SettingsStore, SettingsColor>) -> Binding<Color> {
+    private func colorBinding(_ keyPath: ReferenceWritableKeyPath<OverviewSettings, SettingsColor>) -> Binding<Color> {
         Binding(
-            get: { settings[keyPath: keyPath].swiftUIColor },
+            get: { [settings] in settings.overview[keyPath: keyPath].swiftUIColor },
             set: { color in
                 guard let converted = SettingsColor(color: color) else { return }
-                settings[keyPath: keyPath] = converted
+                settings.overview[keyPath: keyPath] = converted
                 scheduleUpdate()
             }
         )

@@ -129,7 +129,7 @@ final class AppRevealFocusTests: XCTestCase {
             fixture.controller.intentLedger.openAppRevealFocusIntent(pid: fixture.token.pid)?.intent.id
         )
 
-        fixture.controller.serviceLifecycleManager.handleAppTerminated(pid: fixture.token.pid)
+        fixture.controller.axEventHandler.handleAppTerminated(pid: fixture.token.pid)
 
         XCTAssertEqual(fixture.controller.intentLedger.intent(id: intentId)?.phase, .cancelled)
         XCTAssertNil(fixture.controller.intentLedger.openAppRevealFocusIntent(pid: fixture.token.pid))
@@ -786,7 +786,7 @@ final class AppRevealFocusTests: XCTestCase {
 
     private func makeFixture(pid: pid_t, windowId: Int) throws -> Fixture {
         let settings = makeSettingsStore()
-        settings.workspaceConfigurations = settings.workspaceConfigurations.map {
+        settings.workspaces.configurations = settings.workspaces.configurations.map {
             $0.name == "1" ? $0.with(layoutType: .dwindle) : $0
         }
         let controller = WMController(

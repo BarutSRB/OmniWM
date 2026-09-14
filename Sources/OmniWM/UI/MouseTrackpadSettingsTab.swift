@@ -36,41 +36,41 @@ struct MouseTrackpadSettingsTab: View {
 
     private var niriColumnScrollingSection: some View {
         Section("Niri Column Scrolling") {
-            Toggle("Enable Column Scrolling", isOn: $settings.scrollGestureEnabled)
+            Toggle("Enable Column Scrolling", isOn: Bindable(settings.gestures).scrollEnabled)
 
             SettingsSliderRow(
                 label: "Scroll Sensitivity",
-                value: $settings.scrollSensitivity,
+                value: Bindable(settings.gestures).scrollSensitivity,
                 range: 0.1 ... 100.0,
                 step: 0.1,
-                valueText: String(format: "%.1f", settings.scrollSensitivity) + "x"
+                valueText: String(format: "%.1f", settings.gestures.scrollSensitivity) + "x"
             )
-            .disabled(!settings.scrollGestureEnabled)
+            .disabled(!settings.gestures.scrollEnabled)
 
-            Picker("Trackpad Gesture Fingers", selection: $settings.gestureFingerCount) {
+            Picker("Trackpad Gesture Fingers", selection: Bindable(settings.gestures).fingerCount) {
                 ForEach(GestureFingerCount.allCases, id: \.self) { count in
                     Text(count.displayName).tag(count)
                 }
             }
-            .disabled(!settings.scrollGestureEnabled)
+            .disabled(!settings.gestures.scrollEnabled)
 
-            Picker("Trackpad Scroll Style", selection: $settings.trackpadScrollStyle) {
+            Picker("Trackpad Scroll Style", selection: Bindable(settings.gestures).trackpadScrollStyle) {
                 ForEach(TrackpadScrollStyle.allCases) { style in
                     Text(style.displayName).tag(style)
                 }
             }
-            .disabled(!settings.scrollGestureEnabled)
+            .disabled(!settings.gestures.scrollEnabled)
 
-            SettingsCaption(settings.trackpadScrollStyle == .momentum
+            SettingsCaption(settings.gestures.trackpadScrollStyle == .momentum
                 ? "Free inertial scrolling with rubber-band edges"
                 : "Scroll snaps to the nearest column")
 
-            Picker("Mouse Scroll Modifier", selection: $settings.scrollModifierKey) {
+            Picker("Mouse Scroll Modifier", selection: Bindable(settings.gestures).scrollModifierKey) {
                 ForEach(ScrollModifierKey.allCases, id: \.self) { key in
                     Text(key.displayName).tag(key)
                 }
             }
-            .disabled(!settings.scrollGestureEnabled)
+            .disabled(!settings.gestures.scrollEnabled)
 
             SettingsCaption("Hold this key + scroll wheel to scroll through columns")
         }
@@ -78,16 +78,16 @@ struct MouseTrackpadSettingsTab: View {
 
     private var workspaceSwipeSection: some View {
         Section("Workspace Swipe") {
-            Toggle("Enable Workspace Swipe", isOn: $settings.workspaceSwipeEnabled)
+            Toggle("Enable Workspace Swipe", isOn: Bindable(settings.gestures).workspaceSwipeEnabled)
 
             SettingsCaption("Swipe to switch workspaces on the monitor under the cursor")
 
-            Picker("Swipe Fingers", selection: $settings.workspaceSwipeFingerCount) {
+            Picker("Swipe Fingers", selection: Bindable(settings.gestures).workspaceSwipeFingerCount) {
                 ForEach(GestureFingerCount.allCases, id: \.self) { count in
                     Text(count.displayName).tag(count)
                 }
             }
-            .disabled(!settings.workspaceSwipeEnabled)
+            .disabled(!settings.gestures.workspaceSwipeEnabled)
             .accessibilityHint(workspaceSwipeFingerPickerHint)
 
             if showTwoFingerWorkspaceSwipeWarning {
@@ -99,13 +99,13 @@ struct MouseTrackpadSettingsTab: View {
                     Text(axis.displayName).tag(axis)
                 }
             }
-            .disabled(!settings.workspaceSwipeEnabled || settings.workspaceSwipeAxisLockedToVertical)
+            .disabled(!settings.gestures.workspaceSwipeEnabled || settings.gestures.workspaceSwipeAxisLockedToVertical)
 
             SettingsCaption(workspaceSwipeCaption)
 
             if missionControlGestureProbe.shouldWarn(
-                axis: settings.effectiveWorkspaceSwipeAxis,
-                fingerCount: settings.workspaceSwipeFingerCount
+                axis: settings.gestures.effectiveWorkspaceSwipeAxis,
+                fingerCount: settings.gestures.workspaceSwipeFingerCount
             ) {
                 VStack(alignment: .leading, spacing: 6) {
                     Label {
@@ -133,10 +133,10 @@ struct MouseTrackpadSettingsTab: View {
 
     private var trackpadDirectionSection: some View {
         Section("Trackpad Direction") {
-            Toggle("Invert Direction (Natural)", isOn: $settings.gestureInvertDirection)
-                .disabled(!settings.scrollGestureEnabled && !settings.workspaceSwipeEnabled)
+            Toggle("Invert Direction (Natural)", isOn: Bindable(settings.gestures).invertDirection)
+                .disabled(!settings.gestures.scrollEnabled && !settings.gestures.workspaceSwipeEnabled)
 
-            SettingsCaption(settings.gestureInvertDirection
+            SettingsCaption(settings.gestures.invertDirection
                 ? "Affects both Niri column scrolling and workspace swipes. Swipe right = scroll right."
                 : "Affects both Niri column scrolling and workspace swipes. Swipe right = scroll left.")
         }
@@ -144,7 +144,7 @@ struct MouseTrackpadSettingsTab: View {
 
     private var mouseMoveAndResizeSection: some View {
         Section("Mouse Move & Resize") {
-            Picker("Left Mouse Move Modifier", selection: $settings.mouseMoveModifierKey) {
+            Picker("Left Mouse Move Modifier", selection: Bindable(settings.gestures).mouseMoveModifierKey) {
                 ForEach(MouseMoveModifierKey.allCases, id: \.self) { key in
                     Text(key.displayName).tag(key)
                 }
@@ -155,7 +155,7 @@ struct MouseTrackpadSettingsTab: View {
                     + "Add Shift to insert instead; choose Off to leave modified drags to apps."
             )
 
-            Picker("Right Mouse Resize Modifier", selection: $settings.mouseResizeModifierKey) {
+            Picker("Right Mouse Resize Modifier", selection: Bindable(settings.gestures).mouseResizeModifierKey) {
                 ForEach(MouseResizeModifierKey.allCases, id: \.self) { key in
                     Text(key.displayName).tag(key)
                 }
@@ -167,20 +167,20 @@ struct MouseTrackpadSettingsTab: View {
 
     private var focusFollowsMouseSection: some View {
         Section("Focus Follows Mouse") {
-            Toggle("Enable Focus Follows Mouse", isOn: $settings.focusFollowsMouse)
-                .onChange(of: settings.focusFollowsMouse) { _, newValue in
+            Toggle("Enable Focus Follows Mouse", isOn: Bindable(settings.focus).followsMouse)
+                .onChange(of: settings.focus.followsMouse) { _, newValue in
                     controller.setFocusFollowsMouse(newValue)
                 }
 
-            Toggle("Raise Window When Focus Follows Mouse", isOn: $settings.raiseOnMouseFocus)
-                .disabled(!settings.focusFollowsMouse)
+            Toggle("Raise Window When Focus Follows Mouse", isOn: Bindable(settings.focus).raiseOnMouseFocus)
+                .disabled(!settings.focus.followsMouse)
 
-            Picker("Focus Lock Modifier", selection: $settings.focusLockModifier) {
+            Picker("Focus Lock Modifier", selection: Bindable(settings.focus).lockModifier) {
                 ForEach(FocusLockModifier.allCases, id: \.self) { key in
                     Text(key.displayName).tag(key)
                 }
             }
-            .disabled(!settings.focusFollowsMouse)
+            .disabled(!settings.focus.followsMouse)
 
             SettingsCaption("Hold this modifier to move the cursor over other windows without changing focus.")
         }
@@ -188,27 +188,27 @@ struct MouseTrackpadSettingsTab: View {
 
     private var workspaceSwipeAxisSelection: Binding<WorkspaceSwipeAxis> {
         Binding(
-            get: { settings.effectiveWorkspaceSwipeAxis },
-            set: { settings.workspaceSwipeAxis = $0 }
+            get: { settings.gestures.effectiveWorkspaceSwipeAxis },
+            set: { settings.gestures.workspaceSwipeAxis = $0 }
         )
     }
 
     private var workspaceSwipeCaption: String {
-        let natural = settings.gestureInvertDirection
-        let hint = switch settings.effectiveWorkspaceSwipeAxis {
+        let natural = settings.gestures.invertDirection
+        let hint = switch settings.gestures.effectiveWorkspaceSwipeAxis {
         case .horizontal:
             natural ? "Swipe left = next workspace, right = previous" : "Swipe right = next workspace, left = previous"
         case .vertical:
             natural ? "Swipe up = next workspace, down = previous" : "Swipe down = next workspace, up = previous"
         }
-        let lockHint = settings.workspaceSwipeAxisLockedToVertical
+        let lockHint = settings.gestures.workspaceSwipeAxisLockedToVertical
             ? " Vertical is required while column scrolling uses the same finger count."
             : ""
         return hint + "." + lockHint + " Pick a combination not already used by macOS trackpad gestures."
     }
 
     private var showTwoFingerWorkspaceSwipeWarning: Bool {
-        settings.workspaceSwipeEnabled && settings.workspaceSwipeFingerCount == .two
+        settings.gestures.workspaceSwipeEnabled && settings.gestures.workspaceSwipeFingerCount == .two
     }
 
     private var workspaceSwipeFingerPickerHint: String {

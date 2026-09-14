@@ -4,60 +4,15 @@
 import CoreGraphics
 import Foundation
 
-struct InvalidationDomain: OptionSet {
-    let rawValue: UInt8
-
-    static let workspace = InvalidationDomain(rawValue: 1 << 0)
-    static let layout = InvalidationDomain(rawValue: 1 << 1)
-    static let focus = InvalidationDomain(rawValue: 1 << 2)
-    static let fullscreen = InvalidationDomain(rawValue: 1 << 3)
-
-    static let layoutCommit: InvalidationDomain = [.workspace, .layout, .fullscreen]
-    static let focusCommit: InvalidationDomain = .focus
-}
-
-struct InvalidationMarks: Equatable {
-    var workspace: UInt64 = 0
-    var layout: UInt64 = 0
-    var focus: UInt64 = 0
-    var fullscreen: UInt64 = 0
-
-    mutating func record(_ seq: UInt64, domains: InvalidationDomain) {
-        if domains.contains(.workspace) { workspace = seq }
-        if domains.contains(.layout) { layout = seq }
-        if domains.contains(.focus) { focus = seq }
-        if domains.contains(.fullscreen) { fullscreen = seq }
-    }
-
-    func isCurrent(_ plannedSeq: UInt64, domains: InvalidationDomain) -> Bool {
-        if domains.contains(.workspace), workspace > plannedSeq { return false }
-        if domains.contains(.layout), layout > plannedSeq { return false }
-        if domains.contains(.focus), focus > plannedSeq { return false }
-        if domains.contains(.fullscreen), fullscreen > plannedSeq { return false }
-        return true
-    }
-
-    func merged(with other: InvalidationMarks) -> InvalidationMarks {
-        InvalidationMarks(
-            workspace: max(workspace, other.workspace),
-            layout: max(layout, other.layout),
-            focus: max(focus, other.focus),
-            fullscreen: max(fullscreen, other.fullscreen)
-        )
-    }
-}
-
 @MainActor
 final class WorldStore {
-    private let model = WindowModel()
-    private let trace = ReconcileTraceRecorder()
-    private let nowProvider: () -> Date
+    private let model: WindowModel
+    let windows: WindowModel.ReadView
+    private let trace: ReconcileTraceRecorder
     private(set) var seq: UInt64 = 0
-    private(set) var invariantViolationCounts: [String: Int] = [:]
     private(set) var focus = FocusSessionSnapshot()
     private(set) var viewports: [WorkspaceDescriptor.ID: ViewportState] = [:]
-    private(set) var scratchpadMembers: [ScratchpadIndex: [WindowToken]] = [:]
-    private(set) var revealedScratchpad: ScratchpadIndex?
+    private(set) var scratchpads = ScratchpadState()
     private(set) var hiddenAppPIDs: Set<pid_t> = []
     private var appVisibilityGenerationByPID: [pid_t: UInt64] = [:]
     private(set) var monitorSessions: [Monitor.ID: MonitorSession] = [:]
@@ -82,7 +37,10 @@ final class WorldStore {
     }
 
     init(nowProvider: @escaping () -> Date = Date.init) {
-        self.nowProvider = nowProvider
+        let model = WindowModel()
+        self.model = model
+        windows = WindowModel.ReadView(model: model)
+        trace = ReconcileTraceRecorder(nowProvider: nowProvider)
     }
 
     @discardableResult
@@ -110,7 +68,7 @@ final class WorldStore {
             false
         }
         preMutate()
-        applyWindowMutation(event, phase: .beforePlan, monitors: monitors)
+        applyWindowMutationBeforePlan(event, monitors: monitors)
         let existingEntry = event.token.flatMap { model.entry(for: $0) }
         let normalizedEvent = EventNormalizer.normalize(
             event: event,
@@ -126,35 +84,18 @@ final class WorldStore {
             windowExistedBeforeMutation: windowExistedBeforeMutation
         )
         let resolvedPlan = resolvePlan(plan, normalizedEvent.token, reducerSnapshot)
-        applyWindowMutation(event, phase: .afterPlan, monitors: monitors)
+        applyWindowRemovalAfterPlan(event, monitors: monitors)
 
         let committedSnapshot = resolvedPlan.mutatesRuntimeState || event.mutatesSnapshotAfterPlan
             ? snapshot()
             : reducerSnapshot
-        let invariantViolations = commitDepth == 1
-            ? InvariantChecks.validate(snapshot: committedSnapshot)
-            : []
-        var tracedPlan = resolvedPlan
-        if !invariantViolations.isEmpty {
-            tracedPlan.notes.append(contentsOf: invariantViolations.map(\.traceNote))
-            for violation in invariantViolations {
-                invariantViolationCounts[violation.code, default: 0] += 1
-            }
-            assertionFailure(
-                "Reconcile invariants violated after \(event.summary): "
-                    + invariantViolations.map(\.code).joined(separator: ",")
-            )
-        }
-        let txn = ReconcileTxn(
-            timestamp: nowProvider(),
+        return trace.recordTransaction(
             event: event,
             normalizedEvent: normalizedEvent,
-            plan: tracedPlan,
-            snapshot: committedSnapshot,
-            invariantViolations: invariantViolations
+            resolvedPlan: resolvedPlan,
+            committedSnapshot: committedSnapshot,
+            validateInvariants: commitDepth == 1
         )
-        trace.append(transaction: txn)
-        return txn
     }
 
     func traceRecords() -> [ReconcileTraceRecord] {
@@ -162,10 +103,7 @@ final class WorldStore {
     }
 
     func invariantViolationCountsDump() -> String {
-        guard !invariantViolationCounts.isEmpty else { return "clean" }
-        return invariantViolationCounts.sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: " ")
+        trace.invariantViolationCountsDump()
     }
 
     func noteInvalidation(workspaceId: WorkspaceDescriptor.ID?, domains: InvalidationDomain) {
@@ -212,14 +150,94 @@ final class WorldStore {
         }
     }
 
-    private enum MutationPhase {
-        case beforePlan
-        case afterPlan
+    private func applyWindowMutationBeforePlan(_ event: WMEvent, monitors: [Monitor]) {
+        switch ReconcileEventDomain.domain(for: event) {
+        case .window:
+            applyWindowEventBeforePlan(event, monitors: monitors)
+        case .session:
+            applySessionEventBeforePlan(event)
+        case .focus,
+             .viewport:
+            break
+        }
     }
 
-    private func applyWindowMutation(_ event: WMEvent, phase: MutationPhase, monitors: [Monitor]) {
+    private func applyWindowEventBeforePlan(_ event: WMEvent, monitors: [Monitor]) {
         switch event {
-        case let .windowAdmitted(
+        case .windowAdmitted:
+            applyWindowAdmission(event, monitors: monitors)
+
+        case .windowRekeyed:
+            applyWindowRekey(event)
+
+        case .topLevelInventoryObserved,
+             .floatingGeometryUpdated,
+             .floatingStateChanged,
+             .manualLayoutOverrideChanged,
+             .niriPlacementsResolved,
+             .dwindlePlacementsResolved,
+             .hiddenStateChanged,
+             .nativeFullscreenTransition,
+             .managedReplacementMetadataChanged:
+            model.applyFieldMutation(event, monitors: monitors)
+
+        case let .workspaceAssigned(token, _, to, _, _):
+            updateWorkspace(for: token, workspace: to, monitors: monitors)
+            refreshProjectionExclusions(in: [to])
+
+        case let .windowModeChanged(token, workspaceId, _, mode, _):
+            setMode(mode, for: token, monitors: monitors)
+            if mode == .tiling {
+                refreshProjectionExclusions(in: [workspaceId])
+            }
+
+        case let .windowAdmissionHintsChanged(token, _, admissionHints, _):
+            guard canUpdateAdmissionHints(for: token) else { return }
+            model.setAdmissionHints(admissionHints, for: token)
+
+        case .hiddenApplicationsChanged:
+            applyHiddenApplications(event)
+
+        case let .appVisibilityInvalidated(pid, _, _):
+            appVisibilityGenerationByPID[pid, default: 0] &+= 1
+
+        case .layoutOperationPerformed,
+             .windowRemoved:
+            break
+
+        default:
+            preconditionFailure("Expected a window event")
+        }
+    }
+
+    private func applySessionEventBeforePlan(_ event: WMEvent) {
+        switch event {
+        case let .scratchpadMembershipChanged(token, index, _):
+            scratchpads.assign(token, to: index)
+
+        case let .scratchpadRevealChanged(index, _):
+            scratchpads.reveal(index)
+
+        case let .visibleWorkspacesChanged(sessions, _):
+            monitorSessions = sessions
+
+        case let .spaceTopologyChanged(topology, _):
+            spaceTopology = topology
+
+        case .activeSpaceChanged,
+             .systemSleep,
+             .systemWake,
+             .topologyChanged,
+             .userCommand:
+            break
+
+        default:
+            preconditionFailure("Expected a session event")
+        }
+    }
+
+    private func applyWindowAdmission(_ event: WMEvent, monitors: [Monitor]) {
+        guard case let .windowAdmitted(
             token,
             workspaceId,
             _,
@@ -231,475 +249,77 @@ final class WorldStore {
             _,
             metadata,
             _
-        ):
-            guard phase == .beforePlan else { return }
-            let resolvedAdmissionHints = canUpdateAdmissionHints(for: token)
-                ? admissionHints
-                : model.admissionHints(for: token) ?? admissionHints
-            model.upsert(
-                window: axRef,
-                pid: token.pid,
-                windowId: token.windowId,
-                workspace: workspaceId,
-                mode: mode,
-                ruleEffects: ruleEffects,
-                admissionHints: resolvedAdmissionHints,
-                lifetimeAuthority: lifetimeAuthority,
-                managedReplacementMetadata: metadata
-            )
-            reconcileNiriMembership(
-                for: token,
-                keeping: mode == .tiling ? workspaceId : nil,
-                monitors: monitors
-            )
-            refreshProjectionExclusions(in: [workspaceId])
+        ) = event else { preconditionFailure("Unexpected event for applyWindowAdmission") }
+        let resolvedAdmissionHints = canUpdateAdmissionHints(for: token)
+            ? admissionHints
+            : model.admissionHints(for: token) ?? admissionHints
+        model.upsert(
+            window: axRef,
+            pid: token.pid,
+            windowId: token.windowId,
+            workspace: workspaceId,
+            mode: mode,
+            ruleEffects: ruleEffects,
+            admissionHints: resolvedAdmissionHints,
+            lifetimeAuthority: lifetimeAuthority,
+            managedReplacementMetadata: metadata
+        )
+        reconcileNiriMembership(
+            for: token,
+            keeping: mode == .tiling ? workspaceId : nil,
+            monitors: monitors
+        )
+        refreshProjectionExclusions(in: [workspaceId])
+    }
 
-        case let .topLevelInventoryObserved(tokens, _):
-            guard phase == .beforePlan else { return }
-            for token in tokens where model.entry(for: token)?.lifetimeAuthority == .directLifecycle {
-                model.setLifetimeAuthority(.axTopLevelInventory, for: token)
-            }
+    private func applyWindowRekey(_ event: WMEvent) {
+        guard case let .windowRekeyed(from, to, workspaceId, _, _, newAXRef, metadata, _) = event
+        else { preconditionFailure("Unexpected event for applyWindowRekey") }
+        spaceTopology.rekeyWindow(from: from.windowId, to: to.windowId)
+        model.rekeyWindow(
+            from: from,
+            to: to,
+            newAXRef: newAXRef,
+            managedReplacementMetadata: metadata
+        )
+        _ = niriEngine?.rekeyWindow(from: from, to: to, in: workspaceId)
+        _ = dwindleEngine?.rekeyWindow(from: from, to: to, in: workspaceId)
+        scratchpads.rekey(from: from, to: to)
+        refreshProjectionExclusions(in: [workspaceId])
+    }
 
-        case let .windowRekeyed(from, to, workspaceId, _, _, newAXRef, metadata, _):
-            guard phase == .beforePlan else { return }
-            let previousSpaceId = from.windowId == to.windowId
-                ? nil
-                : spaceTopology.windowSpace.removeValue(forKey: from.windowId)
-            if spaceTopology.windowSpace[to.windowId] == nil,
-               let previousSpaceId,
-               spaceTopology.isKnownSpace(previousSpaceId)
-            {
-                spaceTopology.windowSpace[to.windowId] = previousSpaceId
-            }
-            model.rekeyWindow(
-                from: from,
-                to: to,
-                newAXRef: newAXRef,
-                managedReplacementMetadata: metadata
-            )
-            _ = niriEngine?.rekeyWindow(from: from, to: to, in: workspaceId)
-            _ = dwindleEngine?.rekeyWindow(from: from, to: to, in: workspaceId)
-            rekeyScratchpadMember(from: from, to: to)
-            refreshProjectionExclusions(in: [workspaceId])
-
-        case let .windowRemoved(token, _, _):
-            guard phase == .afterPlan else { return }
-            model.removeWindow(key: token)
-            spaceTopology.windowSpace.removeValue(forKey: token.windowId)
-            reconcileNiriMembership(for: token, keeping: nil, monitors: monitors)
-
-        case let .workspaceAssigned(token, _, to, _, _):
-            guard phase == .beforePlan else { return }
-            updateWorkspace(for: token, workspace: to, monitors: monitors)
-            refreshProjectionExclusions(in: [to])
-
-        case let .windowModeChanged(token, workspaceId, _, mode, _):
-            guard phase == .beforePlan else { return }
-            setMode(mode, for: token, monitors: monitors)
-            if mode == .tiling {
-                refreshProjectionExclusions(in: [workspaceId])
-            }
-
-        case let .floatingGeometryUpdated(token, _, referenceMonitorId, frame, normalizedOrigin, restoreToFloating, _):
-            guard phase == .beforePlan else { return }
-            model.setFloatingState(
-                .init(
-                    lastFrame: frame,
-                    normalizedOrigin: normalizedOrigin,
-                    referenceMonitorId: referenceMonitorId,
-                    restoreToFloating: restoreToFloating
-                ),
-                for: token
-            )
-
-        case let .floatingStateChanged(token, _, state, _):
-            guard phase == .beforePlan else { return }
-            model.setFloatingState(state, for: token)
-
-        case let .manualLayoutOverrideChanged(token, _, layoutOverride, _):
-            guard phase == .beforePlan else { return }
-            model.setManualLayoutOverride(layoutOverride, for: token)
-
-        case let .windowAdmissionHintsChanged(token, _, admissionHints, _):
-            guard phase == .beforePlan, canUpdateAdmissionHints(for: token) else { return }
-            model.setAdmissionHints(admissionHints, for: token)
-
-        case let .niriPlacementsResolved(placements, _):
-            guard phase == .beforePlan else { return }
-            for (token, placement) in placements {
-                guard let entry = model.entry(for: token), entry.mode == .tiling else { continue }
-                var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
-                restoreIntent.niriPlacement = placement
-                restoreIntent.detachedNiriContainerSizingState = nil
-                guard entry.restoreIntent != restoreIntent else { continue }
-                model.setRestoreIntent(restoreIntent, for: token)
-            }
-
-        case let .dwindlePlacementsResolved(placements, _):
-            guard phase == .beforePlan else { return }
-            for (token, placement) in placements {
-                guard let entry = model.entry(for: token), entry.mode == .tiling else { continue }
-                var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
-                restoreIntent.dwindlePlacement = placement
-                guard entry.restoreIntent != restoreIntent else { continue }
-                model.setRestoreIntent(restoreIntent, for: token)
-            }
-
-        case let .hiddenApplicationsChanged(pids, affectedWorkspaceIds, _):
-            guard phase == .beforePlan else { return }
-            for pid in hiddenAppPIDs.symmetricDifference(pids) {
-                appVisibilityGenerationByPID[pid, default: 0] &+= 1
-            }
-            hiddenAppPIDs = pids
-            refreshProjectionExclusions(in: affectedWorkspaceIds)
-
-        case let .appVisibilityInvalidated(pid, _, _):
-            guard phase == .beforePlan else { return }
+    private func applyHiddenApplications(_ event: WMEvent) {
+        guard case let .hiddenApplicationsChanged(pids, affectedWorkspaceIds, _) = event
+        else { preconditionFailure("Unexpected event for applyHiddenApplications") }
+        for pid in hiddenAppPIDs.symmetricDifference(pids) {
             appVisibilityGenerationByPID[pid, default: 0] &+= 1
-
-        case let .hiddenStateChanged(token, _, _, hiddenState, _):
-            guard phase == .beforePlan else { return }
-            model.setHiddenState(hiddenState, for: token)
-
-        case let .nativeFullscreenTransition(token, _, _, change, _):
-            guard phase == .beforePlan else { return }
-            switch change {
-            case let .suspended(reason):
-                model.setLayoutReason(reason, for: token)
-            case .restored:
-                model.restoreFromNativeState(for: token)
-            }
-
-        case let .managedReplacementMetadataChanged(token, _, _, metadata, _):
-            guard phase == .beforePlan else { return }
-            model.setManagedReplacementMetadata(metadata, for: token)
-
-        case let .scratchpadMembershipChanged(token, index, _):
-            guard phase == .beforePlan else { return }
-            applyScratchpadMembership(token, to: index)
-
-        case let .scratchpadRevealChanged(index, _):
-            guard phase == .beforePlan else { return }
-            revealedScratchpad = index.flatMap { scratchpadMembers[$0] == nil ? nil : $0 }
-
-        case let .visibleWorkspacesChanged(sessions, _):
-            guard phase == .beforePlan else { return }
-            monitorSessions = sessions
-
-        case let .spaceTopologyChanged(topology, _):
-            guard phase == .beforePlan else { return }
-            spaceTopology = topology
-
-        case .activeSpaceChanged,
-             .focusFallbackRemembered,
-             .focusForgotten,
-             .focusLeaseChanged,
-             .focusRemembered,
-             .interactionMonitorChanged,
-             .layoutOperationPerformed,
-             .managedFocusCancelled,
-             .managedFocusConfirmed,
-             .managedFocusRequested,
-             .nativeFocusOwnerChanged,
-             .nativeFullscreenPlaceholderSelected,
-             .selectionChanged,
-             .suppressedFocusChanged,
-             .systemModalFocusChanged,
-             .systemSleep,
-             .systemWake,
-             .topologyChanged,
-             .userCommand,
-             .viewportChanged,
-             .viewportCommitted,
-             .viewportForgotten,
-             .workspaceFocusCleared:
-            break
         }
+        hiddenAppPIDs = pids
+        refreshProjectionExclusions(in: affectedWorkspaceIds)
     }
 
-    private func assertInCommit(_ operation: StaticString) {
+    private func applyWindowRemovalAfterPlan(_ event: WMEvent, monitors: [Monitor]) {
+        guard case let .windowRemoved(token, _, _) = event else { return }
+        model.removeWindow(key: token)
+        spaceTopology.windowSpace.removeValue(forKey: token.windowId)
+        reconcileNiriMembership(for: token, keeping: nil, monitors: monitors)
+    }
+
+    func assertInCommit(_ operation: StaticString) {
         assert(commitDepth > 0, "\(operation) must run inside WorldStore.commit")
-    }
-
-    private func applyScratchpadMembership(_ token: WindowToken, to index: ScratchpadIndex?) {
-        for (slot, members) in scratchpadMembers where members.contains(token) {
-            guard slot != index else { return }
-            let remaining = members.filter { $0 != token }
-            scratchpadMembers[slot] = remaining.isEmpty ? nil : remaining
-        }
-        if let index {
-            scratchpadMembers[index, default: []].append(token)
-        }
-        if let revealed = revealedScratchpad, scratchpadMembers[revealed] == nil {
-            revealedScratchpad = nil
-        }
-    }
-
-    private func rekeyScratchpadMember(from oldToken: WindowToken, to newToken: WindowToken) {
-        guard oldToken != newToken else { return }
-        for (slot, members) in scratchpadMembers {
-            guard let position = members.firstIndex(of: oldToken) else { continue }
-            scratchpadMembers[slot]?[position] = newToken
-        }
-    }
-
-    private func refreshProjectionExclusions(
-        in workspaceIds: Set<WorkspaceDescriptor.ID>
-    ) {
-        for workspaceId in workspaceIds {
-            let tiledEntries = model.windows(in: workspaceId).filter { $0.mode == .tiling }
-            let authoritativeTokens = Set(tiledEntries.lazy.map(\.token))
-            let excludedTokens = Set(tiledEntries.lazy.filter {
-                self.hiddenAppPIDs.contains($0.pid)
-            }.map(\.token))
-            niriEngine?.setProjectionExclusions(excludedTokens, in: workspaceId)
-            dwindleEngine?.setExcludedTokens(
-                excludedTokens,
-                authoritativeTokens: authoritativeTokens,
-                in: workspaceId
-            )
-        }
-    }
-
-    private func canUpdateAdmissionHints(for token: WindowToken) -> Bool {
-        guard let entry = model.entry(for: token) else { return true }
-        guard entry.restoreIntent?.detachedNiriContainerSizingState == nil,
-              entry.restoreIntent?.niriPlacement == nil
-        else {
-            return false
-        }
-        return niriEngine?.workspaceIds(containing: token).isEmpty ?? true
-    }
-}
-
-extension WMEvent {
-    fileprivate var mutatesSnapshotAfterPlan: Bool {
-        switch self {
-        case .windowRemoved:
-            true
-        case .activeSpaceChanged,
-             .appVisibilityInvalidated,
-             .floatingGeometryUpdated,
-             .floatingStateChanged,
-             .focusFallbackRemembered,
-             .focusForgotten,
-             .focusLeaseChanged,
-             .focusRemembered,
-             .hiddenApplicationsChanged,
-             .hiddenStateChanged,
-             .interactionMonitorChanged,
-             .layoutOperationPerformed,
-             .managedFocusCancelled,
-             .managedFocusConfirmed,
-             .managedFocusRequested,
-             .managedReplacementMetadataChanged,
-             .manualLayoutOverrideChanged,
-             .nativeFocusOwnerChanged,
-             .nativeFullscreenPlaceholderSelected,
-             .nativeFullscreenTransition,
-             .niriPlacementsResolved,
-             .dwindlePlacementsResolved,
-             .scratchpadMembershipChanged,
-             .scratchpadRevealChanged,
-             .selectionChanged,
-             .spaceTopologyChanged,
-             .suppressedFocusChanged,
-             .systemModalFocusChanged,
-             .systemSleep,
-             .systemWake,
-             .topLevelInventoryObserved,
-             .topologyChanged,
-             .userCommand,
-             .viewportChanged,
-             .viewportCommitted,
-             .viewportForgotten,
-             .visibleWorkspacesChanged,
-             .windowAdmissionHintsChanged,
-             .windowAdmitted,
-             .windowModeChanged,
-             .windowRekeyed,
-             .workspaceAssigned,
-             .workspaceFocusCleared:
-            false
-        }
     }
 }
 
 extension WorldStore {
-    func handle(for token: WindowToken) -> WindowHandle? {
-        model.handle(for: token)
-    }
-
-    func entry(for token: WindowToken) -> WindowState? {
-        model.entry(for: token)
-    }
-
-    func entry(for handle: WindowHandle) -> WindowState? {
-        model.entry(for: handle)
-    }
-
-    func entry(forPid pid: pid_t, windowId: Int) -> WindowState? {
-        model.entry(forPid: pid, windowId: windowId)
-    }
-
-    func entry(forWindowId windowId: Int) -> WindowState? {
-        model.entry(forWindowId: windowId)
-    }
-
-    func entry(forWindowId windowId: Int, inVisibleWorkspaces visibleIds: Set<WorkspaceDescriptor.ID>) -> WindowState? {
-        model.entry(forWindowId: windowId, inVisibleWorkspaces: visibleIds)
-    }
-
-    func entries(forPid pid: pid_t) -> [WindowState] {
-        model.entries(forPid: pid)
-    }
-
-    func hasEntries(forPid pid: pid_t) -> Bool {
-        model.hasEntries(forPid: pid)
-    }
-
-    func windows(in workspace: WorkspaceDescriptor.ID) -> [WindowState] {
-        model.windows(in: workspace)
-    }
-
-    func windowCount(in workspace: WorkspaceDescriptor.ID) -> Int {
-        model.windowCount(in: workspace)
-    }
-
-    func windows(in workspace: WorkspaceDescriptor.ID, mode: TrackedWindowMode) -> [WindowState] {
-        model.windows(in: workspace, mode: mode)
-    }
-
-    func allEntries() -> [WindowState] {
-        model.allEntries()
-    }
-
-    func allEntries(mode: TrackedWindowMode) -> [WindowState] {
-        model.allEntries(mode: mode)
-    }
-
-    func workspace(for token: WindowToken) -> WorkspaceDescriptor.ID? {
-        model.workspace(for: token)
-    }
-
-    func mode(for token: WindowToken) -> TrackedWindowMode? {
-        model.mode(for: token)
-    }
-
-    func lifecyclePhase(for token: WindowToken) -> WindowLifecyclePhase? {
-        model.lifecyclePhase(for: token)
-    }
-
-    func observedState(for token: WindowToken) -> ObservedWindowState? {
-        model.observedState(for: token)
-    }
-
-    func desiredState(for token: WindowToken) -> DesiredWindowState? {
-        model.desiredState(for: token)
-    }
-
-    func restoreIntent(for token: WindowToken) -> RestoreIntent? {
-        model.restoreIntent(for: token)
-    }
-
-    func managedReplacementMetadata(for token: WindowToken) -> ManagedReplacementMetadata? {
-        model.managedReplacementMetadata(for: token)
-    }
-
-    func floatingState(for token: WindowToken) -> FloatingState? {
-        model.floatingState(for: token)
-    }
-
-    func manualLayoutOverride(for token: WindowToken) -> ManualWindowOverride? {
-        model.manualLayoutOverride(for: token)
-    }
-
-    func admissionHints(for token: WindowToken) -> ManagedWindowAdmissionHints? {
-        model.admissionHints(for: token)
-    }
-
-    func hiddenState(for token: WindowToken) -> HiddenState? {
-        model.hiddenState(for: token)
-    }
-
-    func isAppHidden(pid: pid_t) -> Bool {
-        hiddenAppPIDs.contains(pid)
-    }
-
-    func scratchpadIndex(for token: WindowToken) -> ScratchpadIndex? {
-        scratchpadMembers.first { $0.value.contains(token) }?.key
-    }
-
     func appVisibilityGeneration(for pid: pid_t) -> UInt64 {
         appVisibilityGenerationByPID[pid] ?? 0
     }
-
-    func isHiddenInCorner(_ token: WindowToken) -> Bool {
-        model.isHiddenInCorner(token)
-    }
-
-    func layoutReason(for token: WindowToken) -> LayoutReason {
-        model.layoutReason(for: token)
-    }
-
-    func isNativeFullscreenSuspended(_ token: WindowToken) -> Bool {
-        model.isNativeFullscreenSuspended(token)
-    }
-
-    func cachedConstraints(for token: WindowToken, maxAge: TimeInterval = 5.0) -> WindowSizeConstraints? {
-        model.cachedConstraints(for: token, maxAge: maxAge)
-    }
-
-    func observedMinSize(for token: WindowToken) -> CGSize? {
-        model.observedMinSize(for: token)
-    }
 }
 
 extension WorldStore {
-    func applyWorkspaceMonitorMove(
-        workspaceId: WorkspaceDescriptor.ID,
-        targetMonitorId: Monitor.ID,
-        monitorSessions: [Monitor.ID: MonitorSession],
-        floatingStates: [WindowToken: FloatingState],
-        transferInteraction: Bool,
-        monitors: [Monitor]
-    ) {
-        assertInCommit("applyWorkspaceMonitorMove")
-        self.monitorSessions = monitorSessions
-
-        for entry in model.windows(in: workspaceId) {
-            if let floatingState = floatingStates[entry.token] {
-                model.setFloatingState(floatingState, for: entry.token)
-            }
-
-            var observedState = entry.observedState
-            observedState.monitorId = targetMonitorId
-            model.setObservedState(observedState, for: entry.token)
-
-            var desiredState = entry.desiredState
-            desiredState.monitorId = targetMonitorId
-            if let floatingState = floatingStates[entry.token] {
-                desiredState.floatingFrame = floatingState.lastFrame
-            }
-            model.setDesiredState(desiredState, for: entry.token)
-
-            if let updatedEntry = model.entry(for: entry.token) {
-                model.setRestoreIntent(
-                    StateReducer.restoreIntent(for: updatedEntry, monitors: monitors),
-                    for: entry.token
-                )
-            }
-        }
-
-        updateFocus {
-            if $0.pendingManagedFocus.workspaceId == workspaceId {
-                $0.pendingManagedFocus.monitorId = targetMonitorId
-            }
-            if transferInteraction {
-                $0.previousInteractionMonitorId = $0.interactionMonitorId
-                $0.interactionMonitorId = targetMonitorId
-            }
-        }
+    func applyMonitorSessions(_ sessions: [Monitor.ID: MonitorSession]) {
+        assertInCommit("applyMonitorSessions")
+        monitorSessions = sessions
     }
 
     func setLifecyclePhase(_ phase: WindowLifecyclePhase, for token: WindowToken) {
@@ -753,10 +373,11 @@ extension WorldStore {
 
     func applyFocusSession(_ focusSession: FocusSessionSnapshot) {
         assertInCommit("applyFocusSession")
-        recordInteractionMonitorWrites(
+        InteractionMonitorWriteRecorder.shared.recordFocusTransition(
             previousInteraction: focus.interactionMonitorId,
             previousPrevious: focus.previousInteractionMonitorId,
-            to: focusSession
+            to: focusSession,
+            event: currentCommitEvent
         )
         focus = focusSession
     }
@@ -767,232 +388,13 @@ extension WorldStore {
         let previousInteraction = focus.interactionMonitorId
         let previousPrevious = focus.previousInteractionMonitorId
         let result = mutate(&focus)
-        recordInteractionMonitorWrites(
+        InteractionMonitorWriteRecorder.shared.recordFocusTransition(
             previousInteraction: previousInteraction,
             previousPrevious: previousPrevious,
-            to: focus
+            to: focus,
+            event: currentCommitEvent
         )
         return result
-    }
-
-    private func recordInteractionMonitorWrites(
-        previousInteraction: Monitor.ID?,
-        previousPrevious: Monitor.ID?,
-        to next: FocusSessionSnapshot
-    ) {
-        let interactionChanged = previousInteraction != next.interactionMonitorId
-        let previousChanged = previousPrevious != next.previousInteractionMonitorId
-        guard interactionChanged || previousChanged else { return }
-        let reason = currentCommitEvent?.summary ?? "unknown"
-        if interactionChanged {
-            InteractionMonitorWriteRecorder.shared.record(
-                field: .interaction,
-                oldValue: previousInteraction,
-                newValue: next.interactionMonitorId,
-                reason: reason
-            )
-        }
-        if previousChanged {
-            InteractionMonitorWriteRecorder.shared.record(
-                field: .previous,
-                oldValue: previousPrevious,
-                newValue: next.previousInteractionMonitorId,
-                reason: reason
-            )
-        }
-    }
-
-    private func reconcileNiriMembership(
-        for token: WindowToken,
-        keeping authoritativeWorkspaceId: WorkspaceDescriptor.ID?,
-        monitors: [Monitor]
-    ) {
-        guard let engine = niriEngine else { return }
-        let authoritativePlacement = authoritativeWorkspaceId.flatMap {
-            engine.persistedPlacement(for: token, in: $0)
-        }
-        let staleWorkspaceIds = engine.workspaceIds(containing: token)
-            .filter { $0 != authoritativeWorkspaceId }
-            .sorted { $0.uuidString < $1.uuidString }
-        if let authoritativeWorkspaceId,
-           let authoritativePlacement,
-           !staleWorkspaceIds.isEmpty
-        {
-            let placements = engine.persistedPlacementsInColumn(
-                containing: token,
-                in: authoritativeWorkspaceId
-            )
-            if placements.isEmpty {
-                _ = storeNiriPlacement(
-                    authoritativePlacement,
-                    detached: false,
-                    for: token,
-                    monitors: monitors
-                )
-            } else {
-                _ = storeNiriPlacements(
-                    placements,
-                    in: authoritativeWorkspaceId,
-                    detachedToken: nil,
-                    monitors: monitors
-                )
-            }
-        } else if let staleWorkspaceId = staleWorkspaceIds.first {
-            let placements = engine.persistedPlacementsInColumn(
-                containing: token,
-                in: staleWorkspaceId
-            )
-            if placements[token] != nil {
-                _ = storeNiriPlacements(
-                    placements,
-                    in: staleWorkspaceId,
-                    detachedToken: token,
-                    monitors: monitors
-                )
-            } else if let placement = engine.persistedPlacement(for: token, in: staleWorkspaceId) {
-                _ = storeNiriPlacement(
-                    placement,
-                    detached: true,
-                    for: token,
-                    monitors: monitors
-                )
-            }
-        }
-        for staleWorkspaceId in staleWorkspaceIds {
-            repairViewportSelection(in: staleWorkspaceId, removing: token, engine: engine)
-            engine.removeWindow(token: token, in: staleWorkspaceId)
-        }
-    }
-
-    @discardableResult
-    private func storeNiriPlacement(
-        _ placement: PersistedNiriPlacement,
-        detached: Bool,
-        for token: WindowToken,
-        monitors: [Monitor]
-    ) -> Bool {
-        guard let entry = model.entry(for: token) else { return false }
-        var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
-        restoreIntent.niriPlacement = placement
-        if detached {
-            restoreIntent.detachedNiriContainerSizingState = NiriContainerSizingState(
-                width: placement.column.width,
-                presetWidthIndex: placement.column.presetWidthIndex,
-                isFullWidth: placement.column.isFullWidth,
-                savedWidth: placement.column.savedWidth,
-                hasManualSingleWindowWidthOverride: placement.column.hasManualSingleWindowWidthOverride,
-                height: placement.column.height,
-                isFullHeight: placement.column.isFullHeight,
-                savedHeight: placement.column.savedHeight,
-                hasManualSingleWindowHeightOverride: placement.column.hasManualSingleWindowHeightOverride
-            )
-        } else {
-            restoreIntent.detachedNiriContainerSizingState = nil
-        }
-        guard entry.restoreIntent != restoreIntent else { return false }
-        model.setRestoreIntent(restoreIntent, for: token)
-        return true
-    }
-
-    @discardableResult
-    private func storeNiriPlacements(
-        _ placements: [WindowToken: PersistedNiriPlacement],
-        in workspaceId: WorkspaceDescriptor.ID,
-        detachedToken: WindowToken?,
-        monitors: [Monitor]
-    ) -> Bool {
-        var changed = false
-        for (token, placement) in placements {
-            if token != detachedToken {
-                guard let entry = model.entry(for: token),
-                      entry.mode == .tiling,
-                      entry.workspaceId == workspaceId
-                else {
-                    continue
-                }
-            }
-            changed = storeNiriPlacement(
-                placement,
-                detached: token == detachedToken,
-                for: token,
-                monitors: monitors
-            ) || changed
-        }
-        return changed
-    }
-
-    @discardableResult
-    func captureDetachedNiriPlacement(
-        for token: WindowToken,
-        in workspaceId: WorkspaceDescriptor.ID,
-        monitors: [Monitor]
-    ) -> Bool {
-        assertInCommit("captureDetachedNiriPlacement")
-        return captureNiriPlacements(
-            for: token,
-            in: workspaceId,
-            detachedToken: token,
-            monitors: monitors
-        )
-    }
-
-    @discardableResult
-    func captureLiveNiriPlacements(
-        containing tokens: [WindowToken],
-        in workspaceId: WorkspaceDescriptor.ID,
-        monitors: [Monitor]
-    ) -> Bool {
-        assertInCommit("captureLiveNiriPlacements")
-        guard let engine = niriEngine else { return false }
-        var visitedTokens = Set<WindowToken>()
-        var changed = false
-        for token in tokens where visitedTokens.insert(token).inserted {
-            let placements = engine.persistedPlacementsInColumn(
-                containing: token,
-                in: workspaceId
-            )
-            visitedTokens.formUnion(placements.keys)
-            changed = storeNiriPlacements(
-                placements,
-                in: workspaceId,
-                detachedToken: nil,
-                monitors: monitors
-            ) || changed
-        }
-        return changed
-    }
-
-    private func captureNiriPlacements(
-        for token: WindowToken,
-        in workspaceId: WorkspaceDescriptor.ID,
-        detachedToken: WindowToken?,
-        monitors: [Monitor]
-    ) -> Bool {
-        guard let engine = niriEngine else { return false }
-        let placements = engine.persistedPlacementsInColumn(
-            containing: token,
-            in: workspaceId
-        )
-        guard !placements.isEmpty else { return false }
-        return storeNiriPlacements(
-            placements,
-            in: workspaceId,
-            detachedToken: detachedToken,
-            monitors: monitors
-        )
-    }
-
-    private func repairViewportSelection(
-        in workspaceId: WorkspaceDescriptor.ID,
-        removing token: WindowToken,
-        engine: NiriLayoutEngine
-    ) {
-        guard let node = engine.findNode(for: token, in: workspaceId),
-              var state = viewports[workspaceId],
-              state.selectedNodeId == node.id
-        else { return }
-        state.selectedNodeId = engine.fallbackSelectionOnRemoval(removing: node.id, in: workspaceId)
-        applyViewportPlan(.set(workspaceId: workspaceId, state: state))
     }
 
     func layoutTopology(for workspaceId: WorkspaceDescriptor.ID) -> LayoutTopology {
@@ -1021,36 +423,34 @@ extension WorldStore {
         return captured
     }
 
-    private func captureNiriPlacements(
-        from engine: NiriLayoutEngine,
+    @discardableResult
+    func storeNiriPlacement(
+        _ placement: PersistedNiriPlacement,
+        detached: Bool,
+        for token: WindowToken,
         monitors: [Monitor]
     ) -> Bool {
-        let entries = model.allEntries()
-        let authoritativeWorkspaceIds = Dictionary(
-            uniqueKeysWithValues: entries.map { ($0.token, $0.workspaceId) }
-        )
-        var placements: [WindowToken: PersistedNiriPlacement] = [:]
-        placements.reserveCapacity(entries.count)
-        for workspaceId in engine.workspaceIds().sorted(by: { $0.uuidString < $1.uuidString }) {
-            for (token, placement) in engine.persistedPlacements(in: workspaceId)
-                where placements[token] == nil || authoritativeWorkspaceIds[token] == workspaceId
-            {
-                placements[token] = placement
-            }
+        guard let entry = model.entry(for: token) else { return false }
+        var restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
+        restoreIntent.niriPlacement = placement
+        if detached {
+            restoreIntent.detachedNiriContainerSizingState = NiriContainerSizingState(
+                width: placement.column.width,
+                presetWidthIndex: placement.column.presetWidthIndex,
+                isFullWidth: placement.column.isFullWidth,
+                savedWidth: placement.column.savedWidth,
+                hasManualSingleWindowWidthOverride: placement.column.hasManualSingleWindowWidthOverride,
+                height: placement.column.height,
+                isFullHeight: placement.column.isFullHeight,
+                savedHeight: placement.column.savedHeight,
+                hasManualSingleWindowHeightOverride: placement.column.hasManualSingleWindowHeightOverride
+            )
+        } else {
+            restoreIntent.detachedNiriContainerSizingState = nil
         }
-
-        var captured = false
-        for entry in entries {
-            if let placement = placements[entry.token] {
-                captured = storeNiriPlacement(
-                    placement,
-                    detached: true,
-                    for: entry.token,
-                    monitors: monitors
-                ) || captured
-            }
-        }
-        return captured
+        guard entry.restoreIntent != restoreIntent else { return false }
+        model.setRestoreIntent(restoreIntent, for: token)
+        return true
     }
 
     func installDwindleEngine(_ engine: DwindleLayoutEngine?) {

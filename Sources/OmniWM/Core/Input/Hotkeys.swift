@@ -6,199 +6,13 @@ import Carbon
 import Foundation
 import IOKit.hidsystem
 
-struct HotkeyPlannedRegistration: Equatable {
-    let binding: KeyBinding
-    let command: HotkeyCommand
-}
-
-enum HotkeyRegistrationFailureReason: Equatable {
-    case duplicateBinding
-    case systemReserved
-    case requiresInputMonitoring
-}
-
-enum SystemHyperTriggerFailure: Equatable {
-    case eventTapUnavailable
-    case capsLockRemapUnavailable
-}
-
-struct HotkeyRegistrationPlan: Equatable {
-    let registrations: [HotkeyPlannedRegistration]
-    let sideSpecificRegistrations: [HotkeyPlannedRegistration]
-    var failures: [HotkeyCommand: HotkeyRegistrationFailureReason]
-
-    init(
-        registrations: [HotkeyPlannedRegistration],
-        sideSpecificRegistrations: [HotkeyPlannedRegistration] = [],
-        failures: [HotkeyCommand: HotkeyRegistrationFailureReason]
-    ) {
-        self.registrations = registrations
-        self.sideSpecificRegistrations = sideSpecificRegistrations
-        self.failures = failures
-    }
-}
-
-struct HotkeyRuntimeConfiguration: Equatable {
-    let bindings: [HotkeyBinding]
-    let systemHyperTrigger: SystemHyperTrigger
-
-    init(bindings: [HotkeyBinding] = [], systemHyperTrigger: SystemHyperTrigger = .default) {
-        self.bindings = bindings
-        self.systemHyperTrigger = systemHyperTrigger
-    }
-}
-
-struct HyperTriggerStateMachine: Equatable {
-    enum Decision: Equatable {
-        case suppress
-        case passThrough
-        case inject
-        case toggleCapsLock
-    }
-
-    private enum Trigger: Equatable {
-        case none
-        case key(UInt32)
-        case capsLockF18
-        case modifier(keyCode: UInt32, mask: UInt64)
-        case mouseButton(Int64)
-    }
-
-    static let capsLockTapTimeout: TimeInterval = 0.3
-
-    private let trigger: Trigger
-    private(set) var isActive = false
-    private var capsAlone = false
-    private var capsDownTimestamp: TimeInterval?
-
-    init(trigger: SystemHyperTrigger, capsLockRemapped: Bool) {
-        guard trigger.isSupported else {
-            self.trigger = .none
-            return
-        }
-        switch trigger {
-        case .none:
-            self.trigger = .none
-        case let .key(keyCode):
-            if capsLockRemapped, keyCode == UInt32(kVK_CapsLock) {
-                self.trigger = .capsLockF18
-            } else if let mask = Self.modifierMask(for: keyCode) {
-                self.trigger = .modifier(keyCode: keyCode, mask: mask)
-            } else {
-                self.trigger = .key(keyCode)
-            }
-        case let .mouseButton(button):
-            self.trigger = .mouseButton(button)
-        }
-    }
-
-    mutating func handleKeyDown(_ keyCode: UInt32, timestamp: TimeInterval = 0) -> Decision {
-        handleKey(keyCode, isDown: true, timestamp: timestamp)
-    }
-
-    mutating func handleKeyUp(_ keyCode: UInt32, timestamp: TimeInterval = 0) -> Decision {
-        handleKey(keyCode, isDown: false, timestamp: timestamp)
-    }
-
-    mutating func handleFlagsChanged(keyCode: UInt32, rawFlags: UInt64) -> Decision {
-        guard case let .modifier(triggerKeyCode, mask) = trigger, keyCode == triggerKeyCode else {
-            return .passThrough
-        }
-        isActive = rawFlags & mask != 0
-        return .suppress
-    }
-
-    mutating func handleMouseDown(_ button: Int64) -> Decision {
-        handleMouse(button, isDown: true)
-    }
-
-    mutating func handleMouseUp(_ button: Int64) -> Decision {
-        handleMouse(button, isDown: false)
-    }
-
-    mutating func reset() {
-        isActive = false
-        capsAlone = false
-        capsDownTimestamp = nil
-    }
-
-    private mutating func handleKey(_ keyCode: UInt32, isDown: Bool, timestamp: TimeInterval) -> Decision {
-        switch trigger {
-        case let .key(triggerKeyCode) where keyCode == triggerKeyCode:
-            isActive = isDown
-            return .suppress
-        case .capsLockF18 where keyCode == CapsLockHyperMapping.f18KeyCode:
-            if isDown {
-                if !isActive {
-                    capsAlone = true
-                    capsDownTimestamp = timestamp
-                }
-                isActive = true
-                return .suppress
-            }
-            let shouldToggle = isActive
-                && capsAlone
-                && timestamp - (capsDownTimestamp ?? timestamp) < Self.capsLockTapTimeout
-            isActive = false
-            capsAlone = false
-            capsDownTimestamp = nil
-            return shouldToggle ? .toggleCapsLock : .suppress
-        default:
-            if isActive, isDown {
-                capsAlone = false
-            }
-            return isActive ? .inject : .passThrough
-        }
-    }
-
-    private mutating func handleMouse(_ button: Int64, isDown: Bool) -> Decision {
-        if case let .mouseButton(triggerButton) = trigger, button == triggerButton {
-            isActive = isDown
-            return .suppress
-        }
-        if case .capsLockF18 = trigger, isActive {
-            if isDown {
-                capsAlone = false
-            }
-            return .inject
-        }
-        return .passThrough
-    }
-
-    private static func modifierMask(for keyCode: UInt32) -> UInt64? {
-        switch Int(keyCode) {
-        case kVK_Shift:
-            return UInt64(NX_DEVICELSHIFTKEYMASK)
-        case kVK_RightShift:
-            return UInt64(NX_DEVICERSHIFTKEYMASK)
-        case kVK_Control:
-            return UInt64(NX_DEVICELCTLKEYMASK)
-        case kVK_RightControl:
-            return UInt64(NX_DEVICERCTLKEYMASK)
-        case kVK_Option:
-            return UInt64(NX_DEVICELALTKEYMASK)
-        case kVK_RightOption:
-            return UInt64(NX_DEVICERALTKEYMASK)
-        case kVK_Command:
-            return UInt64(NX_DEVICELCMDKEYMASK)
-        case kVK_RightCommand:
-            return UInt64(NX_DEVICERCMDKEYMASK)
-        default:
-            return nil
-        }
-    }
-}
-
 @MainActor
 final class HotkeyCenter {
     var onCommand: ((HotkeyInvocation) -> Void)?
 
-    private var refs: [EventHotKeyRef?] = []
-    private var handler: EventHandlerRef?
+    private let carbonRegistrations = CarbonHotkeyRegistration()
     private var isRunning = false
     private var commandHotkeysSuspended = false
-    private var idToRegistration: [UInt32: HotkeyPlannedRegistration] = [:]
-    private var pressedHotKeyIds: Set<UInt32> = []
 
     private var configuration = HotkeyRuntimeConfiguration()
     private var sideSpecificDispatch: [CommandHotkeyTapMatcher.Entry] = []
@@ -241,71 +55,22 @@ final class HotkeyCenter {
         )
     }
 
-    nonisolated static func bindingFacts(for bindings: [HotkeyBinding]) -> [HotkeyBindingFact] {
-        let failures = registrationPlan(for: bindings).failures
-        return bindings.compactMap { binding in
-            guard case let .chord(chord) = binding.binding, !chord.isUnassigned else { return nil }
-            let route: String
-            if let reason = failures[binding.command] {
-                route = "unregistered(\(reason))"
-            } else if chord.sidedModifiers.isEmpty {
-                route = "carbon"
-            } else {
-                route = "sided"
-            }
-            return HotkeyBindingFact(command: binding.command.displayName, display: chord.displayString, route: route)
-        }
-    }
-
-    static func decisionLabel(_ decision: HyperTriggerStateMachine.Decision) -> String {
-        switch decision {
-        case .suppress: "suppress"
-        case .passThrough: "passThrough"
-        case .inject: "inject"
-        case .toggleCapsLock: "toggleCapsLock"
-        }
-    }
-
     isolated deinit {
-        unregisterCommandHotkeys()
+        carbonRegistrations.unregister()
         stopHyperTriggerTap()
         restoreCapsLockHyperRemap()
-        removeCarbonEventHandler()
+        carbonRegistrations.removeEventHandler()
+    }
+
+    func handleCarbonHotkey(id: UInt32, kind: UInt32) {
+        carbonRegistrations.handle(id: id, kind: kind, onCommand: onCommand)
     }
 
     func start() {
         guard !isRunning else { return }
         isRunning = true
 
-        var eventSpecs = [
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
-        ]
-        let callback: EventHandlerUPP = { _, event, userData in
-            guard let userData, let event else { return noErr }
-            let center = Unmanaged<HotkeyCenter>.fromOpaque(userData).takeUnretainedValue()
-            var hotKeyID = EventHotKeyID()
-            GetEventParameter(
-                event,
-                EventParamName(kEventParamDirectObject),
-                EventParamType(typeEventHotKeyID),
-                nil,
-                MemoryLayout<EventHotKeyID>.size,
-                nil,
-                &hotKeyID
-            )
-            MainActor.assumeIsolated {
-                if GetEventKind(event) == UInt32(kEventHotKeyReleased) {
-                    center.pressedHotKeyIds.remove(hotKeyID.id)
-                } else {
-                    let isRepeat = !center.pressedHotKeyIds.insert(hotKeyID.id).inserted
-                    center.dispatch(id: hotKeyID.id, isRepeat: isRepeat)
-                }
-            }
-            return noErr
-        }
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), callback, 2, &eventSpecs, selfPtr, &handler)
+        carbonRegistrations.installEventHandler(center: self)
 
         refreshCommandHotkeyRegistrations()
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "hotkeys.start")
@@ -314,18 +79,11 @@ final class HotkeyCenter {
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        unregisterCommandHotkeys()
+        carbonRegistrations.unregister()
         stopHyperTriggerTap()
         restoreCapsLockHyperRemap()
-        removeCarbonEventHandler()
+        carbonRegistrations.removeEventHandler()
         DiagnosticsEventRecorder.shared.recordLifecycle(name: "hotkeys.stop")
-    }
-
-    private func removeCarbonEventHandler() {
-        if let handler {
-            RemoveEventHandler(handler)
-            self.handler = nil
-        }
     }
 
     func setCommandHotkeysSuspended(_ suspended: Bool) {
@@ -350,15 +108,6 @@ final class HotkeyCenter {
         if isRunning {
             refreshCommandHotkeyRegistrations()
         }
-    }
-
-    private func unregisterCommandHotkeys() {
-        for ref in refs {
-            if let ref { UnregisterEventHotKey(ref) }
-        }
-        refs.removeAll()
-        idToRegistration.removeAll()
-        pressedHotKeyIds.removeAll()
     }
 
     private func reconcileEventTap() {
@@ -397,7 +146,7 @@ final class HotkeyCenter {
     }
 
     private func refreshCommandHotkeyRegistrations() {
-        unregisterCommandHotkeys()
+        carbonRegistrations.unregister()
         let plan = Self.registrationPlan(for: configuration.bindings)
         registrationFailures = plan.failures
 
@@ -408,30 +157,7 @@ final class HotkeyCenter {
             return
         }
 
-        var nextId: UInt32 = 1
-        for registration in plan.registrations {
-            guard registrationFailures[registration.command] == nil else {
-                continue
-            }
-            var ref: EventHotKeyRef?
-            let hotKeyID = EventHotKeyID(signature: OSType(0x4F4D_4E49), id: nextId)
-            let status = RegisterEventHotKey(
-                registration.binding.keyCode,
-                registration.binding.modifiers,
-                hotKeyID,
-                GetApplicationEventTarget(),
-                0,
-                &ref
-            )
-            if status == noErr, let ref {
-                refs.append(ref)
-                idToRegistration[nextId] = registration
-            } else {
-                registrationFailures[registration.command] = .systemReserved
-                FallbackFiringRecorder.shared.note(.input, "hotkeyRegistrationFailed")
-            }
-            nextId += 1
-        }
+        carbonRegistrations.register(plan.registrations, failures: &registrationFailures)
 
         sideSpecificDispatch = plan.sideSpecificRegistrations.map {
             CommandHotkeyTapMatcher.Entry(binding: $0.binding, command: $0.command)
@@ -444,23 +170,8 @@ final class HotkeyCenter {
             sideSpecificDispatch = []
         }
         DiagnosticsEventRecorder.shared.recordLifecycle(
-            name: "hotkeys.registered registered=\(refs.count) "
+            name: "hotkeys.registered registered=\(carbonRegistrations.count) "
                 + "failures=\(registrationFailures.count) sided=\(sideSpecificDispatch.count)"
-        )
-    }
-
-    private func dispatch(id: UInt32, isRepeat: Bool) {
-        guard let registration = idToRegistration[id] else { return }
-        InputTrace.record("hotkey.carbon cmd=\(registration.command.displayName)")
-        onCommand?(
-            HotkeyInvocation(
-                command: registration.command,
-                trigger: PhysicalHotkeyTrigger(
-                    keyCode: registration.binding.keyCode,
-                    modifiers: registration.binding.modifiers,
-                    isRepeat: isRepeat
-                )
-            )
         )
     }
 
@@ -528,7 +239,9 @@ final class HotkeyCenter {
             runLoopSource: &hyperTriggerRunLoopSource
         )
     }
+}
 
+extension HotkeyCenter {
     private func handleHyperTriggerEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout:
@@ -681,47 +394,6 @@ final class HotkeyCenter {
                 + "closest=\(nearMiss?.entry.command.displayName ?? "none") "
                 + "needs=\(nearMiss?.entry.binding.displayString ?? "-") "
                 + "reason=\(nearMiss?.reason ?? "-")"
-        )
-    }
-
-    nonisolated static func inputMonitoringAccessGranted() -> Bool {
-        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
-    }
-
-    @discardableResult
-    nonisolated static func requestInputMonitoringAccess() -> Bool {
-        IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
-    }
-
-    nonisolated static func registrationPlan(for bindings: [HotkeyBinding]) -> HotkeyRegistrationPlan {
-        var candidates: [(command: HotkeyCommand, binding: KeyBinding)] = []
-        for binding in bindings {
-            guard case let .chord(keyBinding) = binding.binding, !keyBinding.isUnassigned else { continue }
-            candidates.append((binding.command, keyBinding))
-        }
-
-        var failures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
-        for index in candidates.indices {
-            let overlaps = candidates.indices.contains { other in
-                other != index && candidates[index].binding.conflicts(with: candidates[other].binding)
-            }
-            if overlaps {
-                failures[candidates[index].command] = .duplicateBinding
-            }
-        }
-
-        let registrable = candidates.filter { failures[$0.command] == nil }
-        let registrations = registrable
-            .filter { $0.binding.sidedModifiers.isEmpty }
-            .map { HotkeyPlannedRegistration(binding: $0.binding, command: $0.command) }
-        let sideSpecific = registrable
-            .filter { !$0.binding.sidedModifiers.isEmpty }
-            .map { HotkeyPlannedRegistration(binding: $0.binding, command: $0.command) }
-
-        return HotkeyRegistrationPlan(
-            registrations: registrations,
-            sideSpecificRegistrations: sideSpecific,
-            failures: failures
         )
     }
 }

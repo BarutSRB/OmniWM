@@ -170,6 +170,12 @@ enum NativeFullscreenPlaceholderTrace {
             String(format: "t=%.3f", record.mediaTime),
             "op=\(record.operation.rawValue)"
         ]
+        appendIdentityFields(record, to: &fields)
+        appendPresentationFields(record, to: &fields)
+        return fields.joined(separator: " ")
+    }
+
+    private static func appendIdentityFields(_ record: Record, to fields: inout [String]) {
         if let token = record.originalToken {
             fields.append("original=\(token.pid):\(token.windowId)")
         }
@@ -188,6 +194,9 @@ enum NativeFullscreenPlaceholderTrace {
         if let generation = record.generation {
             fields.append("generation=\(generation)")
         }
+    }
+
+    private static func appendPresentationFields(_ record: Record, to fields: inout [String]) {
         if let slotFrame = record.slotFrame {
             fields.append("slot=\(TraceFormat.rect(slotFrame))")
         }
@@ -215,6 +224,5 @@ enum NativeFullscreenPlaceholderTrace {
         if let retryIndex = record.retryIndex {
             fields.append("retry=\(retryIndex)")
         }
-        return fields.joined(separator: " ")
     }
 }

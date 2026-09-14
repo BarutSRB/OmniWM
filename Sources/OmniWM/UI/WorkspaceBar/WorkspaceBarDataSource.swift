@@ -120,7 +120,7 @@ struct WorkspaceBarDataSource {
 
         return WorkspaceBarItem(
             id: snapshot.workspace.id,
-            name: settings.displayName(for: snapshot.workspace.name),
+            name: settings.workspaces.displayName(for: snapshot.workspace.name),
             rawName: snapshot.workspace.name,
             isFocused: snapshot.workspace.id == activeWorkspaceId,
             tiledWindows: tiledWindows,

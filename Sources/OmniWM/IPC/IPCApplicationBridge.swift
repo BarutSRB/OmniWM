@@ -46,55 +46,19 @@ actor IPCApplicationBridge {
 
     func response(for request: IPCRequest) async -> IPCResponse {
         guard request.authorizationToken == authorizationToken else {
-            return .failure(
-                id: request.id,
-                kind: IPCResponseKind(requestKind: request.kind),
-                code: .unauthorized
-            )
+            return IPCResponse(failing: request, code: .unauthorized)
         }
 
         let versionResult = await versionResult()
 
-        if request.version != OmniWMIPCProtocol.version {
-            if request.kind == .version {
-                return .success(id: request.id, kind: .version, result: versionResult)
-            }
-
-            return .failure(
-                id: request.id,
-                kind: IPCResponseKind(requestKind: request.kind),
-                code: .protocolMismatch,
-                result: versionResult
-            )
+        if let mismatch = protocolMismatchResponse(for: request, versionResult: versionResult) {
+            return mismatch
         }
 
         switch request.payload {
         case .none:
             return await MainActor.run {
-                let queryRouter = IPCQueryRouter(
-                    controller: controller,
-                    appVersion: appVersion,
-                    sessionToken: sessionToken
-                )
-
-                switch request.kind {
-                case .ping:
-                    return .success(id: request.id, kind: .ping, result: IPCResult(pong: queryRouter.pingResult()))
-                case .version:
-                    return .success(id: request.id, kind: .version, result: versionResult)
-                case .command,
-                     .capture,
-                     .query,
-                     .rule,
-                     .workspace,
-                     .window,
-                     .subscribe:
-                    return .failure(
-                        id: request.id,
-                        kind: IPCResponseKind(requestKind: request.kind),
-                        code: .invalidRequest
-                    )
-                }
+                responseWithoutPayload(for: request, versionResult: versionResult)
             }
         case let .command(command):
             let result = await commandResult { $0.handle(command) }
@@ -131,6 +95,38 @@ actor IPCApplicationBridge {
                     result: IPCResult(subscribed: IPCSubscribeResult(channels: channels))
                 )
             }
+        }
+    }
+
+    private func protocolMismatchResponse(for request: IPCRequest, versionResult: IPCResult) -> IPCResponse? {
+        guard request.version != OmniWMIPCProtocol.version else { return nil }
+        if request.kind == .version {
+            return .success(id: request.id, kind: .version, result: versionResult)
+        }
+        return IPCResponse(failing: request, code: .protocolMismatch, result: versionResult)
+    }
+
+    @MainActor
+    private func responseWithoutPayload(for request: IPCRequest, versionResult: IPCResult) -> IPCResponse {
+        let queryRouter = IPCQueryRouter(
+            controller: controller,
+            appVersion: appVersion,
+            sessionToken: sessionToken
+        )
+
+        switch request.kind {
+        case .ping:
+            return .success(id: request.id, kind: .ping, result: IPCResult(pong: queryRouter.pingResult()))
+        case .version:
+            return .success(id: request.id, kind: .version, result: versionResult)
+        case .command,
+             .capture,
+             .query,
+             .rule,
+             .workspace,
+             .window,
+             .subscribe:
+            return IPCResponse(failing: request, code: .invalidRequest)
         }
     }
 
@@ -215,70 +211,10 @@ actor IPCApplicationBridge {
 
     @MainActor
     private func response(for query: IPCQueryRequest, id: String, queryRouter: IPCQueryRouter) -> IPCResponse {
-        if let validationFailure = validate(query) {
+        if let validationFailure = IPCQuerySelection.validate(query, sessionToken: sessionToken) {
             return .failure(id: id, kind: .query, code: validationFailure)
         }
-
-        switch query.name {
-        case .workspaceBar:
-            return .success(id: id, kind: .query, result: IPCResult(workspaceBar: queryRouter.workspaceBarResult()))
-        case .activeWorkspace:
-            return .success(
-                id: id,
-                kind: .query,
-                result: IPCResult(activeWorkspace: queryRouter.activeWorkspaceResult())
-            )
-        case .focusedMonitor:
-            return .success(
-                id: id,
-                kind: .query,
-                result: IPCResult(focusedMonitor: queryRouter.focusedMonitorResult())
-            )
-        case .apps:
-            return .success(id: id, kind: .query, result: IPCResult(apps: queryRouter.appsResult()))
-        case .metrics:
-            return .success(id: id, kind: .query, result: IPCResult(metrics: queryRouter.metricsResult()))
-        case .focusedWindow:
-            return .success(
-                id: id,
-                kind: .query,
-                result: IPCResult(focusedWindow: queryRouter.focusedWindowResult())
-            )
-        case .windows:
-            return .success(id: id, kind: .query, result: IPCResult(windows: queryRouter.windowsResult(query)))
-        case .workspaces:
-            return .success(
-                id: id,
-                kind: .query,
-                result: IPCResult(workspaces: queryRouter.workspacesResult(query))
-            )
-        case .displays:
-            return .success(id: id, kind: .query, result: IPCResult(displays: queryRouter.displaysResult(query)))
-        case .rules:
-            return .success(id: id, kind: .query, result: IPCResult(rules: queryRouter.rulesResult()))
-        case .ruleActions:
-            return .success(
-                id: id,
-                kind: .query,
-                result: IPCResult(ruleActions: queryRouter.ruleActionsResult())
-            )
-        case .queries:
-            return .success(id: id, kind: .query, result: IPCResult(queries: queryRouter.queriesResult()))
-        case .commands:
-            return .success(id: id, kind: .query, result: IPCResult(commands: queryRouter.commandsResult()))
-        case .subscriptions:
-            return .success(
-                id: id,
-                kind: .query,
-                result: IPCResult(subscriptions: queryRouter.subscriptionsResult())
-            )
-        case .capabilities:
-            return .success(
-                id: id,
-                kind: .query,
-                result: IPCResult(capabilities: queryRouter.capabilitiesResult())
-            )
-        }
+        return .success(id: id, kind: .query, result: IPCResult(query: query, queryRouter: queryRouter))
     }
 
     private func response(for rule: IPCRuleRequest, id: String, ruleRouter: IPCRuleRouter) async -> IPCResponse {
@@ -293,45 +229,6 @@ actor IPCApplicationBridge {
         case let .failure(code):
             return .failure(id: id, kind: .rule, code: code)
         }
-    }
-
-    @MainActor
-    private func validate(_ query: IPCQueryRequest) -> IPCErrorCode? {
-        guard let descriptor = IPCAutomationManifest.queryDescriptor(for: query.name) else {
-            return .invalidArguments
-        }
-
-        let supportedSelectors = Set(descriptor.selectors.map(\.name))
-        for selector in query.selectors.providedSelectorNames where !supportedSelectors.contains(selector) {
-            return .invalidArguments
-        }
-
-        if let focused = query.selectors.focused, focused != true { return .invalidArguments }
-        if let visible = query.selectors.visible, visible != true { return .invalidArguments }
-        if let floating = query.selectors.floating, floating != true { return .invalidArguments }
-        if let scratchpad = query.selectors.scratchpad, scratchpad != true { return .invalidArguments }
-        if let current = query.selectors.current, current != true { return .invalidArguments }
-        if let main = query.selectors.main, main != true { return .invalidArguments }
-
-        if !query.fields.isEmpty {
-            let allowedFields = Set(descriptor.fields)
-            guard !allowedFields.isEmpty, query.fields.allSatisfy(allowedFields.contains) else {
-                return .invalidArguments
-            }
-        }
-
-        if let windowSelector = query.selectors.window, supportedSelectors.contains(.window) {
-            switch IPCWindowOpaqueID.validate(windowSelector, expectingSessionToken: sessionToken) {
-            case .valid:
-                break
-            case .stale:
-                return .staleWindowId
-            case .invalid:
-                return .invalidArguments
-            }
-        }
-
-        return nil
     }
 
     nonisolated static func response(
@@ -372,50 +269,12 @@ actor IPCApplicationBridge {
                 appVersion: appVersion,
                 sessionToken: sessionToken
             )
-            switch channel {
-            case .focus:
-                return IPCEventEnvelope.success(
-                    id: UUID().uuidString,
-                    channel: .focus,
-                    result: IPCResult(focusedWindow: queryRouter.focusedWindowResult())
-                )
-            case .workspaceBar:
-                return IPCEventEnvelope.success(
-                    id: UUID().uuidString,
-                    channel: .workspaceBar,
-                    result: IPCResult(workspaceBar: queryRouter.workspaceBarResult())
-                )
-            case .activeWorkspace:
-                return IPCEventEnvelope.success(
-                    id: UUID().uuidString,
-                    channel: .activeWorkspace,
-                    result: IPCResult(activeWorkspace: queryRouter.activeWorkspaceResult())
-                )
-            case .focusedMonitor:
-                return IPCEventEnvelope.success(
-                    id: UUID().uuidString,
-                    channel: .focusedMonitor,
-                    result: IPCResult(focusedMonitor: queryRouter.focusedMonitorResult())
-                )
-            case .windowsChanged:
-                return IPCEventEnvelope.success(
-                    id: UUID().uuidString,
-                    channel: .windowsChanged,
-                    result: IPCResult(windows: queryRouter.windowsResult(IPCQueryRequest(name: .windows)))
-                )
-            case .displayChanged:
-                return IPCEventEnvelope.success(
-                    id: UUID().uuidString,
-                    channel: .displayChanged,
-                    result: IPCResult(displays: queryRouter.displaysResult(IPCQueryRequest(name: .displays)))
-                )
-            case .layoutChanged:
-                return IPCEventEnvelope.success(
-                    id: UUID().uuidString,
-                    channel: .layoutChanged,
-                    result: IPCResult(workspaces: queryRouter.workspacesResult(IPCQueryRequest(name: .workspaces)))
-                )
-            }
+            let id = UUID().uuidString
+            return IPCEventEnvelope.success(
+                id: id,
+                channel: channel,
+                result: IPCResult(channel: channel, queryRouter: queryRouter)
+            )
         }
     }
 }

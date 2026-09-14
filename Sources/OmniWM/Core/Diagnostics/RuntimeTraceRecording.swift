@@ -7,6 +7,7 @@ import os
 import Synchronization
 
 enum RuntimeTraceLimits {
+    static let axArrayElements = 64
     static let captureBytes = 32 * 1024 * 1024
     static let stateReportBytes = 1024 * 1024
     static let automaticEvidenceBytes = 512 * 1024

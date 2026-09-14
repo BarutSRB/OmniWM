@@ -14,20 +14,20 @@ final class NativeSpaceInventoryStabilityTests: XCTestCase {
             refreshController.resetState()
             controller.isLockScreenActive = false
         }
-        manager.topologyInventorySampleProvider = { nil }
-        manager.topologyInventorySleeper = { _ in await Task.yield() }
-        manager.beginPerformanceCapture()
+        manager.topologyInventory.sampleProvider = { nil }
+        manager.topologyInventory.sleeper = { _ in await Task.yield() }
+        manager.topologyInventory.beginPerformanceCapture()
         controller.isLockScreenActive = true
 
         manager.handleActiveSpaceDidChange()
         for _ in 0 ..< 100 {
-            if manager.performanceSnapshot()?.topologyGlobalFallbacks == 1 {
+            if manager.topologyInventory.performanceSnapshot()?.topologyGlobalFallbacks == 1 {
                 break
             }
             await Task.yield()
         }
 
-        let terminalSnapshot = try XCTUnwrap(manager.performanceSnapshot())
+        let terminalSnapshot = try XCTUnwrap(manager.topologyInventory.performanceSnapshot())
         XCTAssertEqual(
             terminalSnapshot.topologySamples,
             UInt64(NativeSpaceInventoryStabilityGate.globalFallbackObservationCount)
@@ -40,8 +40,11 @@ final class NativeSpaceInventoryStabilityTests: XCTestCase {
         for _ in 0 ..< 20 {
             await Task.yield()
         }
-        XCTAssertEqual(manager.performanceSnapshot()?.topologySamples, terminalSnapshot.topologySamples)
-        _ = manager.endPerformanceCapture()
+        XCTAssertEqual(
+            manager.topologyInventory.performanceSnapshot()?.topologySamples,
+            terminalSnapshot.topologySamples
+        )
+        _ = manager.topologyInventory.endPerformanceCapture()
     }
 
     @MainActor
@@ -56,23 +59,23 @@ final class NativeSpaceInventoryStabilityTests: XCTestCase {
             refreshController.resetState()
             controller.isLockScreenActive = false
         }
-        manager.topologyInventorySampleProvider = {
+        manager.topologyInventory.sampleProvider = {
             defer { returnsFirst.toggle() }
             return returnsFirst ? first : second
         }
-        manager.topologyInventorySleeper = { _ in await Task.yield() }
-        manager.beginPerformanceCapture()
+        manager.topologyInventory.sleeper = { _ in await Task.yield() }
+        manager.topologyInventory.beginPerformanceCapture()
         controller.isLockScreenActive = true
 
         manager.handleActiveSpaceDidChange()
         for _ in 0 ..< 100 {
-            if manager.performanceSnapshot()?.topologyGlobalFallbacks == 1 {
+            if manager.topologyInventory.performanceSnapshot()?.topologyGlobalFallbacks == 1 {
                 break
             }
             await Task.yield()
         }
 
-        let terminalSnapshot = try XCTUnwrap(manager.performanceSnapshot())
+        let terminalSnapshot = try XCTUnwrap(manager.topologyInventory.performanceSnapshot())
         XCTAssertEqual(
             terminalSnapshot.topologySamples,
             UInt64(NativeSpaceInventoryStabilityGate.globalFallbackObservationCount)
@@ -85,8 +88,11 @@ final class NativeSpaceInventoryStabilityTests: XCTestCase {
         for _ in 0 ..< 20 {
             await Task.yield()
         }
-        XCTAssertEqual(manager.performanceSnapshot()?.topologySamples, terminalSnapshot.topologySamples)
-        _ = manager.endPerformanceCapture()
+        XCTAssertEqual(
+            manager.topologyInventory.performanceSnapshot()?.topologySamples,
+            terminalSnapshot.topologySamples
+        )
+        _ = manager.topologyInventory.endPerformanceCapture()
     }
 
     @MainActor
@@ -99,18 +105,18 @@ final class NativeSpaceInventoryStabilityTests: XCTestCase {
         let secondWorkspaceId = WorkspaceDescriptor.ID()
         let probe = NativeSpaceInventoryTestProbe()
         defer {
-            _ = manager.endPerformanceCapture()
+            _ = manager.topologyInventory.endPerformanceCapture()
             _ = refreshController.endPerformanceCapture()
             refreshController.resetState()
             controller.isLockScreenActive = false
         }
-        manager.topologyInventorySampleProvider = { probe.sample }
-        manager.topologyInventorySleeper = { _ in
+        manager.topologyInventory.sampleProvider = { probe.sample }
+        manager.topologyInventory.sleeper = { _ in
             await withCheckedContinuation { continuation in
                 probe.sleeper = continuation
             }
         }
-        manager.beginPerformanceCapture()
+        manager.topologyInventory.beginPerformanceCapture()
         refreshController.beginPerformanceCapture()
         controller.isLockScreenActive = true
         refreshController.requestImmediateRelayout(
@@ -158,12 +164,12 @@ final class NativeSpaceInventoryStabilityTests: XCTestCase {
         probe.sleeper = nil
         secondSleep?.resume()
         for _ in 0 ..< 100 {
-            if manager.performanceSnapshot()?.authoritativeTerminations == 1 {
+            if manager.topologyInventory.performanceSnapshot()?.authoritativeTerminations == 1 {
                 break
             }
             await Task.yield()
         }
-        XCTAssertEqual(manager.performanceSnapshot()?.authoritativeTerminations, 1)
+        XCTAssertEqual(manager.topologyInventory.performanceSnapshot()?.authoritativeTerminations, 1)
     }
 
     func testTwoConsecutiveMatchingUsableSamplesReleaseCurrentAndActiveSpaces() throws {

@@ -20,10 +20,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
 
         let firstRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                expectedWindow: window,
-                frame: target,
+                .init(pid: pid, window: window, frame: target),
                 isRetry: false,
                 terminalObserver: { observerResults.append($0) }
             ).request
@@ -131,10 +128,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         XCTAssertFalse(ledger.hasPendingFrameWrite(for: windowId))
 
         let dedupedDecision = ledger.prepareFrameApplication(
-            pid: pid,
-            windowId: windowId,
-            expectedWindow: window,
-            frame: target,
+            .init(pid: pid, window: window, frame: target),
             isRetry: false,
             terminalObserver: nil
         )
@@ -227,11 +221,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
             let ledger = AXFrameApplicationLedger()
             for isRetry in [false, true] {
                 let request = try XCTUnwrap(ledger.prepareFrameApplication(
-                    pid: pid,
-                    windowId: window.windowId,
-                    expectedWindow: window,
-                    frame: target,
-                    components: components,
+                    .init(pid: pid, window: window, frame: target, components: components),
                     isRetry: isRetry,
                     terminalObserver: nil
                 ).request)
@@ -278,20 +268,14 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
 
         XCTAssertNil(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                expectedWindow: window,
-                frame: target,
+                .init(pid: pid, window: window, frame: target),
                 isRetry: false,
                 terminalObserver: nil
             ).request
         )
 
         let changedDecision = ledger.prepareFrameApplication(
-            pid: pid,
-            windowId: windowId,
-            expectedWindow: window,
-            frame: changedTarget,
+            .init(pid: pid, window: window, frame: changedTarget),
             isRetry: false,
             terminalObserver: nil
         )
@@ -363,10 +347,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         )
         XCTAssertNotNil(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                expectedWindow: window,
-                frame: target,
+                .init(pid: pid, window: window, frame: target),
                 isRetry: false,
                 terminalObserver: nil
             ).request
@@ -508,10 +489,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         var terminalResults: [AXFrameApplyResult] = []
 
         let observerDecision = ledger.prepareFrameApplication(
-            pid: pid,
-            windowId: window.windowId,
-            expectedWindow: window,
-            frame: target,
+            .init(pid: pid, window: window, frame: target),
             isRetry: false,
             terminalObserver: { terminalResults.append($0) }
         )
@@ -616,10 +594,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         )
         XCTAssertNotNil(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                expectedWindow: window,
-                frame: target,
+                .init(pid: pid, window: window, frame: target),
                 isRetry: false,
                 terminalObserver: nil
             ).request
@@ -1047,20 +1022,14 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId)
         let firstRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                expectedWindow: window,
-                frame: firstTarget,
+                .init(pid: pid, window: window, frame: firstTarget),
                 isRetry: false,
                 terminalObserver: nil
             ).request
         )
         let secondRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                expectedWindow: window,
-                frame: secondTarget,
+                .init(pid: pid, window: window, frame: secondTarget),
                 isRetry: false,
                 terminalObserver: nil
             ).request
@@ -1129,10 +1098,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         let newWindow = AXWindowRef(element: AXUIElementCreateApplication(pid + 1), windowId: windowId)
         let oldRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: windowId,
-                expectedWindow: oldWindow,
-                frame: target,
+                .init(pid: pid, window: oldWindow, frame: target),
                 isRetry: false,
                 terminalObserver: nil
             ).request
@@ -1140,10 +1106,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         _ = ledger.removeWindowState(windowId: windowId)
         let newRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
-                pid: pid + 1,
-                windowId: windowId,
-                expectedWindow: newWindow,
-                frame: target,
+                .init(pid: pid + 1, window: newWindow, frame: target),
                 isRetry: false,
                 terminalObserver: nil
             ).request
@@ -1404,10 +1367,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
 
         var observerResults: [AXFrameApplyResult] = []
         let declined = ledger.prepareFrameApplication(
-            pid: pid,
-            windowId: window.windowId,
-            expectedWindow: window,
-            frame: target,
+            .init(pid: pid, window: window, frame: target),
             isRetry: false,
             terminalObserver: { observerResults.append($0) }
         )
@@ -1510,11 +1470,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         )
         let positionRequest = try XCTUnwrap(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: window.windowId,
-                expectedWindow: window,
-                frame: placement,
-                components: .position,
+                .init(pid: pid, window: window, frame: placement, components: .position),
                 isRetry: false,
                 terminalObserver: nil
             ).request
@@ -1654,11 +1610,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
     ) throws -> AXFrameApplyOutcome {
         let request = try XCTUnwrap(
             ledger.prepareFrameApplication(
-                pid: pid,
-                windowId: window.windowId,
-                expectedWindow: window,
-                frame: placement,
-                components: .position,
+                .init(pid: pid, window: window, frame: placement, components: .position),
                 isRetry: false,
                 terminalObserver: nil
             ).request
@@ -1692,10 +1644,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         terminalObserver: AXFrameApplicationTerminalObserver? = nil
     ) throws -> (outcome: AXFrameApplyOutcome, acceptedResults: [AXFrameApplyResult]) {
         let firstDecision = ledger.prepareFrameApplication(
-            pid: pid,
-            windowId: window.windowId,
-            expectedWindow: window,
-            frame: target,
+            .init(pid: pid, window: window, frame: target),
             isRetry: false,
             terminalObserver: terminalObserver
         )

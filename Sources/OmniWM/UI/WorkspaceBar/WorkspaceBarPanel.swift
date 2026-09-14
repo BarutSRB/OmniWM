@@ -20,4 +20,27 @@ final class WorkspaceBarPanel: NSPanel {
 
         return constrained
     }
+
+    static func defaultPanel() -> WorkspaceBarPanel {
+        let panel = WorkspaceBarPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = false
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isReleasedWhenClosed = false
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
+
+        return panel
+    }
 }

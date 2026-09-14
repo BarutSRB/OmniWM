@@ -13,6 +13,16 @@ struct ProcessResourceSnapshot: Equatable, Sendable {
         let userInitiated: UInt64
         let userInteractive: UInt64
         let legacy: UInt64
+
+        func hasNotRegressed(from start: Self) -> Bool {
+            background >= start.background
+                && maintenance >= start.maintenance
+                && utility >= start.utility
+                && `default` >= start.default
+                && userInitiated >= start.userInitiated
+                && userInteractive >= start.userInteractive
+                && legacy >= start.legacy
+        }
     }
 
     let capturedAt: UInt64
@@ -80,13 +90,7 @@ struct ProcessResourceSnapshot: Equatable, Sendable {
               end.pageIns >= pageIns,
               end.diskBytesRead >= diskBytesRead,
               end.diskBytesWritten >= diskBytesWritten,
-              end.qosTime.background >= qosTime.background,
-              end.qosTime.maintenance >= qosTime.maintenance,
-              end.qosTime.utility >= qosTime.utility,
-              end.qosTime.default >= qosTime.default,
-              end.qosTime.userInitiated >= qosTime.userInitiated,
-              end.qosTime.userInteractive >= qosTime.userInteractive,
-              end.qosTime.legacy >= qosTime.legacy
+              end.qosTime.hasNotRegressed(from: qosTime)
         else {
             return nil
         }
@@ -107,19 +111,7 @@ struct ProcessResourceSnapshot: Equatable, Sendable {
             runnableSeconds: Self.seconds(fromMachTicks: end.runnableTime - runnableTime),
             packageIdleWakeups: end.packageIdleWakeups - packageIdleWakeups,
             interruptWakeups: end.interruptWakeups - interruptWakeups,
-            qosSeconds: .init(
-                background: Self.seconds(fromMachTicks: end.qosTime.background - qosTime.background),
-                maintenance: Self.seconds(fromMachTicks: end.qosTime.maintenance - qosTime.maintenance),
-                utility: Self.seconds(fromMachTicks: end.qosTime.utility - qosTime.utility),
-                default: Self.seconds(fromMachTicks: end.qosTime.default - qosTime.default),
-                userInitiated: Self.seconds(
-                    fromMachTicks: end.qosTime.userInitiated - qosTime.userInitiated
-                ),
-                userInteractive: Self.seconds(
-                    fromMachTicks: end.qosTime.userInteractive - qosTime.userInteractive
-                ),
-                legacy: Self.seconds(fromMachTicks: end.qosTime.legacy - qosTime.legacy)
-            ),
+            qosSeconds: .init(validatedStart: qosTime, end: end.qosTime),
             instructions: end.instructions - instructions,
             cycles: end.cycles - cycles,
             pageIns: end.pageIns - pageIns,
@@ -169,6 +161,44 @@ struct ProcessResourceDelta: Equatable, Sendable {
         let userInitiated: Double
         let userInteractive: Double
         let legacy: Double
+
+        init(validatedStart start: ProcessResourceSnapshot.QoSTime, end: ProcessResourceSnapshot.QoSTime) {
+            background = MachTimebase.current.seconds(fromMachTicks: end.background - start.background)
+            maintenance = MachTimebase.current.seconds(fromMachTicks: end.maintenance - start.maintenance)
+            utility = MachTimebase.current.seconds(fromMachTicks: end.utility - start.utility)
+            `default` = MachTimebase.current.seconds(fromMachTicks: end.default - start.default)
+            userInitiated = MachTimebase.current.seconds(fromMachTicks: end.userInitiated - start.userInitiated)
+            userInteractive = MachTimebase.current.seconds(fromMachTicks: end.userInteractive - start.userInteractive)
+            legacy = MachTimebase.current.seconds(fromMachTicks: end.legacy - start.legacy)
+        }
+
+        func formatted() -> String {
+            String(
+                format: "qos background=%.6fs maintenance=%.6fs utility=%.6fs default=%.6fs"
+                    + " userInitiated=%.6fs userInteractive=%.6fs legacy=%.6fs",
+                background,
+                maintenance,
+                utility,
+                `default`,
+                userInitiated,
+                userInteractive,
+                legacy
+            )
+        }
+
+        func formattedRates(elapsedSeconds: Double) -> String {
+            String(
+                format: "qosRates background=%.6f/s maintenance=%.6f/s utility=%.6f/s default=%.6f/s"
+                    + " userInitiated=%.6f/s userInteractive=%.6f/s legacy=%.6f/s",
+                background / elapsedSeconds,
+                maintenance / elapsedSeconds,
+                utility / elapsedSeconds,
+                `default` / elapsedSeconds,
+                userInitiated / elapsedSeconds,
+                userInteractive / elapsedSeconds,
+                legacy / elapsedSeconds
+            )
+        }
     }
 
     let elapsedSeconds: Double
@@ -222,28 +252,8 @@ struct ProcessResourceDelta: Equatable, Sendable {
             interruptWakeups,
             Double(interruptWakeups) / elapsedSeconds
         )
-        let qos = String(
-            format: "qos background=%.6fs maintenance=%.6fs utility=%.6fs default=%.6fs"
-                + " userInitiated=%.6fs userInteractive=%.6fs legacy=%.6fs",
-            qosSeconds.background,
-            qosSeconds.maintenance,
-            qosSeconds.utility,
-            qosSeconds.default,
-            qosSeconds.userInitiated,
-            qosSeconds.userInteractive,
-            qosSeconds.legacy
-        )
-        let qosRates = String(
-            format: "qosRates background=%.6f/s maintenance=%.6f/s utility=%.6f/s default=%.6f/s"
-                + " userInitiated=%.6f/s userInteractive=%.6f/s legacy=%.6f/s",
-            qosSeconds.background / elapsedSeconds,
-            qosSeconds.maintenance / elapsedSeconds,
-            qosSeconds.utility / elapsedSeconds,
-            qosSeconds.default / elapsedSeconds,
-            qosSeconds.userInitiated / elapsedSeconds,
-            qosSeconds.userInteractive / elapsedSeconds,
-            qosSeconds.legacy / elapsedSeconds
-        )
+        let qos = qosSeconds.formatted()
+        let qosRates = qosSeconds.formattedRates(elapsedSeconds: elapsedSeconds)
         let counters = String(
             format: "instructions=%llu rate=%.3f/s cycles=%llu rate=%.3f/s pageIns=%llu rate=%.3f/s"
                 + " diskRead=%llu rate=%.3fB/s diskWritten=%llu rate=%.3fB/s",

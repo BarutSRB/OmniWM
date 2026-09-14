@@ -57,15 +57,8 @@ enum MenuBarItemActivation: Sendable {
 }
 
 enum MenuBarItemLocator {
-    private struct ItemSampleState {
-        let pid: pid_t
-        let frames: [CGRect]
-        let emptySince: ContinuousClock.Instant?
-    }
-
     private static let messagingTimeoutSeconds: Float = 0.1
     private static let settlePollInterval: TimeInterval = 0.05
-    private static let resolveDeadline: Duration = .seconds(2)
     private static let locateDeadline: Duration = .seconds(2)
 
     static func resolveItems(
@@ -77,81 +70,21 @@ enum MenuBarItemLocator {
         guard !bundleIDs.isEmpty else { return .empty }
 
         var resolved: [String: [ResolvedMenuBarItem]] = [:]
-        var previousSamples: [String: ItemSampleState] = [:]
-        var firstAttemptStarts: [String: ContinuousClock.Instant] = [:]
         let clock = ContinuousClock()
-        let startedAt = clock.now
-        let deadline = startedAt.advanced(by: resolveDeadline)
-        let hardDeadline = deadline.advanced(by: resolveDeadline)
-        var extendedEmptyResolution = false
-
+        var tracker = MenuBarItemSampleTracker(clock: clock, startedAt: clock.now)
         while resolved.count < bundleIDs.count {
-            let now = clock.now
-            let pendingEmptyGrace = previousSamples.values.contains { sample in
-                guard let emptySince = sample.emptySince else { return false }
-                return emptySince.duration(to: now) < resolveDeadline
-            }
-            if now >= deadline, pendingEmptyGrace {
-                extendedEmptyResolution = true
-            }
-            guard now < deadline || extendedEmptyResolution && now < hardDeadline else { break }
+            guard tracker.shouldContinue(at: clock.now) else { break }
             try job.checkCancellation()
             for bundleID in bundleIDs where resolved[bundleID] == nil {
                 try job.checkCancellation()
-                let firstAttempt = firstAttemptStarts[bundleID] == nil
-                let attemptStartedAt = clock.now
-                if firstAttempt {
-                    firstAttemptStarts[bundleID] = attemptStartedAt
-                }
-                guard let sample = try itemSample(
+                if let items = try resolveStableItems(
                     candidates: candidates,
                     bundleID: bundleID,
-                    allowEmpty: allowEmptyBundleIDs.contains(bundleID),
-                    job: job
-                ) else {
-                    previousSamples.removeValue(forKey: bundleID)
-                    continue
-                }
-                let frames = sample.items.map(\.frame)
-                if frames.isEmpty {
-                    let previous = previousSamples[bundleID]
-                    if !firstAttempt {
-                        extendedEmptyResolution = true
-                    }
-                    let emptySince = if previous?.pid == sample.pid, previous?.frames.isEmpty == true {
-                        previous?.emptySince ?? clock.now
-                    } else if firstAttempt {
-                        attemptStartedAt
-                    } else {
-                        clock.now
-                    }
-                    previousSamples[bundleID] = ItemSampleState(
-                        pid: sample.pid,
-                        frames: [],
-                        emptySince: emptySince
-                    )
-                    continue
-                }
-                if previousSamples[bundleID]?.frames.isEmpty == true {
-                    extendedEmptyResolution = true
-                }
-                if let previous = previousSamples[bundleID],
-                   previous.pid == sample.pid, previous.frames == frames
-                {
-                    resolved[bundleID] = sample.items.enumerated().map { ordinal, item in
-                        ResolvedMenuBarItem(
-                            key: MenuBarItemKey(bundleID: bundleID, ordinal: ordinal),
-                            pid: sample.pid,
-                            bounds: item.frame,
-                            semanticIdentity: semanticIdentity(of: item.element)
-                        )
-                    }
-                } else {
-                    previousSamples[bundleID] = ItemSampleState(
-                        pid: sample.pid,
-                        frames: frames,
-                        emptySince: nil
-                    )
+                    allowEmptyBundleIDs: allowEmptyBundleIDs,
+                    job: job,
+                    tracker: &tracker
+                ) {
+                    resolved[bundleID] = items
                 }
             }
             if resolved.count < bundleIDs.count {
@@ -160,26 +93,49 @@ enum MenuBarItemLocator {
         }
         for bundleID in allowEmptyBundleIDs where resolved[bundleID] == nil {
             try job.checkCancellation()
-            guard let previous = previousSamples[bundleID], previous.frames.isEmpty,
-                  let emptySince = previous.emptySince,
-                  Self.shouldAcceptAuthoritativeEmpty(
-                      continuouslyEmptyFor: emptySince.duration(to: clock.now)
-                  ),
+            guard let pid = tracker.authoritativeEmptyPID(for: bundleID),
                   let sample = try itemSample(
                       candidates: candidates,
                       bundleID: bundleID,
                       allowEmpty: true,
                       job: job
                   ),
-                  sample.pid == previous.pid, sample.items.isEmpty
+                  sample.pid == pid, sample.items.isEmpty
             else { continue }
             resolved[bundleID] = []
         }
         return MenuBarItemResolution(itemsByBundleID: resolved)
     }
 
-    static func shouldAcceptAuthoritativeEmpty(continuouslyEmptyFor: Duration) -> Bool {
-        continuouslyEmptyFor >= resolveDeadline
+    private static func resolveStableItems(
+        candidates: [MenuBarAppCandidate],
+        bundleID: String,
+        allowEmptyBundleIDs: Set<String>,
+        job: RunLoopJob,
+        tracker: inout MenuBarItemSampleTracker
+    ) throws -> [ResolvedMenuBarItem]? {
+        let attempt = tracker.beginAttempt(for: bundleID)
+        guard let sample = try itemSample(
+            candidates: candidates,
+            bundleID: bundleID,
+            allowEmpty: allowEmptyBundleIDs.contains(bundleID),
+            job: job
+        ) else {
+            tracker.discardSample(for: bundleID)
+            return nil
+        }
+        let frames = sample.items.map(\.frame)
+        guard tracker.recordSample(pid: sample.pid, frames: frames, for: bundleID, attempt: attempt) else {
+            return nil
+        }
+        return sample.items.enumerated().map { ordinal, item in
+            ResolvedMenuBarItem(
+                key: MenuBarItemKey(bundleID: bundleID, ordinal: ordinal),
+                pid: sample.pid,
+                bounds: item.frame,
+                semanticIdentity: semanticIdentity(of: item.element)
+            )
+        }
     }
 
     static func activate(

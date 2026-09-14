@@ -63,27 +63,7 @@ extension LayoutRefreshController {
             guard let windowId = UInt32(exactly: entry.windowId) else { continue }
             guard controller.workspaceManager.hiddenState(for: entry.token) != nil else {
                 visible.append(entry.windowId)
-                if entry.mode == .tiling,
-                   let bounds = SkyLight.shared.getWindowBounds(windowId)
-                {
-                    let frame = ScreenCoordinateSpace.toAppKit(rect: bounds)
-                    let expectations = [
-                        controller.axManager.lastAppliedFrame(for: entry.windowId)?.origin,
-                        controller.axManager.pendingFrameWrite(for: entry.windowId)?.origin,
-                        controller.axManager.skyLightLivePosition(for: entry.windowId)
-                    ].compactMap(\.self)
-                    let strayEpsilon: CGFloat = 32
-                    let matchesExpectation = expectations.contains {
-                        abs($0.x - frame.origin.x) <= strayEpsilon
-                            && abs($0.y - frame.origin.y) <= strayEpsilon
-                    }
-                    if !matchesExpectation {
-                        let expected = expectations.first.map { TraceFormat.point($0) } ?? "none"
-                        strays.append(
-                            "\(entry.windowId):\(TraceFormat.point(frame.origin))→\(expected)"
-                        )
-                    }
-                }
+                appendVisibleWindowAudit(entry, windowId: windowId, controller: controller, strays: &strays)
                 continue
             }
             guard let bounds = SkyLight.shared.getWindowBounds(windowId) else { continue }
@@ -112,5 +92,33 @@ extension LayoutRefreshController {
                 appHiddenCount: appHiddenCount
             )
         )
+    }
+}
+
+extension LayoutRefreshController {
+    private func appendVisibleWindowAudit(
+        _ entry: WindowState, windowId: UInt32, controller: WMController, strays: inout [String]
+    ) {
+        if entry.mode == .tiling,
+           let bounds = SkyLight.shared.getWindowBounds(windowId)
+        {
+            let frame = ScreenCoordinateSpace.toAppKit(rect: bounds)
+            let expectations = [
+                controller.axManager.lastAppliedFrame(for: entry.windowId)?.origin,
+                controller.axManager.pendingFrameWrite(for: entry.windowId)?.origin,
+                controller.axManager.skyLightLivePosition(for: entry.windowId)
+            ].compactMap(\.self)
+            let strayEpsilon: CGFloat = 32
+            let matchesExpectation = expectations.contains {
+                abs($0.x - frame.origin.x) <= strayEpsilon
+                    && abs($0.y - frame.origin.y) <= strayEpsilon
+            }
+            if !matchesExpectation {
+                let expected = expectations.first.map { TraceFormat.point($0) } ?? "none"
+                strays.append(
+                    "\(entry.windowId):\(TraceFormat.point(frame.origin))→\(expected)"
+                )
+            }
+        }
     }
 }

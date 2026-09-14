@@ -164,19 +164,7 @@ actor IPCConnection {
                 try send(event)
             }
 
-            for registration in pendingRegistrations {
-                let task = Task(priority: .utility) {
-                    for await event in registration.stream {
-                        do {
-                            try self.send(event)
-                        } catch {
-                            self.stop()
-                            return
-                        }
-                    }
-                }
-                eventTasks[registration.channel] = task
-            }
+            startEventTasks(for: pendingRegistrations)
         } catch {
             for registration in pendingRegistrations {
                 await bridge.unregisterStream(registration)
@@ -186,6 +174,22 @@ actor IPCConnection {
             } catch {
                 closeImmediately()
             }
+        }
+    }
+
+    private func startEventTasks(for registrations: [IPCEventStreamRegistration]) {
+        for registration in registrations {
+            let task = Task(priority: .utility) {
+                for await event in registration.stream {
+                    do {
+                        try self.send(event)
+                    } catch {
+                        self.stop()
+                        return
+                    }
+                }
+            }
+            eventTasks[registration.channel] = task
         }
     }
 

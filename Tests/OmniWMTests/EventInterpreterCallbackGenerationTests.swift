@@ -28,12 +28,12 @@ final class EventInterpreterCallbackGenerationTests: XCTestCase {
         )
 
         interpreter.handleIntakeEvent(
-            stamped(.axFocusedWindowChanged(pid: pid, callbackGeneration: currentGeneration - 1))
+            stamped(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: currentGeneration - 1)))
         )
         XCTAssertEqual(factReadCount, 0)
 
         interpreter.handleIntakeEvent(
-            stamped(.axFocusedWindowChanged(pid: pid, callbackGeneration: currentGeneration))
+            stamped(.axWindow(.focusedWindowChanged(pid: pid, callbackGeneration: currentGeneration)))
         )
         XCTAssertEqual(factReadCount, 1)
     }
@@ -68,22 +68,22 @@ final class EventInterpreterCallbackGenerationTests: XCTestCase {
 
         interpreter.handleIntakeEvent(
             stamped(
-                .axWindowDestroyed(
+                .axWindow(.windowDestroyed(
                     pid: pid,
                     axRef: axRef,
                     callbackGeneration: currentGeneration - 1
-                )
+                ))
             )
         )
         XCTAssertNotNil(controller.workspaceManager.entry(for: token))
 
         interpreter.handleIntakeEvent(
             stamped(
-                .axWindowDestroyed(
+                .axWindow(.windowDestroyed(
                     pid: pid,
                     axRef: axRef,
                     callbackGeneration: currentGeneration
-                )
+                ))
             )
         )
         XCTAssertNil(controller.workspaceManager.entry(for: token))
@@ -106,22 +106,22 @@ final class EventInterpreterCallbackGenerationTests: XCTestCase {
 
         interpreter.handleIntakeEvent(
             stamped(
-                .axWindowMiniaturized(
+                .axWindow(.windowMiniaturized(
                     pid: pid,
                     windowId: token.windowId,
                     callbackGeneration: currentGeneration - 1
-                )
+                ))
             )
         )
         XCTAssertEqual(controller.workspaceManager.externalFocusToken, token)
 
         interpreter.handleIntakeEvent(
             stamped(
-                .axWindowMiniaturized(
+                .axWindow(.windowMiniaturized(
                     pid: pid,
                     windowId: token.windowId,
                     callbackGeneration: currentGeneration
-                )
+                ))
             )
         )
         XCTAssertNil(controller.workspaceManager.externalFocusToken)

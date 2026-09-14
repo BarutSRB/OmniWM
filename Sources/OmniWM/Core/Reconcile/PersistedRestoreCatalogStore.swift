@@ -21,41 +21,38 @@ struct PersistedWindowRestoreCatalogBuildEntry: Sendable {
     let niriPlacement: PersistedNiriPlacement?
     let detachedNiriContainerSizingState: NiriContainerSizingState?
     let dwindlePlacement: PersistedDwindlePlacement?
+
+    func persistedEntry() -> PersistedWindowRestoreEntry? {
+        guard let key = PersistedWindowRestoreKey(metadata: metadata) else { return nil }
+        return PersistedWindowRestoreEntry(
+            key: key,
+            identity: PersistedWindowRestoreIdentity(
+                token: token,
+                metadata: metadata
+            ),
+            restoreIntent: PersistedRestoreIntent(
+                workspaceName: workspaceName,
+                topologyProfile: topologyProfile,
+                preferredMonitor: preferredMonitor,
+                floatingFrame: floatingFrame,
+                normalizedFloatingOrigin: normalizedFloatingOrigin,
+                restoreToFloating: restoreToFloating,
+                rescueEligible: rescueEligible,
+                niriPlacement: niriPlacement,
+                detachedNiriContainerSizingState: detachedNiriContainerSizingState,
+                dwindlePlacement: dwindlePlacement
+            )
+        )
+    }
 }
 
 enum PersistedWindowRestoreCatalogBuilder {
-    private struct Candidate {
-        let key: PersistedWindowRestoreKey
-        let entry: PersistedWindowRestoreEntry
-    }
-
     static func build(from snapshot: RestoreCatalogBuildSnapshot) -> PersistedWindowRestoreCatalog {
-        var candidatesByBaseKey: [PersistedWindowRestoreBaseKey: [Candidate]] = [:]
+        var candidatesByBaseKey: [PersistedWindowRestoreBaseKey: [PersistedWindowRestoreEntry]] = [:]
 
         for snapshotEntry in snapshot.entries {
-            guard let key = PersistedWindowRestoreKey(metadata: snapshotEntry.metadata) else { continue }
-            let persistedEntry = PersistedWindowRestoreEntry(
-                key: key,
-                identity: PersistedWindowRestoreIdentity(
-                    token: snapshotEntry.token,
-                    metadata: snapshotEntry.metadata
-                ),
-                restoreIntent: PersistedRestoreIntent(
-                    workspaceName: snapshotEntry.workspaceName,
-                    topologyProfile: snapshotEntry.topologyProfile,
-                    preferredMonitor: snapshotEntry.preferredMonitor,
-                    floatingFrame: snapshotEntry.floatingFrame,
-                    normalizedFloatingOrigin: snapshotEntry.normalizedFloatingOrigin,
-                    restoreToFloating: snapshotEntry.restoreToFloating,
-                    rescueEligible: snapshotEntry.rescueEligible,
-                    niriPlacement: snapshotEntry.niriPlacement,
-                    detachedNiriContainerSizingState: snapshotEntry.detachedNiriContainerSizingState,
-                    dwindlePlacement: snapshotEntry.dwindlePlacement
-                )
-            )
-            candidatesByBaseKey[key.baseKey, default: []].append(
-                Candidate(key: key, entry: persistedEntry)
-            )
+            guard let entry = snapshotEntry.persistedEntry() else { continue }
+            candidatesByBaseKey[entry.key.baseKey, default: []].append(entry)
         }
 
         var persistedEntries: [PersistedWindowRestoreEntry] = []
@@ -63,18 +60,18 @@ enum PersistedWindowRestoreCatalogBuilder {
 
         for candidates in candidatesByBaseKey.values {
             if candidates.count == 1, let candidate = candidates.first {
-                persistedEntries.append(candidate.entry)
+                persistedEntries.append(candidate)
                 continue
             }
 
-            let identityCandidates = candidates.filter { $0.entry.identity != nil }
-            persistedEntries.append(contentsOf: identityCandidates.map(\.entry))
+            let identityCandidates = candidates.filter { $0.identity != nil }
+            persistedEntries.append(contentsOf: identityCandidates)
 
-            let semanticCandidates = candidates.filter { $0.entry.identity == nil }
+            let semanticCandidates = candidates.filter { $0.identity == nil }
             let candidatesByTitle = Dictionary(grouping: semanticCandidates, by: { $0.key.title })
             for (title, titledCandidates) in candidatesByTitle where title != nil && titledCandidates.count == 1 {
                 if let candidate = titledCandidates.first {
-                    persistedEntries.append(candidate.entry)
+                    persistedEntries.append(candidate)
                 }
             }
         }

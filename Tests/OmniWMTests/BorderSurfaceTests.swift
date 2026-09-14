@@ -4,6 +4,7 @@
 import AppKit
 import CoreGraphics
 @testable import OmniWM
+import OmniWMLayerCorners
 import QuartzCore
 import XCTest
 
@@ -13,6 +14,25 @@ final class BorderSurfaceTests: XCTestCase {
         var orders: [(NSWindow.OrderingMode, Int, Int)] = []
         var presentationEvents: [String] = []
         var invalidWindowNumber = false
+        var borderUpdateCount = 0
+
+        var renderedCornerRadii: WindowCornerRadii {
+            let radii = borderLayer.cornerRadii
+            return WindowCornerRadii(
+                topLeft: radii.topLeft.width, topRight: radii.topRight.width,
+                bottomLeft: radii.bottomLeft.width, bottomRight: radii.bottomRight.width
+            )
+        }
+
+        override func updateBorder(
+            geometry: BorderConfig.ResolvedGeometry,
+            cornerRadii: WindowCornerRadii,
+            color: CGColor,
+            scale: CGFloat
+        ) {
+            borderUpdateCount += 1
+            super.updateBorder(geometry: geometry, cornerRadii: cornerRadii, color: color, scale: scale)
+        }
 
         override var windowNumber: Int {
             invalidWindowNumber ? 0 : super.windowNumber
@@ -51,20 +71,12 @@ final class BorderSurfaceTests: XCTestCase {
             let order: SkyLightWindowOrder
         }
 
-        struct RGBA8: Equatable {
-            let red: UInt8
-            let green: UInt8
-            let blue: UInt8
-            let alpha: UInt8
-        }
-
         var layerPanels: [RecordingLayerPanel] = []
         var screencaptureExclusionCount = 0
         var windowInfoQueryCount = 0
         var backingScaleQueryCount = 0
         var backingScale: CGFloat = 2
         var screenFrame = CGRect(x: 0, y: 0, width: 5000, height: 5000)
-        var contextsByWindowId: [UInt32: CGContext] = [:]
         var orderCalls: [OrderCall] = []
         var failsNextCreation = false
         var windowInfoProvider: @MainActor (UInt32) -> WindowServerInfo? = {
@@ -75,7 +87,7 @@ final class BorderSurfaceTests: XCTestCase {
             BorderWindow.Operations(
                 createLayerPanel: { [weak self] frame in
                     _ = NSApplication.shared
-                    let panel = RecordingLayerPanel(frame: frame)
+                    guard let panel = RecordingLayerPanel(frame: frame) else { return nil }
                     panel.invalidWindowNumber = self?.failsNextCreation == true
                     self?.failsNextCreation = false
                     self?.layerPanels.append(panel)
@@ -102,46 +114,6 @@ final class BorderSurfaceTests: XCTestCase {
                         windowId: wid, targetWindowId: targetWid, level: panel.level.rawValue, order: order
                     ))
                 }
-            )
-        }
-
-        /// Rasterizes the complete retained layer tree for pixel assertions.
-        func rasterize(_ panel: RecordingLayerPanel) throws {
-            let context = try XCTUnwrap(Self.makeContext(size: panel.containerLayer.bounds.size))
-            panel.containerLayer.render(in: context)
-            contextsByWindowId[UInt32(panel.windowNumber)] = context
-        }
-
-        static func makeContext(size: CGSize) -> CGContext? {
-            let width = max(1, Int(ceil(size.width)))
-            let height = max(1, Int(ceil(size.height)))
-            return CGContext(
-                data: nil,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue
-                    | CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-        }
-
-        func pixel(windowId: UInt32, x: Int, y: Int) -> RGBA8? {
-            guard let context = contextsByWindowId[windowId],
-                  let data = context.data,
-                  x >= 0,
-                  x < context.width,
-                  y >= 0,
-                  y < context.height
-            else { return nil }
-            let bytes = data.assumingMemoryBound(to: UInt8.self)
-            let offset = y * context.bytesPerRow + x * 4
-            return RGBA8(
-                red: bytes[offset],
-                green: bytes[offset + 1],
-                blue: bytes[offset + 2],
-                alpha: bytes[offset + 3]
             )
         }
     }
@@ -249,8 +221,8 @@ final class BorderSurfaceTests: XCTestCase {
     @MainActor
     private func reconcileFixture() throws -> (controller: WMController, entry: WindowState) {
         let controller = WindowAdmissionTestSupport.controller(prefix: "BorderMotionQueryTests")
-        controller.settings.workspaceBarEnabled = false
-        controller.settings.bordersEnabled = true
+        controller.settings.workspaceBar.enabled = false
+        controller.settings.borders.enabled = true
         let monitor = Monitor(
             id: .init(displayId: 814_101), displayId: 814_101,
             frame: CGRect(x: 0, y: 0, width: 1600, height: 1000), visibleFrame: .zero,
@@ -317,7 +289,7 @@ final class BorderSurfaceTests: XCTestCase {
             XCTAssertEqual(queries, 0)
             XCTAssertEqual(reconciler.appliedScene.border?.token, entry.token)
             XCTAssertEqual(reconciler.appliedScene.border?.frame, frame)
-            XCTAssertNotNil(recorder.layerPanels.first?.borderLayer.path)
+            XCTAssertNotNil(recorder.layerPanels.first?.borderLayer.rimColor)
             XCTAssertFalse(reconciler.reconcileScheduled)
             XCTAssertFalse(controller.workspaceManager.animationDriver.tick(in: entry.workspaceId, at: 1000))
             reconciler.noteRestackOccurred()
@@ -332,7 +304,7 @@ final class BorderSurfaceTests: XCTestCase {
             await fulfillment(of: [resolved], timeout: 1)
             reconciler.reconcileNow()
             XCTAssertEqual(queries, 1)
-            XCTAssertNotNil(recorder.layerPanels.first?.borderLayer.path)
+            XCTAssertNotNil(recorder.layerPanels.first?.borderLayer.rimColor)
             XCTAssertEqual(reconciler.appliedScene.border?.token, entry.token)
         }
     }
@@ -414,12 +386,14 @@ final class BorderSurfaceTests: XCTestCase {
         defer { applier.cleanup() }
 
         _ = applier.apply(desired(configRed), forceOrdering: false)
-        let pathAfterFirst = recorder.layerPanels.first?.borderLayer.path
+        let cornersAfterFirst = recorder.layerPanels.first?.renderedCornerRadii
+        let updatesAfterFirst = recorder.layerPanels.first?.borderUpdateCount
         let orderingAfterFirst = recorder.orderCalls.count
 
         _ = applier.apply(desired(configRed), forceOrdering: false)
 
-        XCTAssertTrue(recorder.layerPanels.first?.borderLayer.path === pathAfterFirst)
+        XCTAssertEqual(recorder.layerPanels.first?.renderedCornerRadii, cornersAfterFirst)
+        XCTAssertEqual(recorder.layerPanels.first?.borderUpdateCount, updatesAfterFirst)
         XCTAssertEqual(recorder.orderCalls.count, orderingAfterFirst)
     }
 
@@ -430,12 +404,14 @@ final class BorderSurfaceTests: XCTestCase {
         defer { applier.cleanup() }
 
         _ = applier.apply(desired(configRed), forceOrdering: false)
-        let pathAfterFirst = recorder.layerPanels.first?.borderLayer.path
+        let cornersAfterFirst = recorder.layerPanels.first?.renderedCornerRadii
+        let updatesAfterFirst = recorder.layerPanels.first?.borderUpdateCount
         let moveAndOrdersAfterFirst = recorder.orderCalls.count
 
         _ = applier.apply(desired(configRed), forceOrdering: true)
 
-        XCTAssertTrue(recorder.layerPanels.first?.borderLayer.path === pathAfterFirst)
+        XCTAssertEqual(recorder.layerPanels.first?.renderedCornerRadii, cornersAfterFirst)
+        XCTAssertEqual(recorder.layerPanels.first?.borderUpdateCount, updatesAfterFirst)
         XCTAssertGreaterThan(recorder.orderCalls.count, moveAndOrdersAfterFirst)
     }
 
@@ -457,6 +433,22 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    func testUnavailableNativeRendererDoesNotPublishOrOrderASurface() {
+        let recorder = BorderOperationsRecorder()
+        var operations = recorder.operations()
+        operations.createLayerPanel = { _ in nil }
+        let window = BorderWindow(config: configRed, operations: operations)
+
+        XCTAssertFalse(window.update(frame: frame, targetToken: token()))
+        XCTAssertNil(window.windowId)
+        XCTAssertNil(window.frameOnScreen)
+        XCTAssertTrue(recorder.layerPanels.isEmpty)
+        XCTAssertTrue(recorder.orderCalls.isEmpty)
+        XCTAssertEqual(recorder.screencaptureExclusionCount, 0)
+        XCTAssertEqual(recorder.windowInfoQueryCount, 0)
+    }
+
+    @MainActor
     func testConfigResyncedAfterHide() {
         let recorder = BorderOperationsRecorder()
         let applier = makeApplier(recorder)
@@ -464,35 +456,22 @@ final class BorderSurfaceTests: XCTestCase {
 
         _ = applier.apply(desired(configRed), forceOrdering: false)
         _ = applier.apply(nil, forceOrdering: false)
-        XCTAssertEqual(recorder.layerPanels.first?.borderLayer.fillColor?.components, [1, 0, 0, 1])
+        XCTAssertEqual(recorder.layerPanels.first?.borderLayer.rimColor?.components, [1, 0, 0, 1])
 
         _ = applier.apply(desired(configBlue), forceOrdering: false)
 
-        XCTAssertEqual(recorder.layerPanels.first?.borderLayer.fillColor?.components, [0, 0, 1, 1])
+        XCTAssertEqual(recorder.layerPanels.first?.borderLayer.rimColor?.components, [0, 0, 1, 1])
     }
 
     @MainActor
-    /// Confirms glow content is cleared before retained-panel reuse.
     func testLayerBorderPreservesSurfaceLifecycle() throws {
         let recorder = BorderOperationsRecorder()
-        let configRedWithGlow = BorderConfig(
-            enabled: true,
-            width: 4,
-            color: configRed.color,
-            gradient: BorderGradient(
-                enabled: true,
-                start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
-                end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
-                direction: .topLeftToBottomRight
-            ),
-            glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
-        )
         let applier = BorderSurfaceApplier(
             borderWindowOperations: recorder.operations(),
             cornerSampleProvider: { _ in nil }
         )
         defer { applier.cleanup() }
-        XCTAssertTrue(applier.apply(desired(configRedWithGlow), forceOrdering: false).didApply)
+        XCTAssertTrue(applier.apply(desired(configRed), forceOrdering: false).didApply)
         let panel = try XCTUnwrap(recorder.layerPanels.first)
         let id = panel.windowNumber
         XCTAssertTrue(SurfaceCoordinator.shared.contains(windowNumber: id))
@@ -506,12 +485,14 @@ final class BorderSurfaceTests: XCTestCase {
         XCTAssertFalse(panel.hidesOnDeactivate)
         XCTAssertEqual(panel.animationBehavior, .none)
         XCTAssertFalse(panel.isRestorable)
-        XCTAssertEqual(panel.borderLayer.fillRule, .evenOdd)
-        XCTAssertNil(panel.borderLayer.strokeColor)
+        XCTAssertEqual(panel.borderLayer.cornerCurve, .continuous)
+        XCTAssertNil(panel.borderLayer.backgroundColor)
+        XCTAssertNil(panel.borderLayer.contents)
+        XCTAssertNil(panel.borderLayer.mask)
         XCTAssertFalse(panel.contentView?.isFlipped ?? true)
         XCTAssertFalse(panel.borderLayer.isGeometryFlipped)
         XCTAssertNil(panel.borderLayer.animationKeys())
-        for key in ["path", "fillColor", "bounds", "position", "contentsScale"] {
+        for key in ["rimWidth", "rimColor", "cornerRadii", "bounds", "position", "contentsScale"] {
             XCTAssertTrue(panel.borderLayer.actions?[key] is NSNull)
         }
         XCTAssertTrue(panel.orders.isEmpty)
@@ -523,14 +504,10 @@ final class BorderSurfaceTests: XCTestCase {
 
         _ = applier.apply(nil, forceOrdering: false)
         XCTAssertGreaterThanOrEqual(panel.hides, 1)
-        XCTAssertTrue(panel.contentView?.isHidden ?? false)
-        XCTAssertTrue(panel.containerLayer.isHidden)
         XCTAssertFalse(SurfaceCoordinator.shared.contains(windowNumber: id))
-        _ = applier.apply(desired(configRedWithGlow), forceOrdering: false)
+        _ = applier.apply(desired(configBlue), forceOrdering: false)
         XCTAssertEqual(recorder.layerPanels.count, 1)
         XCTAssertEqual(panel.shows, 2)
-        XCTAssertFalse(panel.contentView?.isHidden ?? true)
-        XCTAssertFalse(panel.containerLayer.isHidden)
         XCTAssertEqual(panel.presentationEvents, ["show", "order", "show", "order"])
         XCTAssertTrue(SurfaceCoordinator.shared.contains(windowNumber: id))
         applier.cleanup()
@@ -547,11 +524,11 @@ final class BorderSurfaceTests: XCTestCase {
         defer { window.destroy() }
         XCTAssertTrue(window.update(frame: frame, targetToken: token()))
         let panel = try XCTUnwrap(recorder.layerPanels.first)
-        let path = try XCTUnwrap(panel.borderLayer.path)
+        let originalUpdateCount = panel.borderUpdateCount
         let translated = frame.offsetBy(dx: -4000, dy: 3000)
         XCTAssertTrue(window.update(frame: translated, targetToken: token()))
         XCTAssertEqual(panel.frame, translated.insetBy(dx: -4, dy: -4))
-        XCTAssertTrue(panel.borderLayer.path === path)
+        XCTAssertEqual(panel.borderUpdateCount, originalUpdateCount)
         XCTAssertEqual(recorder.windowInfoQueryCount, 0)
         XCTAssertTrue(panel.orders.isEmpty)
         XCTAssertEqual(panel.shows, 1)
@@ -561,24 +538,24 @@ final class BorderSurfaceTests: XCTestCase {
         let resized = CGRect(x: 50, y: 80, width: 900, height: 700)
         XCTAssertTrue(window.update(frame: resized, targetToken: token()))
         XCTAssertEqual(panel.frame, resized.insetBy(dx: -4, dy: -4))
-        XCTAssertEqual(panel.borderLayer.bounds.size, panel.frame.size)
-        XCTAssertFalse(panel.borderLayer.path === path)
+        XCTAssertEqual(panel.borderLayer.bounds, CGRect(origin: .zero, size: resized.size))
+        XCTAssertEqual(panel.borderUpdateCount, originalUpdateCount + 1)
         window.updateConfig(configBlue)
         XCTAssertTrue(window.update(frame: resized, targetToken: token()))
-        XCTAssertEqual(panel.borderLayer.fillColor?.components, [0, 0, 1, 1])
+        XCTAssertEqual(panel.borderLayer.rimColor?.components, [0, 0, 1, 1])
         recorder.backingScale = 2
         window.invalidateScaleCache()
         XCTAssertTrue(window.update(frame: resized, targetToken: token()))
         XCTAssertEqual(panel.borderLayer.contentsScale, 2)
-        let scaledPath = try XCTUnwrap(panel.borderLayer.path)
+        let scaledUpdateCount = panel.borderUpdateCount
         let fractional = resized.offsetBy(dx: 0.5, dy: -0.5)
         XCTAssertTrue(window.update(frame: fractional, targetToken: token()))
         XCTAssertEqual(panel.frame, fractional.insetBy(dx: -4, dy: -4).integral)
         XCTAssertEqual(
             panel.borderLayer.frame.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY),
-            fractional.insetBy(dx: -4, dy: -4)
+            fractional
         )
-        XCTAssertTrue(panel.borderLayer.path === scaledPath)
+        XCTAssertEqual(panel.borderUpdateCount, scaledUpdateCount)
         XCTAssertEqual(recorder.layerPanels.count, 1)
         XCTAssertNil(panel.borderLayer.animationKeys())
     }
@@ -650,9 +627,9 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
-    func testLayerBorderRasterPreservesFractionalWidthAndAsymmetricTransparentCutout() throws {
+    func testNativeBorderPreservesFractionalWidthAndIndependentCornerGeometry() throws {
         let target = CGRect(x: 10, y: 20, width: 100, height: 80)
-        let radii = WindowCornerRadii(topLeft: 22, topRight: 0, bottomLeft: 0, bottomRight: 11)
+        let radii = WindowCornerRadii(topLeft: 22, topRight: 0, bottomLeft: 3, bottomRight: 11)
         let config = BorderConfig(enabled: true, width: 4.5, color: configRed.color)
         for scale: CGFloat in [1, 2] {
             let recorder = BorderOperationsRecorder()
@@ -662,186 +639,114 @@ final class BorderSurfaceTests: XCTestCase {
             XCTAssertTrue(window.update(frame: target, targetToken: token(), cornerRadii: radii))
             let panel = try XCTUnwrap(recorder.layerPanels.first)
             let geometry = config.resolvedGeometry(for: target, scale: scale)
-            let context = try XCTUnwrap(BorderOperationsRecorder.makeContext(size: CGSize(
-                width: geometry.surfaceFrame.width * scale, height: geometry.surfaceFrame.height * scale
-            )))
-            context.scaleBy(x: scale, y: scale)
-            panel.borderLayer.render(in: context)
-            let id = UInt32(panel.windowNumber)
-            recorder.contextsByWindowId[id] = context
-            let w = geometry.width
-            func pixel(_ x: CGFloat, _ y: CGFloat) -> BorderOperationsRecorder.RGBA8? {
-                recorder.pixel(windowId: id, x: Int(x * scale), y: context.height - 1 - Int(y * scale))
-            }
-            let red = BorderOperationsRecorder.RGBA8(red: 255, green: 0, blue: 0, alpha: 255)
-            XCTAssertEqual(pixel(w + 50, w / 2), red)
-            XCTAssertEqual(pixel(w + 50, w + 40)?.alpha, 0)
-            XCTAssertEqual(pixel(w + 0.5, w + 40)?.alpha, 0)
-            let cornerInset = w * 0.7
-            XCTAssertEqual(pixel(cornerInset, cornerInset), red)
-            XCTAssertEqual(pixel(cornerInset, geometry.surfaceFrame.height - cornerInset)?.alpha, 0)
-            XCTAssertEqual(pixel(geometry.surfaceFrame.width - cornerInset, cornerInset)?.alpha, 0)
-            XCTAssertEqual(
-                pixel(geometry.surfaceFrame.width - cornerInset, geometry.surfaceFrame.height - cornerInset), red
-            )
+            XCTAssertEqual(panel.borderLayer.rimWidth, Double(geometry.width))
+            XCTAssertEqual(panel.renderedCornerRadii, radii)
+            XCTAssertEqual(panel.borderLayer.cornerRadii.topLeft.height, 22)
+            XCTAssertEqual(panel.borderLayer.cornerRadii.topRight.height, 0)
+            XCTAssertEqual(panel.borderLayer.cornerRadii.bottomRight.height, 11)
+            XCTAssertEqual(panel.borderLayer.cornerRadii.bottomLeft.height, 3)
+            XCTAssertEqual(panel.borderLayer.contentsScale, scale)
+            XCTAssertEqual(panel.borderLayer.rimColor?.components, [1, 0, 0, 1])
+            XCTAssertNil(panel.borderLayer.backgroundColor)
+            XCTAssertNil(panel.borderLayer.contents)
             XCTAssertEqual(panel.frame, geometry.surfaceFrame.integral)
             XCTAssertEqual(
                 panel.borderLayer.frame.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY),
-                geometry.surfaceFrame
+                geometry.targetFrame
             )
         }
     }
 
     @MainActor
-    func testExteriorAnnulusExpandsSurfaceAndKeepsTargetSilhouetteTransparent() throws {
+    func testNativeRimPreservesRGBAAndSquareCornersWithoutAnAdditionalStroke() throws {
+        let recorder = BorderOperationsRecorder()
+        let colors = [
+            SettingsColor(red: 0.25, green: 0.5, blue: 0.75, alpha: 0.375),
+            SettingsColor(red: 0.875, green: 0.25, blue: 0.5, alpha: 0.625)
+        ]
+        let window = BorderWindow(
+            config: BorderConfig(enabled: true, width: 4, color: colors[0]),
+            operations: recorder.operations()
+        )
+        defer { window.destroy() }
+
+        for color in colors {
+            window.updateConfig(BorderConfig(enabled: true, width: 4, color: color))
+            XCTAssertTrue(window.update(frame: frame, targetToken: token(), cornerRadii: .zero))
+            let panel = try XCTUnwrap(recorder.layerPanels.first)
+            XCTAssertEqual(
+                panel.borderLayer.rimColor?.components,
+                [CGFloat(color.red), CGFloat(color.green), CGFloat(color.blue), CGFloat(color.alpha)]
+            )
+            XCTAssertEqual(panel.borderLayer.rimOpacity, 1)
+            XCTAssertEqual(panel.borderLayer.rimWidth, 4)
+            XCTAssertEqual(panel.borderLayer.borderWidth, 0)
+            XCTAssertEqual(panel.renderedCornerRadii, .zero)
+            XCTAssertNil(panel.borderLayer.backgroundColor)
+            XCTAssertNil(panel.borderLayer.mask)
+            XCTAssertFalse(panel.borderLayer.masksToBounds)
+            XCTAssertNil(panel.borderLayer.animationKeys())
+        }
+        XCTAssertEqual(recorder.layerPanels.count, 1)
+        XCTAssertEqual(recorder.layerPanels.first?.borderUpdateCount, 2)
+    }
+
+    @MainActor
+    func testNativeRimFractionalTranslationsKeepTargetAlignedWithoutRedraw() throws {
+        let config = BorderConfig(enabled: true, width: 4.5, color: configRed.color)
+        let target = CGRect(x: 10, y: 20, width: 100.5, height: 80.5)
+        for scale: CGFloat in [1, 2] {
+            let recorder = BorderOperationsRecorder()
+            recorder.backingScale = scale
+            let window = BorderWindow(config: config, operations: recorder.operations())
+            defer { window.destroy() }
+            XCTAssertTrue(window.update(frame: target, targetToken: token()))
+            let panel = try XCTUnwrap(recorder.layerPanels.first)
+            let updateCount = panel.borderUpdateCount
+            let orderCount = recorder.orderCalls.count
+            let scaleQueries = recorder.backingScaleQueryCount
+            let levelQueries = recorder.windowInfoQueryCount
+
+            for offset: CGFloat in [0, 0.5, -0.5, 13.5] {
+                let translated = target.offsetBy(dx: offset, dy: -offset)
+                let geometry = config.resolvedGeometry(for: translated, scale: scale)
+                XCTAssertTrue(window.update(frame: translated, targetToken: token()))
+                XCTAssertEqual(panel.frame, geometry.surfaceFrame.integral)
+                XCTAssertEqual(panel.borderLayer.bounds, CGRect(origin: .zero, size: geometry.targetFrame.size))
+                XCTAssertEqual(
+                    panel.borderLayer.frame.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY),
+                    geometry.targetFrame
+                )
+                XCTAssertEqual(panel.borderLayer.rimWidth, Double(geometry.width))
+                XCTAssertEqual(panel.borderUpdateCount, updateCount)
+            }
+            XCTAssertEqual(recorder.layerPanels.count, 1)
+            XCTAssertEqual(recorder.orderCalls.count, orderCount)
+            XCTAssertEqual(recorder.backingScaleQueryCount, scaleQueries)
+            XCTAssertEqual(recorder.windowInfoQueryCount, levelQueries)
+        }
+    }
+
+    @MainActor
+    func testExteriorBorderExpandsSurfaceAndLeavesFillTransparent() throws {
         let recorder = BorderOperationsRecorder()
         recorder.backingScale = 1
         let window = BorderWindow(config: configRed, operations: recorder.operations())
+        defer { window.destroy() }
         let target = CGRect(x: 10, y: 20, width: 100, height: 80)
 
         XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
-        let windowId = try XCTUnwrap(window.windowId)
         let panel = try XCTUnwrap(recorder.layerPanels.first)
-        try recorder.rasterize(panel)
-        let redPixel = BorderOperationsRecorder.RGBA8(red: 255, green: 0, blue: 0, alpha: 255)
 
         XCTAssertEqual(window.targetFrameOnScreen, target)
         XCTAssertEqual(window.frameOnScreen, CGRect(x: 6, y: 16, width: 108, height: 88))
-        XCTAssertEqual(panel.borderLayer.bounds, CGRect(x: 0, y: 0, width: 108, height: 88))
-        XCTAssertEqual(recorder.pixel(windowId: windowId, x: 54, y: 2), redPixel)
-        XCTAssertEqual(recorder.pixel(windowId: windowId, x: 54, y: 44)?.alpha, 0)
-        XCTAssertEqual(recorder.pixel(windowId: windowId, x: 5, y: 44)?.alpha, 0)
-
-        let safeInterior = BorderWindow.roundedRectPath(
-            in: CGRect(x: 5, y: 5, width: 98, height: 78),
-            radii: WindowCornerRadii(uniform: 8)
-        )
-        var nontransparentInteriorPixels = 0
-        for y in 5 ..< 83 {
-            for x in 5 ..< 103 where safeInterior.contains(CGPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)) {
-                if recorder.pixel(windowId: windowId, x: x, y: y)?.alpha != 0 {
-                    nontransparentInteriorPixels += 1
-                }
-            }
-        }
-        XCTAssertEqual(nontransparentInteriorPixels, 0)
-    }
-
-    @MainActor
-    /// Confirms gradient glow expands only the private overlay surface.
-    func testGradientAndGlowExpandOnlyOverlayAndKeepRingGeometry() throws {
-        let recorder = BorderOperationsRecorder()
-        recorder.backingScale = 1
-        let config = BorderConfig(
-            enabled: true,
-            width: 4,
-            color: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
-            gradient: BorderGradient(
-                enabled: true,
-                start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
-                end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
-                direction: .topLeftToBottomRight
-            ),
-            glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
-        )
-        let target = CGRect(x: 10, y: 20, width: 100, height: 80)
-        let geometry = config.resolvedGeometry(for: target, scale: 1)
-        let window = BorderWindow(config: config, operations: recorder.operations())
-
-        XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
-        let windowId = try XCTUnwrap(window.windowId)
-        let panel = try XCTUnwrap(recorder.layerPanels.first)
-        try recorder.rasterize(panel)
-
-        XCTAssertEqual(geometry.width, 4)
-        XCTAssertEqual(geometry.ringFrame, CGRect(x: 6, y: 16, width: 108, height: 88))
-        // Surface padding = ceil(8 * 1.5) = 12; ring expands by 12 on each side.
-        XCTAssertEqual(geometry.surfaceFrame, CGRect(x: -6, y: 4, width: 132, height: 112))
-        XCTAssertEqual(window.targetFrameOnScreen, target)
-        XCTAssertEqual(window.frameOnScreen, geometry.surfaceFrame)
-        XCTAssertGreaterThan(recorder.pixel(windowId: windowId, x: 62, y: 8)?.alpha ?? 0, 0)
-        XCTAssertGreaterThan(recorder.pixel(windowId: windowId, x: 2, y: 60)?.alpha ?? 0, 0)
-        XCTAssertEqual(recorder.pixel(windowId: windowId, x: 62, y: 60)?.alpha, 0)
-        // Glow reflects the border gradient: at mid-height the left padding is
-        // redder and the right padding is bluer.
-        let leftGlow = try XCTUnwrap(recorder.pixel(windowId: windowId, x: 2, y: 60))
-        let rightGlow = try XCTUnwrap(recorder.pixel(windowId: windowId, x: 124, y: 60))
-        XCTAssertGreaterThan(leftGlow.red, leftGlow.blue)
-        XCTAssertGreaterThan(rightGlow.blue, rightGlow.red)
-    }
-
-    @MainActor
-    /// Confirms both user-facing gradient directions map to layer coordinates.
-    func testGradientDirectionsMatchTheUnflippedLayerCoordinateSpace() throws {
-        for direction in BorderGradientDirection.allCases {
-            let config = BorderConfig(
-                enabled: true,
-                width: 4,
-                color: configRed.color,
-                gradient: BorderGradient(
-                    enabled: true,
-                    start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
-                    end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
-                    direction: direction
-                ),
-                glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
-            )
-            let recorder = BorderOperationsRecorder()
-            let window = BorderWindow(config: config, operations: recorder.operations())
-            defer { window.destroy() }
-            XCTAssertTrue(window.update(frame: frame, targetToken: token(windowId: 55)))
-            let panel = try XCTUnwrap(recorder.layerPanels.first)
-
-            let expected: (start: CGPoint, end: CGPoint)
-            switch direction {
-            case .topLeftToBottomRight:
-                expected = (CGPoint(x: 0, y: 1), CGPoint(x: 1, y: 0))
-            case .topRightToBottomLeft:
-                expected = (CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 0))
-            }
-            XCTAssertEqual(panel.glowColorLayer.startPoint, expected.start)
-            XCTAssertEqual(panel.glowColorLayer.endPoint, expected.end)
-        }
-    }
-
-    @MainActor
-    /// Confirms style changes redraw without changing target geometry.
-    func testStyleChangeRedrawsWithoutChangingTargetOrLayoutClearance() throws {
-        let recorder = BorderOperationsRecorder()
-        recorder.backingScale = 1
-        let target = CGRect(x: 10, y: 20, width: 100, height: 80)
-        let window = BorderWindow(config: configRed, operations: recorder.operations())
-        XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
-        let panel = try XCTUnwrap(recorder.layerPanels.first)
-        XCTAssertNotNil(panel.borderLayer.fillColor)
-        XCTAssertEqual(panel.borderLayer.shadowOpacity, 0)
-        let initialSurfaceFrame = try XCTUnwrap(window.frameOnScreen)
-
-        window.updateConfig(
-            BorderConfig(
-                enabled: true,
-                width: 4,
-                color: configRed.color,
-                gradient: BorderGradient(
-                    enabled: true,
-                    start: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
-                    end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
-                    direction: .topLeftToBottomRight
-                ),
-                glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
-            )
-        )
-        XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
-
-        // Gradient + glow style applied: solid fill replaced by the gradient
-        // layer and the dedicated glow layer enabled with the full shadow.
-        XCTAssertNil(panel.borderLayer.fillColor)
-        XCTAssertFalse(panel.glowColorLayer.isHidden)
-        XCTAssertEqual(panel.glowColorLayer.colors?.count, 2)
-        XCTAssertEqual(window.targetFrameOnScreen, target)
-        // Glow padding = ceil(8 * 1.5) = 12.
-        XCTAssertEqual(window.frameOnScreen, initialSurfaceFrame.insetBy(dx: -12, dy: -12))
-        XCTAssertEqual(BorderConfig.layoutClearance(enabled: true, width: 4, scale: 1), 4)
+        XCTAssertEqual(panel.borderLayer.bounds, CGRect(x: 0, y: 0, width: 100, height: 80))
+        XCTAssertEqual(panel.borderLayer.rimWidth, 4)
+        XCTAssertEqual(panel.renderedCornerRadii, WindowCornerRadii(uniform: 9))
+        XCTAssertNil(panel.borderLayer.backgroundColor)
+        XCTAssertNil(panel.borderLayer.contents)
+        XCTAssertNil(panel.borderLayer.mask)
+        XCTAssertFalse(panel.borderLayer.isOpaque)
     }
 
     @MainActor
@@ -854,19 +759,18 @@ final class BorderSurfaceTests: XCTestCase {
             color: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1)
         )
         let window = BorderWindow(config: config, operations: recorder.operations())
+        defer { window.destroy() }
         let target = CGRect(x: 10, y: 20, width: 100, height: 80)
 
         XCTAssertTrue(window.update(frame: target, targetToken: token(windowId: 55)))
-        let windowId = try XCTUnwrap(window.windowId)
         let panel = try XCTUnwrap(recorder.layerPanels.first)
-        try recorder.rasterize(panel)
 
         XCTAssertEqual(config.resolvedGeometry(for: target, scale: 1).width, 5)
         XCTAssertEqual(window.targetFrameOnScreen, target)
         XCTAssertEqual(window.frameOnScreen, CGRect(x: 5, y: 15, width: 110, height: 90))
-        XCTAssertEqual(panel.borderLayer.bounds, CGRect(x: 0, y: 0, width: 110, height: 90))
-        XCTAssertEqual(recorder.pixel(windowId: windowId, x: 55, y: 4)?.alpha, 255)
-        XCTAssertEqual(recorder.pixel(windowId: windowId, x: 55, y: 5)?.alpha, 0)
+        XCTAssertEqual(panel.borderLayer.bounds, CGRect(x: 0, y: 0, width: 100, height: 80))
+        XCTAssertEqual(panel.borderLayer.rimWidth, 5)
+        XCTAssertEqual(panel.renderedCornerRadii, WindowCornerRadii(uniform: 9))
     }
 
     @MainActor
@@ -891,25 +795,31 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
-    func testWidthChangeReshapesExistingSurfaceAroundUnchangedTarget() {
+    func testWidthChangesReshapeExistingSurfaceWithoutChangingTargetOrRadii() throws {
         let recorder = BorderOperationsRecorder()
         let window = BorderWindow(config: configRed, operations: recorder.operations())
+        defer { window.destroy() }
         let target = token(windowId: 55)
 
         _ = window.update(frame: frame, targetToken: target)
-        let originalPath = recorder.layerPanels.first?.borderLayer.path
-        window.updateConfig(
-            BorderConfig(
-                enabled: true,
-                width: 8,
-                color: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1)
-            )
-        )
-        _ = window.update(frame: frame, targetToken: target)
+        let panel = try XCTUnwrap(recorder.layerPanels.first)
+        let originalCorners = panel.renderedCornerRadii
+        let originalBounds = panel.borderLayer.bounds
+        for width: CGFloat in [8, 1] {
+            window.updateConfig(BorderConfig(enabled: true, width: width, color: configRed.color))
+            XCTAssertTrue(window.update(frame: frame, targetToken: target))
 
-        XCTAssertEqual(window.targetFrameOnScreen, frame)
-        XCTAssertEqual(window.frameOnScreen, frame.insetBy(dx: -8, dy: -8))
-        XCTAssertNotEqual(recorder.layerPanels.first?.borderLayer.path, originalPath)
+            XCTAssertEqual(window.targetFrameOnScreen, frame)
+            XCTAssertEqual(window.frameOnScreen, frame.insetBy(dx: -width, dy: -width))
+            XCTAssertEqual(panel.frame, frame.insetBy(dx: -width, dy: -width).integral)
+            XCTAssertEqual(panel.borderLayer.bounds, originalBounds)
+            XCTAssertEqual(panel.borderLayer.rimWidth, Double(width))
+            XCTAssertEqual(panel.renderedCornerRadii, originalCorners)
+            XCTAssertEqual(
+                panel.borderLayer.frame.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY),
+                frame
+            )
+        }
         XCTAssertEqual(recorder.layerPanels.count, 1)
     }
 
@@ -922,9 +832,10 @@ final class BorderSurfaceTests: XCTestCase {
         _ = window.update(frame: frame, targetToken: target)
         let queryCount = recorder.windowInfoQueryCount
         let backingScaleQueryCount = recorder.backingScaleQueryCount
-        let originalPath = recorder.layerPanels.first?.borderLayer.path
+        let originalCorners = recorder.layerPanels.first?.renderedCornerRadii
         let creationCount = recorder.layerPanels.count
         let orderCount = recorder.orderCalls.count
+        let updateCount = recorder.layerPanels.first?.borderUpdateCount
 
         for offset in 1 ... 500 {
             _ = window.update(
@@ -935,13 +846,20 @@ final class BorderSurfaceTests: XCTestCase {
 
         XCTAssertEqual(recorder.windowInfoQueryCount, queryCount)
         XCTAssertEqual(recorder.backingScaleQueryCount, backingScaleQueryCount)
-        XCTAssertTrue(recorder.layerPanels.first?.borderLayer.path === originalPath)
+        XCTAssertEqual(recorder.layerPanels.first?.renderedCornerRadii, originalCorners)
+        XCTAssertEqual(recorder.layerPanels.first?.borderUpdateCount, updateCount)
         XCTAssertEqual(recorder.layerPanels.count, creationCount)
         XCTAssertEqual(recorder.orderCalls.count, orderCount)
         XCTAssertEqual(
             recorder.layerPanels.first?.frame,
             frame.offsetBy(dx: 500, dy: 0).insetBy(dx: -4, dy: -4).integral
         )
+        if let panel = recorder.layerPanels.first {
+            XCTAssertEqual(
+                panel.borderLayer.frame.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY),
+                frame.offsetBy(dx: 500, dy: 0)
+            )
+        }
     }
 
     @MainActor
@@ -951,7 +869,7 @@ final class BorderSurfaceTests: XCTestCase {
         let target = token(windowId: 55)
 
         _ = window.update(frame: frame, targetToken: target)
-        let originalPath = recorder.layerPanels.first?.borderLayer.path
+        let originalUpdateCount = recorder.layerPanels.first?.borderUpdateCount ?? 0
         let creationCount = recorder.layerPanels.count
 
         for delta in 1 ... 100 {
@@ -964,10 +882,10 @@ final class BorderSurfaceTests: XCTestCase {
             )
         }
 
-        XCTAssertNotEqual(recorder.layerPanels.first?.borderLayer.path, originalPath)
+        XCTAssertEqual(recorder.layerPanels.first?.borderUpdateCount, originalUpdateCount + 100)
         XCTAssertEqual(
             recorder.layerPanels.first?.borderLayer.bounds.size,
-            CGSize(width: frame.width + 108, height: frame.height + 8)
+            CGSize(width: frame.width + 100, height: frame.height)
         )
         XCTAssertEqual(recorder.layerPanels.count, creationCount)
     }
@@ -983,14 +901,14 @@ final class BorderSurfaceTests: XCTestCase {
             targetToken: token(windowId: 55),
             cornerRadii: WindowCornerRadii(uniform: 9)
         )
-        let pathAfterFirst = recorder.layerPanels.first?.borderLayer.path
+        let cornersAfterFirst = recorder.layerPanels.first?.renderedCornerRadii
 
         _ = window.update(
             frame: target,
             targetToken: token(windowId: 55),
             cornerRadii: WindowCornerRadii(topLeft: 11.5, topRight: 9, bottomLeft: 8.5, bottomRight: 7)
         )
-        XCTAssertNotEqual(recorder.layerPanels.first?.borderLayer.path, pathAfterFirst)
+        XCTAssertNotEqual(recorder.layerPanels.first?.renderedCornerRadii, cornersAfterFirst)
     }
 
     @MainActor
@@ -1014,18 +932,18 @@ final class BorderSurfaceTests: XCTestCase {
         _ = applier.apply(desired(configRed), forceOrdering: false)
         await fulfillment(of: [started], timeout: 1)
         let panel = try XCTUnwrap(recorder.layerPanels.first)
-        let fallback = panel.borderLayer.path
+        let fallback = panel.renderedCornerRadii
         let resolved = expectation(description: "first target cache")
         applier.onCornerSampleResolved = { resolved.fulfill() }
         probe.complete(sample(WindowCornerRadii(uniform: 20)))
         await fulfillment(of: [resolved], timeout: 1)
         _ = applier.apply(desired(configRed), forceOrdering: false)
-        XCTAssertNotEqual(panel.borderLayer.path, fallback)
+        XCTAssertNotEqual(panel.renderedCornerRadii, fallback)
         _ = applier.apply(
             desired(configRed, token: token(windowId: 78)),
             forceOrdering: false, refreshCornerRadii: false
         )
-        XCTAssertEqual(panel.borderLayer.path, fallback)
+        XCTAssertEqual(panel.renderedCornerRadii, fallback)
         XCTAssertEqual(probe.requests, [token()])
     }
 
@@ -1075,7 +993,7 @@ final class BorderSurfaceTests: XCTestCase {
         XCTAssertTrue(applier.apply(desired(configRed), forceOrdering: false).didApply)
         await fulfillment(of: [started], timeout: 1)
         let panel = try XCTUnwrap(recorder.layerPanels.first)
-        let fallbackPath = panel.borderLayer.path
+        let fallbackCorners = panel.renderedCornerRadii
         var latest = frame
         for offset in 1 ... 500 {
             latest = frame.offsetBy(dx: CGFloat(offset), dy: 0)
@@ -1086,11 +1004,11 @@ final class BorderSurfaceTests: XCTestCase {
         }
         XCTAssertEqual(probe.requests, [token()])
         XCTAssertEqual(panel.frame, latest.insetBy(dx: -4, dy: -4).integral)
-        XCTAssertEqual(panel.borderLayer.path, fallbackPath)
+        XCTAssertEqual(panel.renderedCornerRadii, fallbackCorners)
         probe.complete(sample(WindowCornerRadii(uniform: 20)))
         await fulfillment(of: [resolved], timeout: 1)
         _ = applier.apply(desired(configRed, frame: latest), forceOrdering: false)
-        XCTAssertNotEqual(panel.borderLayer.path, fallbackPath)
+        XCTAssertNotEqual(panel.renderedCornerRadii, fallbackCorners)
         XCTAssertEqual(panel.frame, latest.insetBy(dx: -4, dy: -4).integral)
         XCTAssertEqual(recorder.orderCalls.last?.targetWindowId, 77)
         XCTAssertEqual(recorder.orderCalls.last?.order, .below)
@@ -1115,7 +1033,7 @@ final class BorderSurfaceTests: XCTestCase {
                 frame: changeSize ? frame.insetBy(dx: -10, dy: 0) : frame
             ), forceOrdering: false)
             _ = applier.apply(desired(configRed), forceOrdering: false)
-            let fallbackPath = panel.borderLayer.path
+            let fallbackCorners = panel.renderedCornerRadii
             let newest = expectation(description: "latest query")
             probe.onRequest = { newest.fulfill() }
             var resolvedCount = 0
@@ -1123,14 +1041,14 @@ final class BorderSurfaceTests: XCTestCase {
             probe.complete(sample(WindowCornerRadii(uniform: 30)))
             await fulfillment(of: [newest], timeout: 1)
             XCTAssertEqual(resolvedCount, 0)
-            XCTAssertEqual(panel.borderLayer.path, fallbackPath)
+            XCTAssertEqual(panel.renderedCornerRadii, fallbackCorners)
             XCTAssertEqual(probe.requests, [token(), token()])
             let resolved = expectation(description: "current sample")
             applier.onCornerSampleResolved = { resolved.fulfill() }
             probe.complete(sample(WindowCornerRadii(uniform: 15)))
             await fulfillment(of: [resolved], timeout: 1)
             _ = applier.apply(desired(configRed), forceOrdering: false)
-            XCTAssertNotEqual(panel.borderLayer.path, fallbackPath)
+            XCTAssertNotEqual(panel.renderedCornerRadii, fallbackCorners)
         }
     }
 
@@ -1263,12 +1181,12 @@ final class BorderSurfaceTests: XCTestCase {
         let panel = try XCTUnwrap(recorder.layerPanels.first)
         let resized = frame.insetBy(dx: -20, dy: 0)
         _ = applier.apply(desired(configRed, frame: resized), forceOrdering: false, refreshCornerRadii: false)
-        let cachedPath = panel.borderLayer.path
+        let cachedCorners = panel.renderedCornerRadii
         let refresh = expectation(description: "size refresh")
         probe.onRequest = { refresh.fulfill() }
         _ = applier.apply(desired(configRed, frame: resized), forceOrdering: false)
         await fulfillment(of: [refresh], timeout: 1)
-        XCTAssertEqual(panel.borderLayer.path, cachedPath)
+        XCTAssertEqual(panel.renderedCornerRadii, cachedCorners)
         let retry = expectation(description: "old size rejected")
         applier.onCornerSampleResolved = { retry.fulfill() }
         probe.complete(sample(WindowCornerRadii(uniform: 30)))
@@ -1277,13 +1195,13 @@ final class BorderSurfaceTests: XCTestCase {
         probe.onRequest = { retryStarted.fulfill() }
         _ = applier.apply(desired(configRed, frame: resized), forceOrdering: false)
         await fulfillment(of: [retryStarted], timeout: 1)
-        XCTAssertEqual(panel.borderLayer.path, cachedPath)
+        XCTAssertEqual(panel.renderedCornerRadii, cachedCorners)
         let accepted = expectation(description: "current size accepted")
         applier.onCornerSampleResolved = { accepted.fulfill() }
         probe.complete(sample(WindowCornerRadii(uniform: 12), size: resized.size))
         await fulfillment(of: [accepted], timeout: 1)
         _ = applier.apply(desired(configRed, frame: resized), forceOrdering: false)
-        XCTAssertNotEqual(panel.borderLayer.path, cachedPath)
+        XCTAssertNotEqual(panel.renderedCornerRadii, cachedCorners)
         XCTAssertEqual(probe.requests.count, 3)
     }
 
@@ -1451,6 +1369,19 @@ final class BorderSurfaceTests: XCTestCase {
         XCTAssertEqual(window.appliedTargetLevel, 7)
         XCTAssertEqual(probe.requests, [77, 77, 78])
     }
+
+    @MainActor
+    func testNativeRimCornersNormalizeToTargetSize() throws {
+        let recorder = BorderOperationsRecorder()
+        let window = BorderWindow(config: configRed, operations: recorder.operations())
+        defer { window.destroy() }
+        XCTAssertTrue(window.update(
+            frame: CGRect(x: 0, y: 0, width: 100, height: 50),
+            targetToken: token(), cornerRadii: WindowCornerRadii(uniform: 80)
+        ))
+        let panel = try XCTUnwrap(recorder.layerPanels.first)
+        XCTAssertEqual(panel.renderedCornerRadii, WindowCornerRadii(uniform: 25))
+    }
 }
 
 final class WindowCornerRadiiTests: XCTestCase {
@@ -1609,27 +1540,23 @@ final class WindowCornerRadiiTests: XCTestCase {
     }
 
     @MainActor
-    func testRoundedRectPathKeepsCornersIndependent() {
-        let rect = CGRect(x: 0, y: 0, width: 100, height: 100)
-        let path = BorderWindow.roundedRectPath(
-            in: rect,
-            radii: WindowCornerRadii(topLeft: 40, topRight: 0, bottomLeft: 0, bottomRight: 0)
+    func testNativeCornerABIMatchesAndRoundTripsDistinctEllipticalRadii() {
+        guard omniwm_layer_border_available() else {
+            XCTFail("Native corner method ABI must match before invoking it")
+            return
+        }
+        let layer = CALayer()
+        layer.cornerRadii = CACornerRadii(
+            topLeft: CGSize(width: 1, height: 2),
+            topRight: CGSize(width: 3, height: 4),
+            bottomRight: CGSize(width: 5, height: 6),
+            bottomLeft: CGSize(width: 7, height: 8)
         )
-
-        XCTAssertFalse(path.contains(CGPoint(x: 2, y: 98)))
-        XCTAssertTrue(path.contains(CGPoint(x: 98, y: 98)))
-        XCTAssertTrue(path.contains(CGPoint(x: 2, y: 2)))
-        XCTAssertTrue(path.contains(CGPoint(x: 98, y: 2)))
-    }
-
-    @MainActor
-    func testRoundedRectPathRejectsInvalidGeometry() {
-        let path = BorderWindow.roundedRectPath(
-            in: CGRect(x: 0, y: 0, width: 0, height: 10),
-            radii: WindowCornerRadii(uniform: 4)
-        )
-
-        XCTAssertTrue(path.isEmpty)
+        let radii = layer.cornerRadii
+        XCTAssertEqual(radii.topLeft, CGSize(width: 1, height: 2))
+        XCTAssertEqual(radii.topRight, CGSize(width: 3, height: 4))
+        XCTAssertEqual(radii.bottomRight, CGSize(width: 5, height: 6))
+        XCTAssertEqual(radii.bottomLeft, CGSize(width: 7, height: 8))
     }
 
     @MainActor
@@ -1722,7 +1649,7 @@ final class WindowCornerRadiiTests: XCTestCase {
     func testCompletedBorderDerivationReturnsToLiveBoundsAfterAnimation() throws {
         let fixture = try borderFrameFixture()
         fixture.controller.hasStartedServices = true
-        fixture.controller.settings.bordersEnabled = true
+        fixture.controller.settings.borders.enabled = true
         XCTAssertTrue(fixture.controller.workspaceManager.setManagedFocus(
             fixture.entry.token,
             in: fixture.entry.workspaceId

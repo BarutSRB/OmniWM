@@ -70,57 +70,17 @@ extension LayoutRefreshController {
         for index in plan.workspacePlans.indices {
             guard plan.workspacePlans[index].isActiveWorkspace else { continue }
             let workspaceId = plan.workspacePlans[index].workspaceId
-            let monitorId = plan.workspacePlans[index].monitor.monitorId
             var frameChangesByToken: [WindowToken: LayoutFrameChange] = [:]
 
-            if reconcileDurableState,
-               let monitor = controller.workspaceManager.monitor(byId: monitorId)
-            {
-                for entry in controller.workspaceManager.floatingEntries(in: workspaceId) {
-                    let isInactiveNativeSpace = controller.workspaceManager.spaceTopology
-                        .isWindowOnKnownInactiveSpace(entry.windowId)
-                    guard entry.layoutReason == .standard,
-                          entry.hiddenState == nil,
-                          entry.desiredState.monitorId == monitorId,
-                          !isInactiveNativeSpace,
-                          let frame = controller.workspaceManager.resolvedFloatingFrame(
-                              for: entry.token,
-                              preferredMonitor: monitor
-                          ),
-                          entry.observedState.frame != frame
-                    else {
-                        continue
-                    }
-                    frameChangesByToken[entry.token] = LayoutFrameChange(
-                        token: entry.token,
-                        frame: frame,
-                        forceApply: false
-                    )
-                }
-            }
-
-            for relocation in relocationsByWorkspace[workspaceId] ?? [] {
-                guard let entry = controller.workspaceManager.entry(for: relocation.token),
-                      let floatingState = entry.floatingState
-                else {
-                    continue
-                }
-                guard entry.workspaceId == workspaceId,
-                      entry.mode == .floating,
-                      entry.layoutReason == .standard,
-                      entry.hiddenState == nil,
-                      floatingState.lastFrame == relocation.frame,
-                      floatingState.referenceMonitorId == monitorId
-                else {
-                    continue
-                }
-                frameChangesByToken[relocation.token] = LayoutFrameChange(
-                    token: relocation.token,
-                    frame: relocation.frame,
-                    forceApply: true,
-                    allowsTerminalRecovery: relocation.allowsTerminalRecovery
+            if reconcileDurableState {
+                collectDurableFloatingFrameChanges(
+                    for: plan.workspacePlans[index], controller: controller, into: &frameChangesByToken
                 )
             }
+            collectScheduledFloatingFrameChanges(
+                relocationsByWorkspace[workspaceId] ?? [],
+                for: plan.workspacePlans[index], controller: controller, into: &frameChangesByToken
+            )
 
             guard !frameChangesByToken.isEmpty else { continue }
             plan.workspacePlans[index].diff.frameChanges.removeAll {
@@ -404,5 +364,69 @@ extension LayoutRefreshController {
                 ? explicitWorkspaceIds
                 : []
         )
+    }
+
+    private func collectDurableFloatingFrameChanges(
+        for plan: WorkspaceLayoutPlan,
+        controller: WMController,
+        into frameChangesByToken: inout [WindowToken: LayoutFrameChange]
+    ) {
+        let workspaceId = plan.workspaceId
+        let monitorId = plan.monitor.monitorId
+        if let monitor = controller.workspaceManager.monitor(byId: monitorId) {
+            for entry in controller.workspaceManager.floatingEntries(in: workspaceId) {
+                let isInactiveNativeSpace = controller.workspaceManager.spaceTopology
+                    .isWindowOnKnownInactiveSpace(entry.windowId)
+                guard entry.layoutReason == .standard,
+                      entry.hiddenState == nil,
+                      entry.desiredState.monitorId == monitorId,
+                      !isInactiveNativeSpace,
+                      let frame = controller.workspaceManager.resolvedFloatingFrame(
+                          for: entry.token,
+                          preferredMonitor: monitor
+                      ),
+                      entry.observedState.frame != frame
+                else {
+                    continue
+                }
+                frameChangesByToken[entry.token] = LayoutFrameChange(
+                    token: entry.token,
+                    frame: frame,
+                    forceApply: false
+                )
+            }
+        }
+    }
+
+    private func collectScheduledFloatingFrameChanges(
+        _ relocations: [ScheduledWorkspaceMonitorRelocation],
+        for plan: WorkspaceLayoutPlan,
+        controller: WMController,
+        into frameChangesByToken: inout [WindowToken: LayoutFrameChange]
+    ) {
+        let workspaceId = plan.workspaceId
+        let monitorId = plan.monitor.monitorId
+        for relocation in relocations {
+            guard let entry = controller.workspaceManager.entry(for: relocation.token),
+                  let floatingState = entry.floatingState
+            else {
+                continue
+            }
+            guard entry.workspaceId == workspaceId,
+                  entry.mode == .floating,
+                  entry.layoutReason == .standard,
+                  entry.hiddenState == nil,
+                  floatingState.lastFrame == relocation.frame,
+                  floatingState.referenceMonitorId == monitorId
+            else {
+                continue
+            }
+            frameChangesByToken[relocation.token] = LayoutFrameChange(
+                token: relocation.token,
+                frame: relocation.frame,
+                forceApply: true,
+                allowsTerminalRecovery: relocation.allowsTerminalRecovery
+            )
+        }
     }
 }

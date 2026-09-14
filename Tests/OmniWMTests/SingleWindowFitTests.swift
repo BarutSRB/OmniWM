@@ -67,8 +67,8 @@ final class SingleWindowFitTests: XCTestCase {
 
     func testSettingsTOMLRoundTripsSingleWindowFitKeys() throws {
         var export = SettingsExport.defaults()
-        export.niriSingleWindowFit = SingleWindowFit(mode: .containerPrimarySpan)
-        export.dwindleSingleWindowFit = SingleWindowFit(mode: .custom, width: 1280, height: 720)
+        export.niri.singleWindowFit = SingleWindowFit(mode: .containerPrimarySpan)
+        export.dwindle.singleWindowFit = SingleWindowFit(mode: .custom, width: 1280, height: 720)
         export.monitorNiriSettings = [
             MonitorNiriSettings(
                 monitorName: "Portrait",
@@ -88,16 +88,16 @@ final class SingleWindowFitTests: XCTestCase {
 
         XCTAssertTrue(toml.contains("singleWindowFit"))
         XCTAssertFalse(toml.contains("singleWindowAspectRatio"))
-        XCTAssertEqual(decoded.niriSingleWindowFit.serialized, "container_primary_span")
-        XCTAssertEqual(decoded.dwindleSingleWindowFit.serialized, "1280x720")
+        XCTAssertEqual(decoded.niri.singleWindowFit.serialized, "container_primary_span")
+        XCTAssertEqual(decoded.dwindle.singleWindowFit.serialized, "1280x720")
         XCTAssertEqual(decoded.monitorNiriSettings.first?.singleWindowFit?.serialized, "container_primary_span")
         XCTAssertEqual(decoded.monitorDwindleSettings.first?.singleWindowFit?.serialized, "1024x768")
     }
 
     func testLegacySingleWindowAspectRatioKeysAreIgnoredAndDiagnosed() throws {
         var export = SettingsExport.defaults()
-        export.niriSingleWindowFit = SingleWindowFit(mode: .containerPrimarySpan)
-        export.dwindleSingleWindowFit = SingleWindowFit(mode: .custom, width: 1280, height: 720)
+        export.niri.singleWindowFit = SingleWindowFit(mode: .containerPrimarySpan)
+        export.dwindle.singleWindowFit = SingleWindowFit(mode: .custom, width: 1280, height: 720)
         export.monitorNiriSettings = [
             MonitorNiriSettings(
                 monitorName: "Portrait",
@@ -131,8 +131,8 @@ final class SingleWindowFitTests: XCTestCase {
         let decoded = try SettingsTOMLCodec.decode(legacy)
         let unknownKeys = Set(SettingsTOMLCodec.unknownKeyPaths(in: legacy))
 
-        XCTAssertEqual(decoded.niriSingleWindowFit, export.niriSingleWindowFit)
-        XCTAssertEqual(decoded.dwindleSingleWindowFit, export.dwindleSingleWindowFit)
+        XCTAssertEqual(decoded.niri.singleWindowFit, export.niri.singleWindowFit)
+        XCTAssertEqual(decoded.dwindle.singleWindowFit, export.dwindle.singleWindowFit)
         XCTAssertTrue(unknownKeys.contains("niri.singleWindowAspectRatio"))
         XCTAssertTrue(unknownKeys.contains("dwindle.singleWindowAspectRatio"))
         XCTAssertTrue(unknownKeys.contains("monitorNiriOverrides[0].singleWindowAspectRatio"))

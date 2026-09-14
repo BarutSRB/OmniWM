@@ -39,6 +39,18 @@ struct SpaceTopology: Equatable, Sendable {
         "[\(ids.map(String.init).joined(separator: ","))]"
     }
 
+    mutating func rekeyWindow(from oldWindowId: Int, to newWindowId: Int) {
+        let previousSpaceId = oldWindowId == newWindowId
+            ? nil
+            : windowSpace.removeValue(forKey: oldWindowId)
+        if windowSpace[newWindowId] == nil,
+           let previousSpaceId,
+           isKnownSpace(previousSpaceId)
+        {
+            windowSpace[newWindowId] = previousSpaceId
+        }
+    }
+
     func spaceForWindow(_ windowId: Int) -> UInt64? {
         windowSpace[windowId]
     }

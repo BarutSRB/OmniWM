@@ -157,6 +157,18 @@ extension NiriLayoutEngine {
         }
         removeEmptyColumnsIfWorkspaceEmpty(in: root)
 
+        restoreColumns(placementsByColumn, tokenOrder: tokenOrder, reusableNodes: reusableNodes, state: state)
+
+        return true
+    }
+
+    private func restoreColumns(
+        _ placementsByColumn: [Int: [(token: WindowToken, placement: PersistedNiriPlacement)]],
+        tokenOrder: [WindowToken: Int],
+        reusableNodes: [WindowToken: NiriWindow],
+        state: NiriWorkspaceState
+    ) {
+        let root = state.root
         for columnIndex in placementsByColumn.keys.sorted() {
             let groupedPlacements = placementsByColumn[columnIndex, default: []].sorted { lhs, rhs in
                 if lhs.placement.tileIndex != rhs.placement.tileIndex {
@@ -180,8 +192,6 @@ extension NiriLayoutEngine {
             column.setActiveTileIdx(seed.placement.column.activeTileIndex)
             updateTabbedColumnVisibility(column: column)
         }
-
-        return true
     }
 
     private func applyPersistedColumnState(_ state: PersistedNiriColumnState, to column: NiriContainer) {

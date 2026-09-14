@@ -5,6 +5,10 @@ sidebar:
   order: 2
 ---
 
+## Discord
+
+Join the [OmniWM Discord](https://discord.gg/yzkXFKPYhR) for setup help, configuration questions, and sharing your setup. Confirmed bugs still belong on GitHub — see [Reporting bugs](#reporting-bugs).
+
 ## Community integrations
 
 - **[omacosy](https://github.com/paulsp94/omacosy)** is an Omarchy-inspired macOS desktop setup that supports OmniWM as a tiling window manager, with a custom status bar and coordinated desktop themes.
@@ -37,4 +41,4 @@ Prefer the web? The [GitHub issue form](https://github.com/BarutSRB/OmniWM/issue
 
 ## Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM). Start with [CONTRIBUTING.md](https://github.com/BarutSRB/OmniWM/blob/main/CONTRIBUTING.md) for the project guidelines, expectations, and preferred direction.
+Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM). Start with [the contributor guide](/developers/contributing/) for the project guidelines, expectations, and preferred direction.

@@ -320,7 +320,7 @@ final class DwindleAdmissionRestoreStateTests: XCTestCase {
             hasNotch: false,
             name: "Restore"
         )
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 monitorAssignment: .specificDisplay(OutputId(from: monitor)),

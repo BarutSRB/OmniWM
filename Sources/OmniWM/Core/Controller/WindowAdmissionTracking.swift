@@ -20,105 +20,9 @@ extension AXEventHandler {
             )
         )
 
-        let trackedToken = controller.workspaceManager.addWindow(
-            candidate.axRef,
-            pid: candidate.token.pid,
-            windowId: candidate.token.windowId,
-            to: candidate.workspaceId,
-            mode: candidate.mode,
-            ruleEffects: candidate.ruleEffects,
-            admissionHints: candidate.admissionHints,
-            lifetimeAuthority: .directLifecycle,
-            allowsNativeFocusAdoption: !candidate.appFullscreen,
-            managedReplacementMetadata: candidate.replacementMetadata
-        )
-        guard let trackedEntry = controller.workspaceManager.entry(for: trackedToken) else {
-            WindowAdmissionTrace.record(
-                .init(
-                    action: .admissionDisappeared,
-                    pid: candidate.token.pid,
-                    windowId: candidate.token.windowId,
-                    bundleId: candidate.bundleId,
-                    axPid: axPid,
-                    reason: "workspace_add_failed",
-                    axRef: candidate.axRef
-                )
-            )
-            scheduleAXContextWarmup(for: candidate.token.pid)
-            rejectDeferredReplacement(windowId: candidate.windowId)
-            return
-        }
-        guard trackedToken == candidate.token else {
-            WindowAdmissionTrace.record(
-                .init(
-                    action: .admissionReplaced,
-                    pid: trackedEntry.pid,
-                    windowId: trackedEntry.windowId,
-                    bundleId: candidate.bundleId,
-                    axPid: axPid,
-                    competingPid: candidate.token.pid,
-                    reason: "workspace_identity_replaced",
-                    axRef: trackedEntry.axRef
-                )
-            )
-            finishAdmissionRetryAfterCollision(
-                windowId: candidate.windowId,
-                token: candidate.token,
-                axRef: candidate.axRef
-            )
-            return
-        }
-        WindowAdmissionTrace.record(
-            .init(
-                action: .admissionTracked,
-                pid: trackedEntry.pid,
-                windowId: trackedEntry.windowId,
-                bundleId: candidate.bundleId,
-                axPid: axPid,
-                outcome: String(describing: trackedEntry.mode),
-                axRef: trackedEntry.axRef
-            )
-        )
-
-        var floatingTargetFrame: CGRect?
-        if trackedEntry.mode == .floating {
-            let observedFrame = AXWindowService.framePreferFast(candidate.axRef)
-                ?? (try? AXWindowService.frame(candidate.axRef))
-            let preferredMonitor = controller.workspaceManager.monitor(for: trackedEntry.workspaceId)
-
-            if let observedFrame {
-                if controller.workspaceManager.floatingState(for: trackedToken) == nil {
-                    controller.workspaceManager.updateFloatingGeometry(
-                        frame: observedFrame,
-                        for: trackedToken,
-                        referenceMonitor: preferredMonitor
-                    )
-                }
-            }
-
-            floatingTargetFrame = controller.workspaceManager.resolvedFloatingFrame(
-                for: trackedToken,
-                preferredMonitor: preferredMonitor
-            )
-        }
-
-        let liveTrackedEntry = controller.workspaceManager.entry(for: trackedToken) ?? trackedEntry
-        controller.axManager.bindManagedWindows(
-            controller.workspaceManager.entries(forPid: liveTrackedEntry.pid)
-        )
-        if let floatingTargetFrame,
-           shouldApplyFloatingCreateFrameImmediately(for: liveTrackedEntry.workspaceId)
-        {
-            scheduleFloatingCreateFrameApplication(
-                floatingTargetFrame,
-                token: trackedToken,
-                pid: liveTrackedEntry.pid,
-                windowId: liveTrackedEntry.windowId,
-                workspaceId: liveTrackedEntry.workspaceId
-            )
-        } else {
-            scheduleAXContextWarmup(for: liveTrackedEntry.pid)
-        }
+        guard let trackedEntry = admitPreparedCreate(candidate, axPid: axPid, controller: controller) else { return }
+        let floatingTargetFrame = floatingCreateTarget(candidate, entry: trackedEntry, controller: controller)
+        bindPreparedCreate(trackedEntry, floatingTargetFrame: floatingTargetFrame, controller: controller)
         controller.layoutRefreshController.requestRelayout(
             reason: .axWindowCreated,
             affectedWorkspaceIds: [trackedEntry.workspaceId],
@@ -161,33 +65,27 @@ extension AXEventHandler {
     private func scheduleFloatingCreateFrameApplication(
         _ targetFrame: CGRect,
         token: WindowToken,
-        pid: pid_t,
-        windowId: Int,
         workspaceId: WorkspaceDescriptor.ID
     ) {
         guard let controller else { return }
-        let canApplySynchronously = controller.axManager.hasContext(for: pid)
+        let canApplySynchronously = controller.axManager.hasContext(for: token.pid)
         let plannedSeq = controller.workspaceManager.worldSeq
 
         if canApplySynchronously {
             applyFloatingCreateFrame(
                 targetFrame,
                 token: token,
-                pid: pid,
-                windowId: windowId,
                 workspaceId: workspaceId,
                 plannedSeq: plannedSeq
             )
-            if controller.axManager.recentFrameWriteFailure(for: windowId) == .contextUnavailable {
+            if controller.axManager.recentFrameWriteFailure(for: token.windowId) == .contextUnavailable {
                 Task { @MainActor [weak self] in
                     guard let self, self.controller?.hasStartedServices == true else { return }
-                    await self.warmAXContextIfNeeded(for: pid)
+                    await self.warmAXContextIfNeeded(for: token.pid)
                     guard self.controller?.hasStartedServices == true else { return }
                     self.applyFloatingCreateFrame(
                         targetFrame,
                         token: token,
-                        pid: pid,
-                        windowId: windowId,
                         workspaceId: workspaceId,
                         plannedSeq: plannedSeq
                     )
@@ -198,24 +96,20 @@ extension AXEventHandler {
 
         Task { @MainActor [weak self] in
             guard let self, self.controller?.hasStartedServices == true else { return }
-            await self.warmAXContextIfNeeded(for: pid)
+            await self.warmAXContextIfNeeded(for: token.pid)
             guard self.controller?.hasStartedServices == true else { return }
             self.applyFloatingCreateFrame(
                 targetFrame,
                 token: token,
-                pid: pid,
-                windowId: windowId,
                 workspaceId: workspaceId,
                 plannedSeq: plannedSeq
             )
-            if self.controller?.axManager.recentFrameWriteFailure(for: windowId) == .contextUnavailable {
-                await self.warmAXContextIfNeeded(for: pid)
+            if self.controller?.axManager.recentFrameWriteFailure(for: token.windowId) == .contextUnavailable {
+                await self.warmAXContextIfNeeded(for: token.pid)
                 guard self.controller?.hasStartedServices == true else { return }
                 self.applyFloatingCreateFrame(
                     targetFrame,
                     token: token,
-                    pid: pid,
-                    windowId: windowId,
                     workspaceId: workspaceId,
                     plannedSeq: plannedSeq
                 )
@@ -226,8 +120,6 @@ extension AXEventHandler {
     private func applyFloatingCreateFrame(
         _ targetFrame: CGRect,
         token: WindowToken,
-        pid: pid_t,
-        windowId: Int,
         workspaceId: WorkspaceDescriptor.ID,
         plannedSeq: UInt64
     ) {
@@ -244,9 +136,137 @@ extension AXEventHandler {
             return
         }
 
-        controller.axManager.forceApplyNextFrame(for: windowId)
+        controller.axManager.forceApplyNextFrame(for: token.windowId)
         controller.axManager.applyFramesParallel([
-            .init(pid: pid, window: entry.axRef, frame: targetFrame)
+            .init(pid: token.pid, window: entry.axRef, frame: targetFrame)
         ])
+    }
+
+    private func admitPreparedCreate(
+        _ candidate: PreparedCreate,
+        axPid: pid_t?,
+        controller: WMController
+    ) -> WindowState? {
+        let trackedToken = controller.workspaceManager.addWindow(
+            candidate.axRef,
+            pid: candidate.token.pid,
+            windowId: candidate.token.windowId,
+            to: candidate.workspaceId,
+            mode: candidate.mode,
+            ruleEffects: candidate.ruleEffects,
+            admissionHints: candidate.admissionHints,
+            lifetimeAuthority: .directLifecycle,
+            allowsNativeFocusAdoption: !candidate.appFullscreen,
+            managedReplacementMetadata: candidate.replacementMetadata
+        )
+        guard let trackedEntry = controller.workspaceManager.entry(for: trackedToken) else {
+            handleDisappearedCreate(candidate, axPid: axPid)
+            return nil
+        }
+        guard trackedToken == candidate.token else {
+            handleCollidingCreate(candidate, trackedEntry: trackedEntry, axPid: axPid)
+            return nil
+        }
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionTracked,
+                pid: trackedEntry.pid,
+                windowId: trackedEntry.windowId,
+                bundleId: candidate.bundleId,
+                axPid: axPid,
+                outcome: String(describing: trackedEntry.mode),
+                axRef: trackedEntry.axRef
+            )
+        )
+
+        return trackedEntry
+    }
+
+    private func floatingCreateTarget(
+        _ candidate: PreparedCreate,
+        entry: WindowState,
+        controller: WMController
+    ) -> CGRect? {
+        var floatingTargetFrame: CGRect?
+        if entry.mode == .floating {
+            let observedFrame = AXWindowService.framePreferFast(candidate.axRef)
+                ?? (try? AXWindowService.frame(candidate.axRef))
+            let preferredMonitor = controller.workspaceManager.monitor(for: entry.workspaceId)
+
+            if let observedFrame {
+                if controller.workspaceManager.floatingState(for: entry.token) == nil {
+                    controller.workspaceManager.updateFloatingGeometry(
+                        frame: observedFrame,
+                        for: entry.token,
+                        referenceMonitor: preferredMonitor
+                    )
+                }
+            }
+
+            floatingTargetFrame = controller.workspaceManager.resolvedFloatingFrame(
+                for: entry.token,
+                preferredMonitor: preferredMonitor
+            )
+        }
+
+        return floatingTargetFrame
+    }
+
+    private func bindPreparedCreate(
+        _ trackedEntry: WindowState,
+        floatingTargetFrame: CGRect?,
+        controller: WMController
+    ) {
+        let liveTrackedEntry = controller.workspaceManager.entry(for: trackedEntry.token) ?? trackedEntry
+        controller.axManager.bindManagedWindows(
+            controller.workspaceManager.entries(forPid: liveTrackedEntry.pid)
+        )
+        if let floatingTargetFrame,
+           shouldApplyFloatingCreateFrameImmediately(for: liveTrackedEntry.workspaceId)
+        {
+            scheduleFloatingCreateFrameApplication(
+                floatingTargetFrame,
+                token: trackedEntry.token,
+                workspaceId: liveTrackedEntry.workspaceId
+            )
+        } else {
+            scheduleAXContextWarmup(for: liveTrackedEntry.pid)
+        }
+    }
+
+    private func handleDisappearedCreate(_ candidate: PreparedCreate, axPid: pid_t?) {
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionDisappeared,
+                pid: candidate.token.pid,
+                windowId: candidate.token.windowId,
+                bundleId: candidate.bundleId,
+                axPid: axPid,
+                reason: "workspace_add_failed",
+                axRef: candidate.axRef
+            )
+        )
+        scheduleAXContextWarmup(for: candidate.token.pid)
+        rejectDeferredReplacement(windowId: candidate.windowId)
+    }
+
+    private func handleCollidingCreate(_ candidate: PreparedCreate, trackedEntry: WindowState, axPid: pid_t?) {
+        WindowAdmissionTrace.record(
+            .init(
+                action: .admissionReplaced,
+                pid: trackedEntry.pid,
+                windowId: trackedEntry.windowId,
+                bundleId: candidate.bundleId,
+                axPid: axPid,
+                competingPid: candidate.token.pid,
+                reason: "workspace_identity_replaced",
+                axRef: trackedEntry.axRef
+            )
+        )
+        finishAdmissionRetryAfterCollision(
+            windowId: candidate.windowId,
+            token: candidate.token,
+            axRef: candidate.axRef
+        )
     }
 }

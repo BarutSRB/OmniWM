@@ -9,8 +9,8 @@ import XCTest
 final class InputAmplificationTests: XCTestCase {
     func testMultitouchSourceExistsOnlyWhileGestureFeatureIsEnabled() {
         let controller = WindowAdmissionTestSupport.controller(prefix: "DynamicMultitouch")
-        controller.settings.scrollGestureEnabled = false
-        controller.settings.workspaceSwipeEnabled = false
+        controller.settings.gestures.scrollEnabled = false
+        controller.settings.gestures.workspaceSwipeEnabled = false
         controller.hasStartedServices = true
         let handler = controller.mouseEventHandler
         var sourceCreations = 0
@@ -23,12 +23,12 @@ final class InputAmplificationTests: XCTestCase {
         XCTAssertEqual(sourceCreations, 0)
         XCTAssertNil(handler.multitouchDiagnosticsSnapshot)
 
-        controller.settings.workspaceSwipeEnabled = true
+        controller.settings.gestures.workspaceSwipeEnabled = true
         handler.reconcileMultitouchSource()
         XCTAssertEqual(sourceCreations, 1)
         XCTAssertEqual(handler.multitouchDiagnosticsSnapshot?.state, .unavailable)
 
-        controller.settings.workspaceSwipeEnabled = false
+        controller.settings.gestures.workspaceSwipeEnabled = false
         handler.reconcileMultitouchSource()
         XCTAssertNil(handler.multitouchDiagnosticsSnapshot)
         XCTAssertNil(MultitouchGestureSource.shared)
@@ -38,15 +38,15 @@ final class InputAmplificationTests: XCTestCase {
     func testGestureAvailabilityCallbackOnlyFiresForAggregateTransitions() {
         let controller = WindowAdmissionTestSupport.controller(prefix: "GestureAvailability")
         let settings = controller.settings
-        settings.scrollGestureEnabled = false
-        settings.workspaceSwipeEnabled = false
+        settings.gestures.scrollEnabled = false
+        settings.gestures.workspaceSwipeEnabled = false
         var states: [Bool] = []
         settings.onTrackpadGestureAvailabilityChanged = { states.append($0) }
 
-        settings.scrollGestureEnabled = true
-        settings.workspaceSwipeEnabled = true
-        settings.scrollGestureEnabled = false
-        settings.workspaceSwipeEnabled = false
+        settings.gestures.scrollEnabled = true
+        settings.gestures.workspaceSwipeEnabled = true
+        settings.gestures.scrollEnabled = false
+        settings.gestures.workspaceSwipeEnabled = false
 
         XCTAssertEqual(states, [true, false])
     }
@@ -57,24 +57,24 @@ final class InputAmplificationTests: XCTestCase {
         defer { controller.eventIntake.close() }
         let initialSequence = controller.eventIntake.lastSeq
 
-        _ = controller.mouseEventHandler.receiveTapScrollWheel(
-            at: .zero,
+        _ = controller.mouseEventHandler.receiveTapScrollWheel(MouseScrollIntake(
+            location: .zero,
             deltaX: 1,
             deltaY: 2,
             momentumPhase: 0,
             phase: CGScrollPhase.changed.rawValue,
-            modifiers: []
-        )
+            modifiersRawValue: 0
+        ))
         XCTAssertEqual(controller.eventIntake.lastSeq, initialSequence)
 
-        _ = controller.mouseEventHandler.receiveTapScrollWheel(
-            at: .zero,
+        _ = controller.mouseEventHandler.receiveTapScrollWheel(MouseScrollIntake(
+            location: .zero,
             deltaX: 1,
             deltaY: 2,
             momentumPhase: 0,
             phase: 0,
-            modifiers: []
-        )
+            modifiersRawValue: 0
+        ))
         XCTAssertEqual(controller.eventIntake.lastSeq, initialSequence + 1)
     }
 }

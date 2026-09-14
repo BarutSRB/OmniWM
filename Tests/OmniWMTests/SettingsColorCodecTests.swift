@@ -9,16 +9,16 @@ import XCTest
 final class SettingsColorCodecTests: XCTestCase {
     func testCanonicalColorsKeepRGBAObjectsAndTablePaths() throws {
         var export = SettingsExport.defaults()
-        export.borderColorRed = 0.1
-        export.borderColorGreen = 0.2
-        export.borderColorBlue = 0.3
-        export.borderColorAlpha = 0.4
-        export.overviewBackdropColor = SettingsColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.5)
-        export.overviewNormalBorderColor = SettingsColor(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.6)
-        export.overviewHoveredBorderColor = SettingsColor(red: 0.4, green: 0.5, blue: 0.6, alpha: 0.7)
-        export.overviewSelectedBorderColor = SettingsColor(red: 0.5, green: 0.6, blue: 0.7, alpha: 0.8)
-        export.workspaceBarAccentColor = SettingsColor(red: 0.6, green: 0.7, blue: 0.8, alpha: 0.9)
-        export.workspaceBarTextColor = SettingsColor(red: 0.7, green: 0.8, blue: 0.9, alpha: 1.0)
+        export.borders.color.red = 0.1
+        export.borders.color.green = 0.2
+        export.borders.color.blue = 0.3
+        export.borders.color.alpha = 0.4
+        export.overview.backdrop = SettingsColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.5)
+        export.overview.windowBorders.normal = SettingsColor(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.6)
+        export.overview.windowBorders.hovered = SettingsColor(red: 0.4, green: 0.5, blue: 0.6, alpha: 0.7)
+        export.overview.windowBorders.selected = SettingsColor(red: 0.5, green: 0.6, blue: 0.7, alpha: 0.8)
+        export.workspaceBar.accentColor = SettingsColor(red: 0.6, green: 0.7, blue: 0.8, alpha: 0.9)
+        export.workspaceBar.textColor = SettingsColor(red: 0.7, green: 0.8, blue: 0.9, alpha: 1.0)
         let expected = [
             "borders.color": ["red": 0.1, "green": 0.2, "blue": 0.3, "alpha": 0.4],
             "overview.backdrop": ["red": 0.2, "green": 0.3, "blue": 0.4, "alpha": 0.5],
@@ -51,8 +51,8 @@ final class SettingsColorCodecTests: XCTestCase {
 
     func testUnsetWorkspaceColorsRemainOmittedAndDecodeAsNil() throws {
         var export = SettingsExport.defaults()
-        export.workspaceBarAccentColor = nil
-        export.workspaceBarTextColor = nil
+        export.workspaceBar.accentColor = nil
+        export.workspaceBar.textColor = nil
         let canonical = CanonicalTOMLConfig(export: export)
         let json = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(canonical)) as? [String: Any]
@@ -69,7 +69,7 @@ final class SettingsColorCodecTests: XCTestCase {
         XCTAssertNil(workspaceBarTable["accentColor"])
         XCTAssertNil(workspaceBarTable["textColor"])
         let decoded = try SettingsTOMLCodec.decode(tomlData)
-        XCTAssertNil(decoded.workspaceBarAccentColor)
-        XCTAssertNil(decoded.workspaceBarTextColor)
+        XCTAssertNil(decoded.workspaceBar.accentColor)
+        XCTAssertNil(decoded.workspaceBar.textColor)
     }
 }

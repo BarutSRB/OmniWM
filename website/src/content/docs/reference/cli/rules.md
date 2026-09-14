@@ -8,7 +8,7 @@ sidebar:
 Manage persisted window rules that control layout behavior, default workspace placement, and the initial Niri
 container primary span for matching windows. Primary span is width in horizontal orientation and height in
 vertical orientation.
-Rule add, replace, and config reload trigger automatic reevaluation. A valid workspace assignment applies as
+Rule add, replace, remove, move, and config reload trigger automatic reevaluation. A valid workspace assignment applies as
 the initial default whenever the matching app currently has no tracked windows. Additional windows use the
 workspace active when creation began. Automatic reevaluation preserves existing managed windows' workspaces, while
 readmission, structural replacements, and unique persisted boot-restore matches
@@ -23,7 +23,7 @@ omniwmctl rule <action> [arguments...] [options...]
 
 | Option | Value | Description |
 |--------|-------|-------------|
-| `--bundle-id` | `<bundle-id>` | Application bundle identifier. Optional: omit it to match apps with no runtime bundle ID, but then supply at least one of `--app-name-substring` / `--title-substring` / `--title-regex` |
+| `--bundle-id` | `<bundle-id>` | Restrict matching to this application bundle identifier. Omit it to match across apps, including those without a runtime bundle ID, using at least one of `--app-name-substring` / `--title-substring` / `--title-regex` |
 | `--app-name-substring` | `<text>` | Match app name containing this substring |
 | `--title-substring` | `<text>` | Match window title containing this substring |
 | `--title-regex` | `<pattern>` | Match window title against this regex |
@@ -95,7 +95,7 @@ Removes a rule by its UUID.
 omniwmctl rule move <rule-id> <position>
 ```
 
-Moves a rule to a new one-based position in the rule list.
+Moves a rule to a new one-based position in the rule list. More-specific matching rules win; list order only breaks ties in specificity. See [App Rules](/features/app-rules/) for matching behavior.
 
 **Apply rules:**
 

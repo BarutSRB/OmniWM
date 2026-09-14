@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+
+import CoreGraphics
+import Foundation
+
+extension NiriLayoutEngine {
+    private func centeredSingleWindowRect(
+        in workingFrame: CGRect,
+        size: CGSize,
+        scale: CGFloat
+    ) -> CGRect {
+        CGRect(
+            x: workingFrame.minX + (workingFrame.width - size.width) / 2,
+            y: workingFrame.minY + (workingFrame.height - size.height) / 2,
+            width: size.width,
+            height: size.height
+        ).roundedToPhysicalPixels(scale: scale)
+    }
+
+    private func rectExpandedToMinimum(_ rect: CGRect, minSize: CGSize) -> CGRect {
+        var expanded = rect
+        if expanded.width < minSize.width {
+            expanded.origin.x -= (minSize.width - expanded.width) / 2
+            expanded.size.width = minSize.width
+        }
+        if expanded.height < minSize.height {
+            expanded.origin.y -= (minSize.height - expanded.height) / 2
+            expanded.size.height = minSize.height
+        }
+        return expanded
+    }
+
+    func resolvedSingleWindowRect(
+        for context: SingleWindowLayoutContext,
+        in workingFrame: CGRect,
+        borderSafeFillFrame: CGRect? = nil,
+        fullscreenLayoutFrame: CGRect? = nil,
+        scale: CGFloat,
+        gaps: LayoutGaps,
+        orientation: Monitor.Orientation
+    ) -> CGRect {
+        let minSize = context.window.constraints.normalized().minSize
+        let hasManualPrimaryOverride = switch orientation {
+        case .horizontal:
+            context.container.hasManualSingleWindowWidthOverride
+        case .vertical:
+            context.container.hasManualSingleWindowHeightOverride
+        }
+        let hasManualSecondaryOverride = orientation == .vertical && context.window.windowWidth != .default
+        guard hasManualPrimaryOverride || hasManualSecondaryOverride else {
+            let baseFrame = context.fit.usesFullscreenLayoutFrame
+                ? borderSafeFillFrame ?? fullscreenLayoutFrame ?? workingFrame
+                : workingFrame
+            return rectExpandedToMinimum(context.fit.frame(in: baseFrame), minSize: minSize)
+                .roundedToPhysicalPixels(scale: scale)
+        }
+
+        let boundedSize: CGSize
+        switch orientation {
+        case .horizontal:
+            boundedSize = context.container.resolvedHorizontalSize(in: workingFrame, primaryGap: gaps.horizontal)
+        case .vertical:
+            let windowWidth = resolvedSingleWindowWidth(
+                for: context,
+                in: workingFrame,
+                hasManualSecondaryOverride: hasManualSecondaryOverride,
+                secondaryGap: gaps.horizontal
+            )
+            if context.container.cachedHeight <= 0 {
+                context.container.resolveAndCacheHeight(
+                    workingAreaHeight: workingFrame.height,
+                    gaps: gaps.vertical
+                )
+            }
+            let tabOffset: CGFloat = 0
+            let containerWidth = hasManualSecondaryOverride
+                ? context.window.constraints.clampWidth(windowWidth) + tabOffset
+                : windowWidth
+            boundedSize = CGSize(
+                width: min(workingFrame.width, max(0, containerWidth)),
+                height: min(workingFrame.height, max(0, context.container.cachedHeight))
+            )
+        }
+        return rectExpandedToMinimum(
+            centeredSingleWindowRect(in: workingFrame, size: boundedSize, scale: scale),
+            minSize: minSize
+        ).roundedToPhysicalPixels(scale: scale)
+    }
+
+    private func resolvedSingleWindowWidth(
+        for context: SingleWindowLayoutContext,
+        in workingFrame: CGRect,
+        hasManualSecondaryOverride: Bool,
+        secondaryGap: CGFloat
+    ) -> CGFloat {
+        let windowWidth: CGFloat
+        if hasManualSecondaryOverride {
+            windowWidth = switch context.window.windowWidth {
+            case let .fixed(width):
+                width
+            case let .preset(index):
+                resolvePresetSpan(
+                    presetWindowSecondarySpans,
+                    index: index,
+                    availableSpace: workingFrame.width,
+                    gap: secondaryGap
+                ) ?? workingFrame.width
+            case .auto:
+                context.window.resolvedWidth ?? context.window.frame?.width ?? workingFrame.width
+            }
+        } else {
+            windowWidth = workingFrame.width
+        }
+        return windowWidth
+    }
+}
+
+extension NiriLayoutEngine.SingleWindowLayoutContext {
+    func layoutPlacement(
+        for canonicalRect: CGRect,
+        workspaceOffset: CGFloat,
+        scale: CGFloat,
+        time: TimeInterval,
+        orientation: Monitor.Orientation
+    ) -> NiriContainerPlacement {
+        let renderOffset = container.renderOffset(at: time)
+        let renderedRect = canonicalRect
+            .offsetBy(dx: workspaceOffset + renderOffset.x, dy: renderOffset.y)
+            .roundedToPhysicalPixels(scale: scale)
+        let tabOffset: CGFloat = 0
+        let secondarySpanOverride: CGFloat? = if orientation == .vertical,
+                                                 window.windowWidth != .default
+        {
+            max(0, canonicalRect.width - tabOffset)
+        } else {
+            nil
+        }
+
+        return NiriContainerPlacement(
+            canonicalRect: canonicalRect,
+            renderedRect: renderedRect,
+            secondarySpanOverride: secondarySpanOverride
+        )
+    }
+}

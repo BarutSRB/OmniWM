@@ -44,27 +44,32 @@ extension AXEventHandler {
             handleSameAppCloseProbeDeadline(payload)
 
         case .focusWindow:
-            guard let liveRequest = controller.intentLedger.activeManagedRequest(requestId: intentId) else {
-                _ = controller.intentLedger.markExpired(id: intentId)
+            expireManagedFocusIntent(intentId)
+        }
+    }
+
+    private func expireManagedFocusIntent(_ intentId: IntentID) {
+        guard let controller else { return }
+        guard let liveRequest = controller.intentLedger.activeManagedRequest(requestId: intentId) else {
+            _ = controller.intentLedger.markExpired(id: intentId)
+            return
+        }
+        switch liveRequest.phase {
+        case .awaitingSameAppActivation:
+            controller.completeSameAppFocusHandoff(liveRequest)
+        case .awaitingConfirmation:
+            if controller.deferManagedFocusRetry(liveRequest) { return }
+            controller.retryManagedFocusFronting(liveRequest)
+            guard controller.intentLedger.activeManagedRequest(
+                requestId: liveRequest.requestId
+            )?.phase == .awaitingConfirmation else {
                 return
             }
-            switch liveRequest.phase {
-            case .awaitingSameAppActivation:
-                controller.completeSameAppFocusHandoff(liveRequest)
-            case .awaitingConfirmation:
-                if controller.deferManagedFocusRetry(liveRequest) { return }
-                controller.retryManagedFocusFronting(liveRequest)
-                guard controller.intentLedger.activeManagedRequest(
-                    requestId: liveRequest.requestId
-                )?.phase == .awaitingConfirmation else {
-                    return
-                }
-                handleAppActivation(
-                    pid: liveRequest.token.pid,
-                    source: liveRequest.lastActivationSource ?? .focusedWindowChanged,
-                    origin: .retry
-                )
-            }
+            handleAppActivation(
+                pid: liveRequest.token.pid,
+                source: liveRequest.lastActivationSource ?? .focusedWindowChanged,
+                origin: .retry
+            )
         }
     }
 }

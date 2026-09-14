@@ -4,8 +4,8 @@ const lines = [
   ['omniwmctl command focus right', ''],
   ['omniwmctl command scratchpad toggle 2', ''],
   [
-    'omniwmctl subscribe focus',
-    '{"channel":"focus","id":"9F2C…","kind":"event","ok":true,"result":{"kind":"focused-window","payload":{"window":{"id":"ow_h3k…","title":"Ghostty"}}},"status":"success","version":13}',
+    'omniwmctl subscribe focus --format ndjson',
+    '{"channel":"focus","id":"9F2C…","kind":"event","ok":true,"result":{"kind":"focused-window","payload":{"window":{"id":"ow_h3k…","pid":1234,"title":"Ghostty"}}},"status":"success","version":15}',
   ],
 ];
 ---
@@ -26,7 +26,7 @@ const lines = [
             <div class="line">
               <span class="prompt">❯</span> {cmd}
             </div>
-            {out && <div class="out">{out}</div>}
+            {out && <div class="out"><div>Example focus event (abridged)</div>{out}</div>}
           </>
         ))
       }

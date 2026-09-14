@@ -174,6 +174,29 @@ final class NiriAxisSolverTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(verticalFrames[fixture.first.token]).width, 500, accuracy: 0.001)
     }
 
+    func testInvalidSecondaryPresetsKeepWeightedFallbackInBothOrientations() throws {
+        let fixture = try makeStackedEngine()
+        fixture.engine.presetWindowSecondarySpans = [.fixed(600)]
+        fixture.first.height = .preset(-1)
+        fixture.first.windowWidth = .preset(1)
+        fixture.second.height = .auto(weight: 1)
+        fixture.second.windowWidth = .auto(weight: 1)
+
+        let horizontalFrames = layout(fixture)
+        let verticalFrames = fixture.engine.calculateLayout(
+            state: fixture.state,
+            workspaceId: fixture.workspaceId,
+            monitorFrame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            gaps: (horizontal: 0, vertical: 0),
+            orientation: .vertical
+        )
+
+        XCTAssertEqual(try XCTUnwrap(horizontalFrames[fixture.first.token]).height, 400, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(horizontalFrames[fixture.second.token]).height, 400, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(verticalFrames[fixture.first.token]).width, 500, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(verticalFrames[fixture.second.token]).width, 500, accuracy: 0.001)
+    }
+
     private func makeStackedEngine() throws -> (
         engine: NiriLayoutEngine,
         workspaceId: WorkspaceDescriptor.ID,

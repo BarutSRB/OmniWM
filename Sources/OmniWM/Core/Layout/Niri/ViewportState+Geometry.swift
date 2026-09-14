@@ -4,6 +4,13 @@
 import CoreGraphics
 import Foundation
 
+struct ViewportColumnTarget {
+    let index: Int
+    let position: CGFloat
+    let span: CGFloat
+    let mode: SizingMode
+}
+
 struct ViewportFittingAreas {
     let working: CGRect
     let parent: CGRect
@@ -34,6 +41,143 @@ struct ViewportFittingAreas {
 
     func area(for mode: SizingMode) -> CGRect {
         mode.isMaximized ? parent : working
+    }
+}
+
+extension ViewportFittingAreas {
+    init(geometry: NiriViewportGeometry) {
+        let orientation = geometry.orientation
+        let crossSpan: CGFloat = switch orientation {
+        case .horizontal:
+            geometry.workingArea?.height ?? geometry.viewFrame?.height ?? 0
+        case .vertical:
+            geometry.workingArea?.width ?? geometry.viewFrame?.width ?? 0
+        }
+        let fallbackParentFrame: CGRect = switch orientation {
+        case .horizontal:
+            CGRect(x: 0, y: 0, width: geometry.viewportSpan, height: crossSpan)
+        case .vertical:
+            CGRect(x: 0, y: 0, width: crossSpan, height: geometry.viewportSpan)
+        }
+        let parentFrame = geometry.viewFrame ?? geometry.workingArea ?? fallbackParentFrame
+
+        let localWorking = CGRect(origin: .zero, size: geometry.workingArea?.size ?? parentFrame.size)
+
+        let parent: CGRect
+        if let workingArea = geometry.workingArea {
+            parent = CGRect(
+                x: parentFrame.minX - workingArea.minX,
+                y: parentFrame.minY - workingArea.minY,
+                width: parentFrame.width,
+                height: parentFrame.height
+            )
+        } else {
+            parent = CGRect(
+                origin: .zero,
+                size: parentFrame.size
+            )
+        }
+
+        let fallbackLocalSize = geometry.workingArea?.size ?? fallbackParentFrame.size
+        let fallbackLocalFrame = CGRect(origin: .zero, size: fallbackLocalSize)
+        let primarySpan: (CGRect) -> CGFloat = { rect in
+            switch orientation {
+            case .horizontal:
+                rect.width
+            case .vertical:
+                rect.height
+            }
+        }
+
+        self.init(
+            working: primarySpan(localWorking) > 0 ? localWorking : fallbackLocalFrame,
+            parent: primarySpan(parent) > 0 ? parent : fallbackLocalFrame,
+            orientation: orientation,
+            scale: geometry.scale
+        )
+    }
+
+    private func computeFitOffset(
+        currentViewPos: CGFloat,
+        viewSpan: CGFloat,
+        targetPos: CGFloat,
+        targetSpan: CGFloat,
+        gap: CGFloat
+    ) -> CGFloat {
+        let pixelEpsilon: CGFloat = 1.0 / max(scale, 1.0)
+
+        if viewSpan <= targetSpan + pixelEpsilon {
+            return 0
+        }
+
+        let padding = ((viewSpan - targetSpan) / 2).clamped(to: 0 ... gap)
+        let preferredStart = targetPos - padding
+        let targetEnd = targetPos + targetSpan
+        let preferredEnd = targetEnd + padding
+
+        if currentViewPos - pixelEpsilon <= preferredStart
+            && preferredEnd <= currentViewPos + viewSpan + pixelEpsilon
+        {
+            return currentViewPos - targetPos
+        }
+
+        let distToStart = abs(currentViewPos - preferredStart)
+        let distToEnd = abs((currentViewPos + viewSpan) - preferredEnd)
+
+        if distToStart <= distToEnd {
+            return -padding
+        } else {
+            return -(viewSpan - padding - targetSpan)
+        }
+    }
+
+    func fitOffset(
+        currentViewStart: CGFloat,
+        target: ViewportColumnTarget,
+        gap: CGFloat
+    ) -> CGFloat {
+        if target.mode.isFullscreen {
+            return 0
+        }
+
+        let area = self.area(for: target.mode)
+        let areaStart = origin(of: area)
+        let padding = target.mode.isMaximized ? 0 : gap
+        let newOffset = computeFitOffset(
+            currentViewPos: currentViewStart + areaStart,
+            viewSpan: span(of: area),
+            targetPos: target.position,
+            targetSpan: target.span,
+            gap: padding
+        )
+        return newOffset - areaStart
+    }
+
+    func centeredOffset(
+        currentViewStart: CGFloat,
+        target: ViewportColumnTarget,
+        gap: CGFloat
+    ) -> CGFloat {
+        if target.mode.isFullscreen {
+            return fitOffset(
+                currentViewStart: currentViewStart,
+                target: target,
+                gap: gap
+            )
+        }
+
+        let area = self.area(for: target.mode)
+        let areaSpan = span(of: area)
+        let areaStart = origin(of: area)
+        if areaSpan <= target.span {
+            return fitOffset(
+                currentViewStart: currentViewStart,
+                target: target,
+                gap: gap
+            )
+        }
+
+        return -(areaSpan - target.span) / 2 - areaStart
     }
 }
 
@@ -114,318 +258,130 @@ extension ViewportState {
         return sizeSum + gapSum
     }
 
-    func normalizedFittingAreas(
-        viewportSpan: CGFloat,
-        workingArea: CGRect? = nil,
-        viewFrame: CGRect? = nil,
-        orientation: Monitor.Orientation,
-        scale: CGFloat = 2.0
-    ) -> ViewportFittingAreas {
-        let crossSpan: CGFloat = switch orientation {
-        case .horizontal:
-            workingArea?.height ?? viewFrame?.height ?? 0
-        case .vertical:
-            workingArea?.width ?? viewFrame?.width ?? 0
-        }
-        let fallbackParentFrame: CGRect = switch orientation {
-        case .horizontal:
-            CGRect(x: 0, y: 0, width: viewportSpan, height: crossSpan)
-        case .vertical:
-            CGRect(x: 0, y: 0, width: crossSpan, height: viewportSpan)
-        }
-        let parentFrame = viewFrame ?? workingArea ?? fallbackParentFrame
-
-        let localWorking: CGRect
-        if let workingArea {
-            localWorking = CGRect(
-                origin: .zero,
-                size: workingArea.size
-            )
-        } else {
-            localWorking = CGRect(origin: .zero, size: parentFrame.size)
-        }
-
-        let parent: CGRect
-        if let workingArea {
-            parent = CGRect(
-                x: parentFrame.minX - workingArea.minX,
-                y: parentFrame.minY - workingArea.minY,
-                width: parentFrame.width,
-                height: parentFrame.height
-            )
-        } else {
-            parent = CGRect(
-                origin: .zero,
-                size: parentFrame.size
-            )
-        }
-
-        let fallbackLocalSize = workingArea?.size ?? fallbackParentFrame.size
-        let fallbackLocalFrame = CGRect(origin: .zero, size: fallbackLocalSize)
-        let primarySpan: (CGRect) -> CGFloat = { rect in
-            switch orientation {
-            case .horizontal:
-                rect.width
-            case .vertical:
-                rect.height
-            }
-        }
-
-        return ViewportFittingAreas(
-            working: primarySpan(localWorking) > 0 ? localWorking : fallbackLocalFrame,
-            parent: primarySpan(parent) > 0 ? parent : fallbackLocalFrame,
-            orientation: orientation,
-            scale: scale
-        )
-    }
-
     func computeCenteredOffset(
         containerIndex: Int,
         containers: [NiriContainer],
-        gap: CGFloat,
-        viewportSpan: CGFloat,
-        sizeKeyPath: KeyPath<NiriContainer, CGFloat>,
-        workingArea: CGRect? = nil,
+        context: NiriInteractionContext,
         viewFrame: CGRect? = nil,
-        orientation: Monitor.Orientation,
         scale: CGFloat = 2.0
     ) -> CGFloat {
         guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return 0 }
 
-        let areas = normalizedFittingAreas(
+        let sizeKeyPath = context.orientation.settledSpanKeyPath
+        let viewportSpan: CGFloat = switch context.orientation {
+        case .horizontal: context.workingFrame.width
+        case .vertical: context.workingFrame.height
+        }
+        let areas = ViewportFittingAreas(geometry: NiriViewportGeometry(
+            gap: context.gaps,
             viewportSpan: viewportSpan,
-            workingArea: workingArea,
+            orientation: context.orientation,
+            workingArea: context.workingFrame,
             viewFrame: viewFrame,
-            orientation: orientation,
             scale: scale
+        ))
+        let target = ViewportColumnTarget(
+            index: containerIndex,
+            position: containerPosition(
+                at: containerIndex,
+                containers: containers,
+                gap: context.gaps,
+                sizeKeyPath: sizeKeyPath
+            ),
+            span: containers[containerIndex][keyPath: sizeKeyPath],
+            mode: containers[containerIndex].effectiveSizingMode
         )
-        let targetPos = containerPosition(
-            at: containerIndex,
-            containers: containers,
-            gap: gap,
-            sizeKeyPath: sizeKeyPath
+
+        return areas.centeredOffset(
+            currentViewStart: target.position,
+            target: target,
+            gap: context.gaps
         )
-        let targetSize = containers[containerIndex][keyPath: sizeKeyPath]
-        let mode = containers[containerIndex].effectiveSizingMode
-
-        return computeModeAwareCenteredOffset(
-            currentViewStart: targetPos,
-            targetPos: targetPos,
-            targetSpan: targetSize,
-            mode: mode,
-            areas: areas,
-            gap: gap
-        )
-    }
-
-    private func computeFitOffset(
-        currentViewPos: CGFloat,
-        viewSpan: CGFloat,
-        targetPos: CGFloat,
-        targetSpan: CGFloat,
-        gap: CGFloat,
-        scale: CGFloat = 2.0
-    ) -> CGFloat {
-        let pixelEpsilon: CGFloat = 1.0 / max(scale, 1.0)
-
-        if viewSpan <= targetSpan + pixelEpsilon {
-            return 0
-        }
-
-        let padding = ((viewSpan - targetSpan) / 2).clamped(to: 0 ... gap)
-        let preferredStart = targetPos - padding
-        let targetEnd = targetPos + targetSpan
-        let preferredEnd = targetEnd + padding
-
-        if currentViewPos - pixelEpsilon <= preferredStart
-            && preferredEnd <= currentViewPos + viewSpan + pixelEpsilon
-        {
-            return currentViewPos - targetPos
-        }
-
-        let distToStart = abs(currentViewPos - preferredStart)
-        let distToEnd = abs((currentViewPos + viewSpan) - preferredEnd)
-
-        if distToStart <= distToEnd {
-            return -padding
-        } else {
-            return -(viewSpan - padding - targetSpan)
-        }
-    }
-
-    func computeModeAwareFitOffset(
-        currentViewStart: CGFloat,
-        targetPos: CGFloat,
-        targetSpan: CGFloat,
-        mode: SizingMode,
-        areas: ViewportFittingAreas,
-        gap: CGFloat
-    ) -> CGFloat {
-        if mode.isFullscreen {
-            return 0
-        }
-
-        let area = areas.area(for: mode)
-        let areaStart = areas.origin(of: area)
-        let padding = mode.isMaximized ? 0 : gap
-        let newOffset = computeFitOffset(
-            currentViewPos: currentViewStart + areaStart,
-            viewSpan: areas.span(of: area),
-            targetPos: targetPos,
-            targetSpan: targetSpan,
-            gap: padding,
-            scale: areas.scale
-        )
-        return newOffset - areaStart
-    }
-
-    func computeModeAwareCenteredOffset(
-        currentViewStart: CGFloat,
-        targetPos: CGFloat,
-        targetSpan: CGFloat,
-        mode: SizingMode,
-        areas: ViewportFittingAreas,
-        gap: CGFloat
-    ) -> CGFloat {
-        if mode.isFullscreen {
-            return computeModeAwareFitOffset(
-                currentViewStart: currentViewStart,
-                targetPos: targetPos,
-                targetSpan: targetSpan,
-                mode: mode,
-                areas: areas,
-                gap: gap
-            )
-        }
-
-        let area = areas.area(for: mode)
-        let areaSpan = areas.span(of: area)
-        let areaStart = areas.origin(of: area)
-        if areaSpan <= targetSpan {
-            return computeModeAwareFitOffset(
-                currentViewStart: currentViewStart,
-                targetPos: targetPos,
-                targetSpan: targetSpan,
-                mode: mode,
-                areas: areas,
-                gap: gap
-            )
-        }
-
-        return -(areaSpan - targetSpan) / 2 - areaStart
     }
 
     func computeVisibleOffset(
         containerIndex: Int,
         containers: [NiriContainer],
-        gap: CGFloat,
-        viewportSpan: CGFloat,
-        sizeKeyPath: KeyPath<NiriContainer, CGFloat>,
+        context: NiriInteractionContext,
         currentViewStart: CGFloat,
         centerMode: CenterFocusedColumn,
         alwaysCenterSingleColumn: Bool = false,
         fromContainerIndex: Int? = nil,
         scale: CGFloat = 2.0,
-        workingArea: CGRect? = nil,
-        viewFrame: CGRect? = nil,
-        orientation: Monitor.Orientation
+        viewFrame: CGRect? = nil
     ) -> CGFloat {
         guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return 0 }
 
-        let areas = normalizedFittingAreas(
+        let sizeKeyPath = context.orientation.settledSpanKeyPath
+        let viewportSpan: CGFloat = switch context.orientation {
+        case .horizontal: context.workingFrame.width
+        case .vertical: context.workingFrame.height
+        }
+        let areas = ViewportFittingAreas(geometry: NiriViewportGeometry(
+            gap: context.gaps,
             viewportSpan: viewportSpan,
-            workingArea: workingArea,
+            orientation: context.orientation,
+            workingArea: context.workingFrame,
             viewFrame: viewFrame,
-            orientation: orientation,
             scale: scale
-        )
+        ))
         let effectiveCenterMode = (containers.count == 1 && alwaysCenterSingleColumn) ? .always : centerMode
-        let targetPos = containerPosition(
-            at: containerIndex,
-            containers: containers,
-            gap: gap,
-            sizeKeyPath: sizeKeyPath
+        let target = ViewportColumnTarget(
+            index: containerIndex,
+            position: containerPosition(
+                at: containerIndex,
+                containers: containers,
+                gap: context.gaps,
+                sizeKeyPath: sizeKeyPath
+            ),
+            span: containers[containerIndex][keyPath: sizeKeyPath],
+            mode: containers[containerIndex].effectiveSizingMode
         )
-        let targetSize = containers[containerIndex][keyPath: sizeKeyPath]
-        let targetMode = containers[containerIndex].effectiveSizingMode
 
-        var targetOffset: CGFloat
-
-        switch effectiveCenterMode {
-        case .always:
-            targetOffset = computeModeAwareCenteredOffset(
-                currentViewStart: currentViewStart,
-                targetPos: targetPos,
-                targetSpan: targetSize,
-                mode: targetMode,
-                areas: areas,
-                gap: gap
-            )
-
+        let shouldCenter = switch effectiveCenterMode {
+        case .always: true
+        case .never: false
         case .onOverflow:
-            if let fromIdx = fromContainerIndex,
-               fromIdx != containerIndex,
-               containers.indices.contains(fromIdx)
-            {
-                let sourceIdx = if fromIdx > containerIndex {
-                    min(containerIndex + 1, containers.count - 1)
-                } else {
-                    max(containerIndex - 1, 0)
-                }
-                let sourcePos = containerPosition(
-                    at: sourceIdx,
-                    containers: containers,
-                    gap: gap,
-                    sizeKeyPath: sizeKeyPath
-                )
-                let sourceSize = containers[sourceIdx][keyPath: sizeKeyPath]
-                let pairSpan = if sourcePos < targetPos {
-                    targetPos - sourcePos + targetSize
-                } else {
-                    sourcePos - targetPos + sourceSize
-                }
-
-                if pairSpan + gap * 2 <= areas.span(of: areas.working) {
-                    targetOffset = computeModeAwareFitOffset(
-                        currentViewStart: currentViewStart,
-                        targetPos: targetPos,
-                        targetSpan: targetSize,
-                        mode: targetMode,
-                        areas: areas,
-                        gap: gap
-                    )
-                } else {
-                    targetOffset = computeModeAwareCenteredOffset(
-                        currentViewStart: currentViewStart,
-                        targetPos: targetPos,
-                        targetSpan: targetSize,
-                        mode: targetMode,
-                        areas: areas,
-                        gap: gap
-                    )
-                }
-            } else {
-                targetOffset = computeModeAwareFitOffset(
-                    currentViewStart: currentViewStart,
-                    targetPos: targetPos,
-                    targetSpan: targetSize,
-                    mode: targetMode,
-                    areas: areas,
-                    gap: gap
-                )
-            }
-
-        case .never:
-            targetOffset = computeModeAwareFitOffset(
-                currentViewStart: currentViewStart,
-                targetPos: targetPos,
-                targetSpan: targetSize,
-                mode: targetMode,
-                areas: areas,
-                gap: gap
+            shouldCenterAdjacentPair(
+                target: target,
+                fromIndex: fromContainerIndex,
+                containers: containers,
+                context: context,
+                areas: areas
             )
         }
+        if shouldCenter {
+            return areas.centeredOffset(currentViewStart: currentViewStart, target: target, gap: context.gaps)
+        }
+        return areas.fitOffset(currentViewStart: currentViewStart, target: target, gap: context.gaps)
+    }
 
-        return targetOffset
+    private func shouldCenterAdjacentPair(
+        target: ViewportColumnTarget,
+        fromIndex: Int?,
+        containers: [NiriContainer],
+        context: NiriInteractionContext,
+        areas: ViewportFittingAreas
+    ) -> Bool {
+        guard let fromIndex, fromIndex != target.index, containers.indices.contains(fromIndex) else { return false }
+        let sourceIndex = if fromIndex > target.index {
+            min(target.index + 1, containers.count - 1)
+        } else {
+            max(target.index - 1, 0)
+        }
+        let sizeKeyPath = context.orientation.settledSpanKeyPath
+        let sourcePosition = containerPosition(
+            at: sourceIndex,
+            containers: containers,
+            gap: context.gaps,
+            sizeKeyPath: sizeKeyPath
+        )
+        let sourceSpan = containers[sourceIndex][keyPath: sizeKeyPath]
+        let pairSpan = if sourcePosition < target.position {
+            target.position - sourcePosition + target.span
+        } else {
+            sourcePosition - target.position + sourceSpan
+        }
+        return !(pairSpan + context.gaps * 2 <= areas.span(of: areas.working))
     }
 }

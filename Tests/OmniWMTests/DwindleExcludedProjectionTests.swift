@@ -290,13 +290,16 @@ final class DwindleExcludedProjectionTests: XCTestCase {
         let diff = handler.layoutDiff(
             windows: windows,
             frames: frames,
-            engine: engine,
-            workspaceId: workspaceId,
-            preferredHideSide: .left,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: true,
-            pendingParkWindowIds: [excluded.windowId]
+            context: .init(
+                engine: engine,
+                workspaceId: workspaceId,
+                preferredHideSide: .left,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: true,
+                pendingParkWindowIds: [excluded.windowId],
+                animationTime: nil
+            )
         )
 
         XCTAssertFalse(diff.frameChanges.contains { $0.token == excluded })

@@ -20,29 +20,23 @@ extension AXEventHandler {
     ) -> ManagedWindowIdentityRebindResult {
         assert(preparedSubscriptionRetainContribution >= 0)
         guard let controller else { return .rejected }
-        guard let oldEntry = controller.workspaceManager.entry(for: oldToken),
-              oldToken == newToken || controller.workspaceManager.entry(for: newToken) == nil
-        else {
-            return .rejected
-        }
-        if let collision = controller.workspaceManager.entry(forWindowId: newToken.windowId),
-           collision.token != oldToken
-        {
+        guard let oldEntry = managedIdentityRebindSource(from: oldToken, to: newToken, controller: controller) else {
             return .rejected
         }
         let oldWindow = AXManagedWindowIdentity(token: oldToken, axRef: oldEntry.axRef)
         let newWindow = AXManagedWindowIdentity(token: newToken, axRef: axRef)
+        let rebind = ManagedWindowIdentityRebind(
+            oldWindow: oldWindow, newWindow: newWindow,
+            managedReplacementMetadata: managedReplacementMetadata,
+            admissionHints: admissionHints, sizeConstraints: sizeConstraints
+        )
         let changesRuntimeIdentity = oldToken != newToken
             || !CFEqual(oldEntry.axRef.element, axRef.element)
         let requiresAcknowledgement = changesRuntimeIdentity
             && (controller.hasStartedServices || oldToken.pid != newToken.pid)
         if requiresAcknowledgement {
             let scheduled = scheduleManagedWindowIdentityRebind(
-                from: oldWindow,
-                to: newWindow,
-                managedReplacementMetadata: managedReplacementMetadata,
-                admissionHints: admissionHints,
-                sizeConstraints: sizeConstraints,
+                rebind: rebind,
                 preparedSubscriptionRetainContribution: preparedSubscriptionRetainContribution,
                 focusedAdmissionContinuation: focusedAdmissionContinuation
             )
@@ -59,220 +53,38 @@ extension AXEventHandler {
         }
 
         if changesRuntimeIdentity {
-            controller.mouseEventHandler.discardNativeTitleBarDrag(for: oldToken)
-            let retainedParkTarget = controller.axManager.commitFrameApplicationStateForRebind(
-                from: oldWindow,
-                to: newWindow
+            applyManagedWindowIdentityRebindFrames(
+                rebind: rebind,
+                acknowledgement: nil, controller: controller
             )
-            if let retainedParkTarget {
-                controller.axManager.applyParkFramesParallel([retainedParkTarget])
-            }
             bindCurrentManagedWindows(afterRebinding: oldWindow, to: newWindow)
         }
         finishManagedWindowIdentityRebind(
-            from: oldWindow,
-            to: newWindow,
+            rebind: rebind,
             entry: entry,
             windowId: windowId,
-            managedReplacementMetadata: managedReplacementMetadata,
-            admissionHints: admissionHints,
             directPreparedSubscriptionRetainCount: preparedSubscriptionRetainContribution
         )
         return .committed(entry)
     }
 
-    func completeManagedWindowIdentityRebind(
-        from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity,
-        windowId: UInt32,
-        retryGeneration: UInt64,
-        executionOwner: UInt64,
-        managedReplacementMetadata: ManagedReplacementMetadata?,
-        admissionHints: ManagedWindowAdmissionHints?,
-        sizeConstraints: WindowSizeConstraints? = nil
-    ) async {
-        guard let controller else { return }
-        var requiresBindingRefresh = false
-        defer {
-            if requiresBindingRefresh {
-                bindCurrentManagedWindows(afterRebinding: oldWindow, to: newWindow)
-            }
+    private func managedIdentityRebindSource(
+        from oldToken: WindowToken, to newToken: WindowToken, controller: WMController
+    ) -> WindowState? {
+        guard let oldEntry = controller.workspaceManager.entry(for: oldToken),
+              oldToken == newToken || controller.workspaceManager.entry(for: newToken) == nil
+        else {
+            return nil
         }
-        guard controller.hasStartedServices else {
-            retryManagedWindowIdentityRebind(
-                from: oldWindow,
-                to: newWindow,
-                windowId: windowId,
-                retryGeneration: retryGeneration,
-                executionOwner: executionOwner,
-                managedReplacementMetadata: managedReplacementMetadata,
-                admissionHints: admissionHints,
-                sizeConstraints: sizeConstraints
-            )
-            return
+        if let collision = controller.workspaceManager.entry(forWindowId: newToken.windowId),
+           collision.token != oldToken
+        {
+            return nil
         }
-
-        let acknowledgement: AXManagedWindowRebindAcknowledgement?
-        if let provider = managedWindowIdentityRebindAcknowledgementProvider {
-            guard await provider(oldWindow, newWindow) else {
-                retryManagedWindowIdentityRebind(
-                    from: oldWindow,
-                    to: newWindow,
-                    windowId: windowId,
-                    retryGeneration: retryGeneration,
-                    executionOwner: executionOwner,
-                    managedReplacementMetadata: managedReplacementMetadata,
-                    admissionHints: admissionHints,
-                    sizeConstraints: sizeConstraints
-                )
-                return
-            }
-            acknowledgement = nil
-        } else {
-            guard let acknowledged = await controller.axManager.rebindWindowAsync(
-                from: oldWindow,
-                to: newWindow
-            ) else {
-                retryManagedWindowIdentityRebind(
-                    from: oldWindow,
-                    to: newWindow,
-                    windowId: windowId,
-                    retryGeneration: retryGeneration,
-                    executionOwner: executionOwner,
-                    managedReplacementMetadata: managedReplacementMetadata,
-                    admissionHints: admissionHints,
-                    sizeConstraints: sizeConstraints
-                )
-                return
-            }
-            acknowledgement = acknowledged
-        }
-
-        guard isCurrentManagedWindowIdentityRebind(
-            from: oldWindow,
-            to: newWindow,
-            windowId: windowId,
-            retryGeneration: retryGeneration,
-            executionOwner: executionOwner,
-            acknowledgement: acknowledgement
-        ) else {
-            if let acknowledgement {
-                controller.axManager.rollbackWindowRebind(
-                    acknowledgement,
-                    newWindow: newWindow
-                )
-            }
-            retireStaleManagedWindowIdentityRebind(
-                windowId: windowId,
-                retryGeneration: retryGeneration,
-                executionOwner: executionOwner
-            )
-            requestTargetedFullRescan(for: [oldWindow.token.pid, newWindow.token.pid])
-            return
-        }
-
-        guard commitManagedWindowIdentityRebind(
-            from: oldWindow.token,
-            to: newWindow.token,
-            axRef: newWindow.axRef,
-            managedReplacementMetadata: managedReplacementMetadata
-        ) != nil else {
-            if let acknowledgement {
-                controller.axManager.rollbackWindowRebind(
-                    acknowledgement,
-                    newWindow: newWindow
-                )
-            }
-            retireStaleManagedWindowIdentityRebind(
-                windowId: windowId,
-                retryGeneration: retryGeneration,
-                executionOwner: executionOwner
-            )
-            requestTargetedFullRescan(for: [oldWindow.token.pid, newWindow.token.pid])
-            return
-        }
-        controller.mouseEventHandler.discardNativeTitleBarDrag(for: oldWindow.token)
-        let retainedParkTarget = controller.axManager.commitFrameApplicationStateForRebind(
-            from: oldWindow,
-            to: newWindow,
-            acknowledgement: acknowledgement
-        )
-        if let retainedParkTarget {
-            controller.axManager.applyParkFramesParallel([retainedParkTarget])
-        }
-        requiresBindingRefresh = true
-        guard currentManagedWindowIdentityRebindEntry(
-            from: oldWindow,
-            to: newWindow,
-            windowId: windowId,
-            retryGeneration: retryGeneration,
-            executionOwner: executionOwner,
-            acknowledgement: acknowledgement
-        ) != nil else {
-            if let acknowledgement {
-                controller.axManager.rollbackWindowRebind(
-                    acknowledgement,
-                    newWindow: newWindow
-                )
-            }
-            retireStaleManagedWindowIdentityRebind(
-                windowId: windowId,
-                retryGeneration: retryGeneration,
-                executionOwner: executionOwner
-            )
-            requestTargetedFullRescan(for: [oldWindow.token.pid, newWindow.token.pid])
-            return
-        }
-        if let sizeConstraints {
-            controller.workspaceManager.setCachedConstraints(sizeConstraints, for: newWindow.token)
-        }
-
-        let finalized = if let provider = managedWindowIdentityRebindFinalizationProvider {
-            await provider(oldWindow, newWindow)
-        } else {
-            await controller.axManager.finalizeWindowRebindContextState(
-                from: oldWindow,
-                to: newWindow,
-                acknowledgement: acknowledgement
-            )
-        }
-        guard finalized else {
-            retireStaleManagedWindowIdentityRebind(
-                windowId: windowId,
-                retryGeneration: retryGeneration,
-                executionOwner: executionOwner
-            )
-            requestTargetedFullRescan(for: [oldWindow.token.pid, newWindow.token.pid])
-            return
-        }
-        guard let currentEntry = currentManagedWindowIdentityRebindEntry(
-            from: oldWindow,
-            to: newWindow,
-            windowId: windowId,
-            retryGeneration: retryGeneration,
-            executionOwner: executionOwner,
-            acknowledgement: acknowledgement
-        ) else {
-            retireStaleManagedWindowIdentityRebind(
-                windowId: windowId,
-                retryGeneration: retryGeneration,
-                executionOwner: executionOwner
-            )
-            requestTargetedFullRescan(for: [oldWindow.token.pid, newWindow.token.pid])
-            return
-        }
-        finishManagedWindowIdentityRebind(
-            from: oldWindow,
-            to: newWindow,
-            entry: currentEntry,
-            windowId: windowId,
-            managedReplacementMetadata: managedReplacementMetadata,
-            admissionHints: admissionHints,
-            directPreparedSubscriptionRetainCount: nil
-        )
+        return oldEntry
     }
 
-    private func bindCurrentManagedWindows(
+    func bindCurrentManagedWindows(
         afterRebinding oldWindow: AXManagedWindowIdentity,
         to newWindow: AXManagedWindowIdentity
     ) {
@@ -287,102 +99,14 @@ extension AXEventHandler {
         }
     }
 
-    private func isCurrentManagedWindowIdentityRebind(
-        from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity,
-        windowId: UInt32,
-        retryGeneration: UInt64,
-        executionOwner: UInt64,
-        acknowledgement: AXManagedWindowRebindAcknowledgement?
-    ) -> Bool {
-        guard let controller,
-              controller.hasStartedServices,
-              !Task.isCancelled,
-              newWindow.token.windowId == Int(windowId),
-              let state = admissionRetryStateByWindowId[windowId],
-              state.generation == retryGeneration,
-              state.executionPhase == .running(executionOwner),
-              !state.identityRebindTargetDestroyed,
-              case let .identityRebind(retryOld, retryNew, _, _, _) = state.trigger,
-              retryOld.token == oldWindow.token,
-              retryNew.token == newWindow.token,
-              CFEqual(retryOld.axRef.element, oldWindow.axRef.element),
-              CFEqual(retryNew.axRef.element, newWindow.axRef.element),
-              let oldEntry = controller.workspaceManager.entry(for: oldWindow.token),
-              CFEqual(oldEntry.axRef.element, oldWindow.axRef.element),
-              oldWindow.token == newWindow.token
-              || controller.workspaceManager.entry(for: newWindow.token) == nil,
-              isManagedWindowIdentityRebindTargetAlive(pid: newWindow.token.pid)
-        else {
-            return false
-        }
-        if let collision = controller.workspaceManager.entry(forWindowId: newWindow.token.windowId),
-           collision.token != oldWindow.token
-        {
-            return false
-        }
-        if let acknowledgement,
-           !controller.axManager.isCurrentWindowRebindAcknowledgement(
-               acknowledgement,
-               from: oldWindow,
-               to: newWindow
-           )
-        {
-            return false
-        }
-        return true
-    }
-
-    private func currentManagedWindowIdentityRebindEntry(
-        from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity,
-        windowId: UInt32,
-        retryGeneration: UInt64,
-        executionOwner: UInt64,
-        acknowledgement: AXManagedWindowRebindAcknowledgement?
-    ) -> WindowState? {
-        guard let controller,
-              controller.hasStartedServices,
-              !Task.isCancelled,
-              newWindow.token.windowId == Int(windowId),
-              let state = admissionRetryStateByWindowId[windowId],
-              state.generation == retryGeneration,
-              state.executionPhase == .running(executionOwner),
-              !state.identityRebindTargetDestroyed,
-              case let .identityRebind(retryOld, retryNew, _, _, _) = state.trigger,
-              retryOld.token == oldWindow.token,
-              retryNew.token == newWindow.token,
-              CFEqual(retryOld.axRef.element, oldWindow.axRef.element),
-              CFEqual(retryNew.axRef.element, newWindow.axRef.element),
-              let entry = controller.workspaceManager.entry(for: newWindow.token),
-              CFEqual(entry.axRef.element, newWindow.axRef.element),
-              controller.workspaceManager.entry(forWindowId: newWindow.token.windowId)?.token == newWindow.token,
-              isManagedWindowIdentityRebindTargetAlive(pid: newWindow.token.pid)
-        else {
-            return nil
-        }
-        if let acknowledgement,
-           !controller.axManager.isCurrentWindowRebindAcknowledgement(
-               acknowledgement,
-               from: oldWindow,
-               to: newWindow
-           )
-        {
-            return nil
-        }
-        return entry
-    }
-
-    private func retryManagedWindowIdentityRebind(
-        from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity,
-        windowId: UInt32,
-        retryGeneration: UInt64,
-        executionOwner: UInt64,
-        managedReplacementMetadata: ManagedReplacementMetadata?,
-        admissionHints: ManagedWindowAdmissionHints?,
-        sizeConstraints: WindowSizeConstraints?
+    func retryManagedWindowIdentityRebind(
+        rebind: ManagedWindowIdentityRebind, execution: AdmissionRetryExecution
     ) {
+        let oldWindow = rebind.oldWindow
+        let newWindow = rebind.newWindow
+        let windowId = execution.windowId
+        let retryGeneration = execution.generation
+        let executionOwner = execution.executionOwner
         guard let controller else { return }
         guard var state = admissionRetryStateByWindowId[windowId],
               state.generation == retryGeneration,
@@ -410,173 +134,20 @@ extension AXEventHandler {
         state.task = nil
         state.executionPhase = .waiting
         admissionRetryStateByWindowId[windowId] = state
-        _ = scheduleManagedWindowIdentityRebind(
-            from: oldWindow,
-            to: newWindow,
-            managedReplacementMetadata: managedReplacementMetadata,
-            admissionHints: admissionHints,
-            sizeConstraints: sizeConstraints,
-            preparedSubscriptionRetainContribution: 0
-        )
-    }
-
-    private func isManagedWindowIdentityRebindTargetAlive(pid: pid_t) -> Bool {
-        if let provider = managedWindowIdentityRebindTargetIsAliveProvider {
-            return provider(pid)
-        }
-        return NSRunningApplication(processIdentifier: pid)?.isTerminated == false
-    }
-
-    private func retireStaleManagedWindowIdentityRebind(
-        windowId: UInt32,
-        retryGeneration: UInt64,
-        executionOwner: UInt64
-    ) {
-        guard let state = admissionRetryStateByWindowId[windowId],
-              state.generation == retryGeneration,
-              state.executionPhase == .running(executionOwner)
-        else {
-            return
-        }
-        cancelCreatedWindowRetry(windowId: windowId)
-        discardDeferredReplacementProtection(windowId: windowId)
-    }
-
-    private func finishManagedWindowIdentityRebind(
-        from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity,
-        entry: WindowState,
-        windowId: UInt32,
-        managedReplacementMetadata: ManagedReplacementMetadata?,
-        admissionHints: ManagedWindowAdmissionHints?,
-        directPreparedSubscriptionRetainCount: Int?
-    ) {
-        guard let controller else { return }
-        let completesPendingManagedReplacement = admissionRetryStateByWindowId[windowId].map { state in
-            guard !state.exhausted,
-                  case let .identityRebind(retryOld, retryNew, metadata, _, _) = state.trigger
-            else {
-                return false
-            }
-            return retryOld.token == oldWindow.token
-                && retryNew.token == newWindow.token
-                && metadata != nil
-        } ?? false
-        if let admissionHints {
-            _ = controller.workspaceManager.updateAdmissionHints(admissionHints, for: newWindow.token)
-        }
-        if let workspaceId = managedReplacementMetadata?.workspaceId {
-            rekeyManagedReplacementFocusTransaction(
-                from: oldWindow.token,
-                to: newWindow.token,
-                workspaceId: workspaceId
-            )
-        }
-
-        let completedStateSubscriptionIdentityTransition = finishAdmissionRetryAfterTracking(
-            windowId: windowId
-        )
-        discardCreatePlacementContext(windowId: windowId)
-        if let directPreparedSubscriptionRetainCount {
-            if directPreparedSubscriptionRetainCount > 0 {
-                releasePreparedWindowSubscriptions(
-                    windowId,
-                    count: directPreparedSubscriptionRetainCount
-                )
-            } else if !completedStateSubscriptionIdentityTransition {
-                noteManagedWindowSubscriptionIdentityChanged()
-            }
-        }
-        let closeProbe = cancelSameAppCloseProbe(
-            matchingFocusedToken: oldWindow.token,
-            reason: "identity_rebind"
-        )
-        clearTerminalFrameFailure(windowId: oldWindow.token.windowId)
-        admissionQuarantineByWindowId.removeValue(forKey: oldWindow.token.windowId)
-        identityAliasesByWindowId.removeValue(forKey: oldWindow.token.windowId)
-        AXWindowService.invalidateCachedTitles(windowIds: [UInt32(oldWindow.token.windowId), windowId])
-        scheduleWindowRuleReevaluationIfNeeded(targets: [.window(entry.token)])
-        WindowAdmissionTrace.record(
-            .init(
-                action: .admissionReplaced,
-                pid: entry.pid,
-                windowId: entry.windowId,
-                bundleId: NSRunningApplication(processIdentifier: entry.pid)?.bundleIdentifier,
-                competingPid: oldWindow.token.pid,
-                reason: managedReplacementMetadata == nil
-                    ? "identity_rekeyed"
-                    : "structural_managed_replacement",
-                outcome: "oldWindowId=\(oldWindow.token.windowId)",
-                axRef: newWindow.axRef
-            )
-        )
-        controller.requestWorkspaceBarRefresh()
-        controller.surfaceReconciler.noteRestackOccurred()
-        if completesPendingManagedReplacement,
-           let closeProbe
-        {
-            handleSameAppCloseProbeDeadline(closeProbe, focusedToken: newWindow.token)
-        }
-    }
-
-    private func commitManagedWindowIdentityRebind(
-        from oldToken: WindowToken,
-        to newToken: WindowToken,
-        axRef: AXWindowRef,
-        managedReplacementMetadata: ManagedReplacementMetadata?
-    ) -> WindowState? {
-        guard let controller else { return nil }
-        if oldToken.pid != newToken.pid,
-           let request = controller.intentLedger.activeManagedRequest,
-           case let .awaitingSameAppActivation(sourceToken, _) = request.phase,
-           request.token == oldToken || sourceToken == oldToken
-        {
-            controller.cancelManagedFocusRequestAndRestoreSource(request)
-        }
-        let focusTransactionIds = controller.dwindleLayoutHandler
-            .currentPendingGroupRevealFocusTransactionIds(for: oldToken)
-        return controller.withRuntimeFrameJobCancellationSuppressed {
-            guard let entry = controller.workspaceManager.rekeyWindow(
-                from: oldToken,
-                to: newToken,
-                newAXRef: axRef,
-                managedReplacementMetadata: managedReplacementMetadata
-            )
-            else {
-                return nil
-            }
-
-            controller.intentLedger.rekeyManagedRequest(from: oldToken, to: newToken)
-            controller.rekeyScratchpadWindowResources(from: oldToken, to: newToken, axRef: axRef)
-            controller.layoutRefreshController.rekeyPendingRevealTransaction(
-                from: oldToken,
-                to: newToken,
-                entry: entry
-            )
-            controller.layoutRefreshController.rekeyNativeFullscreenRestoredFrameApply(
-                from: oldToken,
-                to: newToken
-            )
-            controller.dwindleLayoutHandler.rekeyPendingGroupRevealTransaction(
-                from: oldToken,
-                to: newToken,
-                entry: entry,
-                rebasingFocusTransactionIds: focusTransactionIds
-            )
-            return entry
-        }
+        _ = scheduleManagedWindowIdentityRebind(rebind: rebind, preparedSubscriptionRetainContribution: 0)
     }
 
     @discardableResult
     private func scheduleManagedWindowIdentityRebind(
-        from oldWindow: AXManagedWindowIdentity,
-        to newWindow: AXManagedWindowIdentity,
-        managedReplacementMetadata: ManagedReplacementMetadata?,
-        admissionHints: ManagedWindowAdmissionHints?,
-        sizeConstraints: WindowSizeConstraints?,
+        rebind: ManagedWindowIdentityRebind,
         preparedSubscriptionRetainContribution: Int,
         focusedAdmissionContinuation: FocusedAdmissionRetryContinuation? = nil
     ) -> Bool {
+        let oldWindow = rebind.oldWindow
+        let newWindow = rebind.newWindow
+        let managedReplacementMetadata = rebind.managedReplacementMetadata
+        let admissionHints = rebind.admissionHints
+        let sizeConstraints = rebind.sizeConstraints
         guard let windowId = UInt32(exactly: newWindow.token.windowId) else { return false }
         let scheduled = scheduleAdmissionRetry(
             windowId: windowId,

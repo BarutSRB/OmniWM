@@ -57,9 +57,9 @@ Pointer-driven focus and monitor-edge focus/move behavior.
 | `raiseOnMouseFocus` | boolean | `false` | Also raises the window when focus-follows-mouse focuses it. |
 | `lockModifier` | string | `"off"` | Modifier that holds focus in place while pressed: `off`, `option`, `leftOption`, `rightOption`, `command`, `leftCommand`, `rightCommand`, `control`, `leftControl`, `rightControl`, `shift`, `leftShift`, `rightShift`. |
 | `moveMouseToFocusedWindow` | boolean | `false` | Moves the pointer to the window that gains focus. |
-| `followsWindowToMonitor` | boolean | `false` | Keeps focus on a window when it moves to another monitor. |
+| `followsWindowToMonitor` | boolean | `false` | Follows ordinary window or column transfers to another workspace, including dedicated monitor-move actions. Edge-crossing moves always follow. |
 | `crossesMonitorAtEdge` | boolean | `false` | Directional focus continues onto the neighboring monitor at the screen edge. |
-| `moveCrossesMonitorAtEdge` | boolean | `false` | Directional window move continues onto the neighboring monitor at the screen edge. |
+| `moveCrossesMonitorAtEdge` | boolean | `false` | Directional window move continues onto the neighboring monitor at the workspace edge and always follows the moved window. |
 
 ## mouseWarp
 
@@ -157,23 +157,8 @@ Border drawn around the focused window.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Draws the focused-window border. |
-| `width` | float | `5.0` | Exterior border width in points. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
-| `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Solid border color and fallback glow color used in light appearance. |
-| `darkColor` | optional color table | absent | Solid border (and glow) color used when macOS is in dark appearance. Falls back to `color` when absent. |
-| `gradient` | optional table | absent | Enables a two-color linear gradient when `enabled = true`. |
-| `gradient.enabled` | boolean | `false` | Uses the gradient instead of the solid border color. |
-| `gradient.direction` | string | `"topLeftToBottomRight"` | Either `topLeftToBottomRight` or `topRightToBottomLeft`, in the border surface's local coordinates. |
-| `gradient.start` / `gradient.end` | color tables | — | Complete endpoint colors. A present gradient table must include both colors. |
-| `gradient.dark` | optional table | absent | Dark-appearance endpoint colors. |
-| `gradient.dark.start` / `gradient.dark.end` | color tables | — | Endpoint colors used in dark appearance. Each stop falls back to the matching `gradient.start` / `gradient.end` value when absent. |
-| `glow` | optional table | absent | Adds a visual-only glow around the border. It never changes layout gaps or resize hit-testing. |
-| `glow.enabled` | boolean | `false` | Draws the glow before the border. |
-| `glow.radius` | float | `8.0` | Glow radius in points, accepted from `0` through `32`. The overlay surface expands to contain it. |
-| `glow.opacity` | float | `0.6` | Glow opacity from `0` through `1`. |
-
-Gradient and glow are composable. A missing table preserves legacy solid rendering. Non-finite or structurally invalid values preserve the previous valid appearance; finite gradient color components are clamped to `0...1`, while glow radius and opacity must remain within their documented ranges. Glow reuses the border's solid color or gradient endpoints, so a gradient border produces a spatially matching gradient glow.
-
-Border and gradient colors resolve per macOS appearance: dark values apply when the system (or OmniWM's own Appearance setting, when not Automatic) uses the dark appearance, and update live as the appearance switches — no restart needed. Unset dark values keep the base colors, so existing configs render exactly as before. The glow inherits the resolved border color or gradient endpoints, so it adapts with them.
+| `width` | float | `5.0` | Exterior border width in points; configured values are clamped to 1–12 points when applied. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
+| `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Border color (default is a cyan accent). |
 
 ## overview
 
@@ -280,12 +265,12 @@ The drop-down (Quake) terminal.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Enables the Quake terminal. |
-| `position` | string | `"center"` | Slide-in position: `top`, `bottom`, `left`, `right`, `center`. |
-| `widthPercent` | float | `50.0` | Width as a percentage of the screen. |
-| `heightPercent` | float | `50.0` | Height as a percentage of the screen. |
+| `position` | string | `"center"` | Terminal position: `top`, `bottom`, `left`, `right`, `center`. Edge positions slide in; `center` fades in place. |
+| `widthPercent` | float | `50.0` | Width as a percentage of the monitor's available screen area. |
+| `heightPercent` | float | `50.0` | Height as a percentage of the monitor's available screen area. |
 | `animationDuration` | float | `0.2` | Show/hide animation duration in seconds. |
 | `autoHide` | boolean | `false` | Hides the terminal when it loses focus. |
-| `opacity` *(optional)* | float | `1.0` | Terminal window opacity (`0.0`–`1.0`). |
+| `opacity` *(optional)* | float | `1.0` | Terminal background opacity (`0.0`–`1.0`). |
 | `backgroundEffect` | string | `"standardBlur"` | Background material: `standardBlur`, `glassRegular`, `glassClear`. |
 | `backgroundBlurRadius` *(optional)* | integer | `0` | Background blur radius; `0` disables the extra blur. |
 | `monitorMode` *(optional)* | string | `"focusedWindow"` | Which monitor it appears on: `mouseCursor`, `focusedWindow`, `mainMonitor`. |
@@ -341,8 +326,10 @@ Array of workspace definitions.
 | `id` | string (UUID) | Stable identity; keep it unchanged when editing. |
 | `name` | string | Workspace name; numeric names define the ordering and number-key targets. |
 | `displayName` *(optional)* | string | Label shown in the bar instead of `name` (emoji welcome). |
-| `monitorAssignment` | table | `type` = `main`, `secondary`, or `specificDisplay` (the latter carries an `output` value identifying the display). |
+| `monitorAssignment` | table | `type` = `main`, `secondary`, or `specificDisplay`. For `specificDisplay`, the `output` sub-table contains a required `name` (string), optional `displayUUID` (string), and optional `displayId` (integer). |
 | `layoutType` | string | `default` (follow `general.defaultLayoutType`), `niri`, or `dwindle`. |
+
+For `specificDisplay`, `displayUUID` takes precedence when present. Without it, `displayId` and `name` must match a monitor that has no display UUID. A name alone cannot identify the target monitor.
 
 Default: nine workspaces named `1`–`9`, all Niri — `1`–`5` and `8`–`9` on the main monitor, `6` (shown as ❤️) and `7` (shown as 🚀) on the secondary, matching the default `Option + 1`–`9` bindings.
 
@@ -363,7 +350,7 @@ Array of per-app window rules, editable in the **App Rules** window. Matchers se
 
 | Key | Type | Description |
 | --- | --- | --- |
-| `id` | string (UUID) | Stable rule identity. |
+| `id` *(optional)* | string (UUID) | Stable rule identity; generated if omitted. Keep an existing ID unchanged when editing. |
 | `bundleId` | string | App bundle ID to match (may be empty when an advanced matcher is used). |
 | `appNameSubstring` *(optional)* | string | Matches on the app name. |
 | `titleSubstring` *(optional)* | string | Matches on the window title. |

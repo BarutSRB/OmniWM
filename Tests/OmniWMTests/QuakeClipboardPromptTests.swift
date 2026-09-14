@@ -248,22 +248,46 @@ final class QuakeClipboardPromptTests: XCTestCase {
         XCTAssertEqual(payload.contents.first?.data, Data([0xFF, 0xFE]))
     }
 
+    func testInvalidFirstPlainTextPreventsFallbackToLaterPlainText() {
+        let contents = [
+            GhosttyClipboardContent(mime: "text/plain", data: Data([0xFF])),
+            GhosttyClipboardContent(mime: "text/plain", data: Data("later".utf8))
+        ]
+
+        XCTAssertNil(GhosttyClipboardContent.firstPlainText(in: contents))
+        XCTAssertEqual(
+            GhosttyClipboardPayload(contents: contents, available: []).preview,
+            "text/plain (1 bytes)\ntext/plain (5 bytes)"
+        )
+    }
+
+    func testFirstPlainTextIgnoresOtherMIMEsAndPreservesEmptyText() {
+        let contents = [
+            GhosttyClipboardContent(mime: "application/json", data: Data("{}".utf8)),
+            GhosttyClipboardContent(mime: "text/plain", data: Data()),
+            GhosttyClipboardContent(mime: "text/plain", data: Data("later".utf8))
+        ]
+
+        XCTAssertEqual(GhosttyClipboardContent.firstPlainText(in: contents), "")
+        XCTAssertEqual(GhosttyClipboardPayload(contents: contents, available: []).preview, "")
+    }
+
     func testKittyClipboardRequestsUseReadAndWritePrompts() {
         XCTAssertEqual(
-            QuakeTerminalController.ClipboardPromptKind(GHOSTTY_CLIPBOARD_REQUEST_KITTY_READ),
+            QuakeClipboardAlert.Kind(GHOSTTY_CLIPBOARD_REQUEST_KITTY_READ),
             .read
         )
         XCTAssertEqual(
-            QuakeTerminalController.ClipboardPromptKind(GHOSTTY_CLIPBOARD_REQUEST_KITTY_WRITE),
+            QuakeClipboardAlert.Kind(GHOSTTY_CLIPBOARD_REQUEST_KITTY_WRITE),
             .write
         )
-        XCTAssertNil(QuakeTerminalController.ClipboardPromptKind(GHOSTTY_CLIPBOARD_REQUEST_LIST))
+        XCTAssertNil(QuakeClipboardAlert.Kind(GHOSTTY_CLIPBOARD_REQUEST_LIST))
 
-        let read = QuakeTerminalController.protectedClipboardAlert(
+        let read = QuakeClipboardAlert.make(
             kind: .read,
             contents: "payload"
         )
-        let write = QuakeTerminalController.protectedClipboardAlert(
+        let write = QuakeClipboardAlert.make(
             kind: .write,
             contents: "payload"
         )
@@ -273,7 +297,7 @@ final class QuakeClipboardPromptTests: XCTestCase {
     }
 
     func testClipboardPromptUsesProgramNameAndRememberOption() {
-        let alert = QuakeTerminalController.protectedClipboardAlert(
+        let alert = QuakeClipboardAlert.make(
             kind: .read,
             contents: "payload",
             programName: "remote-shell",
@@ -288,8 +312,8 @@ final class QuakeClipboardPromptTests: XCTestCase {
     }
 
     func testClipboardPromptDefaultsToDeny() {
-        for kind in [QuakeTerminalController.ClipboardPromptKind.read, .write, .unsafePaste] {
-            let alert = QuakeTerminalController.protectedClipboardAlert(kind: kind, contents: "payload")
+        for kind in [QuakeClipboardAlert.Kind.read, .write, .unsafePaste] {
+            let alert = QuakeClipboardAlert.make(kind: kind, contents: "payload")
             XCTAssertEqual(alert.buttons.first?.title, "Deny")
             XCTAssertEqual(alert.buttons.first?.keyEquivalent, "\r")
             XCTAssertEqual(alert.buttons.last?.title, "Allow")
@@ -297,8 +321,8 @@ final class QuakeClipboardPromptTests: XCTestCase {
     }
 
     func testClipboardPromptResponseMapsSecondButtonToAllow() {
-        XCTAssertFalse(QuakeTerminalController.clipboardPromptResponseAllows(.alertFirstButtonReturn))
-        XCTAssertTrue(QuakeTerminalController.clipboardPromptResponseAllows(.alertSecondButtonReturn))
-        XCTAssertFalse(QuakeTerminalController.clipboardPromptResponseAllows(.cancel))
+        XCTAssertFalse(QuakeClipboardAlert.responseAllows(.alertFirstButtonReturn))
+        XCTAssertTrue(QuakeClipboardAlert.responseAllows(.alertSecondButtonReturn))
+        XCTAssertFalse(QuakeClipboardAlert.responseAllows(.cancel))
     }
 }

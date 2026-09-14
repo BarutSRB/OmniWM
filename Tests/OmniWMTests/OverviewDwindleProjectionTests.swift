@@ -117,7 +117,7 @@ final class OverviewDwindleProjectionTests: XCTestCase {
                 raiseWindow: { _ in }
             )
         )
-        controller.settings.workspaceConfigurations.append(
+        controller.settings.workspaces.configurations.append(
             WorkspaceConfiguration(name: "97", layoutType: .dwindle)
         )
         let monitor = Monitor(

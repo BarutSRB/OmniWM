@@ -104,7 +104,7 @@ final class HiddenBarFallbackIconController {
     }
 
     private func makePanel(monitorId: Monitor.ID) -> WorkspaceBarPanel {
-        let panel = WorkspaceBarManager.defaultPanel()
+        let panel = WorkspaceBarPanel.defaultPanel()
         panel.level = .statusBar
 
         let view = NSVisualEffectView()

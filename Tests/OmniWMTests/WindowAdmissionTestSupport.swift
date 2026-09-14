@@ -42,7 +42,7 @@ enum WindowAdmissionTestSupport {
         layoutType: LayoutType,
         controller: WMController
     ) -> WorkspaceDescriptor.ID? {
-        controller.settings.workspaceConfigurations.append(
+        controller.settings.workspaces.configurations.append(
             WorkspaceConfiguration(name: name, layoutType: layoutType)
         )
         controller.workspaceManager.applySettings()
@@ -104,10 +104,7 @@ enum WindowAdmissionTestSupport {
         isRetry: Bool = false
     ) -> AXFrameApplicationRequest? {
         ledger.prepareFrameApplication(
-            pid: pid,
-            windowId: window.windowId,
-            expectedWindow: window,
-            frame: frame,
+            .init(pid: pid, window: window, frame: frame),
             isRetry: isRetry,
             terminalObserver: nil
         ).request

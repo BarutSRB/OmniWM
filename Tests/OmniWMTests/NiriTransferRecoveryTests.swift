@@ -290,10 +290,9 @@ final class NiriTransferRecoveryTests: XCTestCase {
         let result = fixture.engine.moveColumnToWorkspace(
             fixture.sourceColumn,
             from: fixture.sourceWorkspace,
-            to: fixture.targetWorkspace,
+            to: NiriWorkspaceDestination(workspaceId: fixture.targetWorkspace, orientation: .horizontal),
             sourceState: &sourceState,
-            targetState: &targetState,
-            targetOrientation: .horizontal
+            targetState: &targetState
         )
 
         XCTAssertNotNil(result)

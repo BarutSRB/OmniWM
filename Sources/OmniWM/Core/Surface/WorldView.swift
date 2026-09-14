@@ -95,7 +95,7 @@ struct WorldView {
         let settings = controller.settings
         var bars: [DesiredBarSurface] = []
         for monitor in controller.workspaceManager.monitors {
-            let resolved = settings.resolvedBarSettings(for: monitor)
+            let resolved = settings.workspaceBar.resolved(for: monitor)
             let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
             let projection = controller.workspaceBarProjection(
                 for: monitor,

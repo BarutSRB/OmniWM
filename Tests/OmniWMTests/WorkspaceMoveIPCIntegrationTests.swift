@@ -75,7 +75,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         XCTAssertEqual(
             controller.commandHandler.handleHotkeyInvocation(
                 HotkeyInvocation(
-                    command: .moveWorkspaceToMonitor(.right),
+                    command: .workspace(.moveWorkspaceToMonitor(.right)),
                     trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
                 )
             ),
@@ -99,7 +99,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
             fixture.sourceWorkspaceId
         )
         XCTAssertEqual(
-            controller.settings.workspaceConfigurations
+            controller.settings.workspaces.configurations
                 .first { $0.name == "1" }?
                 .monitorAssignment,
             .specificDisplay(OutputId(from: fixture.left))
@@ -118,7 +118,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         XCTAssertEqual(
             controller.commandHandler.handleHotkeyInvocation(
                 HotkeyInvocation(
-                    command: .moveWorkspaceToMonitor(.left),
+                    command: .workspace(.moveWorkspaceToMonitor(.left)),
                     trigger: PhysicalHotkeyTrigger(keyCode: 46, modifiers: 0, isRepeat: false)
                 )
             ),
@@ -236,9 +236,9 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
     func testRouterRejectsAmbiguousCaseInsensitiveDisplayNameWithoutMutation() throws {
         let fixture = try makeFixture()
         defer { fixture.controller.layoutRefreshController.resetState() }
-        var configurations = fixture.controller.settings.workspaceConfigurations
+        var configurations = fixture.controller.settings.workspaces.configurations
         configurations[1].displayName = "sLaCk"
-        fixture.controller.settings.workspaceConfigurations = configurations
+        fixture.controller.settings.workspaces.configurations = configurations
         fixture.controller.workspaceManager.applySettings()
         let manager = fixture.controller.workspaceManager
         let initialSeq = manager.worldSeq
@@ -268,14 +268,14 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         let router = IPCCommandRouter(controller: fixture.controller, sessionToken: "test")
 
         XCTAssertEqual(router.handle(.rename(target: .rawID("2"), displayName: "Mail")), .executed)
-        XCTAssertEqual(settings.displayName(for: "2"), "Mail")
+        XCTAssertEqual(settings.workspaces.displayName(for: "2"), "Mail")
         XCTAssertEqual(router.handle(.rename(target: .displayName("slack"), displayName: "Chat")), .executed)
-        XCTAssertEqual(settings.displayName(for: "1"), "Chat")
+        XCTAssertEqual(settings.workspaces.displayName(for: "1"), "Chat")
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "Chat")), .noChange)
         XCTAssertEqual(router.handle(.rename(target: .rawID("99"), displayName: "Nope")), .notFound)
         XCTAssertEqual(router.handle(.rename(target: .displayName("Nope"), displayName: "x")), .notFound)
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "a\nb")), .invalidArguments)
-        XCTAssertEqual(settings.displayName(for: "1"), "Chat")
+        XCTAssertEqual(settings.workspaces.displayName(for: "1"), "Chat")
         XCTAssertEqual(manager.worldSeq, initialSeq)
     }
 
@@ -286,28 +286,28 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         let router = IPCCommandRouter(controller: fixture.controller, sessionToken: "test")
 
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "")), .executed)
-        XCTAssertNil(settings.workspaceConfigurations.first { $0.name == "1" }?.displayName)
-        XCTAssertEqual(settings.displayName(for: "1"), "1")
+        XCTAssertNil(settings.workspaces.configurations.first { $0.name == "1" }?.displayName)
+        XCTAssertEqual(settings.workspaces.displayName(for: "1"), "1")
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "")), .noChange)
 
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "Mail")), .executed)
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "1")), .executed)
-        XCTAssertNil(settings.workspaceConfigurations.first { $0.name == "1" }?.displayName)
+        XCTAssertNil(settings.workspaces.configurations.first { $0.name == "1" }?.displayName)
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "")), .noChange)
 
-        var configurations = settings.workspaceConfigurations
+        var configurations = settings.workspaces.configurations
         configurations[0].displayName = "1"
-        settings.workspaceConfigurations = configurations
+        settings.workspaces.configurations = configurations
         XCTAssertEqual(router.handle(.rename(target: .rawID("1"), displayName: "")), .executed)
-        XCTAssertNil(settings.workspaceConfigurations.first { $0.name == "1" }?.displayName)
+        XCTAssertNil(settings.workspaces.configurations.first { $0.name == "1" }?.displayName)
     }
 
     func testRouterRejectsAmbiguousRenameTargetWithoutMutation() throws {
         let fixture = try makeFixture()
         defer { fixture.controller.layoutRefreshController.resetState() }
-        var configurations = fixture.controller.settings.workspaceConfigurations
+        var configurations = fixture.controller.settings.workspaces.configurations
         configurations[1].displayName = "sLaCk"
-        fixture.controller.settings.workspaceConfigurations = configurations
+        fixture.controller.settings.workspaces.configurations = configurations
         fixture.controller.workspaceManager.applySettings()
         let router = IPCCommandRouter(controller: fixture.controller, sessionToken: "test")
 
@@ -315,7 +315,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
             router.handle(.rename(target: .displayName("SLACK"), displayName: "Mail")),
             .invalidArguments
         )
-        XCTAssertEqual(fixture.controller.settings.workspaceConfigurations, configurations)
+        XCTAssertEqual(fixture.controller.settings.workspaces.configurations, configurations)
     }
 
     func testRenamePreservesRuntimeMonitorOverride() throws {
@@ -972,12 +972,15 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
                 )
             )
             controller.layoutRefreshController.requestWindowRemoval(
-                workspaceId: fixture.centerWorkspaceId,
-                layoutType: .niri,
-                removedNodeId: nil,
-                removedNiriColumn: false,
-                niriOldFrames: [:],
-                shouldRecoverFocus: false
+                .init(
+                    workspaceId: fixture.centerWorkspaceId,
+                    layoutType: .niri,
+                    removedNodeId: nil,
+                    removedNiriColumn: false,
+                    niriOldFrames: [:],
+                    shouldRecoverFocus: false,
+                    allowsPreferredRecoveryToken: false
+                )
             )
 
             let pending = try XCTUnwrap(controller.layoutRefreshController.layoutState.pendingRefresh)
@@ -1016,12 +1019,15 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
                 )
             )
             controller.layoutRefreshController.requestWindowRemoval(
-                workspaceId: fixture.centerWorkspaceId,
-                layoutType: .niri,
-                removedNodeId: nil,
-                removedNiriColumn: false,
-                niriOldFrames: [:],
-                shouldRecoverFocus: false
+                .init(
+                    workspaceId: fixture.centerWorkspaceId,
+                    layoutType: .niri,
+                    removedNodeId: nil,
+                    removedNiriColumn: false,
+                    niriOldFrames: [:],
+                    shouldRecoverFocus: false,
+                    allowsPreferredRecoveryToken: false
+                )
             )
             controller.layoutRefreshController.requestFullRescan(reason: .appLaunched)
 
@@ -1166,7 +1172,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        settings.workspaceConfigurations = [
+        settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",
                 displayName: "Slack",

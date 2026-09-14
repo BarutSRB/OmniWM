@@ -8,6 +8,55 @@ import OmniWMIPC
 import XCTest
 
 final class CLIRuntimeReconnectTests: XCTestCase {
+    func testWatchDeliversEventsAndContinuesAfterNonzeroChildExit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMWatchContract-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let eventsURL = directory.appendingPathComponent("events.ndjson")
+        let environmentURL = directory.appendingPathComponent("environment.tsv")
+        let script = #"""
+        /bin/cat >> "$1"
+        /usr/bin/printf '%s\t%s\t%s\n' "$OMNIWM_EVENT_CHANNEL" "$OMNIWM_EVENT_KIND" "$OMNIWM_EVENT_ID" >> "$2"
+        exit 7
+        """#
+        let server = ScriptedIPCServer(steps: [.accept(events: 2)])
+
+        let exitCode = await CLIRuntime.run(
+            arguments: [
+                "omniwmctl", "watch", "--all", "--exec", "/bin/sh", "-c", script,
+                "omniwm-watch-test", eventsURL.path, environmentURL.path
+            ],
+            environment: server.environment
+        )
+
+        XCTAssertEqual(exitCode, CLIExitCode.transportFailure.rawValue)
+        let eventLines = try Data(contentsOf: eventsURL).split(separator: 0x0A)
+        let events = try eventLines.map { try IPCWire.decodeEvent(from: Data($0)) }
+        XCTAssertEqual(events.map(\.id), ["event-0", "event-1"])
+        let expectedEnvironment = events.map {
+            "\($0.channel.rawValue)\t\($0.result.kind.rawValue)\t\($0.id)\n"
+        }.joined()
+        XCTAssertEqual(try String(contentsOf: environmentURL, encoding: .utf8), expectedEnvironment)
+        XCTAssertEqual(server.openAttempts, 1)
+        XCTAssertTrue(server.sleeps.isEmpty)
+    }
+
+    func testWatchReportsChildLaunchFailureAsInternalErrorWithoutReconnect() async {
+        let server = ScriptedIPCServer(steps: [.accept(events: 1)])
+        let missingExecutable = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMMissingWatchChild-\(UUID().uuidString)").path
+
+        let exitCode = await CLIRuntime.run(
+            arguments: ["omniwmctl", "watch", "--all", "--reconnect", "--exec", missingExecutable],
+            environment: server.environment
+        )
+
+        XCTAssertEqual(exitCode, CLIExitCode.internalError.rawValue)
+        XCTAssertEqual(server.openAttempts, 1)
+        XCTAssertTrue(server.sleeps.isEmpty)
+    }
+
     func testSubscribeReconnectsAfterEOFWithBackoffAndResubscribesWithInitialSnapshots() async {
         let server = ScriptedIPCServer(steps: [
             .accept(events: 1),

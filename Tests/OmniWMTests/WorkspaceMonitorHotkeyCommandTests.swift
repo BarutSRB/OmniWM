@@ -15,7 +15,7 @@ final class WorkspaceMonitorHotkeyCommandTests: XCTestCase {
         ]
 
         for entry in cases {
-            let command = HotkeyCommand.moveWorkspaceToMonitor(entry.direction)
+            let command = HotkeyCommand.workspace(.moveWorkspaceToMonitor(entry.direction))
             let spec = try XCTUnwrap(ActionCatalog.spec(for: command))
 
             XCTAssertEqual(spec.id, entry.id)
@@ -39,16 +39,16 @@ final class WorkspaceMonitorHotkeyCommandTests: XCTestCase {
         for slot in ActionCatalog.workspaceSlotRange {
             let cases: [(command: HotkeyCommand, id: String, title: String, ipcName: IPCCommandName)] = [
                 (
-                    .switchWorkspaceSlot(slot),
+                    .workspace(.switchSlot(slot)),
                     "switchWorkspaceSlot.\(slot)",
                     "Switch to Workspace Slot \(slot)",
-                    .switchWorkspaceSlot
+                    .workspace(.switchSlot)
                 ),
                 (
-                    .moveToWorkspaceSlot(slot),
+                    .workspace(.moveToSlot(slot)),
                     "moveToWorkspaceSlot.\(slot)",
                     "Move to Workspace Slot \(slot)",
-                    .moveToWorkspaceSlot
+                    .workspace(.moveToSlot)
                 )
             ]
 
@@ -66,11 +66,11 @@ final class WorkspaceMonitorHotkeyCommandTests: XCTestCase {
             }
         }
 
-        let numeric = try XCTUnwrap(ActionCatalog.spec(for: .switchWorkspace(0)))
+        let numeric = try XCTUnwrap(ActionCatalog.spec(for: .workspace(.switchTo(0))))
         XCTAssertEqual(numeric.id, "switchWorkspace.0")
         XCTAssertNotEqual(numeric.defaultBinding, .unassigned)
-        XCTAssertTrue(SettingsTOMLCodec.hotkeyIDsAddedInVersionTwo.contains("switchWorkspaceSlot.9"))
-        XCTAssertTrue(SettingsTOMLCodec.hotkeyIDsAddedInVersionTwo.contains("moveToWorkspaceSlot.1"))
+        XCTAssertTrue(SettingsTOMLMigration.hotkeyIDsAddedInVersionTwo.contains("switchWorkspaceSlot.9"))
+        XCTAssertTrue(SettingsTOMLMigration.hotkeyIDsAddedInVersionTwo.contains("moveToWorkspaceSlot.1"))
     }
 
     func testDirectionalWindowMoveActionsAreRegistered() throws {
@@ -82,7 +82,7 @@ final class WorkspaceMonitorHotkeyCommandTests: XCTestCase {
         ]
 
         for entry in cases {
-            let command = HotkeyCommand.moveWindowToMonitor(entry.direction)
+            let command = HotkeyCommand.workspace(.moveToMonitor(entry.direction))
             let spec = try XCTUnwrap(ActionCatalog.spec(for: command))
 
             XCTAssertEqual(spec.id, entry.id)
@@ -91,9 +91,9 @@ final class WorkspaceMonitorHotkeyCommandTests: XCTestCase {
             XCTAssertEqual(spec.visibility, .normal)
             XCTAssertEqual(spec.layoutCompatibility, .shared)
             XCTAssertEqual(spec.defaultBinding, .unassigned)
-            XCTAssertEqual(spec.ipcCommandName, .moveToMonitor)
+            XCTAssertEqual(spec.ipcCommandName, .workspace(.moveToMonitor))
             let descriptor = try XCTUnwrap(spec.ipcDescriptor)
-            XCTAssertEqual(descriptor.name, .moveToMonitor)
+            XCTAssertEqual(descriptor.name, .workspace(.moveToMonitor))
             XCTAssertEqual(descriptor.commandWords, ["move-to-monitor"])
             XCTAssertEqual(descriptor.layoutCompatibility, .shared)
             XCTAssertEqual(HotkeyBindingRegistry.command(for: entry.id), command)

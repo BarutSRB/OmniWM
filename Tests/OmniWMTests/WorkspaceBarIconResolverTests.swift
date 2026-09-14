@@ -278,7 +278,7 @@ final class WorkspaceBarIconResolverTests: XCTestCase {
         }
         let settings = makeSettingsStore(at: root)
         XCTAssertTrue(
-            settings.setWorkspaceBarIconOverride(
+            settings.workspaceBar.setIconOverride(
                 "bundle-resource:AppIcon",
                 for: "com.example.app"
             )

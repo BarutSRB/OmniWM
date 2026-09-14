@@ -58,8 +58,8 @@ describes the shared budget in more detail.
   or clever phrasing waste budget and reduce reliability.
 - **Mind the output length too.** The finished GitHub issue URL is capped at 8000 characters
   (`maxURLLength` in `GitHubIssueURLBuilder.swift`); a longer body is copied to the clipboard
-  instead of opening the browser, so steering the model toward verbose output quietly
-  degrades the one-click submit flow.
+  and a fallback GitHub issue page opens for the user to paste it into. Keep the output
+  concise so the body can be included in the pre-filled issue URL.
 
 ## How to test your edit
 

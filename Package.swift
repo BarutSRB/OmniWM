@@ -44,11 +44,19 @@ let package = Package(
             ]
         ),
         .target(
+            name: "OmniWMLayerCorners",
+            path: "Sources/OmniWMLayerCorners",
+            cSettings: [
+                .treatAllWarnings(as: .error)
+            ]
+        ),
+        .target(
             name: "OmniWM",
             dependencies: [
                 "GhosttyKit",
                 "OmniWMIPC",
                 "OmniWMMenuBarAssertion",
+                "OmniWMLayerCorners",
                 .product(name: "TOML", package: "swift-toml")
             ],
             path: "Sources/OmniWM",
@@ -101,7 +109,7 @@ let package = Package(
         ),
         .testTarget(
             name: "OmniWMTests",
-            dependencies: ["OmniWM", "OmniWMCtl"],
+            dependencies: ["OmniWM", "OmniWMCtl", "OmniWMLayerCorners"],
             path: "Tests/OmniWMTests",
             resources: [
                 .copy("Fixtures")

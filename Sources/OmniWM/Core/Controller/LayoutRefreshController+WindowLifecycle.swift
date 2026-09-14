@@ -48,27 +48,20 @@ extension LayoutRefreshController {
     }
 
     func yieldToDeferredCreate(
-        token: WindowToken,
-        bundleId: String?,
-        mode: TrackedWindowMode?,
-        factsAreDeferred: Bool = false,
-        facts: WindowRuleFacts,
+        _ assessment: DeferredCreateAssessment,
         scope: RescanScope,
-        capturedWindowServerInfoByWindowId: [Int: WindowServerInfo],
-        capturedWindowServerAuthoritativeWindowIds: Set<Int>? = nil,
-        capturedWindowServerAuthoritativePIDs: Set<pid_t>? = nil,
-        entry: WindowState?,
+        capturedInventory: CapturedWindowServerInventory,
         seenKeys: inout Set<WindowToken>
     ) -> Bool {
         guard let controller,
-              entry == nil,
-              let windowId = UInt32(exactly: token.windowId),
+              assessment.entry == nil,
+              let windowId = UInt32(exactly: assessment.token.windowId),
               controller.axEventHandler.isCreatedWindowDeferred(windowId)
         else {
             return false
         }
-        guard let mode else {
-            if !factsAreDeferred {
+        guard let mode = assessment.mode else {
+            if !assessment.factsAreDeferred {
                 controller.axEventHandler.recordDeferredReplacementAssessment(
                     windowId: windowId,
                     scope: scope
@@ -77,13 +70,9 @@ extension LayoutRefreshController {
             return true
         }
         if let match = controller.axEventHandler.structuralReplacementMatch(
-            token: token,
-            bundleId: bundleId,
-            mode: mode,
-            facts: facts,
-            capturedWindowServerInfoByWindowId: capturedWindowServerInfoByWindowId,
-            capturedWindowServerAuthoritativeWindowIds: capturedWindowServerAuthoritativeWindowIds,
-            capturedWindowServerAuthoritativePIDs: capturedWindowServerAuthoritativePIDs
+            token: assessment.token,
+            candidate: .init(bundleId: assessment.bundleId, mode: mode, facts: assessment.facts),
+            capturedInventory: capturedInventory
         ) {
             seenKeys.insert(match.token)
             controller.axEventHandler.protectDeferredReplacement(
@@ -235,17 +224,15 @@ extension LayoutRefreshController {
 
     static func shouldReadmitTrackedWindow(
         entry: WindowState,
-        workspaceId: WorkspaceDescriptor.ID,
-        mode: TrackedWindowMode,
-        ruleEffects: ManagedWindowRuleEffects,
+        target: WindowReadmissionTarget,
         shouldPreservePreFullscreenState: Bool,
         appFullscreen: Bool
     ) -> Bool {
         shouldPreservePreFullscreenState
             || appFullscreen
-            || entry.workspaceId != workspaceId
-            || entry.mode != mode
-            || entry.ruleEffects != ruleEffects
+            || entry.workspaceId != target.workspaceId
+            || entry.mode != target.mode
+            || entry.ruleEffects != target.ruleEffects
     }
 
     func observedWindowFrame(_ entry: WindowState) -> CGRect? {

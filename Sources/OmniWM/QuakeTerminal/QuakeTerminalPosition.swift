@@ -14,44 +14,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
         rawValue.capitalized
     }
 
-    @MainActor
-    func setInitial(
-        in window: NSWindow,
-        on screen: NSScreen,
-        widthPercent: Double,
-        heightPercent: Double
-    ) {
-        window.alphaValue = 0
-        let size = configuredFrameSize(on: screen, widthPercent: widthPercent, heightPercent: heightPercent)
-        window.setFrame(.init(
-            origin: initialOrigin(visibleFrame: screen.visibleFrame, windowSize: size),
-            size: size
-        ), display: false)
-    }
-
-    @MainActor
-    func setFinal(
-        in window: NSWindow,
-        on screen: NSScreen,
-        widthPercent: Double,
-        heightPercent: Double
-    ) {
-        window.alphaValue = 1
-        let size = configuredFrameSize(on: screen, widthPercent: widthPercent, heightPercent: heightPercent)
-        window.setFrame(.init(
-            origin: finalOrigin(visibleFrame: screen.visibleFrame, windowSize: size),
-            size: size
-        ), display: true)
-    }
-
-    func configuredFrameSize(on screen: NSScreen, widthPercent: Double, heightPercent: Double) -> NSSize {
-        QuakeTerminalGeometryPolicy.configuredFrameSize(
-            visibleFrame: screen.visibleFrame,
-            widthPercent: widthPercent,
-            heightPercent: heightPercent
-        )
-    }
-
     func initialOrigin(visibleFrame: CGRect, windowSize: CGSize) -> CGPoint {
         switch self {
         case .top:

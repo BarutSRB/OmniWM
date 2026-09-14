@@ -2,20 +2,16 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import AppKit
+import OmniWMLayerCorners
 import QuartzCore
 
 @MainActor
 class BorderLayerPanel: NSPanel {
-    let borderLayer = CAShapeLayer()
-    let glowColorLayer = CAGradientLayer()
-    let glowMaskLayer = CALayer()
-    private var glowBandLayers: [CAShapeLayer] = []
-    private let gradientLayer = CAGradientLayer()
-    private let gradientMaskLayer = CAShapeLayer()
-    let containerLayer = CALayer()
+    let borderLayer = CALayer()
+    private let containerLayer = CALayer()
 
-    /// Creates a transparent, nonactivating panel for the border surface.
-    init(frame: CGRect) {
+    init?(frame: CGRect) {
+        guard omniwm_layer_border_available() else { return nil }
         super.init(
             contentRect: frame.integral,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -36,79 +32,33 @@ class BorderLayerPanel: NSPanel {
 
         let view = NSView(frame: CGRect(origin: .zero, size: frame.integral.size))
         view.wantsLayer = true
-        borderLayer.fillRule = .evenOdd
-        borderLayer.strokeColor = nil
+        borderLayer.cornerCurve = .continuous
+        borderLayer.rimOpacity = 1
         borderLayer.actions = [
-            "path": NSNull(), "fillColor": NSNull(), "bounds": NSNull(),
-            "position": NSNull(), "contentsScale": NSNull(),
-            "shadowColor": NSNull(), "shadowOpacity": NSNull(),
-            "shadowRadius": NSNull(), "shadowOffset": NSNull(), "mask": NSNull()
-        ]
-        gradientLayer.isHidden = true
-        gradientLayer.actions = [
-            "colors": NSNull(), "startPoint": NSNull(), "endPoint": NSNull(),
-            "bounds": NSNull(), "position": NSNull(), "contentsScale": NSNull(),
-            "mask": NSNull()
-        ]
-        gradientMaskLayer.fillRule = .evenOdd
-        gradientMaskLayer.strokeColor = nil
-        gradientMaskLayer.actions = [
-            "path": NSNull(), "fillColor": NSNull(), "bounds": NSNull(),
-            "position": NSNull(), "contentsScale": NSNull()
-        ]
-        // The glow paints through a dedicated color layer below the border. It
-        // carries the border's own colors - the solid color, or the exact
-        // gradient endpoints and unit points - so a gradient border produces a
-        // gradient glow. The band mask turns that color into an outward
-        // falloff that reaches zero inside the overlay surface.
-        //
-        // Shadows are deliberately avoided: a shadow cast by the thin border
-        // ring is weak, spreads wider than the surface padding, and gets
-        // clipped at the panel edge, which reads as a hard edge at every glow
-        // radius. Bands also render identically in live compositing and in
-        // offline render(in:), so pixel tests keep matching what ships.
-        glowColorLayer.isHidden = true
-        glowColorLayer.actions = [
-            "colors": NSNull(), "startPoint": NSNull(), "endPoint": NSNull(),
-            "bounds": NSNull(), "position": NSNull(), "contentsScale": NSNull(),
-            "mask": NSNull()
-        ]
-        glowMaskLayer.actions = [
+            "rimWidth": NSNull(), "rimColor": NSNull(), "rimOpacity": NSNull(), "cornerRadii": NSNull(),
             "bounds": NSNull(), "position": NSNull(), "contentsScale": NSNull()
         ]
-        containerLayer.actions = ["hidden": NSNull()]
-        glowColorLayer.mask = glowMaskLayer
-        gradientLayer.mask = gradientMaskLayer
-        borderLayer.addSublayer(gradientLayer)
-        containerLayer.addSublayer(glowColorLayer)
         containerLayer.addSublayer(borderLayer)
         view.layer = containerLayer
         contentView = view
     }
 
-    /// Border panels never accept keyboard focus.
     override var canBecomeKey: Bool {
         false
     }
 
-    /// Border panels never become the application main window.
     override var canBecomeMain: Bool {
         false
     }
 
-    /// Leaves the overlay frame unconstrained by AppKit screen geometry.
     override func constrainFrameRect(_ frameRect: NSRect, to _: NSScreen?) -> NSRect {
         frameRect
     }
 
-    /// Positions the panel and its layer tree around the screen-space surface.
-    func applyFrame(_ targetFrame: CGRect) {
-        let panelFrame = targetFrame.integral
+    func applyFrame(targetFrame: CGRect, surfaceFrame: CGRect) {
+        let panelFrame = surfaceFrame.integral
         let layerFrame = targetFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
-        guard frame != panelFrame
-            || borderLayer.frame != layerFrame
-            || glowColorLayer.frame != layerFrame
-        else { return }
+        guard frame != panelFrame || borderLayer.frame != layerFrame else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if frame != panelFrame {
@@ -117,155 +67,34 @@ class BorderLayerPanel: NSPanel {
         if borderLayer.frame != layerFrame {
             borderLayer.frame = layerFrame
         }
-        if glowColorLayer.frame != layerFrame {
-            glowColorLayer.frame = layerFrame
-        }
         CATransaction.commit()
     }
 
-    /// Atomically gates all retained drawing content during panel teardown.
-    func setContentVisible(_ visible: Bool) {
-        let hidden = !visible
-        guard contentView?.isHidden != hidden
-            || containerLayer.isHidden != hidden
-            || borderLayer.isHidden != hidden
-            || glowColorLayer.isHidden != hidden
-        else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        contentView?.isHidden = hidden
-        containerLayer.isHidden = hidden
-        borderLayer.isHidden = hidden
-        glowColorLayer.isHidden = hidden
-        CATransaction.commit()
-    }
-
-    /// Updates the border annulus, optional gradient, and glow band mask.
     func updateBorder(
-        surfaceFrame: CGRect,
-        targetFrame: CGRect,
+        geometry: BorderConfig.ResolvedGeometry,
         cornerRadii: WindowCornerRadii,
-        width: CGFloat,
         color: CGColor,
-        scale: CGFloat,
-        surfacePadding: CGFloat = 0,
-        gradientStart: CGColor? = nil,
-        gradientEnd: CGColor? = nil,
-        gradientPoints: (start: CGPoint, end: CGPoint)? = nil,
-        glowOpacity: CGFloat = 0
-    ) {
-        let ringFrame = surfaceFrame.insetBy(dx: surfacePadding, dy: surfacePadding)
-        let path = CGMutablePath()
-        path.addPath(BorderWindow.roundedRectPath(in: ringFrame, radii: cornerRadii.adding(width)))
-        path.addPath(BorderWindow.roundedRectPath(in: targetFrame, radii: cornerRadii))
-        let hasGradient = gradientStart != nil && gradientEnd != nil && gradientPoints != nil
-        let hasGlow = glowOpacity > 0 && surfacePadding > 0
-        let surfaceBounds = CGRect(origin: .zero, size: surfaceFrame.size)
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        contentView?.isHidden = false
-        containerLayer.isHidden = false
-        borderLayer.isHidden = false
-        borderLayer.bounds = surfaceFrame
-        glowColorLayer.bounds = surfaceBounds
-        glowMaskLayer.frame = surfaceBounds
-        containerLayer.bounds = surfaceBounds
-        containerLayer.contentsScale = scale
-        borderLayer.contentsScale = scale
-        glowColorLayer.contentsScale = scale
-        glowMaskLayer.contentsScale = scale
-        gradientLayer.contentsScale = scale
-        gradientMaskLayer.contentsScale = scale
-        borderLayer.path = path
-        borderLayer.fillColor = hasGradient ? nil : color
-        if hasGlow {
-            glowColorLayer.isHidden = false
-            if hasGradient, let gradientStart, let gradientEnd, let gradientPoints {
-                glowColorLayer.colors = [gradientStart, gradientEnd]
-                glowColorLayer.startPoint = gradientPoints.start
-                glowColorLayer.endPoint = gradientPoints.end
-            } else {
-                glowColorLayer.colors = [color, color]
-                glowColorLayer.startPoint = CGPoint(x: 0, y: 0)
-                glowColorLayer.endPoint = CGPoint(x: 0, y: 1)
-            }
-            updateGlowBands(
-                ringFrame: ringFrame,
-                cornerRadii: cornerRadii,
-                width: width,
-                padding: surfacePadding,
-                opacity: glowOpacity,
-                scale: scale
-            )
-        } else {
-            glowColorLayer.isHidden = true
-        }
-        if hasGradient, let gradientStart, let gradientEnd, let gradientPoints {
-            gradientLayer.isHidden = false
-            gradientLayer.frame = surfaceBounds
-            gradientLayer.colors = [gradientStart, gradientEnd]
-            gradientLayer.startPoint = gradientPoints.start
-            gradientLayer.endPoint = gradientPoints.end
-            gradientMaskLayer.frame = surfaceBounds
-            gradientMaskLayer.path = path
-        } else {
-            gradientLayer.isHidden = true
-        }
-        CATransaction.commit()
-    }
-
-    /// Rebuilds the concentric band falloff for the current surface geometry.
-    private func updateGlowBands(
-        ringFrame: CGRect,
-        cornerRadii: WindowCornerRadii,
-        width: CGFloat,
-        padding: CGFloat,
-        opacity: CGFloat,
         scale: CGFloat
     ) {
-        // One band per physical pixel keeps the staircase below the visible
-        // banding threshold; the cap bounds the layer count at large radii.
-        let effectiveScale = max(scale, 1)
-        let bandCount = min(48, max(8, Int((padding * effectiveScale).rounded(.up))))
-        ensureGlowBandCount(bandCount)
-        let bandWidth = padding / CGFloat(bandCount)
-        let bounds = glowMaskLayer.bounds
-        for index in 0 ..< bandCount {
-            let innerOffset = CGFloat(index) * bandWidth
-            // Sampling the outer edge keeps the outermost band at zero alpha,
-            // so the glow always fades out before the overlay surface ends.
-            let alpha = opacity * (1 - (innerOffset + bandWidth) / padding)
-            let centerOffset = innerOffset + bandWidth / 2
-            let band = glowBandLayers[index]
-            band.isHidden = alpha <= 0.001
-            band.frame = bounds
-            band.bounds = bounds
-            band.contentsScale = effectiveScale
-            band.path = BorderWindow.roundedRectPath(
-                in: ringFrame.insetBy(dx: -centerOffset, dy: -centerOffset),
-                radii: cornerRadii.adding(width + centerOffset)
-            )
-            band.lineWidth = bandWidth
-            band.strokeColor = CGColor(gray: 1, alpha: alpha)
+        let radii = cornerRadii.normalized(to: geometry.targetFrame.size)
+        let nativeRadii = CACornerRadii(
+            topLeft: CGSize(width: radii.topLeft, height: radii.topLeft),
+            topRight: CGSize(width: radii.topRight, height: radii.topRight),
+            bottomRight: CGSize(width: radii.bottomRight, height: radii.bottomRight),
+            bottomLeft: CGSize(width: radii.bottomLeft, height: radii.bottomLeft)
+        )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if containerLayer.contentsScale != scale { containerLayer.contentsScale = scale }
+        if borderLayer.contentsScale != scale { borderLayer.contentsScale = scale }
+        if borderLayer.rimWidth != geometry.width { borderLayer.rimWidth = geometry.width }
+        if borderLayer.rimColor != color { borderLayer.rimColor = color }
+        let currentRadii = borderLayer.cornerRadii
+        if currentRadii.topLeft != nativeRadii.topLeft || currentRadii.topRight != nativeRadii.topRight
+            || currentRadii.bottomRight != nativeRadii.bottomRight || currentRadii.bottomLeft != nativeRadii.bottomLeft
+        {
+            borderLayer.cornerRadii = nativeRadii
         }
-    }
-
-    /// Reuses or trims mask layers to match the requested band count.
-    private func ensureGlowBandCount(_ count: Int) {
-        while glowBandLayers.count < count {
-            let band = CAShapeLayer()
-            band.fillColor = nil
-            band.actions = [
-                "path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull(),
-                "bounds": NSNull(), "position": NSNull(), "contentsScale": NSNull(),
-                "hidden": NSNull()
-            ]
-            glowMaskLayer.addSublayer(band)
-            glowBandLayers.append(band)
-        }
-        while glowBandLayers.count > count {
-            glowBandLayers.removeLast().removeFromSuperlayer()
-        }
+        CATransaction.commit()
     }
 }

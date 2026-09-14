@@ -114,7 +114,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         XCTAssertTrue(
             fixture.controller.axManager.pendingParkWindowIds.contains(fixture.inactiveToken.windowId)
         )
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: revealResult,
             transactionId: pendingReveal.transactionId
         )
@@ -360,7 +360,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
             frontedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
         }
         let otherWorkspaceName = "98"
-        fixture.controller.settings.workspaceConfigurations.append(
+        fixture.controller.settings.workspaces.configurations.append(
             WorkspaceConfiguration(name: otherWorkspaceName, layoutType: .dwindle)
         )
         fixture.controller.workspaceManager.applySettings()
@@ -737,13 +737,16 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
                 )
             ],
             frames: frames,
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .right,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: true,
-            pendingParkWindowIds: []
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .right,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: true,
+                pendingParkWindowIds: [],
+                animationTime: nil
+            )
         )
         XCTAssertEqual(diff.deferredHides.count, 1)
         let plan = WorkspaceLayoutPlan(
@@ -784,7 +787,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         fixture.controller.setFocusFollowsMouse(true)
         let pending = try beginPendingReveal(fixture)
         XCTAssertTrue(
-            fixture.controller.dwindleLayoutHandler.deferGroupSelectionCompletion(
+            fixture.controller.dwindleLayoutHandler.groupReveals.deferGroupSelectionCompletion(
                 fixture.inactiveToken,
                 workspaceId: fixture.workspaceId,
                 focusAfterReveal: true,
@@ -793,7 +796,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         )
         fixture.controller.setFocusFollowsMouse(false)
 
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(
                 token: fixture.inactiveToken,
                 frame: pending.frame
@@ -820,7 +823,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         }
         let pending = try beginPendingReveal(fixture)
         XCTAssertTrue(
-            fixture.controller.dwindleLayoutHandler.deferGroupSelectionCompletion(
+            fixture.controller.dwindleLayoutHandler.groupReveals.deferGroupSelectionCompletion(
                 fixture.inactiveToken,
                 workspaceId: fixture.workspaceId,
                 focusAfterReveal: true,
@@ -833,7 +836,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         XCTAssertTrue(frontedTokens.isEmpty, file: file, line: line)
         XCTAssertNil(fixture.controller.intentLedger.activeManagedRequest, file: file, line: line)
 
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(
                 token: fixture.inactiveToken,
                 frame: pending.frame
@@ -859,7 +862,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         defer { unblockLayoutRefresh(fixture.controller, blocker: blocker) }
         let pending = try beginPendingReveal(fixture)
         XCTAssertTrue(
-            fixture.controller.dwindleLayoutHandler.deferGroupSelectionCompletion(
+            fixture.controller.dwindleLayoutHandler.groupReveals.deferGroupSelectionCompletion(
                 fixture.inactiveToken,
                 workspaceId: fixture.workspaceId,
                 focusAfterReveal: true,
@@ -867,7 +870,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
             )
         )
 
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(
                 token: fixture.inactiveToken,
                 frame: pending.frame,
@@ -931,13 +934,16 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
                 )
             ],
             frames: frames,
-            engine: fixture.engine,
-            workspaceId: fixture.workspaceId,
-            preferredHideSide: .right,
-            canRestoreHiddenWorkspaceWindows: true,
-            scale: 1,
-            reassertHidden: true,
-            pendingParkWindowIds: []
+            context: .init(
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                preferredHideSide: .right,
+                canRestoreHiddenWorkspaceWindows: true,
+                scale: 1,
+                reassertHidden: true,
+                pendingParkWindowIds: [],
+                animationTime: nil
+            )
         )
         let plan = WorkspaceLayoutPlan(
             workspaceId: fixture.workspaceId,
@@ -952,9 +958,9 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
 
         XCTAssertTrue(fixture.controller.layoutRefreshController.executeLayoutPlan(plan))
         if let transactionId = fixture.controller.dwindleLayoutHandler
-            .pendingGroupRevealTransactionId(for: fixture.inactiveToken.windowId)
+            .groupReveals.pendingGroupRevealTransactionId(for: fixture.inactiveToken.windowId)
         {
-            fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+            fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
                 with: frameResult(
                     token: fixture.inactiveToken,
                     frame: try XCTUnwrap(frames[fixture.inactiveToken]),
@@ -986,7 +992,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         }
         let pending = try beginPendingReveal(fixture)
         XCTAssertTrue(
-            fixture.controller.dwindleLayoutHandler.deferGroupSelectionCompletion(
+            fixture.controller.dwindleLayoutHandler.groupReveals.deferGroupSelectionCompletion(
                 fixture.inactiveToken,
                 workspaceId: fixture.workspaceId,
                 focusAfterReveal: true,
@@ -1011,7 +1017,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
 
         XCTAssertNotNil(replacementEntry.committedEntry)
         XCTAssertEqual(fixture.engine.activeToken(in: fixture.workspaceId), replacementToken)
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(token: replacementToken, frame: pending.frame),
             transactionId: pending.transactionId
         )
@@ -1027,7 +1033,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         }
         let pending = try beginPendingReveal(fixture)
         XCTAssertTrue(
-            fixture.controller.dwindleLayoutHandler.deferGroupSelectionCompletion(
+            fixture.controller.dwindleLayoutHandler.groupReveals.deferGroupSelectionCompletion(
                 fixture.inactiveToken,
                 workspaceId: fixture.workspaceId,
                 focusAfterReveal: true,
@@ -1059,7 +1065,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
                 axRef: replacementRef
             ).committedEntry
         )
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(token: replacementToken, frame: pending.frame),
             transactionId: pending.transactionId
         )
@@ -1076,7 +1082,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
         }
         let pending = try beginPendingReveal(fixture)
         XCTAssertTrue(
-            fixture.controller.dwindleLayoutHandler.deferGroupSelectionCompletion(
+            fixture.controller.dwindleLayoutHandler.groupReveals.deferGroupSelectionCompletion(
                 fixture.inactiveToken,
                 workspaceId: fixture.workspaceId,
                 focusAfterReveal: true,
@@ -1101,11 +1107,11 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
             ).committedEntry
         )
         XCTAssertNotNil(
-            fixture.controller.dwindleLayoutHandler.pendingGroupRevealTransactionId(
+            fixture.controller.dwindleLayoutHandler.groupReveals.pendingGroupRevealTransactionId(
                 for: fixture.inactiveToken.windowId
             )
         )
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(token: fixture.inactiveToken, frame: pending.frame),
             transactionId: pending.transactionId
         )
@@ -1126,13 +1132,13 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
             pid: fixture.inactiveToken.pid,
             source: .service
         )
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(token: fixture.inactiveToken, frame: pending.frame),
             transactionId: pending.transactionId
         )
 
         XCTAssertNil(
-            fixture.controller.dwindleLayoutHandler.pendingGroupRevealTransactionId(
+            fixture.controller.dwindleLayoutHandler.groupReveals.pendingGroupRevealTransactionId(
                 for: fixture.inactiveToken.windowId
             )
         )
@@ -1171,7 +1177,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
                 axRef: replacementRef
             ).committedEntry
         )
-        fixture.controller.dwindleLayoutHandler.completePendingGroupRevealTransaction(
+        fixture.controller.dwindleLayoutHandler.groupReveals.completePendingGroupRevealTransaction(
             with: frameResult(
                 token: fixture.inactiveToken,
                 frame: pending.frame,
@@ -1193,7 +1199,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
     ) throws -> Fixture {
         let controller = makeController(onFront: onFront)
         let workspaceName = "97"
-        controller.settings.workspaceConfigurations.append(
+        controller.settings.workspaces.configurations.append(
             WorkspaceConfiguration(name: workspaceName, layoutType: .dwindle)
         )
         controller.workspaceManager.applySettings()
@@ -1407,7 +1413,7 @@ final class DwindleGroupFocusIntegrationTests: XCTestCase {
             fixture.controller.workspaceManager.entry(for: fixture.inactiveToken)
         )
         let transactionId = try XCTUnwrap(
-            fixture.controller.dwindleLayoutHandler.beginPendingGroupRevealTransaction(
+            fixture.controller.dwindleLayoutHandler.groupReveals.beginPendingGroupRevealTransaction(
                 for: entry,
                 targetFrame: frame,
                 monitor: monitor,

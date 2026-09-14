@@ -8,7 +8,7 @@ import XCTest
 @MainActor
 final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
     func testDefaultsEncodeAsEmptyList() throws {
-        XCTAssertEqual(SettingsExport.defaults().workspaceBarExcludedBundleIDs, [])
+        XCTAssertEqual(SettingsExport.defaults().workspaceBar.excludedBundleIDs, [])
 
         let canonical = try XCTUnwrap(
             String(
@@ -21,7 +21,7 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
 
     func testCanonicalAndPreservingRoundTripsKeepBundleIDs() throws {
         var export = SettingsExport.defaults()
-        export.workspaceBarExcludedBundleIDs = [
+        export.workspaceBar.excludedBundleIDs = [
             "tracesOf.Uebersicht",
             "com.example.Offline"
         ]
@@ -30,21 +30,21 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
         let canonicalText = try XCTUnwrap(String(bytes: canonical, encoding: .utf8))
         XCTAssertTrue(canonicalText.contains("excludedBundleIDs = [\"tracesOf.Uebersicht\", \"com.example.Offline\"]"))
         XCTAssertEqual(
-            try SettingsTOMLCodec.decode(canonical).workspaceBarExcludedBundleIDs,
-            export.workspaceBarExcludedBundleIDs
+            try SettingsTOMLCodec.decode(canonical).workspaceBar.excludedBundleIDs,
+            export.workspaceBar.excludedBundleIDs
         )
 
         let preserving = try SettingsTOMLCodec.encode(export, preservingUnknownKeysFrom: canonical)
         XCTAssertEqual(
-            try SettingsTOMLCodec.decode(preserving).workspaceBarExcludedBundleIDs,
-            export.workspaceBarExcludedBundleIDs
+            try SettingsTOMLCodec.decode(preserving).workspaceBar.excludedBundleIDs,
+            export.workspaceBar.excludedBundleIDs
         )
     }
 
     func testApplyExportNormalizesAndExportSortsDeterministically() {
         let settings = makeSettingsStore()
         var export = SettingsExport.defaults()
-        export.workspaceBarExcludedBundleIDs = [
+        export.workspaceBar.excludedBundleIDs = [
             "  com.Zeta  ",
             "com.beta",
             "",
@@ -56,11 +56,11 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
         settings.applyExport(export)
 
         XCTAssertEqual(
-            settings.workspaceBarExcludedBundleIDs,
+            settings.workspaceBar.excludedBundleIDs,
             Set(["com.Zeta", "com.beta", "com.Alpha"])
         )
         XCTAssertEqual(
-            settings.toExport().workspaceBarExcludedBundleIDs,
+            settings.toExport().workspaceBar.excludedBundleIDs,
             ["com.Alpha", "com.beta", "com.Zeta"]
         )
     }
@@ -68,13 +68,13 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
     func testAddAndRemoveAreTrimmedCaseInsensitiveAndReportNoOps() {
         let settings = makeSettingsStore()
 
-        XCTAssertFalse(settings.addWorkspaceBarExcludedBundleID("  \n"))
-        XCTAssertTrue(settings.addWorkspaceBarExcludedBundleID("  com.Example.One  "))
-        XCTAssertEqual(settings.workspaceBarExcludedBundleIDs, ["com.Example.One"])
-        XCTAssertFalse(settings.addWorkspaceBarExcludedBundleID("COM.EXAMPLE.ONE"))
-        XCTAssertTrue(settings.removeWorkspaceBarExcludedBundleID("  COM.EXAMPLE.ONE  "))
-        XCTAssertTrue(settings.workspaceBarExcludedBundleIDs.isEmpty)
-        XCTAssertFalse(settings.removeWorkspaceBarExcludedBundleID("com.example.one"))
+        XCTAssertFalse(settings.workspaceBar.addExcludedBundleID("  \n"))
+        XCTAssertTrue(settings.workspaceBar.addExcludedBundleID("  com.Example.One  "))
+        XCTAssertEqual(settings.workspaceBar.excludedBundleIDs, ["com.Example.One"])
+        XCTAssertFalse(settings.workspaceBar.addExcludedBundleID("COM.EXAMPLE.ONE"))
+        XCTAssertTrue(settings.workspaceBar.removeExcludedBundleID("  COM.EXAMPLE.ONE  "))
+        XCTAssertTrue(settings.workspaceBar.excludedBundleIDs.isEmpty)
+        XCTAssertFalse(settings.workspaceBar.removeExcludedBundleID("com.example.one"))
     }
 
     func testUIEditsRefreshOnceOnlyWhenTheExclusionChanges() {
@@ -122,11 +122,11 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
 
     func testResolvedSettingsUseTheSameGlobalExclusionsOnEveryMonitor() {
         let settings = makeSettingsStore()
-        XCTAssertTrue(settings.addWorkspaceBarExcludedBundleID("com.example.global"))
+        XCTAssertTrue(settings.workspaceBar.addExcludedBundleID("com.example.global"))
         let first = monitor(displayId: 41_001, name: "First", x: 0)
         let second = monitor(displayId: 41_002, name: "Second", x: 1440)
 
-        settings.updateBarSettings(
+        settings.workspaceBar.update(
             MonitorBarSettings(
                 monitorName: second.name,
                 monitorDisplayId: second.displayId,
@@ -136,11 +136,11 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            settings.resolvedBarSettings(for: first).excludedBundleIDs,
+            settings.workspaceBar.resolved(for: first).excludedBundleIDs,
             ["com.example.global"]
         )
         XCTAssertEqual(
-            settings.resolvedBarSettings(for: second).excludedBundleIDs,
+            settings.workspaceBar.resolved(for: second).excludedBundleIDs,
             ["com.example.global"]
         )
     }
@@ -164,13 +164,13 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
             ),
             autosaveEnabled: false
         )
-        XCTAssertTrue(settings.addWorkspaceBarExcludedBundleID("com.example.before"))
+        XCTAssertTrue(settings.workspaceBar.addExcludedBundleID("com.example.before"))
         var externalReloadCount = 0
         settings.onExternalSettingsReloaded = {
             externalReloadCount += 1
         }
         var external = SettingsExport.defaults()
-        external.workspaceBarExcludedBundleIDs = ["  com.example.After  "]
+        external.workspaceBar.excludedBundleIDs = ["  com.example.After  "]
 
         try SettingsTOMLCodec.encode(external).write(to: persistence.fileURL, options: .atomic)
         for _ in 0 ..< 200 {
@@ -179,7 +179,7 @@ final class WorkspaceBarExcludedAppsSettingsTests: XCTestCase {
         }
 
         XCTAssertEqual(externalReloadCount, 1)
-        XCTAssertEqual(settings.workspaceBarExcludedBundleIDs, ["com.example.After"])
+        XCTAssertEqual(settings.workspaceBar.excludedBundleIDs, ["com.example.After"])
     }
 
     private func monitor(displayId: CGDirectDisplayID, name: String, x: CGFloat) -> Monitor {

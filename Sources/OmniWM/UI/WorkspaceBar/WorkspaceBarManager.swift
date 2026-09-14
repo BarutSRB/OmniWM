@@ -78,74 +78,19 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
 
 @MainActor
 final class WorkspaceBarManager {
-    struct IslandPanel {
-        let panel: WorkspaceBarPanel
-        let hostingView: NSHostingView<WorkspaceBarView>
-        var slice: WorkspaceBarIslandSlice
-        var showsSystemStatsButton: Bool
-        var lastAppliedFrame: NSRect?
-    }
-
-    struct WorkspaceBarMeasurementKey: Hashable {
-        let slice: WorkspaceBarIslandSlice
-        let showsSystemStatsButton: Bool
-    }
-
-    struct SplitLayoutResult {
-        let layout: WorkspaceBarSplitLayout
-        let primaryShowsSystemStatsButton: Bool
-        let secondaryShowsSystemStatsButton: Bool
-    }
-
-    struct ScratchpadCompactionContext: Equatable {
-        let availableWidth: CGFloat
-        let slice: WorkspaceBarIslandSlice
-    }
-
-    final class MonitorBarInstance {
-        let monitorId: Monitor.ID
-        let measurementView: NSHostingView<WorkspaceBarMeasurementView>
-        let model: WorkspaceBarModel
-
-        var primary: IslandPanel
-        var secondary: IslandPanel?
-        var monitor: Monitor
-        var measuredWidths: [WorkspaceBarMeasurementKey: CGFloat] = [:]
-        var statsAnchor: CGPoint?
-        var screenDisplayId: CGDirectDisplayID?
-        var uncompactedSnapshot: WorkspaceBarSnapshot?
-        var scratchpadCompactionContext: ScratchpadCompactionContext?
-        var compactedScratchpads: [WorkspaceBarScratchpadItem]?
-
-        init(
-            monitor: Monitor,
-            primary: IslandPanel,
-            measurementView: NSHostingView<WorkspaceBarMeasurementView>,
-            model: WorkspaceBarModel,
-            screenDisplayId: CGDirectDisplayID?
-        ) {
-            monitorId = monitor.id
-            self.monitor = monitor
-            self.primary = primary
-            self.measurementView = measurementView
-            self.model = model
-            self.screenDisplayId = screenDisplayId
-        }
-    }
-
     var screenProvider: @MainActor (CGDirectDisplayID) -> NSScreen? = { displayId in
         NSScreen.screens.first(where: { $0.displayId == displayId })
     }
 
     var panelFactory: @MainActor @Sendable () -> WorkspaceBarPanel = {
-        WorkspaceBarManager.defaultPanel()
+        WorkspaceBarPanel.defaultPanel()
     }
 
     var frameApplier: @MainActor @Sendable (WorkspaceBarPanel, NSRect) -> Void = { panel, frame in
         panel.setFrame(frame, display: true)
     }
 
-    private var barsByMonitor: [Monitor.ID: MonitorBarInstance] = [:]
+    private var barsByMonitor: [Monitor.ID: WorkspaceBarInstance] = [:]
     private weak var controller: WMController?
     private weak var settings: SettingsStore?
     private let motionPolicy: MotionPolicy
@@ -182,47 +127,50 @@ final class WorkspaceBarManager {
     }
 
     func updateAppearance() {
-        guard settings != nil else { return }
+        guard let settings else { return }
 
         for instance in barsByMonitor.values {
-            refreshBarAppearance(instance: instance)
+            instance.refreshAppearance(resolved: settings.workspaceBar.resolved(for: instance.monitor))
         }
     }
 
     private func createBarForMonitor(_ monitor: Monitor, snapshot: WorkspaceBarSnapshot) {
         guard let controller, let settings else { return }
 
-        let resolved = settings.resolvedBarSettings(for: monitor)
+        let resolved = settings.workspaceBar.resolved(for: monitor)
         let model = WorkspaceBarModel(snapshot: snapshot)
         let measurementView = NSHostingView(rootView: WorkspaceBarMeasurementView(snapshot: snapshot))
         let screen = screenProvider(monitor.displayId)
-        let primary = makeIslandPanel(
-            slice: .all,
-            showsSystemStatsButton: snapshot.showSystemStatsButton,
-            monitorId: monitor.id,
-            model: model,
-            screen: screen,
-            resolved: resolved,
-            controller: controller
+        let panel = panelFactory()
+        panel.targetScreen = screen
+        let primary = WorkspaceBarIslandPanel(
+            panel: panel,
+            rootView: makeBarView(
+                model: model,
+                slice: .all,
+                showsSystemStatsButton: snapshot.showSystemStatsButton,
+                monitorId: monitor.id,
+                controller: controller
+            ),
+            resolved: resolved
         )
 
-        let instance = MonitorBarInstance(
+        let instance = WorkspaceBarInstance(
             monitor: monitor,
             primary: primary,
             measurementView: measurementView,
             model: model,
             screenDisplayId: screen?.displayId
         )
-        let preparedSnapshot = scratchpadCompactedSnapshot(
+        let preparedSnapshot = instance.scratchpadCompactedSnapshot(
             snapshot,
             monitor: monitor,
-            resolved: resolved,
-            instance: instance
+            resolved: resolved
         )
         model.snapshot = preparedSnapshot
         barsByMonitor[monitor.id] = instance
 
-        applyCurrentAppearance(to: instance)
+        instance.applyCurrentAppearance()
         updateBarFrameAndPosition(
             for: monitor,
             resolved: resolved,
@@ -231,8 +179,8 @@ final class WorkspaceBarManager {
         )
         surfaceCoordinator.register(
             window: primary.panel,
-            id: surfaceId(for: monitor.id),
-            policy: Self.barSurfacePolicy
+            id: instance.surfaceId(),
+            policy: WorkspaceBarInstance.surfacePolicy
         )
         primary.panel.orderFrontRegardless()
     }
@@ -240,44 +188,22 @@ final class WorkspaceBarManager {
     private func updateBarForMonitor(
         _ monitor: Monitor,
         snapshot: WorkspaceBarSnapshot,
-        instance: MonitorBarInstance
+        instance: WorkspaceBarInstance
     ) -> Bool {
         guard let settings else { return false }
 
         let screen = screenProvider(monitor.displayId)
-        let nextScreenDisplayId = screen?.displayId
+        guard instance.updateMonitor(monitor, screen: screen) else { return false }
 
-        if let currentScreenDisplayId = instance.screenDisplayId,
-           nextScreenDisplayId != currentScreenDisplayId
-        {
-            return false
-        }
-
-        if nextScreenDisplayId == nil, instance.screenDisplayId != nil {
-            return false
-        }
-
-        instance.monitor = monitor
-        instance.screenDisplayId = nextScreenDisplayId
-        instance.primary.panel.targetScreen = screen
-        instance.secondary?.panel.targetScreen = screen
-
-        let resolved = settings.resolvedBarSettings(for: monitor)
-        let preparedSnapshot = scratchpadCompactedSnapshot(
+        let resolved = settings.workspaceBar.resolved(for: monitor)
+        let preparedSnapshot = instance.scratchpadCompactedSnapshot(
             snapshot,
             monitor: monitor,
-            resolved: resolved,
-            instance: instance
+            resolved: resolved
         )
-        if instance.model.snapshot != preparedSnapshot {
-            instance.model.snapshot = preparedSnapshot
-            instance.measuredWidths = [:]
-        }
-        applyCurrentAppearance(to: instance)
-        applySettingsToPanel(instance.primary.panel, resolved: resolved)
-        if let secondary = instance.secondary {
-            applySettingsToPanel(secondary.panel, resolved: resolved)
-        }
+        instance.updateSnapshot(preparedSnapshot)
+        instance.applyCurrentAppearance()
+        instance.applyPanelSettings(resolved: resolved)
         updateBarFrameAndPosition(
             for: monitor,
             resolved: resolved,
@@ -285,41 +211,6 @@ final class WorkspaceBarManager {
             instance: instance
         )
         return true
-    }
-
-    private func makeIslandPanel(
-        slice: WorkspaceBarIslandSlice,
-        showsSystemStatsButton: Bool,
-        monitorId: Monitor.ID,
-        model: WorkspaceBarModel,
-        screen: NSScreen?,
-        resolved: ResolvedBarSettings,
-        controller: WMController
-    ) -> IslandPanel {
-        let panel = panelFactory()
-        panel.targetScreen = screen
-        let hostingView = NSHostingView(
-            rootView: makeBarView(
-                model: model,
-                slice: slice,
-                showsSystemStatsButton: showsSystemStatsButton,
-                monitorId: monitorId,
-                controller: controller
-            )
-        )
-        hostingView.sizingOptions = []
-        panel.contentView = hostingView
-        let appearance = NSApplication.shared.appearance
-        panel.appearance = appearance
-        hostingView.appearance = appearance
-        applySettingsToPanel(panel, resolved: resolved)
-        return IslandPanel(
-            panel: panel,
-            hostingView: hostingView,
-            slice: slice,
-            showsSystemStatsButton: showsSystemStatsButton,
-            lastAppliedFrame: nil
-        )
     }
 
     private func makeBarView(
@@ -348,97 +239,42 @@ final class WorkspaceBarManager {
                 controller?.toggleSystemStatsFromBar(on: monitorId)
             },
             onSystemStatsAnchorChange: { [weak self] anchor in
-                self?.updateStatsAnchor(anchor, on: monitorId)
+                self?.barsByMonitor[monitorId]?.statsAnchor = anchor
             }
         )
-    }
-
-    private func refreshBarAppearance(instance: MonitorBarInstance) {
-        guard let settings else { return }
-
-        let resolved = settings.resolvedBarSettings(for: instance.monitor)
-        let current = instance.model.snapshot
-        let snapshot = WorkspaceBarSnapshot(
-            projection: current.projection,
-            showLabels: current.showLabels,
-            showSystemStatsButton: current.showSystemStatsButton,
-            backgroundOpacity: current.backgroundOpacity,
-            barHeight: current.barHeight,
-            accentColor: resolved.accentColor,
-            textColor: resolved.textColor
-        )
-
-        if snapshot != current {
-            instance.model.snapshot = snapshot
-        }
     }
 
     private func removeBarForMonitor(_ monitorId: Monitor.ID) {
         if let instance = barsByMonitor[monitorId] {
             controller?.dismissSystemStatsPopup(anchoredTo: monitorId)
             removeSecondaryPanel(from: instance)
-            surfaceCoordinator.unregister(id: surfaceId(for: monitorId))
+            surfaceCoordinator.unregister(id: instance.surfaceId())
             instance.primary.panel.orderOut(nil)
             instance.primary.panel.close()
             barsByMonitor.removeValue(forKey: monitorId)
         }
     }
 
-    func removeAllBars() {
+    func cleanup() {
         for monitorId in Array(barsByMonitor.keys) {
             removeBarForMonitor(monitorId)
         }
-    }
-
-    private func surfaceId(for monitorId: Monitor.ID) -> String {
-        "workspace-bar-\(String(describing: monitorId))"
-    }
-
-    private func secondarySurfaceId(for monitorId: Monitor.ID) -> String {
-        "workspace-bar-secondary-\(String(describing: monitorId))"
     }
 
     private func updateBarFrameAndPosition(
         for monitor: Monitor,
         resolved: ResolvedBarSettings,
         snapshot: WorkspaceBarSnapshot,
-        instance: MonitorBarInstance
+        instance: WorkspaceBarInstance
     ) {
         let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
-        if let split = splitLayout(
+        if let split = instance.splitLayout(
             geometry: geometry,
             snapshot: snapshot,
             monitor: monitor,
-            resolved: resolved,
-            instance: instance
+            resolved: resolved
         ) {
-            updateIslandView(
-                &instance.primary,
-                model: instance.model,
-                slice: .active,
-                showsSystemStatsButton: split.primaryShowsSystemStatsButton,
-                monitorId: instance.monitorId
-            )
-            applyFrame(split.layout.activeFrame, to: &instance.primary)
-            if let secondaryFrame = split.layout.secondaryFrame,
-               var secondary = instance.secondary ?? makeSecondaryPanel(
-                   for: instance,
-                   resolved: resolved,
-                   showsSystemStatsButton: split.secondaryShowsSystemStatsButton
-               )
-            {
-                updateIslandView(
-                    &secondary,
-                    model: instance.model,
-                    slice: .secondary,
-                    showsSystemStatsButton: split.secondaryShowsSystemStatsButton,
-                    monitorId: instance.monitorId
-                )
-                applyFrame(secondaryFrame, to: &secondary)
-                instance.secondary = secondary
-            } else {
-                removeSecondaryPanel(from: instance)
-            }
+            applySplitLayout(split, resolved: resolved, instance: instance)
         } else {
             updateIslandView(
                 &instance.primary,
@@ -448,14 +284,13 @@ final class WorkspaceBarManager {
                 monitorId: instance.monitorId
             )
             removeSecondaryPanel(from: instance)
-            let width = measuredWidth(
+            let width = instance.measuredWidth(
                 for: snapshot,
                 slice: .all,
-                showsSystemStatsButton: snapshot.showSystemStatsButton,
-                instance: instance
+                showsSystemStatsButton: snapshot.showSystemStatsButton
             )
             let frame = geometry.frame(fittingWidth: width, monitor: monitor, resolved: resolved)
-            applyFrame(frame, to: &instance.primary)
+            instance.primary.applyFrame(frame, using: frameApplier)
         }
         if !snapshot.showSystemStatsButton {
             instance.statsAnchor = nil
@@ -477,56 +312,8 @@ final class WorkspaceBarManager {
         }
     }
 
-    private func splitLayout(
-        geometry: WorkspaceBarGeometry,
-        snapshot: WorkspaceBarSnapshot,
-        monitor: Monitor,
-        resolved: ResolvedBarSettings,
-        instance: MonitorBarInstance
-    ) -> SplitLayoutResult? {
-        guard resolved.notchMode.isSplit,
-              snapshot.items.contains(where: \.isFocused)
-        else {
-            return nil
-        }
-        let hasSecondaryContent = !WorkspaceBarIslandSlice.secondary.items(in: snapshot).isEmpty
-            || !WorkspaceBarIslandSlice.secondary.scratchpads(in: snapshot).isEmpty
-        let activeShowsSystemStatsButton = snapshot.showSystemStatsButton && !hasSecondaryContent
-        let secondaryShowsSystemStatsButton = snapshot.showSystemStatsButton && hasSecondaryContent
-        guard let layout = geometry.splitFrame(
-            activeWidth: measuredWidth(
-                for: snapshot,
-                slice: .active,
-                showsSystemStatsButton: activeShowsSystemStatsButton,
-                instance: instance
-            ),
-            secondaryWidth: hasSecondaryContent
-                ? measuredWidth(
-                    for: snapshot,
-                    slice: .secondary,
-                    showsSystemStatsButton: secondaryShowsSystemStatsButton,
-                    instance: instance
-                )
-                : nil,
-            monitor: monitor,
-            resolved: resolved
-        ) else {
-            return nil
-        }
-        return SplitLayoutResult(
-            layout: layout,
-            primaryShowsSystemStatsButton: activeShowsSystemStatsButton,
-            secondaryShowsSystemStatsButton: secondaryShowsSystemStatsButton
-        )
-    }
-
-    private func updateStatsAnchor(_ anchor: CGPoint?, on monitorId: Monitor.ID) {
-        guard let instance = barsByMonitor[monitorId] else { return }
-        instance.statsAnchor = anchor
-    }
-
     private func updateIslandView(
-        _ island: inout IslandPanel,
+        _ island: inout WorkspaceBarIslandPanel,
         model: WorkspaceBarModel,
         slice: WorkspaceBarIslandSlice,
         showsSystemStatsButton: Bool,
@@ -549,182 +336,73 @@ final class WorkspaceBarManager {
     }
 
     private func makeSecondaryPanel(
-        for instance: MonitorBarInstance,
+        for instance: WorkspaceBarInstance,
         resolved: ResolvedBarSettings,
         showsSystemStatsButton: Bool
-    ) -> IslandPanel? {
+    ) -> WorkspaceBarIslandPanel? {
         guard let controller else { return nil }
-        let island = makeIslandPanel(
-            slice: .secondary,
-            showsSystemStatsButton: showsSystemStatsButton,
-            monitorId: instance.monitorId,
-            model: instance.model,
-            screen: screenProvider(instance.monitor.displayId),
-            resolved: resolved,
-            controller: controller
+        let screen = screenProvider(instance.monitor.displayId)
+        let panel = panelFactory()
+        panel.targetScreen = screen
+        let island = WorkspaceBarIslandPanel(
+            panel: panel,
+            rootView: makeBarView(
+                model: instance.model,
+                slice: .secondary,
+                showsSystemStatsButton: showsSystemStatsButton,
+                monitorId: instance.monitorId,
+                controller: controller
+            ),
+            resolved: resolved
         )
         surfaceCoordinator.register(
             window: island.panel,
-            id: secondarySurfaceId(for: instance.monitorId),
-            policy: Self.barSurfacePolicy
+            id: instance.secondarySurfaceId(),
+            policy: WorkspaceBarInstance.surfacePolicy
         )
         island.panel.orderFrontRegardless()
         return island
     }
 
-    private func removeSecondaryPanel(from instance: MonitorBarInstance) {
+    private func removeSecondaryPanel(from instance: WorkspaceBarInstance) {
         guard let secondary = instance.secondary else { return }
-        surfaceCoordinator.unregister(id: secondarySurfaceId(for: instance.monitorId))
+        surfaceCoordinator.unregister(id: instance.secondarySurfaceId())
         secondary.panel.orderOut(nil)
         secondary.panel.close()
         instance.secondary = nil
     }
 
-    private func applyFrame(_ frame: NSRect, to island: inout IslandPanel) {
-        guard island.lastAppliedFrame != frame else { return }
-        frameApplier(island.panel, frame)
-        island.lastAppliedFrame = frame
-    }
-
-    private func measuredWidth(
-        for snapshot: WorkspaceBarSnapshot,
-        slice: WorkspaceBarIslandSlice,
-        showsSystemStatsButton: Bool,
-        instance: MonitorBarInstance
-    ) -> CGFloat {
-        let key = WorkspaceBarMeasurementKey(
-            slice: slice,
-            showsSystemStatsButton: showsSystemStatsButton
-        )
-        if let cached = instance.measuredWidths[key] {
-            return cached
-        }
-        instance.measurementView.rootView = WorkspaceBarMeasurementView(
-            snapshot: snapshot,
-            slice: slice,
-            showsSystemStatsButton: showsSystemStatsButton
-        )
-        instance.measurementView.layoutSubtreeIfNeeded()
-        let width = instance.measurementView.fittingSize.width
-        instance.measuredWidths[key] = width
-        return width
-    }
-
-    private func scratchpadCompactedSnapshot(
-        _ snapshot: WorkspaceBarSnapshot,
-        monitor: Monitor,
+    private func applySplitLayout(
+        _ split: WorkspaceBarInstance.SplitLayoutResult,
         resolved: ResolvedBarSettings,
-        instance: MonitorBarInstance
-    ) -> WorkspaceBarSnapshot {
-        guard !snapshot.scratchpads.isEmpty else {
-            instance.uncompactedSnapshot = snapshot
-            instance.scratchpadCompactionContext = nil
-            instance.compactedScratchpads = nil
-            return snapshot
-        }
-
-        let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
-        let splitAvailableWidths = geometry.splitAvailableWidths(monitor: monitor, resolved: resolved)
-        let usesSplitLayout = resolved.notchMode.isSplit
-            && snapshot.items.contains(where: \.isFocused)
-            && splitAvailableWidths != nil
-        let slice: WorkspaceBarIslandSlice = usesSplitLayout ? .secondary : .all
-        let availableWidth = if usesSplitLayout {
-            splitAvailableWidths?.secondary ?? monitor.frame.width
-        } else {
-            monitor.frame.width
-        }
-        let context = ScratchpadCompactionContext(
-            availableWidth: availableWidth,
-            slice: slice
+        instance: WorkspaceBarInstance
+    ) {
+        updateIslandView(
+            &instance.primary,
+            model: instance.model,
+            slice: .active,
+            showsSystemStatsButton: split.primaryShowsSystemStatsButton,
+            monitorId: instance.monitorId
         )
-        if instance.uncompactedSnapshot == snapshot,
-           instance.scratchpadCompactionContext == context,
-           let compactedScratchpads = instance.compactedScratchpads
+        instance.primary.applyFrame(split.layout.activeFrame, using: frameApplier)
+        if let secondaryFrame = split.layout.secondaryFrame,
+           var secondary = instance.secondary ?? makeSecondaryPanel(
+               for: instance,
+               resolved: resolved,
+               showsSystemStatsButton: split.secondaryShowsSystemStatsButton
+           )
         {
-            return snapshot.replacingScratchpads(compactedScratchpads)
+            updateIslandView(
+                &secondary,
+                model: instance.model,
+                slice: .secondary,
+                showsSystemStatsButton: split.secondaryShowsSystemStatsButton,
+                monitorId: instance.monitorId
+            )
+            secondary.applyFrame(secondaryFrame, using: frameApplier)
+            instance.secondary = secondary
+        } else {
+            removeSecondaryPanel(from: instance)
         }
-        instance.uncompactedSnapshot = snapshot
-        instance.scratchpadCompactionContext = context
-        let showsSystemStatsButton = snapshot.showSystemStatsButton
-        let baseSnapshot = snapshot.replacingScratchpads([])
-        let baseWidth = uncachedMeasuredWidth(
-            for: baseSnapshot,
-            slice: slice,
-            showsSystemStatsButton: showsSystemStatsButton,
-            instance: instance
-        )
-        let hasAdjacentContent = !slice.items(in: baseSnapshot).isEmpty || showsSystemStatsButton
-        let scratchpads = WorkspaceBarScratchpadLayout.compactedItems(
-            snapshot.scratchpads,
-            availableWidth: availableWidth,
-            baseWidth: baseWidth,
-            barHeight: snapshot.barHeight,
-            hasAdjacentContent: hasAdjacentContent
-        )
-        instance.compactedScratchpads = scratchpads
-        return snapshot.replacingScratchpads(scratchpads)
-    }
-
-    private func uncachedMeasuredWidth(
-        for snapshot: WorkspaceBarSnapshot,
-        slice: WorkspaceBarIslandSlice,
-        showsSystemStatsButton: Bool,
-        instance: MonitorBarInstance
-    ) -> CGFloat {
-        instance.measurementView.rootView = WorkspaceBarMeasurementView(
-            snapshot: snapshot,
-            slice: slice,
-            showsSystemStatsButton: showsSystemStatsButton
-        )
-        instance.measurementView.layoutSubtreeIfNeeded()
-        return instance.measurementView.fittingSize.width
-    }
-
-    private func applyCurrentAppearance(to instance: MonitorBarInstance) {
-        let appearance = NSApplication.shared.appearance
-        instance.primary.panel.appearance = appearance
-        instance.primary.hostingView.appearance = appearance
-        instance.secondary?.panel.appearance = appearance
-        instance.secondary?.hostingView.appearance = appearance
-        instance.measurementView.appearance = appearance
-    }
-
-    private static let barSurfacePolicy = SurfacePolicy(
-        kind: .workspaceBar,
-        hitTestPolicy: .interactive,
-        capturePolicy: .included,
-        suppressesManagedFocusRecovery: false
-    )
-
-    static func defaultPanel() -> WorkspaceBarPanel {
-        let panel = WorkspaceBarPanel(
-            contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = false
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.isReleasedWhenClosed = false
-        panel.isMovable = false
-        panel.isMovableByWindowBackground = false
-
-        return panel
-    }
-
-    func cleanup() {
-        removeAllBars()
-    }
-
-    private func applySettingsToPanel(_ panel: NSPanel, resolved: ResolvedBarSettings) {
-        panel.level = resolved.windowLevel.nsWindowLevel
     }
 }

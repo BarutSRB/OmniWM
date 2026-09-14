@@ -13,12 +13,12 @@ final class IPCResizeCommandTests: XCTestCase {
     func testRequestsExposeAxisAndOperationWireContract() throws {
         for axis in axes {
             for operation in operations {
-                let request = IPCCommandRequest.resize(axis: axis, operation: operation)
+                let request = IPCCommandRequest.dwindle(.resize(axis: axis, operation: operation))
 
-                XCTAssertEqual(request.name, .resize)
+                XCTAssertEqual(request.name, .dwindle(.resize))
                 XCTAssertEqual(
                     try IPCCommandRequest(
-                        name: .resize,
+                        name: .dwindle(.resize),
                         argumentValues: [.resizeAxis(axis), .resizeOperation(operation)]
                     ),
                     request
@@ -47,7 +47,7 @@ final class IPCResizeCommandTests: XCTestCase {
 
         for argumentValues in invalidArguments {
             XCTAssertThrowsError(
-                try IPCCommandRequest(name: .resize, argumentValues: argumentValues)
+                try IPCCommandRequest(name: .dwindle(.resize), argumentValues: argumentValues)
             )
         }
     }
@@ -61,7 +61,7 @@ final class IPCResizeCommandTests: XCTestCase {
     }
 
     func testManifestDescribesAxisResizeContract() throws {
-        let descriptor = try XCTUnwrap(IPCAutomationManifest.commandDescriptor(for: .resize))
+        let descriptor = try XCTUnwrap(IPCAutomationManifest.commandDescriptor(for: .dwindle(.resize)))
 
         XCTAssertEqual(descriptor.commandWords, ["resize"])
         XCTAssertEqual(descriptor.path, "command resize <horizontal|vertical> <grow|shrink>")
@@ -69,11 +69,11 @@ final class IPCResizeCommandTests: XCTestCase {
         XCTAssertEqual(descriptor.layoutCompatibility, .dwindle)
         XCTAssertEqual(
             IPCAutomationManifest.commandDescriptors(matching: ["resize", "horizontal", "grow"]).first?.name,
-            .resize
+            .dwindle(.resize)
         )
         XCTAssertEqual(
             IPCAutomationManifest.commandDescriptors(matching: ["resize", "vertical", "shrink"]).first?.name,
-            .resize
+            .dwindle(.resize)
         )
     }
 
@@ -88,7 +88,7 @@ final class IPCResizeCommandTests: XCTestCase {
                 }
 
                 XCTAssertEqual(parsed.request.version, 15)
-                XCTAssertEqual(request, .resize(axis: axis, operation: operation))
+                XCTAssertEqual(request, .dwindle(.resize(axis: axis, operation: operation)))
             }
         }
     }

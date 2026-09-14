@@ -16,7 +16,7 @@ final class AppVisibilityLifecycleTraceTests: XCTestCase {
         fixture.controller.eventInterpreter.handleIntakeEvent(
             StampedIntakeEvent(
                 seq: 77,
-                event: .appHidden(pid: fixture.token.pid)
+                event: .application(.hidden(pid: fixture.token.pid))
             )
         )
 
@@ -183,7 +183,7 @@ final class AppVisibilityLifecycleTraceTests: XCTestCase {
 
     private func makeFixture(pid: pid_t, windowId: Int, withMonitor: Bool) throws -> Fixture {
         let controller = WindowAdmissionTestSupport.controller(prefix: "AppVisibilityLifecycleTraceTests")
-        controller.settings.workspaceConfigurations = controller.settings.workspaceConfigurations.map {
+        controller.settings.workspaces.configurations = controller.settings.workspaces.configurations.map {
             $0.name == "1" ? $0.with(layoutType: .dwindle) : $0
         }
         controller.workspaceManager.applySettings()

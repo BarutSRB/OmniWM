@@ -11,21 +11,21 @@ struct BorderSettingsTab: View {
     var body: some View {
         Form {
             Section("Window Borders") {
-                Toggle("Enable Borders", isOn: $settings.bordersEnabled)
-                    .onChange(of: settings.bordersEnabled) { _, _ in
+                Toggle("Enable Borders", isOn: Bindable(settings.borders).enabled)
+                    .onChange(of: settings.borders.enabled) { _, _ in
                         controller.borderSettingsChanged()
                     }
 
-                if settings.bordersEnabled {
+                if settings.borders.enabled {
                     SettingsSliderRow(
                         label: "Border Width",
-                        value: $settings.borderWidth,
+                        value: Bindable(settings.borders).width,
                         range: 1 ... 12,
                         step: 0.5,
-                        valueText: String(format: "%.1f px", settings.borderWidth),
+                        valueText: String(format: "%.1f px", settings.borders.width),
                         valueWidth: 56
                     )
-                    .onChange(of: settings.borderWidth) { _, _ in
+                    .onChange(of: settings.borders.width) { _, _ in
                         controller.borderSettingsChanged()
                     }
 
@@ -227,17 +227,17 @@ struct BorderSettingsTab: View {
     /// Binds the legacy solid border color to validated settings.
     private var colorBinding: Binding<Color> {
         Binding(
-            get: {
+            get: { [settings] in
                 Color(
-                    red: settings.borderColorRed,
-                    green: settings.borderColorGreen,
-                    blue: settings.borderColorBlue,
-                    opacity: settings.borderColorAlpha
+                    red: settings.borders.color.red,
+                    green: settings.borders.color.green,
+                    blue: settings.borders.color.blue,
+                    opacity: settings.borders.color.alpha
                 )
             },
-            set: { newColor in
+            set: { [settings, controller] newColor in
                 guard let converted = SettingsColor(color: newColor) else { return }
-                settings.borderColor = converted
+                settings.borders.color = converted
                 controller.borderSettingsChanged()
             }
         )

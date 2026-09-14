@@ -16,9 +16,9 @@ struct NiriSettingsTab: View {
             MonitorScopeSection(
                 selectedMonitor: $selectedMonitor,
                 monitors: connectedMonitors,
-                hasOverrides: { settings.niriSettings(for: $0) != nil },
+                hasOverrides: { settings.niri.settings(for: $0) != nil },
                 reset: { monitor in
-                    settings.removeNiriSettings(for: monitor)
+                    settings.niri.remove(for: monitor)
                     controller.updateMonitorNiriSettings()
                 }
             )
@@ -51,70 +51,72 @@ private struct GlobalNiriSettingsSection: View {
 
     var body: some View {
         let useAutoDefaultContainerPrimarySpan = Binding(
-            get: { settings.niriDefaultContainerPrimarySpan == nil },
+            get: { settings.niri.defaultContainerPrimarySpan == nil },
             set: { useAuto in
                 settings
-                    .niriDefaultContainerPrimarySpan = useAuto ? nil : (settings.niriDefaultContainerPrimarySpan ?? 0.5)
-                controller.updateNiriConfig(defaultContainerPrimarySpan: settings.niriDefaultContainerPrimarySpan)
+                    .niri
+                    .defaultContainerPrimarySpan = useAuto ? nil :
+                    (settings.niri.defaultContainerPrimarySpan ?? 0.5)
+                controller.updateNiriConfig(defaultContainerPrimarySpan: settings.niri.defaultContainerPrimarySpan)
                 controller.balanceNiriSizesAllWorkspaces()
             }
         )
         let defaultContainerPrimarySpanPercent = Binding(
-            get: { Int((settings.niriDefaultContainerPrimarySpan ?? 0.5) * 100) },
+            get: { Int((settings.niri.defaultContainerPrimarySpan ?? 0.5) * 100) },
             set: { newPercent in
-                settings.niriDefaultContainerPrimarySpan = Double(min(100, max(5, newPercent))) / 100.0
-                controller.updateNiriConfig(defaultContainerPrimarySpan: settings.niriDefaultContainerPrimarySpan)
+                settings.niri.defaultContainerPrimarySpan = Double(min(100, max(5, newPercent))) / 100.0
+                controller.updateNiriConfig(defaultContainerPrimarySpan: settings.niri.defaultContainerPrimarySpan)
                 controller.balanceNiriSizesAllWorkspaces()
             }
         )
-        let presets = settings.niriContainerPrimarySpanPresets
+        let presets = settings.niri.containerPrimarySpanPresets
 
         Section("Niri Layout") {
             SettingsSliderRow(
                 label: "Visible Containers",
                 value: Binding(
-                    get: { Double(settings.niriVisibleContainerCount) },
-                    set: { settings.niriVisibleContainerCount = Int($0) }
+                    get: { Double(settings.niri.visibleContainerCount) },
+                    set: { settings.niri.visibleContainerCount = Int($0) }
                 ),
                 range: 1 ... 5,
                 step: 1,
-                valueText: "\(settings.niriVisibleContainerCount)",
+                valueText: "\(settings.niri.visibleContainerCount)",
                 valueWidth: 32
             )
-            .onChange(of: settings.niriVisibleContainerCount) { _, newValue in
-                settings.niriDefaultContainerPrimarySpan = nil
+            .onChange(of: settings.niri.visibleContainerCount) { _, newValue in
+                settings.niri.defaultContainerPrimarySpan = nil
                 controller.updateNiriConfig(
                     visibleContainerCount: newValue,
-                    defaultContainerPrimarySpan: settings.niriDefaultContainerPrimarySpan
+                    defaultContainerPrimarySpan: settings.niri.defaultContainerPrimarySpan
                 )
                 controller.balanceNiriSizesAllWorkspaces()
             }
 
-            Toggle("Infinite Loop Navigation", isOn: $settings.niriInfiniteLoop)
-                .onChange(of: settings.niriInfiniteLoop) { _, newValue in
+            Toggle("Infinite Loop Navigation", isOn: Bindable(settings.niri).infiniteLoop)
+                .onChange(of: settings.niri.infiniteLoop) { _, newValue in
                     controller.updateNiriConfig(infiniteLoop: newValue)
                 }
 
-            Picker("Center Focused Column", selection: $settings.niriCenterFocusedColumn) {
+            Picker("Center Focused Column", selection: Bindable(settings.niri).centerFocusedColumn) {
                 ForEach(CenterFocusedColumn.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
                 }
             }
-            .onChange(of: settings.niriCenterFocusedColumn) { _, newValue in
+            .onChange(of: settings.niri.centerFocusedColumn) { _, newValue in
                 controller.updateNiriConfig(centerFocusedColumn: newValue)
             }
 
-            Toggle("Always Center Single Column", isOn: $settings.niriAlwaysCenterSingleColumn)
-                .onChange(of: settings.niriAlwaysCenterSingleColumn) { _, newValue in
+            Toggle("Always Center Single Column", isOn: Bindable(settings.niri).alwaysCenterSingleColumn)
+                .onChange(of: settings.niri.alwaysCenterSingleColumn) { _, newValue in
                     controller.updateNiriConfig(alwaysCenterSingleColumn: newValue)
                 }
 
             SingleWindowFitControls(
                 label: "Single Window",
-                fit: settings.niriSingleWindowFit,
+                fit: settings.niri.singleWindowFit,
                 modes: SingleWindowFit.niriModes,
                 onChange: { newValue in
-                    settings.niriSingleWindowFit = newValue
+                    settings.niri.singleWindowFit = newValue
                     controller.updateNiriConfig(singleWindowFit: newValue)
                 }
             )
@@ -132,7 +134,7 @@ private struct GlobalNiriSettingsSection: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 220)
 
-            if settings.niriDefaultContainerPrimarySpan != nil {
+            if settings.niri.defaultContainerPrimarySpan != nil {
                 LabeledContent("Custom Span") {
                     HStack {
                         TextField("Custom Span", value: defaultContainerPrimarySpanPercent, format: .number)
@@ -147,7 +149,7 @@ private struct GlobalNiriSettingsSection: View {
             }
 
             SettingsCaption(
-                settings.niriDefaultContainerPrimarySpan == nil
+                settings.niri.defaultContainerPrimarySpan == nil
                     ? "Auto divides the primary axis by the Visible Containers setting."
                     : "New or claimed containers start at this primary span until you resize them."
             )
@@ -160,12 +162,12 @@ private struct GlobalNiriSettingsSection: View {
                         TextField("Preset \(index + 1)", value: Binding(
                             get: { Int(presets[index] * 100) },
                             set: { newPercent in
-                                var current = settings.niriContainerPrimarySpanPresets
+                                var current = settings.niri.containerPrimarySpanPresets
                                 current[index] = Double(min(100, max(5, newPercent))) / 100.0
-                                settings.niriContainerPrimarySpanPresets = current
+                                settings.niri.containerPrimarySpanPresets = current
                                 controller
                                     .updateNiriConfig(containerPrimarySpanPresets: settings
-                                        .niriContainerPrimarySpanPresets)
+                                        .niri.containerPrimarySpanPresets)
                             }
                         ), format: .number)
                             .labelsHidden()
@@ -176,37 +178,38 @@ private struct GlobalNiriSettingsSection: View {
                         Text("%")
                             .foregroundStyle(.secondary)
                         Button(role: .destructive) {
-                            var presets = settings.niriContainerPrimarySpanPresets
+                            var presets = settings.niri.containerPrimarySpanPresets
                             presets.remove(at: index)
-                            settings.niriContainerPrimarySpanPresets = presets
+                            settings.niri.containerPrimarySpanPresets = presets
                             controller
-                                .updateNiriConfig(containerPrimarySpanPresets: settings.niriContainerPrimarySpanPresets)
+                                .updateNiriConfig(containerPrimarySpanPresets: settings.niri
+                                    .containerPrimarySpanPresets)
                         } label: {
                             Label("Remove preset \(index + 1)", systemImage: "minus.circle")
                                 .labelStyle(.iconOnly)
                         }
                         .buttonStyle(.borderless)
                         .help("Remove preset \(index + 1)")
-                        .disabled(settings.niriContainerPrimarySpanPresets.count <= 2)
+                        .disabled(settings.niri.containerPrimarySpanPresets.count <= 2)
                     }
                 }
             }
 
             HStack {
                 Button("Add Preset") {
-                    var presets = settings.niriContainerPrimarySpanPresets
+                    var presets = settings.niri.containerPrimarySpanPresets
                     presets.append(0.5)
-                    settings.niriContainerPrimarySpanPresets = presets
-                    controller.updateNiriConfig(containerPrimarySpanPresets: settings.niriContainerPrimarySpanPresets)
+                    settings.niri.containerPrimarySpanPresets = presets
+                    controller.updateNiriConfig(containerPrimarySpanPresets: settings.niri.containerPrimarySpanPresets)
                 }
                 Button("Reset Cycle Presets") {
-                    settings.niriContainerPrimarySpanPresets = SettingsStore.defaultContainerPrimarySpanPresets
-                    controller.updateNiriConfig(containerPrimarySpanPresets: settings.niriContainerPrimarySpanPresets)
+                    settings.niri.containerPrimarySpanPresets = NiriSettings.defaultContainerPrimarySpanPresets
+                    controller.updateNiriConfig(containerPrimarySpanPresets: settings.niri.containerPrimarySpanPresets)
                 }
             }
             SettingsCaption("Resize commands cycle through these presets in order. Duplicates are allowed.")
         }
-        .id(settings.niriContainerPrimarySpanPresets.count)
+        .id(settings.niri.containerPrimarySpanPresets.count)
     }
 }
 
@@ -216,7 +219,7 @@ private struct MonitorNiriSettingsSection: View {
     let monitor: Monitor
 
     private var monitorSettings: MonitorNiriSettings {
-        settings.niriSettings(for: monitor) ?? MonitorNiriSettings(
+        settings.niri.settings(for: monitor) ?? MonitorNiriSettings(
             monitorName: monitor.name
         )
     }
@@ -224,7 +227,7 @@ private struct MonitorNiriSettingsSection: View {
     private func updateSetting(_ update: (inout MonitorNiriSettings) -> Void) {
         var ms = monitorSettings
         update(&ms)
-        settings.updateNiriSettings(ms, for: monitor)
+        settings.niri.update(ms, for: monitor)
         controller.updateMonitorNiriSettings()
     }
 
@@ -235,14 +238,14 @@ private struct MonitorNiriSettingsSection: View {
             OverridableSlider(
                 label: "Visible Containers",
                 value: ms.visibleContainerCount.map { Double($0) },
-                globalValue: Double(settings.niriVisibleContainerCount),
+                globalValue: Double(settings.niri.visibleContainerCount),
                 range: 1 ... 5,
                 step: 1,
                 formatter: { "\(Int($0))" },
                 onChange: { newValue in
                     updateSetting { $0.visibleContainerCount = Int(newValue) }
-                    settings.niriDefaultContainerPrimarySpan = nil
-                    controller.updateNiriConfig(defaultContainerPrimarySpan: settings.niriDefaultContainerPrimarySpan)
+                    settings.niri.defaultContainerPrimarySpan = nil
+                    controller.updateNiriConfig(defaultContainerPrimarySpan: settings.niri.defaultContainerPrimarySpan)
                     controller.balanceNiriSizesAllWorkspaces()
                 },
                 onReset: { updateSetting { $0.visibleContainerCount = nil } }
@@ -251,7 +254,7 @@ private struct MonitorNiriSettingsSection: View {
             OverridableToggle(
                 label: "Infinite Loop Navigation",
                 value: ms.infiniteLoop,
-                globalValue: settings.niriInfiniteLoop,
+                globalValue: settings.niri.infiniteLoop,
                 onChange: { newValue in updateSetting { $0.infiniteLoop = newValue } },
                 onReset: { updateSetting { $0.infiniteLoop = nil } }
             )
@@ -259,7 +262,7 @@ private struct MonitorNiriSettingsSection: View {
             OverridablePicker(
                 label: "Center Focused Column",
                 value: ms.centerFocusedColumn,
-                globalValue: settings.niriCenterFocusedColumn,
+                globalValue: settings.niri.centerFocusedColumn,
                 options: CenterFocusedColumn.allCases,
                 displayName: { $0.displayName },
                 onChange: { newValue in updateSetting { $0.centerFocusedColumn = newValue } },
@@ -269,14 +272,14 @@ private struct MonitorNiriSettingsSection: View {
             OverridableToggle(
                 label: "Always Center Single Column",
                 value: ms.alwaysCenterSingleColumn,
-                globalValue: settings.niriAlwaysCenterSingleColumn,
+                globalValue: settings.niri.alwaysCenterSingleColumn,
                 onChange: { newValue in updateSetting { $0.alwaysCenterSingleColumn = newValue } },
                 onReset: { updateSetting { $0.alwaysCenterSingleColumn = nil } }
             )
 
             SingleWindowFitControls(
                 label: "Single Window",
-                fit: ms.singleWindowFit ?? settings.niriSingleWindowFit,
+                fit: ms.singleWindowFit ?? settings.niri.singleWindowFit,
                 modes: SingleWindowFit.niriModes,
                 isOverridden: ms.singleWindowFit != nil,
                 onChange: { newValue in updateSetting { $0.singleWindowFit = newValue } },

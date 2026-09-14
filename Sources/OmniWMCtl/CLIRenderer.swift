@@ -152,7 +152,7 @@ enum CLIRenderer {
             guard let result = response.result,
                   case let .capture(capture) = result.payload
             else { return status }
-            return "\(status)\n\(formattedCapture(capture, format: format))"
+            return "\(status)\n\(CLIDiagnosticsRenderer.formattedCapture(capture, format: format))"
         }
         guard let result = response.result else { return humanReadableStatus(for: response) }
 
@@ -164,21 +164,21 @@ enum CLIRenderer {
         case let .workspaceBar(payload):
             return "workspace-bar monitors: \(payload.monitors.count)"
         case let .activeWorkspace(payload):
-            return formattedActiveWorkspace(payload, format: format)
+            return CLIStateRenderer.formattedActiveWorkspace(payload, format: format)
         case let .focusedMonitor(payload):
-            return formattedFocusedMonitor(payload, format: format)
+            return CLIStateRenderer.formattedFocusedMonitor(payload, format: format)
         case let .apps(payload):
-            return formatAppSummary(payload.apps, format: format)
+            return CLIStateRenderer.formatAppSummary(payload.apps, format: format)
         case let .focusedWindow(payload):
-            return formattedFocusedWindow(payload, format: format)
+            return CLIStateRenderer.formattedFocusedWindow(payload, format: format)
         case let .windows(payload):
-            return formattedWindows(payload, format: format)
+            return CLIStateRenderer.formattedWindows(payload, format: format)
         case let .workspaces(payload):
-            return formattedWorkspaces(payload, format: format)
+            return CLIStateRenderer.formattedWorkspaces(payload, format: format)
         case let .displays(payload):
-            return formattedDisplays(payload, format: format)
+            return CLIStateRenderer.formattedDisplays(payload, format: format)
         case let .rules(payload):
-            return formattedRules(payload, format: format)
+            return CLIStateRenderer.formattedRules(payload, format: format)
         case let .ruleActions(payload):
             return formattedRuleActions(payload, format: format)
         case let .queries(payload):
@@ -190,11 +190,11 @@ enum CLIRenderer {
         case let .capabilities(payload):
             return formattedCapabilities(payload, format: format)
         case let .capture(payload):
-            return formattedCapture(payload, format: format)
+            return CLIDiagnosticsRenderer.formattedCapture(payload, format: format)
         case let .subscribed(payload):
             return "subscribed: \(payload.channels.map(\.rawValue).joined(separator: ", "))"
         case let .metrics(payload):
-            return formattedMetrics(payload, format: format)
+            return CLIDiagnosticsRenderer.formattedMetrics(payload, format: format)
         }
     }
 
@@ -230,233 +230,6 @@ enum CLIRenderer {
         return detail
     }
 
-    private static func formattedActiveWorkspace(
-        _ payload: IPCActiveWorkspaceQueryResult,
-        format: CLIOutputFormat
-    ) -> String {
-        formatRows(
-            headers: ["DISPLAY", "WORKSPACE", "APP"],
-            rows: [[
-                payload.display?.name ?? "-",
-                payload.workspace?.displayName ?? "-",
-                payload.focusedApp?.name ?? "-"
-            ]],
-            format: format
-        )
-    }
-
-    private static func formattedFocusedMonitor(
-        _ payload: IPCFocusedMonitorQueryResult,
-        format: CLIOutputFormat
-    ) -> String {
-        formatRows(
-            headers: ["DISPLAY", "ACTIVE WORKSPACE"],
-            rows: [[payload.display?.name ?? "-", payload.activeWorkspace?.displayName ?? "-"]],
-            format: format
-        )
-    }
-
-    private static func formattedFocusedWindow(
-        _ payload: IPCFocusedWindowQueryResult,
-        format: CLIOutputFormat
-    ) -> String {
-        guard let window = payload.window else {
-            return "no focused window"
-        }
-
-        return formatRows(
-            headers: ["ID", "PID", "APP", "TITLE", "WORKSPACE", "FRAME"],
-            rows: [[
-                window.id,
-                pidDescription(window.pid),
-                window.app?.name ?? "-",
-                window.title ?? "-",
-                window.workspace?.displayName ?? "-",
-                frameDescription(window.frame)
-            ]],
-            format: format
-        )
-    }
-
-    private static func formattedWindows(_ payload: IPCWindowsQueryResult, format: CLIOutputFormat) -> String {
-        var rows = payload.windows.map { window in
-            [
-                window.id ?? "-",
-                pidDescription(window.pid),
-                window.app?.name ?? "-",
-                window.title ?? "-",
-                window.workspace?.displayName ?? "-",
-                window.display?.name ?? "-",
-                window.mode?.rawValue ?? "-",
-                boolDescription(window.isFocused),
-                boolDescription(window.isVisible),
-                window.scratchpadIndex.map(String.init) ?? boolDescription(window.isScratchpad)
-            ]
-        }
-        var headers = ["ID", "PID", "APP", "TITLE", "WORKSPACE", "DISPLAY", "MODE", "FOCUSED", "VISIBLE", "SCRATCHPAD"]
-        appendColumn(
-            "WINDOW ID",
-            values: payload.windows.map { $0.windowId.map(String.init) },
-            headers: &headers,
-            rows: &rows
-        )
-
-        return formatRows(headers: headers, rows: rows, format: format)
-    }
-
-    private static func formattedWorkspaces(_ payload: IPCWorkspacesQueryResult, format: CLIOutputFormat) -> String {
-        let rows = payload.workspaces.map { workspace in
-            [
-                workspace.id ?? "-",
-                workspace.displayName ?? workspace.rawName ?? "-",
-                workspace.display?.name ?? "-",
-                workspace.layout?.rawValue ?? "-",
-                boolDescription(workspace.isCurrent),
-                boolDescription(workspace.isVisible),
-                countsDescription(workspace.counts),
-                workspace.focusedWindowId ?? "-"
-            ]
-        }
-
-        return formatRows(
-            headers: ["ID", "WORKSPACE", "DISPLAY", "LAYOUT", "CURRENT", "VISIBLE", "COUNTS", "FOCUSED WINDOW"],
-            rows: rows,
-            format: format
-        )
-    }
-
-    private static func formattedDisplays(_ payload: IPCDisplaysQueryResult, format: CLIOutputFormat) -> String {
-        var headers = ["ID", "NAME", "MAIN", "CURRENT", "ORIENTATION", "ACTIVE WORKSPACE", "FRAME"]
-        var rows = payload.displays.map { display in
-            [
-                display.id ?? "-",
-                display.name ?? "-",
-                boolDescription(display.isMain),
-                boolDescription(display.isCurrent),
-                display.orientation?.rawValue ?? "-",
-                display.activeWorkspace?.displayName ?? "-",
-                frameDescription(display.frame)
-            ]
-        }
-
-        appendDisplayColumn("INNER GAP", values: payload.displays.map(\.innerGap), headers: &headers, rows: &rows)
-        appendDisplayColumn("OUTER LEFT", values: payload.displays.map(\.outerGapLeft), headers: &headers, rows: &rows)
-        appendDisplayColumn(
-            "OUTER RIGHT",
-            values: payload.displays.map(\.outerGapRight),
-            headers: &headers,
-            rows: &rows
-        )
-        appendDisplayColumn("OUTER TOP", values: payload.displays.map(\.outerGapTop), headers: &headers, rows: &rows)
-        appendDisplayColumn(
-            "OUTER BOTTOM",
-            values: payload.displays.map(\.outerGapBottom),
-            headers: &headers,
-            rows: &rows
-        )
-        appendDisplayBooleanColumn(
-            "FULLSCREEN GAPS",
-            values: payload.displays.map(\.fullscreenUsesOuterGaps),
-            headers: &headers,
-            rows: &rows
-        )
-
-        return formatRows(headers: headers, rows: rows, format: format)
-    }
-
-    private static func appendDisplayBooleanColumn(
-        _ header: String,
-        values: [Bool?],
-        headers: inout [String],
-        rows: inout [[String]]
-    ) {
-        appendColumn(header, values: values.map { $0.map { String($0) } }, headers: &headers, rows: &rows)
-    }
-
-    private static func appendDisplayColumn(
-        _ header: String,
-        values: [Double?],
-        headers: inout [String],
-        rows: inout [[String]]
-    ) {
-        appendColumn(header, values: values.map { $0.map(gapValueDescription) }, headers: &headers, rows: &rows)
-    }
-
-    private static func appendColumn(
-        _ header: String,
-        values: [String?],
-        headers: inout [String],
-        rows: inout [[String]]
-    ) {
-        guard values.contains(where: { $0 != nil }) else { return }
-        headers.append(header)
-        for index in rows.indices {
-            rows[index].append(values[index] ?? "-")
-        }
-    }
-
-    private static func gapValueDescription(_ value: Double) -> String {
-        guard value.isFinite else { return String(value) }
-        return value == value.rounded()
-            ? String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), value)
-            : String(value)
-    }
-
-    private static func formattedRules(_ payload: IPCRulesQueryResult, format: CLIOutputFormat) -> String {
-        let rows = payload.rules.map { rule in
-            [
-                String(rule.position),
-                rule.id,
-                rule.bundleId.isEmpty ? "—" : rule.bundleId,
-                rule.layout.rawValue,
-                rule.assignToWorkspace ?? "-",
-                percentageDescription(rule.initialContainerPrimarySpan),
-                rule.titleRegex ?? "-",
-                String(rule.specificity),
-                ruleValidityDescription(rule)
-            ]
-        }
-
-        return formatRows(
-            headers: [
-                "POS",
-                "ID",
-                "BUNDLE ID",
-                "LAYOUT",
-                "WORKSPACE",
-                "INITIAL PRIMARY SPAN",
-                "TITLE REGEX",
-                "SPECIFICITY",
-                "VALID"
-            ],
-            rows: rows,
-            format: format
-        )
-    }
-
-    private static func percentageDescription(_ proportion: Double?) -> String {
-        guard let proportion else { return "-" }
-        var percentage = String(
-            format: "%.2f",
-            locale: Locale(identifier: "en_US_POSIX"),
-            proportion * 100
-        )
-        while percentage.last == "0" {
-            percentage.removeLast()
-        }
-        if percentage.last == "." {
-            percentage.removeLast()
-        }
-        return percentage + "%"
-    }
-
-    private static func ruleValidityDescription(_ rule: IPCRuleSnapshot) -> String {
-        if rule.isValid { return boolDescription(true) }
-        return rule.validationMessages.isEmpty
-            ? boolDescription(false)
-            : "no: " + rule.validationMessages.joined(separator: "; ")
-    }
-
     private static func formattedQueries(_ payload: IPCQueriesQueryResult, format: CLIOutputFormat) -> String {
         let rows = payload.queries.map { query in
             [
@@ -467,7 +240,7 @@ enum CLIRenderer {
             ]
         }
 
-        return formatRows(
+        return CLITableRenderer.formatRows(
             headers: ["NAME", "SUMMARY", "SELECTORS", "FIELDS"],
             rows: rows,
             format: format
@@ -495,7 +268,7 @@ enum CLIRenderer {
             ]
         }
 
-        return formatRows(
+        return CLITableRenderer.formatRows(
             headers: ["PATH", "SUMMARY", "ARGUMENTS", "OPTIONS"],
             rows: rows,
             format: format
@@ -509,7 +282,7 @@ enum CLIRenderer {
         let workspaceRows = payload.workspaceActions.map { [$0.path, $0.summary, "workspace"] }
         let windowRows = payload.windowActions.map { [$0.path, $0.summary, "window"] }
 
-        return formatRows(
+        return CLITableRenderer.formatRows(
             headers: ["PATH", "SUMMARY", "SURFACE"],
             rows: commandRows + workspaceRows + windowRows,
             format: format
@@ -523,7 +296,7 @@ enum CLIRenderer {
         let rows = payload.subscriptions.map { subscription in
             [subscription.channel.rawValue, subscription.resultKind.rawValue, subscription.summary]
         }
-        return formatRows(headers: ["CHANNEL", "RESULT", "SUMMARY"], rows: rows, format: format)
+        return CLITableRenderer.formatRows(headers: ["CHANNEL", "RESULT", "SUMMARY"], rows: rows, format: format)
     }
 
     private static func formattedCapabilities(
@@ -544,185 +317,11 @@ enum CLIRenderer {
             ["subscriptions", String(payload.subscriptions.count)]
         ]
 
-        return formatRows(headers: ["CAPABILITY", "VALUE"], rows: rows, format: format)
-    }
-
-    private static func formattedCapture(_ payload: IPCCaptureResult, format: CLIOutputFormat) -> String {
-        let artifact = payload.lastArtifact
-        return formatRows(
-            headers: ["FIELD", "VALUE"],
-            rows: [
-                ["phase", payload.phase.rawValue],
-                ["profile", payload.profile?.rawValue ?? "-"],
-                ["started-at", payload.startedAt ?? "-"],
-                ["last-artifact-profile", artifact?.profile.rawValue ?? "-"],
-                ["last-artifact-path", artifact?.path ?? "-"],
-                ["last-artifact-started-at", artifact?.startedAt ?? "-"],
-                ["last-artifact-ended-at", artifact?.endedAt ?? "-"],
-                ["failure-reason", payload.failureReason ?? "-"]
-            ],
-            format: format
-        )
-    }
-
-    private static func formattedMetrics(_ payload: IPCMetricsQueryResult, format: CLIOutputFormat) -> String {
-        let rows = payload.axWrites.byApp.map { bucket in
-            [
-                bucket.app ?? String(bucket.pid),
-                String(bucket.context),
-                bucket.lane,
-                String(bucket.count),
-                String(bucket.failureCount),
-                String(format: "%.1f", bucket.meanMicroseconds / 1_000),
-                String(format: "%.1f", bucket.maxMicroseconds / 1_000)
-            ]
-        }
-        let table = formatRows(
-            headers: ["APP", "CONTEXT", "LANE", "WRITES", "FAILED", "MEAN MS", "MAX MS"],
-            rows: rows,
-            format: format
-        )
-        guard format == .text || format == .table else { return table }
-
-        var lines: [String] = []
-        lines.append(
-            "ax frame writes since launch: \(payload.axWrites.count) attempts"
-                + " mean \(String(format: "%.2f", payload.axWrites.meanMicroseconds / 1_000)) ms"
-                + " max \(String(format: "%.2f", payload.axWrites.maxMicroseconds / 1_000)) ms"
-                + " failed \(payload.axWrites.failureCount)"
-        )
-        let ticks = payload.displayTicks
-        lines.append(
-            "display ticks: \(ticks.tickCount)"
-                + " timing anomalies \(ticks.timingAnomalyCount)"
-                + " (\(String(format: "%.1f", ticks.timingAnomalyPercent))%)"
-                + " long-gap \(ticks.longTimestampGapCount)"
-                + " work-over-period \(ticks.workExceededNominalPeriodCount)"
-                + " completion-past-target \(ticks.completionPastTargetCount)"
-        )
-        lines.append(
-            "  work mean \(String(format: "%.2f", ticks.meanWorkMicroseconds / 1_000)) ms"
-                + " max \(String(format: "%.2f", ticks.maxWorkMicroseconds / 1_000)) ms;"
-                + " max interval \(String(format: "%.2f", ticks.maxIntervalMicroseconds / 1_000)) ms;"
-                + " min slack at entry \(String(format: "%.2f", ticks.minEntrySlackMicroseconds / 1_000)) ms"
-                + " at completion \(String(format: "%.2f", ticks.minCompletionSlackMicroseconds / 1_000)) ms"
-                + " (negative = past the frame's target timestamp)"
-        )
-        lines.append(
-            "layout builds: \(payload.layoutBuilds.totalBuilds)"
-                + " cycles \(payload.layoutBuilds.completedRelayoutCycles)"
-        )
-        if let process = payload.process {
-            lines.append(
-                "energy: \(process.energyNanojoules / 1_000_000) mJ"
-                    + " cpu \(String(format: "%.1f", Double(process.userTimeNanoseconds + process.systemTimeNanoseconds) / 1_000_000_000)) s"
-                    + " wakeups \(process.packageIdleWakeups)"
-                    + " footprint \(process.physicalFootprintBytes / 1_048_576) MB"
-            )
-        }
-        lines.append("trace capture active: \(payload.traceCaptureActive)")
-        if !rows.isEmpty {
-            lines.append("")
-            lines.append("live app contexts (rows retire with the app's AX context):")
-            lines.append(table)
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func formatAppSummary(_ apps: [IPCManagedAppSummary], format: CLIOutputFormat) -> String {
-        let rows = apps.map { app in
-            [app.appName, app.bundleId.isEmpty ? "—" : app.bundleId, sizeDescription(app.windowSize)]
-        }
-        return formatRows(headers: ["APP", "BUNDLE ID", "WINDOW SIZE"], rows: rows, format: format)
-    }
-
-    private static func formatRows(headers: [String], rows: [[String]], format: CLIOutputFormat) -> String {
-        switch format {
-        case .json,
-             .ndjson:
-            return ""
-        case .tsv:
-            let sanitizedRows = ([headers] + rows).map { $0.map(sanitizedCell) }
-            return sanitizedRows.map { $0.joined(separator: "\t") }.joined(separator: "\n")
-        case .text,
-             .table:
-            return renderTable(headers: headers, rows: rows)
-        }
-    }
-
-    private static func renderTable(headers: [String], rows: [[String]]) -> String {
-        let cleanHeaders = headers.map(sanitizedCell)
-        let cleanRows = rows.map { $0.map(sanitizedCell) }
-        let widths = cleanHeaders.indices.map { column in
-            ([cleanHeaders[column]] + cleanRows.map { row in row.indices.contains(column) ? row[column] : "" })
-                .map(TerminalCellWidth.measure)
-                .max() ?? 0
-        }
-
-        func renderRow(_ row: [String]) -> String {
-            cleanHeaders.indices.map { column in
-                let value = row.indices.contains(column) ? row[column] : ""
-                let padding = max(0, widths[column] - TerminalCellWidth.measure(value))
-                return value + String(repeating: " ", count: padding)
-            }
-            .joined(separator: "  ")
-            .trimmingCharacters(in: .whitespaces)
-        }
-
-        var lines = [renderRow(cleanHeaders)]
-        lines.append(widths.map { String(repeating: "-", count: $0) }.joined(separator: "  "))
-        if cleanRows.isEmpty {
-            lines.append("(none)")
-        } else {
-            lines.append(contentsOf: cleanRows.map(renderRow))
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func sanitizedCell(_ value: String) -> String {
-        var result = String.UnicodeScalarView()
-        result.reserveCapacity(value.unicodeScalars.count)
-
-        for scalar in value.unicodeScalars {
-            switch scalar.properties.generalCategory {
-            case .control,
-                 .lineSeparator,
-                 .paragraphSeparator:
-                result.append(" ")
-            default:
-                result.append(scalar)
-            }
-        }
-
-        return String(result)
-    }
-
-    private static func boolDescription(_ value: Bool?) -> String {
-        guard let value else { return "-" }
-        return value ? "yes" : "no"
-    }
-
-    private static func countsDescription(_ counts: IPCWorkspaceWindowCounts?) -> String {
-        guard let counts else { return "-" }
-        return "total=\(counts.total), tiled=\(counts.tiled), floating=\(counts.floating), scratchpad=\(counts.scratchpad)"
-    }
-
-    private static func frameDescription(_ rect: IPCRect?) -> String {
-        guard let rect else { return "-" }
-        return "\(Int(rect.x)),\(Int(rect.y)) \(Int(rect.width))x\(Int(rect.height))"
-    }
-
-    private static func pidDescription(_ pid: Int32?) -> String {
-        guard let pid else { return "-" }
-        return String(pid)
+        return CLITableRenderer.formatRows(headers: ["CAPABILITY", "VALUE"], rows: rows, format: format)
     }
 
     private static func dashIfEmpty(_ value: String) -> String {
         value.isEmpty ? "-" : value
-    }
-
-    private static func sizeDescription(_ size: IPCSize) -> String {
-        "\(Int(size.width))x\(Int(size.height))"
     }
 
     private static func encodeLocalEnvelope(_ envelope: CLILocalFailureEnvelope, prettyPrinted: Bool) throws -> Data {

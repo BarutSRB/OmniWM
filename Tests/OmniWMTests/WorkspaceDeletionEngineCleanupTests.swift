@@ -532,7 +532,7 @@ final class WorkspaceDeletionEngineCleanupTests: XCTestCase {
         layoutType: LayoutType = .defaultLayout,
         controller: WMController
     ) throws -> WorkspaceDescriptor.ID {
-        controller.settings.workspaceConfigurations.append(WorkspaceConfiguration(name: name, layoutType: layoutType))
+        controller.settings.workspaces.configurations.append(WorkspaceConfiguration(name: name, layoutType: layoutType))
         controller.workspaceManager.applySettings()
         return try XCTUnwrap(controller.workspaceManager.workspaceId(named: name))
     }
@@ -552,7 +552,7 @@ final class WorkspaceDeletionEngineCleanupTests: XCTestCase {
     }
 
     private func removeTransientWorkspace(named name: String, controller: WMController) {
-        controller.settings.workspaceConfigurations.removeAll { $0.name == name }
+        controller.settings.workspaces.configurations.removeAll { $0.name == name }
         controller.workspaceManager.applySettings()
     }
 
