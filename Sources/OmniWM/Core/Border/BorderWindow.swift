@@ -7,7 +7,7 @@ import QuartzCore
 @MainActor
 final class BorderWindow {
     struct Operations {
-        var createLayerPanel: @MainActor (CGRect) -> BorderLayerPanel
+        var createLayerPanel: @MainActor (CGRect) -> BorderLayerPanel?
         var excludeFromScreencaptureSelection: @MainActor (UInt32) -> Void
         var queryWindowInfoDeferred: @MainActor (UInt32) async throws -> WindowServerInfo?
         var backingScaleForFrame: @MainActor (CGRect) -> (scale: CGFloat, screenFrame: CGRect)
@@ -153,7 +153,7 @@ final class BorderWindow {
     }
 
     private func createWindow(scale: CGFloat) {
-        let panel = operations.createLayerPanel(appliedSurfaceFrame)
+        guard let panel = operations.createLayerPanel(appliedSurfaceFrame) else { return }
         guard let windowId = UInt32(exactly: panel.windowNumber), windowId != 0 else {
             panel.close()
             return
@@ -173,7 +173,7 @@ final class BorderWindow {
         needsOrdering: Bool,
         retryingTargetLevel: Bool
     ) {
-        layerPanel?.applyFrame(appliedSurfaceFrame)
+        layerPanel?.applyFrame(targetFrame: appliedTargetFrame, surfaceFrame: appliedSurfaceFrame)
         if needsOrdering {
             BorderOpMetricsRecorder.shared.noteMoveAndOrder()
             let level = resolvedTargetLevel(
@@ -349,9 +349,7 @@ extension BorderWindow {
             color: Self.cgColor(config.color), scale: lastConfiguredScale
         )
         needsRedraw = false
-        BorderOpMetricsRecorder.shared.noteRedraw(
-            rasterizedArea: geometry.surfaceFrame.width * geometry.surfaceFrame.height
-        )
+        BorderOpMetricsRecorder.shared.noteRedraw()
     }
 
     private static func cgColor(_ color: SettingsColor) -> CGColor {
@@ -369,43 +367,5 @@ extension BorderWindow {
     private static func component(_ value: Double) -> CGFloat {
         guard value.isFinite else { return 0 }
         return CGFloat(min(max(value, 0), 1))
-    }
-
-    static func roundedRectPath(in rect: CGRect, radii: WindowCornerRadii) -> CGPath {
-        let path = CGMutablePath()
-        guard rect.width > 0, rect.height > 0, !rect.isInfinite, !rect.isNull else { return path }
-        let radii = radii.normalized(to: rect.size)
-
-        path.move(to: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - radii.bottomRight, y: rect.minY))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
-            tangent2End: CGPoint(x: rect.maxX, y: rect.minY + radii.bottomRight),
-            radius: radii.bottomRight
-        )
-
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radii.topRight))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
-            tangent2End: CGPoint(x: rect.maxX - radii.topRight, y: rect.maxY),
-            radius: radii.topRight
-        )
-
-        path.addLine(to: CGPoint(x: rect.minX + radii.topLeft, y: rect.maxY))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
-            tangent2End: CGPoint(x: rect.minX, y: rect.maxY - radii.topLeft),
-            radius: radii.topLeft
-        )
-
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radii.bottomLeft))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.minX, y: rect.minY),
-            tangent2End: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY),
-            radius: radii.bottomLeft
-        )
-
-        path.closeSubpath()
-        return path
     }
 }

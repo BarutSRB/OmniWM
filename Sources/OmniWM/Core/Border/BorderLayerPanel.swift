@@ -2,14 +2,16 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import AppKit
+import OmniWMLayerCorners
 import QuartzCore
 
 @MainActor
 class BorderLayerPanel: NSPanel {
-    let borderLayer = CAShapeLayer()
+    let borderLayer = CALayer()
     private let containerLayer = CALayer()
 
-    init(frame: CGRect) {
+    init?(frame: CGRect) {
+        guard omniwm_layer_border_available() else { return nil }
         super.init(
             contentRect: frame.integral,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -30,11 +32,11 @@ class BorderLayerPanel: NSPanel {
 
         let view = NSView(frame: CGRect(origin: .zero, size: frame.integral.size))
         view.wantsLayer = true
-        borderLayer.fillRule = .evenOdd
-        borderLayer.strokeColor = nil
+        borderLayer.cornerCurve = .continuous
+        borderLayer.rimOpacity = 1
         borderLayer.actions = [
-            "path": NSNull(), "fillColor": NSNull(), "bounds": NSNull(),
-            "position": NSNull(), "contentsScale": NSNull()
+            "rimWidth": NSNull(), "rimColor": NSNull(), "rimOpacity": NSNull(), "cornerRadii": NSNull(),
+            "bounds": NSNull(), "position": NSNull(), "contentsScale": NSNull()
         ]
         containerLayer.addSublayer(borderLayer)
         view.layer = containerLayer
@@ -53,8 +55,8 @@ class BorderLayerPanel: NSPanel {
         frameRect
     }
 
-    func applyFrame(_ targetFrame: CGRect) {
-        let panelFrame = targetFrame.integral
+    func applyFrame(targetFrame: CGRect, surfaceFrame: CGRect) {
+        let panelFrame = surfaceFrame.integral
         let layerFrame = targetFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
         guard frame != panelFrame || borderLayer.frame != layerFrame else { return }
         CATransaction.begin()
@@ -74,18 +76,25 @@ class BorderLayerPanel: NSPanel {
         color: CGColor,
         scale: CGFloat
     ) {
-        let path = CGMutablePath()
-        path.addPath(BorderWindow.roundedRectPath(
-            in: geometry.surfaceFrame, radii: cornerRadii.adding(geometry.width)
-        ))
-        path.addPath(BorderWindow.roundedRectPath(in: geometry.targetFrame, radii: cornerRadii))
+        let radii = cornerRadii.normalized(to: geometry.targetFrame.size)
+        let nativeRadii = CACornerRadii(
+            topLeft: CGSize(width: radii.topLeft, height: radii.topLeft),
+            topRight: CGSize(width: radii.topRight, height: radii.topRight),
+            bottomRight: CGSize(width: radii.bottomRight, height: radii.bottomRight),
+            bottomLeft: CGSize(width: radii.bottomLeft, height: radii.bottomLeft)
+        )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        borderLayer.bounds = geometry.surfaceFrame
-        containerLayer.contentsScale = scale
-        borderLayer.contentsScale = scale
-        borderLayer.path = path
-        borderLayer.fillColor = color
+        if containerLayer.contentsScale != scale { containerLayer.contentsScale = scale }
+        if borderLayer.contentsScale != scale { borderLayer.contentsScale = scale }
+        if borderLayer.rimWidth != geometry.width { borderLayer.rimWidth = geometry.width }
+        if borderLayer.rimColor != color { borderLayer.rimColor = color }
+        let currentRadii = borderLayer.cornerRadii
+        if currentRadii.topLeft != nativeRadii.topLeft || currentRadii.topRight != nativeRadii.topRight
+            || currentRadii.bottomRight != nativeRadii.bottomRight || currentRadii.bottomLeft != nativeRadii.bottomLeft
+        {
+            borderLayer.cornerRadii = nativeRadii
+        }
         CATransaction.commit()
     }
 }
