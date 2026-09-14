@@ -27,6 +27,15 @@ final class GhosttySurfaceCallbackContext {
 }
 
 @MainActor
+struct GhosttySurfaceDisplayTestHooks {
+    var displayId: (NSWindow) -> UInt32?
+    var readSize: () -> ghostty_surface_size_s
+    var setDisplayId: (UInt32) -> Void
+    var setContentScale: (CGFloat) -> Void
+    var setSize: (GhosttySurfacePixelSize) -> Void
+}
+
+@MainActor
 final class GhosttySurfaceView: NSView {
     private(set) var ghosttySurface: ghostty_surface_t?
     private var retainedCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
@@ -35,6 +44,7 @@ final class GhosttySurfaceView: NSView {
     private var lastAppliedContentScale: CGFloat?
     private var lastAppliedDisplayId: UInt32?
     private var occlusionHandlerForTests: ((Bool) -> Void)?
+    private var displayHooksForTests: GhosttySurfaceDisplayTestHooks?
 
     private let windowInteraction = QuakeWindowInteraction()
 
@@ -55,18 +65,18 @@ final class GhosttySurfaceView: NSView {
 
     init(ghosttyApp: ghostty_app_t, callbackContext: GhosttySurfaceCallbackContext) {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
-        wantsLayer = true
-        layerContentsRedrawPolicy = .duringViewResize
 
         callbackContext.view = self
         let retainedContext = Unmanaged.passRetained(callbackContext)
+
+        let initialScale = NSScreen.main?.backingScaleFactor ?? 1.0
 
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
         config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(self).toOpaque()
         ))
-        config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 1.0)
+        config.scale_factor = Double(initialScale)
         config.userdata = retainedContext.toOpaque()
 
         guard let surface = ghostty_surface_new(ghosttyApp, &config) else {
@@ -76,13 +86,8 @@ final class GhosttySurfaceView: NSView {
         }
         self.ghosttySurface = surface
         self.retainedCallbackContext = retainedContext
+        lastAppliedContentScale = initialScale
         updateSurfaceOcclusion()
-
-        if let layer {
-            let scale = layer.contentsScale
-            ghostty_surface_set_content_scale(surface, scale, scale)
-            lastAppliedContentScale = scale
-        }
 
         let trackingArea = NSTrackingArea(
             rect: .zero,
@@ -93,8 +98,12 @@ final class GhosttySurfaceView: NSView {
         addTrackingArea(trackingArea)
     }
 
-    init(occlusionHandlerForTests: @escaping (Bool) -> Void) {
+    init(
+        occlusionHandlerForTests: @escaping (Bool) -> Void,
+        displayHooksForTests: GhosttySurfaceDisplayTestHooks? = nil
+    ) {
         self.occlusionHandlerForTests = occlusionHandlerForTests
+        self.displayHooksForTests = displayHooksForTests
         super.init(frame: .zero)
         updateSurfaceOcclusion()
     }
@@ -107,22 +116,6 @@ final class GhosttySurfaceView: NSView {
     isolated deinit {
         NotificationCenter.default.removeObserver(self)
         releaseSurface()
-    }
-
-    override func makeBackingLayer() -> CALayer {
-        let metalLayer = CAMetalLayer()
-        metalLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
-        metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        if let displayId, let surface = ghosttySurface {
-            ghostty_surface_set_display_id(surface, displayId)
-            lastAppliedDisplayId = displayId
-        }
-        return metalLayer
-    }
-
-    private var displayId: UInt32? {
-        guard let screen = window?.screen ?? NSScreen.main else { return nil }
-        return screen.displayId
     }
 
     override func viewDidMoveToWindow() {
@@ -166,6 +159,11 @@ final class GhosttySurfaceView: NSView {
         updateDisplayState()
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateDisplayState()
+    }
+
     @objc private func windowDidChangeOcclusionState(_ notification: Notification) {
         updateSurfaceOcclusion()
     }
@@ -177,33 +175,6 @@ final class GhosttySurfaceView: NSView {
         } else if let surface = ghosttySurface {
             ghostty_surface_set_occlusion(surface, visible)
         }
-    }
-
-    private func updateDisplayState() {
-        guard let metalLayer = layer as? CAMetalLayer, let surface = ghosttySurface else { return }
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
-        metalLayer.contentsScale = scale
-
-        if let displayId, displayId != lastAppliedDisplayId {
-            ghostty_surface_set_display_id(surface, displayId)
-            lastAppliedDisplayId = displayId
-            lastAppliedSurfacePixelSize = nil
-        }
-
-        if lastAppliedContentScale != scale {
-            ghostty_surface_set_content_scale(surface, scale, scale)
-            lastAppliedContentScale = scale
-            lastAppliedSurfacePixelSize = nil
-        }
-
-        syncGhosttySurfaceSize(backingScale: scale)
-    }
-
-    func refreshDisplayStateForCurrentScreen() {
-        lastAppliedDisplayId = nil
-        lastAppliedContentScale = nil
-        lastAppliedSurfacePixelSize = nil
-        updateDisplayState()
     }
 
     func registerProtectedClipboardRequest(_ request: GhosttyProtectedClipboardRequest) {
@@ -245,22 +216,6 @@ final class GhosttySurfaceView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         syncGhosttySurfaceSize()
-    }
-
-    func syncGhosttySurfaceSize(backingScale explicitBackingScale: CGFloat? = nil) {
-        let scale = explicitBackingScale ?? window?.backingScaleFactor ?? 1.0
-        guard let surface = ghosttySurface else { return }
-        let surfaceSize = ghostty_surface_size(surface)
-
-        let pixelSize = GhosttySurfacePixelSizeNormalizer.normalize(
-            pointSize: frame.size,
-            backingScale: scale,
-            cellMetrics: GhosttySurfaceCellMetrics(surfaceSize: surfaceSize)
-        )
-        guard let pixelSize, pixelSize != lastAppliedSurfacePixelSize else { return }
-
-        ghostty_surface_set_size(surface, pixelSize.widthPx, pixelSize.heightPx)
-        lastAppliedSurfacePixelSize = pixelSize
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -373,6 +328,83 @@ final class GhosttySurfaceView: NSView {
         let mods = QuakeGhosttyInputBridge.ghosttyMods(event.modifierFlags)
         let flippedY = bounds.height - point.y
         ghostty_surface_mouse_pos(surface, point.x, flippedY, mods)
+    }
+}
+
+extension GhosttySurfaceView {
+    private var displayId: UInt32? {
+        if let displayHooksForTests, let window {
+            return displayHooksForTests.displayId(window)
+        }
+        guard let screen = window?.screen ?? NSScreen.main else { return nil }
+        return screen.displayId
+    }
+
+    private func updateDisplayState() {
+        guard ghosttySurface != nil || displayHooksForTests != nil, let window else { return }
+        let scale = window.backingScaleFactor
+
+        if let layer, layer.contentsScale != scale {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.contentsScale = scale
+            CATransaction.commit()
+        }
+
+        if let displayId, displayId != lastAppliedDisplayId {
+            if let surface = ghosttySurface {
+                ghostty_surface_set_display_id(surface, displayId)
+            } else {
+                displayHooksForTests?.setDisplayId(displayId)
+            }
+            lastAppliedDisplayId = displayId
+            lastAppliedSurfacePixelSize = nil
+        }
+
+        if lastAppliedContentScale != scale {
+            if let surface = ghosttySurface {
+                ghostty_surface_set_content_scale(surface, scale, scale)
+            } else {
+                displayHooksForTests?.setContentScale(scale)
+            }
+            lastAppliedContentScale = scale
+            lastAppliedSurfacePixelSize = nil
+        }
+
+        syncGhosttySurfaceSize(backingScale: scale)
+    }
+
+    func refreshDisplayStateForCurrentScreen() {
+        lastAppliedDisplayId = nil
+        lastAppliedContentScale = nil
+        lastAppliedSurfacePixelSize = nil
+        updateDisplayState()
+    }
+
+    func syncGhosttySurfaceSize(backingScale explicitBackingScale: CGFloat? = nil) {
+        guard let scale = explicitBackingScale ?? window?.backingScaleFactor else { return }
+        let surfaceSize: ghostty_surface_size_s
+        if let surface = ghosttySurface {
+            surfaceSize = ghostty_surface_size(surface)
+        } else if let displayHooksForTests {
+            surfaceSize = displayHooksForTests.readSize()
+        } else {
+            return
+        }
+
+        let pixelSize = GhosttySurfacePixelSizeNormalizer.normalize(
+            pointSize: frame.size,
+            backingScale: scale,
+            cellMetrics: GhosttySurfaceCellMetrics(surfaceSize: surfaceSize)
+        )
+        guard let pixelSize, pixelSize != lastAppliedSurfacePixelSize else { return }
+
+        if let surface = ghosttySurface {
+            ghostty_surface_set_size(surface, pixelSize.widthPx, pixelSize.heightPx)
+        } else {
+            displayHooksForTests?.setSize(pixelSize)
+        }
+        lastAppliedSurfacePixelSize = pixelSize
     }
 }
 
