@@ -33,7 +33,12 @@ extension IPCCommandRouter {
             return result
         }
 
-        guard controller.activeWorkspace()?.name != rawWorkspaceID else { return .noChange }
+        if let currentWorkspace = controller.activeWorkspace(),
+           currentWorkspace.name == rawWorkspaceID,
+           controller.workspaceNavigationHandler.canSkipSwitch(toVisibleWorkspace: currentWorkspace.id)
+        {
+            return .noChange
+        }
         return controller.windowActionHandler.focusWorkspaceFromBar(named: rawWorkspaceID) ? .executed : .notFound
     }
 
