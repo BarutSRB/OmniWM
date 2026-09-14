@@ -55,18 +55,22 @@ final class GhosttySurfaceView: NSView {
 
     init(ghosttyApp: ghostty_app_t, callbackContext: GhosttySurfaceCallbackContext) {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
-        wantsLayer = true
-        layerContentsRedrawPolicy = .duringViewResize
 
         callbackContext.view = self
         let retainedContext = Unmanaged.passRetained(callbackContext)
+
+        // libghostty installs its own IOSurface-backed CALayer on this view
+        // (making it layer-hosting) and seeds that layer's contentsScale from
+        // scale_factor. We have no window yet, so this is only a guess; the
+        // authoritative scale is pushed from the window in updateDisplayState.
+        let initialScale = NSScreen.main?.backingScaleFactor ?? 1.0
 
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
         config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(self).toOpaque()
         ))
-        config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 1.0)
+        config.scale_factor = Double(initialScale)
         config.userdata = retainedContext.toOpaque()
 
         guard let surface = ghostty_surface_new(ghosttyApp, &config) else {
@@ -76,13 +80,8 @@ final class GhosttySurfaceView: NSView {
         }
         self.ghosttySurface = surface
         self.retainedCallbackContext = retainedContext
+        lastAppliedContentScale = initialScale
         updateSurfaceOcclusion()
-
-        if let layer {
-            let scale = layer.contentsScale
-            ghostty_surface_set_content_scale(surface, scale, scale)
-            lastAppliedContentScale = scale
-        }
 
         let trackingArea = NSTrackingArea(
             rect: .zero,
@@ -107,17 +106,6 @@ final class GhosttySurfaceView: NSView {
     isolated deinit {
         NotificationCenter.default.removeObserver(self)
         releaseSurface()
-    }
-
-    override func makeBackingLayer() -> CALayer {
-        let metalLayer = CAMetalLayer()
-        metalLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
-        metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        if let displayId, let surface = ghosttySurface {
-            ghostty_surface_set_display_id(surface, displayId)
-            lastAppliedDisplayId = displayId
-        }
-        return metalLayer
     }
 
     private var displayId: UInt32? {
@@ -164,6 +152,16 @@ final class GhosttySurfaceView: NSView {
 
     @objc private func windowDidChangeScreen(_ notification: Notification) {
         updateDisplayState()
+        // The window's backing scale can lag the screen change by a turn of
+        // the run loop. Re-check once it has settled, as Ghostty's own view does.
+        DispatchQueue.main.async { [weak self] in
+            self?.updateDisplayState()
+        }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateDisplayState()
     }
 
     @objc private func windowDidChangeOcclusionState(_ notification: Notification) {
@@ -179,10 +177,23 @@ final class GhosttySurfaceView: NSView {
         }
     }
 
+    /// Pushes the window's backing scale, display, and pixel size to Ghostty.
+    ///
+    /// Ghostty sizes its render target from `layer.bounds * layer.contentsScale`
+    /// and its grid from `ghostty_surface_set_size`, so the layer scale, the
+    /// content scale, and the pixel size must all come from the same window.
+    /// Without a window there is no authoritative scale, so nothing is pushed;
+    /// `viewDidMoveToWindow` runs this again once one is available.
     private func updateDisplayState() {
-        guard let metalLayer = layer as? CAMetalLayer, let surface = ghosttySurface else { return }
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
-        metalLayer.contentsScale = scale
+        guard let surface = ghosttySurface, let window else { return }
+        let scale = window.backingScaleFactor
+
+        if let layer, layer.contentsScale != scale {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.contentsScale = scale
+            CATransaction.commit()
+        }
 
         if let displayId, displayId != lastAppliedDisplayId {
             ghostty_surface_set_display_id(surface, displayId)
@@ -248,8 +259,11 @@ final class GhosttySurfaceView: NSView {
     }
 
     func syncGhosttySurfaceSize(backingScale explicitBackingScale: CGFloat? = nil) {
-        let scale = explicitBackingScale ?? window?.backingScaleFactor ?? 1.0
         guard let surface = ghosttySurface else { return }
+        // A detached view has no trustworthy scale. Pushing the point size at
+        // 1x would hand Ghostty a half-size grid on a Retina window, so wait
+        // for viewDidMoveToWindow to resync instead.
+        guard let scale = explicitBackingScale ?? window?.backingScaleFactor else { return }
         let surfaceSize = ghostty_surface_size(surface)
 
         let pixelSize = GhosttySurfacePixelSizeNormalizer.normalize(
