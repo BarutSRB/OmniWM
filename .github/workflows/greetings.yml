@@ -18,6 +18,8 @@ jobs:
 
             Clear reproduction steps, OmniWM version, macOS version, and logs make reports much easier to investigate.
 
+            If this is a question rather than a bug, the OmniWM Discord (https://discord.gg/NzMFZ4peWY) is the quickest place to get help.
+
             OmniWM is free and open source. If you find it useful, starring the repo helps more people discover it. Totally optional; thanks either way.
           pr_message: |
             Thanks for opening your first OmniWM pull request, and welcome.
