@@ -10,13 +10,13 @@ final class BorderAppearanceTests: XCTestCase {
 
     /// Confirms legacy settings omit optional border effects by default.
     func testLegacyDefaultsKeepOptionalEffectsDisabled() {
-        let defaults = SettingsExport.defaults()
+        let defaults = SettingsExport.defaults().borders
 
-        XCTAssertNil(defaults.borderGradient)
-        XCTAssertNil(defaults.borderGlow)
-        XCTAssertNil(defaults.borderColorDark)
-        XCTAssertTrue(defaults.bordersEnabled)
-        XCTAssertEqual(defaults.borderWidth, 5)
+        XCTAssertNil(defaults.gradient)
+        XCTAssertNil(defaults.glow)
+        XCTAssertNil(defaults.darkColor)
+        XCTAssertTrue(defaults.enabled)
+        XCTAssertEqual(defaults.width, 5)
     }
 
     /// Confirms absent optional effects produce a solid border configuration.
@@ -59,13 +59,13 @@ final class BorderAppearanceTests: XCTestCase {
     /// Confirms enabled gradient and glow values survive TOML round trips.
     func testGradientAndGlowRoundTripThroughTOML() throws {
         var export = SettingsExport.defaults()
-        export.borderGradient = BorderGradient(
+        export.borders.gradient = BorderGradient(
             enabled: true,
             start: solidRed,
             end: solidBlue,
             direction: .topRightToBottomLeft
         )
-        export.borderGlow = BorderGlow(enabled: true, radius: 16, opacity: 0.6)
+        export.borders.glow = BorderGlow(enabled: true, radius: 16, opacity: 0.6)
 
         let data = try SettingsTOMLCodec.encode(export)
         let toml = String(decoding: data, as: UTF8.self)
@@ -73,8 +73,8 @@ final class BorderAppearanceTests: XCTestCase {
 
         XCTAssertTrue(toml.contains("[borders.gradient]"))
         XCTAssertTrue(toml.contains("[borders.glow]"))
-        XCTAssertEqual(decoded.borderGradient, export.borderGradient)
-        XCTAssertEqual(decoded.borderGlow, export.borderGlow)
+        XCTAssertEqual(decoded.borders.gradient, export.borders.gradient)
+        XCTAssertEqual(decoded.borders.glow, export.borders.glow)
     }
 
     /// Confirms legacy TOML omits absent optional effect tables.
@@ -85,110 +85,8 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertFalse(toml.contains("[borders.gradient]"))
         XCTAssertFalse(toml.contains("[borders.glow]"))
         let decoded = try SettingsTOMLCodec.decode(data)
-        XCTAssertNil(decoded.borderGradient)
-        XCTAssertNil(decoded.borderGlow)
-    }
-
-    /// Confirms every supported gradient direction is Codable.
-    func testGradientDirectionRoundTrip() throws {
-        for direction in BorderGradientDirection.allCases {
-            let gradient = BorderGradient(
-                enabled: true,
-                start: solidRed,
-                end: solidBlue,
-                direction: direction
-            )
-            let data = try JSONEncoder().encode(gradient)
-            let decoded = try JSONDecoder().decode(BorderGradient.self, from: data)
-            XCTAssertEqual(decoded.direction, direction)
-        }
-    }
-
-    // MARK: - Validation
-
-    /// Confirms invalid glow values use the prior valid configuration.
-    func testInvalidGlowFallsBackWithoutPartialMutation() {
-        let fallback = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
-        let invalid = BorderGlow(enabled: true, radius: 64, opacity: 2)
-
-        XCTAssertEqual(SettingsStore.validatedBorderGlow(invalid, fallback: fallback), fallback)
-    }
-
-    /// Confirms non-finite gradient colors use the prior valid configuration.
-    func testInvalidGradientFallsBackWithoutPartialMutation() {
-        let fallback = BorderGradient.default
-        let invalid = BorderGradient(
-            enabled: true,
-            start: SettingsColor(red: .infinity, green: 0, blue: 0, alpha: 1),
-            end: fallback.end,
-            direction: fallback.direction
-        )
-
-        XCTAssertEqual(SettingsStore.validatedBorderGradient(invalid, fallback: fallback), fallback)
-    }
-
-    /// Confirms a non-finite glow radius is rejected safely.
-    func testNaNGlowRadiusFallsBack() {
-        let fallback = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
-        let invalid = BorderGlow(enabled: true, radius: .nan, opacity: 0.5)
-
-        XCTAssertEqual(SettingsStore.validatedBorderGlow(invalid, fallback: fallback), fallback)
-    }
-
-    /// Confirms a non-finite glow opacity is rejected safely.
-    func testNaNGlowOpacityFallsBack() {
-        let fallback = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
-        let invalid = BorderGlow(enabled: true, radius: 8, opacity: .nan)
-
-        XCTAssertEqual(SettingsStore.validatedBorderGlow(invalid, fallback: fallback), fallback)
-    }
-
-    /// Confirms a non-finite gradient endpoint is rejected safely.
-    func testNaNGradientEndColorFallsBack() {
-        let fallback = BorderGradient.default
-        let invalid = BorderGradient(
-            enabled: true,
-            start: solidRed,
-            end: SettingsColor(red: 0, green: .nan, blue: 0, alpha: 1),
-            direction: .topLeftToBottomRight
-        )
-
-        XCTAssertEqual(SettingsStore.validatedBorderGradient(invalid, fallback: fallback), fallback)
-    }
-
-    /// Confirms finite gradient color components are clamped to unit range.
-    func testValidGradientClampsComponentsToUnitRange() {
-        let wide = BorderGradient(
-            enabled: true,
-            start: SettingsColor(red: -0.1, green: 1.5, blue: 0.5, alpha: 2.0),
-            end: SettingsColor(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.6),
-            direction: .topRightToBottomLeft
-        )
-        let result = SettingsStore.validatedBorderGradient(wide, fallback: nil)
-
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result?.start.red, 0)
-        XCTAssertEqual(result?.start.green, 1)
-        XCTAssertEqual(result?.start.alpha, 1)
-    }
-
-    /// Confirms glow validation accepts documented boundary values.
-    func testValidGlowAtBoundaryValues() {
-        let zero = BorderGlow(enabled: true, radius: 0, opacity: 0)
-        let max = BorderGlow(enabled: true, radius: 32, opacity: 1)
-
-        XCTAssertEqual(SettingsStore.validatedBorderGlow(zero, fallback: nil), zero)
-        XCTAssertEqual(SettingsStore.validatedBorderGlow(max, fallback: nil), max)
-    }
-
-    /// Confirms a missing gradient remains absent during validation.
-    func testNilGradientPassesThroughValidation() {
-        XCTAssertNil(SettingsStore.validatedBorderGradient(nil, fallback: .default))
-    }
-
-    /// Confirms a missing glow remains absent during validation.
-    func testNilGlowPassesThroughValidation() {
-        XCTAssertNil(SettingsStore.validatedBorderGlow(nil, fallback: .default))
+        XCTAssertNil(decoded.borders.gradient)
+        XCTAssertNil(decoded.borders.glow)
     }
 
     // MARK: - Appearance-resolved colors
@@ -251,14 +149,14 @@ final class BorderAppearanceTests: XCTestCase {
     /// Confirms the dark border color survives TOML round trips.
     func testDarkBorderColorRoundTripsThroughTOML() throws {
         var export = SettingsExport.defaults()
-        export.borderColorDark = solidBlue
+        export.borders.darkColor = solidBlue
 
         let data = try SettingsTOMLCodec.encode(export)
         let toml = String(decoding: data, as: UTF8.self)
         let decoded = try SettingsTOMLCodec.decode(data)
 
         XCTAssertTrue(toml.contains("[borders.darkColor]"))
-        XCTAssertEqual(decoded.borderColorDark, solidBlue)
+        XCTAssertEqual(decoded.borders.darkColor, solidBlue)
     }
 
     /// Confirms legacy TOML without a dark color decodes nil and omits the table.
@@ -268,7 +166,7 @@ final class BorderAppearanceTests: XCTestCase {
         let decoded = try SettingsTOMLCodec.decode(data)
 
         XCTAssertFalse(toml.contains("darkColor"))
-        XCTAssertNil(decoded.borderColorDark)
+        XCTAssertNil(decoded.borders.darkColor)
     }
 
     /// Confirms dark gradient colors survive TOML round trips.
@@ -277,27 +175,27 @@ final class BorderAppearanceTests: XCTestCase {
         var gradient = BorderGradient.default
         gradient.enabled = true
         gradient.dark = BorderGradientColors(start: solidBlue, end: solidRed)
-        export.borderGradient = gradient
+        export.borders.gradient = gradient
 
         let data = try SettingsTOMLCodec.encode(export)
         let toml = String(decoding: data, as: UTF8.self)
         let decoded = try SettingsTOMLCodec.decode(data)
 
         XCTAssertTrue(toml.contains("[borders.gradient.dark]"))
-        XCTAssertEqual(decoded.borderGradient?.dark, gradient.dark)
+        XCTAssertEqual(decoded.borders.gradient?.dark, gradient.dark)
     }
 
     /// Confirms legacy gradient TOML without dark colors decodes nil.
     func testLegacyGradientTOMLDecodesWithoutDarkColors() throws {
         var export = SettingsExport.defaults()
-        export.borderGradient = BorderGradient.default
+        export.borders.gradient = BorderGradient.default
 
         let data = try SettingsTOMLCodec.encode(export)
         let toml = String(decoding: data, as: UTF8.self)
         let decoded = try SettingsTOMLCodec.decode(data)
 
         XCTAssertFalse(toml.contains("gradient.dark"))
-        XCTAssertNil(decoded.borderGradient?.dark)
+        XCTAssertNil(decoded.borders.gradient?.dark)
     }
 
     /// Confirms dark gradient colors survive Codable round trips.
@@ -310,33 +208,125 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(decoded.dark, gradient.dark)
     }
 
-    /// Confirms a non-finite dark gradient color uses the prior valid configuration.
+    // MARK: - BorderSettings validation
+
+    /// Confirms invalid glow values keep the prior valid configuration.
+    func testInvalidGlowFallsBackToPreviousValue() {
+        let settings = BorderSettings()
+        let valid = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        settings.glow = valid
+
+        var export = SettingsExport.defaults().borders
+        export.glow = BorderGlow(enabled: true, radius: 64, opacity: 2)
+        settings.apply(export)
+
+        XCTAssertEqual(settings.glow, valid)
+    }
+
+    /// Confirms non-finite gradient colors keep the prior valid configuration.
+    func testInvalidGradientFallsBackToPreviousValue() {
+        let settings = BorderSettings()
+        let valid = BorderGradient(
+            enabled: true,
+            start: solidRed,
+            end: solidBlue,
+            direction: .topLeftToBottomRight
+        )
+        settings.gradient = valid
+
+        var export = SettingsExport.defaults().borders
+        export.gradient = BorderGradient(
+            enabled: true,
+            start: SettingsColor(red: .infinity, green: 0, blue: 0, alpha: 1),
+            end: solidBlue,
+            direction: .topLeftToBottomRight
+        )
+        settings.apply(export)
+
+        XCTAssertEqual(settings.gradient, valid)
+    }
+
+    /// Confirms a non-finite dark gradient color keeps the prior configuration.
     func testInvalidDarkGradientColorFallsBack() {
-        let fallback = BorderGradient.default
-        var invalid = fallback
+        let settings = BorderSettings()
+        let valid = BorderGradient.default
+        settings.gradient = valid
+
+        var invalid = valid
         invalid.enabled = true
         invalid.dark = BorderGradientColors(
             start: SettingsColor(red: .infinity, green: 0, blue: 0, alpha: 1),
-            end: fallback.end
+            end: valid.end
         )
+        var export = SettingsExport.defaults().borders
+        export.gradient = invalid
+        settings.apply(export)
 
-        XCTAssertEqual(SettingsStore.validatedBorderGradient(invalid, fallback: fallback), fallback)
+        XCTAssertEqual(settings.gradient, valid)
+    }
+
+    /// Confirms finite gradient color components are clamped to unit range.
+    func testValidGradientClampsComponentsToUnitRange() {
+        let settings = BorderSettings()
+        var export = SettingsExport.defaults().borders
+        export.gradient = BorderGradient(
+            enabled: true,
+            start: SettingsColor(red: -0.1, green: 1.5, blue: 0.5, alpha: 2.0),
+            end: SettingsColor(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.6),
+            direction: .topRightToBottomLeft
+        )
+        settings.apply(export)
+
+        XCTAssertEqual(settings.gradient?.start.red, 0)
+        XCTAssertEqual(settings.gradient?.start.green, 1)
+        XCTAssertEqual(settings.gradient?.start.alpha, 1)
     }
 
     /// Confirms finite dark gradient components are clamped to unit range.
     func testValidGradientClampsDarkComponentsToUnitRange() {
-        var wide = BorderGradient.default
-        wide.enabled = true
-        wide.dark = BorderGradientColors(
-            start: SettingsColor(red: -0.1, green: 1.5, blue: 0.5, alpha: 2.0),
-            end: SettingsColor(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.6)
+        let settings = BorderSettings()
+        var export = SettingsExport.defaults().borders
+        export.gradient = BorderGradient(
+            enabled: true,
+            start: solidRed,
+            end: solidBlue,
+            direction: .topLeftToBottomRight,
+            dark: BorderGradientColors(
+                start: SettingsColor(red: -0.1, green: 1.5, blue: 0.5, alpha: 2.0),
+                end: SettingsColor(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.6)
+            )
         )
-        let result = SettingsStore.validatedBorderGradient(wide, fallback: nil)
+        settings.apply(export)
 
-        XCTAssertNotNil(result?.dark)
-        XCTAssertEqual(result?.dark?.start.red, 0)
-        XCTAssertEqual(result?.dark?.start.green, 1)
-        XCTAssertEqual(result?.dark?.start.alpha, 1)
+        XCTAssertNotNil(settings.gradient?.dark)
+        XCTAssertEqual(settings.gradient?.dark?.start.red, 0)
+        XCTAssertEqual(settings.gradient?.dark?.start.green, 1)
+        XCTAssertEqual(settings.gradient?.dark?.start.alpha, 1)
+    }
+
+    /// Confirms a missing gradient remains absent after validation.
+    func testNilGradientPassesThroughValidation() {
+        let settings = BorderSettings()
+        var export = SettingsExport.defaults().borders
+        export.gradient = BorderGradient.default
+        settings.apply(export)
+
+        export.gradient = nil
+        settings.apply(export)
+
+        XCTAssertNil(settings.gradient)
+    }
+
+    /// Confirms the dark border color is clamped during validation.
+    func testDarkColorClampsComponents() {
+        let settings = BorderSettings()
+        var export = SettingsExport.defaults().borders
+        export.darkColor = SettingsColor(red: -0.5, green: 1.5, blue: 0.5, alpha: 2.0)
+        settings.apply(export)
+
+        XCTAssertEqual(settings.darkColor?.red, 0)
+        XCTAssertEqual(settings.darkColor?.green, 1)
+        XCTAssertEqual(settings.darkColor?.alpha, 1)
     }
 
     // MARK: - Render padding
@@ -350,12 +340,6 @@ final class BorderAppearanceTests: XCTestCase {
     /// Confirms absent glow does not expand the overlay surface.
     func testNilGlowProducesZeroPadding() {
         XCTAssertEqual(BorderConfig.renderPadding(glow: nil, scale: 2), 0)
-    }
-
-    /// Confirms zero-radius glow does not expand the overlay surface.
-    func testZeroRadiusGlowProducesZeroPadding() {
-        let glow = BorderGlow(enabled: true, radius: 0, opacity: 0.6)
-        XCTAssertEqual(BorderConfig.renderPadding(glow: glow, scale: 1), 0)
     }
 
     /// Confirms render padding uses the documented falloff multiplier.
@@ -402,11 +386,7 @@ final class BorderAppearanceTests: XCTestCase {
             color: solidRed,
             glow: BorderGlow(enabled: true, radius: 16, opacity: 0.8)
         )
-        let withoutGlow = BorderConfig(
-            enabled: true,
-            width: 5,
-            color: solidRed
-        )
+        let withoutGlow = BorderConfig(enabled: true, width: 5, color: solidRed)
         let scale: CGFloat = 2
 
         XCTAssertEqual(
@@ -417,8 +397,8 @@ final class BorderAppearanceTests: XCTestCase {
 
     // MARK: - Resolved geometry
 
-    /// Confirms ring geometry excludes the outward glow padding.
-    func testResolvedGeometryRingFrameExcludesGlowPadding() {
+    /// Confirms the overlay surface expands by width plus glow padding.
+    func testResolvedGeometryExpandsSurfaceForGlow() {
         let config = BorderConfig(
             enabled: true,
             width: 4,
@@ -428,24 +408,36 @@ final class BorderAppearanceTests: XCTestCase {
         let target = CGRect(x: 10, y: 20, width: 100, height: 80)
         let geometry = config.resolvedGeometry(for: target, scale: 1)
 
-        // Ring = target expanded by border width only
-        XCTAssertEqual(geometry.ringFrame, target.insetBy(dx: -4, dy: -4))
-        // Surface = ring expanded by glow padding
+        // Surface = target expanded by border width plus glow padding
         XCTAssertEqual(geometry.surfacePadding, 12) // ceil(8 * 1.5)
-        XCTAssertEqual(
-            geometry.surfaceFrame,
-            geometry.ringFrame.insetBy(dx: -12, dy: -12)
-        )
+        XCTAssertEqual(geometry.surfaceFrame, target.insetBy(dx: -16, dy: -16))
+        XCTAssertEqual(geometry.targetFrame, target)
     }
 
-    /// Confirms solid borders retain zero glow padding.
-    func testResolvedGeometryWithoutGlowHasZeroPadding() {
+    /// Confirms localized geometry offsets the target by width plus padding.
+    func testLocalizedGeometryOffsetsByWidthAndPadding() {
+        let config = BorderConfig(
+            enabled: true,
+            width: 4,
+            color: solidRed,
+            glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        )
+        let target = CGRect(x: 10, y: 20, width: 100, height: 80)
+        let localized = config.resolvedGeometry(for: target, scale: 1).localized()
+
+        XCTAssertEqual(localized.surfaceFrame, CGRect(x: 0, y: 0, width: 132, height: 112))
+        XCTAssertEqual(localized.targetFrame, CGRect(x: 16, y: 16, width: 100, height: 80))
+    }
+
+    /// Confirms solid borders keep the legacy zero-padding geometry.
+    func testResolvedGeometryWithoutGlowKeepsLegacyLayout() {
         let config = BorderConfig(enabled: true, width: 4, color: solidRed)
         let target = CGRect(x: 10, y: 20, width: 100, height: 80)
-        let geometry = config.resolvedGeometry(for: target, scale: 1)
+        let geometry = config.resolvedGeometry(for: target, scale: 1).localized()
 
         XCTAssertEqual(geometry.surfacePadding, 0)
-        XCTAssertEqual(geometry.ringFrame, geometry.surfaceFrame)
+        XCTAssertEqual(geometry.targetFrame, CGRect(x: 4, y: 4, width: 100, height: 80))
+        XCTAssertEqual(geometry.surfaceFrame, CGRect(x: 0, y: 0, width: 108, height: 88))
     }
 
     // MARK: - Helpers

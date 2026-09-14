@@ -33,7 +33,7 @@ struct BorderSettingsTab: View {
                     ColorPicker("Dark Mode Border Color", selection: darkColorBinding, supportsOpacity: true)
 
                     Toggle("Gradient Border", isOn: gradientEnabledBinding)
-                    if settings.borderGradient?.enabled == true {
+                    if settings.borders.gradient?.enabled == true {
                         Picker("Gradient Direction", selection: gradientDirectionBinding) {
                             ForEach(BorderGradientDirection.allCases, id: \.self) { direction in
                                 Text(direction.label).tag(direction)
@@ -50,13 +50,13 @@ struct BorderSettingsTab: View {
                     }
 
                     Toggle("Glow", isOn: glowEnabledBinding)
-                    if settings.borderGlow?.enabled == true {
+                    if settings.borders.glow?.enabled == true {
                         SettingsSliderRow(
                             label: "Glow Radius",
                             value: glowRadiusBinding,
                             range: 0 ... 32,
                             step: 1,
-                            valueText: String(format: "%.0f pt", settings.borderGlow?.radius ?? 0),
+                            valueText: String(format: "%.0f pt", settings.borders.glow?.radius ?? 0),
                             valueWidth: 56
                         )
                         SettingsSliderRow(
@@ -64,7 +64,7 @@ struct BorderSettingsTab: View {
                             value: glowOpacityBinding,
                             range: 0 ... 1,
                             step: 0.05,
-                            valueText: String(format: "%.0f%%", (settings.borderGlow?.opacity ?? 0) * 100),
+                            valueText: String(format: "%.0f%%", (settings.borders.glow?.opacity ?? 0) * 100),
                             valueWidth: 56
                         )
                     }
@@ -75,9 +75,11 @@ struct BorderSettingsTab: View {
                 Text("Borders are displayed around the currently focused window.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
-                Text("Gradient and glow are visual effects. Glow does not change layout gaps or window size.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+                Text(
+                    "Gradient and glow are visual effects. Glow does not change layout gaps or window size."
+                )
+                .font(.footnote)
+                .foregroundColor(.secondary)
                 Text(
                     "Dark Mode colors apply when macOS uses the dark appearance. Unset dark colors fall back to the light values."
                 )
@@ -88,152 +90,16 @@ struct BorderSettingsTab: View {
         .formStyle(.grouped)
     }
 
-    /// Binds gradient enablement to the live settings model.
-    private var gradientEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { settings.borderGradient?.enabled == true },
-            set: { enabled in
-                var gradient = settings.borderGradient ?? .default
-                gradient.enabled = enabled
-                settings.borderGradient = gradient
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds the selected gradient direction to the live settings model.
-    private var gradientDirectionBinding: Binding<BorderGradientDirection> {
-        Binding(
-            get: { settings.borderGradient?.direction ?? .topLeftToBottomRight },
-            set: { direction in
-                var gradient = settings.borderGradient ?? .default
-                gradient.direction = direction
-                settings.borderGradient = gradient
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds the gradient start color to validated settings.
-    private var gradientStartBinding: Binding<Color> {
-        Binding(
-            get: { swiftUIColor(settings.borderGradient?.start ?? BorderGradient.default.start) },
-            set: { newColor in
-                guard let converted = SettingsColor(color: newColor) else { return }
-                var gradient = settings.borderGradient ?? .default
-                gradient.start = converted
-                settings.borderGradient = gradient
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds the gradient end color to validated settings.
-    private var gradientEndBinding: Binding<Color> {
-        Binding(
-            get: { swiftUIColor(settings.borderGradient?.end ?? BorderGradient.default.end) },
-            set: { newColor in
-                guard let converted = SettingsColor(color: newColor) else { return }
-                var gradient = settings.borderGradient ?? .default
-                gradient.end = converted
-                settings.borderGradient = gradient
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds the dark-appearance gradient start color to validated settings.
-    private var gradientDarkStartBinding: Binding<Color> {
-        Binding(
-            get: {
-                let gradient = settings.borderGradient
-                return swiftUIColor(gradient?.dark?.start ?? gradient?.start ?? BorderGradient.default.start)
-            },
-            set: { newColor in
-                guard let converted = SettingsColor(color: newColor) else { return }
-                var gradient = settings.borderGradient ?? .default
-                var dark = gradient.dark ?? BorderGradientColors(start: gradient.start, end: gradient.end)
-                dark.start = converted
-                gradient.dark = dark
-                settings.borderGradient = gradient
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds the dark-appearance gradient end color to validated settings.
-    private var gradientDarkEndBinding: Binding<Color> {
-        Binding(
-            get: {
-                let gradient = settings.borderGradient
-                return swiftUIColor(gradient?.dark?.end ?? gradient?.end ?? BorderGradient.default.end)
-            },
-            set: { newColor in
-                guard let converted = SettingsColor(color: newColor) else { return }
-                var gradient = settings.borderGradient ?? .default
-                var dark = gradient.dark ?? BorderGradientColors(start: gradient.start, end: gradient.end)
-                dark.end = converted
-                gradient.dark = dark
-                settings.borderGradient = gradient
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds glow enablement to the live settings model.
-    private var glowEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { settings.borderGlow?.enabled == true },
-            set: { enabled in
-                var glow = settings.borderGlow ?? .default
-                glow.enabled = enabled
-                settings.borderGlow = glow
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds glow radius changes to the live settings model.
-    private var glowRadiusBinding: Binding<Double> {
-        Binding(
-            get: { settings.borderGlow?.radius ?? BorderGlow.default.radius },
-            set: { radius in
-                var glow = settings.borderGlow ?? .default
-                glow.radius = radius
-                settings.borderGlow = glow
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
-    /// Binds glow opacity changes to the live settings model.
-    private var glowOpacityBinding: Binding<Double> {
-        Binding(
-            get: { settings.borderGlow?.opacity ?? BorderGlow.default.opacity },
-            set: { opacity in
-                var glow = settings.borderGlow ?? .default
-                glow.opacity = opacity
-                settings.borderGlow = glow
-                controller.borderSettingsChanged()
-            }
-        )
-    }
-
     /// Converts a persisted settings color into a SwiftUI color.
     private func swiftUIColor(_ color: SettingsColor) -> Color {
         Color(red: color.red, green: color.green, blue: color.blue, opacity: color.alpha)
     }
 
-    /// Binds the legacy solid border color to validated settings.
+    /// Binds the solid border color to validated settings.
     private var colorBinding: Binding<Color> {
         Binding(
             get: { [settings] in
-                Color(
-                    red: settings.borders.color.red,
-                    green: settings.borders.color.green,
-                    blue: settings.borders.color.blue,
-                    opacity: settings.borders.color.alpha
-                )
+                swiftUIColor(settings.borders.color)
             },
             set: { [settings, controller] newColor in
                 guard let converted = SettingsColor(color: newColor) else { return }
@@ -246,10 +112,147 @@ struct BorderSettingsTab: View {
     /// Binds the dark-appearance solid border color to validated settings.
     private var darkColorBinding: Binding<Color> {
         Binding(
-            get: { swiftUIColor(settings.borderColorDark ?? settings.borderColor) },
-            set: { newColor in
+            get: { [settings] in
+                swiftUIColor(settings.borders.darkColor ?? settings.borders.color)
+            },
+            set: { [settings, controller] newColor in
                 guard let converted = SettingsColor(color: newColor) else { return }
-                settings.borderColorDark = converted
+                settings.borders.darkColor = converted
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds gradient enablement to the live settings model.
+    private var gradientEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { [settings] in settings.borders.gradient?.enabled == true },
+            set: { [settings, controller] enabled in
+                var gradient = settings.borders.gradient ?? .default
+                gradient.enabled = enabled
+                settings.borders.gradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the selected gradient direction to the live settings model.
+    private var gradientDirectionBinding: Binding<BorderGradientDirection> {
+        Binding(
+            get: { [settings] in settings.borders.gradient?.direction ?? .topLeftToBottomRight },
+            set: { [settings, controller] direction in
+                var gradient = settings.borders.gradient ?? .default
+                gradient.direction = direction
+                settings.borders.gradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the gradient start color to validated settings.
+    private var gradientStartBinding: Binding<Color> {
+        Binding(
+            get: { [settings] in
+                swiftUIColor(settings.borders.gradient?.start ?? BorderGradient.default.start)
+            },
+            set: { [settings, controller] newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var gradient = settings.borders.gradient ?? .default
+                gradient.start = converted
+                settings.borders.gradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the gradient end color to validated settings.
+    private var gradientEndBinding: Binding<Color> {
+        Binding(
+            get: { [settings] in
+                swiftUIColor(settings.borders.gradient?.end ?? BorderGradient.default.end)
+            },
+            set: { [settings, controller] newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var gradient = settings.borders.gradient ?? .default
+                gradient.end = converted
+                settings.borders.gradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the dark-appearance gradient start color to validated settings.
+    private var gradientDarkStartBinding: Binding<Color> {
+        Binding(
+            get: { [settings] in
+                let gradient = settings.borders.gradient
+                return swiftUIColor(gradient?.dark?.start ?? gradient?.start ?? BorderGradient.default.start)
+            },
+            set: { [settings, controller] newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var gradient = settings.borders.gradient ?? .default
+                var dark = gradient.dark ?? BorderGradientColors(start: gradient.start, end: gradient.end)
+                dark.start = converted
+                gradient.dark = dark
+                settings.borders.gradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the dark-appearance gradient end color to validated settings.
+    private var gradientDarkEndBinding: Binding<Color> {
+        Binding(
+            get: { [settings] in
+                let gradient = settings.borders.gradient
+                return swiftUIColor(gradient?.dark?.end ?? gradient?.end ?? BorderGradient.default.end)
+            },
+            set: { [settings, controller] newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var gradient = settings.borders.gradient ?? .default
+                var dark = gradient.dark ?? BorderGradientColors(start: gradient.start, end: gradient.end)
+                dark.end = converted
+                gradient.dark = dark
+                settings.borders.gradient = gradient
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds glow enablement to the live settings model.
+    private var glowEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { [settings] in settings.borders.glow?.enabled == true },
+            set: { [settings, controller] enabled in
+                var glow = settings.borders.glow ?? .default
+                glow.enabled = enabled
+                settings.borders.glow = glow
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds glow radius changes to the live settings model.
+    private var glowRadiusBinding: Binding<Double> {
+        Binding(
+            get: { [settings] in settings.borders.glow?.radius ?? BorderGlow.default.radius },
+            set: { [settings, controller] radius in
+                var glow = settings.borders.glow ?? .default
+                glow.radius = radius
+                settings.borders.glow = glow
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds glow opacity changes to the live settings model.
+    private var glowOpacityBinding: Binding<Double> {
+        Binding(
+            get: { [settings] in settings.borders.glow?.opacity ?? BorderGlow.default.opacity },
+            set: { [settings, controller] opacity in
+                var glow = settings.borders.glow ?? .default
+                glow.opacity = opacity
+                settings.borders.glow = glow
                 controller.borderSettingsChanged()
             }
         )
@@ -261,9 +264,9 @@ private extension BorderGradientDirection {
     var label: String {
         switch self {
         case .topLeftToBottomRight:
-            return "Top Left → Bottom Right"
+            return "Top Left \u{2192} Bottom Right"
         case .topRightToBottomLeft:
-            return "Top Right → Bottom Left"
+            return "Top Right \u{2192} Bottom Left"
         }
     }
 }
