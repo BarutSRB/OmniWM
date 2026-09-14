@@ -54,6 +54,7 @@ extension NiriLayoutEngine {
 
         let root = workspaceState.root
         let activeIndexBefore = root.columns.isEmpty ? nil : state.activeColumnIndex
+        let wasSingleWindow = singleWindowLayoutContext(in: context.workspaceId) != nil
         let removalTokens = tokens.intersection(root.windowIdSet)
         guard !removalTokens.isEmpty else {
             return emptyRemovalResult(
@@ -79,6 +80,7 @@ extension NiriLayoutEngine {
         state.selectedNodeId = finalSelection
 
         finishRemovalVisibility(finalSelection, batch: batch, progress: &progress, context: context, state: &state)
+        clearManualSpanOverridesOnSingleWindowEntry(in: context.workspaceId, wasSingleWindow: wasSingleWindow)
 
         return removalResult(
             progress,

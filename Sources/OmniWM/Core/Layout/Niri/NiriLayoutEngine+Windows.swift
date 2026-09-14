@@ -111,6 +111,7 @@ extension NiriLayoutEngine {
         guard let state = states[workspaceId],
               let node = state.nodesByToken[token],
               let column = node.parent as? NiriContainer else { return }
+        let wasSingleWindow = singleWindowLayoutContext(in: workspaceId) != nil
 
         cancelInteractions(for: Set([node.id]), in: workspaceId)
         column.adjustActiveTileIdxForRemoval(of: node)
@@ -137,6 +138,18 @@ extension NiriLayoutEngine {
                 }
             }
         }
+
+        clearManualSpanOverridesOnSingleWindowEntry(in: workspaceId, wasSingleWindow: wasSingleWindow)
+    }
+
+    func clearManualSpanOverridesOnSingleWindowEntry(
+        in workspaceId: WorkspaceDescriptor.ID,
+        wasSingleWindow: Bool
+    ) {
+        guard !wasSingleWindow,
+              let survivor = singleWindowLayoutContext(in: workspaceId)?.container else { return }
+        survivor.hasManualSingleWindowWidthOverride = false
+        survivor.hasManualSingleWindowHeightOverride = false
     }
 
     @discardableResult
