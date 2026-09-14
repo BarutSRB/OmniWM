@@ -14,3 +14,8 @@ enum GestureFingerCount: Int, CaseIterable, Codable {
         }
     }
 }
+
+enum OverviewGestureFingerCount: Int, Codable {
+    case three = 3
+    case four = 4
+}

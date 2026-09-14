@@ -125,6 +125,9 @@ extension CanonicalTOMLConfig {
     }
 
     func toSettingsExport() -> SettingsExport {
+        var gestures = gestures
+        gestures.overviewGestureEnabled = gestures.overviewGestureEnabled ?? false
+        gestures.overviewGestureFingerCount = gestures.overviewGestureFingerCount ?? .four
         return SettingsExport(
             hotkeysEnabled: general.hotkeysEnabled,
             focus: focus,

@@ -350,11 +350,11 @@ extension SettingsStore {
 
     func applyExport(_ export: SettingsExport) {
         let baseline = SettingsStore.defaultExport
-        let trackpadGesturesWereAvailable = gestures.scrollEnabled || gestures.workspaceSwipeEnabled
+        let trackpadGesturesWereAvailable = gestures.trackpadGesturesEnabled
         isApplyingExport = true
         defer {
             isApplyingExport = false
-            let trackpadGesturesAreAvailable = gestures.scrollEnabled || gestures.workspaceSwipeEnabled
+            let trackpadGesturesAreAvailable = gestures.trackpadGesturesEnabled
             if trackpadGesturesWereAvailable != trackpadGesturesAreAvailable {
                 onTrackpadGestureAvailabilityChanged?(trackpadGesturesAreAvailable)
             }

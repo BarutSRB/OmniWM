@@ -697,6 +697,67 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(wasOpenAtActivation, false)
     }
 
+    func testPostCloseFocusHandoffSurvivesWindowVisibilityChange() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        let handoffScheduler = OverviewPostCloseHandoffScheduler()
+        var environment = fixture.environment
+        environment.schedulePostCloseHandoff = handoffScheduler.schedule
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: environment
+        )
+        overview.prepareOpenState()
+        overview.onAnimationComplete(state: .open)
+        let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+        let otherHandle = try XCTUnwrap(fixture.handles.first { $0.id != selectedHandle.id })
+        fixture.controller.workspaceManager.setHiddenState(
+            HiddenState(proportionalPosition: .zero, referenceMonitorId: nil, reason: .layoutTransient(.left)),
+            for: otherHandle.id
+        )
+        var activatedHandle: WindowHandle?
+        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+
+        overview.input.dismissToSelection(animated: false)
+        fixture.controller.workspaceManager.setHiddenState(nil, for: otherHandle.id)
+        handoffScheduler.runNext()
+
+        XCTAssertEqual(activatedHandle, selectedHandle)
+    }
+
+    func testFocusHandoffSurvivesVisibilityChangeDuringNativeClose() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        fixture.controller.motionPolicy.animationsEnabled = true
+        let handoffScheduler = OverviewPostCloseHandoffScheduler()
+        var environment = fixture.environment
+        environment.schedulePostCloseHandoff = handoffScheduler.schedule
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: environment,
+            animationInstaller: { _, _, _ in true },
+            animationMediaTimeProvider: { 0 }
+        )
+        overview.open()
+        overview.onAnimationComplete(state: .open)
+        let selected = try XCTUnwrap(overview.selectedWindowHandle)
+        let other = try XCTUnwrap(fixture.handles.first { $0.id != selected.id })
+        var activatedHandle: WindowHandle?
+        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+
+        overview.input.dismissToSelection(animated: true)
+        guard case .closing = overview.state else { return XCTFail("Expected a native close in flight") }
+        fixture.controller.workspaceManager.setHiddenState(
+            HiddenState(proportionalPosition: .zero, referenceMonitorId: nil, reason: .layoutTransient(.left)),
+            for: other.id
+        )
+        XCTAssertEqual(handoffScheduler.count, 0)
+        overview.completeCloseTransition(targetWindow: selected)
+        XCTAssertEqual(handoffScheduler.count, 1)
+        handoffScheduler.runNext()
+        XCTAssertEqual(activatedHandle, selected)
+    }
+
     func testPostCloseFocusHandoffIsDiscardedAfterOverviewReopens() throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
         let handoffScheduler = OverviewPostCloseHandoffScheduler()
@@ -724,29 +785,35 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.completeCloseTransition(targetWindow: nil)
     }
 
-    func testPostCloseFocusHandoffIsDiscardedAfterNewerFocusIntent() throws {
-        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
-        let handoffScheduler = OverviewPostCloseHandoffScheduler()
-        var environment = fixture.environment
-        environment.schedulePostCloseHandoff = handoffScheduler.schedule
-        let overview = OverviewController(
-            wmController: fixture.controller,
-            motionPolicy: fixture.controller.motionPolicy,
-            environment: environment
-        )
-        overview.prepareOpenState()
-        overview.onAnimationComplete(state: .open)
-        var activatedHandle: WindowHandle?
-        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+    func testPostCloseFocusHandoffIsDiscardedAfterNewerFocusChange() throws {
+        for externalFocusChange in [false, true] {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+            let handoffScheduler = OverviewPostCloseHandoffScheduler()
+            var environment = fixture.environment
+            environment.schedulePostCloseHandoff = handoffScheduler.schedule
+            let overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: environment
+            )
+            overview.prepareOpenState()
+            overview.onAnimationComplete(state: .open)
+            var activatedHandle: WindowHandle?
+            overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.input.dismissToSelection(animated: false)
-        _ = fixture.controller.intentLedger.beginManagedRequest(
-            token: fixture.handles[1].id,
-            workspaceId: fixture.workspaceId
-        )
-        handoffScheduler.runNext()
+            overview.input.dismissToSelection(animated: false)
+            if externalFocusChange {
+                fixture.controller.workspaceManager.recordExternalFocus(pid: 91_299, windowId: 91_399)
+            } else {
+                _ = fixture.controller.intentLedger.beginManagedRequest(
+                    token: fixture.handles[1].id,
+                    workspaceId: fixture.workspaceId
+                )
+            }
+            handoffScheduler.runNext()
 
-        XCTAssertNil(activatedHandle)
+            XCTAssertNil(activatedHandle)
+        }
     }
 
     func testPostCloseFocusHandoffIsDiscardedAfterNewerAppActivationIntent() throws {
