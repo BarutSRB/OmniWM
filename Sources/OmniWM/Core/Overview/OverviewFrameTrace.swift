@@ -8,9 +8,9 @@ import Synchronization
 
 enum OverviewFrameTrace {
     enum Event: String, Sendable {
-        case callback
-        case draw
-        case invalidation
+        case animationSubmit
+        case animationComplete
+        case layerApply
     }
 
     struct Record: Sendable {

@@ -2,10 +2,6 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import AppKit
-import Carbon
-import Foundation
-import QuartzCore
-import ScreenCaptureKit
 
 @MainActor
 final class OverviewDragSession {
@@ -15,7 +11,6 @@ final class OverviewDragSession {
     private let windowSession: OverviewWindowSession
     private let structuralActions: OverviewStructuralActions
     private let mutationSession: OverviewMutationSession
-    private var dragGhostController: DragGhostController?
     private var dragSession: OverviewStructuralActions.DragSession?
 
     private var state: OverviewState {
@@ -28,6 +23,10 @@ final class OverviewDragSession {
 
     var isActive: Bool {
         dragSession != nil
+    }
+
+    var draggedHandle: WindowHandle? {
+        dragSession?.handle
     }
 
     init(
@@ -49,9 +48,8 @@ final class OverviewDragSession {
     }
 
     func reset() {
-        dragGhostController?.endDrag()
-        dragGhostController = nil
         dragSession = nil
+        windowSession.endDragPreview()
     }
 
     private func updateWindowDisplays() {
@@ -76,11 +74,8 @@ final class OverviewDragSession {
         )
 
         if let frame = overviewSnapshot.windows[handle]?.frame {
-            if dragGhostController == nil {
-                dragGhostController = DragGhostController()
-            }
-            dragGhostController?.beginDrag(
-                windowId: entry.windowId,
+            windowSession.beginDragPreview(
+                for: handle,
                 originalFrame: frame,
                 cursorLocation: projection.globalPoint(from: startPoint, on: monitorId)
             )
@@ -94,7 +89,7 @@ final class OverviewDragSession {
         }
         guard dragSession != nil else { return }
         projection.activeInteractionMonitorId = monitorId
-        dragGhostController?.updatePosition(cursorLocation: projection.globalPoint(from: point, on: monitorId))
+        windowSession.updateDragPreviewPosition(cursorLocation: projection.globalPoint(from: point, on: monitorId))
 
         let target = resolveDragTarget(at: point, on: monitorId)
         let currentTarget = projection.layoutsByMonitor[monitorId]?.dragTarget
@@ -111,12 +106,12 @@ final class OverviewDragSession {
         }
         guard let session = dragSession else { return }
         projection.activeInteractionMonitorId = monitorId
-        dragGhostController?.updatePosition(cursorLocation: projection.globalPoint(from: point, on: monitorId))
+        windowSession.updateDragPreviewPosition(cursorLocation: projection.globalPoint(from: point, on: monitorId))
 
         let target = projection.layoutsByMonitor[monitorId]?.dragTarget
         projection.clearDragTargets()
-        dragGhostController?.endDrag()
         dragSession = nil
+        windowSession.endDragPreview()
 
         guard let target else {
             updateWindowDisplays()
@@ -139,8 +134,8 @@ final class OverviewDragSession {
 
     func cancelDrag() {
         projection.clearDragTargets()
-        dragGhostController?.endDrag()
         dragSession = nil
+        windowSession.endDragPreview()
         updateWindowDisplays()
     }
 

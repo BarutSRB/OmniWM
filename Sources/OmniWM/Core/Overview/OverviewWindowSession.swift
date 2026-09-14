@@ -11,12 +11,52 @@ import ScreenCaptureKit
 final class OverviewWindowSession {
     private let projection: OverviewViewportProjection
     private let ownedWindowRegistry: OwnedWindowRegistry
+    private let motionPolicy: MotionPolicy
+    var onLayoutsUpdated: (() -> Void)?
+    var previewForHandle: ((WindowHandle) -> OverviewPreviewFrame?)?
+    private var dragPreview: (handle: WindowHandle, ghost: OverviewDragGhost)?
+
+    var dragPreviewRequest: OverviewPreviewRequest? {
+        guard let dragPreview else { return nil }
+        let scale = dragPreview.ghost.backingScaleFactor
+        return OverviewPreviewRequest(
+            handle: dragPreview.handle,
+            pixelWidth: Int(ceil(dragPreview.ghost.frame.width * scale)),
+            pixelHeight: Int(ceil(dragPreview.ghost.frame.height * scale))
+        )
+    }
+
+    func beginDragPreview(for handle: WindowHandle, originalFrame: CGRect, cursorLocation: CGPoint) {
+        endDragPreview()
+        let ghost = OverviewDragGhost(originalFrame: originalFrame, ownedWindowRegistry: ownedWindowRegistry)
+        dragPreview = (handle, ghost)
+        ghost.updatePreview(previewForHandle?(handle))
+        ghost.showAt(cursorLocation: cursorLocation)
+        onLayoutsUpdated?()
+    }
+
+    func updateDragPreviewPosition(cursorLocation: CGPoint) {
+        dragPreview?.ghost.moveTo(cursorLocation: cursorLocation)
+    }
+
+    func endDragPreview() {
+        guard let dragPreview else { return }
+        self.dragPreview = nil
+        dragPreview.ghost.destroy()
+        onLayoutsUpdated?()
+    }
+
     private var windows: [OverviewWindow] = []
     private var windowsByDisplayId: [CGDirectDisplayID: OverviewWindow] = [:]
 
-    init(projection: OverviewViewportProjection, ownedWindowRegistry: OwnedWindowRegistry) {
+    init(
+        projection: OverviewViewportProjection,
+        ownedWindowRegistry: OwnedWindowRegistry,
+        motionPolicy: MotionPolicy
+    ) {
         self.projection = projection
         self.ownedWindowRegistry = ownedWindowRegistry
+        self.motionPolicy = motionPolicy
     }
 
     var displayIds: [CGDirectDisplayID] {
@@ -113,6 +153,7 @@ final class OverviewWindowSession {
     }
 
     func closeWindows() {
+        endDragPreview()
         for window in windows {
             ownedWindowRegistry.unregister(surfaceId: "overview-\(String(describing: window.monitorId))")
             window.hide()
@@ -124,8 +165,7 @@ final class OverviewWindowSession {
 
     func updateWindowDisplays(
         state: OverviewState,
-        palette: OverviewRenderPalette? = nil,
-        thumbnails: [Int: CGImage]? = nil
+        palette: OverviewRenderPalette? = nil
     ) {
         for window in windows {
             let layout = projection.layoutsByMonitor[window.monitorId] ?? .init()
@@ -135,28 +175,29 @@ final class OverviewWindowSession {
                 searchQuery: projection.searchQuery,
                 selectedWindowHandle: projection.selectedWindowHandle,
                 palette: palette,
-                thumbnails: thumbnails
+                animationsEnabled: motionPolicy.animationsEnabled
             )
         }
+        onLayoutsUpdated?()
     }
 
-    func updateWindowThumbnails(_ thumbnailCache: [Int: CGImage]) {
-        for window in windows {
-            window.updateThumbnails(thumbnailCache)
+    func updatePreview(_ frame: OverviewPreviewFrame?, for handle: WindowHandle) {
+        if dragPreview?.handle === handle { dragPreview?.ghost.updatePreview(frame) }
+        for window in windows where projection.layoutsByMonitor[window.monitorId]?.window(for: handle) != nil {
+            window.updatePreview(frame, for: handle)
         }
     }
 
-    func updateAnimationProgress(
-        _ progress: Double,
+    func installAnimation(
+        _ transition: OverviewNativeTransition,
         on displayId: CGDirectDisplayID,
-        generation: UInt64,
-        sequence: UInt64
-    ) {
-        windowsByDisplayId[displayId]?.updateAnimationProgress(
-            progress,
-            generation: generation,
-            sequence: sequence
-        )
+        completion: OverviewAnimationCompletion
+    ) -> Bool {
+        windowsByDisplayId[displayId]?.installAnimation(transition, completion: completion) ?? false
+    }
+
+    func cancelAnimations() {
+        for window in windows { window.cancelAnimation() }
     }
 
     func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {

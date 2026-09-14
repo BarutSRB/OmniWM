@@ -2,10 +2,7 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import AppKit
-import Carbon
-import Foundation
 import QuartzCore
-import ScreenCaptureKit
 
 @MainActor
 final class OverviewController {
@@ -30,10 +27,6 @@ final class OverviewController {
     private var presentation: OverviewPresentation
 
     private let thumbnailCapture: OverviewThumbnailCapture
-    var thumbnailCache: [Int: CGImage] {
-        thumbnailCapture.thumbnailCache
-    }
-
     private let windowSession: OverviewWindowSession
     private var animator: OverviewAnimator?
 
@@ -56,37 +49,36 @@ final class OverviewController {
         motionPolicy: MotionPolicy,
         environment: OverviewEnvironment = .init(),
         ownedWindowRegistry: OwnedWindowRegistry = .shared,
-        displayLinkFactory: @escaping OverviewAnimator.DisplayLinkFactory = OverviewAnimator.makeLiveDisplayLink,
+        previewCapture: OverviewThumbnailCapture? = nil,
+        animationInstaller: OverviewAnimator.AnimationInstaller? = nil,
         animationMediaTimeProvider: @escaping OverviewAnimator.MediaTimeProvider = CACurrentMediaTime
     ) {
-        let presentation = OverviewPresentation(settings: wmController.settings)
-        self.presentation = presentation
+        presentation = OverviewPresentation(settings: wmController.settings)
         let windowFacts = OverviewWindowFacts(wmController: wmController, environment: environment)
-        let structuralActions = OverviewStructuralActions(wmController: wmController, windowFacts: windowFacts)
-        self.structuralActions = structuralActions
-        let overviewSnapshot = OverviewSnapshot(wmController: wmController, facts: windowFacts)
-        self.overviewSnapshot = overviewSnapshot
-        let projection = OverviewViewportProjection(
+        structuralActions = OverviewStructuralActions(wmController: wmController, windowFacts: windowFacts)
+        overviewSnapshot = OverviewSnapshot(wmController: wmController, facts: windowFacts)
+        projection = OverviewViewportProjection(
             wmController: wmController,
             snapshot: overviewSnapshot,
             scale: presentation.configuredScale
         )
-        self.projection = projection
         focusSession = OverviewFocusSession(
             wmController: wmController,
             environment: environment,
             projection: projection,
             snapshot: overviewSnapshot
         )
-        let mutationSession = OverviewMutationSession(
+        mutationSession = OverviewMutationSession(
             wmController: wmController,
             projection: projection,
             windowFacts: windowFacts,
             structuralActions: structuralActions
         )
-        self.mutationSession = mutationSession
-        let windowSession = OverviewWindowSession(projection: projection, ownedWindowRegistry: ownedWindowRegistry)
-        self.windowSession = windowSession
+        windowSession = OverviewWindowSession(
+            projection: projection,
+            ownedWindowRegistry: ownedWindowRegistry,
+            motionPolicy: motionPolicy
+        )
         drag = OverviewDragSession(
             projection: projection,
             snapshot: overviewSnapshot,
@@ -94,9 +86,9 @@ final class OverviewController {
             structuralActions: structuralActions,
             mutationSession: mutationSession
         )
-        thumbnailCapture = OverviewThumbnailCapture(
-            wmController: wmController, environment: environment, ownedWindowRegistry: ownedWindowRegistry,
-            snapshot: overviewSnapshot, projection: projection, windowSession: windowSession
+        thumbnailCapture = previewCapture ?? OverviewThumbnailCapture(
+            environment: environment,
+            ownedWindowRegistry: ownedWindowRegistry
         )
         input = OverviewInputHandler(
             projection: projection,
@@ -108,11 +100,11 @@ final class OverviewController {
         self.motionPolicy = motionPolicy
         self.environment = environment
         inputSession = OverviewInputSession(environment: environment)
-        connectSession(displayLinkFactory: displayLinkFactory, animationMediaTimeProvider: animationMediaTimeProvider)
+        connectSession(animationInstaller: animationInstaller, animationMediaTimeProvider: animationMediaTimeProvider)
     }
 
     private func connectSession(
-        displayLinkFactory: @escaping OverviewAnimator.DisplayLinkFactory,
+        animationInstaller: OverviewAnimator.AnimationInstaller?,
         animationMediaTimeProvider: @escaping OverviewAnimator.MediaTimeProvider
     ) {
         drag.connect(overview: self)
@@ -120,10 +112,19 @@ final class OverviewController {
         mutationSession.connect(overview: self)
         animator = OverviewAnimator(
             controller: self,
-            displayLinkFactory: displayLinkFactory,
+            animationInstaller: animationInstaller,
             mediaTimeProvider: animationMediaTimeProvider
         )
         input.connect(controller: self)
+        windowSession.onLayoutsUpdated = { [weak self] in
+            self?.updatePreviewVisibility()
+        }
+        windowSession.previewForHandle = { [weak thumbnailCapture] handle in
+            thumbnailCapture?.previewCache[handle]
+        }
+        thumbnailCapture.onPreview = { [weak windowSession] handle, frame in
+            windowSession?.updatePreview(frame, for: handle)
+        }
     }
 
     deinit {
@@ -179,7 +180,6 @@ extension OverviewController {
             palette: presentation.renderPalette
         )
         beginOwnedSession()
-        thumbnailCapture.startThumbnailCapture()
 
         if motionPolicy.animationsEnabled {
             state = .opening
@@ -286,6 +286,7 @@ extension OverviewController {
         focusSession.pendingPostCloseHandoffValidity = focusSession.currentPostCloseHandoffValidity()
 
         state = .closing(targetWindow: resolvedTargetWindow)
+        updateWindowDisplays()
 
         if animated && motionPolicy.animationsEnabled {
             animator?.startCloseAnimation(
@@ -305,7 +306,6 @@ extension OverviewController {
         environment.onCachedProjectionRefreshed(affectedWorkspaceIds)
         let anchors = projection.captureSelectedViewportAnchors()
         let workspaceManager = wmController.workspaceManager
-        let previousWindowIds = Set(overviewSnapshot.windowIds)
 
         overviewSnapshot.refresh(affectedWorkspaceIds: affectedWorkspaceIds)
 
@@ -317,42 +317,59 @@ extension OverviewController {
         }
         projection.rebuildProjectedLayouts(preservingSelectedAnchors: anchors)
         updateWindowDisplays()
+    }
 
-        let addedWindowIds = Set(overviewSnapshot.windowIds).subtracting(previousWindowIds)
-        let uncachedAddedWindowIds = addedWindowIds.filter { thumbnailCache[$0] == nil }
-        if !uncachedAddedWindowIds.isEmpty {
-            let uncachedWindowIds = Set(overviewSnapshot.windowIds.filter { thumbnailCache[$0] == nil })
-            thumbnailCapture.startThumbnailCapture(windowIds: uncachedWindowIds)
+    private func updateWindowDisplays(palette: OverviewRenderPalette? = nil) {
+        windowSession.updateWindowDisplays(state: state, palette: palette)
+    }
+
+    private func updatePreviewVisibility() {
+        let represented = Set(overviewSnapshot.windows.keys)
+        switch state {
+        case .closed,
+             .closing:
+            thumbnailCapture.reconcile(represented: represented, visible: [])
+            return
+        case .opening,
+             .open:
+            break
         }
+        guard let wmController, !windowSession.displayIds.isEmpty else {
+            thumbnailCapture.reconcile(represented: represented, visible: [])
+            return
+        }
+        let screens = NSScreen.screens
+        let projections: [OverviewPreviewProjection] = wmController.workspaceManager.monitors.compactMap { monitor in
+            guard let layout = projection.layoutsByMonitor[monitor.id] else { return nil }
+            return OverviewPreviewProjection(
+                layout: layout,
+                viewportFrame: OverviewLayoutCalculator.viewportFrame(for: monitor.frame),
+                backingScaleFactor: screens.first(where: { $0.displayId == monitor.displayId })?.backingScaleFactor ?? 1
+            )
+        }
+        var requests = OverviewThumbnailSizing.captureRequests(projections: projections)
+        if let request = windowSession.dragPreviewRequest, represented.contains(request.handle) {
+            requests.append(request)
+        }
+        thumbnailCapture.reconcile(represented: represented, visible: requests)
     }
 
-    private func updateWindowDisplays(palette: OverviewRenderPalette? = nil, thumbnails: [Int: CGImage]? = nil) {
-        windowSession.updateWindowDisplays(state: state, palette: palette, thumbnails: thumbnails)
-    }
-
-    func updateAnimationProgress(
-        _ progress: Double,
+    func installAnimation(
+        _ transition: OverviewNativeTransition,
         on displayId: CGDirectDisplayID,
-        generation: UInt64,
-        sequence: UInt64
-    ) {
-        windowSession.updateAnimationProgress(progress, on: displayId, generation: generation, sequence: sequence)
+        completion: OverviewAnimationCompletion
+    ) -> Bool {
+        windowSession.installAnimation(transition, on: displayId, completion: completion)
+    }
+
+    func cancelAnimations() {
+        windowSession.cancelAnimations()
     }
 
     private func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {
         guard state.isOpen else { return }
         windowSession.handleModifierFlagsChanged(modifierFlags)
     }
-
-    #if DEBUG
-        @discardableResult
-        func startThumbnailCaptureForTests(
-            windowId: Int,
-            capture: @escaping @Sendable () async -> CGImage?
-        ) -> Task<Void, Never> {
-            thumbnailCapture.startThumbnailCaptureForTests(windowId: windowId, capture: capture)
-        }
-    #endif
 
     func onAnimationComplete(state: OverviewState) {
         self.state = state
@@ -398,10 +415,11 @@ extension OverviewController {
 
     func handleManagedWindowRemoved(_ entry: WindowState) {
         guard state.isOpen else { return }
-        thumbnailCapture.remove(windowId: entry.windowId)
         guard let removedHandle = overviewSnapshot.windows.first(where: { $0.value.token == entry.token })?.key else {
             return
         }
+        if drag.draggedHandle === removedHandle { drag.cancelDrag() }
+        thumbnailCapture.remove(handle: removedHandle)
         let visibleOrder = projection.canonicalLayout()?.allWindows
             .filter(\.matchesSearch)
             .map(\.handle) ?? []

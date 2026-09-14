@@ -25,11 +25,6 @@ enum OverviewRenderStyle {
         static let columnBackground = CGColor(red: 0.12, green: 0.12, blue: 0.16, alpha: 0.6)
         static let columnBorder = CGColor(red: 0.25, green: 0.25, blue: 0.3, alpha: 1.0)
         static let columnDivider = CGColor(red: 0.2, green: 0.2, blue: 0.25, alpha: 0.8)
-        static let textWhiteNS = NSColor(cgColor: textWhite)!
-        static let textGrayNS = NSColor(cgColor: textGray)!
-        static let textDimmedNS = NSColor(cgColor: textDimmed)!
-        static let workspaceLabelActiveNS = NSColor(cgColor: workspaceLabelActive)!
-        static let workspaceLabelInactiveNS = NSColor(cgColor: workspaceLabelInactive)!
     }
 
     enum Metrics {
@@ -49,6 +44,5 @@ enum OverviewRenderStyle {
         static let dropLineWidth: CGFloat = 4
         static let columnCornerRadius: CGFloat = 10
         static let dividerHeight: CGFloat = 2
-        static let titleWidthBucket: CGFloat = 4
     }
 }
