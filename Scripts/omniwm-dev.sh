@@ -103,6 +103,18 @@ open_copy() {
   "${command[@]}" "$1"
 }
 
+# Signing and copying the packaged app leaves LaunchServices with a second
+# registration for the dev bundle id that points at dist/. System Settings
+# resolves the bundle id through LaunchServices when it stores a privacy
+# grant, so that stale entry can receive the Accessibility or Input
+# Monitoring toggle instead of the installed copy. Keep only the install.
+refresh_launch_services() {
+  local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  [ -x "$lsregister" ] || return 0
+  "$lsregister" -u "$ROOT_DIR/dist/$DEV_APP_NAME.app" >/dev/null 2>&1 || true
+  "$lsregister" -f "$DEV_APP" >/dev/null 2>&1 || true
+}
+
 install_dev() {
   validate_destination
   OMNIWM_APP_NAME="$DEV_APP_NAME" \
@@ -116,6 +128,7 @@ install_dev() {
   mkdir -p "$INSTALL_DIR"
   rm -rf "$DEV_APP"
   ditto "$ROOT_DIR/dist/$DEV_APP_NAME.app" "$DEV_APP"
+  refresh_launch_services
   echo "omniwm-dev: installed $DEV_APP"
   open_copy "$DEV_APP"
 }
