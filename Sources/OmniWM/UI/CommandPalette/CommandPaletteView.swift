@@ -10,6 +10,7 @@ import SwiftUI
 struct CommandPaletteView: View {
     @Bindable var controller: CommandPaletteController
     @Bindable var motionPolicy: MotionPolicy
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,7 @@ struct CommandPaletteView: View {
                     TextField(searchPlaceholder, text: $controller.searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 18))
+                        .focused($isSearchFocused)
                     if !controller.searchText.isEmpty {
                         Button(action: { controller.searchText = "" }, label: {
                             Image(systemName: "xmark.circle.fill")
@@ -138,6 +140,15 @@ struct CommandPaletteView: View {
         }
         .frame(width: 620, height: 430)
         .omniGlassEffect(in: RoundedRectangle(cornerRadius: 14))
+        .defaultFocus($isSearchFocused, true)
+        .onChange(of: controller.isVisible, initial: true) { _, isVisible in
+            isSearchFocused = isVisible
+        }
+        .onChange(of: controller.selectedMode) { _, _ in
+            if controller.isVisible {
+                isSearchFocused = true
+            }
+        }
     }
 
     private var searchPlaceholder: String {
