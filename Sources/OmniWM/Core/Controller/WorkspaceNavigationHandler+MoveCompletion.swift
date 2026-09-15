@@ -31,8 +31,7 @@ extension WorkspaceNavigationHandler {
         let focusEpochSeq = controller.workspaceManager.worldSeq
         let postLayoutIfFocusStillCurrent: LayoutRefreshController.PostLayoutAction = { [weak controller] in
             guard let controller,
-                  controller.intentLedger.newestFocusIntentId() == newestFocusIntentId,
-                  controller.workspaceManager.isSeqEpochCurrent(focusEpochSeq, domains: .focus)
+                  controller.intentLedger.newestFocusIntentId() == newestFocusIntentId
             else {
                 return
             }
@@ -43,7 +42,12 @@ extension WorkspaceNavigationHandler {
             reason: .workspaceTransition,
             postLayoutGateWorkspaceIds: completion.gateWorkspaceIds,
             postLayout: postLayoutIfFocusStillCurrent,
-            postLayoutInvalidated: postLayoutIfFocusStillCurrent
+            postLayoutInvalidated: { [weak controller] in
+                guard let controller,
+                      controller.workspaceManager.isSeqEpochCurrent(focusEpochSeq, domains: .focus)
+                else { return }
+                postLayoutIfFocusStillCurrent()
+            }
         )
     }
 
@@ -94,22 +98,23 @@ extension WorkspaceNavigationHandler {
 
         var state = controller.workspaceManager.niriViewportState(for: workspaceId)
         state.selectedNodeId = movedNode.id
-        let gap = controller.innerGap(for: monitor)
-        let workingFrame = controller.insetWorkingFrame(for: monitor)
-        let orientation = controller.settings.monitors.effectiveOrientation(for: monitor)
         controller.workspaceManager.withEngineMutationScope {
             engine.activateWindow(movedNode.id, in: workspaceId)
-            engine.ensureSelectionVisible(
-                node: movedNode,
-                context: .init(
-                    workspaceId: workspaceId,
-                    motion: controller.motionPolicy.snapshot(),
-                    workingFrame: workingFrame,
-                    gaps: gap,
-                    orientation: orientation
-                ),
-                state: &state
-            )
+            if engine.singleWindowLayoutContext(in: workspaceId) != nil {
+                controller.niriLayoutHandler.resetViewportForSingleWindowFit(state: &state)
+            } else {
+                engine.ensureSelectionVisible(
+                    node: movedNode,
+                    context: .init(
+                        workspaceId: workspaceId,
+                        motion: controller.motionPolicy.snapshot(),
+                        workingFrame: controller.insetWorkingFrame(for: monitor),
+                        gaps: controller.innerGap(for: monitor),
+                        orientation: controller.settings.monitors.effectiveOrientation(for: monitor)
+                    ),
+                    state: &state
+                )
+            }
         }
         return state
     }
