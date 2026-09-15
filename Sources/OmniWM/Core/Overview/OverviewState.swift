@@ -50,7 +50,7 @@ struct OverviewWindowItem {
     let title: String
     let appName: String
     let appIcon: CGImage?
-    let originalFrame: CGRect
+    var originalFrame: CGRect
     let overviewFrame: CGRect
     let matchesSearch: Bool
     var groupCount = 1
@@ -125,6 +125,19 @@ struct OverviewLayout {
             for windowIndex in workspaceSections[sectionIndex].windows.indices {
                 let handle = workspaceSections[sectionIndex].windows[windowIndex].handle
                 workspaceSections[sectionIndex].windows[windowIndex].groupCount = groupCountByHandle[handle] ?? 1
+            }
+        }
+    }
+
+    mutating func updateOriginalFrames(_ frames: [WindowToken: CGRect], monitorFrame: CGRect) {
+        for sectionIndex in workspaceSections.indices {
+            for windowIndex in workspaceSections[sectionIndex].windows.indices {
+                let token = workspaceSections[sectionIndex].windows[windowIndex].handle.id
+                guard let frame = frames[token] else { continue }
+                workspaceSections[sectionIndex].windows[windowIndex].originalFrame = frame.offsetBy(
+                    dx: -monitorFrame.minX,
+                    dy: -monitorFrame.minY + scrollOffset
+                )
             }
         }
     }

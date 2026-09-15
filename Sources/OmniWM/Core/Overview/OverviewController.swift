@@ -283,9 +283,17 @@ extension OverviewController {
         let resolvedTargetWindow = reason == .selection ? targetWindow : nil
         focusSession.pendingDismissReason = reason
         focusSession.pendingFocusTargetWindow = resolvedTargetWindow
+        if let resolvedTargetWindow {
+            wmController?.windowActionHandler.prepareWindowFromOverview(resolvedTargetWindow, animated: animated)
+        }
         focusSession.pendingPostCloseHandoffValidity = focusSession.currentPostCloseHandoffValidity()
 
         state = .closing(targetWindow: resolvedTargetWindow)
+        if let resolvedTargetWindow {
+            for displayId in windowSession.displayIds {
+                _ = projection.updateClosingWindowFrames(for: resolvedTargetWindow, on: displayId)
+            }
+        }
         updateWindowDisplays()
 
         if animated && motionPolicy.animationsEnabled {

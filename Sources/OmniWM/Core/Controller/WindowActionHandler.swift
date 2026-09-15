@@ -114,10 +114,32 @@ final class WindowActionHandler {
         overviewControllerStorage?.isOpen == true
     }
 
-    private func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
+    func prepareWindowFromOverview(_ handle: WindowHandle, animated: Bool) {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: handle),
+              controller.activeWorkspace()?.id == entry.workspaceId,
+              controller.workspaceManager.activeLayoutKind(for: entry.workspaceId) == .niri
+        else { return }
+        navigateToWindowInternal(
+            token: handle.id,
+            workspaceId: entry.workspaceId,
+            motion: animated ? controller.motionPolicy.snapshot() : .disabled,
+            focusAfterLayout: false
+        )
+    }
+
+    func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
         guard controller.workspaceManager.entry(for: handle) != nil else { return }
-        navigateToWindowInternal(token: handle.id, workspaceId: workspaceId)
+        if controller.activeWorkspace()?.id == workspaceId,
+           controller.workspaceManager.activeLayoutKind(for: workspaceId) == .niri,
+           let node = controller.niriEngine?.findNode(for: handle.id, in: workspaceId),
+           controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == node.id
+        {
+            controller.focusWindow(handle.id)
+        } else {
+            navigateToWindowInternal(token: handle.id, workspaceId: workspaceId)
+        }
     }
 
     func closeWindow(handle: WindowHandle) -> Bool {
