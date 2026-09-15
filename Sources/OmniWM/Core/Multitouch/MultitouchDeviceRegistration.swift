@@ -35,6 +35,7 @@ final class MultitouchDeviceRegistration {
     private let callback: MultitouchBinding.ContactCallback
     private var registrations: [Registration] = []
     private var deviceList: CFArray?
+    private var slotsBySender: [UInt64: Int] = [:]
     private(set) var lastRegister: MultitouchGestureSource.OperationResult = .notAttempted
     private(set) var lastStart: MultitouchGestureSource.OperationResult = .notAttempted
     private(set) var lastRunningCheck: MultitouchGestureSource.OperationResult = .notAttempted
@@ -61,6 +62,18 @@ final class MultitouchDeviceRegistration {
         registrations.filter(\.registered).count
     }
 
+    func hasSender(_ senderId: UInt64) -> Bool {
+        slotsBySender[senderId] != nil
+    }
+
+    func senderId(at slot: Int) -> UInt64? {
+        guard registrations.indices.contains(slot),
+              let senderId = registrations[slot].device.senderId,
+              slotsBySender[senderId] == slot
+        else { return nil }
+        return senderId
+    }
+
     func allRunning() -> Bool {
         guard let operations else { return false }
         let result = registrations.allSatisfy { operations.isRunning($0.device.ref) }
@@ -72,6 +85,7 @@ final class MultitouchDeviceRegistration {
         guard cleanup(&registrations) else { return false }
         registrations.removeAll(keepingCapacity: false)
         deviceList = nil
+        slotsBySender.removeAll(keepingCapacity: true)
         return true
     }
 
@@ -119,6 +133,12 @@ final class MultitouchDeviceRegistration {
         }
 
         registrations = candidates
+        slotsBySender.removeAll(keepingCapacity: true)
+        for (slot, registration) in registrations.enumerated() {
+            guard let sender = registration.device.senderId, sender != 0 else { continue }
+            slotsBySender[sender] = slotsBySender[sender] == nil ? slot : -1
+        }
+        slotsBySender = slotsBySender.filter { $0.value >= 0 }
         deviceList = enumeration.list
         return true
     }

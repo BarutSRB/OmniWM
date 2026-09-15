@@ -326,13 +326,26 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         x: CGFloat,
         y: CGFloat,
         at timestamp: TimeInterval,
-        location: CGPoint = CGPoint(x: 800, y: 450)
+        location: CGPoint = CGPoint(x: 800, y: 450),
+        senderId: UInt64? = 0x637,
+        slot: Int = 0
     ) {
+        let handler = fixture.controller.mouseEventHandler
+        var contacts = handler.state.contactSessions
+        if contacts.generation == 0 { contacts.generation = 1 }
+        if fingers > 0, phase == .began || contacts.sessions[slot] == 0 {
+            contacts.sessions[slot] += 1
+            handler.updateContactSessions(contacts)
+        }
+        let contact = MultitouchContactSession(
+            generation: contacts.generation, slot: slot, session: contacts.sessions[slot], senderId: senderId
+        )
         let snapshot = MouseEventHandler.GestureEventSnapshot(
             location: location,
             phaseRawValue: phase.rawValue,
             timestamp: timestamp,
-            touches: phase == .ended || phase == .cancelled ? [] : touches(fingers, x: x, y: y)
+            touches: phase == .ended || phase == .cancelled ? [] : touches(fingers, x: x, y: y),
+            contactSession: contact
         )
         fixture.controller.mouseEventHandler.receiveTapGestureEvent(snapshot)
     }
@@ -491,6 +504,26 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         XCTAssertFalse(handler.state.consumeTrackpadScrollUntilAllTouchesLift)
         XCTAssertTrue(handler.state.suppressTrackpadMomentumScroll)
         XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
+    }
+
+    func testClaimedSessionConsumesPhaseLessScrollEvents() throws {
+        let fixture = try makeFixture()
+        let handler = fixture.controller.mouseEventHandler
+
+        sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 100)
+
+        XCTAssertTrue(handler.isTrackpadSwipeSessionActive)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+    }
+
+    func testCompletedWorkspaceSwipeConsumesPhaseLessScrollTail() throws {
+        let fixture = try makeFixture()
+        let handler = fixture.controller.mouseEventHandler
+
+        _ = performVerticalSwipe(fixture, totalUnits: 220, startTime: 100)
+
+        XCTAssertFalse(handler.isTrackpadSwipeSessionActive)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
     }
 
     func testRapidSuccessiveSwipesRejectStaleFocusHandoff() throws {
@@ -1119,6 +1152,212 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         XCTAssertEqual(activeWorkspace(fixture), fixture.ws2)
     }
 
+    func testOwnedTailSkipsIntakeWhileExternalAndUnidentifiedScrollRemainIndependent() throws {
+        let fixture = try makeFixture()
+        let controller = fixture.controller
+        controller.eventIntake.open(sink: controller.eventInterpreter)
+        controller.eventIntake.beginPerformanceCapture()
+        defer { controller.eventIntake.close() }
+        sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 100)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.01)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertEqual(controller.eventIntake.performanceSnapshot()?.acceptedEvents, 0)
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: nil))
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x999))
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0, isContinuous: false))
+        XCTAssertEqual(controller.eventIntake.performanceSnapshot()?.acceptedEvents, 3)
+    }
+
+    func testFreshTwoFingerContactRetiresCompletedTail() throws {
+        let fixture = try makeFixture()
+        _ = performVerticalSwipe(fixture, totalUnits: 220, startTime: 100)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        sendFrame(fixture, phase: .began, fingers: 2, x: 0.5, y: 0.5, at: 101)
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+    }
+
+    func testOverviewPhaseLessTailRetiresBeforeEligibilityFiltering() throws {
+        let fixture = try makeFixture(workspaceSwipeEnabled: false)
+        fixture.controller.setAnimationsEnabled(false)
+        fixture.controller.settings.gestures.overviewGestureEnabled = true
+        defer { if fixture.controller.isOverviewOpen() { fixture.controller.windowActionHandler.toggleOverview() } }
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.6, at: 100.1)
+        XCTAssertTrue(fixture.controller.isOverviewOpen())
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.2)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        sendFrame(fixture, phase: .began, fingers: 2, x: 0.5, y: 0.5, at: 100.21)
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+    }
+
+    func testColumnFullReleaseAndPartialLiftRetainPhaseLessTail() throws {
+        for partialLift in [false, true] {
+            let fixture = try makeFixture(workspaceSwipeEnabled: false, scrollGestureEnabled: true)
+            try addColumnGestureWindows(to: fixture)
+            let time = beginCommittedColumnGesture(fixture)
+            sendFrame(
+                fixture,
+                phase: partialLift ? .changed : .ended,
+                fingers: partialLift ? 2 : 0,
+                x: 0.68,
+                y: 0.5,
+                at: time + 0.01
+            )
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            if partialLift {
+                sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: time + 0.02)
+                XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            }
+        }
+    }
+
+    func testRejectedGestureDoesNotRetainPhaseLessTail() throws {
+        for changeFingerCount in [false, true] {
+            let fixture = try makeFixture()
+            sendFrame(fixture, phase: .began, fingers: 3, x: 0.2, y: 0.5, at: 100)
+            sendFrame(
+                fixture,
+                phase: .changed,
+                fingers: changeFingerCount ? 2 : 3,
+                x: 0.3,
+                y: 0.5,
+                at: 100.01
+            )
+            XCTAssertEqual(fixture.controller.mouseEventHandler.state.gesturePhase, .idle)
+            sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.02)
+            XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        }
+    }
+
+    func testRetainedSourcesRemainIndependentAcrossCancellationAndVisibilityReset() throws {
+        let fixture = try makeFixture()
+        let handler = fixture.controller.mouseEventHandler
+        for slot in 0 ..< 2 {
+            let sender = UInt64(0x637 + slot)
+            sendFrame(
+                fixture,
+                phase: .began,
+                fingers: 3,
+                x: 0.5,
+                y: 0.2,
+                at: Double(100 + slot),
+                senderId: sender,
+                slot: slot
+            )
+            sendFrame(
+                fixture,
+                phase: .cancelled,
+                fingers: 0,
+                x: 0,
+                y: 0,
+                at: Double(100 + slot) + 0.01,
+                senderId: sender,
+                slot: slot
+            )
+        }
+        handler.handleAppVisibilityChanged()
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x637))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x638))
+        sendFrame(fixture, phase: .began, fingers: 2, x: 0.5, y: 0.5, at: 102)
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x637))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x638))
+        handler.resetForMultitouchSourceReplacement()
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x638))
+    }
+
+    func testNewContactFactsPreventOldTerminalFromReacquiringTail() throws {
+        let fixture = try makeFixture()
+        let handler = fixture.controller.mouseEventHandler
+        sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 100)
+        let oldContact = try XCTUnwrap(handler.state.lockedGestureContext?.contactSession)
+        var latest = handler.state.contactSessions
+        latest.sessions[0] += 1
+        handler.updateContactSessions(latest)
+        handler.receiveTapGestureEvent(.init(
+            location: CGPoint(x: 800, y: 450),
+            phaseRawValue: NSEvent.Phase.ended.rawValue,
+            timestamp: 100.01,
+            touches: [],
+            contactSession: oldContact
+        ))
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertTrue(handler.state.consumedTrackpadSessions.isEmpty)
+    }
+
+    func testScrollTapDrainsQueuedFirstGestureAndFreshTwoFingerStart() async throws {
+        let fixture = try makeFixture()
+        let harness = await installRecoveringMultitouchSource(fixture)
+        defer {
+            fixture.controller.mouseEventHandler.cleanup()
+            harness.sleeper.resumeAll()
+        }
+        harness.backend.emitFrame(
+            registryId: 303,
+            touches: Array(repeating: (x: 0.5, y: 0.2), count: 3),
+            timestamp: 100
+        )
+        XCTAssertEqual(fixture.controller.mouseEventHandler.state.gesturePhase, .idle)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        harness.backend.emitFrame(registryId: 303, touches: [], timestamp: 100.01)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        harness.backend.emitFrame(
+            registryId: 303,
+            touches: Array(repeating: (x: 0.5, y: 0.5), count: 2),
+            timestamp: 100.02
+        )
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        await drainMultitouchTasks()
+    }
+
+    func testNonOwnerFreshContactRetiresItsOldTailThroughSynchronousDrain() async throws {
+        let fixture = try makeFixture()
+        let harness = await installRecoveringMultitouchSource(fixture, includeSecondDevice: true)
+        defer {
+            fixture.controller.mouseEventHandler.cleanup()
+            harness.sleeper.resumeAll()
+        }
+        harness.backend.emitFrame(
+            registryId: 303,
+            touches: Array(repeating: (x: 0.5, y: 0.2), count: 3),
+            timestamp: 100
+        )
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        harness.backend.emitFrame(registryId: 303, touches: [], timestamp: 100.01)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        harness.backend.emitFrame(
+            registryId: 304,
+            touches: Array(repeating: (x: 0.5, y: 0.2), count: 3),
+            timestamp: 100.02
+        )
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x638))
+        harness.backend.emitFrame(
+            registryId: 303,
+            touches: Array(repeating: (x: 0.5, y: 0.5), count: 2),
+            timestamp: 100.03
+        )
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0, senderId: 0x638))
+        XCTAssertEqual(fixture.controller.mouseEventHandler.state.lockedGestureContext?.contactSession?.senderId, 0x638)
+        await drainMultitouchTasks()
+    }
+
+    func testSyntheticRestartPreservesConsumptionAcrossTimestampGaps() async throws {
+        for gap in [0.01, 0.2, 20.0] {
+            let fixture = try makeFixture()
+            let harness = await installRecoveringMultitouchSource(fixture)
+            let contacts = Array(repeating: (x: Float(0.5), y: Float(0.2)), count: 3)
+            harness.backend.emitFrame(registryId: 303, touches: contacts, timestamp: 100)
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            harness.backend.emitFrame(registryId: 303, touches: contacts, timestamp: 100 + gap)
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            harness.backend.emitFrame(registryId: 303, touches: [], timestamp: 100 + gap + 0.01)
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            await cleanupRecoveringMultitouchSource(fixture, harness: harness)
+        }
+    }
+
     private func driveCommittedPartialLift(_ fixture: Fixture) -> TimeInterval {
         var time: TimeInterval = 100
         sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: time)
@@ -1136,7 +1375,9 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
     private func scrollVerdict(
         _ fixture: Fixture,
         momentumPhase: UInt32,
-        phase: UInt32
+        phase: UInt32,
+        senderId: UInt64? = 0x637,
+        isContinuous: Bool = true
     ) -> Bool {
         fixture.controller.mouseEventHandler.receiveTapScrollWheel(MouseScrollIntake(
             location: CGPoint(x: 800, y: 450),
@@ -1144,7 +1385,9 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             deltaY: 8,
             momentumPhase: momentumPhase,
             phase: phase,
-            modifiersRawValue: 0
+            modifiersRawValue: 0,
+            isContinuous: isContinuous,
+            senderId: senderId
         ))
     }
 
@@ -1549,17 +1792,21 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
     }
 
     private func installRecoveringMultitouchSource(
-        _ fixture: Fixture
+        _ fixture: Fixture,
+        includeSecondDevice: Bool = false
     ) async -> (
         source: MultitouchGestureSource,
         backend: FakeMultitouchBackend,
         sleeper: ManualMultitouchSleeper
     ) {
-        let device = FakeMultitouchBackend.device(pointer: 0xC1, registryId: 303)
+        let device = FakeMultitouchBackend.device(pointer: 0xC1, registryId: 303, senderId: 0x637)
         let backend = FakeMultitouchBackend()
+        let registeredDevices = includeSecondDevice
+            ? [device, FakeMultitouchBackend.device(pointer: 0xC2, registryId: 304, senderId: 0x638)]
+            : [device]
         backend.enumerations = [
-            FakeMultitouchBackend.enumeration([device]),
-            FakeMultitouchBackend.enumeration([device])
+            FakeMultitouchBackend.enumeration(registeredDevices),
+            FakeMultitouchBackend.enumeration(registeredDevices)
         ]
         let sleeper = ManualMultitouchSleeper()
         let source = MultitouchGestureSource(

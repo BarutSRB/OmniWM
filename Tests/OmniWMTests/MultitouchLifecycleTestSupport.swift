@@ -110,8 +110,8 @@ final class FakeMultitouchBackend {
         )
     ] = [:]
 
-    static func device(pointer: UInt, registryId: UInt64) -> MultitouchBinding.Device {
-        MultitouchBinding.Device(ref: OpaquePointer(bitPattern: pointer)!, registryId: registryId)
+    static func device(pointer: UInt, registryId: UInt64, senderId: UInt64? = nil) -> MultitouchBinding.Device {
+        MultitouchBinding.Device(ref: OpaquePointer(bitPattern: pointer)!, registryId: registryId, senderId: senderId)
     }
 
     static func enumeration(_ devices: [MultitouchBinding.Device]) -> MultitouchBinding.Enumeration {

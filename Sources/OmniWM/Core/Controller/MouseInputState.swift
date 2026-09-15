@@ -15,6 +15,7 @@ struct MouseInputState {
         let columnScrollAxis: WorkspaceSwipeAxis
         let workspaceAxis: WorkspaceSwipeAxis?
         let overviewCandidate: Bool
+        var contactSession: MultitouchContactSession?
     }
 
     enum GesturePhase {
@@ -79,6 +80,8 @@ struct MouseInputState {
     var suppressGestureStartUntilAllTouchesLift = false
     var consumeTrackpadScrollUntilAllTouchesLift = false
     var suppressTrackpadMomentumScroll = false
+    var contactSessions = MultitouchContactSessions()
+    var consumedTrackpadSessions: [UInt64: MultitouchContactSession] = [:]
     var horizontalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
     var verticalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
 }

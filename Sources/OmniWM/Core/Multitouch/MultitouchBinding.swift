@@ -18,6 +18,7 @@ final class MultitouchBinding {
     struct Device {
         let ref: DeviceRef
         let registryId: UInt64
+        let senderId: UInt64?
     }
 
     enum EnumerationOutcome: Equatable, Sendable {
@@ -151,9 +152,32 @@ final class MultitouchBinding {
             guard registryIds.insert(registryId).inserted else {
                 return Enumeration(list: array, devices: [], outcome: .duplicateRegistryId)
             }
-            devices.append(Device(ref: ref, registryId: registryId))
+            devices.append(Device(ref: ref, registryId: registryId, senderId: Self.senderId(for: service)))
         }
         return Enumeration(list: array, devices: devices, outcome: .success(devices.count))
+    }
+
+    private static func senderId(for service: io_service_t) -> UInt64? {
+        var cursor = service
+        var ownsCursor = false
+        for _ in 0 ..< 32 {
+            var parent: io_registry_entry_t = 0
+            let status = IORegistryEntryGetParentEntry(cursor, kIOServicePlane, &parent)
+            if ownsCursor { IOObjectRelease(cursor) }
+            guard status == KERN_SUCCESS, parent != IO_OBJECT_NULL else { return nil }
+            cursor = parent
+            ownsCursor = true
+            if IOObjectConformsTo(cursor, "IOHIDEventService") != 0 {
+                defer { IOObjectRelease(cursor) }
+                var sender: UInt64 = 0
+                guard IORegistryEntryGetRegistryEntryID(cursor, &sender) == KERN_SUCCESS,
+                      sender != 0
+                else { return nil }
+                return sender
+            }
+        }
+        if ownsCursor { IOObjectRelease(cursor) }
+        return nil
     }
 
     func start(_ device: DeviceRef) -> Int32 {

@@ -17,7 +17,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         }
         XCTAssertFalse(offer(mailbox, touches: 0, at: 11.001, generation: 7))
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.map(\.kind), [.began, .changed, .ended])
         XCTAssertEqual(deliveries[1].frame.timestamp, 11)
         let snapshot = mailbox.endPerformanceCapture()
@@ -40,7 +40,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
             XCTAssertFalse(offer(mailbox, touches: 0, at: Double(gesture * 2 + 1), generation: 9))
         }
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertLessThanOrEqual(deliveries.count, mailbox.capacity)
         XCTAssertEqual(deliveries.map(\.kind), [.began, .ended, .began, .ended])
     }
@@ -54,7 +54,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertFalse(offer(mailbox, touches: 1, at: 3, generation: 10))
         XCTAssertFalse(offer(mailbox, touches: 0, at: 4, generation: 10))
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.map(\.kind), [.began, .ended])
         XCTAssertEqual(deliveries.map(\.frame.timestamp), [3, 4])
     }
@@ -82,7 +82,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertEqual(initial?.maximumPendingFrames, 2)
         XCTAssertEqual(initial?.rawCallbacks, 0)
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.count, 2)
         let final = mailbox.endPerformanceCapture()
         XCTAssertEqual(final?.pendingFrames, 0)
@@ -101,7 +101,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertFalse(offer(mailbox, touches: 0, at: 1.03, slot: 1, generation: 7))
         XCTAssertFalse(offer(mailbox, touches: 0, at: 1.04, slot: 0, generation: 7))
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.map(\.kind), [.began, .changed, .ended])
         XCTAssertEqual(deliveries.map(\.frame.timestamp), [1.00, 1.02, 1.04])
     }
@@ -117,7 +117,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertFalse(offer(mailbox, touches: 0, at: 1.04, slot: 1, generation: 7))
         XCTAssertFalse(offer(mailbox, touches: 1, at: 1.05, slot: 1, generation: 7))
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.map(\.kind), [.began, .ended, .began])
         XCTAssertEqual(deliveries.last?.frame.timestamp, 1.05)
     }
@@ -133,7 +133,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertTrue(offer(mailbox, touches: 1, at: 1.02, slot: 1, generation: 8))
         XCTAssertFalse(offer(mailbox, touches: 1, at: 1.03, slot: 0, generation: 8))
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.map(\.kind), [.began])
         XCTAssertEqual(deliveries.first?.frame.timestamp, 1.02)
     }
@@ -151,7 +151,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         }
         XCTAssertFalse(offer(mailbox, touches: 0, at: 2.001, slot: 0, generation: 7))
 
-        XCTAssertEqual(mailbox.take().map(\.kind), [.began, .changed, .ended])
+        XCTAssertEqual(mailbox.take().deliveries.map(\.kind), [.began, .changed, .ended])
         let snapshot = mailbox.endPerformanceCapture()
         XCTAssertEqual(snapshot?.rawCallbacks, 2_002)
         XCTAssertEqual(snapshot?.overwrittenChanges, 999)
@@ -170,7 +170,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertFalse(offer(mailbox, touches: 1, at: 1.01, slot: 0, generation: 7))
         XCTAssertFalse(offer(mailbox, touches: 1, at: 1.20, slot: 0, generation: 7))
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.map(\.kind), [.began, .changed, .cancelled, .began])
         XCTAssertEqual(deliveries.map(\.frame.timestamp), [1.00, 1.01, 1.20, 1.20])
         XCTAssertTrue(deliveries[2].frame.touches.isEmpty)
@@ -188,7 +188,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertFalse(offer(mailbox, touches: 1, at: 1.21, slot: 0, generation: 7))
         XCTAssertFalse(offer(mailbox, touches: 0, at: 1.22, slot: 1, generation: 7))
 
-        let deliveries = mailbox.take()
+        let deliveries = mailbox.take().deliveries
         XCTAssertEqual(deliveries.map(\.kind), [.began, .changed, .cancelled, .began, .ended])
         XCTAssertEqual(deliveries.map(\.frame.timestamp), [1.00, 1.01, 1.20, 1.20, 1.22])
     }
@@ -200,7 +200,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertTrue(offer(mailbox, touches: 1, at: 1.00, slot: 0, generation: 7))
         XCTAssertFalse(offer(mailbox, touches: 0, at: 1.50, slot: 0, generation: 7))
 
-        XCTAssertEqual(mailbox.take().map(\.kind), [.began, .ended])
+        XCTAssertEqual(mailbox.take().deliveries.map(\.kind), [.began, .ended])
     }
 
     func testGapWithinBoundaryKeepsGestureContinuous() {
@@ -210,7 +210,55 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertTrue(offer(mailbox, touches: 1, at: 1.00, slot: 0, generation: 7))
         XCTAssertFalse(offer(mailbox, touches: 1, at: 1.11, slot: 0, generation: 7))
 
-        XCTAssertEqual(mailbox.take().map(\.kind), [.began, .changed])
+        XCTAssertEqual(mailbox.take().deliveries.map(\.kind), [.began, .changed])
+    }
+
+    func testPhysicalSessionDoesNotAdvanceOnTimeoutRestart() {
+        for gap in [0.01, 0.2, 20.0] {
+            let mailbox = MultitouchFrameMailbox()
+            mailbox.activate(generation: 7)
+            XCTAssertTrue(offer(mailbox, touches: 3, at: 100, generation: 7))
+            _ = mailbox.take()
+            XCTAssertTrue(offer(mailbox, touches: 3, at: 100 + gap, generation: 7))
+            let batch = mailbox.take()
+            XCTAssertEqual(batch.contacts.sessions[0], 1)
+            XCTAssertFalse(batch.contactsChanged)
+            XCTAssertTrue(batch.deliveries.allSatisfy { $0.slot == 0 && $0.contactSession == 1 })
+            XCTAssertEqual(batch.deliveries.map(\.kind), gap > 0.12 ? [.cancelled, .began] : [.changed])
+        }
+    }
+
+    func testNonOwnerPhysicalStartPublishesMetadataWithoutGestureControl() {
+        let mailbox = MultitouchFrameMailbox()
+        mailbox.activate(generation: 7)
+        XCTAssertTrue(offer(mailbox, touches: 3, at: 100, generation: 7))
+        _ = mailbox.take()
+        XCTAssertTrue(offer(mailbox, touches: 2, at: 100.01, slot: 1, generation: 7))
+        let batch = mailbox.take()
+        XCTAssertTrue(batch.deliveries.isEmpty)
+        XCTAssertTrue(batch.contactsChanged)
+        XCTAssertEqual(batch.contacts.sessions[0], 1)
+        XCTAssertEqual(batch.contacts.sessions[1], 1)
+        XCTAssertFalse(offer(mailbox, touches: 2, at: 100.02, slot: 1, generation: 7))
+    }
+
+    func testLatestPhysicalSessionsSurviveQueueEvictionAndGenerationReplacement() {
+        let mailbox = MultitouchFrameMailbox(capacity: 3)
+        mailbox.activate(generation: 7)
+        for index in 0 ..< 10 {
+            _ = offer(mailbox, touches: 3, at: Double(index), generation: 7)
+            _ = offer(mailbox, touches: 0, at: Double(index) + 0.01, generation: 7)
+        }
+        let batch = mailbox.take()
+        XCTAssertEqual(batch.contacts.sessions[0], 10)
+        XCTAssertLessThanOrEqual(batch.deliveries.count, 3)
+        XCTAssertTrue(batch.deliveries.allSatisfy { $0.contactSession == 10 })
+        mailbox.activate(generation: 8)
+        XCTAssertFalse(offer(mailbox, touches: 3, at: 11, generation: 7))
+        let replacement = mailbox.take()
+        XCTAssertEqual(replacement.contacts.generation, 8)
+        XCTAssertEqual(replacement.contacts.sessions[0], 0)
+        XCTAssertTrue(replacement.deliveries.isEmpty)
     }
 
     private func offer(

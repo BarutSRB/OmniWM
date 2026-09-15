@@ -4,6 +4,12 @@
 import ApplicationServices
 import Foundation
 
+@_silgen_name("CGEventCopyIOHIDEvent")
+func CGEventCopyIOHIDEvent(_ event: CGEvent) -> Unmanaged<CFTypeRef>?
+
+@_silgen_name("IOHIDEventGetSenderID")
+func IOHIDEventGetSenderID(_ event: CFTypeRef) -> UInt64
+
 typealias SLPSMode = UInt32
 let kCPSUserGenerated: SLPSMode = 0x200
 

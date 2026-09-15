@@ -64,11 +64,22 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
         let frame: MultitouchGestureSource.RawFrame
         let generation: UInt
         let kind: Kind
+        let slot: Int
+        let contactSession: UInt64
+    }
+
+    struct Batch: Sendable {
+        let deliveries: [Delivery]
+        let contacts: MultitouchContactSessions
+        let contactsChanged: Bool
     }
 
     private struct State {
         var generation: UInt = 0
         var touchingSlots: UInt64 = 0
+        var physicalTouchingSlots: UInt64 = 0
+        var contacts = MultitouchContactSessions()
+        var contactsChanged = false
         var ownerSlot: Int?
         var ownerTimestamp: Double = 0
         var drainScheduled = false
@@ -88,6 +99,9 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
         state.withLock { value in
             value.generation = generation
             value.touchingSlots = 0
+            value.physicalTouchingSlots = 0
+            value.contacts = MultitouchContactSessions(generation: generation)
+            value.contactsChanged = true
             value.ownerSlot = nil
             value.drainScheduled = false
             value.pending.removeAll(keepingCapacity: true)
@@ -103,13 +117,23 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
             if let counters = value.performanceCounters {
                 _ = counters.rawCallbacks.wrappingAdd(1, ordering: .relaxed)
             }
-            guard generation != 0, generation == value.generation else {
+            guard generation != 0, generation == value.generation, slot >= 0, slot < 64 else {
                 if let counters = value.performanceCounters {
                     _ = counters.staleCallbacks.wrappingAdd(1, ordering: .relaxed)
                 }
                 return false
             }
             let hasTouches = !frame.touches.isEmpty
+            let slotMask: UInt64 = 1 << UInt64(slot)
+            if hasTouches {
+                if value.physicalTouchingSlots & slotMask == 0 {
+                    value.contacts.sessions[slot] += 1
+                    value.contactsChanged = true
+                }
+                value.physicalTouchingSlots |= slotMask
+            } else {
+                value.physicalTouchingSlots &= ~slotMask
+            }
             var scheduled = false
             if let owner = value.ownerSlot, hasTouches,
                frame.timestamp - value.ownerTimestamp > multitouchLiftTimeout
@@ -123,10 +147,12 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
                         timestamp: frame.timestamp
                     ),
                     generation: generation,
+                    slot: owner,
                     in: &value
                 )
             }
-            return route(frame, hasTouches: hasTouches, generation: generation, slot: slot, in: &value) || scheduled
+            let routed = route(frame, hasTouches: hasTouches, generation: generation, slot: slot, in: &value)
+            return scheduleDrainIfNeeded(in: &value) || routed || scheduled
         }
     }
 
@@ -149,32 +175,35 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
             value.ownerSlot = slot
             value.ownerTimestamp = frame.timestamp
             makeRoomForGesture(in: &value)
-            return enqueue(.began, frame, generation: generation, in: &value)
+            return enqueue(.began, frame, generation: generation, slot: slot, in: &value)
         }
         guard owner == slot else { return false }
         guard hasTouches else {
             value.ownerSlot = nil
-            return enqueue(.ended, frame, generation: generation, in: &value)
+            return enqueue(.ended, frame, generation: generation, slot: slot, in: &value)
         }
         value.ownerTimestamp = frame.timestamp
         if value.pending.last?.kind == .changed {
             value.pending[value.pending.count - 1] = Delivery(
                 frame: frame,
                 generation: generation,
-                kind: .changed
+                kind: .changed,
+                slot: slot,
+                contactSession: value.contacts.sessions[slot]
             )
             if let counters = value.performanceCounters {
                 _ = counters.overwrittenChanges.wrappingAdd(1, ordering: .relaxed)
             }
             return scheduleDrainIfNeeded(in: &value)
         }
-        return enqueue(.changed, frame, generation: generation, in: &value)
+        return enqueue(.changed, frame, generation: generation, slot: slot, in: &value)
     }
 
     private func enqueue(
         _ kind: Kind,
         _ frame: MultitouchGestureSource.RawFrame,
         generation: UInt,
+        slot: Int,
         in value: inout State
     ) -> Bool {
         if value.pending.count == capacity,
@@ -186,7 +215,13 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
             makeRoomForEnd(in: &value)
         }
         guard value.pending.count < capacity else { return scheduleDrainIfNeeded(in: &value) }
-        value.pending.append(Delivery(frame: frame, generation: generation, kind: kind))
+        value.pending.append(Delivery(
+            frame: frame,
+            generation: generation,
+            kind: kind,
+            slot: slot,
+            contactSession: value.contacts.sessions[slot]
+        ))
         if let counters = value.performanceCounters {
             if kind != .changed {
                 _ = counters.transitionsQueued.wrappingAdd(1, ordering: .relaxed)
@@ -196,7 +231,7 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
         return scheduleDrainIfNeeded(in: &value)
     }
 
-    func take() -> [Delivery] {
+    func take() -> Batch {
         state.withLock { value in
             var deliveries: [Delivery] = []
             swap(&deliveries, &value.spare)
@@ -207,7 +242,9 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
                 _ = counters.drainBatches.wrappingAdd(1, ordering: .relaxed)
                 _ = counters.cursorSamples.wrappingAdd(1, ordering: .relaxed)
             }
-            return deliveries
+            let batch = Batch(deliveries: deliveries, contacts: value.contacts, contactsChanged: value.contactsChanged)
+            value.contactsChanged = false
+            return batch
         }
     }
 
@@ -247,7 +284,7 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
     }
 
     private func scheduleDrainIfNeeded(in value: inout State) -> Bool {
-        guard !value.drainScheduled, !value.pending.isEmpty else { return false }
+        guard !value.drainScheduled, !value.pending.isEmpty || value.contactsChanged else { return false }
         value.drainScheduled = true
         return true
     }

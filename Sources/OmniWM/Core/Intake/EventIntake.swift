@@ -37,6 +37,8 @@ struct MouseScrollIntake: Sendable {
     let momentumPhase: UInt32
     let phase: UInt32
     let modifiersRawValue: UInt64
+    var isContinuous: Bool = false
+    var senderId: UInt64?
 
     private static let axisEpsilon: CGFloat = 0.001
 
@@ -48,6 +50,8 @@ struct MouseScrollIntake: Sendable {
         modifiersRawValue == other.modifiersRawValue
             && momentumPhase == other.momentumPhase
             && phase == other.phase
+            && isContinuous == other.isContinuous
+            && senderId == other.senderId
     }
 
     func canCoalesce(_ other: MouseScrollIntake) -> Bool {

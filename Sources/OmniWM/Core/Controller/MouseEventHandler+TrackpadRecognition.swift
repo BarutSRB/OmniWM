@@ -20,6 +20,7 @@ extension MouseEventHandler {
         let activeTouchCount = Self.activeTouchCount(in: snapshot.touches)
 
         if phase == .ended || phase == .cancelled {
+            retainConsumedTrackpadSession()
             defer {
                 clearGestureLatches()
                 resetGestureState()
@@ -66,6 +67,7 @@ extension MouseEventHandler {
                 average: averageTouchPosition,
                 timestamp: snapshot.timestamp
             )
+            state.lockedGestureContext?.contactSession = snapshot.contactSession
             return
         }
         processActiveGestureFrame(average: averageTouchPosition, timestamp: snapshot.timestamp)

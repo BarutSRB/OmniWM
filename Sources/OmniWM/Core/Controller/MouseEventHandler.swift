@@ -36,6 +36,9 @@ final class MouseEventHandler {
         source.onSnapshot = { [weak self] snapshot in
             self?.receiveTapGestureEvent(snapshot)
         }
+        source.onContactSessions = { [weak self] contacts in
+            self?.updateContactSessions(contacts)
+        }
         source.onSourceWillReplace = { [weak self] in
             self?.resetForMultitouchSourceReplacement()
         }
@@ -146,6 +149,45 @@ final class MouseEventHandler {
         state.workspaceSwipeTracker.reset()
         clearGestureLatches()
         state.suppressTrackpadMomentumScroll = false
+        state.contactSessions = MultitouchContactSessions()
+        clearConsumedTrackpadSessions()
+    }
+
+    func drainTrackpadFrames(for senderId: UInt64, at location: CGPoint) {
+        guard let multitouchSource, multitouchSource.hasSender(senderId) else { return }
+        multitouchSource.drainRawFrameMailbox(location: location)
+    }
+
+    func updateContactSessions(_ contacts: MultitouchContactSessions) {
+        state.contactSessions = contacts
+        state.consumedTrackpadSessions = state.consumedTrackpadSessions.filter {
+            contacts.contains($0.value)
+        }
+    }
+
+    func retainConsumedTrackpadSession() {
+        guard state.gesturePhase != .idle,
+              let contact = state.lockedGestureContext?.contactSession,
+              let senderId = contact.senderId, senderId != 0,
+              state.contactSessions.contains(contact)
+        else { return }
+        state.consumedTrackpadSessions[senderId] = contact
+    }
+
+    func clearConsumedTrackpadSessions() {
+        state.consumedTrackpadSessions.removeAll(keepingCapacity: true)
+    }
+
+    func consumesTrackpadSession(senderId: UInt64) -> Bool {
+        if state.gesturePhase != .idle,
+           let contact = state.lockedGestureContext?.contactSession,
+           contact.senderId == senderId,
+           state.contactSessions.contains(contact)
+        {
+            return true
+        }
+        guard let contact = state.consumedTrackpadSessions[senderId] else { return false }
+        return state.contactSessions.contains(contact)
     }
 
     func recordMouseWarpSample() {

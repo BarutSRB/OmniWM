@@ -14,6 +14,24 @@ private let multitouchPositionXByteOffset = 32
 private let multitouchPositionYByteOffset = 36
 private let multitouchTouchingState: Int32 = 4
 
+struct MultitouchContactSession: Equatable, Sendable {
+    let generation: UInt
+    let slot: Int
+    let session: UInt64
+    let senderId: UInt64?
+}
+
+struct MultitouchContactSessions: Sendable {
+    var generation: UInt = 0
+    var sessions = InlineArray<64, UInt64>(repeating: 0)
+
+    func contains(_ contact: MultitouchContactSession) -> Bool {
+        generation != 0 && contact.generation == generation
+            && contact.slot >= 0 && contact.slot < sessions.count
+            && contact.session != 0 && sessions[contact.slot] == contact.session
+    }
+}
+
 extension MultitouchGestureSource {
     struct RawTouch: Sendable {
         let x: Float
@@ -73,12 +91,22 @@ extension MultitouchGestureSource {
     static func makeSnapshot(
         frame: RawFrame,
         location: CGPoint,
-        previousActiveCount: Int
+        previousActiveCount: Int,
+        terminalPhase: NSEvent.Phase = .ended,
+        contactSession: MultitouchContactSession? = nil
     ) -> (snapshot: MouseEventHandler.GestureEventSnapshot?, activeCount: Int) {
         let activeCount = frame.touches.count
         if activeCount == 0 {
             guard previousActiveCount > 0 else { return (nil, 0) }
-            return (liftSnapshot(.ended, location: location, timestamp: frame.timestamp), 0)
+            return (
+                liftSnapshot(
+                    terminalPhase,
+                    location: location,
+                    timestamp: frame.timestamp,
+                    contactSession: contactSession
+                ),
+                0
+            )
         }
 
         let phase: NSEvent.Phase = previousActiveCount == 0 ? .began : .changed
@@ -92,7 +120,8 @@ extension MultitouchGestureSource {
             location: location,
             phaseRawValue: phase.rawValue,
             timestamp: frame.timestamp,
-            touches: touches
+            touches: touches,
+            contactSession: contactSession
         )
         return (snapshot, activeCount)
     }
@@ -100,13 +129,15 @@ extension MultitouchGestureSource {
     static func liftSnapshot(
         _ phase: NSEvent.Phase,
         location: CGPoint,
-        timestamp: Double
+        timestamp: Double,
+        contactSession: MultitouchContactSession? = nil
     ) -> MouseEventHandler.GestureEventSnapshot {
         MouseEventHandler.GestureEventSnapshot(
             location: location,
             phaseRawValue: phase.rawValue,
             timestamp: timestamp,
-            touches: []
+            touches: [],
+            contactSession: contactSession
         )
     }
 

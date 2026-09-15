@@ -202,6 +202,15 @@ extension MouseEventHandler {
             handleInputSuppressionBegan()
             return false
         }
+        if payload.phase == 0, payload.momentumPhase == 0, payload.isContinuous,
+           let senderId = payload.senderId, senderId != 0
+        {
+            drainTrackpadFrames(for: senderId, at: payload.location)
+            if consumesTrackpadSession(senderId: senderId) {
+                recordDroppedTrackpadScroll()
+                return true
+            }
+        }
         let suppress = shouldSuppressScroll(
             at: payload.location,
             momentumPhase: payload.momentumPhase,

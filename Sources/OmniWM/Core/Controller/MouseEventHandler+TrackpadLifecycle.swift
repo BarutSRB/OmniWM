@@ -50,6 +50,7 @@ extension MouseEventHandler {
                 translation: CGPoint(x: metrics.cumulativeX, y: metrics.cumulativeY)
             )
             else { return }
+            retainConsumedTrackpadSession()
             state.suppressGestureStartUntilAllTouchesLift = true
             state.consumeTrackpadScrollUntilAllTouchesLift = true
             state.suppressTrackpadMomentumScroll = true
@@ -234,6 +235,7 @@ extension MouseEventHandler {
     }
 
     func finalizeCommittedGestureAfterTouchRelease(timestamp: TimeInterval) {
+        retainConsumedTrackpadSession()
         finishCommittedGestureOnRelease(timestamp: timestamp, allowFlick: true)
         state.suppressGestureStartUntilAllTouchesLift = true
         state.consumeTrackpadScrollUntilAllTouchesLift = true
@@ -261,6 +263,7 @@ extension MouseEventHandler {
 
     func abortActiveGestureIfNeeded() {
         if state.gesturePhase == .committed {
+            retainConsumedTrackpadSession()
             if state.activeGestureMode == .overview {
                 state.suppressTrackpadMomentumScroll = true
             } else if case .workspaceSwitch = state.activeGestureMode {

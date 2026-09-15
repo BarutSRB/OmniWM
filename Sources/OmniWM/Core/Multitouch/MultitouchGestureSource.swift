@@ -18,6 +18,7 @@ final class MultitouchGestureSource {
 
     var onSnapshot: ((MouseEventHandler.GestureEventSnapshot) -> Void)?
     var onSourceWillReplace: (() -> Void)?
+    var onContactSessions: ((MultitouchContactSessions) -> Void)?
 
     private static var nextRegistrationGeneration: UInt = 0
     private let operations: LifecycleOperations?
@@ -324,13 +325,6 @@ final class MultitouchGestureSource {
         wakeSettlingArmed = false
         episodeReplacementState = .notRequested
     }
-
-    private static func allocateRegistrationGeneration() -> UInt {
-        repeat {
-            nextRegistrationGeneration &+= 1
-        } while nextRegistrationGeneration == 0
-        return nextRegistrationGeneration
-    }
 }
 
 extension MultitouchGestureSource {
@@ -375,37 +369,26 @@ extension MultitouchGestureSource {
     func handleRawFrame(
         _ frame: RawFrame,
         generation: UInt,
-        location: CGPoint
+        location: CGPoint,
+        terminalPhase: NSEvent.Phase = .ended,
+        contactSession: MultitouchContactSession? = nil
     ) {
-        guard recordAndAccept(frame, generation: generation) else { return }
-        emitSnapshot(frame, location: location)
-    }
-
-    private func recordAndAccept(_ frame: RawFrame, generation: UInt) -> Bool {
         lastRawCallbackTimestamp = frame.timestamp
         lastRawCallbackGeneration = generation
-        guard state == .running, generation != 0, generation == activeGeneration else { return false }
+        guard state == .running, generation != 0, generation == activeGeneration else { return }
         lastAcceptedCallbackTimestamp = frame.timestamp
         lastAcceptedCallbackGeneration = generation
-        return true
-    }
-
-    private func emitSnapshot(_ frame: RawFrame, location: CGPoint) {
-        let result = MultitouchGestureSource.makeSnapshot(
+        let result = Self.makeSnapshot(
             frame: frame,
             location: location,
-            previousActiveCount: previousActiveCount
+            previousActiveCount: previousActiveCount,
+            terminalPhase: terminalPhase,
+            contactSession: contactSession
         )
         previousActiveCount = result.activeCount
         if let snapshot = result.snapshot {
             onSnapshot?(snapshot)
         }
-    }
-
-    private func cancelRawGesture(_ frame: RawFrame, generation: UInt, location: CGPoint) {
-        guard recordAndAccept(frame, generation: generation), previousActiveCount > 0 else { return }
-        previousActiveCount = 0
-        onSnapshot?(Self.liftSnapshot(.cancelled, location: location, timestamp: frame.timestamp))
     }
 
     private final class WeakSharedRoute: @unchecked Sendable {
@@ -436,22 +419,48 @@ extension MultitouchGestureSource {
         }
     }
 
-    private func drainRawFrameMailbox() {
-        let deliveries = rawFrameMailbox.take()
-        guard !deliveries.isEmpty else { return }
-        let location = NSEvent.mouseLocation
-        for delivery in deliveries {
-            if delivery.kind == .cancelled {
-                cancelRawGesture(delivery.frame, generation: delivery.generation, location: location)
-            } else {
-                handleRawFrame(delivery.frame, generation: delivery.generation, location: location)
-            }
+    func hasSender(_ senderId: UInt64) -> Bool {
+        state == .running && devices.hasSender(senderId)
+    }
+
+    func drainRawFrameMailbox(location: CGPoint? = nil) {
+        let batch = rawFrameMailbox.take()
+        defer { rawFrameMailbox.recycle(batch.deliveries) }
+        guard state == .running, activeGeneration != 0,
+              batch.contacts.generation == activeGeneration
+        else { return }
+        if batch.contactsChanged {
+            onContactSessions?(batch.contacts)
         }
-        rawFrameMailbox.recycle(deliveries)
+        guard !batch.deliveries.isEmpty else { return }
+        let location = location ?? NSEvent.mouseLocation
+        for delivery in batch.deliveries {
+            guard delivery.generation == activeGeneration else { continue }
+            let contactSession = MultitouchContactSession(
+                generation: delivery.generation,
+                slot: delivery.slot,
+                session: delivery.contactSession,
+                senderId: devices.senderId(at: delivery.slot)
+            )
+            handleRawFrame(
+                delivery.frame,
+                generation: delivery.generation,
+                location: location,
+                terminalPhase: delivery.kind == .cancelled ? .cancelled : .ended,
+                contactSession: contactSession
+            )
+        }
     }
 }
 
 extension MultitouchGestureSource {
+    private static func allocateRegistrationGeneration() -> UInt {
+        repeat {
+            nextRegistrationGeneration &+= 1
+        } while nextRegistrationGeneration == 0
+        return nextRegistrationGeneration
+    }
+
     private func register(enumeration: MultitouchBinding.Enumeration) -> Bool {
         let generation = Self.allocateRegistrationGeneration()
         guard devices.register(enumeration: enumeration, generation: generation) else { return false }

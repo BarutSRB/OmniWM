@@ -235,6 +235,17 @@ extension MouseEventHandler {
     private nonisolated static func scrollPayload(
         _ event: CGEvent, at screenLocation: CGPoint, modifiersRawValue: UInt64
     ) -> MouseScrollIntake {
+        let momentumPhase = UInt32(event.getIntegerValueField(.scrollWheelEventMomentumPhase))
+        let phase = UInt32(event.getIntegerValueField(.scrollWheelEventScrollPhase))
+        let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
+        var senderId: UInt64?
+        if momentumPhase == 0, phase == 0, isContinuous,
+           let hidEvent = CGEventCopyIOHIDEvent(event)
+        {
+            let sender = IOHIDEventGetSenderID(hidEvent.takeUnretainedValue())
+            hidEvent.release()
+            if sender != 0 { senderId = sender }
+        }
         return MouseScrollIntake(
             location: screenLocation,
             deltaX: resolvedWheelAxisDelta(
@@ -245,9 +256,11 @@ extension MouseEventHandler {
                 pointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)),
                 fixedPointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1))
             ),
-            momentumPhase: UInt32(event.getIntegerValueField(.scrollWheelEventMomentumPhase)),
-            phase: UInt32(event.getIntegerValueField(.scrollWheelEventScrollPhase)),
-            modifiersRawValue: modifiersRawValue
+            momentumPhase: momentumPhase,
+            phase: phase,
+            modifiersRawValue: modifiersRawValue,
+            isContinuous: isContinuous,
+            senderId: senderId
         )
     }
 

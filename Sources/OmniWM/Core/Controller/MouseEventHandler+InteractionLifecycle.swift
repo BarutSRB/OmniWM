@@ -50,6 +50,7 @@ extension MouseEventHandler {
         guard liveSessionID == sessionID || disposition == .viewportAlreadySettled && liveSessionID == nil else {
             return false
         }
+        retainConsumedTrackpadSession()
         switch disposition {
         case .settleLiveOffset:
             cancelCommittedGestureViewportState(for: workspaceId)
@@ -75,6 +76,7 @@ extension MouseEventHandler {
         resetMouseWheelTrackers()
         abortActiveGestureIfNeeded()
         clearGestureLatches()
+        clearConsumedTrackpadSessions()
     }
 
     func handleAppVisibilityChanged() {
