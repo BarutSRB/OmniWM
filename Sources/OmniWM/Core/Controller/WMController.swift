@@ -208,6 +208,8 @@ final class WMController {
     private let clipboardHistoryDirectory: URL
     let windowFocusOperations: WindowFocusOperations
     weak var statusBarController: StatusBarController?
+    @ObservationIgnored
+    private var effectiveAppearanceObserver: NSKeyValueObservation?
 
     init(
         settings: SettingsStore,
@@ -243,6 +245,7 @@ final class WMController {
         configureSurfaceCallbacks()
         configureWorldCallbacks()
         configureFocusAndMenuCallbacks()
+        installEffectiveAppearanceObserver()
     }
 }
 
@@ -309,6 +312,24 @@ extension WMController {
             surfaceReconciler.noteWorldChanged()
         } else {
             surfaceReconciler.noteBorderChanged()
+        }
+    }
+
+    /// Re-derives appearance-aware surfaces when macOS switches appearance.
+    private func handleEffectiveAppearanceChanged() {
+        applyCurrentAppearanceMode()
+    }
+
+    /// Observes effective appearance changes so borders follow the system.
+    private func installEffectiveAppearanceObserver() {
+        guard effectiveAppearanceObserver == nil else { return }
+        effectiveAppearanceObserver = NSApplication.shared.observe(
+            \.effectiveAppearance,
+            options: [.new]
+        ) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.handleEffectiveAppearanceChanged()
+            }
         }
     }
 

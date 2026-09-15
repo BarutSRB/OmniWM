@@ -305,7 +305,8 @@ final class BorderWindow {
 
     func updateConfig(_ newConfig: BorderConfig) {
         guard config != newConfig else { return }
-        if config.color != newConfig.color || config.width != newConfig.width {
+        if config.color != newConfig.color || config.width != newConfig.width
+            || config.gradient != newConfig.gradient || config.glow != newConfig.glow {
             needsRedraw = true
         }
         config = newConfig
@@ -344,12 +345,49 @@ extension BorderWindow {
 
     private func draw(geometry: BorderConfig.ResolvedGeometry) {
         guard let layerPanel else { return }
+        var gradientStart: CGColor?
+        var gradientEnd: CGColor?
+        var gradientPoints: (start: CGPoint, end: CGPoint)?
+        if let gradientStyle = config.gradient, gradientStyle.enabled {
+            gradientStart = Self.cgColor(gradientStyle.start)
+            gradientEnd = Self.cgColor(gradientStyle.end)
+            gradientPoints = Self.gradientUnitPoints(for: gradientStyle.direction)
+        }
+        var glowOpacity: CGFloat = 0
+        var glowColorOverride: CGColor?
+        if let glow = config.glow, glow.enabled {
+            glowOpacity = Self.component(glow.opacity)
+            glowColorOverride = glow.color.map(Self.cgColor)
+        }
         layerPanel.updateBorder(
             geometry: geometry, cornerRadii: currentCornerRadii,
             color: Self.cgColor(config.color), scale: lastConfiguredScale
         )
+        layerPanel.updateEffects(
+            geometry: geometry, cornerRadii: currentCornerRadii,
+            scale: lastConfiguredScale,
+            baseColor: Self.cgColor(config.color),
+            gradientStart: gradientStart, gradientEnd: gradientEnd,
+            gradientPoints: gradientPoints,
+            glowOpacity: glowOpacity,
+            glowColorOverride: glowColorOverride
+        )
         needsRedraw = false
         BorderOpMetricsRecorder.shared.noteRedraw()
+    }
+
+    /// Maps user-facing corner directions into unflipped layer coordinates.
+    private static func gradientUnitPoints(
+        for direction: BorderGradientDirection
+    ) -> (start: CGPoint, end: CGPoint) {
+        // The border panel uses an unflipped NSView, so CALayer unit coordinates
+        // start at the bottom-left corner.
+        switch direction {
+        case .topLeftToBottomRight:
+            return (start: CGPoint(x: 0, y: 1), end: CGPoint(x: 1, y: 0))
+        case .topRightToBottomLeft:
+            return (start: CGPoint(x: 1, y: 1), end: CGPoint(x: 0, y: 0))
+        }
     }
 
     private static func cgColor(_ color: SettingsColor) -> CGColor {
