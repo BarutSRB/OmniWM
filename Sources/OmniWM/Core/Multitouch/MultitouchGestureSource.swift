@@ -433,7 +433,13 @@ extension MultitouchGestureSource {
             onContactSessions?(batch.contacts)
         }
         guard !batch.deliveries.isEmpty else { return }
-        let location = location ?? NSEvent.mouseLocation
+        let cursorLocation: CGPoint
+        if let location {
+            cursorLocation = location
+        } else {
+            cursorLocation = NSEvent.mouseLocation
+            rawFrameMailbox.recordCursorSample()
+        }
         for delivery in batch.deliveries {
             guard delivery.generation == activeGeneration else { continue }
             let contactSession = MultitouchContactSession(
@@ -445,7 +451,7 @@ extension MultitouchGestureSource {
             handleRawFrame(
                 delivery.frame,
                 generation: delivery.generation,
-                location: location,
+                location: cursorLocation,
                 terminalPhase: delivery.kind == .cancelled ? .cancelled : .ended,
                 contactSession: contactSession
             )

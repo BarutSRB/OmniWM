@@ -1835,6 +1835,89 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         await drainMultitouchTasks()
     }
 
+    func testCommittedVisibilityAbortRetainsPhaseLessTailUntilFreshContact() async throws {
+        let fixture = try makeFixture()
+        let harness = await installRecoveringMultitouchSource(fixture)
+        let controller = fixture.controller
+        let handler = controller.mouseEventHandler
+        defer {
+            controller.eventIntake.close()
+            handler.cleanup()
+            harness.sleeper.resumeAll()
+        }
+        harness.backend.emitFrame(
+            registryId: 303,
+            touches: Array(repeating: (x: Float(0.5), y: Float(0.2)), count: 3),
+            timestamp: 100
+        )
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        harness.backend.emitFrame(
+            registryId: 303,
+            touches: Array(repeating: (x: Float(0.5), y: Float(0.24)), count: 3),
+            timestamp: 100.01
+        )
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertEqual(handler.state.gesturePhase, .committed)
+        XCTAssertTrue(handler.state.consumedTrackpadSessions.isEmpty)
+        controller.eventIntake.open(sink: controller.eventInterpreter)
+        controller.eventIntake.beginPerformanceCapture()
+
+        handler.handleAppVisibilityChanged()
+
+        XCTAssertEqual(handler.state.gesturePhase, .idle)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertEqual(controller.eventIntake.performanceSnapshot()?.acceptedEvents, 0)
+        harness.backend.emitFrame(registryId: 303, touches: [], timestamp: 100.02)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertEqual(controller.eventIntake.performanceSnapshot()?.acceptedEvents, 0)
+        harness.backend.emitFrame(
+            registryId: 303,
+            touches: Array(repeating: (x: Float(0.5), y: Float(0.5)), count: 2),
+            timestamp: 100.03
+        )
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertEqual(controller.eventIntake.performanceSnapshot()?.acceptedEvents, 1)
+    }
+
+    func testViewportTerminationRetainsPhaseLessTailWithoutTerminalFrame() async throws {
+        let fixture = try makeFixture(workspaceSwipeEnabled: false, scrollGestureEnabled: true)
+        try addColumnGestureWindows(to: fixture)
+        let harness = await installRecoveringMultitouchSource(fixture)
+        let controller = fixture.controller
+        let handler = controller.mouseEventHandler
+        defer {
+            controller.eventIntake.close()
+            handler.cleanup()
+            harness.sleeper.resumeAll()
+        }
+        for step in 0 ... 4 {
+            harness.backend.emitFrame(
+                registryId: 303,
+                touches: Array(repeating: (x: Float(0.8) - Float(step) * 0.03, y: Float(0.5)), count: 3),
+                timestamp: 100 + Double(step) * 0.01
+            )
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        }
+        XCTAssertEqual(handler.state.gesturePhase, .committed)
+        XCTAssertEqual(handler.state.activeGestureMode, .columnScroll)
+        XCTAssertTrue(handler.state.consumedTrackpadSessions.isEmpty)
+        let sessionID = try XCTUnwrap(controller.workspaceManager.animationDriver.gestureSessionID(in: fixture.ws1))
+        XCTAssertEqual(handler.state.viewportGestureSessionID, sessionID)
+        controller.eventIntake.open(sink: controller.eventInterpreter)
+        controller.eventIntake.beginPerformanceCapture()
+
+        XCTAssertTrue(handler.terminateViewportGesture(
+            in: fixture.ws1,
+            sessionID: sessionID,
+            disposition: .settleLiveOffsetWithoutRelayout
+        ))
+
+        XCTAssertEqual(handler.state.gesturePhase, .idle)
+        XCTAssertNil(handler.state.lockedGestureContext)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertEqual(controller.eventIntake.performanceSnapshot()?.acceptedEvents, 0)
+    }
+
     private func sendRawFrame(
         _ source: MultitouchGestureSource,
         generation: UInt,

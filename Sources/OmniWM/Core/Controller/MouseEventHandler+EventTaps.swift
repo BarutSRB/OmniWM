@@ -240,10 +240,9 @@ extension MouseEventHandler {
         let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
         var senderId: UInt64?
         if momentumPhase == 0, phase == 0, isContinuous,
-           let hidEvent = CGEventCopyIOHIDEvent(event)
+           let hidEvent = CGEventCopyIOHIDEvent(event)?.takeRetainedValue()
         {
-            let sender = IOHIDEventGetSenderID(hidEvent.takeUnretainedValue())
-            hidEvent.release()
+            let sender = IOHIDEventGetSenderID(hidEvent)
             if sender != 0 { senderId = sender }
         }
         return MouseScrollIntake(

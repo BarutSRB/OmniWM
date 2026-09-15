@@ -25,7 +25,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertEqual(snapshot?.overwrittenChanges, 9_999)
         XCTAssertEqual(snapshot?.transitionsQueued, 2)
         XCTAssertEqual(snapshot?.drainBatches, 1)
-        XCTAssertEqual(snapshot?.cursorSamples, 1)
+        XCTAssertEqual(snapshot?.cursorSamples, 0)
     }
 
     func testBoundDropsOnlyCompleteOldGestures() {
@@ -88,7 +88,7 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertEqual(final?.pendingFrames, 0)
         XCTAssertEqual(final?.maximumPendingFrames, 2)
         XCTAssertEqual(final?.drainBatches, 1)
-        XCTAssertEqual(final?.cursorSamples, 1)
+        XCTAssertEqual(final?.cursorSamples, 0)
     }
 
     func testSecondDeviceCannotOverwriteOrEndOwnerGesture() {

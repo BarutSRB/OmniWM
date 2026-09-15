@@ -240,7 +240,6 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
             value.drainScheduled = false
             if let counters = value.performanceCounters, !deliveries.isEmpty {
                 _ = counters.drainBatches.wrappingAdd(1, ordering: .relaxed)
-                _ = counters.cursorSamples.wrappingAdd(1, ordering: .relaxed)
             }
             let batch = Batch(deliveries: deliveries, contacts: value.contacts, contactsChanged: value.contactsChanged)
             value.contactsChanged = false
@@ -259,6 +258,12 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
 
     var pendingCount: Int {
         state.withLock { $0.pending.count }
+    }
+
+    func recordCursorSample() {
+        state.withLock { value in
+            _ = value.performanceCounters?.cursorSamples.wrappingAdd(1, ordering: .relaxed)
+        }
     }
 
     func beginPerformanceCapture() {
