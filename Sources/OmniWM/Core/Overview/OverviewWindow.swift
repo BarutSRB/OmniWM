@@ -25,7 +25,6 @@ final class OverviewWindow: NSPanel {
     var onDragBegin: ((Monitor.ID, WindowHandle, CGPoint) -> Void)?
     var onDragUpdate: ((Monitor.ID, CGPoint) -> Void)?
     var onDragEnd: ((Monitor.ID, CGPoint) -> Void)?
-    var onDragCancel: (() -> Void)?
 
     init(monitor: Monitor, palette: OverviewRenderPalette = .default) {
         self.monitor = monitor
@@ -94,9 +93,6 @@ final class OverviewWindow: NSPanel {
             guard let self else { return }
             self.onDragEnd?(self.monitor.id, point)
         }
-        overlayView.onDragCancel = { [weak self] in
-            self?.onDragCancel?()
-        }
     }
 
     override var canBecomeKey: Bool {
@@ -122,10 +118,6 @@ final class OverviewWindow: NSPanel {
         overlayView.cancelAnimation()
         overlayView.clearPreviews()
         orderOut(nil)
-    }
-
-    func cancelPendingDragIfNeeded(optionPressed: Bool) {
-        overlayView.cancelPendingDragIfNeeded(optionPressed: optionPressed)
     }
 
     func updateLayout(

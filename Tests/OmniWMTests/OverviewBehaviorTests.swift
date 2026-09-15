@@ -2332,7 +2332,7 @@ final class OverviewBehaviorTests: XCTestCase {
         }
         XCTAssertFalse(animator.isAnimating)
         XCTAssertTrue(animator.activeDisplayIds.isEmpty)
-        XCTAssertEqual(removedEventMonitorCount, 2)
+        XCTAssertEqual(removedEventMonitorCount, 1)
         XCTAssertNil(overview.selectedWindowHandle)
         XCTAssertNil(overview.activeInteractionMonitorId)
         XCTAssertFalse(overview.hasActiveDragSession)

@@ -11,11 +11,9 @@ import ScreenCaptureKit
 final class OverviewInputSession {
     private let environment: OverviewEnvironment
     private var keyEventMonitor: Any?
-    private var flagsEventMonitor: Any?
     private var applicationDidResignObserver: NSObjectProtocol?
     private var screenParametersObserver: NSObjectProtocol?
     private var inputHandler: OverviewInputHandler?
-    private var onFlagsChanged: ((NSEvent.ModifierFlags) -> Void)?
     private var onResignActive: (() -> Void)?
     private var onDisplayChange: (() -> Void)?
 
@@ -25,49 +23,38 @@ final class OverviewInputSession {
 
     func start(
         inputHandler: OverviewInputHandler?,
-        onFlagsChanged: @escaping (NSEvent.ModifierFlags) -> Void,
         onResignActive: @escaping () -> Void,
         onDisplayChange: @escaping () -> Void
     ) {
         self.inputHandler = inputHandler
-        self.onFlagsChanged = onFlagsChanged
         self.onResignActive = onResignActive
         self.onDisplayChange = onDisplayChange
-        installEventMonitors()
+        installKeyEventMonitor()
         installApplicationDidResignObserver()
         installScreenParametersObserver()
     }
 
     func stop() {
-        removeEventMonitors()
+        removeKeyEventMonitor()
         removeApplicationDidResignObserver()
         removeScreenParametersObserver()
         inputHandler = nil
-        onFlagsChanged = nil
         onResignActive = nil
         onDisplayChange = nil
     }
 
-    private func installEventMonitors() {
-        removeEventMonitors()
+    private func installKeyEventMonitor() {
+        removeKeyEventMonitor()
         keyEventMonitor = environment.addLocalEventMonitor([.keyDown]) { [weak self] event in
             guard let self else { return event }
             return self.inputHandler?.handleKeyDown(event) == true ? nil : event
         }
-        flagsEventMonitor = environment.addLocalEventMonitor([.flagsChanged]) { [weak self] event in
-            self?.onFlagsChanged?(event.modifierFlags)
-            return event
-        }
     }
 
-    private func removeEventMonitors() {
+    private func removeKeyEventMonitor() {
         if let keyEventMonitor {
             environment.removeEventMonitor(keyEventMonitor)
             self.keyEventMonitor = nil
-        }
-        if let flagsEventMonitor {
-            environment.removeEventMonitor(flagsEventMonitor)
-            self.flagsEventMonitor = nil
         }
     }
 

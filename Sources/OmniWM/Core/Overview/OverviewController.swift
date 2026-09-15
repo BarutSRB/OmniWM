@@ -364,11 +364,6 @@ extension OverviewController {
         windowSession.cancelAnimations()
     }
 
-    private func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {
-        guard state.isOpen else { return }
-        windowSession.handleModifierFlagsChanged(modifierFlags)
-    }
-
     func onAnimationComplete(state: OverviewState) {
         self.state = state
         updateWindowDisplays()
@@ -446,7 +441,6 @@ extension OverviewController {
         focusSession.capturePreviousFrontmostApplication()
         inputSession.start(
             inputHandler: input,
-            onFlagsChanged: { [weak self] in self?.handleModifierFlagsChanged($0) },
             onResignActive: { [weak self] in self?.handleApplicationDidResignActive() },
             onDisplayChange: { [weak self] in self?.handleDisplayConfigurationChanged() }
         )

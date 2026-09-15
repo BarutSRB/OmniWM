@@ -22,7 +22,6 @@ final class OverviewView: NSView {
     var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
     var onDragUpdate: ((CGPoint) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
-    var onDragCancel: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?
     private var dragCandidateHandle: WindowHandle?
@@ -182,13 +181,9 @@ final class OverviewView: NSView {
         }
 
         if let window = hit?.window {
-            if event.modifierFlags.contains(.option) {
-                dragCandidateHandle = window.handle
-                dragStartPoint = point
-                isDragging = false
-            } else {
-                onWindowSelected?(window.handle)
-            }
+            dragCandidateHandle = window.handle
+            dragStartPoint = point
+            isDragging = false
             return
         }
 
@@ -210,29 +205,14 @@ final class OverviewView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-
-        if isDragging {
-            onDragEnd?(point)
-            cancelDragState()
-            return
-        }
-
-        guard dragCandidateHandle != nil else { return }
+        guard let handle = dragCandidateHandle else { return }
+        let dragged = isDragging
         cancelDragState()
-        let hit = layerRenderer.windowHit(at: point, layout: layout)
-
-        if let hit, hit.isCloseButton {
-            onWindowClosed?(hit.window.handle)
-            return
+        if dragged {
+            onDragEnd?(convert(event.locationInWindow, from: nil))
+        } else {
+            onWindowSelected?(handle)
         }
-
-        if let window = hit?.window {
-            onWindowSelected?(window.handle)
-            return
-        }
-
-        onDismiss?()
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -241,19 +221,6 @@ final class OverviewView: NSView {
             onScrollWithModifiers(delta, event.modifierFlags, event.hasPreciseScrollingDeltas)
         } else {
             onScroll?(delta)
-        }
-    }
-
-    private func cancelDrag() {
-        if isDragging {
-            onDragCancel?()
-        }
-        cancelDragState()
-    }
-
-    func cancelPendingDragIfNeeded(optionPressed: Bool) {
-        if isDragging || dragCandidateHandle != nil, !optionPressed {
-            cancelDrag()
         }
     }
 
