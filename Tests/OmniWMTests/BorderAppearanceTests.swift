@@ -247,6 +247,24 @@ final class BorderAppearanceTests: XCTestCase {
         XCTAssertEqual(settings.glow, valid)
     }
 
+    /// Confirms a non-finite glow color override keeps the prior configuration.
+    func testInvalidGlowColorFallsBackToPreviousValue() {
+        let settings = BorderSettings()
+        let valid = BorderGlow(enabled: true, radius: 8, opacity: 0.6, color: solidBlue)
+        settings.glow = valid
+
+        var export = SettingsExport.defaults().borders
+        export.glow = BorderGlow(
+            enabled: true,
+            radius: 8,
+            opacity: 0.6,
+            color: SettingsColor(red: .nan, green: 0, blue: 0, alpha: 1)
+        )
+        settings.apply(export)
+
+        XCTAssertEqual(settings.glow, valid)
+    }
+
     /// Confirms non-finite gradient colors keep the prior valid configuration.
     func testInvalidGradientFallsBackToPreviousValue() {
         let settings = BorderSettings()
@@ -385,6 +403,42 @@ final class BorderAppearanceTests: XCTestCase {
         settings.apply(SettingsExport.defaults().borders)
 
         XCTAssertNil(settings.darkColor)
+    }
+
+    // MARK: - Glow color overrides
+
+    /// Confirms glow color overrides resolve per appearance with fallback.
+    func testResolvedGlowColorsFollowAppearance() {
+        let lightOnly = BorderGlow(enabled: true, radius: 8, opacity: 0.6, color: solidBlue)
+        XCTAssertEqual(BorderConfig.resolvedGlow(lightOnly, isDark: true).color, solidBlue)
+        XCTAssertEqual(BorderConfig.resolvedGlow(lightOnly, isDark: false).color, solidBlue)
+        XCTAssertNil(BorderConfig.resolvedGlow(lightOnly, isDark: true).darkColor)
+
+        let both = BorderGlow(enabled: true, radius: 8, opacity: 0.6, color: solidBlue, darkColor: solidRed)
+        XCTAssertEqual(BorderConfig.resolvedGlow(both, isDark: true).color, solidRed)
+        XCTAssertEqual(BorderConfig.resolvedGlow(both, isDark: false).color, solidBlue)
+
+        let inherited = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        XCTAssertNil(BorderConfig.resolvedGlow(inherited, isDark: true).color)
+        XCTAssertNil(BorderConfig.resolvedGlow(inherited, isDark: false).color)
+    }
+
+    /// Confirms glow color overrides survive TOML round trips.
+    func testGlowColorOverridesSurviveTOMLRoundTrip() throws {
+        var export = SettingsExport.defaults()
+        export.borders.glow = BorderGlow(
+            enabled: true,
+            radius: 8,
+            opacity: 0.6,
+            color: solidBlue,
+            darkColor: solidRed
+        )
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let decoded = try SettingsTOMLCodec.decode(data)
+
+        XCTAssertEqual(decoded.borders.glow?.color, solidBlue)
+        XCTAssertEqual(decoded.borders.glow?.darkColor, solidRed)
     }
 
     // MARK: - Render padding

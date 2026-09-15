@@ -154,7 +154,8 @@ class BorderLayerPanel: NSPanel {
         gradientStart: CGColor?,
         gradientEnd: CGColor?,
         gradientPoints: (start: CGPoint, end: CGPoint)?,
-        glowOpacity: CGFloat
+        glowOpacity: CGFloat,
+        glowColorOverride: CGColor? = nil
     ) {
         let radii = cornerRadii.normalized(to: geometry.targetFrame.size)
         let ringFrame = geometry.targetFrame.insetBy(dx: -geometry.width, dy: -geometry.width)
@@ -185,7 +186,14 @@ class BorderLayerPanel: NSPanel {
 
         if hasGlow {
             glowColorLayer.isHidden = false
-            if hasGradient, let gradientStart, let gradientEnd, let gradientPoints {
+            if let glowColorOverride {
+                // An explicit glow color wins over the inherited border color
+                // and the gradient endpoints so the control is always
+                // authoritative about what the glow shows.
+                glowColorLayer.colors = [glowColorOverride, glowColorOverride]
+                glowColorLayer.startPoint = CGPoint(x: 0, y: 0)
+                glowColorLayer.endPoint = CGPoint(x: 0, y: 1)
+            } else if hasGradient, let gradientStart, let gradientEnd, let gradientPoints {
                 glowColorLayer.colors = [gradientStart, gradientEnd]
                 glowColorLayer.startPoint = gradientPoints.start
                 glowColorLayer.endPoint = gradientPoints.end

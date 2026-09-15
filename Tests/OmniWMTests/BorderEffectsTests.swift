@@ -91,4 +91,24 @@ final class BorderEffectsTests: XCTestCase {
 
         XCTAssertEqual(panel.glowMaskLayer.sublayers?.count, 48)
     }
+
+    /// Confirms an explicit glow color wins over the gradient endpoints.
+    func testGlowColorOverrideWinsOverGradient() throws {
+        let panel = try makePanel()
+        let override = CGColor(red: 0, green: 1, blue: 0, alpha: 1)
+        panel.updateEffects(
+            geometry: geometry(width: 4, padding: 12),
+            cornerRadii: WindowCornerRadii(uniform: 9),
+            scale: 1,
+            baseColor: CGColor(red: 1, green: 0, blue: 0, alpha: 1),
+            gradientStart: CGColor(red: 1, green: 0, blue: 0, alpha: 1),
+            gradientEnd: CGColor(red: 0, green: 0, blue: 1, alpha: 1),
+            gradientPoints: (start: CGPoint(x: 0, y: 1), end: CGPoint(x: 1, y: 0)),
+            glowOpacity: 0.6,
+            glowColorOverride: override
+        )
+
+        XCTAssertFalse(panel.glowColorLayer.isHidden)
+        XCTAssertEqual(panel.glowColorLayer.colors as? [CGColor], [override, override])
+    }
 }

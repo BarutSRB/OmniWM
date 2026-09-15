@@ -122,6 +122,8 @@ final class BorderSettings {
     ) -> BorderGlow? {
         guard var glow else { return nil }
         guard glow.radius.isFinite, glow.opacity.isFinite,
+              glow.color.map(isFinite) ?? true,
+              glow.darkColor.map(isFinite) ?? true,
               glow.radius >= 0, glow.radius <= 32,
               glow.opacity >= 0, glow.opacity <= 1
         else {
@@ -129,6 +131,8 @@ final class BorderSettings {
         }
         glow.radius = min(32, max(0, glow.radius))
         glow.opacity = min(1, max(0, glow.opacity))
+        glow.color = glow.color.map(validatedColor)
+        glow.darkColor = glow.darkColor.map(validatedColor)
         return glow
     }
 }

@@ -354,8 +354,10 @@ extension BorderWindow {
             gradientPoints = Self.gradientUnitPoints(for: gradientStyle.direction)
         }
         var glowOpacity: CGFloat = 0
+        var glowColorOverride: CGColor?
         if let glow = config.glow, glow.enabled {
             glowOpacity = Self.component(glow.opacity)
+            glowColorOverride = glow.color.map(Self.cgColor)
         }
         layerPanel.updateBorder(
             geometry: geometry, cornerRadii: currentCornerRadii,
@@ -367,7 +369,8 @@ extension BorderWindow {
             baseColor: Self.cgColor(config.color),
             gradientStart: gradientStart, gradientEnd: gradientEnd,
             gradientPoints: gradientPoints,
-            glowOpacity: glowOpacity
+            glowOpacity: glowOpacity,
+            glowColorOverride: glowColorOverride
         )
         needsRedraw = false
         BorderOpMetricsRecorder.shared.noteRedraw()

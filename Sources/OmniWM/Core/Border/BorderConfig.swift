@@ -58,7 +58,7 @@ struct BorderConfig: Equatable {
             width: CGFloat(settings.borders.width),
             color: resolvedColor(settings.borders.color, dark: settings.borders.darkColor, isDark: isDark),
             gradient: settings.borders.gradient.map { resolvedGradient($0, isDark: isDark) },
-            glow: settings.borders.glow
+            glow: settings.borders.glow.map { resolvedGlow($0, isDark: isDark) }
         )
     }
 
@@ -83,6 +83,25 @@ struct BorderConfig: Equatable {
         resolved.end = resolvedColor(gradient.end, dark: gradient.dark?.end, isDark: isDark)
         resolved.dark = nil
         return resolved
+    }
+
+    /// Returns a glow whose optional color override is resolved for an
+    /// appearance. A nil resolved color keeps the inherit-border behavior.
+    static func resolvedGlow(_ glow: BorderGlow, isDark: Bool) -> BorderGlow {
+        var resolved = glow
+        resolved.color = resolvedOptionalColor(glow.color, dark: glow.darkColor, isDark: isDark)
+        resolved.darkColor = nil
+        return resolved
+    }
+
+    /// Returns the appearance-resolved optional color, falling back to the
+    /// base override when the dark override is absent.
+    private static func resolvedOptionalColor(
+        _ base: SettingsColor?,
+        dark: SettingsColor?,
+        isDark: Bool
+    ) -> SettingsColor? {
+        isDark ? (dark ?? base) : base
     }
 
     static func layoutClearance(enabled: Bool, width: CGFloat, scale: CGFloat) -> CGFloat {

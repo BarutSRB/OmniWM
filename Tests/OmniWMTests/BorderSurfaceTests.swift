@@ -862,9 +862,15 @@ final class BorderSurfaceTests: XCTestCase {
         XCTAssertFalse(panel.glowColorLayer.isHidden)
         XCTAssertEqual(panel.borderUpdateCount, 3)
 
-        window.updateConfig(glowConfig)
+        var glowColorConfig = glowConfig
+        glowColorConfig.glow?.color = SettingsColor(red: 1, green: 0.5, blue: 0, alpha: 1)
+        window.updateConfig(glowColorConfig)
         XCTAssertTrue(window.update(frame: frame, targetToken: token()))
-        XCTAssertEqual(panel.borderUpdateCount, 3)
+        XCTAssertEqual(panel.borderUpdateCount, 4)
+
+        window.updateConfig(glowColorConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertEqual(panel.borderUpdateCount, 4)
     }
 
     @MainActor

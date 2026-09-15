@@ -67,6 +67,12 @@ struct BorderSettingsTab: View {
                             valueText: String(format: "%.0f%%", (settings.borders.glow?.opacity ?? 0) * 100),
                             valueWidth: 56
                         )
+                        ColorPicker("Glow Color", selection: glowColorBinding, supportsOpacity: true)
+                        ColorPicker(
+                            "Dark Mode Glow Color",
+                            selection: glowDarkColorBinding,
+                            supportsOpacity: true
+                        )
                     }
                 }
             }
@@ -252,6 +258,43 @@ struct BorderSettingsTab: View {
             set: { [settings, controller] opacity in
                 var glow = settings.borders.glow ?? .default
                 glow.opacity = opacity
+                settings.borders.glow = glow
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the glow color override; absent inherits the border color.
+    private var glowColorBinding: Binding<Color> {
+        Binding(
+            get: { [settings] in
+                swiftUIColor(settings.borders.glow?.color ?? settings.borders.color)
+            },
+            set: { [settings, controller] newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var glow = settings.borders.glow ?? .default
+                glow.color = converted
+                settings.borders.glow = glow
+                controller.borderSettingsChanged()
+            }
+        )
+    }
+
+    /// Binds the dark-appearance glow color override; absent falls back to
+    /// the light glow override, then to the border colors.
+    private var glowDarkColorBinding: Binding<Color> {
+        Binding(
+            get: { [settings] in
+                swiftUIColor(
+                    settings.borders.glow?.darkColor
+                        ?? settings.borders.glow?.color
+                        ?? settings.borders.color
+                )
+            },
+            set: { [settings, controller] newColor in
+                guard let converted = SettingsColor(color: newColor) else { return }
+                var glow = settings.borders.glow ?? .default
+                glow.darkColor = converted
                 settings.borders.glow = glow
                 controller.borderSettingsChanged()
             }

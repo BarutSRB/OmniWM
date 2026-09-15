@@ -44,6 +44,9 @@ struct BorderGlow: Codable, Equatable {
     var enabled: Bool
     var radius: Double
     var opacity: Double
+    /// Optional glow color override; absent inherits the border appearance.
+    var color: SettingsColor? = nil
+    var darkColor: SettingsColor? = nil
 
     static let `default` = BorderGlow(enabled: false, radius: 8.0, opacity: 0.6)
 }
