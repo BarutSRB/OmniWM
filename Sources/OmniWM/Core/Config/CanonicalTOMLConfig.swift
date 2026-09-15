@@ -9,6 +9,7 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     var focus: SettingsExport.Focus
     var mouseWarp: SettingsExport.MouseWarp
     var routing: SettingsExport.Routing
+    var monitors: Monitors?
     var gaps: SettingsExport.Gaps
     var niri: SettingsExport.Niri
     var dwindle: SettingsExport.Dwindle
@@ -42,6 +43,11 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var animationsEnabled: Bool
     }
 
+    /// Optional table; omitted from the file while the ranking is empty.
+    struct Monitors: Codable, Equatable {
+        var ranking: [OutputId]
+    }
+
     struct Appearance: Codable, Equatable {
         var mode: AppearanceMode
     }
@@ -57,6 +63,7 @@ extension CanonicalTOMLConfig {
         focus = try container.decode(SettingsExport.Focus.self, forKey: .focus)
         mouseWarp = try container.decode(SettingsExport.MouseWarp.self, forKey: .mouseWarp)
         routing = try container.decode(SettingsExport.Routing.self, forKey: .routing)
+        monitors = try container.decodeIfPresent(Monitors.self, forKey: .monitors)
         gaps = try container.decode(SettingsExport.Gaps.self, forKey: .gaps)
         niri = try container.decode(SettingsExport.Niri.self, forKey: .niri)
         dwindle = try container.decode(SettingsExport.Dwindle.self, forKey: .dwindle)
@@ -101,6 +108,7 @@ extension CanonicalTOMLConfig {
         focus = export.focus
         mouseWarp = export.mouseWarp
         routing = export.routing
+        monitors = export.monitorRanking.isEmpty ? nil : Monitors(ranking: export.monitorRanking)
         gaps = export.gaps
         niri = export.niri
         dwindle = export.dwindle
@@ -133,6 +141,7 @@ extension CanonicalTOMLConfig {
             focus: focus,
             mouseWarp: mouseWarp,
             routing: routing,
+            monitorRanking: monitors?.ranking ?? [],
             gaps: gaps,
             niri: niri,
             workspaceConfigurations: workspaces,

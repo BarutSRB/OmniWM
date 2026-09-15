@@ -335,7 +335,8 @@ final class QuakeTerminalController: NSObject {
 
     func targetScreen(
         screens: [NSScreen] = NSScreen.screens,
-        mainScreen: NSScreen? = NSScreen.main
+        mainScreen: NSScreen? = NSScreen.main,
+        monitors: [Monitor] = Monitor.current()
     ) -> NSScreen {
         switch settings.quakeTerminal.monitorMode {
         case .mouseCursor:
@@ -355,6 +356,19 @@ final class QuakeTerminalController: NSObject {
             }
 
         case .mainMonitor:
+            // Main follows the user's monitor ranking when one is set; otherwise the macOS main display.
+            // A monitor's frame is its NSScreen's frame and frames are unique within an arrangement,
+            // so geometry identifies the screen; the display id is the fallback.
+            if !settings.monitors.ranking.isEmpty,
+               let monitor = MonitorRanking.roleOrder(
+                   ranking: settings.monitors.ranking,
+                   sortedMonitors: Monitor.sortedByPosition(monitors)
+               ).first,
+               let screen = screens.first(where: { $0.frame == monitor.frame })
+               ?? screens.first(where: { $0.displayId == monitor.displayId })
+            {
+                return screen
+            }
             return screens.first ?? mainScreen!
         }
 

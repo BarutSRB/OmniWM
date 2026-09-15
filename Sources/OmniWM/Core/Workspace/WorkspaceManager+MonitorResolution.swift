@@ -46,7 +46,7 @@ extension WorkspaceManager {
     ) -> Monitor? {
         guard let workspace = descriptor(for: workspaceId) else { return nil }
         guard let description = configuredMonitorDescription(for: workspace.name, context: context) else { return nil }
-        return description.resolveMonitor(sortedMonitors: context.sortedMonitors)
+        return description.resolveMonitor(sortedMonitors: context.sortedMonitors, ranking: context.monitorRanking)
     }
 
     func homeMonitorId(for workspaceId: WorkspaceDescriptor.ID) -> Monitor.ID? {

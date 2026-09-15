@@ -283,6 +283,8 @@ struct WorkspaceConfigurationRow: View {
             return "Main"
         case .secondary:
             return "Secondary"
+        case .tertiary:
+            return "Tertiary"
         case let .specificDisplay(output):
             if let monitor = output.resolveMonitor(in: connectedMonitors) {
                 return monitor.name
@@ -337,7 +339,7 @@ struct WorkspaceEditSheet: View {
                 )
 
                 Text(
-                    "Main follows the current main display. Secondary follows the first non-main display. Specific Display pins this workspace to the selected monitor when available."
+                    "Main, Secondary, and Tertiary follow the Monitor Roles order in Settings > Monitors; without a ranking, Main is the macOS main display and the others follow arrangement order. Specific Display pins this workspace to the selected monitor when available."
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -374,6 +376,7 @@ struct WorkspaceHomeMonitorPicker: View {
         Picker("Home Monitor", selection: $selection) {
             Text("Main").tag(MonitorAssignment.main)
             Text("Secondary").tag(MonitorAssignment.secondary)
+            Text("Tertiary").tag(MonitorAssignment.tertiary)
             Divider()
             if case let .specificDisplay(output) = selection,
                output.resolveMonitor(in: connectedMonitors) == nil

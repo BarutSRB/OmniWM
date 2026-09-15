@@ -87,5 +87,6 @@ extension WorkspaceManager {
         let topologyProfile: TopologyProfile
         let configuredWorkspaceNames: Set<String>
         let monitorDescriptionByWorkspaceName: [String: MonitorDescription]
+        let monitorRanking: [OutputId]
     }
 }
