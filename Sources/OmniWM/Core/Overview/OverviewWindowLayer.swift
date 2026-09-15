@@ -96,7 +96,7 @@ final class OverviewWindowLayer {
         replacing: Bool = false,
         time: CFTimeInterval = CACurrentMediaTime()
     ) {
-        let motion = transition.map { _ in motionLayers.map(OverviewLayerMotion.init) } ?? []
+        let motion = transition.map { _ in motionLayers.map { OverviewLayerMotion($0) } } ?? []
         activeTransition = transition
         root.frame = frame
         root.opacity = Float(state.progress * (window.matchesSearch ? 1 : 0.3))

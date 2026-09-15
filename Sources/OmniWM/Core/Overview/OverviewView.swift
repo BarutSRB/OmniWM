@@ -110,6 +110,11 @@ final class OverviewView: NSView {
         layerRenderer.cancelAnimation()
     }
 
+    func presentProgress(_ progress: Double) {
+        presentationProgress = progress
+        needsDisplay = true
+    }
+
     func updatePreview(_ frame: OverviewPreviewFrame?, for handle: WindowHandle) {
         layerRenderer.updatePreview(frame, for: handle)
     }

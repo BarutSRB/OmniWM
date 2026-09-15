@@ -8,9 +8,14 @@ import XCTest
 
 @MainActor
 final class OverviewNativeAnimationTests: XCTestCase {
-    func testNativeTransitionPreservesAcceptedCriticalSpringTrajectory() {
+    func testNativeTransitionMatchesMissionControlCriticalSpring() {
         let transition = OverviewNativeTransition(generation: 1, startTime: 100, from: 0, to: 1)
-        let reference = SpringAnimation(from: 0, to: 1, startTime: 100, config: .balanced)
+        let reference = SpringAnimation(
+            from: 0,
+            to: 1,
+            startTime: 100,
+            config: SpringConfig(dampingRatio: 1, stiffness: pow(2 * Double.pi / 0.25, 2), epsilon: 0.001)
+        )
 
         for elapsed in [0.0, 0.01, 0.04, 0.1, 0.2] {
             XCTAssertEqual(
@@ -25,11 +30,142 @@ final class OverviewNativeAnimationTests: XCTestCase {
             )
         }
         let animation = transition.makeAnimation(keyPath: "position")
+        XCTAssertEqual(transition.response, 0.25)
         XCTAssertEqual(animation.mass, 1)
-        XCTAssertEqual(animation.stiffness, SpringConfig.balanced.stiffness)
-        XCTAssertEqual(animation.damping, 2 * sqrt(animation.stiffness))
+        XCTAssertEqual(animation.stiffness, 64 * Double.pi * Double.pi, accuracy: 0.000000001)
+        XCTAssertEqual(animation.damping, 16 * Double.pi, accuracy: 0.000000001)
         XCTAssertEqual(animation.beginTime, 100)
+        XCTAssertEqual(animation.settlingDuration, 0.4, accuracy: 0.000000001)
+        XCTAssertEqual(animation.duration, transition.duration)
+        XCTAssertEqual(transition.duration, animation.settlingDuration)
+    }
+
+    func testChromeExitSpringUsesHalfResponse() {
+        let transition = OverviewNativeTransition(generation: 1, startTime: 100, from: 1, to: 0, initialVelocity: -0.5)
+        XCTAssertEqual(transition.chromeExitResponse, 0.125)
+        XCTAssertNil(OverviewNativeTransition(generation: 1, startTime: 100, from: 0, to: 1).chromeExitResponse)
+
+        let animation = transition.makeAnimation(keyPath: "opacity", response: transition.chromeExitResponse)
+        XCTAssertEqual(animation.stiffness, 256 * Double.pi * Double.pi, accuracy: 0.000000001)
+        XCTAssertEqual(animation.damping, 32 * Double.pi, accuracy: 0.000000001)
         XCTAssertEqual(animation.duration, animation.settlingDuration)
+        XCTAssertEqual(animation.duration, 0.2, accuracy: 0.000000001)
+        XCTAssertEqual(animation.beginTime, 100)
+        XCTAssertEqual(animation.initialVelocity, transition.makeAnimation(keyPath: "opacity").initialVelocity)
+    }
+
+    func testReleaseHandoffHasNoPositionOrVelocityDiscontinuity() {
+        for progress in [0.05, 0.2, 0.38, 0.5, 0.65, 0.82, 0.95] {
+            for velocity in [-4.0, -2.5, -0.5, 0, 0.2, 1.8, 3.5, 6] {
+                for target in [0.0, 1] {
+                    let transition = OverviewNativeTransition(
+                        generation: 1,
+                        startTime: 100,
+                        from: progress,
+                        to: target,
+                        initialVelocity: velocity
+                    )
+                    XCTAssertEqual(transition.value(at: 100), progress, accuracy: 0.000000000001)
+                    XCTAssertEqual(transition.velocity(at: 100), velocity, accuracy: 0.000000000001)
+                    XCTAssertLessThanOrEqual(transition.duration, 0.6)
+                    XCTAssertEqual(transition.value(at: 101 + transition.duration), target)
+                    XCTAssertEqual(transition.velocity(at: 101 + transition.duration), 0)
+                }
+            }
+        }
+        let normalized = OverviewNativeTransition(generation: 1, startTime: 0, from: 0.4, to: 1, initialVelocity: 1.2)
+        XCTAssertEqual(normalized.makeAnimation(keyPath: "opacity").initialVelocity, 2, accuracy: 0.000000001)
+        let settled = OverviewNativeTransition(generation: 1, startTime: 0, from: 1, to: 1, initialVelocity: 5)
+        XCTAssertEqual(settled.makeAnimation(keyPath: "opacity").initialVelocity, 0)
+        XCTAssertEqual(settled.duration, 0)
+    }
+
+    func testRubberBandMatchesHyperbolicResistance() {
+        for progress in [0.0, 0.5, 1] {
+            XCTAssertEqual(OverviewNativeTransition.rubberBand(progress), progress)
+            XCTAssertEqual(OverviewNativeTransition.rubberBandInverse(progress), progress)
+        }
+        XCTAssertEqual(OverviewNativeTransition.rubberBand(1.1), 1.0464788732394366, accuracy: 0.000000000001)
+        XCTAssertEqual(
+            OverviewNativeTransition.rubberBand(-0.1),
+            1 - OverviewNativeTransition.rubberBand(1.1),
+            accuracy: 0.000000000001
+        )
+        XCTAssertEqual((OverviewNativeTransition.rubberBand(1 + 0.000001) - 1) / 0.000001, 0.55, accuracy: 0.0001)
+        XCTAssertEqual(OverviewNativeTransition.rubberBand(1_000_000), 1.3, accuracy: 0.0001)
+        XCTAssertEqual(OverviewNativeTransition.rubberBand(-1_000_000), -0.3, accuracy: 0.0001)
+        for raw in [-1_000_000_000.0, -5, -1, -0.5, 1.5, 2, 5, 1_000_000_000] {
+            let progress = OverviewNativeTransition.rubberBand(raw)
+            XCTAssertGreaterThanOrEqual(progress, -0.3)
+            XCTAssertLessThanOrEqual(progress, 1.3)
+        }
+        for excess in [0.01, 0.05, 0.1, 0.25, 0.8, 2.0] {
+            XCTAssertEqual(
+                OverviewNativeTransition.rubberBandInverse(OverviewNativeTransition.rubberBand(1 + excess)),
+                1 + excess,
+                accuracy: 0.000000001
+            )
+            XCTAssertEqual(
+                OverviewNativeTransition.rubberBandInverse(OverviewNativeTransition.rubberBand(-excess)),
+                -excess,
+                accuracy: 0.000000001
+            )
+        }
+        XCTAssertTrue(OverviewNativeTransition.rubberBandInverse(1.35).isFinite)
+        XCTAssertTrue(OverviewNativeTransition.rubberBandInverse(-0.35).isFinite)
+    }
+
+    func testReleaseTargetFollowsProjectedMomentumAndFlicks() {
+        for (progress, velocity, target) in [
+            (0.49, 0.0, 0.0),
+            (0.51, 0, 1),
+            (0.5, 0, 1),
+            (0.25, 2, 1),
+            (0.75, -2, 0),
+            (0.2, 2.5, 1),
+            (0.8, -2.5, 0),
+            (0.4, 0.49, 0),
+            (0.45, 0.4, 1),
+            (0.3, 0.5, 1),
+            (0.7, -0.5, 0),
+            (1.1, -3, 1),
+            (-0.1, 3, 0)
+        ] {
+            XCTAssertEqual(
+                OverviewNativeTransition.releaseTarget(progress: progress, velocity: velocity),
+                target,
+                "progress \(progress) velocity \(velocity)"
+            )
+        }
+    }
+
+    func testReleaseVelocityCompressesResponse() {
+        XCTAssertEqual(OverviewNativeTransition.compressedResponse(forReleaseVelocity: 0), 0.25)
+        XCTAssertEqual(
+            OverviewNativeTransition.compressedResponse(forReleaseVelocity: 0.5),
+            0.25 * (1 - 0.25 * tanh(1)),
+            accuracy: 0.000000000001
+        )
+        XCTAssertEqual(
+            OverviewNativeTransition.compressedResponse(forReleaseVelocity: -50),
+            0.1875,
+            accuracy: 0.000001
+        )
+        let transition = OverviewNativeTransition(
+            generation: 1,
+            startTime: 0,
+            from: 0.3,
+            to: 1,
+            initialVelocity: 3,
+            response: 0.2
+        )
+        XCTAssertEqual(
+            transition.makeAnimation(keyPath: "opacity").stiffness,
+            pow(2 * Double.pi / 0.2, 2),
+            accuracy: 0.000000001
+        )
+        XCTAssertEqual(transition.value(at: 0), 0.3, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.velocity(at: 0), 3, accuracy: 0.000000000001)
     }
 
     func testNativeReversalPreservesCurrentProgressAndVelocity() {

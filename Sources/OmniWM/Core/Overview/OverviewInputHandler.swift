@@ -302,14 +302,16 @@ extension OverviewInputHandler {
         selectAndActivateWindow(selectedWindowHandle)
     }
 
-    func dismissToSelection(animated: Bool) {
+    func selectionDismissal() -> (reason: OverviewController.OverviewDismissReason, targetWindow: WindowHandle?) {
         guard let selectedWindowHandle = projection.selectedWindowHandle,
               overviewSnapshot.windows[selectedWindowHandle] != nil
-        else {
-            controller?.dismiss(reason: .cancel, animated: animated)
-            return
-        }
-        controller?.dismiss(reason: .selection, targetWindow: selectedWindowHandle, animated: animated)
+        else { return (.cancel, nil) }
+        return (.selection, selectedWindowHandle)
+    }
+
+    func dismissToSelection(animated: Bool) {
+        let dismissal = selectionDismissal()
+        controller?.dismiss(reason: dismissal.reason, targetWindow: dismissal.targetWindow, animated: animated)
     }
 
     func closeSelectedWindow() {

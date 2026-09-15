@@ -31,6 +31,18 @@ enum OverviewState {
             return false
         }
     }
+
+    var gestureAction: OverviewGestureAction {
+        switch self {
+        case .closed:
+            .open
+        case .open:
+            .close
+        case .opening,
+             .closing:
+            .resume
+        }
+    }
 }
 
 struct OverviewWorkspaceSection {

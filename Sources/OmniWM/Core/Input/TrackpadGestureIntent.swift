@@ -6,9 +6,18 @@ import CoreGraphics
 enum OverviewGestureAction: Equatable {
     case open
     case close
+    case resume
 
     var direction: CGFloat {
-        self == .open ? 1 : -1
+        switch self {
+        case .open: 1
+        case .close: -1
+        case .resume: 0
+        }
+    }
+
+    func accepts(verticalTranslation: CGFloat) -> Bool {
+        direction == 0 ? verticalTranslation != 0 : verticalTranslation * direction > 0
     }
 }
 
@@ -20,10 +29,15 @@ enum TrackpadGestureMode: Equatable {
 
 enum TrackpadGestureIntent {
     private static let overviewSwipeTriggerUnits: CGFloat = 24.0
+    static let overviewTravelUnits = 300.0
 
     static func overviewTriggered(action: OverviewGestureAction, translation: CGPoint) -> Bool {
         let displacement = translation.y * action.direction
         return displacement >= overviewSwipeTriggerUnits && displacement > abs(translation.x)
+    }
+
+    static func overviewProgress(units: Double) -> Double {
+        units / overviewTravelUnits
     }
 
     struct Config: Equatable {
@@ -97,7 +111,7 @@ enum TrackpadGestureIntent {
         let contextAxis = columnContextAvailable ? columnScrollAxis : nil
         let workspaceAxis = effectiveWorkspaceSwipeAxis(config, columnScrollAxis: contextAxis)
         if let action = config.overviewAction, fingerCount == config.overviewFingerCount,
-           dominantAxis == .vertical, cumulativeTranslation.dy * action.direction > 0
+           dominantAxis == .vertical, action.accepts(verticalTranslation: cumulativeTranslation.dy)
         {
             guard overviewConflict(config, columnScrollAxis: contextAxis) == nil else { return nil }
             return .overview(action)

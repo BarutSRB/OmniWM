@@ -257,6 +257,200 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         }
     }
 
+    func testInteractiveOverviewSwipeTracksFromRecognitionCommit() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        let handler = fixture.controller.mouseEventHandler
+        let actions = fixture.controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+        XCTAssertEqual(handler.state.gesturePhase, .armed)
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: 100.1)
+        XCTAssertEqual(handler.state.gesturePhase, .committed)
+        guard case .opening = actions.overviewState
+        else { return XCTFail("Expected the commit frame to begin tracking") }
+        XCTAssertTrue(actions.isOverviewGestureActive)
+        XCTAssertEqual(actions.overviewTransitionProgress, 0, accuracy: 0.000000000001)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.54, at: 100.2)
+        XCTAssertEqual(actions.overviewTransitionProgress, 0.5, accuracy: 0.000000001)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.64, at: 100.3)
+        XCTAssertEqual(actions.overviewTransitionProgress, 2.0 / 3.0, accuracy: 0.000000001)
+        XCTAssertEqual(handler.state.gesturePhase, .committed)
+
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.4)
+
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        guard case .opening = actions.overviewState else { return XCTFail("Expected release above half to commit") }
+        XCTAssertEqual(handler.state.gesturePhase, .idle)
+        XCTAssertTrue(handler.state.suppressTrackpadMomentumScroll)
+        XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+    }
+
+    func testInteractiveOverviewSwipeCancelsBelowHalf() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        let actions = fixture.controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: 100.1)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.42, at: 100.2)
+        XCTAssertEqual(actions.overviewTransitionProgress, 0.3, accuracy: 0.000000001)
+
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.5)
+
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        guard case .closing = actions.overviewState
+        else { return XCTFail("Expected a slow release below half to cancel") }
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+    }
+
+    func testInteractiveOverviewFlickCommitsFromLowProgress() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        let actions = fixture.controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: 100.1)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.3, at: 100.12)
+        XCTAssertEqual(actions.overviewTransitionProgress, 0.1, accuracy: 0.000000001)
+
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.12)
+
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        guard case .opening = actions.overviewState
+        else { return XCTFail("Expected a flick to commit from low progress") }
+    }
+
+    func testHotkeyDuringInteractiveTrackingSuppressesGestureUntilLift() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        let handler = fixture.controller.mouseEventHandler
+        let actions = fixture.controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: 100.1)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.64, at: 100.2)
+        XCTAssertGreaterThan(actions.overviewTransitionProgress, 0.5)
+
+        actions.toggleOverview()
+
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        guard case .closing = actions.overviewState else { return XCTFail("Expected the hotkey above half to close") }
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.7, at: 100.3)
+        XCTAssertEqual(handler.state.gesturePhase, .idle)
+        XCTAssertTrue(handler.state.suppressGestureStartUntilAllTouchesLift)
+        guard case .closing = actions.overviewState
+        else { return XCTFail("Expected residual frames to leave the flight alone") }
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.4)
+        XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
+    }
+
+    func testTouchDownDuringOverviewFlightFreezesUntilLift() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        let handler = fixture.controller.mouseEventHandler
+        let actions = fixture.controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+        actions.toggleOverview()
+        guard case .opening = actions.overviewState
+        else { return XCTFail("Expected the hotkey to start an open flight") }
+
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+
+        XCTAssertEqual(handler.state.gesturePhase, .armed)
+        XCTAssertTrue(actions.isOverviewGestureActive)
+        guard case .opening = actions.overviewState
+        else { return XCTFail("Expected the caught flight to stay in .opening") }
+        let caught = actions.overviewTransitionProgress
+        XCTAssertLessThan(caught, 1)
+
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: 100.1)
+        XCTAssertEqual(handler.state.gesturePhase, .committed)
+        XCTAssertEqual(actions.overviewTransitionProgress, caught, accuracy: 0.000000000001)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.9, at: 100.2)
+        XCTAssertGreaterThan(actions.overviewTransitionProgress, 1)
+        XCTAssertLessThanOrEqual(actions.overviewTransitionProgress, 1.3)
+
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.3)
+
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        XCTAssertEqual(handler.state.gesturePhase, .idle)
+        guard case .opening = actions.overviewState
+        else { return XCTFail("Expected an overscroll release to reopen") }
+    }
+
+    func testHorizontalWorkspaceSwipeSharingOverviewFingersSurvivesCommitWithAnimations() throws {
+        let fixture = try makeFixture(
+            workspaceFingers: .four,
+            workspaceAxis: .horizontal,
+            scrollGestureEnabled: true,
+            columnFingers: .three
+        )
+        fixture.controller.setAnimationsEnabled(true)
+        fixture.controller.settings.gestures.overviewGestureEnabled = true
+        let handler = fixture.controller.mouseEventHandler
+        var time: TimeInterval = 100
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.8, y: 0.5, at: time)
+        for step in 1 ... 8 {
+            time += 0.01
+            sendFrame(fixture, phase: .changed, fingers: 4, x: 0.8 - 0.055 * CGFloat(step), y: 0.5, at: time)
+            XCTAssertEqual(handler.state.gesturePhase, .committed, "step \(step)")
+            XCTAssertEqual(handler.state.activeGestureMode, .workspaceSwitch(axis: .horizontal), "step \(step)")
+        }
+        time += 0.01
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: time)
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws2)
+        XCTAssertFalse(fixture.controller.isOverviewOpen())
+    }
+
+    func testInteractiveCloseGestureConsumesScrollTail() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        let controller = fixture.controller
+        let handler = controller.mouseEventHandler
+        let actions = controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+        controller.setAnimationsEnabled(false)
+        actions.toggleOverview()
+        controller.setAnimationsEnabled(true)
+        guard case .open = actions.overviewState else { return XCTFail("Expected an open overview") }
+
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.8, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.76, at: 100.1)
+        guard case .opening = actions.overviewState
+        else { return XCTFail("Expected a close-track to live in .opening") }
+        XCTAssertEqual(actions.overviewTransitionProgress, 1, accuracy: 0.000000000001)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.4, at: 100.2)
+        XCTAssertEqual(actions.overviewTransitionProgress, 0.4, accuracy: 0.000000001)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.changed.rawValue))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.5)
+
+        guard case .closing = actions.overviewState else { return XCTFail("Expected release below half to close") }
+        XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
+        XCTAssertFalse(handler.state.consumeTrackpadScrollUntilAllTouchesLift)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        sendFrame(fixture, phase: .began, fingers: 2, x: 0.5, y: 0.5, at: 101)
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.began.rawValue))
+        XCTAssertFalse(handler.state.suppressTrackpadMomentumScroll)
+    }
+
+    private func makeInteractiveOverviewFixture() throws -> Fixture {
+        let fixture = try makeFixture(workspaceSwipeEnabled: false)
+        fixture.controller.setAnimationsEnabled(true)
+        fixture.controller.settings.gestures.overviewGestureEnabled = true
+        return fixture
+    }
+
+    private func dismissInteractiveOverview(_ fixture: Fixture) {
+        fixture.controller.setAnimationsEnabled(false)
+        fixture.controller.windowActionHandler.dismissOverview()
+    }
+
     func testAmbiguousUpwardGestureDoesNotOpenOverviewOrSwitchWorkspace() throws {
         let fixture = try makeFixture(workspaceFingers: .four)
         fixture.controller.settings.gestures.overviewGestureEnabled = true

@@ -7,7 +7,7 @@ import QuartzCore
 @MainActor
 final class OverviewController {
     private weak var wmController: WMController?
-    private let motionPolicy: MotionPolicy
+    let motionPolicy: MotionPolicy
     private let environment: OverviewEnvironment
 
     private(set) var state: OverviewState = .closed
@@ -27,10 +27,10 @@ final class OverviewController {
     private var presentation: OverviewPresentation
 
     private let thumbnailCapture: OverviewThumbnailCapture
-    private let windowSession: OverviewWindowSession
-    private var animator: OverviewAnimator?
+    let windowSession: OverviewWindowSession
+    private(set) var animator: OverviewAnimator?
 
-    private let focusSession: OverviewFocusSession
+    let focusSession: OverviewFocusSession
     private let inputSession: OverviewInputSession
     let input: OverviewInputHandler
 
@@ -140,8 +140,13 @@ extension OverviewController {
         switch state {
         case .closed:
             open()
-        case .opening,
-             .open:
+        case .opening:
+            if isInteractiveTransitionActive, transitionProgress < 0.5 {
+                commitOpen()
+            } else {
+                input.dismissToSelection(animated: true)
+            }
+        case .open:
             input.dismissToSelection(animated: true)
         case .closing:
             reverseClosingTransition()
@@ -166,8 +171,15 @@ extension OverviewController {
     }
 
     func open() {
-        guard case .closed = state else { return }
-        guard wmController != nil else { return }
+        guard beginOpening() else { return }
+        activateForInteraction()
+        if motionPolicy.animationsEnabled {
+            animator?.startOpenAnimation(displayIds: windowSession.displayIds)
+        }
+    }
+
+    func beginOpening() -> Bool {
+        guard case .closed = state, wmController != nil else { return false }
 
         focusSession.invalidateSelectionDismissal()
         focusSession.advancePostCloseHandoffGeneration()
@@ -185,21 +197,15 @@ extension OverviewController {
             state = .opening
         } else {
             state = .open
-            animator?.cancelAnimation()
+            animator?.settle(at: 1)
         }
 
         updateWindowDisplays()
         windowSession.showWindows()
-        activateOwnedSession()
-        windowSession.primaryOverviewWindow()?.show(asKeyWindow: true)
-        if motionPolicy.animationsEnabled {
-            animator?.startOpenAnimation(displayIds: windowSession.displayIds)
-        }
+        return true
     }
 
-    private func reverseClosingTransition() {
-        guard case .closing = state else { return }
-
+    func resumeOpening() {
         focusSession.invalidateSelectionDismissal()
         focusSession.advancePostCloseHandoffGeneration()
         focusSession.pendingDismissReason = .cancel
@@ -207,14 +213,6 @@ extension OverviewController {
         focusSession.pendingPostCloseHandoffValidity = nil
         state = motionPolicy.animationsEnabled ? .opening : .open
         updateWindowDisplays()
-        activateOwnedSession()
-        windowSession.primaryOverviewWindow()?.show(asKeyWindow: true)
-
-        if motionPolicy.animationsEnabled {
-            animator?.startOpenAnimation(displayIds: windowSession.displayIds)
-        } else {
-            animator?.cancelAnimation()
-        }
     }
 
     func prepareOpenState() {
@@ -378,7 +376,7 @@ extension OverviewController {
 
     func completeCloseTransition(targetWindow: WindowHandle?) {
         focusSession.completeCloseTransition(targetWindow: targetWindow) {
-            animator?.cancelAnimation()
+            animator?.settle(at: 0)
             state = .closed
             cleanup()
             endOwnedSession()

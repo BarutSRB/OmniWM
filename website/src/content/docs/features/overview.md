@@ -15,6 +15,7 @@ Press `Option + Shift + O` and all of your workspaces' windows fly into a scroll
 - Mouse and trackpad scrolling follow the system Natural Scrolling setting.
 - `Alt (Option) + Shift + Mouse Scroll` temporarily zooms the current overview; the next opening starts from the configured baseline.
 - If another application takes focus, Overview dismisses without stealing focus back.
+- With the Overview gesture enabled in **Settings → Mouse & Trackpad**, a three- or four-finger swipe up tracks your fingers like Mission Control: release past halfway or flick to open, release early to cancel, and swipe down to close.
 
 ## Managing windows from Overview
 

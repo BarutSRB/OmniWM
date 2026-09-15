@@ -278,6 +278,51 @@ final class OverviewRendererTests: XCTestCase {
     }
 
     @MainActor
+    func testPresentProgressRendersInterpolatedModelWithoutNativeAnimation() throws {
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600), displayId: 404)
+        let (layout, item) = makeLayerLayout()
+        let panel = attach(view)
+        defer { panel.close() }
+        let fixture = makeAnimationFixture()
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+
+        view.presentProgress(0.4)
+        view.updateLayer()
+
+        let root = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle]?.root)
+        let interpolated = item.interpolatedFrame(progress: 0.4)
+        XCTAssertEqual(view.presentationProgress, 0.4)
+        XCTAssertEqual(root.frame.origin.x, interpolated.origin.x, accuracy: 0.000000001)
+        XCTAssertEqual(root.frame.origin.y, interpolated.origin.y, accuracy: 0.000000001)
+        XCTAssertEqual(root.frame.width, interpolated.width, accuracy: 0.000000001)
+        XCTAssertEqual(root.frame.height, interpolated.height, accuracy: 0.000000001)
+        XCTAssertEqual(root.opacity, 0.4, accuracy: 0.000001)
+        XCTAssertNil(root.animation(forKey: "overview.position"))
+        XCTAssertNil(view.layerRenderer.activeTransition)
+
+        let transition = OverviewNativeTransition(
+            generation: 3,
+            startTime: CACurrentMediaTime(),
+            from: 0.4,
+            to: 1,
+            initialVelocity: 2
+        )
+        XCTAssertTrue(view.installAnimation(transition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 404, generation: 3
+        )))
+
+        let position = try XCTUnwrap(root.animation(forKey: "overview.position") as? CASpringAnimation)
+        let from = try XCTUnwrap((position.fromValue as? NSValue)?.pointValue)
+        let to = try XCTUnwrap((position.toValue as? NSValue)?.pointValue)
+        XCTAssertEqual(from.x, interpolated.midX, accuracy: 0.000000001)
+        XCTAssertEqual(from.y, interpolated.midY, accuracy: 0.000000001)
+        XCTAssertEqual(to.x, item.overviewFrame.midX, accuracy: 0.000000001)
+        XCTAssertEqual(to.y, item.overviewFrame.midY, accuracy: 0.000000001)
+        XCTAssertEqual(position.initialVelocity, 2 / 0.6, accuracy: 0.000000001)
+        XCTAssertEqual(view.presentationProgress, 1)
+    }
+
+    @MainActor
     func testUnattachedViewSettlesAtEndpointWithoutInstallingNativeAnimation() {
         let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
         let (layout, item) = makeLayerLayout()

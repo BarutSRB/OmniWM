@@ -200,6 +200,10 @@ final class OverviewWindowSession {
         for window in windows { window.cancelAnimation() }
     }
 
+    func presentProgress(_ progress: Double) {
+        for window in windows { window.presentProgress(progress) }
+    }
+
     func handleModifierFlagsChanged(_ modifierFlags: NSEvent.ModifierFlags) {
         let optionPressed = modifierFlags.contains(.option)
         for window in windows {

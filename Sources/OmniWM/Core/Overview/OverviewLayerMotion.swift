@@ -12,9 +12,11 @@ struct OverviewLayerMotion {
     private let modelPosition: CGPoint
     private let modelBounds: CGRect
     private let modelOpacity: Float
+    private let response: Double?
 
-    init(_ layer: CALayer) {
+    init(_ layer: CALayer, response: Double? = nil) {
         self.layer = layer
+        self.response = response
         let presentation = layer.presentation()
         if let animation = layer.animation(forKey: "overview.position") as? CABasicAnimation {
             position = presentation?.position ?? (animation.fromValue as? NSValue)?.pointValue ?? layer.position
@@ -43,7 +45,7 @@ struct OverviewLayerMotion {
         }
         guard replacing || modelPosition != layer.position || modelBounds != layer.bounds || modelOpacity != layer
             .opacity else { return }
-        let animation = transition.makeAnimation(keyPath: "")
+        let animation = transition.makeAnimation(keyPath: "", response: response)
         if replacing {
             animation.beginTime = layer.convertTime(transition.startTime, from: nil)
         } else {

@@ -91,6 +91,30 @@ final class WindowActionHandler {
         overviewControllerStorage?.input.dismissToSelection(animated: true)
     }
 
+    var overviewState: OverviewState {
+        overviewControllerStorage?.state ?? .closed
+    }
+
+    var isOverviewGestureActive: Bool {
+        overviewControllerStorage?.isInteractiveTransitionActive == true
+    }
+
+    var overviewTransitionProgress: Double {
+        overviewControllerStorage?.transitionProgress ?? 0
+    }
+
+    func beginOverviewGesture() -> Bool {
+        overviewController.beginInteractiveTransition()
+    }
+
+    func updateOverviewGesture(cumulativeUnits: Double, timestamp: TimeInterval) {
+        overviewControllerStorage?.updateInteractiveTransition(cumulativeUnits: cumulativeUnits, timestamp: timestamp)
+    }
+
+    func endOverviewGesture(timestamp: TimeInterval?) {
+        overviewControllerStorage?.endInteractiveTransition(timestamp: timestamp)
+    }
+
     func handleOverviewHotkey(_ invocation: HotkeyInvocation) -> OverviewHotkeyDisposition {
         overviewControllerStorage?.input.handleHotkeyInvocation(invocation) ?? .inactive
     }
@@ -119,7 +143,7 @@ final class WindowActionHandler {
     }
 
     func isOverviewOpen() -> Bool {
-        overviewControllerStorage?.isOpen == true
+        overviewState.isOpen
     }
 
     private func activateWindowFromOverview(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {

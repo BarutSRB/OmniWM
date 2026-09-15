@@ -1402,6 +1402,447 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(animator.completionCount, 1)
     }
 
+    @MainActor
+    private struct InteractiveOverviewHarness {
+        let fixture: RuntimeOverviewFixture
+        let overview: OverviewController
+        let clock: OverviewAnimationTestClock
+        let handoffScheduler: OverviewPostCloseHandoffScheduler
+        var installed: [OverviewNativeTransition] {
+            storage.installed
+        }
+
+        var completions: [OverviewAnimationCompletion] {
+            storage.completions
+        }
+
+        var activations: Int {
+            storage.activations
+        }
+
+        var activatedPIDs: [pid_t] {
+            storage.activatedPIDs
+        }
+
+        private let storage: Storage
+
+        @MainActor
+        final class Storage {
+            var installed: [OverviewNativeTransition] = []
+            var completions: [OverviewAnimationCompletion] = []
+            var activations = 0
+            var activatedPIDs: [pid_t] = []
+        }
+
+        init(fixture: RuntimeOverviewFixture, previousApplicationPID: pid_t? = nil) {
+            fixture.controller.motionPolicy.animationsEnabled = true
+            let storage = Storage()
+            let clock = OverviewAnimationTestClock()
+            let handoffScheduler = OverviewPostCloseHandoffScheduler()
+            var environment = fixture.environment
+            environment.frontmostApplicationPID = { previousApplicationPID }
+            environment.activateOmniWM = { storage.activations += 1 }
+            environment.activateApplication = { storage.activatedPIDs.append($0) }
+            environment.schedulePostCloseHandoff = handoffScheduler.schedule
+            overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: environment,
+                animationInstaller: { _, transition, completion in
+                    storage.installed.append(transition)
+                    storage.completions.append(completion)
+                    return true
+                },
+                animationMediaTimeProvider: { clock.time }
+            )
+            self.fixture = fixture
+            self.clock = clock
+            self.handoffScheduler = handoffScheduler
+            self.storage = storage
+        }
+
+        func completeLastTransition() throws {
+            try XCTUnwrap(completions.last).complete()
+        }
+    }
+
+    func testInteractiveOpenTracksFingerAndCommitsWithVelocity() throws {
+        let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+        let overview = harness.overview
+
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        guard case .opening = overview.state else { return XCTFail("Expected tracking to live in .opening") }
+        XCTAssertTrue(overview.isInteractiveTransitionActive)
+        XCTAssertEqual(harness.activations, 0)
+        XCTAssertTrue(harness.installed.isEmpty)
+
+        overview.updateInteractiveTransition(cumulativeUnits: 20, timestamp: 100)
+        XCTAssertEqual(overview.transitionProgress, 0, accuracy: 0.000000000001)
+        overview.updateInteractiveTransition(cumulativeUnits: 170, timestamp: 100.1)
+        XCTAssertEqual(overview.transitionProgress, 0.5, accuracy: 0.000000000001)
+        XCTAssertTrue(harness.installed.isEmpty)
+        XCTAssertEqual(harness.activations, 0)
+
+        harness.clock.time = 100.1
+        overview.endInteractiveTransition(timestamp: 100.1)
+
+        XCTAssertFalse(overview.isInteractiveTransitionActive)
+        XCTAssertEqual(harness.activations, 1)
+        XCTAssertEqual(harness.installed.count, 1)
+        let transition = try XCTUnwrap(harness.installed.last)
+        XCTAssertEqual(transition.from, 0.5, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.target, 1)
+        XCTAssertEqual(transition.initialVelocity, 5, accuracy: 0.000000001)
+        XCTAssertEqual(
+            transition.response,
+            OverviewNativeTransition.compressedResponse(forReleaseVelocity: 5),
+            accuracy: 0.000000000001
+        )
+        XCTAssertEqual(transition.startTime, 100.1)
+        XCTAssertEqual(overview.transitionProgress, 0.5, accuracy: 0.000000000001)
+
+        try harness.completeLastTransition()
+        guard case .open = overview.state else { return XCTFail("Expected the committed spring to open") }
+        overview.completeCloseTransition(targetWindow: nil)
+    }
+
+    func testInteractiveOpenCancelsBelowHalfAndRestoresPreviousApplication() throws {
+        let harness = try InteractiveOverviewHarness(
+            fixture: makeRuntimeOverviewFixture(windowCount: 1),
+            previousApplicationPID: 91_900
+        )
+        let overview = harness.overview
+
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        overview.updateInteractiveTransition(cumulativeUnits: 20, timestamp: 100)
+        overview.updateInteractiveTransition(cumulativeUnits: 110, timestamp: 100.5)
+        XCTAssertEqual(overview.transitionProgress, 0.3, accuracy: 0.000000000001)
+
+        harness.clock.time = 100.9
+        overview.endInteractiveTransition(timestamp: 100.9)
+
+        guard case let .closing(target) = overview.state else { return XCTFail("Expected release below half to close") }
+        XCTAssertNil(target)
+        XCTAssertFalse(overview.isInteractiveTransitionActive)
+        XCTAssertEqual(harness.activations, 0)
+        let transition = try XCTUnwrap(harness.installed.last)
+        XCTAssertEqual(harness.installed.count, 1)
+        XCTAssertEqual(transition.from, 0.3, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.target, 0)
+        XCTAssertEqual(transition.initialVelocity, 0)
+        XCTAssertEqual(transition.response, 0.25)
+
+        try harness.completeLastTransition()
+        XCTAssertFalse(overview.state.isOpen)
+        XCTAssertEqual(harness.handoffScheduler.count, 1)
+        harness.handoffScheduler.runNext()
+        XCTAssertEqual(harness.activatedPIDs, [91_900])
+    }
+
+    func testInteractiveCloseFromOpenTracksInOpeningAndKeepsSelectionHandoff() throws {
+        let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+        let overview = harness.overview
+        overview.open()
+        XCTAssertEqual(harness.activations, 1)
+        harness.clock.time = 10
+        try harness.completeLastTransition()
+        let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+        var activatedHandles: [WindowHandle] = []
+        overview.onActivateWindow = { handle, _ in activatedHandles.append(handle) }
+
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        guard case .opening = overview.state else { return XCTFail("Expected a close-track to live in .opening") }
+        XCTAssertEqual(overview.transitionProgress, 1)
+        XCTAssertEqual(harness.installed.count, 1)
+        overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 10)
+        overview.updateInteractiveTransition(cumulativeUnits: -240, timestamp: 10.1)
+        XCTAssertEqual(overview.transitionProgress, 0.2, accuracy: 0.000000000001)
+
+        harness.clock.time = 10.6
+        overview.endInteractiveTransition(timestamp: 10.6)
+
+        guard case let .closing(target) = overview.state else { return XCTFail("Expected release below half to close") }
+        XCTAssertEqual(target, selectedHandle)
+        XCTAssertEqual(harness.installed.count, 2)
+        let transition = try XCTUnwrap(harness.installed.last)
+        XCTAssertEqual(transition.from, 0.2, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.target, 0)
+        XCTAssertEqual(transition.initialVelocity, 0)
+        XCTAssertEqual(harness.activations, 1)
+
+        try harness.completeLastTransition()
+        XCTAssertFalse(overview.state.isOpen)
+        XCTAssertEqual(harness.handoffScheduler.count, 1)
+        harness.handoffScheduler.runNext()
+        XCTAssertEqual(activatedHandles, [selectedHandle])
+    }
+
+    func testUpwardFlickDuringCloseTrackReopens() throws {
+        let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+        let overview = harness.overview
+        overview.open()
+        harness.clock.time = 10
+        try harness.completeLastTransition()
+
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 10)
+        overview.updateInteractiveTransition(cumulativeUnits: -150, timestamp: 10.1)
+        overview.updateInteractiveTransition(cumulativeUnits: -120, timestamp: 10.3)
+        XCTAssertEqual(overview.transitionProgress, 0.6, accuracy: 0.000000000001)
+        harness.clock.time = 10.32
+        overview.endInteractiveTransition(timestamp: 10.32)
+
+        guard case .opening = overview.state else { return XCTFail("Expected an upward flick to reopen") }
+        XCTAssertEqual(harness.activations, 2)
+        let transition = try XCTUnwrap(harness.installed.last)
+        XCTAssertEqual(harness.installed.count, 2)
+        XCTAssertEqual(transition.target, 1)
+        XCTAssertEqual(transition.from, 0.6, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.initialVelocity, 5, accuracy: 0.000000001)
+
+        try harness.completeLastTransition()
+        guard case .open = overview.state else { return XCTFail("Expected the reopened spring to settle open") }
+        overview.completeCloseTransition(targetWindow: nil)
+    }
+
+    func testTouchDownDuringFlightFreezesAtAnalyticProgressAndReanchors() throws {
+        let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+        let overview = harness.overview
+        overview.open()
+        XCTAssertEqual(harness.installed.count, 1)
+        let flight = try XCTUnwrap(harness.installed.first)
+        harness.clock.time = 0.05
+        let caught = flight.value(at: 0.05)
+        XCTAssertGreaterThan(caught, 0)
+        XCTAssertLessThan(caught, 0.5)
+
+        XCTAssertTrue(overview.beginInteractiveTransition())
+
+        XCTAssertEqual(harness.installed.count, 1)
+        XCTAssertTrue(overview.isInteractiveTransitionActive)
+        XCTAssertEqual(overview.transitionProgress, caught, accuracy: 0.000000000001)
+        guard case .opening = overview.state else { return XCTFail("Expected the caught flight to stay in .opening") }
+        try XCTUnwrap(harness.completions.first).complete()
+        XCTAssertTrue(overview.isInteractiveTransitionActive)
+        guard case .opening = overview.state else { return XCTFail("Expected a stale completion to be ignored") }
+
+        overview.updateInteractiveTransition(cumulativeUnits: 100, timestamp: 0.05)
+        XCTAssertEqual(overview.transitionProgress, caught, accuracy: 0.000000000001)
+        overview.updateInteractiveTransition(cumulativeUnits: 130, timestamp: 0.1)
+        XCTAssertEqual(overview.transitionProgress, caught + 0.1, accuracy: 0.000000000001)
+
+        harness.clock.time = 0.1
+        overview.endInteractiveTransition(timestamp: 0.1)
+
+        XCTAssertEqual(harness.installed.count, 2)
+        let transition = try XCTUnwrap(harness.installed.last)
+        XCTAssertEqual(transition.from, caught + 0.1, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.target, 1)
+        XCTAssertEqual(transition.initialVelocity, 2, accuracy: 0.000000001)
+        try harness.completeLastTransition()
+        guard case .open = overview.state else { return XCTFail("Expected the resumed flight to open") }
+        overview.completeCloseTransition(targetWindow: nil)
+    }
+
+    func testTapDuringFlightThenLiftResolvesByPosition() throws {
+        for late in [false, true] {
+            let harness = try InteractiveOverviewHarness(
+                fixture: makeRuntimeOverviewFixture(windowCount: 1),
+                previousApplicationPID: 91_900
+            )
+            let overview = harness.overview
+            overview.open()
+            harness.clock.time = late ? 0.3 : 0.05
+            let caught = try XCTUnwrap(harness.installed.first).value(at: harness.clock.time)
+
+            XCTAssertTrue(overview.beginInteractiveTransition())
+            XCTAssertEqual(harness.installed.count, 1)
+            overview.endInteractiveTransition(timestamp: nil)
+
+            XCTAssertFalse(overview.isInteractiveTransitionActive)
+            XCTAssertEqual(harness.installed.count, 2)
+            let transition = try XCTUnwrap(harness.installed.last)
+            XCTAssertEqual(transition.from, caught, accuracy: 0.000000000001)
+            XCTAssertEqual(transition.initialVelocity, 0)
+            if late {
+                guard case .opening = overview.state else { return XCTFail("Expected a late tap to resume opening") }
+                XCTAssertEqual(transition.target, 1)
+                XCTAssertEqual(harness.activations, 2)
+                try harness.completeLastTransition()
+                overview.completeCloseTransition(targetWindow: nil)
+            } else {
+                guard case let .closing(target) = overview.state else {
+                    return XCTFail("Expected an early tap to close")
+                }
+                XCTAssertNil(target)
+                XCTAssertEqual(transition.target, 0)
+                XCTAssertEqual(harness.activations, 1)
+                try harness.completeLastTransition()
+                XCTAssertEqual(harness.handoffScheduler.count, 1)
+                harness.handoffScheduler.runNext()
+                XCTAssertEqual(harness.activatedPIDs, [91_900])
+            }
+        }
+    }
+
+    func testCaughtCancelledCloseReleasedBelowHalfStaysACancel() throws {
+        let harness = try InteractiveOverviewHarness(
+            fixture: makeRuntimeOverviewFixture(windowCount: 1),
+            previousApplicationPID: 91_900
+        )
+        let overview = harness.overview
+        var activatedHandles: [WindowHandle] = []
+        overview.onActivateWindow = { handle, _ in activatedHandles.append(handle) }
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 100)
+        overview.updateInteractiveTransition(cumulativeUnits: 75, timestamp: 100.5)
+        harness.clock.time = 100.9
+        overview.endInteractiveTransition(timestamp: 100.9)
+        guard case .closing = overview.state else { return XCTFail("Expected the short swipe to cancel") }
+
+        harness.clock.time = 100.95
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        guard case .opening = overview.state else { return XCTFail("Expected the catch to track in .opening") }
+        overview.endInteractiveTransition(timestamp: nil)
+
+        guard case let .closing(target) = overview.state else { return XCTFail("Expected the lift to close again") }
+        XCTAssertNil(target)
+        XCTAssertEqual(harness.activations, 0)
+        try harness.completeLastTransition()
+        XCTAssertFalse(overview.state.isOpen)
+        XCTAssertEqual(harness.handoffScheduler.count, 1)
+        harness.handoffScheduler.runNext()
+        XCTAssertEqual(harness.activatedPIDs, [91_900])
+        XCTAssertTrue(activatedHandles.isEmpty)
+    }
+
+    func testCaughtExternalDeactivationCloseKeepsFocusWithTheForegroundApp() throws {
+        let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+        let overview = harness.overview
+        var activatedHandles: [WindowHandle] = []
+        overview.onActivateWindow = { handle, _ in activatedHandles.append(handle) }
+        overview.open()
+        harness.clock.time = 10
+        try harness.completeLastTransition()
+        overview.dismiss(reason: .externalDeactivation, animated: true)
+        harness.clock.time = 10.15
+        let caught = try XCTUnwrap(harness.installed.last).value(at: 10.15)
+        XCTAssertLessThan(caught, 0.5)
+
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        XCTAssertEqual(overview.transitionProgress, caught, accuracy: 0.000000000001)
+        overview.endInteractiveTransition(timestamp: nil)
+
+        guard case let .closing(target) = overview.state else { return XCTFail("Expected the lift to close again") }
+        XCTAssertNil(target)
+        try harness.completeLastTransition()
+        XCTAssertFalse(overview.state.isOpen)
+        XCTAssertEqual(harness.handoffScheduler.count, 0)
+        XCTAssertTrue(activatedHandles.isEmpty)
+    }
+
+    func testToggleWhileTrackingDecidesByProgress() throws {
+        for aboveHalf in [false, true] {
+            let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+            let overview = harness.overview
+            XCTAssertTrue(overview.beginInteractiveTransition())
+            let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+            overview.updateInteractiveTransition(cumulativeUnits: 20, timestamp: 100)
+            overview.updateInteractiveTransition(cumulativeUnits: aboveHalf ? 230 : 50, timestamp: 100.1)
+            harness.clock.time = 100.1
+
+            overview.toggle()
+
+            XCTAssertFalse(overview.isInteractiveTransitionActive)
+            XCTAssertEqual(harness.installed.count, 1)
+            let transition = try XCTUnwrap(harness.installed.last)
+            XCTAssertEqual(transition.from, aboveHalf ? 0.7 : 0.1, accuracy: 0.000000000001)
+            overview.updateInteractiveTransition(cumulativeUnits: 300, timestamp: 100.2)
+            XCTAssertEqual(overview.transitionProgress, transition.from, accuracy: 0.000000000001)
+            if aboveHalf {
+                guard case let .closing(target) = overview.state else {
+                    return XCTFail("Expected the hotkey above half to close")
+                }
+                XCTAssertEqual(target, selectedHandle)
+                XCTAssertEqual(transition.target, 0)
+                XCTAssertEqual(harness.activations, 0)
+                try harness.completeLastTransition()
+            } else {
+                guard case .opening = overview.state else { return XCTFail("Expected the hotkey below half to open") }
+                XCTAssertEqual(transition.target, 1)
+                XCTAssertEqual(harness.activations, 1)
+                try harness.completeLastTransition()
+                overview.completeCloseTransition(targetWindow: nil)
+            }
+        }
+    }
+
+    func testExternalDismissDuringTrackingHandsOffTrackedProgress() throws {
+        let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+        let overview = harness.overview
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        overview.updateInteractiveTransition(cumulativeUnits: 20, timestamp: 100)
+        overview.updateInteractiveTransition(cumulativeUnits: 110, timestamp: 100.5)
+        harness.clock.time = 100.5
+
+        overview.dismiss(reason: .externalDeactivation, animated: true)
+
+        XCTAssertFalse(overview.isInteractiveTransitionActive)
+        guard case .closing = overview.state else { return XCTFail("Expected external deactivation to close") }
+        let transition = try XCTUnwrap(harness.installed.last)
+        XCTAssertEqual(harness.installed.count, 1)
+        XCTAssertEqual(transition.from, 0.3, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.target, 0)
+        overview.updateInteractiveTransition(cumulativeUnits: 300, timestamp: 100.6)
+        XCTAssertEqual(overview.transitionProgress, 0.3, accuracy: 0.000000000001)
+        try harness.completeLastTransition()
+        XCTAssertFalse(overview.state.isOpen)
+    }
+
+    func testInteractiveTransitionUnavailableWithoutAnimations() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+        var activations = 0
+        var environment = fixture.environment
+        environment.activateOmniWM = { activations += 1 }
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: environment,
+            animationInstaller: { _, _, _ in XCTFail("Unexpected install")
+                return true
+            },
+            animationMediaTimeProvider: { 0 }
+        )
+
+        XCTAssertFalse(overview.beginInteractiveTransition())
+
+        XCTAssertFalse(overview.state.isOpen)
+        XCTAssertFalse(overview.isInteractiveTransitionActive)
+        XCTAssertEqual(activations, 0)
+    }
+
+    func testOverscrollReleaseSnapsBackToOpen() throws {
+        let harness = try InteractiveOverviewHarness(fixture: makeRuntimeOverviewFixture(windowCount: 1))
+        let overview = harness.overview
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 100)
+        overview.updateInteractiveTransition(cumulativeUnits: 330, timestamp: 100.1)
+        XCTAssertEqual(overview.transitionProgress, 1.0464788732394366, accuracy: 0.000000000001)
+        harness.clock.time = 100.1
+
+        overview.endInteractiveTransition(timestamp: 100.1)
+
+        guard case .opening = overview.state else { return XCTFail("Expected an overscroll release to open") }
+        let transition = try XCTUnwrap(harness.installed.last)
+        XCTAssertEqual(harness.installed.count, 1)
+        XCTAssertEqual(transition.from, 1.0464788732394366, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.target, 1)
+        XCTAssertEqual(harness.activations, 1)
+        try harness.completeLastTransition()
+        guard case .open = overview.state else { return XCTFail("Expected the snap-back to settle open") }
+        overview.completeCloseTransition(targetWindow: nil)
+    }
+
     func testToggleDuringClosingReversesOverviewToOpening() throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
         fixture.controller.motionPolicy.animationsEnabled = true

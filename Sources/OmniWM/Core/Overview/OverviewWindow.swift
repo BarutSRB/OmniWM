@@ -158,6 +158,10 @@ final class OverviewWindow: NSPanel {
         overlayView.cancelAnimation()
     }
 
+    func presentProgress(_ progress: Double) {
+        overlayView.presentProgress(progress)
+    }
+
     func updatePalette(_ palette: OverviewRenderPalette) {
         overlayView.updatePalette(palette)
     }

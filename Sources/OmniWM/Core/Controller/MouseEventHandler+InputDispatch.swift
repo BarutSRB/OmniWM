@@ -13,16 +13,21 @@ extension MouseEventHandler {
     var trackpadGestureConfig: TrackpadGestureIntent.Config? {
         guard let controller else { return nil }
         let settings = controller.settings
-        let isOverviewOpen = controller.isOverviewOpen()
+        let overviewState = controller.windowActionHandler.overviewState
+        let isOverviewOpen = overviewState.isOpen
         return TrackpadGestureIntent.Config(
             columnScrollEnabled: settings.gestures.scrollEnabled && !isOverviewOpen,
             columnScrollFingerCount: settings.gestures.fingerCount.rawValue,
             workspaceSwipeEnabled: settings.gestures.workspaceSwipeEnabled && !isOverviewOpen,
             workspaceSwipeFingerCount: settings.gestures.workspaceSwipeFingerCount.rawValue,
             workspaceSwipeAxis: settings.gestures.workspaceSwipeAxis,
-            overviewAction: settings.gestures.overviewGestureEnabled ? (isOverviewOpen ? .close : .open) : nil,
+            overviewAction: settings.gestures.overviewGestureEnabled ? overviewState.gestureAction : nil,
             overviewFingerCount: settings.gestures.overviewGestureFingerCount.rawValue
         )
+    }
+
+    var overviewGestureInteractive: Bool {
+        controller?.motionPolicy.animationsEnabled == true
     }
 
     func dispatchMouseMoved(

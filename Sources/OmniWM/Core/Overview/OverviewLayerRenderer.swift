@@ -93,8 +93,7 @@ final class OverviewLayerRenderer {
 
     func updatePresentation(_ layout: OverviewLayout, state: OverviewRenderState, replacing: Bool = false) {
         let time = CACurrentMediaTime()
-        let motion = activeTransition
-            .map { _ in [backdrop, workspaceChrome, dropTarget, search].map(OverviewLayerMotion.init) } ?? []
+        let motion = activeTransition.map(captureMotion) ?? []
         OverviewRenderer.withoutAnimation {
             root.frame = state.bounds
             backdrop.frame = root.bounds
@@ -140,13 +139,16 @@ final class OverviewLayerRenderer {
 
     func updateHover(from previous: WindowHandle?, layout: OverviewLayout, state: OverviewRenderState) {
         OverviewRenderer.withoutAnimation {
-            if let previous, previous != state.hoveredWindowHandle, let window = layout.window(for: previous) {
-                windowLayers[previous]?.updateEmphasis(window, state: state)
-            }
-            if let handle = state.hoveredWindowHandle, let window = layout.window(for: handle) {
+            for handle in [previous, state.hoveredWindowHandle].compactMap({ $0 }) {
+                guard let window = layout.window(for: handle) else { continue }
                 windowLayers[handle]?.updateEmphasis(window, state: state)
             }
         }
+    }
+
+    private func captureMotion(for transition: OverviewNativeTransition) -> [OverviewLayerMotion] {
+        [OverviewLayerMotion(backdrop)] + [workspaceChrome, dropTarget, search]
+            .map { OverviewLayerMotion($0, response: transition.chromeExitResponse) }
     }
 
     func updatePreview(_ frame: OverviewPreviewFrame?, for handle: WindowHandle) {
@@ -161,9 +163,7 @@ final class OverviewLayerRenderer {
     func updateContentsScale(_ scale: CGFloat) {
         guard scale != contentsScale else { return }
         contentsScale = scale
-        OverviewRenderer.withoutAnimation {
-            updateScale(in: root)
-        }
+        OverviewRenderer.withoutAnimation { updateScale(in: root) }
     }
 
     private func updateScale(in layer: CALayer) {
@@ -195,11 +195,7 @@ final class OverviewLayerRenderer {
                 order.append(layers.root)
             }
         }
-        if cards.sublayers?.count != order.count
-            || zip(cards.sublayers ?? [], order).contains(where: { $0 !== $1 })
-        {
-            cards.sublayers = order
-        }
+        if cards.sublayers?.elementsEqual(order, by: ===) != true { cards.sublayers = order }
     }
 
     private func rebuildWorkspaceChrome(_ layout: OverviewLayout) {

@@ -82,13 +82,22 @@ extension MouseEventHandler {
             return false
         }
         let isOverviewOpen = controller.isOverviewOpen()
-        if let context = state.lockedGestureContext,
-           (isOverviewOpen && context.overviewAction != .close)
-           || (context.overviewAction != nil && context.overviewAction != trackpadGestureConfig?.overviewAction)
-        {
-            abortActiveGestureIfNeeded()
-            state.suppressGestureStartUntilAllTouchesLift = true
-            return false
+        if let context = state.lockedGestureContext {
+            let invalid: Bool
+            if let action = context.overviewAction {
+                let tracking = action == .resume
+                    || (overviewGestureInteractive && state.activeGestureMode == .overview(action))
+                invalid = tracking
+                    ? !controller.windowActionHandler.isOverviewGestureActive
+                    : action != trackpadGestureConfig?.overviewAction
+            } else {
+                invalid = isOverviewOpen
+            }
+            if invalid {
+                abortActiveGestureIfNeeded()
+                state.suppressGestureStartUntilAllTouchesLift = true
+                return false
+            }
         }
         if !isOverviewOpen, shouldBlockOwnWindowInput(at: location) {
             abortActiveGestureIfNeeded()
@@ -118,6 +127,9 @@ extension MouseEventHandler {
         state.gestureLastAverageX = average.x
         state.gestureLastAverageY = average.y
         state.gesturePhase = .armed
+        if context.overviewAction == .resume {
+            _ = controller?.windowActionHandler.beginOverviewGesture()
+        }
     }
 
     private func resolveGestureArmContext(

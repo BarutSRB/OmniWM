@@ -43,12 +43,22 @@ final class OverviewAnimator {
         case closing(targetWindow: WindowHandle?)
     }
 
+    private struct Gesture {
+        let baseline: Double
+        let tracker = SwipeTracker(historyLimit: 0.15)
+        var origin: Double?
+        var progress: Double
+        var velocity = 0.0
+        var released = false
+    }
+
     private weak var controller: OverviewController?
     private let animationInstaller: AnimationInstaller?
     private let mediaTimeProvider: MediaTimeProvider
 
     private var animation: OverviewNativeTransition?
     private var transition: Transition?
+    private var gesture: Gesture?
     private var pendingDisplayIds: Set<CGDirectDisplayID> = []
     private var lastProgress = 0.0
     private var installing = false
@@ -61,12 +71,16 @@ final class OverviewAnimator {
         animation != nil
     }
 
+    var isTracking: Bool {
+        gesture.map { !$0.released } ?? false
+    }
+
     var currentProgress: Double {
-        animation?.value(at: mediaTimeProvider()) ?? lastProgress
+        animation?.value(at: mediaTimeProvider()) ?? gesture?.progress ?? lastProgress
     }
 
     var currentVelocity: Double {
-        animation?.velocity(at: mediaTimeProvider()) ?? 0
+        animation?.velocity(at: mediaTimeProvider()) ?? gesture?.velocity ?? 0
     }
 
     var activeDisplayIds: Set<CGDirectDisplayID> {
@@ -92,14 +106,53 @@ final class OverviewAnimator {
     }
 
     func cancelAnimation() {
-        if let animation {
-            lastProgress = animation.value(at: mediaTimeProvider())
+        settle(at: currentProgress)
+    }
+
+    func settle(at progress: Double) {
+        lastProgress = progress
+        gesture = nil
+        discardAnimation()
+    }
+
+    func beginTracking() {
+        guard !isTracking else { return }
+        let progress = currentProgress
+        discardAnimation()
+        gesture = Gesture(baseline: OverviewNativeTransition.rubberBandInverse(progress), progress: progress)
+        controller?.presentProgress(progress)
+    }
+
+    func track(cumulativeProgress: Double, timestamp: TimeInterval) {
+        guard var gesture, !gesture.released else { return }
+        let origin: Double
+        if let latched = gesture.origin {
+            origin = latched
+        } else {
+            origin = cumulativeProgress
+            gesture.origin = origin
+            gesture.tracker.reset()
+            gesture.tracker.push(delta: 0, timestamp: timestamp)
         }
-        generation &+= 1
-        pendingDisplayIds.removeAll(keepingCapacity: true)
-        animation = nil
-        transition = nil
-        controller?.cancelAnimations()
+        let progress = OverviewNativeTransition.rubberBand(gesture.baseline + cumulativeProgress - origin)
+        gesture.tracker.push(delta: progress - gesture.progress, timestamp: timestamp)
+        gesture.progress = progress
+        gesture.velocity = gesture.tracker.velocity()
+        self.gesture = gesture
+        controller?.presentProgress(progress)
+    }
+
+    func endTracking(timestamp: TimeInterval?) -> Double? {
+        guard var gesture, !gesture.released else { return nil }
+        if let timestamp, gesture.origin != nil {
+            gesture.tracker.push(delta: 0, timestamp: timestamp)
+            gesture.velocity = gesture.tracker.velocity()
+        } else {
+            gesture.velocity = 0
+        }
+        gesture.released = true
+        self.gesture = gesture
+        return OverviewNativeTransition.releaseTarget(progress: gesture.progress, velocity: gesture.velocity)
     }
 
     func targetWindow() -> WindowHandle? {
@@ -116,21 +169,33 @@ final class OverviewAnimator {
         completeTransition(generation: generation)
     }
 
+    private func discardAnimation() {
+        generation &+= 1
+        pendingDisplayIds.removeAll(keepingCapacity: true)
+        animation = nil
+        transition = nil
+        controller?.cancelAnimations()
+    }
+
     private func beginTransition(
         _ transition: Transition,
         to: Double,
         displayIds: [CGDirectDisplayID]
     ) {
         let startTime = mediaTimeProvider()
-        let from = animation?.value(at: startTime) ?? (to == 1 ? 0 : 1)
-        let initialVelocity = animation?.velocity(at: startTime) ?? 0
+        let from = animation?.value(at: startTime) ?? gesture?.progress ?? (to == 1 ? 0 : 1)
+        let initialVelocity = animation?.velocity(at: startTime) ?? gesture?.velocity ?? 0
+        let response = gesture.map { OverviewNativeTransition.compressedResponse(forReleaseVelocity: $0.velocity) }
+            ?? OverviewNativeTransition.response
+        gesture = nil
         generation &+= 1
         let animation = OverviewNativeTransition(
             generation: generation,
             startTime: startTime,
             from: from,
             to: to,
-            initialVelocity: initialVelocity
+            initialVelocity: initialVelocity,
+            response: response
         )
         completedGeneration = nil
         self.transition = transition

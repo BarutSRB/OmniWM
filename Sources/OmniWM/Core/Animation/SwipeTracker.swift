@@ -9,10 +9,13 @@ struct SwipeEvent {
 }
 
 final class SwipeTracker {
-    private static let historyLimit: TimeInterval = 0.080
-
+    private let historyLimit: TimeInterval
     private var history: [SwipeEvent] = []
     private(set) var position: Double = 0
+
+    init(historyLimit: TimeInterval = 0.080) {
+        self.historyLimit = historyLimit
+    }
 
     func reset() {
         history.removeAll(keepingCapacity: true)
@@ -50,7 +53,7 @@ final class SwipeTracker {
     }
 
     private func trimHistory(currentTime: TimeInterval) {
-        let cutoff = currentTime - Self.historyLimit
+        let cutoff = currentTime - historyLimit
         history.removeAll { $0.timestamp <= cutoff }
     }
 }

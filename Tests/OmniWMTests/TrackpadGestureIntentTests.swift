@@ -92,6 +92,44 @@ final class TrackpadGestureIntentTests: XCTestCase {
         }
     }
 
+    func testResumeActionResolvesEitherVerticalDirection() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.overviewAction = .resume
+        for fingers in [3, 4] {
+            config.overviewFingerCount = fingers
+            for (translation, candidateFingers, expected) in [
+                (CGVector(dx: 0, dy: 24), fingers, TrackpadGestureMode.overview(.resume)),
+                (CGVector(dx: 0, dy: -24), fingers, .overview(.resume)),
+                (CGVector(dx: 30, dy: 24), fingers, nil),
+                (CGVector(dx: 0, dy: 24), 7 - fingers, nil)
+            ] {
+                XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+                    config,
+                    fingerCount: candidateFingers,
+                    cumulativeTranslation: translation,
+                    columnScrollAxis: .horizontal,
+                    columnContextAvailable: false
+                ), expected)
+            }
+        }
+
+        var shared = makeConfig(columnFingers: 4, workspaceFingers: 4)
+        shared.overviewAction = .resume
+        shared.overviewFingerCount = 4
+        XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+            shared, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: -24),
+            columnScrollAxis: .vertical, columnContextAvailable: true
+        ), .overview(.resume))
+        XCTAssertFalse(TrackpadGestureIntent.overviewTriggered(action: .resume, translation: CGPoint(x: 0, y: 100)))
+    }
+
+    func testOverviewProgressScalesByTravel() {
+        XCTAssertEqual(TrackpadGestureIntent.overviewTravelUnits, 300)
+        XCTAssertEqual(TrackpadGestureIntent.overviewProgress(units: 150), 0.5)
+        XCTAssertEqual(TrackpadGestureIntent.overviewProgress(units: 300), 1)
+        XCTAssertEqual(TrackpadGestureIntent.overviewProgress(units: -30), -0.1, accuracy: 0.000000000001)
+    }
+
     private func makeConfig(
         columnEnabled: Bool = true,
         columnFingers: Int = 3,
