@@ -11,6 +11,10 @@ enum OverviewFrameTrace {
         case animationSubmit
         case animationComplete
         case layerApply
+        case previewDiscovery
+        case previewRequested
+        case previewStarted
+        case previewArrived
     }
 
     struct Record: Sendable {

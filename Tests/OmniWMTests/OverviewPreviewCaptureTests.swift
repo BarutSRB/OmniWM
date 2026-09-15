@@ -151,6 +151,40 @@ final class OverviewPreviewCaptureTests: XCTestCase {
     }
 
     @MainActor
+    func testTraceRecordsRequestStartAndFirstFrameOnce() async throws {
+        let trace = OverviewFrameTrace.shared
+        trace.beginCapture()
+        defer {
+            trace.endCapture()
+            trace.releaseStorage()
+        }
+        let driver = OverviewPreviewTestDriver()
+        let capture = driver.makeCapture()
+        let handles = (1 ... 5).map { WindowHandle(id: WindowToken(pid: 123, windowId: $0)) }
+        capture.reconcile(represented: Set(handles), visible: handles.map {
+            OverviewPreviewRequest(handle: $0, pixelWidth: 80, pixelHeight: 60)
+        })
+        await driver.waitForStarts(4)
+        driver.streams[0].completeStart()
+        await driver.waitForStarts(5)
+        for frame in [try makeOverviewPreviewFrame(), try makeOverviewPreviewFrame()] {
+            let published = expectation(description: "frame published")
+            capture.onPreview = { _, preview in if preview === frame { published.fulfill() } }
+            driver.streams[0].output.offer(frame)
+            await fulfillment(of: [published], timeout: 1)
+        }
+
+        let lines = trace.dump().split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.filter { $0.hasPrefix("event=previewRequested ") }.count, 5)
+        XCTAssertEqual(lines.filter { $0.hasPrefix("event=previewStarted ") }.count, 1)
+        let arrived = lines.filter { $0.hasPrefix("event=previewArrived ") }
+        XCTAssertEqual(arrived.count, 1)
+        XCTAssertTrue(arrived.first?.contains(" gen=1 seq=1 ") == true, arrived.first ?? "missing")
+        capture.clear()
+        driver.completeAllStarts()
+    }
+
+    @MainActor
     func testReusedWindowNumberDoesNotReceiveRetiredFrames() async throws {
         let driver = OverviewPreviewTestDriver()
         let capture = driver.makeCapture()
