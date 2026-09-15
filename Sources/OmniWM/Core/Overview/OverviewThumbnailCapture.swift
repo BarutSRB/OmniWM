@@ -136,7 +136,6 @@ final class OverviewThumbnailCapture {
         generation &+= 1
         discoveryTask?.cancel()
         discoveryTask = nil
-        windowsByToken.removeAll()
         for source in sources.values { retire(source) }
         sources.removeAll()
         sourceOrder.removeAll()

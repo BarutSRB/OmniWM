@@ -100,6 +100,54 @@ final class OverviewPreviewLiveTests: XCTestCase {
         XCTAssertFalse(panel.isKeyWindow)
     }
 
+    func testRetainedDiscoveryServesReopensWithoutAnotherLookup() async throws {
+        guard ProcessInfo.processInfo.environment["OMNIWM_RUN_OVERVIEW_PREVIEW_LIVE_TESTS"] == "1" else {
+            throw XCTSkip("Live preview checks require OMNIWM_RUN_OVERVIEW_PREVIEW_LIVE_TESTS=1")
+        }
+        guard CGPreflightScreenCaptureAccess() else {
+            throw XCTSkip("Screen Recording permission is required")
+        }
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main)
+        let panel = NSPanel(
+            contentRect: CGRect(x: screen.frame.midX - 100, y: screen.frame.midY - 100, width: 200, height: 200),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isReleasedWhenClosed = false
+        panel.ignoresMouseEvents = true
+        panel.backgroundColor = .systemRed
+        panel.orderBack(nil)
+        panel.displayIfNeeded()
+        CATransaction.flush()
+        defer { panel.close() }
+
+        let trace = OverviewFrameTrace.shared
+        trace.beginCapture()
+        defer {
+            trace.endCapture()
+            trace.releaseStorage()
+        }
+        let capture = OverviewThumbnailCapture(
+            environment: OverviewEnvironment(),
+            ownedWindowRegistry: OwnedWindowRegistry(surfaceCoordinator: SurfaceCoordinator())
+        )
+        let handle = WindowHandle(id: WindowToken(pid: getpid(), windowId: panel.windowNumber))
+        let request = OverviewPreviewRequest(handle: handle, pixelWidth: 200, pixelHeight: 200)
+
+        for round in 1 ... 2 {
+            let frame = expectation(description: "frame after open \(round)")
+            frame.assertForOverFulfill = false
+            capture.onPreview = { _, preview in if preview != nil { frame.fulfill() } }
+            capture.reconcile(represented: [handle], visible: [request])
+            await fulfillment(of: [frame], timeout: 5)
+            capture.clear()
+            let discoveries = trace.dump().split(separator: "\n").filter { $0.hasPrefix("event=previewDiscovery ") }
+            XCTAssertEqual(discoveries.count, 1, "Reopening must reuse the retained window table")
+        }
+    }
+
     private enum SampleColor {
         case red, green, blue, yellow, unknown
     }
