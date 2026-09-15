@@ -243,6 +243,49 @@ final class NiriKeyboardFocusTests: XCTestCase {
         }
     }
 
+    func testNativeOverviewCloseUsesSettledViewportDestination() throws {
+        for orientation in [Monitor.Orientation.horizontal, .vertical] {
+            try withFixture(selection: 0, orientation: orientation) { fixture in
+                let controller = fixture.controller
+                let manager = controller.workspaceManager
+                let monitor = try XCTUnwrap(manager.monitor(for: fixture.workspaceId))
+                let gaps = LayoutGaps(horizontal: fixture.gap, vertical: fixture.gap)
+                let area = WorkingAreaContext(
+                    workingFrame: controller.insetWorkingFrame(for: monitor),
+                    fullscreenLayoutFrame: monitor.frame, viewFrame: monitor.frame, scale: 2
+                )
+                _ = fixture.engine.calculateCombinedLayoutUsingPools(
+                    in: fixture.workspaceId, monitor: monitor, gaps: gaps, state: fixture.state, workingArea: area
+                )
+                let target = fixture.windows[2]
+                let handle = try XCTUnwrap(manager.handle(for: target.token))
+                var environment = OverviewEnvironment()
+                environment.windowTitle = { _ in "Window" }
+                let facts = OverviewWindowFacts(wmController: controller, environment: environment)
+                let snapshot = OverviewSnapshot(wmController: controller, facts: facts)
+                snapshot.refresh(affectedWorkspaceIds: [fixture.workspaceId])
+                let projection = OverviewViewportProjection(wmController: controller, snapshot: snapshot, scale: 1)
+                projection.rebuildProjectedLayouts()
+                let original = try XCTUnwrap(projection.layoutsByMonitor[monitor.id]?.window(for: handle))
+
+                controller.windowActionHandler.prepareWindowFromOverview(handle, animated: true)
+                let layout = try XCTUnwrap(projection.updateClosingWindowFrames(for: handle, on: monitor.displayId))
+                let destination = try XCTUnwrap(layout.window(for: handle))
+                let settled = fixture.engine.calculateCombinedLayoutUsingPools(
+                    in: fixture.workspaceId, monitor: monitor, gaps: gaps, state: fixture.state,
+                    workingArea: area, viewOffsetOverride: fixture.state.viewOffset
+                ).frames
+                let expected = try XCTUnwrap(settled[target.token]).offsetBy(
+                    dx: -monitor.frame.minX, dy: -monitor.frame.minY + layout.scrollOffset
+                )
+                XCTAssertEqual(destination.overviewFrame, original.overviewFrame)
+                XCTAssertEqual(destination.originalFrame.minX, expected.minX, accuracy: 1)
+                XCTAssertEqual(destination.originalFrame.minY, expected.minY, accuracy: 1)
+                XCTAssertTrue(manager.animationDriver.hasMotion(in: fixture.workspaceId))
+            }
+        }
+    }
+
     func testOverviewStartsScrollingBeforeClosingAndDefersFocusUntilClosed() throws {
         for animated in [false, true] {
             try withFixture(selection: 0) { fixture in
@@ -264,7 +307,7 @@ final class NiriKeyboardFocusTests: XCTestCase {
                     wmController: controller,
                     motionPolicy: controller.motionPolicy,
                     environment: environment,
-                    displayLinkFactory: { _, _ in .manual },
+                    animationInstaller: { _, _, _ in true },
                     animationMediaTimeProvider: { 0 }
                 )
                 overview.onActivateWindow = controller.windowActionHandler.activateWindowFromOverview

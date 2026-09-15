@@ -119,6 +119,8 @@ final class OverviewWindow: NSPanel {
     }
 
     func hide() {
+        overlayView.cancelAnimation()
+        overlayView.clearPreviews()
         orderOut(nil)
     }
 
@@ -132,7 +134,7 @@ final class OverviewWindow: NSPanel {
         searchQuery: String,
         selectedWindowHandle: WindowHandle?,
         palette: OverviewRenderPalette? = nil,
-        thumbnails: [Int: CGImage]? = nil
+        animationsEnabled: Bool = true
     ) {
         overlayView.updateLayout(
             layout,
@@ -140,24 +142,20 @@ final class OverviewWindow: NSPanel {
             searchQuery: searchQuery,
             selectedWindowHandle: selectedWindowHandle,
             palette: palette,
-            thumbnails: thumbnails
+            animationsEnabled: animationsEnabled
         )
     }
 
-    func updateThumbnails(_ thumbnails: [Int: CGImage]) {
-        overlayView.updateThumbnails(thumbnails)
+    func updatePreview(_ frame: OverviewPreviewFrame?, for handle: WindowHandle) {
+        overlayView.updatePreview(frame, for: handle)
     }
 
-    func updateAnimationProgress(
-        _ progress: Double,
-        generation: UInt64,
-        sequence: UInt64
-    ) {
-        overlayView.updateAnimationProgress(
-            progress,
-            generation: generation,
-            sequence: sequence
-        )
+    func installAnimation(_ transition: OverviewNativeTransition, completion: OverviewAnimationCompletion) -> Bool {
+        overlayView.installAnimation(transition, completion: completion)
+    }
+
+    func cancelAnimation() {
+        overlayView.cancelAnimation()
     }
 
     func updatePalette(_ palette: OverviewRenderPalette) {

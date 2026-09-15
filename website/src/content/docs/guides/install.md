@@ -59,6 +59,10 @@ programs.omniwm = {
 };
 ```
 
+Treat the declared TOML file or attribute set as authoritative: edit it and run Home Manager switch to apply changes. OmniWM preserves settings symlinks, so settings backed by a read-only Nix-store file cannot be saved from the GUI.
+
+Home Manager enables a launchd agent with KeepAlive by default. To launch and quit OmniWM manually instead, set `programs.omniwm.launchd.enable = false`.
+
 After either installation, finish with the [first-launch setup](#first-launch-setup) below.
 
 ## GitHub Releases

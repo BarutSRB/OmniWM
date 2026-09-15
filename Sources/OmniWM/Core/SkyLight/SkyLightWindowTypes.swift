@@ -39,15 +39,6 @@ struct WindowCornerRadii: Equatable, Sendable {
         topLeft == 0 && topRight == 0 && bottomLeft == 0 && bottomRight == 0
     }
 
-    func adding(_ value: CGFloat) -> WindowCornerRadii {
-        WindowCornerRadii(
-            topLeft: topLeft + value,
-            topRight: topRight + value,
-            bottomLeft: bottomLeft + value,
-            bottomRight: bottomRight + value
-        )
-    }
-
     func normalized(to size: CGSize) -> WindowCornerRadii {
         let radii = nonnegative
         guard size.width > 0, size.height > 0 else { return .zero }

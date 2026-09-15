@@ -34,9 +34,25 @@ final class OverviewViewportProjection {
               wmController.workspaceManager.activeLayoutKind(for: entry.workspaceId) == .niri,
               let monitor = wmController.workspaceManager.monitor(for: entry.workspaceId),
               monitor.displayId == displayId,
-              let frames = wmController.niriEngine?.captureWindowFrames(in: entry.workspaceId),
+              let engine = wmController.niriEngine,
+              let targetNode = engine.findNode(for: targetWindow.id, in: entry.workspaceId),
+              let columnFrame = engine.findColumn(containing: targetNode, in: entry.workspaceId)?.frame,
+              let root = engine.root(for: entry.workspaceId),
               var layout = layoutsByMonitor[monitor.id]
         else { return nil }
+        let orientation = wmController.settings.monitors.effectiveOrientation(for: monitor)
+        let workingFrame = wmController.insetWorkingFrame(for: monitor)
+        let offset = wmController.workspaceManager.niriViewportState(for: entry.workspaceId).viewOffset
+        let translation: CGPoint = switch orientation {
+        case .horizontal:
+            CGPoint(x: workingFrame.minX - columnFrame.minX - offset, y: 0)
+        case .vertical:
+            CGPoint(x: 0, y: workingFrame.minY - columnFrame.minY - offset)
+        }
+        // Native close animations need the destination, not the currently scrolling frame.
+        let frames = Dictionary(uniqueKeysWithValues: root.allWindows.compactMap { window in
+            window.frame.map { (window.token, $0.offsetBy(dx: translation.x, dy: translation.y)) }
+        })
         layout.updateOriginalFrames(frames, monitorFrame: monitor.frame)
         layoutsByMonitor[monitor.id] = layout
         return layout

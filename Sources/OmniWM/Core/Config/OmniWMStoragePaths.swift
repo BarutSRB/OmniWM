@@ -8,7 +8,7 @@ struct OmniWMStoragePaths: Equatable {
     let stateDirectory: URL
 
     static var live: OmniWMStoragePaths {
-        resolve()
+        resolve(bundleIdentifier: Bundle.main.bundleIdentifier)
     }
 
     var diagnosticsDirectory: URL {
@@ -17,19 +17,23 @@ struct OmniWMStoragePaths: Equatable {
 
     static func resolve(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        bundleIdentifier: String? = nil
     ) -> OmniWMStoragePaths {
         let homeDirectory = homeDirectory.standardizedFileURL
+        let directoryName = bundleIdentifier == "com.barut.OmniWM.dev" ? "omniwm-dev" : "omniwm"
         return OmniWMStoragePaths(
             configDirectory: directory(
                 environmentKey: "XDG_CONFIG_HOME",
                 fallbackBase: homeDirectory.appendingPathComponent(".config", isDirectory: true),
-                environment: environment
+                environment: environment,
+                directoryName: directoryName
             ),
             stateDirectory: directory(
                 environmentKey: "XDG_STATE_HOME",
                 fallbackBase: homeDirectory.appendingPathComponent(".local/state", isDirectory: true),
-                environment: environment
+                environment: environment,
+                directoryName: directoryName
             )
         )
     }
@@ -37,14 +41,15 @@ struct OmniWMStoragePaths: Equatable {
     private static func directory(
         environmentKey: String,
         fallbackBase: URL,
-        environment: [String: String]
+        environment: [String: String],
+        directoryName: String
     ) -> URL {
         baseDirectory(
             environmentKey: environmentKey,
             fallbackBase: fallbackBase,
             environment: environment
         )
-        .appendingPathComponent("omniwm", isDirectory: true)
+        .appendingPathComponent(directoryName, isDirectory: true)
         .standardizedFileURL
     }
 

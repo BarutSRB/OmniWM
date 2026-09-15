@@ -95,28 +95,33 @@ extension AXWindowService {
 
     private static func fullscreenButtonState(_ value: CFTypeRef?) -> (enabled: Bool?, succeeded: Bool) {
         let evidence = fullscreenButtonEvidence(value)
-        var attributeFetchSucceeded = evidence.succeeded
+        guard evidence.succeeded else { return (nil, false) }
+        guard let buttonElement = evidence.element else { return (nil, true) }
+        var enabledValue: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            buttonElement,
+            kAXEnabledAttribute as CFString,
+            &enabledValue
+        )
+        return fullscreenButtonEnabledState(result: result, value: enabledValue)
+    }
 
-        var fullscreenButtonEnabled: Bool?
-        if let buttonElement = evidence.element {
-            var enabledValue: CFTypeRef?
-            let enabledResult = AXUIElementCopyAttributeValue(
-                buttonElement,
-                kAXEnabledAttribute as CFString,
-                &enabledValue
-            )
-            if enabledResult == .success {
-                if let enabledValue {
-                    if let resolvedEnabled = enabledValue as? Bool {
-                        fullscreenButtonEnabled = resolvedEnabled
-                    } else {
-                        attributeFetchSucceeded = false
-                    }
-                }
-            }
+    static func fullscreenButtonEnabledState(
+        result: AXError,
+        value: CFTypeRef?
+    ) -> (enabled: Bool?, succeeded: Bool) {
+        switch result {
+        case .success:
+            break
+        case .noValue,
+             .attributeUnsupported:
+            return (nil, true)
+        default:
+            return (nil, false)
         }
-
-        return (fullscreenButtonEnabled, attributeFetchSucceeded)
+        guard let value else { return (nil, true) }
+        guard let enabled = value as? Bool else { return (nil, false) }
+        return (enabled, true)
     }
 
     static func makeWindowFacts(

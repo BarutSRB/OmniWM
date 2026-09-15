@@ -3,35 +3,13 @@
 
 import AppKit
 import CoreGraphics
-import CoreText
+import CoreVideo
 import Foundation
 @testable import OmniWM
+import QuartzCore
 import XCTest
 
 final class OverviewRendererTests: XCTestCase {
-    func testTextLineCacheReusesLinesAndRemainsBounded() {
-        var cache = OverviewTextLineCache()
-        let key = OverviewTextLineCache.Key(role: .title, text: "Window", widthBucket: 200)
-        let first = cache.line(for: key) {
-            CTLineCreateWithAttributedString(NSAttributedString(string: "Window"))
-        }
-        let second = cache.line(for: key) {
-            XCTFail("Expected the cached Core Text line")
-            return CTLineCreateWithAttributedString(NSAttributedString(string: "Replacement"))
-        }
-
-        XCTAssertTrue(first === second)
-
-        for index in 0 ..< 600 {
-            let key = OverviewTextLineCache.Key(role: .appName, text: "App \(index)", widthBucket: 0)
-            _ = cache.line(for: key) {
-                CTLineCreateWithAttributedString(NSAttributedString(string: "App \(index)"))
-            }
-        }
-
-        XCTAssertLessThanOrEqual(cache.entryCount, 512)
-    }
-
     func testDefaultPalettePreservesExistingColors() {
         assertColor(OverviewRenderPalette.default.backdrop, equals: [0.05, 0.05, 0.08, 1.0])
         assertColor(OverviewRenderPalette.default.normalBorder, equals: [0.3, 0.3, 0.35, 0.5])
@@ -223,7 +201,7 @@ final class OverviewRendererTests: XCTestCase {
     }
 
     @MainActor
-    func testAnimationProgressIsPanelLocalAndSurvivesDiscreteLayoutUpdates() {
+    func testNativeAnimationIsPanelLocalAndSurvivesDiscreteLayoutUpdates() {
         let first = OverviewView(
             frame: CGRect(x: 0, y: 0, width: 800, height: 600),
             displayId: 101
@@ -232,115 +210,343 @@ final class OverviewRendererTests: XCTestCase {
             frame: CGRect(x: 0, y: 0, width: 800, height: 600),
             displayId: 202
         )
-        let layout = OverviewLayout()
+        let (layout, item) = makeLayerLayout()
+        let firstPanel = attach(first)
+        let secondPanel = attach(second)
+        defer {
+            firstPanel.close()
+            secondPanel.close()
+        }
+        let fixture = makeAnimationFixture()
         first.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
         second.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
-        OverviewFrameTrace.shared.beginCapture()
-        defer { OverviewFrameTrace.shared.endCapture() }
-
-        first.updateAnimationProgress(0.35, generation: 7, sequence: 1)
-        XCTAssertEqual(first.presentationProgress, 0.35)
+        let firstTransition = OverviewNativeTransition(generation: 7, startTime: CACurrentMediaTime(), from: 0, to: 1)
+        XCTAssertTrue(first.installAnimation(firstTransition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 101, generation: 7
+        )))
+        XCTAssertEqual(first.presentationProgress, 1)
         XCTAssertEqual(second.presentationProgress, 0)
-        XCTAssertEqual(first.tracePendingInvalidations, 1)
-        XCTAssertEqual(second.tracePendingInvalidations, 0)
+        XCTAssertEqual(first.layerRenderer.activeTransition?.generation, 7)
+        XCTAssertNil(second.layerRenderer.activeTransition)
+        let originalAnimation = first.layerRenderer.windowLayers[item.handle]?.root
+            .animation(forKey: "overview.position")
 
-        second.updateAnimationProgress(0.7, generation: 7, sequence: 1)
+        let secondTransition = OverviewNativeTransition(generation: 8, startTime: CACurrentMediaTime(), from: 0, to: 1)
+        XCTAssertTrue(second.installAnimation(secondTransition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 202, generation: 8
+        )))
         first.updateLayout(layout, state: .opening, searchQuery: "updated", selectedWindowHandle: nil)
+        first.updateLayer()
 
-        XCTAssertEqual(first.presentationProgress, 0.35)
-        XCTAssertEqual(second.presentationProgress, 0.7)
-        XCTAssertEqual(first.tracePendingInvalidations, 1)
-        XCTAssertEqual(second.tracePendingInvalidations, 1)
+        XCTAssertEqual(first.layerRenderer.activeTransition?.generation, 7)
+        XCTAssertEqual(second.layerRenderer.activeTransition?.generation, 8)
+        XCTAssertEqual(
+            first.layerRenderer.windowLayers[item.handle]?.root.animation(forKey: "overview.position")?.beginTime,
+            originalAnimation?.beginTime
+        )
 
         first.updateLayout(layout, state: .open, searchQuery: "updated", selectedWindowHandle: nil)
         XCTAssertEqual(first.presentationProgress, 1)
+        XCTAssertNil(first.layerRenderer.activeTransition)
+        XCTAssertEqual(second.layerRenderer.activeTransition?.generation, 8)
     }
 
     @MainActor
-    func testOverviewFrameTraceSeparatesInvalidationAndDrawTiming() throws {
+    func testOverviewFrameTraceRecordsOneSubmissionAcrossDiscreteLayerUpdates() {
         let view = OverviewView(
             frame: CGRect(x: 0, y: 0, width: 64, height: 64),
             displayId: 303
         )
+        let panel = attach(view)
+        defer { panel.close() }
         view.updateLayout(.init(), state: .opening, searchQuery: "", selectedWindowHandle: nil)
-        let bitmap = try XCTUnwrap(
-            CGContext(
-                data: nil,
-                width: 64,
-                height: 64,
-                bitsPerComponent: 8,
-                bytesPerRow: 256,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-        )
-        let graphicsContext = NSGraphicsContext(cgContext: bitmap, flipped: false)
-
+        let fixture = makeAnimationFixture { _, transition, completion in
+            view.installAnimation(transition, completion: completion)
+        }
         OverviewFrameTrace.shared.beginCapture()
-        view.updateAnimationProgress(0.5, generation: 9, sequence: 4)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphicsContext
-        view.draw(view.bounds)
-        NSGraphicsContext.restoreGraphicsState()
+        fixture.animator.startOpenAnimation(displayIds: [303])
+        for _ in 0 ..< 3 { view.updateLayer() }
+        fixture.animator.animationCompleted(displayId: 303, generation: fixture.animator.generation)
         OverviewFrameTrace.shared.endCapture()
 
         let trace = OverviewFrameTrace.shared.dump()
-        XCTAssertTrue(trace.contains("event=invalidation"))
-        XCTAssertTrue(trace.contains("event=draw"))
-        XCTAssertTrue(trace.contains("disp=303 gen=9 seq=4"))
+        XCTAssertEqual(trace.components(separatedBy: "event=animationSubmit").count - 1, 1)
+        XCTAssertEqual(trace.components(separatedBy: "event=animationComplete").count - 1, 1)
+        XCTAssertTrue(trace.contains("event=layerApply"))
+        XCTAssertTrue(trace.contains("disp=303 gen=1 seq=0"))
+        XCTAssertFalse(trace.contains("event=invalidation"))
     }
 
     @MainActor
-    func testOverviewFrameTraceDoesNotCarryPendingStateAcrossCaptureRestart() throws {
-        let drawnAfterStop = OverviewView(
-            frame: CGRect(x: 0, y: 0, width: 64, height: 64),
-            displayId: 304
+    func testUnattachedViewSettlesAtEndpointWithoutInstallingNativeAnimation() {
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let (layout, item) = makeLayerLayout()
+        let fixture = makeAnimationFixture()
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+        let transition = OverviewNativeTransition(generation: 1, startTime: CACurrentMediaTime(), from: 0, to: 1)
+
+        XCTAssertFalse(view.installAnimation(transition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 304, generation: 1
+        )))
+
+        XCTAssertEqual(view.presentationProgress, 1)
+        XCTAssertNil(view.layerRenderer.activeTransition)
+        XCTAssertEqual(view.layerRenderer.windowLayers[item.handle]?.root.frame, item.overviewFrame)
+        XCTAssertNil(view.layerRenderer.windowLayers[item.handle]?.root.animation(forKey: "overview.position"))
+    }
+
+    @MainActor
+    func testCardsKeepLayerIdentityAcrossAnimationAndSelection() throws {
+        let (layout, item) = makeLayerLayout()
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let panel = attach(view)
+        defer { panel.close() }
+        let fixture = makeAnimationFixture()
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+
+        let transition = OverviewNativeTransition(generation: 1, startTime: CACurrentMediaTime(), from: 0, to: 1)
+        XCTAssertTrue(view.installAnimation(transition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 1, generation: 1
+        )))
+        let animation = try XCTUnwrap(card.root.animation(forKey: "overview.position") as? CASpringAnimation)
+        XCTAssertEqual(
+            (animation.fromValue as? NSValue)?.pointValue,
+            CGPoint(x: item.originalFrame.midX, y: item.originalFrame.midY)
         )
-        let notDrawnAfterStop = OverviewView(
-            frame: CGRect(x: 0, y: 0, width: 64, height: 64),
-            displayId: 305
+        XCTAssertEqual(
+            (animation.toValue as? NSValue)?.pointValue,
+            CGPoint(x: item.overviewFrame.midX, y: item.overviewFrame.midY)
         )
-        let bitmap = try XCTUnwrap(
-            CGContext(
-                data: nil,
-                width: 64,
-                height: 64,
-                bitsPerComponent: 8,
-                bytesPerRow: 256,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        XCTAssertEqual(card.root.frame, item.overviewFrame)
+        XCTAssertTrue(view.layerRenderer.windowLayers[item.handle] === card)
+
+        view.updateLayout(layout, state: .open, searchQuery: "", selectedWindowHandle: item.handle)
+        view.updateLayer()
+        XCTAssertTrue(view.layerRenderer.windowLayers[item.handle] === card)
+        XCTAssertEqual(card.root.frame, item.overviewFrame)
+        XCTAssertNil(card.root.animation(forKey: "overview.position"))
+        XCTAssertTrue(view.wantsUpdateLayer)
+    }
+
+    @MainActor
+    func testHoverTouchesOnlyPreviousAndCurrentCardEmphasis() throws {
+        var (layout, first) = makeLayerLayout()
+        let second = OverviewWindowItem(
+            handle: WindowHandle(id: WindowToken(pid: 1, windowId: 2)),
+            windowId: 2,
+            workspaceId: first.workspaceId,
+            title: "Second",
+            appName: "App",
+            appIcon: nil,
+            originalFrame: first.originalFrame,
+            overviewFrame: first.overviewFrame.offsetBy(dx: 220, dy: 0),
+            matchesSearch: true
+        )
+        let third = OverviewWindowItem(
+            handle: WindowHandle(id: WindowToken(pid: 1, windowId: 3)),
+            windowId: 3,
+            workspaceId: first.workspaceId,
+            title: "Third",
+            appName: "App",
+            appIcon: nil,
+            originalFrame: first.originalFrame,
+            overviewFrame: first.overviewFrame.offsetBy(dx: 440, dy: 0),
+            matchesSearch: true
+        )
+        var section = layout.workspaceSections[0]
+        section.windows = [first, second, third]
+        layout.replaceWorkspaceSections([section])
+        let renderer = OverviewLayerRenderer()
+        func state(_ hovered: WindowHandle, closeButtonHovered: Bool = false) -> OverviewRenderState {
+            OverviewRenderState(
+                searchQuery: "",
+                selectedWindowHandle: nil,
+                hoveredWindowHandle: hovered,
+                closeButtonHovered: closeButtonHovered,
+                progress: 1,
+                bounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+                palette: .default
+            )
+        }
+        renderer.updateLayout(layout, state: state(first.handle), caretAnimated: false)
+        renderer.updatePresentation(layout, state: state(first.handle))
+        let untouched = try XCTUnwrap(renderer.windowLayers[third.handle])
+        let sentinelPosition = CGPoint(x: 501, y: 502)
+        let sentinelColor = CGColor(red: 0.7, green: 0.1, blue: 0.2, alpha: 1)
+        untouched.root.position = sentinelPosition
+        untouched.border.borderColor = sentinelColor
+        let previous = try XCTUnwrap(renderer.windowLayers[first.handle])
+        let current = try XCTUnwrap(renderer.windowLayers[second.handle])
+
+        renderer.updateHover(from: first.handle, layout: layout, state: state(second.handle))
+        XCTAssertEqual(untouched.root.position, sentinelPosition)
+        XCTAssertEqual(untouched.border.borderColor, sentinelColor)
+        XCTAssertEqual(previous.border.borderColor, OverviewRenderPalette.default.normalBorder)
+        XCTAssertEqual(current.border.borderColor, OverviewRenderPalette.default.hoveredBorder)
+
+        renderer.updateHover(from: second.handle, layout: layout, state: state(second.handle, closeButtonHovered: true))
+        XCTAssertEqual(untouched.root.position, sentinelPosition)
+        XCTAssertEqual(untouched.border.borderColor, sentinelColor)
+    }
+
+    @MainActor
+    func testPreviewContentsRemainRetainedAcrossGeometryAndMetadataChanges() throws {
+        let (layout, item) = makeLayerLayout()
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let panel = attach(view)
+        defer { panel.close() }
+        let fixture = makeAnimationFixture()
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+        var pixelBuffer: CVPixelBuffer?
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+        XCTAssertEqual(CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            160,
+            120,
+            kCVPixelFormatType_32BGRA,
+            attributes,
+            &pixelBuffer
+        ), kCVReturnSuccess)
+        let buffer = try XCTUnwrap(pixelBuffer)
+        let frame = try XCTUnwrap(OverviewPreviewFrame(pixelBuffer: buffer))
+        view.updatePreview(frame, for: item.handle)
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+
+        let transition = OverviewNativeTransition(generation: 1, startTime: CACurrentMediaTime(), from: 0, to: 1)
+        XCTAssertTrue(view.installAnimation(transition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 1, generation: 1
+        )))
+        for width in [900.0, 1000.0, 1100.0, 1200.0] {
+            view.setFrameSize(CGSize(width: width, height: 600))
+            view.updateLayer()
+        }
+        view.updateLayout(layout, state: .open, searchQuery: "Window", selectedWindowHandle: item.handle)
+        view.updateLayer()
+        XCTAssertTrue(card.preview === frame)
+        XCTAssertNotNil(card.thumbnail.contents)
+        XCTAssertEqual(card.thumbnail.contentsRect, frame.contentsRect)
+
+        view.clearPreviews()
+        XCTAssertNil(card.preview)
+        XCTAssertNil(card.thumbnail.contents)
+    }
+
+    @MainActor
+    func testCardsCullOffscreenWindowsAndRemoveRetiredLayers() throws {
+        let (layout, item) = makeLayerLayout(overviewFrame: CGRect(x: 100, y: -1000, width: 200, height: 140))
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        view.updateLayout(layout, state: .open, searchQuery: "", selectedWindowHandle: nil)
+        view.updateLayer()
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+        XCTAssertTrue(card.root.isHidden)
+
+        view.updateLayout(.init(), state: .open, searchQuery: "", selectedWindowHandle: nil)
+        XCTAssertTrue(view.layerRenderer.windowLayers.isEmpty)
+        XCTAssertNil(card.root.superlayer)
+    }
+
+    @MainActor
+    func testCaretUsesIndependentAnimationAndStopsForEmptySearchOrDisabledMotion() {
+        let renderer = OverviewLayerRenderer()
+        var layout = OverviewLayout()
+        layout.searchBarFrame = CGRect(x: 20, y: 400, width: 400, height: 44)
+        func state(_ query: String) -> OverviewRenderState {
+            OverviewRenderState(
+                searchQuery: query,
+                selectedWindowHandle: nil,
+                hoveredWindowHandle: nil,
+                closeButtonHovered: false,
+                progress: 1,
+                bounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+                palette: .default
+            )
+        }
+        renderer.updateLayout(layout, state: state("term"), caretAnimated: true)
+        XCTAssertNotNil(renderer.caret.animation(forKey: "blink"))
+        XCTAssertFalse(renderer.caret.isHidden)
+
+        renderer.updateLayout(layout, state: state("term"), caretAnimated: false)
+        XCTAssertNil(renderer.caret.animation(forKey: "blink"))
+        XCTAssertEqual(renderer.caret.opacity, 1)
+
+        renderer.updateLayout(layout, state: state(""), caretAnimated: true)
+        XCTAssertNil(renderer.caret.animation(forKey: "blink"))
+        XCTAssertTrue(renderer.caret.isHidden)
+    }
+
+    @MainActor
+    private func attach(_ view: OverviewView) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: view.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isReleasedWhenClosed = false
+        panel.contentView = view
+        return panel
+    }
+
+    @MainActor
+    private func makeAnimationFixture(
+        installer: OverviewAnimator.AnimationInstaller? = nil
+    ) -> (controller: WMController, overview: OverviewController, animator: OverviewAnimator) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmniWMOverviewRendererTests-\(UUID().uuidString)", isDirectory: true)
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(
+                directory: root.appendingPathComponent("config", isDirectory: true),
+                startWatching: false,
+                deferSaves: false
+            ),
+            runtimeState: RuntimeStateStore(
+                directory: root.appendingPathComponent("state", isDirectory: true),
+                deferSaves: false
+            ),
+            autosaveEnabled: false
+        )
+        let controller = WMController(
+            settings: settings,
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, _, _ in },
+                raiseWindow: { _ in }
             )
         )
-        let graphicsContext = NSGraphicsContext(cgContext: bitmap, flipped: false)
+        let overview = OverviewController(wmController: controller, motionPolicy: controller.motionPolicy)
+        let animator = OverviewAnimator(controller: overview, animationInstaller: installer)
+        return (controller, overview, animator)
+    }
 
-        OverviewFrameTrace.shared.beginCapture()
-        drawnAfterStop.updateAnimationProgress(0.25, generation: 10, sequence: 1)
-        notDrawnAfterStop.updateAnimationProgress(0.25, generation: 10, sequence: 1)
-        OverviewFrameTrace.shared.endCapture()
-
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphicsContext
-        drawnAfterStop.draw(drawnAfterStop.bounds)
-        NSGraphicsContext.restoreGraphicsState()
-        XCTAssertEqual(drawnAfterStop.tracePendingInvalidations, 0)
-        XCTAssertEqual(notDrawnAfterStop.tracePendingInvalidations, 1)
-
-        OverviewFrameTrace.shared.beginCapture()
-        drawnAfterStop.updateAnimationProgress(0.75, generation: 11, sequence: 1)
-        notDrawnAfterStop.updateAnimationProgress(0.75, generation: 11, sequence: 1)
-        XCTAssertEqual(drawnAfterStop.tracePendingInvalidations, 1)
-        XCTAssertEqual(notDrawnAfterStop.tracePendingInvalidations, 1)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphicsContext
-        drawnAfterStop.draw(drawnAfterStop.bounds)
-        notDrawnAfterStop.draw(notDrawnAfterStop.bounds)
-        NSGraphicsContext.restoreGraphicsState()
-        OverviewFrameTrace.shared.endCapture()
-
-        let trace = OverviewFrameTrace.shared.dump()
-        XCTAssertTrue(trace.contains("disp=304 gen=11 seq=1"))
-        XCTAssertTrue(trace.contains("disp=305 gen=11 seq=1"))
-        XCTAssertFalse(trace.contains("pending=2"))
+    private func makeLayerLayout(
+        overviewFrame: CGRect = CGRect(x: 100, y: 100, width: 200, height: 140)
+    ) -> (OverviewLayout, OverviewWindowItem) {
+        let workspaceId = UUID()
+        let token = WindowToken(pid: 1, windowId: 1)
+        let item = OverviewWindowItem(
+            handle: WindowHandle(id: token),
+            windowId: 1,
+            workspaceId: workspaceId,
+            title: "Window",
+            appName: "App",
+            appIcon: nil,
+            originalFrame: CGRect(x: 50, y: 50, width: 600, height: 400),
+            overviewFrame: overviewFrame,
+            matchesSearch: true
+        )
+        let section = OverviewWorkspaceSection(
+            workspaceId: workspaceId,
+            name: "Workspace",
+            windows: [item],
+            sectionFrame: overviewFrame,
+            labelFrame: .zero,
+            gridFrame: overviewFrame,
+            isActive: true
+        )
+        var layout = OverviewLayout()
+        layout.replaceWorkspaceSections([section])
+        return (layout, item)
     }
 
     private func assertColor(

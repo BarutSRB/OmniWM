@@ -57,9 +57,9 @@ Pointer-driven focus and monitor-edge focus/move behavior.
 | `raiseOnMouseFocus` | boolean | `false` | Also raises the window when focus-follows-mouse focuses it. |
 | `lockModifier` | string | `"off"` | Modifier that holds focus in place while pressed: `off`, `option`, `leftOption`, `rightOption`, `command`, `leftCommand`, `rightCommand`, `control`, `leftControl`, `rightControl`, `shift`, `leftShift`, `rightShift`. |
 | `moveMouseToFocusedWindow` | boolean | `false` | Moves the pointer to the window that gains focus. |
-| `followsWindowToMonitor` | boolean | `false` | Keeps focus on a window when it moves to another monitor. |
+| `followsWindowToMonitor` | boolean | `false` | Follows ordinary window or column transfers to another workspace, including dedicated monitor-move actions. Edge-crossing moves always follow. |
 | `crossesMonitorAtEdge` | boolean | `false` | Directional focus continues onto the neighboring monitor at the screen edge. |
-| `moveCrossesMonitorAtEdge` | boolean | `false` | Directional window move continues onto the neighboring monitor at the screen edge. |
+| `moveCrossesMonitorAtEdge` | boolean | `false` | Directional window move continues onto the neighboring monitor at the workspace edge and always follows the moved window. |
 
 ## mouseWarp
 
@@ -157,7 +157,7 @@ Border drawn around the focused window.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Draws the focused-window border. |
-| `width` | float | `5.0` | Exterior border width in points. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
+| `width` | float | `5.0` | Exterior border width in points; configured values are clamped to 1–12 points when applied. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
 | `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Border color (default is a cyan accent). |
 
 ## overview
@@ -226,6 +226,10 @@ Mouse and trackpad gestures.
 | `workspaceSwipeEnabled` | boolean | `false` | Trackpad swipe switches to the next/previous workspace. |
 | `workspaceSwipeFingerCount` | integer | `3` | Workspace-swipe finger count: `2`, `3`, or `4`. |
 | `workspaceSwipeAxis` | string | `"vertical"` | Workspace-swipe axis: `horizontal` or `vertical`. |
+| `overviewGestureEnabled` | boolean | `false` | Enable upward swipes to open Overview. |
+| `overviewGestureFingerCount` | integer | `4` | Overview gesture finger count: `3` or `4`. |
+
+Swipe up with the configured finger count to open Overview. Downward swipes do not close it; use the existing Overview controls. Direction is independent of `invertDirection`. Lift all fingers before another action. Settings reject enabled gestures that share the same fingers and upward movement; horizontal swipes may share fingers with Overview. Validation accounts for connected monitors' column orientations and workspace swipes running perpendicular to column scrolling when their finger counts match. Without column scrolling, workspace swipes use their configured axis. If a display change creates an overlap, ambiguous upward swipes are ignored until the assignments are corrected. Disable the matching macOS Mission Control gesture to avoid interception.
 
 ## statusBar
 
@@ -265,12 +269,12 @@ The drop-down (Quake) terminal.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Enables the Quake terminal. |
-| `position` | string | `"center"` | Slide-in position: `top`, `bottom`, `left`, `right`, `center`. |
-| `widthPercent` | float | `50.0` | Width as a percentage of the screen. |
-| `heightPercent` | float | `50.0` | Height as a percentage of the screen. |
+| `position` | string | `"center"` | Terminal position: `top`, `bottom`, `left`, `right`, `center`. Edge positions slide in; `center` fades in place. |
+| `widthPercent` | float | `50.0` | Width as a percentage of the monitor's available screen area. |
+| `heightPercent` | float | `50.0` | Height as a percentage of the monitor's available screen area. |
 | `animationDuration` | float | `0.2` | Show/hide animation duration in seconds. |
 | `autoHide` | boolean | `false` | Hides the terminal when it loses focus. |
-| `opacity` *(optional)* | float | `1.0` | Terminal window opacity (`0.0`–`1.0`). |
+| `opacity` *(optional)* | float | `1.0` | Terminal background opacity (`0.0`–`1.0`). |
 | `backgroundEffect` | string | `"standardBlur"` | Background material: `standardBlur`, `glassRegular`, `glassClear`. |
 | `backgroundBlurRadius` *(optional)* | integer | `0` | Background blur radius; `0` disables the extra blur. |
 | `monitorMode` *(optional)* | string | `"focusedWindow"` | Which monitor it appears on: `mouseCursor`, `focusedWindow`, `mainMonitor`. |
@@ -326,8 +330,10 @@ Array of workspace definitions.
 | `id` | string (UUID) | Stable identity; keep it unchanged when editing. |
 | `name` | string | Workspace name; numeric names define the ordering and number-key targets. |
 | `displayName` *(optional)* | string | Label shown in the bar instead of `name` (emoji welcome). |
-| `monitorAssignment` | table | `type` = `main`, `secondary`, or `specificDisplay` (the latter carries an `output` value identifying the display). |
+| `monitorAssignment` | table | `type` = `main`, `secondary`, or `specificDisplay`. For `specificDisplay`, the `output` sub-table contains a required `name` (string), optional `displayUUID` (string), and optional `displayId` (integer). |
 | `layoutType` | string | `default` (follow `general.defaultLayoutType`), `niri`, or `dwindle`. |
+
+For `specificDisplay`, `displayUUID` takes precedence when present. Without it, `displayId` and `name` must match a monitor that has no display UUID. A name alone cannot identify the target monitor.
 
 Default: nine workspaces named `1`–`9`, all Niri — `1`–`5` and `8`–`9` on the main monitor, `6` (shown as ❤️) and `7` (shown as 🚀) on the secondary, matching the default `Option + 1`–`9` bindings.
 
@@ -348,7 +354,7 @@ Array of per-app window rules, editable in the **App Rules** window. Matchers se
 
 | Key | Type | Description |
 | --- | --- | --- |
-| `id` | string (UUID) | Stable rule identity. |
+| `id` *(optional)* | string (UUID) | Stable rule identity; generated if omitted. Keep an existing ID unchanged when editing. |
 | `bundleId` | string | App bundle ID to match (may be empty when an advanced matcher is used). |
 | `appNameSubstring` *(optional)* | string | Matches on the app name. |
 | `titleSubstring` *(optional)* | string | Matches on the window title. |

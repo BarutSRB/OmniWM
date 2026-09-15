@@ -330,7 +330,8 @@ final class NiriInteractionOwnershipTests: NiriInteractionTestCase {
         XCTAssertTrue(engine.findColumn(containing: sibling, in: sourceWorkspace) === sourceColumn)
         XCTAssertEqual(sourceColumn.width, .fixed(resizedWidth))
         XCTAssertEqual(sourceColumn.cachedWidth, resizedWidth)
-        XCTAssertTrue(sourceColumn.hasManualSingleWindowWidthOverride)
+        XCTAssertFalse(sourceColumn.hasManualSingleWindowWidthOverride)
+        XCTAssertEqual(layout(engine, in: sourceWorkspace)[sibling.token], workingFrame)
     }
 }
 

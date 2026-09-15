@@ -6,7 +6,7 @@ import Keycap from './Keycap.astro';
 
 <div class="demo" data-demo="gestures">
   <MockDesktop
-    label="Animated mockup of trackpad gestures scrolling the Niri strip: a two-finger swipe snaps to a column, a flick glides with momentum and rubber-bands at the edge, and a three-finger swipe switches workspaces"
+    label="Animated mockup of separate configured gesture examples: two-finger scrolling in Snap or Momentum style, and opt-in three-finger workspace switching"
   >
     <div class="strip">
       <div class="col c-1"><MockWindow title="Zed" variant="editor" /></div>
@@ -23,11 +23,11 @@ import Keycap from './Keycap.astro';
     </div>
   </MockDesktop>
   <div class="keys">
-    <Keycap id="gk-2" keys={['2-finger swipe']} label="Snap to columns" />
-    <Keycap id="gk-fl" keys={['2-finger flick']} label="Momentum" />
-    <Keycap id="gk-ws" keys={['3-finger swipe']} label="Workspace swipe" />
+    <Keycap id="gk-2" keys={['2-finger swipe']} label="Snap style (example)" />
+    <Keycap id="gk-fl" keys={['2-finger flick']} label="Momentum style (example)" />
+    <Keycap id="gk-ws" keys={['3-finger swipe']} label="Workspace swipe (opt-in)" />
   </div>
-  <p class="caption">Swipe to snap, flick to glide with rubber-band edges — and three fingers flip the workspace.</p>
+  <p class="caption">Configured examples: two-finger scrolling in Snap or Momentum style, plus opt-in three-finger workspace switching. Choose finger counts and scroll style in Settings.</p>
 </div>
 
 <style is:global>

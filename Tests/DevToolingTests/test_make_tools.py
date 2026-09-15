@@ -1,0 +1,57 @@
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+
+class MakeToolTests(unittest.TestCase):
+    def test_format_and_lint_use_pinned_tools_independently_of_inherited_path(self):
+        source = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory(prefix="omniwm make tools ") as temporary:
+            root = Path(temporary)
+            shutil.copy2(source / "Makefile", root / "Makefile")
+            (root / "Scripts").mkdir()
+            shutil.copy2(source / "Scripts/dev-tools.env", root / "Scripts/dev-tools.env")
+            versions = dict(
+                line.split("=", 1)
+                for line in (root / "Scripts/dev-tools.env").read_text().splitlines()
+            )
+            tools = root / ".cache/dev-tools/bin"
+            tools.mkdir(parents=True)
+            decoys = root / "system-tools"
+            decoys.mkdir()
+            for name in ("swiftformat", "swiftlint"):
+                tool = tools / name
+                tool.write_text(
+                    "#!/bin/sh\n"
+                    'case "$1" in\n'
+                    f"  --version|version) printf '%s\\n' '{versions[name.upper() + '_VERSION']}' ;;\n"
+                    f"  *) printf 'pinned {name}: %s\\n' \"$*\" ;;\n"
+                    "esac\n"
+                )
+                tool.chmod(0o755)
+                decoy = decoys / name
+                decoy.write_text("#!/bin/sh\necho unexpected system tool >&2\nexit 99\n")
+                decoy.chmod(0o755)
+
+            for inherited_path in ("/usr/bin:/bin", f"{decoys}:/usr/bin:/bin"):
+                with self.subTest(path=inherited_path):
+                    result = subprocess.run(
+                        ["/usr/bin/make", "format", "format-check", "lint", "lint-fix"],
+                        cwd=root,
+                        env={**os.environ, "PATH": inherited_path},
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    for invocation in (
+                        "pinned swiftformat: .",
+                        "pinned swiftformat: --lint .",
+                        "pinned swiftlint: lint",
+                        "pinned swiftlint: lint --fix",
+                    ):
+                        self.assertIn(invocation, result.stdout)

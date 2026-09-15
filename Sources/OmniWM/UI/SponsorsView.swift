@@ -56,6 +56,7 @@ private let sponsors: [Sponsor] = [
         imageName: "marchendrichseno365",
         imageExtension: "png"
     ),
+    Sponsor(name: "b-allan-w", githubUsername: "b-allan-w", imageName: "b-allan-w", imageExtension: "png"),
     Sponsor(
         name: "Private Sponsor",
         githubUsername: nil,

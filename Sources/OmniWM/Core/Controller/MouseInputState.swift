@@ -14,6 +14,7 @@ struct MouseInputState {
         let columnScrollCandidate: Bool
         let columnScrollAxis: WorkspaceSwipeAxis
         let workspaceAxis: WorkspaceSwipeAxis?
+        let overviewCandidate: Bool
     }
 
     enum GesturePhase {

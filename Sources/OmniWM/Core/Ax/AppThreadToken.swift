@@ -5,7 +5,7 @@ import Foundation
 
 @TaskLocal
 @usableFromInline
-var appThreadToken: AppThreadToken?
+internal var appThreadToken: AppThreadToken?
 
 @usableFromInline
 struct AppThreadToken: Sendable, Equatable {

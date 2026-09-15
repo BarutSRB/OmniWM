@@ -26,6 +26,7 @@ final class SettingsFilePersistence {
     let fileURL: URL
 
     private let deferSaves: Bool
+    private let monitorProvider: () -> [Monitor]
     private let observation: SettingsFileObservation
     private var pendingExport: SettingsExport?
     private var saveScheduled = false
@@ -40,11 +41,13 @@ final class SettingsFilePersistence {
     init(
         directory: URL = SettingsFilePersistence.defaultDirectoryURL,
         startWatching: Bool = true,
-        deferSaves: Bool = true
+        deferSaves: Bool = true,
+        monitorProvider: @escaping () -> [Monitor] = Monitor.current
     ) {
         directoryURL = directory
         fileURL = directory.appendingPathComponent(Self.fileName, isDirectory: false)
         self.deferSaves = deferSaves
+        self.monitorProvider = monitorProvider
         observation = SettingsFileObservation(directoryURL: directoryURL, fileURL: fileURL)
         observation.attach(to: self)
 
@@ -214,6 +217,7 @@ final class SettingsFilePersistence {
     ) -> SettingsFileLoadOutcome {
         do {
             let result = try SettingsTOMLCodec.decodeForLoad(contents.data)
+            try GestureSettingsValidation.validate(result.export, monitorProvider: monitorProvider)
             guard let migration = result.migration else {
                 writeBlockNotice = nil
                 lastObservedFingerprint = contents.fingerprint

@@ -12,7 +12,7 @@ export const features: Feature[] = [
     title: 'Niri layout',
     kicker: 'Scrolling columns',
     blurb:
-      'An infinite horizontal strip of columns where focus glides the camera instead of rearranging your windows. Swap windows inside a column, cycle column widths through presets, or grab any window with the mouse and resize both axes at once — the whole strip re-flows live under your hand.',
+      'A scrolling strip of columns or rows, depending on your monitor’s orientation setting. Focus glides the camera along the strip. Swap windows inside a container, cycle its size through presets, or resize both axes with the mouse — the whole strip re-flows live under your hand.',
     kbHref: '/guides/layouts/',
   },
   {
@@ -36,7 +36,7 @@ export const features: Feature[] = [
     title: 'Command palette',
     kicker: 'Windows · menus · clipboard',
     blurb:
-      'Every window, every menu item of the frontmost app, and your clipboard history behind one hotkey. Results rank by window title, then app, then workspace. Enter focuses; Shift+Enter summons the window right next to you.',
+      'Search windows, accessible menu items of the frontmost app, and your clipboard history behind one hotkey. Window results rank by title, then app, then workspace. In Windows mode, Enter focuses; Shift+Enter summons the window right next to you.',
     kbHref: '/features/command-palette/',
   },
   {
@@ -76,7 +76,7 @@ export const features: Feature[] = [
     title: 'Menu Anywhere',
     kicker: 'Menus at your cursor',
     blurb:
-      'One hotkey pops the frontmost app’s real menu bar as a floating menu right at your pointer — every menu, every submenu, every keyboard shortcut, without traveling to the top of the screen. It is the app’s actual native menu, extracted live, so everything simply works.',
+      'One hotkey brings the frontmost app’s menus to your pointer. Menu Anywhere builds a native floating menu from the menus, submenus, and keyboard shortcuts the app exposes through Accessibility, so you can use them without traveling to the top of the screen.',
     kbHref: '/features/command-palette/#menu-anywhere',
   },
   {
@@ -100,7 +100,7 @@ export const features: Feature[] = [
     title: 'Move edge',
     kicker: 'Across displays',
     blurb:
-      'Your monitors become one big canvas with physical borders. At the edge of a layout, the same Move keystroke carries the window across the bezel onto the next display — layouts on both sides adapt, and focus travels with it, matching how your desk is actually arranged.',
+      'Enable Move Window Across Monitor at Edge and your monitors become one big canvas. At the edge of a layout, the same Move keystroke carries the window onto the adjacent routed display — layouts on both sides adapt, and focus travels with it.',
     kbHref: '/guides/multi-monitor/#per-monitor-behavior',
   },
 ];
@@ -134,7 +134,7 @@ export interface ExtraFeature {
 export const extraFeatures: ExtraFeature[] = [
   { name: 'Live TOML reload', detail: 'settings.toml re-applies the moment you save it', href: '/config/configuration/' },
   { name: 'Hyper key', detail: 'One held key or mouse button becomes ⌃⌥⇧⌘', href: '/guides/keyboard-shortcuts/' },
-  { name: 'Clipboard history', detail: 'Secure, deduplicated history inside the palette', href: '/features/command-palette/' },
+  { name: 'Clipboard history', detail: 'Local, deduplicated history inside the palette', href: '/features/command-palette/' },
   { name: 'App rules', detail: 'Route apps to workspaces, float them, size them', href: '/features/app-rules/' },
   { name: 'Native tabs', detail: 'macOS window tabs, fully managed' },
   { name: 'IPC & CLI', detail: 'Script everything with omniwmctl', href: '/reference/cli/overview/' },

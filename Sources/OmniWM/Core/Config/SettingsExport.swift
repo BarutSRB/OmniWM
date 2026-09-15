@@ -156,6 +156,8 @@ struct SettingsExport: Equatable {
         var workspaceSwipeEnabled: Bool
         var workspaceSwipeFingerCount: GestureFingerCount
         var workspaceSwipeAxis: WorkspaceSwipeAxis
+        var overviewGestureEnabled: Bool? = false
+        var overviewGestureFingerCount: OverviewGestureFingerCount? = .four
     }
 
     struct StatusBar: Codable, Equatable {

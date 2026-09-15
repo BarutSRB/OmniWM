@@ -122,10 +122,6 @@ final class IPCCommandRouter {
         }
     }
 
-    func handle(_ request: IPCWorkspaceRequest) -> ExternalCommandResult {
-        IPCWorkspaceRequestExecutor(controller: controller).handle(request)
-    }
-
     func handle(_ request: IPCWindowRequest) -> ExternalCommandResult {
         IPCWindowRequestExecutor(controller: controller, sessionToken: sessionToken).handle(request)
     }
@@ -214,10 +210,15 @@ final class IPCCommandRouter {
             rawWorkspaceID = resolved
         }
 
-        guard controller.activeWorkspace()?.name != rawWorkspaceID else { return .noChange }
-        let previousWorkspaceId = controller.activeWorkspace()?.id
-        controller.workspaceNavigationHandler.switchWorkspace(rawWorkspaceID: rawWorkspaceID)
-        return controller.activeWorkspace()?.id == previousWorkspaceId ? .notFound : .executed
+        if let currentWorkspace = controller.activeWorkspace(),
+           currentWorkspace.name == rawWorkspaceID,
+           controller.workspaceNavigationHandler.canSkipSwitch(toVisibleWorkspace: currentWorkspace.id)
+        {
+            return .noChange
+        }
+        return controller.workspaceNavigationHandler.switchWorkspace(rawWorkspaceID: rawWorkspaceID)
+            ? .executed
+            : .notFound
     }
 
     private func switchWorkspaceAnywhere(to target: WorkspaceTarget) -> ExternalCommandResult {
@@ -232,16 +233,15 @@ final class IPCCommandRouter {
             rawWorkspaceID = resolved
         }
 
-        guard controller.activeWorkspace()?.name != rawWorkspaceID else { return .noChange }
-        let previousWorkspaceId = controller.activeWorkspace()?.id
-        let previousMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
-            .id
-        controller.workspaceNavigationHandler.focusWorkspaceAnywhere(rawWorkspaceID: rawWorkspaceID)
-        let currentWorkspaceId = controller.activeWorkspace()?.id
-        let currentMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?
-            .id
-        return currentWorkspaceId == previousWorkspaceId && currentMonitorId == previousMonitorId ? .notFound :
-            .executed
+        if let currentWorkspace = controller.activeWorkspace(),
+           currentWorkspace.name == rawWorkspaceID,
+           controller.workspaceNavigationHandler.canSkipSwitch(toVisibleWorkspace: currentWorkspace.id)
+        {
+            return .noChange
+        }
+        return controller.workspaceNavigationHandler.focusWorkspaceAnywhere(rawWorkspaceID: rawWorkspaceID)
+            ? .executed
+            : .notFound
     }
 
     private func switchWorkspaceSlot(_ slot: Int) -> ExternalCommandResult {
@@ -250,7 +250,11 @@ final class IPCCommandRouter {
             return guardResult
         }
         guard let target = controller.workspaceNavigationHandler.workspaceSlot(slot) else { return .notFound }
-        guard controller.activeWorkspace()?.id != target.id else { return .noChange }
+        if controller.activeWorkspace()?.id == target.id,
+           controller.workspaceNavigationHandler.canSkipSwitch(toVisibleWorkspace: target.id)
+        {
+            return .noChange
+        }
         return controller.workspaceNavigationHandler.switchWorkspaceSlot(slot) ? .executed : .notFound
     }
 

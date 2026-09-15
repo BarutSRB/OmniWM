@@ -405,10 +405,7 @@ enum AXWindowEnumerationInspector {
             &enabledValue
         )
         try checkCancellation()
-        guard result == .success else { return (nil, true) }
-        guard let enabledValue else { return (nil, true) }
-        guard let enabled = enabledValue as? Bool else { return (nil, false) }
-        return (enabled, true)
+        return AXWindowService.fullscreenButtonEnabledState(result: result, value: enabledValue)
     }
 
     private static func admissionGeometry(
