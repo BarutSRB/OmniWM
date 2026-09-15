@@ -6,24 +6,27 @@ import CoreGraphics
 import XCTest
 
 final class TrackpadGestureIntentTests: XCTestCase {
-    func testOverviewOnlyTriggersUpwardAtTwentyFourUnits() {
-        for (point, expected) in [
-            (CGPoint(x: 0, y: 23.9), false),
-            (CGPoint(x: 0, y: 24), true),
-            (CGPoint(x: 0, y: -140), false),
-            (CGPoint(x: 30, y: 24), false)
-        ] {
-            XCTAssertEqual(TrackpadGestureIntent.overviewTriggered(translation: point), expected)
+    func testOverviewTriggersInItsDirectionAtTwentyFourUnits() {
+        for (action, direction) in [(OverviewGestureAction.open, CGFloat(1)), (.close, -1)] {
+            for (point, expected) in [
+                (CGPoint(x: 0, y: 23.9 * direction), false),
+                (CGPoint(x: 0, y: 24 * direction), true),
+                (CGPoint(x: 0, y: -140 * direction), false),
+                (CGPoint(x: 30, y: 24 * direction), false),
+                (CGPoint(x: 24, y: 24 * direction), false)
+            ] {
+                XCTAssertEqual(TrackpadGestureIntent.overviewTriggered(action: action, translation: point), expected)
+            }
         }
     }
 
     func testOverviewSwipeRejectsOverlappingUpwardBindings() {
         var config = makeConfig(columnFingers: 4, workspaceFingers: 3)
-        config.overviewEnabled = true
+        config.overviewAction = .open
         XCTAssertEqual(TrackpadGestureIntent.resolveMode(
             config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
             columnScrollAxis: .horizontal, columnContextAvailable: true
-        ), .overview)
+        ), .overview(.open))
         XCTAssertNil(TrackpadGestureIntent.resolveMode(
             config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: -24),
             columnScrollAxis: .horizontal, columnContextAvailable: true
@@ -47,21 +50,45 @@ final class TrackpadGestureIntentTests: XCTestCase {
         XCTAssertEqual(TrackpadGestureIntent.resolveMode(
             config, fingerCount: 4, cumulativeTranslation: CGVector(dx: 0, dy: 24),
             columnScrollAxis: .horizontal, columnContextAvailable: false
-        ), .overview)
+        ), .overview(.open))
     }
 
     func testOverviewOnlyConfigurationStartsWithoutColumnContext() {
         var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
-        config.overviewEnabled = true
+        for action in [OverviewGestureAction.open, .close] {
+            config.overviewAction = action
+            for fingers in [3, 4] {
+                config.overviewFingerCount = fingers
+                XCTAssertTrue(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: fingers))
+                XCTAssertTrue(TrackpadGestureIntent.hasCandidateMode(
+                    config,
+                    fingerCount: fingers,
+                    columnContextAvailable: false
+                ))
+                XCTAssertFalse(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: 7 - fingers))
+            }
+        }
+    }
+
+    func testOverviewCloseOnlyResolvesDownwardWithConfiguredFingers() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.overviewAction = .close
         for fingers in [3, 4] {
             config.overviewFingerCount = fingers
-            XCTAssertTrue(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: fingers))
-            XCTAssertTrue(TrackpadGestureIntent.hasCandidateMode(
-                config,
-                fingerCount: fingers,
-                columnContextAvailable: false
-            ))
-            XCTAssertFalse(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: 7 - fingers))
+            for (translation, candidateFingers, expected) in [
+                (CGVector(dx: 0, dy: -24), fingers, TrackpadGestureMode.overview(.close)),
+                (CGVector(dx: 0, dy: 24), fingers, nil),
+                (CGVector(dx: 25, dy: -24), fingers, nil),
+                (CGVector(dx: 0, dy: -24), 7 - fingers, nil)
+            ] {
+                XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+                    config,
+                    fingerCount: candidateFingers,
+                    cumulativeTranslation: translation,
+                    columnScrollAxis: .horizontal,
+                    columnContextAvailable: false
+                ), expected)
+            }
         }
     }
 

@@ -14,7 +14,7 @@ struct MouseInputState {
         let columnScrollCandidate: Bool
         let columnScrollAxis: WorkspaceSwipeAxis
         let workspaceAxis: WorkspaceSwipeAxis?
-        let overviewCandidate: Bool
+        let overviewAction: OverviewGestureAction?
         var contactSession: MultitouchContactSession?
     }
 

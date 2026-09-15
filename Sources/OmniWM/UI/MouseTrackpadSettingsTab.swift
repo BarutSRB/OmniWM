@@ -167,7 +167,7 @@ struct MouseTrackpadSettingsTab: View {
             }
             .disabled(!settings.gestures.overviewGestureEnabled)
             SettingsCaption(
-                "Swipe up to open Overview. Lift all fingers before repeating. Use a finger count not already assigned to another vertical gesture."
+                "Swipe up to open Overview and down to close it. Lift all fingers between gestures. Use a finger count not already assigned to another vertical gesture."
             )
             if settings.gestures.overviewGestureEnabled, missionControlGestureProbe.status == .enabled {
                 SettingsCaption("Disable the matching Mission Control gesture in macOS Trackpad settings.")

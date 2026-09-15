@@ -14,7 +14,7 @@ final class OverviewGestureConflictTests: XCTestCase {
                 workspaceSwipeEnabled: false,
                 workspaceSwipeFingerCount: fingers,
                 workspaceSwipeAxis: .horizontal,
-                overviewEnabled: true,
+                overviewAction: .open,
                 overviewFingerCount: fingers
             )
             XCTAssertNil(TrackpadGestureIntent.overviewConflict(config, columnScrollAxis: nil))
@@ -37,7 +37,7 @@ final class OverviewGestureConflictTests: XCTestCase {
             config.overviewFingerCount = 7 - fingers
             XCTAssertNil(TrackpadGestureIntent.overviewConflict(config, columnScrollAxis: .vertical))
             config.overviewFingerCount = fingers
-            config.overviewEnabled = false
+            config.overviewAction = nil
             XCTAssertNil(TrackpadGestureIntent.overviewConflict(config, columnScrollAxis: .vertical))
         }
     }

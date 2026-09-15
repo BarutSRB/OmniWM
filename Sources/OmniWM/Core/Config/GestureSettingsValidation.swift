@@ -42,7 +42,7 @@ enum GestureSettingsValidation {
             workspaceSwipeEnabled: gestures.workspaceSwipeEnabled,
             workspaceSwipeFingerCount: gestures.workspaceSwipeFingerCount.rawValue,
             workspaceSwipeAxis: gestures.workspaceSwipeAxis,
-            overviewEnabled: true,
+            overviewAction: .open,
             overviewFingerCount: (gestures.overviewGestureFingerCount ?? .four).rawValue
         )
         if let other = TrackpadGestureIntent.overviewConflict(config, columnScrollAxis: nil) {

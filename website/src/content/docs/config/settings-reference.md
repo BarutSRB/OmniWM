@@ -226,10 +226,10 @@ Mouse and trackpad gestures.
 | `workspaceSwipeEnabled` | boolean | `false` | Trackpad swipe switches to the next/previous workspace. |
 | `workspaceSwipeFingerCount` | integer | `3` | Workspace-swipe finger count: `2`, `3`, or `4`. |
 | `workspaceSwipeAxis` | string | `"vertical"` | Workspace-swipe axis: `horizontal` or `vertical`. |
-| `overviewGestureEnabled` | boolean | `false` | Enable upward swipes to open Overview. |
+| `overviewGestureEnabled` | boolean | `false` | Enable upward swipes to open Overview and downward swipes to close it. |
 | `overviewGestureFingerCount` | integer | `4` | Overview gesture finger count: `3` or `4`. |
 
-Swipe up with the configured finger count to open Overview. Downward swipes do not close it; use the existing Overview controls. Direction is independent of `invertDirection`. Lift all fingers before another action. Settings reject enabled gestures that share the same fingers and upward movement; horizontal swipes may share fingers with Overview. Validation accounts for connected monitors' column orientations and workspace swipes running perpendicular to column scrolling when their finger counts match. Without column scrolling, workspace swipes use their configured axis. If a display change creates an overlap, ambiguous upward swipes are ignored until the assignments are corrected. Disable the matching macOS Mission Control gesture to avoid interception.
+Swipe up with the configured finger count to open Overview and down to close it. Closing matches Escape: it activates the highlighted window, or restores the previously active app when there is no selection. Direction is independent of `invertDirection`. Lift all fingers between gestures. Settings reject enabled gestures that share the same fingers and upward movement; horizontal swipes may share fingers with Overview. Validation accounts for connected monitors' column orientations and workspace swipes running perpendicular to column scrolling when their finger counts match. Without column scrolling, workspace swipes use their configured axis. If a display change creates an overlap, ambiguous upward swipes are ignored until the assignments are corrected. Disable the matching macOS Mission Control gesture to avoid interception.
 
 ## statusBar
 

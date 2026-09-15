@@ -52,7 +52,7 @@ extension MouseEventHandler {
                 finalizeCommittedGestureAfterTouchRelease(timestamp: snapshot.timestamp)
                 return
             }
-            let wasOverviewCandidate = state.lockedGestureContext?.overviewCandidate == true
+            let wasOverviewCandidate = state.lockedGestureContext?.overviewAction != nil
             abortActiveGestureIfNeeded()
             if wasOverviewCandidate {
                 state.suppressGestureStartUntilAllTouchesLift = true
@@ -81,12 +81,16 @@ extension MouseEventHandler {
             abortActiveGestureIfNeeded()
             return false
         }
-        if controller.isOverviewOpen() {
+        let isOverviewOpen = controller.isOverviewOpen()
+        if let context = state.lockedGestureContext,
+           (isOverviewOpen && context.overviewAction != .close)
+           || (context.overviewAction != nil && context.overviewAction != trackpadGestureConfig?.overviewAction)
+        {
             abortActiveGestureIfNeeded()
             state.suppressGestureStartUntilAllTouchesLift = true
             return false
         }
-        if shouldBlockOwnWindowInput(at: location) {
+        if !isOverviewOpen, shouldBlockOwnWindowInput(at: location) {
             abortActiveGestureIfNeeded()
             return false
         }
@@ -165,7 +169,7 @@ extension MouseEventHandler {
             columnScrollCandidate: columnScrollCandidate,
             columnScrollAxis: columnScrollAxis,
             workspaceAxis: workspaceAxis,
-            overviewCandidate: config.overviewEnabled && fingerCount == config.overviewFingerCount
+            overviewAction: fingerCount == config.overviewFingerCount ? config.overviewAction : nil
         )
     }
 

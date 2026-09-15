@@ -83,6 +83,14 @@ final class WindowActionHandler {
         overviewController.toggle()
     }
 
+    func openOverview() {
+        overviewController.open()
+    }
+
+    func dismissOverview() {
+        overviewControllerStorage?.input.dismissToSelection(animated: true)
+    }
+
     func handleOverviewHotkey(_ invocation: HotkeyInvocation) -> OverviewHotkeyDisposition {
         overviewControllerStorage?.input.handleHotkeyInvocation(invocation) ?? .inactive
     }

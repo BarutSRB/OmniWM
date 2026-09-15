@@ -11,14 +11,16 @@ extension MouseEventHandler {
     }
 
     var trackpadGestureConfig: TrackpadGestureIntent.Config? {
-        guard let settings = controller?.settings else { return nil }
+        guard let controller else { return nil }
+        let settings = controller.settings
+        let isOverviewOpen = controller.isOverviewOpen()
         return TrackpadGestureIntent.Config(
-            columnScrollEnabled: settings.gestures.scrollEnabled && controller?.isOverviewOpen() != true,
+            columnScrollEnabled: settings.gestures.scrollEnabled && !isOverviewOpen,
             columnScrollFingerCount: settings.gestures.fingerCount.rawValue,
-            workspaceSwipeEnabled: settings.gestures.workspaceSwipeEnabled && controller?.isOverviewOpen() != true,
+            workspaceSwipeEnabled: settings.gestures.workspaceSwipeEnabled && !isOverviewOpen,
             workspaceSwipeFingerCount: settings.gestures.workspaceSwipeFingerCount.rawValue,
             workspaceSwipeAxis: settings.gestures.workspaceSwipeAxis,
-            overviewEnabled: settings.gestures.overviewGestureEnabled && controller?.isOverviewOpen() != true,
+            overviewAction: settings.gestures.overviewGestureEnabled ? (isOverviewOpen ? .close : .open) : nil,
             overviewFingerCount: settings.gestures.overviewGestureFingerCount.rawValue
         )
     }

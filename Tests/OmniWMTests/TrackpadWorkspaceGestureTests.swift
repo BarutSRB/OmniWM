@@ -8,7 +8,7 @@ import XCTest
 
 @MainActor
 final class TrackpadWorkspaceGestureTests: XCTestCase {
-    func testOverviewSwipeOnlyOpensAndDoesNotSwitchWorkspace() throws {
+    func testOverviewSwipesOpenAndCloseOncePerContactWithoutSwitchingWorkspace() throws {
         for fingerCount in [OverviewGestureFingerCount.three, .four] {
             for invertDirection in [false, true] {
                 let fixture = try makeFixture(workspaceSwipeEnabled: false)
@@ -40,9 +40,151 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
                 sendFrame(fixture, phase: .began, fingers: fingers, x: 0.5, y: 0.2, at: 102)
                 sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.6, at: 102.1)
                 XCTAssertTrue(fixture.controller.isOverviewOpen())
+                sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 102.2)
+
+                sendFrame(fixture, phase: .began, fingers: fingers, x: 0.5, y: 0.8, at: 103)
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.4, at: 103.1)
+                XCTAssertFalse(fixture.controller.isOverviewOpen())
+                sendFrame(fixture, phase: .changed, fingers: fingers - 1, x: 0.5, y: 0.4, at: 103.15)
+                sendFrame(fixture, phase: .changed, fingers: fingers, x: 0.5, y: 0.9, at: 103.2)
+                XCTAssertFalse(fixture.controller.isOverviewOpen(), "Closing consumes the contact until full lift")
+                sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 103.3)
+                _ = performVerticalSwipe(fixture, fingers: fingers, totalUnits: 40, startTime: 104)
+                XCTAssertTrue(fixture.controller.isOverviewOpen())
                 XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
             }
         }
+    }
+
+    func testKeyboardOpenedOverviewOnlyClosesForEnabledDownwardGesture() throws {
+        let fixture = try makeFixture(enableNiri: false)
+        let controller = fixture.controller
+        controller.setAnimationsEnabled(false)
+        controller.settings.gestures.overviewGestureEnabled = true
+        controller.windowActionHandler.toggleOverview()
+        defer { controller.windowActionHandler.dismissOverview() }
+
+        let rejectedGestures: [(fingers: Int, x: CGFloat, y: CGFloat)] = [
+            (fingers: 3, x: 0.5, y: 0.3),
+            (fingers: 4, x: 0.5, y: 0.7),
+            (fingers: 4, x: 0.7, y: 0.5),
+            (fingers: 4, x: 0.75, y: 0.25),
+            (fingers: 4, x: 0.5, y: 0.454)
+        ]
+        for (index, gesture) in rejectedGestures.enumerated() {
+            let time = 100 + Double(index)
+            sendFrame(fixture, phase: .began, fingers: gesture.fingers, x: 0.5, y: 0.5, at: time)
+            sendFrame(
+                fixture, phase: .changed, fingers: gesture.fingers,
+                x: gesture.x, y: gesture.y, at: time + 0.1
+            )
+            sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: time + 0.2)
+            XCTAssertTrue(controller.isOverviewOpen())
+            XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+        }
+
+        controller.settings.gestures.overviewGestureEnabled = false
+        _ = performVerticalSwipe(fixture, fingers: 4, from: 0.8, totalUnits: -40, startTime: 106)
+        XCTAssertTrue(controller.isOverviewOpen())
+        controller.settings.gestures.overviewGestureEnabled = true
+        _ = performVerticalSwipe(fixture, fingers: 4, from: 0.8, totalUnits: -25, startTime: 107)
+        XCTAssertFalse(controller.isOverviewOpen())
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+    }
+
+    func testOverviewStateChangeInvalidatesArmedAndCommittedGestureUntilLift() throws {
+        for initiallyOpen in [false, true] {
+            for committed in [false, true] {
+                let fixture = try makeFixture(workspaceSwipeEnabled: false)
+                let controller = fixture.controller
+                let handler = controller.mouseEventHandler
+                controller.setAnimationsEnabled(false)
+                controller.settings.gestures.overviewGestureEnabled = true
+                if initiallyOpen { controller.windowActionHandler.toggleOverview() }
+                defer { controller.windowActionHandler.dismissOverview() }
+                let direction: CGFloat = initiallyOpen ? -1 : 1
+                sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.5, at: 100)
+                if committed {
+                    sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.5 + direction * 0.04, at: 100.1)
+                }
+                XCTAssertEqual(handler.state.gesturePhase, committed ? .committed : .armed)
+
+                controller.windowActionHandler.toggleOverview()
+                sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.5 + direction * 0.2, at: 100.2)
+                sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.5 - direction * 0.2, at: 100.3)
+                XCTAssertEqual(controller.isOverviewOpen(), !initiallyOpen)
+                XCTAssertTrue(handler.state.suppressGestureStartUntilAllTouchesLift)
+                sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.4)
+                _ = performVerticalSwipe(
+                    fixture, fingers: 4, from: 0.5, totalUnits: -direction * 40, startTime: 101
+                )
+                XCTAssertEqual(controller.isOverviewOpen(), initiallyOpen)
+            }
+        }
+    }
+
+    func testOpeningOverviewStopsWorkspaceGestureUntilLift() throws {
+        for committed in [false, true] {
+            let fixture = try makeFixture()
+            let controller = fixture.controller
+            let handler = controller.mouseEventHandler
+            controller.setAnimationsEnabled(false)
+            controller.settings.gestures.overviewGestureEnabled = true
+            defer { controller.windowActionHandler.dismissOverview() }
+            sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 100)
+            if committed {
+                sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.24, at: 100.1)
+            }
+            XCTAssertEqual(handler.state.gesturePhase, committed ? .committed : .armed)
+
+            controller.windowActionHandler.toggleOverview()
+            sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.6, at: 100.2)
+            XCTAssertEqual(handler.state.gesturePhase, .idle)
+            XCTAssertTrue(handler.state.suppressGestureStartUntilAllTouchesLift)
+            XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+            controller.windowActionHandler.dismissOverview()
+            sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.8, at: 100.3)
+            XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+            sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.4)
+            _ = performVerticalSwipe(fixture, totalUnits: 220, startTime: 101)
+            XCTAssertEqual(activeWorkspace(fixture), fixture.ws2)
+        }
+    }
+
+    func testOverviewCloseOverOwnedSurfacePreservesWorkspaceAndViewport() throws {
+        let fixture = try makeFixture(scrollGestureEnabled: true)
+        let controller = fixture.controller
+        controller.setAnimationsEnabled(false)
+        controller.settings.gestures.overviewGestureEnabled = true
+        try addColumnGestureWindows(to: fixture)
+        controller.windowActionHandler.toggleOverview()
+        let surfaceId = "overview-gesture-close-test"
+        let frame = fixture.monitor.frame
+        controller.ownedWindowRegistry.registerWindowNumber(
+            surfaceId: surfaceId,
+            policy: SurfacePolicy(
+                kind: .overview, hitTestPolicy: .interactive, capturePolicy: .included,
+                suppressesManagedFocusRecovery: true
+            ),
+            windowNumber: 999_301,
+            frameProvider: { frame },
+            visibilityProvider: { true }
+        )
+        defer {
+            controller.ownedWindowRegistry.unregister(surfaceId: surfaceId)
+            controller.windowActionHandler.dismissOverview()
+        }
+        XCTAssertTrue(controller.isPointInOwnWindow(frame.center))
+        let offset = controller.workspaceManager.niriViewportState(for: fixture.ws1).viewOffset
+        sendFrame(fixture, phase: .began, fingers: 3, x: 0.8, y: 0.5, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.4, y: 0.5, at: 100.1)
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.2)
+        XCTAssertTrue(controller.isOverviewOpen())
+        _ = performVerticalSwipe(fixture, fingers: 4, from: 0.8, totalUnits: -40, startTime: 101)
+        XCTAssertFalse(controller.isOverviewOpen())
+        XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
+        XCTAssertEqual(controller.workspaceManager.niriViewportState(for: fixture.ws1).viewOffset, offset)
+        XCTAssertFalse(controller.mouseEventHandler.isViewportGestureActive)
     }
 
     func testOverviewRecognizesShortPhysicalSwipe() throws {
@@ -88,24 +230,31 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
     }
 
     func testOverviewSwipeConsumesTailThenAllowsFreshScrolling() throws {
-        let fixture = try makeFixture(workspaceSwipeEnabled: false)
-        fixture.controller.setAnimationsEnabled(false)
-        fixture.controller.settings.gestures.overviewGestureEnabled = true
-        let handler = fixture.controller.mouseEventHandler
-        defer { if fixture.controller.isOverviewOpen() { fixture.controller.windowActionHandler.toggleOverview() } }
+        for closing in [false, true] {
+            let fixture = try makeFixture(workspaceSwipeEnabled: false)
+            fixture.controller.setAnimationsEnabled(false)
+            fixture.controller.settings.gestures.overviewGestureEnabled = true
+            if closing { fixture.controller.windowActionHandler.toggleOverview() }
+            let handler = fixture.controller.mouseEventHandler
+            defer { fixture.controller.windowActionHandler.dismissOverview() }
 
-        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
-        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.6, at: 100.1)
+            sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: closing ? 0.8 : 0.2, at: 100)
+            sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: closing ? 0.4 : 0.6, at: 100.1)
 
-        XCTAssertTrue(fixture.controller.isOverviewOpen())
-        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.changed.rawValue))
-        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
-        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.2)
-        XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
-        XCTAssertFalse(handler.state.consumeTrackpadScrollUntilAllTouchesLift)
-        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
-        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.began.rawValue))
-        XCTAssertFalse(handler.state.suppressTrackpadMomentumScroll)
+            XCTAssertEqual(fixture.controller.isOverviewOpen(), !closing)
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.changed.rawValue))
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.2)
+            XCTAssertFalse(handler.state.suppressGestureStartUntilAllTouchesLift)
+            XCTAssertFalse(handler.state.consumeTrackpadScrollUntilAllTouchesLift)
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
+            XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            sendFrame(fixture, phase: .began, fingers: 2, x: 0.5, y: 0.5, at: 101)
+            XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: 0))
+            XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.began.rawValue))
+            XCTAssertFalse(handler.state.suppressTrackpadMomentumScroll)
+        }
     }
 
     func testAmbiguousUpwardGestureDoesNotOpenOverviewOrSwitchWorkspace() throws {

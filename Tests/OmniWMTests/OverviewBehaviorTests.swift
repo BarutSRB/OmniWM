@@ -697,6 +697,64 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(wasOpenAtActivation, false)
     }
 
+    func testRepeatedSelectionDismissalClosesOpeningAndOpenOverviewOnce() throws {
+        for dismissDuringOpening in [true, false] {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+            fixture.controller.motionPolicy.animationsEnabled = true
+            let handoffScheduler = OverviewPostCloseHandoffScheduler()
+            let clock = OverviewAnimationTestClock()
+            var environment = fixture.environment
+            environment.schedulePostCloseHandoff = handoffScheduler.schedule
+            var animationCompletions: [OverviewAnimationCompletion] = []
+            let overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: environment,
+                animationInstaller: { _, _, completion in
+                    animationCompletions.append(completion)
+                    return true
+                },
+                animationMediaTimeProvider: { clock.time }
+            )
+            overview.open()
+            if dismissDuringOpening {
+                clock.time = 0.03
+            } else {
+                clock.time = 10
+                try XCTUnwrap(animationCompletions.last).complete()
+            }
+            let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
+            var activatedHandles: [WindowHandle] = []
+            overview.onActivateWindow = { [weak overview] handle, _ in
+                XCTAssertEqual(overview?.isOpen, false)
+                activatedHandles.append(handle)
+            }
+
+            overview.input.dismissToSelection(animated: true)
+            let closeSubmissionCount = animationCompletions.count
+            let closeCompletion = try XCTUnwrap(animationCompletions.last)
+            overview.input.dismissToSelection(animated: true)
+
+            guard case let .closing(targetWindow) = overview.state else {
+                return XCTFail("Expected repeated dismissal to keep overview closing")
+            }
+            XCTAssertTrue(targetWindow === selectedHandle)
+            XCTAssertEqual(animationCompletions.count, closeSubmissionCount)
+            XCTAssertEqual(handoffScheduler.count, 0)
+            XCTAssertTrue(activatedHandles.isEmpty)
+
+            closeCompletion.complete()
+            overview.input.dismissToSelection(animated: true)
+
+            XCTAssertFalse(overview.isOpen)
+            XCTAssertEqual(animationCompletions.count, closeSubmissionCount)
+            XCTAssertEqual(handoffScheduler.count, 1)
+            XCTAssertTrue(activatedHandles.isEmpty)
+            handoffScheduler.runNext()
+            XCTAssertEqual(activatedHandles, [selectedHandle])
+        }
+    }
+
     func testPostCloseFocusHandoffSurvivesWindowVisibilityChange() throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
         let handoffScheduler = OverviewPostCloseHandoffScheduler()
@@ -1008,7 +1066,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertTrue(activatedPIDs.isEmpty)
     }
 
-    func testCancelRestoresPreviousApplicationAfterSurfaceCompletion() throws {
+    func testSelectionDismissalWithoutSelectionRestoresPreviousApplicationAfterSurfaceCompletion() throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
         let handoffScheduler = OverviewPostCloseHandoffScheduler()
         var activatedPIDs: [pid_t] = []
@@ -1025,7 +1083,8 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.beginOwnedSession()
         overview.onAnimationComplete(state: .open)
 
-        overview.dismiss(reason: .cancel, animated: false)
+        XCTAssertNil(overview.selectedWindowHandle)
+        overview.input.dismissToSelection(animated: false)
 
         XCTAssertTrue(activatedPIDs.isEmpty)
         XCTAssertFalse(overview.state.isOpen)
