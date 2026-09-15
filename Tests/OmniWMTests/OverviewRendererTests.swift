@@ -478,6 +478,34 @@ final class OverviewRendererTests: XCTestCase {
     }
 
     @MainActor
+    func testNewCardSeedsFromCachedPreview() throws {
+        let (layout, item) = makeLayerLayout()
+        let renderer = OverviewLayerRenderer()
+        let cached = try makeOverviewPreviewFrame()
+        renderer.previewForHandle = { handle in handle === item.handle ? cached : nil }
+        let state = OverviewRenderState(
+            searchQuery: "",
+            selectedWindowHandle: nil,
+            hoveredWindowHandle: nil,
+            closeButtonHovered: false,
+            progress: 1,
+            bounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+            palette: .default
+        )
+
+        renderer.updateLayout(layout, state: state, caretAnimated: false)
+
+        let card = try XCTUnwrap(renderer.windowLayers[item.handle])
+        XCTAssertTrue(card.preview === cached)
+        XCTAssertNotNil(card.thumbnail.contents)
+
+        let live = try makeOverviewPreviewFrame()
+        renderer.updatePreview(live, for: item.handle)
+        renderer.updateLayout(layout, state: state, caretAnimated: false)
+        XCTAssertTrue(card.preview === live)
+    }
+
+    @MainActor
     func testCardsCullOffscreenWindowsAndRemoveRetiredLayers() throws {
         let (layout, item) = makeLayerLayout(overviewFrame: CGRect(x: 100, y: -1000, width: 200, height: 140))
         let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))

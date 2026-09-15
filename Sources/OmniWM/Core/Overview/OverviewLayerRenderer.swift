@@ -21,6 +21,7 @@ final class OverviewLayerRenderer {
     private let searchText = OverviewRenderer.textLayer(size: 16, color: Colors.textDimmed, alignment: .center)
     let caret = CALayer()
     private(set) var windowLayers: [WindowHandle: OverviewWindowLayer] = [:]
+    var previewForHandle: ((WindowHandle) -> OverviewPreviewFrame?)?
     private var chromeLayout: OverviewLayout?
     private var chromeSections: [WorkspaceDescriptor.ID: CALayer] = [:]
     private var contentsScale: CGFloat = 1
@@ -190,6 +191,7 @@ final class OverviewLayerRenderer {
                     layers = OverviewWindowLayer()
                     windowLayers[window.handle] = layers
                     cards.addSublayer(layers.root)
+                    layers.updatePreview(previewForHandle?(window.handle))
                 }
                 layers.updateContent(window, contentsScale: contentsScale)
                 order.append(layers.root)

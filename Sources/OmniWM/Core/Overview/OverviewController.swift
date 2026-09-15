@@ -324,8 +324,9 @@ extension OverviewController {
     private func updatePreviewVisibility() {
         let represented = Set(overviewSnapshot.windows.keys)
         switch state {
-        case .closed,
-             .closing:
+        case .closed:
+            return
+        case .closing:
             thumbnailCapture.reconcile(represented: represented, visible: [])
             return
         case .opening,

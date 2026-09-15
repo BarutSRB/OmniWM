@@ -2187,7 +2187,7 @@ final class OverviewBehaviorTests: XCTestCase {
         )
         overview.prepareOpenState()
         overview.onAnimationComplete(state: .open)
-        let handle = try XCTUnwrap(fixture.handles.first)
+        let handle = try XCTUnwrap(overview.selectedWindowHandle)
         capture.reconcile(represented: [handle], visible: [
             OverviewPreviewRequest(handle: handle, pixelWidth: 80, pixelHeight: 60)
         ])
@@ -2200,11 +2200,11 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertTrue(capture.previewCache[handle] === frame)
 
         overview.dismiss(animated: false)
-        XCTAssertTrue(capture.previewCache.isEmpty)
+        XCTAssertTrue(capture.previewCache[handle] === frame)
         driver.streams[0].output.offer(frame)
         XCTAssertNil(driver.streams[0].output.take())
         driver.completeAllStarts()
-        XCTAssertTrue(capture.previewCache.isEmpty)
+        XCTAssertTrue(capture.previewCache[handle] === frame)
     }
 
     func testReopenedOverviewRejectsPreviousSessionFrames() async throws {

@@ -58,6 +58,7 @@ final class OverviewThumbnailCapture {
     private var discoveryTask: Task<Void, Never>?
     private var windowsByToken: [WindowToken: SCWindow] = [:]
     private(set) var previewCache: [WindowHandle: OverviewPreviewFrame] = [:]
+    private let memoryPressure: any DispatchSourceMemoryPressure
     var onPreview: @MainActor (WindowHandle, OverviewPreviewFrame?) -> Void = { _, _ in }
 
     init(
@@ -70,6 +71,15 @@ final class OverviewThumbnailCapture {
         self.ownedWindowRegistry = ownedWindowRegistry
         self.hasCaptureAccess = hasCaptureAccess
         self.streamFactory = streamFactory
+        memoryPressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        memoryPressure.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.releaseCache() }
+        }
+        memoryPressure.activate()
+    }
+
+    isolated deinit {
+        memoryPressure.cancel()
     }
 
     func reconcile(represented: Set<WindowHandle>, visible: [OverviewPreviewRequest]) {
@@ -130,6 +140,10 @@ final class OverviewThumbnailCapture {
         for source in sources.values { retire(source) }
         sources.removeAll()
         sourceOrder.removeAll()
+    }
+
+    func releaseCache() {
+        guard sources.isEmpty else { return }
         let handles = Array(previewCache.keys)
         previewCache.removeAll()
         for handle in handles { onPreview(handle, nil) }

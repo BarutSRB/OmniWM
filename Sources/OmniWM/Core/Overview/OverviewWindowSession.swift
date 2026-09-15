@@ -72,6 +72,7 @@ final class OverviewWindowSession {
 
         for monitor in monitors {
             let window = OverviewWindow(monitor: monitor, palette: palette)
+            window.previewForHandle = previewForHandle
 
             window.onWindowSelected = { [weak controller, weak self] monitorId, handle in
                 self?.projection.activeInteractionMonitorId = monitorId

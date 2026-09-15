@@ -72,6 +72,47 @@ final class OverviewDragCaptureIntegrationTests: XCTestCase {
         XCTAssertEqual(fixture.captureStarts.count, 1)
     }
 
+    func testReopenSeedsCardsFromPreviousSessionFramesUntilLiveFramesArrive() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.overview.dismiss(animated: false) }
+        fixture.overview.open()
+        await fixture.driver.waitForStarts(1)
+        fixture.driver.completeAllStarts()
+        let handle = try XCTUnwrap(fixture.overview.selectedWindowHandle)
+        let previous = try makeOverviewPreviewFrame()
+        try await publish(previous, in: fixture)
+        fixture.overview.dismiss(animated: false)
+        await fixture.driver.waitForStops(1)
+        XCTAssertTrue(fixture.capture.previewCache[handle] === previous)
+
+        fixture.overview.open()
+
+        let card = try XCTUnwrap(overviewCard(for: handle, in: fixture))
+        XCTAssertTrue(card.preview === previous, "Reopened card must show the previous frame before any stream starts")
+        await fixture.driver.waitForStarts(2)
+        fixture.driver.completeAllStarts()
+        let live = try makeOverviewPreviewFrame()
+        let published = expectation(description: "live frame reached the card")
+        let onPreview = fixture.capture.onPreview
+        fixture.capture.onPreview = { handle, preview in
+            onPreview(handle, preview)
+            if preview === live { published.fulfill() }
+        }
+        fixture.driver.streams[1].output.offer(live)
+        await fulfillment(of: [published], timeout: 1)
+        XCTAssertTrue(card.preview === live)
+        fixture.driver.streams[0].output.offer(try makeOverviewPreviewFrame())
+        XCTAssertNil(fixture.driver.streams[0].output.take())
+        XCTAssertTrue(card.preview === live)
+    }
+
+    private func overviewCard(for handle: WindowHandle, in fixture: Fixture) -> OverviewWindowLayer? {
+        fixture.registry.visibleWindows(kind: .overview)
+            .compactMap { ($0 as? OverviewWindow)?.contentView as? OverviewView }
+            .compactMap { $0.layerRenderer.windowLayers[handle] }
+            .first
+    }
+
     private func publish(_ frame: OverviewPreviewFrame, in fixture: Fixture) async throws {
         let published = expectation(description: "Shared source frame reached its consumers")
         let previous = fixture.capture.onPreview

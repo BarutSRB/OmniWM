@@ -25,6 +25,10 @@ final class OverviewWindow: NSPanel {
     var onDragBegin: ((Monitor.ID, WindowHandle, CGPoint) -> Void)?
     var onDragUpdate: ((Monitor.ID, CGPoint) -> Void)?
     var onDragEnd: ((Monitor.ID, CGPoint) -> Void)?
+    var previewForHandle: ((WindowHandle) -> OverviewPreviewFrame?)? {
+        get { overlayView.layerRenderer.previewForHandle }
+        set { overlayView.layerRenderer.previewForHandle = newValue }
+    }
 
     init(monitor: Monitor, palette: OverviewRenderPalette = .default) {
         self.monitor = monitor
