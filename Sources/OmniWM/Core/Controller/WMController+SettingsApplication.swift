@@ -53,9 +53,9 @@ extension WMController {
             settings.animationsEnabled = enabled
         }
 
-        guard motionPolicy.animationsEnabled != enabled else { return }
+        guard motionPolicy.userAnimationsEnabled != enabled else { return }
 
-        motionPolicy.animationsEnabled = enabled
+        motionPolicy.userAnimationsEnabled = enabled
     }
 
     func applyCurrentAppearanceMode() {

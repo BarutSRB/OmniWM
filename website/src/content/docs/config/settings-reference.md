@@ -45,7 +45,7 @@ Global switches: hotkeys, Hyper key, default layout, sleep, updates, IPC, animat
 | `preventSleepEnabled` | boolean | `false` | Prevents idle display sleep while your user session is active. |
 | `updateChecksEnabled` | boolean | `true` | Automatic update checks. |
 | `ipcEnabled` | boolean | `false` | Enables the IPC server used by `omniwmctl`. |
-| `animationsEnabled` | boolean | `true` | Animates window layout changes. |
+| `animationsEnabled` | boolean | `true` | Animates window layout changes and other OmniWM-authored motion. macOS Reduce Motion turns them off regardless of this key. |
 
 ## focus
 
@@ -229,7 +229,7 @@ Mouse and trackpad gestures.
 | `overviewGestureEnabled` | boolean | `false` | Enable the trackpad gesture that opens Overview with an upward swipe and closes it with a downward swipe. |
 | `overviewGestureFingerCount` | integer | `4` | Overview gesture finger count: `3` or `4`. |
 
-Overview follows your fingers like Mission Control. Swipe up with the configured finger count and the thumbnails fly out as you move; release past the halfway point, or flick upward, to finish opening, and release earlier to cancel without disturbing the app you were in. Swipe down while Overview is open to close it the same way. Closing matches Escape: it activates the highlighted window, or restores the previously active app when there is no selection. Touching the trackpad while Overview is animating catches it in place. With `animationsEnabled` off, the swipe triggers immediately after a short travel instead of tracking. Direction is independent of `invertDirection`. Lift all fingers between gestures. Settings reject enabled gestures that share the same fingers and upward movement; horizontal swipes may share fingers with Overview. Validation accounts for connected monitors' column orientations and workspace swipes running perpendicular to column scrolling when their finger counts match. Without column scrolling, workspace swipes use their configured axis. If a display change creates an overlap, ambiguous upward swipes are ignored until the assignments are corrected. Disable the matching macOS Mission Control gesture to avoid interception.
+Overview follows your fingers like Mission Control. Swipe up with the configured finger count and the thumbnails fly out as you move; release past the halfway point, or flick upward, to finish opening, and release earlier to cancel without disturbing the app you were in. Swipe down while Overview is open to close it the same way. Closing matches Escape: it activates the highlighted window, or restores the previously active app when there is no selection. Touching the trackpad while Overview is animating catches it in place. With `animationsEnabled` off or macOS Reduce Motion on, the swipe triggers immediately after a short travel instead of tracking. Direction is independent of `invertDirection`. Lift all fingers between gestures. Settings reject enabled gestures that share the same fingers and upward movement; horizontal swipes may share fingers with Overview. Validation accounts for connected monitors' column orientations and workspace swipes running perpendicular to column scrolling when their finger counts match. Without column scrolling, workspace swipes use their configured axis. If a display change creates an overlap, ambiguous upward swipes are ignored until the assignments are corrected. Disable the matching macOS Mission Control gesture to avoid interception.
 
 ## statusBar
 

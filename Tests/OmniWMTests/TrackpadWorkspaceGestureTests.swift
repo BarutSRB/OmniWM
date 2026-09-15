@@ -323,6 +323,27 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         else { return XCTFail("Expected a flick to commit from low progress") }
     }
 
+    func testSystemReduceMotionUsesDiscreteOverviewTrigger() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        fixture.controller.motionPolicy.systemReducesMotion = true
+        let actions = fixture.controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: 100.1)
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        XCTAssertFalse(fixture.controller.isOverviewOpen())
+
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.6, at: 100.2)
+
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        guard case .open = actions.overviewState else {
+            return XCTFail("Expected the discrete trigger under Reduce Motion")
+        }
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.3)
+        XCTAssertTrue(fixture.controller.isOverviewOpen())
+    }
+
     func testHotkeyDuringInteractiveTrackingSuppressesGestureUntilLift() throws {
         let fixture = try makeInteractiveOverviewFixture()
         let handler = fixture.controller.mouseEventHandler

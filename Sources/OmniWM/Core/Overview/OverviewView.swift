@@ -87,7 +87,6 @@ final class OverviewView: NSView {
             layout,
             state: renderState,
             caretAnimated: !state.isAnimating && state.isOpen && animationsEnabled
-                && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         )
         needsDisplay = true
     }

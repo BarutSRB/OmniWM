@@ -816,6 +816,41 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(activatedHandle, selected)
     }
 
+    func testSystemReduceMotionMakesOverviewTransitionsDiscrete() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+        fixture.controller.motionPolicy.animationsEnabled = true
+        fixture.controller.motionPolicy.systemReducesMotion = true
+        var environment = fixture.environment
+        environment.frontmostApplicationPID = { nil }
+        environment.activateOmniWM = {}
+        var installs = 0
+        let overview = OverviewController(
+            wmController: fixture.controller,
+            motionPolicy: fixture.controller.motionPolicy,
+            environment: environment,
+            animationInstaller: { _, _, _ in
+                installs += 1
+                return true
+            },
+            animationMediaTimeProvider: { 0 }
+        )
+
+        overview.open()
+
+        guard case .open = overview.state else {
+            return XCTFail("Expected Reduce Motion to open Overview discretely")
+        }
+        XCTAssertEqual(installs, 0)
+        XCTAssertFalse(overview.beginInteractiveTransition())
+
+        overview.dismiss(reason: .cancel, animated: true)
+
+        guard case .closed = overview.state else {
+            return XCTFail("Expected Reduce Motion to close Overview discretely")
+        }
+        XCTAssertEqual(installs, 0)
+    }
+
     func testPostCloseFocusHandoffIsDiscardedAfterOverviewReopens() throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
         let handoffScheduler = OverviewPostCloseHandoffScheduler()

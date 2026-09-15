@@ -57,7 +57,7 @@ struct GeneralSettingsTab: View {
 
     var body: some View {
         let animationsEnabled = Binding(
-            get: { controller.motionPolicy.animationsEnabled },
+            get: { controller.motionPolicy.userAnimationsEnabled },
             set: { controller.setAnimationsEnabled($0) }
         )
         let startAtLogin = Binding(
@@ -79,7 +79,12 @@ struct GeneralSettingsTab: View {
                 SettingsCaption("Controls the appearance of menus and workspace bar")
 
                 Toggle("Enable Animations", isOn: animationsEnabled)
-                SettingsCaption("Turns OmniWM-authored animations on or off live without relaunching.")
+                    .disabled(controller.motionPolicy.systemReducesMotion)
+                SettingsCaption(
+                    controller.motionPolicy.systemReducesMotion
+                        ? "Off while macOS Reduce Motion is on."
+                        : "Turns OmniWM-authored animations on or off live without relaunching."
+                )
 
                 AppWindowCornerSettings(preferences: windowCornerPreferences)
             }

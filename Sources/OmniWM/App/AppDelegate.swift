@@ -154,6 +154,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardHistoryDirectory: storagePaths.stateDirectory
         )
         controller.applyPersistedSettings(settings)
+        startSystemMotionPreferenceObservation(controller)
         let cliManager = AppCLIManager()
         let updateCoordinator = UpdateCoordinator(settings: settings, runtimeState: runtimeState)
         self.cliManager = cliManager
@@ -246,6 +247,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func stopIPCServer() {
         ipcServer?.stop()
         ipcServer = nil
+    }
+
+    private func startSystemMotionPreferenceObservation(_ controller: WMController) {
+        controller.motionPolicy.systemReducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        _ = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak controller] _ in
+            Task { @MainActor [weak controller] in
+                controller?.motionPolicy.systemReducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            }
+        }
     }
 
     private func startMonitorSetupPresentationObservation() {
