@@ -169,7 +169,7 @@ If `OMNIWM_SOCKET` points into an existing directory, OmniWM reuses that directo
 Generate shell completion scripts for `omniwmctl`.
 
 ```
-omniwmctl completion <zsh|bash|fish>
+omniwmctl completion <zsh|bash|fish|nu>
 ```
 
 **Setup:**
@@ -185,4 +185,29 @@ eval "$(omniwmctl completion bash)"
 omniwmctl completion fish | source
 ```
 
-Completions are context-aware: query names, selectors, field names, command paths, capture actions and profiles, channel names, rule actions, and argument values are all completed dynamically based on the automation manifest.
+### Nushell
+
+Nushell completions require Nu 0.108 or newer. Run these commands in Nushell to generate the completion module:
+
+```nu
+mkdir ($nu.default-config-dir | path join completions)
+omniwmctl completion nu | save --force ($nu.default-config-dir | path join completions omniwmctl-completions.nu)
+```
+
+Then add this line to `config.nu` (open it with `config nu`):
+
+```nu
+use ($nu.default-config-dir | path join completions omniwmctl-completions.nu) omniwmctl
+```
+
+Start a new Nushell session, or run the `use` line at the prompt after generating the file. Regenerate the module after upgrading OmniWM, then start a new session to load the updated completions.
+
+Type one of these prefixes and press Tab:
+
+| Prefix | Suggested completion |
+|--------|----------------------|
+| `omniwmctl que` | `query` |
+| `omniwmctl completion n` | `nu` |
+| `omniwmctl capture start perf` | `performance` |
+
+Completions are context-aware: query names, selectors, field names, command paths, capture actions and profiles, channel names, rule actions, and fixed argument values come from the shared automation catalog. Generating and using completions does not connect to IPC; live workspace names and window IDs are not suggested.

@@ -4,7 +4,7 @@
 import Foundation
 import OmniWMIPC
 
-enum CLIOutputFormat: String, Equatable {
+enum CLIOutputFormat: String, CaseIterable, Equatable {
     case json
     case ndjson
     case table
@@ -44,4 +44,5 @@ enum CLIShell: String, CaseIterable, Equatable {
     case zsh
     case bash
     case fish
+    case nu
 }

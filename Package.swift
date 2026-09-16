@@ -100,7 +100,8 @@ let package = Package(
             resources: [
                 .embedInCode("Completions/completion.zsh"),
                 .embedInCode("Completions/completion.bash"),
-                .embedInCode("Completions/completion.fish")
+                .embedInCode("Completions/completion.fish"),
+                .embedInCode("Completions/completion.nu")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

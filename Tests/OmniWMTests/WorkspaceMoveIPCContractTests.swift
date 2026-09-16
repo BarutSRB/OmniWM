@@ -237,6 +237,17 @@ final class WorkspaceMoveIPCContractTests: XCTestCase {
         }
     }
 
+    func testNuWorkspaceMoveCompletionsTrackNonFlagPositionals() throws {
+        for completionCase in workspaceMoveCompletionCases {
+            let completions = try workspaceMoveCompletions(shell: .nu, arguments: completionCase.arguments)
+            XCTAssertEqual(
+                Set(completions),
+                completionCase.expected,
+                "nu: \(completionCase.arguments)"
+            )
+        }
+    }
+
     func testFishWorkspaceMoveCompletionsTrackNonFlagPositionals() throws {
         guard fishExecutablePath() != nil else {
             throw XCTSkip("Fish is not installed")
@@ -251,6 +262,39 @@ final class WorkspaceMoveIPCContractTests: XCTestCase {
                 completionCase.expected,
                 "fish: \(completionCase.arguments)"
             )
+        }
+    }
+
+    func testBashAndZshScratchpadCompletionsSeparateActionsFromSlots() throws {
+        let slots = Set((1 ... 10).map(String.init))
+        for shell in [CLIShell.zsh, .bash] {
+            XCTAssertEqual(
+                Set(try shellCompletions(shell: shell, arguments: "command scratchpad")),
+                ["assign", "toggle"],
+                shell.rawValue
+            )
+            for action in ["assign", "toggle"] {
+                XCTAssertEqual(
+                    Set(try shellCompletions(shell: shell, arguments: "command scratchpad \(action)")),
+                    slots,
+                    "\(shell.rawValue): \(action)"
+                )
+            }
+        }
+    }
+
+    func testFishScratchpadCompletionsSeparateActionsFromSlots() throws {
+        guard fishExecutablePath() != nil else {
+            throw XCTSkip("Fish is not installed")
+        }
+
+        let slots = Set((1 ... 10).map(String.init))
+        let root = Set(try shellCompletions(shell: .fish, arguments: "command scratchpad"))
+        XCTAssertTrue(Set(["assign", "toggle"]).isSubset(of: root))
+        XCTAssertTrue(root.isDisjoint(with: slots))
+        for action in ["assign", "toggle"] {
+            let completions = Set(try shellCompletions(shell: .fish, arguments: "command scratchpad \(action)"))
+            XCTAssertTrue(slots.isSubset(of: completions), action)
         }
     }
 
@@ -299,8 +343,12 @@ final class WorkspaceMoveIPCContractTests: XCTestCase {
     }
 
     private func workspaceMoveCompletions(shell: CLIShell, arguments: String) throws -> [String] {
+        try shellCompletions(shell: shell, arguments: "workspace move-to-monitor \(arguments)")
+    }
+
+    private func shellCompletions(shell: CLIShell, arguments: String) throws -> [String] {
         let argumentCount = arguments.split(separator: " ").count
-        let words = "omniwmctl workspace move-to-monitor \(arguments) ''"
+        let words = "omniwmctl \(arguments) ''"
         let generatedScript = CLICompletionGenerator.script(for: shell)
         let script: String
         let executable: String
@@ -316,7 +364,7 @@ final class WorkspaceMoveIPCContractTests: XCTestCase {
               print -rl -- "$@"
             }
             words=(\(words))
-            CURRENT=\(argumentCount + 4)
+            CURRENT=\(argumentCount + 2)
             \(generatedScript)
             true
             """
@@ -325,7 +373,7 @@ final class WorkspaceMoveIPCContractTests: XCTestCase {
             script = """
             \(generatedScript)
             COMP_WORDS=(\(words))
-            COMP_CWORD=\(argumentCount + 3)
+            COMP_CWORD=\(argumentCount + 1)
             _omniwmctl
             printf '%s\\n' "${COMPREPLY[@]}"
             """
@@ -336,8 +384,10 @@ final class WorkspaceMoveIPCContractTests: XCTestCase {
             executable = fishExecutable
             script = """
             \(generatedScript)
-            complete -C "omniwmctl workspace move-to-monitor \(arguments) "
+            complete -C "omniwmctl \(arguments) "
             """
+        case .nu:
+            return try NuCompletionTestSupport.completions("omniwmctl \(arguments) ")
         }
 
         let process = Process()

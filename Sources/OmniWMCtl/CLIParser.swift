@@ -300,7 +300,7 @@ enum CLIParser {
             "  omniwmctl ping",
             "  omniwmctl version",
             "  omniwmctl help",
-            "  omniwmctl completion <zsh|bash|fish>"
+            "  omniwmctl completion <\(CLIShell.allCases.map(\.rawValue).joined(separator: "|"))>"
         ]
         lines += commandLines.map { "  omniwmctl \($0)" }
         lines += ruleLines.map { "  omniwmctl \($0)" }

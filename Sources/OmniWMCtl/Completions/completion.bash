@@ -141,7 +141,7 @@ _omniwmctl()
       return 0
       ;;
     completion)
-      __omniwmctl_compgen "zsh bash fish"
+      __omniwmctl_compgen "#{{shellNames}}"
       return 0
       ;;
   esac

@@ -115,7 +115,7 @@ _omniwmctl() {
       suggestions="#{{windowActionNames}}"
       ;;
     completion)
-      suggestions="zsh bash fish"
+      suggestions="#{{shellNames}}"
       ;;
   esac
 

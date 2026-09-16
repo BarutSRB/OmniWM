@@ -109,6 +109,8 @@ final class MoveWindowToMonitorIPCCommandTests: XCTestCase {
                         "__fish_seen_subcommand_from command; and __fish_seen_subcommand_from move-to-monitor"
                     )
                 )
+            case .nu:
+                XCTAssertTrue(script.contains("\"move-to-monitor\": [\"down\" \"left\" \"right\" \"up\"]"))
             }
         }
     }

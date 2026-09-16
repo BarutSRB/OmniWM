@@ -4,7 +4,7 @@
 import Foundation
 
 enum CLICompletionGenerator {
-    private typealias Catalog = CLICompletionCatalog
+    typealias Catalog = CLICompletionCatalog
 
     static func script(for shell: CLIShell) -> String {
         switch shell {
@@ -14,11 +14,14 @@ enum CLICompletionGenerator {
             bashScript()
         case .fish:
             fishScript()
+        case .nu:
+            nushellScript()
         }
     }
 
     private static func zshScript() -> String {
         renderTemplate(PackageResources.completion_zsh, values: [
+            "shellNames": shellWords(CLIShell.allCases.map(\.rawValue)),
             "topLevelCommands": shellWords(Catalog.topLevelCommands),
             "queryNames": shellWords(Catalog.queryNames),
             "queryFieldsByName": renderZshCase(map: Catalog.queryFieldsByName),
@@ -45,6 +48,7 @@ enum CLICompletionGenerator {
 
     private static func bashScript() -> String {
         renderTemplate(PackageResources.completion_bash, values: [
+            "shellNames": shellWords(CLIShell.allCases.map(\.rawValue)),
             "topLevelCommands": shellWords(Catalog.topLevelCommands),
             "queryNames": shellWords(Catalog.queryNames),
             "queryFieldsByName": renderBashCase(map: Catalog.queryFieldsByName),
@@ -171,7 +175,7 @@ enum CLICompletionGenerator {
         .joined(separator: "\n")
     }
 
-    private static func renderTemplate(_ bytes: [UInt8], values: [String: String]) -> String {
+    static func renderTemplate(_ bytes: [UInt8], values: [String: String]) -> String {
         let template = String(decoding: bytes, as: UTF8.self)
         var result = ""
         result.reserveCapacity(template.utf8.count)
