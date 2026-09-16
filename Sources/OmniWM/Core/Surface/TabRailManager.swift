@@ -13,6 +13,11 @@ final class TabRailManager {
 
     private var railWindows: [TabRailKey: TabRailWindow] = [:]
     private var railInfos: [TabRailKey: TabRailInfo] = [:]
+    private let motionPolicy: MotionPolicy
+
+    init(motionPolicy: MotionPolicy = MotionPolicy()) {
+        self.motionPolicy = motionPolicy
+    }
 
     func updateRails(_ infos: [TabRailInfo], forceOrdering: Bool = false) {
         var desiredKeys = Set<TabRailKey>()
@@ -75,7 +80,7 @@ final class TabRailManager {
     private func updateRail(_ info: TabRailInfo, forceOrdering: Bool) {
         let key = info.key
         let window = railWindows[key] ?? {
-            let window = TabRailWindow(owner: info.owner, workspaceId: info.workspaceId)
+            let window = TabRailWindow(owner: info.owner, workspaceId: info.workspaceId, motionPolicy: motionPolicy)
             window.onSelect = { [weak self] info, visualIndex, token in
                 self?.onSelect?(info, visualIndex, token)
             }

@@ -8,6 +8,54 @@ import XCTest
 
 @MainActor
 final class ManagedFocusAdmissionTests: XCTestCase {
+    func testExternalNiriTabActivationImmediatelyReconcilesHiddenFlags() throws {
+        let controller = WindowAdmissionTestSupport.controller()
+        defer { controller.layoutRefreshController.resetState() }
+        let manager = controller.workspaceManager
+        let workspaceId = try XCTUnwrap(manager.workspaceId(for: "1", createIfMissing: true))
+        _ = try XCTUnwrap(manager.focusWorkspace(named: "1"))
+        controller.motionPolicy.animationsEnabled = false
+        controller.niriLayoutHandler.enableNiriLayout()
+        let engine = try XCTUnwrap(controller.niriEngine)
+        let firstToken = WindowToken(pid: 468_260, windowId: 468_261)
+        let secondToken = WindowToken(pid: 468_260, windowId: 468_262)
+        _ = WindowAdmissionTestSupport.track(firstToken, in: workspaceId, controller: controller)
+        _ = WindowAdmissionTestSupport.track(secondToken, in: workspaceId, controller: controller)
+        let (first, second) = manager.withEngineMutationScope {
+            let first = engine.addWindow(token: firstToken, to: workspaceId, afterSelection: nil)
+            let second = engine.addWindow(token: secondToken, to: workspaceId, afterSelection: first.id)
+            return (first, second)
+        }
+        let column = try XCTUnwrap(engine.findColumn(containing: first, in: workspaceId))
+        let secondColumn = try XCTUnwrap(engine.findColumn(containing: second, in: workspaceId))
+        manager.withEngineMutationScope {
+            second.detach()
+            secondColumn.remove()
+            column.appendChild(second)
+            column.displayMode = .tabbed
+            column.setActiveTileIdx(0)
+            engine.updateTabbedColumnVisibility(column: column)
+        }
+        XCTAssertTrue(manager.confirmManagedFocus(firstToken, in: workspaceId, activateWorkspaceOnMonitor: false))
+        XCTAssertFalse(first.isHiddenInTabbedMode)
+        XCTAssertTrue(second.isHiddenInTabbedMode)
+        let entry = try XCTUnwrap(manager.entry(for: secondToken))
+
+        controller.axEventHandler.handleManagedAppActivation(
+            entry: entry,
+            isWorkspaceActive: true,
+            appFullscreen: false,
+            source: .focusedWindowChanged,
+            origin: .external
+        )
+
+        XCTAssertEqual(manager.nativeManagedFocusToken, secondToken)
+        XCTAssertEqual(manager.niriViewportState(for: workspaceId).selectedNodeId, second.id)
+        XCTAssertEqual(column.activeTileIdx, 1)
+        XCTAssertTrue(first.isHiddenInTabbedMode)
+        XCTAssertFalse(second.isHiddenInTabbedMode)
+    }
+
     func testFocusOnlySessionChangesRequestBorderSurfaceInvalidation() {
         let controller = WindowAdmissionTestSupport.controller()
         let manager = controller.workspaceManager

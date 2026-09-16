@@ -124,6 +124,11 @@ extension NiriLayoutHandler {
                 appName = nil
             }
             let title = entry?.managedReplacementMetadata?.title
+                ?? entry.flatMap { entry in
+                    UInt32(exactly: entry.windowId).flatMap {
+                        AXWindowService.titlePreferFast(windowId: $0)
+                    }
+                }
             tabs.append(
                 TabRailTabInfo(
                     visualIndex: visualIndex,

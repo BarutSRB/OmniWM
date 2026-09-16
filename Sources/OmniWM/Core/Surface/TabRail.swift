@@ -46,13 +46,10 @@ struct TabRailInfo: Equatable {
     let plannedSeq: UInt64
     let tileFrame: CGRect
     let visibleTileFrame: CGRect
+    let tabCount: Int
     let activeVisualIndex: Int
     let activeWindowId: Int?
     let tabs: [TabRailTabInfo]
-
-    var tabCount: Int {
-        tabs.count
-    }
 
     var key: TabRailKey {
         TabRailKey(workspaceId: workspaceId, owner: owner)
@@ -74,9 +71,23 @@ struct TabRailInfo: Equatable {
         self.plannedSeq = plannedSeq
         self.tileFrame = tileFrame
         self.visibleTileFrame = visibleTileFrame ?? tileFrame
+        self.tabCount = max(0, tabCount)
         self.activeVisualIndex = activeVisualIndex
         self.activeWindowId = activeWindowId
         self.tabs = tabs ?? Self.defaultTabs(tabCount: tabCount, activeVisualIndex: activeVisualIndex)
+    }
+
+    var normalizedTabs: [TabRailTabInfo] {
+        let metadataByIndex = Dictionary(
+            tabs.map { ($0.visualIndex, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return Self.defaultTabs(
+            tabCount: tabCount,
+            activeVisualIndex: activeVisualIndex
+        ).map { fallback in
+            metadataByIndex[fallback.visualIndex] ?? fallback
+        }
     }
 
     private static func defaultTabs(tabCount: Int, activeVisualIndex: Int) -> [TabRailTabInfo] {
@@ -101,7 +112,7 @@ struct TabRailKey: Hashable {
 }
 
 extension String {
-    fileprivate var nilIfEmpty: String? {
+    var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }

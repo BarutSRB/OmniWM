@@ -6,6 +6,7 @@ import AppKit
 @MainActor
 final class TabRailWindow: NSPanel {
     private let railView: TabRailView
+    let hoverCard: TabRailHoverCardWindow
     private let surfaceID: String
     private let surfaceCoordinator = SurfaceCoordinator.shared
     private var lastFrame: CGRect?
@@ -17,9 +18,10 @@ final class TabRailWindow: NSPanel {
 
     var onSelect: ((TabRailInfo, Int, WindowToken?) -> Void)?
 
-    init(owner: TabRailOwner, workspaceId: WorkspaceDescriptor.ID) {
+    init(owner: TabRailOwner, workspaceId: WorkspaceDescriptor.ID, motionPolicy: MotionPolicy) {
         surfaceID = Self.surfaceID(workspaceId: workspaceId, owner: owner)
-        railView = TabRailView(frame: .zero)
+        railView = TabRailView(frame: .zero, motionPolicy: motionPolicy)
+        hoverCard = TabRailHoverCardWindow()
 
         super.init(
             contentRect: .zero,
@@ -46,20 +48,25 @@ final class TabRailWindow: NSPanel {
             let token = currentInfo.tabs.first(where: { $0.visualIndex == visualIndex })?.token
             self.onSelect?(currentInfo, visualIndex, token)
         }
+        railView.onHoverChange = { [weak self] tab, itemRect in
+            self?.updateHoverCard(tab: tab, itemRect: itemRect)
+        }
         contentView = railView
 
         accessibilityDisplayObserver = NotificationCenter.default.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak railView] _ in
-            Task { @MainActor [weak railView] in
-                railView?.needsDisplay = true
+        ) { [weak railView, weak hoverCard] _ in
+            Task { @MainActor [weak railView, weak hoverCard] in
+                railView?.refreshAppearance()
+                hoverCard?.refreshAppearance()
             }
         }
     }
 
     override func close() {
+        dismissHover()
         if let accessibilityDisplayObserver {
             NotificationCenter.default.removeObserver(accessibilityDisplayObserver)
             self.accessibilityDisplayObserver = nil
@@ -78,12 +85,16 @@ final class TabRailWindow: NSPanel {
     }
 
     func update(info: TabRailInfo, forceOrdering: Bool) {
+        let frame = Self.railFrame(for: info.visibleTileFrame, tabCount: info.tabCount)
+        if frame != lastFrame || frame != self.frame || !isVisible {
+            dismissHover()
+        }
         currentInfo = info
         let clampedActiveVisualIndex = min(max(0, info.activeVisualIndex), max(0, info.tabCount - 1))
-        railView.update(tabs: info.tabs, activeVisualIndex: clampedActiveVisualIndex)
+        railView.update(tabs: info.normalizedTabs, activeVisualIndex: clampedActiveVisualIndex)
 
-        let frame = Self.railFrame(for: info.visibleTileFrame, tabCount: info.tabCount)
         guard frame.width > 1, frame.height > 1 else {
+            dismissHover()
             orderOut(nil)
             lastFrame = nil
             surfaceCoordinator.unregister(id: surfaceID)
@@ -104,17 +115,15 @@ final class TabRailWindow: NSPanel {
         animationGeometryNeedsAccessibilityRefresh = false
 
         let wasVisible = isVisible
-        if forceOrdering || !wasVisible {
+        if TabRailOrderingPolicy.shouldOrderFront(
+            forceOrdering: forceOrdering,
+            wasVisible: wasVisible,
+            lastActiveWindowId: lastActiveWindowId,
+            activeWindowId: info.activeWindowId
+        ) {
             orderFront(nil)
         }
         syncSurfaceRegistration()
-
-        if let targetWid = info.activeWindowId,
-           forceOrdering || lastActiveWindowId != targetWid || !wasVisible
-        {
-            let wid = UInt32(windowNumber)
-            SkyLight.shared.orderWindow(wid, relativeTo: UInt32(targetWid))
-        }
         lastActiveWindowId = info.activeWindowId
     }
 
@@ -122,6 +131,7 @@ final class TabRailWindow: NSPanel {
         guard let currentInfo, currentInfo.key == command.key else { return }
         let frame = Self.railFrame(for: command.visibleTileFrame, tabCount: currentInfo.tabCount)
         guard frame.width > 1, frame.height > 1 else {
+            dismissHover()
             if isVisible {
                 orderOut(nil)
             }
@@ -134,6 +144,7 @@ final class TabRailWindow: NSPanel {
         }
         guard frame != lastFrame || frame != self.frame else { return }
 
+        dismissHover()
         animationGeometryNeedsAccessibilityRefresh = true
         if frame.size == self.frame.size {
             SkyLight.shared.transactionMove(
@@ -155,6 +166,33 @@ final class TabRailWindow: NSPanel {
         if let targetWid = currentInfo.activeWindowId {
             SkyLight.shared.orderWindow(UInt32(windowNumber), relativeTo: UInt32(targetWid))
         }
+    }
+
+    private func dismissHover() {
+        railView.invalidateHover()
+        hoverCard.hide()
+    }
+
+    private func updateHoverCard(tab: TabRailTabInfo?, itemRect: CGRect?) {
+        guard let tab, let itemRect, let currentInfo, isVisible else {
+            hoverCard.hide()
+            return
+        }
+        let screenFrame = screen?.visibleFrame
+            ?? NSScreen.screens.first(where: { $0.frame.intersects(frame) })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+        guard let screenFrame else {
+            hoverCard.hide()
+            return
+        }
+        let cardFrame = TabRailHoverCardPlacement.frame(
+            railFrame: lastFrame ?? frame,
+            itemRect: itemRect,
+            cardSize: TabRailMetrics.hoverCardSize,
+            visibleFrame: screenFrame,
+            gap: TabRailMetrics.hoverCardGap
+        )
+        hoverCard.show(tab: tab, tabCount: currentInfo.tabCount, frame: cardFrame)
     }
 
     private static func railFrame(for visibleTileFrame: CGRect, tabCount: Int) -> CGRect {
