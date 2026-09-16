@@ -7,6 +7,10 @@ sidebar:
 
 Press `Option + Shift + O` and all of your workspaces' windows fly into a scrollable overview of thumbnails. Workspaces with no windows are hidden. Configure the 50–150% baseline zoom plus backdrop and window-border colors in **Settings → Overview**.
 
+:::note[Unreleased]
+Trackpad opening/closing, finger-tracked transitions, and modifier-free thumbnail dragging are available on current `main`, not in v0.6.10. That release opens Overview with the shortcut and requires `Option` while dragging thumbnails.
+:::
+
 ## Finding and focusing windows
 
 - Type to filter windows live; `Backspace` deletes search text.
@@ -15,7 +19,7 @@ Press `Option + Shift + O` and all of your workspaces' windows fly into a scroll
 - Mouse and trackpad scrolling follow the system Natural Scrolling setting.
 - `Alt (Option) + Shift + Mouse Scroll` temporarily zooms the current overview; the next opening starts from the configured baseline.
 - If another application takes focus, Overview dismisses without stealing focus back.
-- With the Overview gesture enabled in **Settings → Mouse & Trackpad**, a three- or four-finger swipe up tracks your fingers like Mission Control: release past halfway or flick to open, release early to cancel, and swipe down to close.
+- With the Overview gesture enabled in **Settings → Mouse & Trackpad**, a three- or four-finger swipe up tracks your fingers like Mission Control: release past halfway or flick to open, release early to cancel, and swipe down to close. With OmniWM animations disabled or macOS Reduce Motion enabled, swipes open and close Overview without the finger-tracked transition.
 
 ## Managing windows from Overview
 

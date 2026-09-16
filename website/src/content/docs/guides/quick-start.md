@@ -15,12 +15,17 @@ brew install --cask omniwm
 
 Prefer Nix or a plain zip? The [installation guide](/guides/install/) covers every method plus the full requirements (macOS 26+ Tahoe on Apple Silicon).
 
+:::note[Documentation version]
+These guides follow current `main`. Features marked **Unreleased** are not included in v0.6.10, the current [GitHub release](https://github.com/BarutSRB/OmniWM/releases/latest).
+:::
+
 ## First launch
 
 1. Launch OmniWM from your Applications folder.
 2. In **System Settings > Desktop & Dock > Mission Control**, turn **ON** `Displays have separate Spaces`, then log out of macOS and back in for the change to take effect (skip the logout if it was already on). OmniWM pauses window management until this setting is enabled.
 3. Grant **Accessibility** and **Input Monitoring** in the launch permissions window.
 4. Optionally grant **Screen Recording** for capture-derived visuals such as Overview thumbnails.
+5. Return to OmniWM’s permissions window and click **Start OmniWM** or **Continue Without Screen Recording**. If a required permission still appears missing, click **Check Again**.
 
 Your windows now tile automatically in orientation-aware Niri containers: monitors using horizontal orientation show columns that scroll left and right, while vertical orientation shows rows that scroll up and down.
 

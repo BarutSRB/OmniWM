@@ -160,13 +160,14 @@ Workspace requests use this flat wire shape. For `move-to-monitor`, `force` is o
   "ok": true,
   "kind": "<ping|version|command|capture|query|rule|workspace|window|subscribe>",
   "status": "<success|executed|ignored|error|subscribed>",
-  "code": null,
   "result": {
     "kind": "<pong|version|capture|workspace-bar|active-workspace|focused-monitor|apps|metrics|focused-window|windows|workspaces|displays|rules|rule-actions|queries|commands|subscriptions|capabilities|subscribed>",
     "payload": { ... }
   }
 }
 ```
+
+Optional response fields are omitted when unavailable. For example, a successful response has no `code` key; it does not send `"code": null`.
 
 Authorization, protocol, validation, and routing failures keep the originating response `kind`. For example:
 

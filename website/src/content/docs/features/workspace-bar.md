@@ -31,6 +31,21 @@ Configure position, height, and appearance in Settings:
 - **Custom accent and text colors**.
 - **Per-monitor overrides** — change an individual display's bar independently.
 
+### Additional appearance controls
+
+:::note[Unreleased]
+The controls in this section are available on current `main`, not in v0.6.10.
+:::
+
+- **Fill Left of Notch** — an additional notch mode that fills the menu-bar area left of the notch, covering application menus. Without a notch it uses the left half of the menu bar. This mode always hides in native fullscreen, regardless of **Hide in Native Fullscreen**.
+- **Inactive Icon Opacity** — adjust unfocused app icons from 0–100%; **Reset to System Default** clears the override.
+- **Transparent Background** — hide the bar material, tint, and border while keeping its contents interactive.
+- **Solid Black Background** — use an opaque black bar; **Transparent Background** takes precedence when both are enabled.
+- **Show Item Backgrounds** — show or hide backgrounds behind workspace groups, floating windows, scratchpads, and stats.
+- **Show Accent Highlights** — show or hide the focused-workspace outline and focused-icon glow.
+
+These options also support per-monitor overrides. See the [Settings Reference](/config/settings-reference/#workspacebar) for keys and defaults.
+
 ## Excluding apps and overriding icons
 
 Exclude individual apps or choose alternate app icons across all monitors in Settings. Icon overrides can also be configured in `settings.toml` (see [Configuration](/config/configuration/)). Quote bundle IDs so TOML treats each dotted identifier as one key:

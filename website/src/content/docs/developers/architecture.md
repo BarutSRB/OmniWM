@@ -15,13 +15,14 @@ This guide is for contributors who want to understand OmniWM's internals. It is 
 
 ### SwiftPM Targets
 
-OmniWM is built with Swift Package Manager (Swift 6.4, strict concurrency, language mode v6). There are five production targets, one test target, and one binary target, with a clear dependency graph:
+OmniWM is built with Swift Package Manager (Swift 6.4, strict concurrency, language mode v6). There are six production targets, one test target, and one binary target, with a clear dependency graph:
 
 ```
 OmniWMApp                          (@main entry point)
 └── OmniWM                         (main library)
     ├── OmniWMIPC                  (shared IPC models — zero dependencies)
     ├── OmniWMMenuBarAssertion     (Objective-C MenuBarClientCore bridge)
+    ├── OmniWMLayerCorners         (Objective-C native border-layer bridge)
     ├── TOML                       (swift-toml — the only third-party package)
     └── GhosttyKit                 (binary xcframework)
 
@@ -30,17 +31,19 @@ OmniWMCtl                          (omniwmctl CLI)
 
 OmniWMTests                        (test target)
 ├── OmniWM
-└── OmniWMCtl
+├── OmniWMCtl
+└── OmniWMLayerCorners
 ```
 
 | Target | Purpose | Dependencies |
 |--------|---------|--------------|
 | `OmniWMIPC` | Shared IPC data models and wire format | None |
 | `OmniWMMenuBarAssertion` | Objective-C bridge to the private MenuBarClientCore framework (Hidden Bar concealment) | None |
+| `OmniWMLayerCorners` | Objective-C bridge for native CALayer corner radii and rim properties | None |
 | `OmniWMCtl` | CLI tool (`omniwmctl`) | OmniWMIPC |
-| `OmniWM` | Core window manager library | OmniWMIPC, OmniWMMenuBarAssertion, GhosttyKit, TOML, system frameworks |
+| `OmniWM` | Core window manager library | OmniWMIPC, OmniWMMenuBarAssertion, OmniWMLayerCorners, GhosttyKit, TOML, system frameworks |
 | `OmniWMApp` | Executable wrapper with SwiftUI scene | OmniWM |
-| `OmniWMTests` | Test target (fixtures copied as a resource bundle) | OmniWM, OmniWMCtl |
+| `OmniWMTests` | Test target (fixtures copied as a resource bundle) | OmniWM, OmniWMCtl, OmniWMLayerCorners |
 
 ### Source Directory Map
 
@@ -93,7 +96,8 @@ Sources/
 ├── OmniWMApp/                       @main entry + settings redirect
 ├── OmniWMCtl/                       CLI parser, IPC client, renderer, completion
 ├── OmniWMIPC/                       models, wire format, socket path, automation manifest
-└── OmniWMMenuBarAssertion/          Objective-C MenuBarClientCore bridge (1 .m + 1 header)
+├── OmniWMMenuBarAssertion/          Objective-C MenuBarClientCore bridge (1 .m + 1 header)
+└── OmniWMLayerCorners/              Objective-C native border-layer bridge (1 .m + 1 header)
 ```
 
 ### External Dependencies
@@ -131,8 +135,18 @@ rule also inserts and enforces the two-line SPDX/GPL-2.0-only header that every 
 must stay on line one.
 
 Live/private integration and measurement cases skip unless their explicit environment gate is set:
-`OMNIWM_RUN_SKYLIGHT_LIVE_TESTS=1`, `OMNIWM_RUN_FINDER_QUICK_LOOK_TESTS=1` (with a Finder Quick Look window open),
-or `OMNIWM_RUN_SURFACE_MEASUREMENTS=1`. `make test-skylight-live` runs the focused SkyLight transaction test.
+
+| Environment gate | Cases enabled |
+| --- | --- |
+| `OMNIWM_RUN_SKYLIGHT_LIVE_TESTS=1` | Private SkyLight integration and native border compositor checks |
+| `OMNIWM_RUN_FINDER_QUICK_LOOK_TESTS=1` | Finder Quick Look placement, with a Quick Look window open |
+| `OMNIWM_RUN_SURFACE_MEASUREMENTS=1` | Surface presentation measurements |
+| `OMNIWM_RUN_OVERVIEW_PREVIEW_LIVE_TESTS=1` | Live Overview previews and layer compositor checks |
+| `OMNIWM_RUN_WINDOW_SUBSCRIPTION_LIVE_TESTS=1` | Private WindowServer subscription semantics, requiring two movable foreign windows |
+| `OMNIWM_RUN_METADATA_READ_LIVE_TESTS=1` | Read-only WindowServer metadata checks |
+| `OMNIWM_RUN_AX_WRITE_METRICS_BENCHMARK=1` | AX write metrics recorder latency distributions |
+
+`make test-skylight-live` runs the focused SkyLight transaction test.
 
 Use `make run` for normal development launches. It installs `~/Applications/OmniWM Dev.app` and opens it through
 LaunchServices with the fixed `com.barut.OmniWM.dev` identity and separate settings, state, and permissions.
@@ -169,7 +183,8 @@ or service is gone; Check Again forces an immediate rescan. There is no bypass a
 after bootstrap succeeds.
 
 The launch permission check requires Accessibility and Input Monitoring before bootstrap. Screen Recording is
-optional and only controls capture-derived visuals.
+optional and only controls capture-derived visuals. After granting permissions, the user returns to the permissions
+window and chooses **Start OmniWM** or **Continue Without Screen Recording** to finish bootstrap.
 
 The potentially interfering resident-manager catalog covers a second OmniWM instance plus AeroSpace, Amethyst,
 bobrwm, Glide, komorebi for Mac, Nehir, Paneru, parket, Rift, Tangrid, TrimWM, yabai, and Yashiki. Dedicated
@@ -695,7 +710,14 @@ Native focus ownership and border projection are intentionally separate. `render
 
 **Command routing** (`Core/Controller/CommandHandler.swift`). `handleHotkeyInvocation` gives `OverviewController` first refusal while Overview is open. The modal router uses physical keys for Escape, Enter, and non-repeating Command-W, recognizes the configured physical Overview toggle, and routes assigned structural commands against the selected Overview `WindowHandle`; recognized no-ops are consumed. Unsupported commands and triggerless external/IPC commands remain blocked. When Overview is inactive, `performCommand` enforces `isEnabled` and the **layout-compatibility guard**: a `.niri`-only command is ignored under Dwindle and vice versa (`.shared` commands work everywhere).
 
-**Mouse events** (`Core/Controller/MouseEventHandler.swift`). A `CGEventTap` drives focus-follows-mouse through the existing 100 ms action-rate throttle and interactive move/resize, while raw multitouch frames (`MultitouchGestureSource`) drive trackpad swipes through one idle→armed→committed state machine with two routed modes: Niri viewport container scrolling on the active monitor's configured orientation axis and one-shot workspace switching (`TrackpadGestureIntent` resolves the mode from finger count and dominant axis; the switch fires through the same `switchWorkspaceRelative` seam as hotkeys, targeting the monitor under the cursor). The throttle is not a configurable hover delay and has no new trailing-edge scheduler. A committed viewport gesture retains its resolved axis for the rest of the gesture. Transient mouse events are coalesced *in the intake* before draining.
+**Mouse events** (`Core/Controller/MouseEventHandler.swift`). A `CGEventTap` drives focus-follows-mouse through the existing 100 ms action-rate throttle and interactive move/resize. The throttle is not a configurable hover delay and has no new trailing-edge scheduler. Transient mouse events are coalesced *in the intake* before draining.
+
+Raw multitouch frames from `MultitouchGestureSource` drive one idle→armed→committed state machine in `MouseEventHandler` and its `+TrackpadRecognition`, `+TrackpadLifecycle`, and `+WindowGestures` extensions. `TrackpadGestureIntent` resolves five modes from the configured finger counts, gesture context, and axis:
+
+- **Container scrolling** updates the Niri viewport on the resolved monitor orientation axis, retained for the rest of the gesture.
+- **Workspace switching** invokes `WorkspaceNavigationHandler.switchWorkspaceRelative`, targeting the monitor under the cursor. When it shares a finger count with container scrolling, it uses the perpendicular axis.
+- **Overview** routes through `WindowActionHandler` to `OverviewController`'s interactive transition lifecycle. With motion disabled, a recognized swipe opens or closes Overview without an interactive transition.
+- **Window move** and **window resize** reuse `MouseEventHandler`'s existing Niri/Dwindle interaction entry points, update paths, and completion/cancellation ownership.
 
 **SkyLight events** (`Core/SkyLight/CGSEventObserver.swift`). Registers for window-server notifications and posts them into the intake:
 
@@ -873,7 +895,7 @@ Optional gradients replace the visible solid rim with an even-odd ring mask. An 
 - **`AnimationDriver`** — owns the per-workspace **viewport scroll motion only**. Its `ViewportMotion` enum covers `gesture` (live `SwipeTracker`), `spring`, and `deceleration` (inertial throw), and it can seed or rebase either animation type. It is seeded from inside the commit path (`reconcileViewportCommit` re-seeds the spring from a committed `ViewportState` transition) and sampled per frame by `NiriLayoutHandler`. Per-window/column animations live in the Niri engine, not here.
 - **`SwipeTracker`** — accumulates trackpad deltas over an 80 ms history window and reports the release velocity that seeds the throw animation.
 - **`AnimationClock`** — a monotonic accumulating clock over `CACurrentMediaTime`, held by the engines and `WMController`.
-- **`MotionPolicy`** — a `@MainActor @Observable` single boolean (`animationsEnabled`) seeded from settings; it gates OmniWM-authored animations.
+- **`MotionPolicy`** — a `@MainActor @Observable` gate for OmniWM-authored animations. Its effective `animationsEnabled` is `userAnimationsEnabled && !systemReducesMotion`. `AppDelegate` seeds the system preference from `NSWorkspace` and observes accessibility display-option changes, so macOS **Reduce Motion** takes effect while OmniWM is running.
 - **Native-fullscreen placeholder panels** — consume the same accepted Niri rendered frames or Dwindle interpolated frames as managed windows. Translation-only animation performs an origin move; actual tile-size animation resizes the full-tile panel while reusing cached app identity and Core Text lines.
 
 The per-frame **display link** is owned by `LayoutRefreshController` (not by `Animation/`); see [3.9](#39-the-ungated-animation-tier).
@@ -888,7 +910,7 @@ The per-frame **display link** is owned by `LayoutRefreshController` (not by `An
 
 | Feature | Key Files | Description |
 |---------|-----------|-------------|
-| **Overview** | `Core/Overview/OverviewController.swift` | Expose-style workspace overview. Rendered with **Core Graphics** (`OverviewView.draw → OverviewRenderer.render(context: CGContext)`), not Metal; thumbnails via ScreenCaptureKit (`SCScreenshotManager`, ≤4 concurrent). Search, structural hotkeys, and drag placement. |
+| **Overview** | `Core/Overview/OverviewController.swift`, `OverviewLayerRenderer.swift`, `OverviewThumbnailCapture.swift` | Expose-style workspace overview with retained Core Animation layers and per-window ScreenCaptureKit streams. Search, structural hotkeys, interactive gestures, and drag placement. |
 | **Quake Terminal** | `QuakeTerminal/QuakeTerminalController.swift` | Drop-down terminal on GhosttyKit. Each tab is a tree of split panes (`QuakeTerminalTab` → `QuakeSplitContainer`/`SplitNode`), each a `GhosttySurfaceView` (CAMetalLayer-backed). Edge placements slide and fade; Center and custom frames fade in place. Registers as a `.quake` surface. |
 | **Command Palette** | `UI/CommandPalette/CommandPaletteController.swift` | Substring search with tiered ranking over windows, application menus, and clipboard history. |
 | **Menu Anywhere** | `UI/MenuAnywhere/MenuAnywhereController.swift` | Pops the frontmost app's menu bar as a native `NSMenu` at the cursor, via `MenuExtractor` (ObjC runtime AX-tree walk). |
@@ -902,6 +924,8 @@ The per-frame **display link** is owned by `LayoutRefreshController` (not by `An
 | **Diagnostics & Trace Capture** | `Core/Diagnostics/RuntimeTraceCaptureCoordinator.swift` | Bounded ring recorders per domain plus the single capture owner for the `problem` (wire name `trace`) and `performance` profiles. Both auto-finalize after 600s; the UI, the status bar, and IPC all drive the same coordinator. |
 | **Issue Reporter** | `Core/IssueReporter/FoundationModelsIssueEngine.swift` | Optionally rewrites a rough bug report into the five-section issue template on Apple's on-device model, then builds a pre-filled GitHub URL (`maxURLLength` 8000). Without an applied rewrite, the manual form uses deterministic formatting; rewrite failures report an error and leave that draft available. Prompts live as Markdown resources — see [issue-report-prompt.md](https://github.com/BarutSRB/OmniWM/blob/main/docs/issue-report-prompt.md). |
 | **Release Updater** | `App/UpdateCoordinator.swift` | Polls the latest GitHub release once per day, supports manual checks, shows a release-notes popup. |
+
+**Overview rendering and capture.** `OverviewLayerRenderer` retains workspace layers and window layers keyed by stable `WindowHandle` identity, and installs native Core Animation transitions. `OverviewThumbnailCapture` reconciles per-window `SCStream` previews for visible cards and limits concurrent stream **starts** to four; more than four streams may remain running. `OverviewPreviewStream` coalesces incoming frames before publication, and each thumbnail layer displays the retained IOSurface from its latest frame. Closing Overview retires the streams while preserving cached previews; memory-pressure events release that cache when no sources are active.
 
 **Overview mutation ownership.** `NiriLayoutHandler` owns explicit-`WindowHandle` Niri reorder, consume/expel, column, and insertion mutations; `WorkspaceNavigationHandler` owns explicit-handle window workspace/monitor transfers and Niri whole-column workspace transfers. Their internal `StructuralMutationOutcome` reports the selected handle, moved tokens, destination, and affected workspaces. `OverviewController` uses that result to make `WorkspaceManager` activate the destination workspace and interaction monitor, commit remembered layout focus, request relayout only for affected workspaces, and keep the moved window selected. Overview mutations suppress client-window activation, so no AX focus is issued until an intentional dismissal focuses the current selection.
 
@@ -1101,7 +1125,7 @@ CLIRenderer displays the result
 | `NativeFullscreenRecord` | Per-window record (`originalToken`, `currentToken`, `workspaceId`, `transition`, `transitionGeneration`) from which lifecycle, exact focus ownership, and deadlines are derived. |
 | `AnimationDriver` | Owns per-workspace viewport scroll motion (gesture, spring, or deceleration). |
 | `SpringConfig` | Spring parameters; presets are all the same critically-damped curve. |
-| `MotionPolicy` | Settings-backed gate for OmniWM-authored animations. |
+| `MotionPolicy` | Gates OmniWM-authored animations on the app setting and macOS Reduce Motion preference. |
 | `HotkeyCommand` | Semantic command enum shared by hotkey invocations and selected IPC routes. Catalogued cases receive binding, visibility, title, and compatibility metadata from `ActionCatalog`; IPC-only cases can be uncatalogued (such as `swapWorkspaceWithMonitor`) or use other request types. |
 | `WindowDecision` | Rule-evaluation result: `disposition`, `source`, `layoutDecisionKind`, `workspaceName`, `ruleEffects`, `admissionHints`, `heuristicReasons`, and `deferredReason`. |
 

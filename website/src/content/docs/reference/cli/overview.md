@@ -187,6 +187,10 @@ omniwmctl completion fish | source
 
 ### Nushell
 
+:::note[Unreleased]
+Nushell completion is available on current `main`, not in v0.6.10. Zsh, Bash, and Fish completions are already available in that release.
+:::
+
 Nushell completions require Nu 0.108 or newer. Run these commands in Nushell to generate the completion module:
 
 ```nu

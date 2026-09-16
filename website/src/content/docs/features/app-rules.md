@@ -7,6 +7,15 @@ sidebar:
 
 Open **App Rules** from OmniWM's status-bar menu to configure window-matching behavior. Rules can match by bundle ID, app-name substring, title substring or regex, and AX role/subrole. More-specific matches win; ties follow list order.
 
+## Create a rule from a window
+
+1. Focus the window you want to match, then open **App Rules** from the status-bar menu.
+2. In **Focused Window Inspector**, click **Refresh**, then **New Rule from Focused Window**.
+3. Review the populated app, title, and AX role/subrole matchers. Remove any narrowing matcher you do not want, then choose the rule’s actions.
+4. Click **Save** or press `Command + S` to save your edits.
+
+For the observed AX values and classification details, expand **Advanced / Troubleshooting** in the inspector and use **Copy Debug Dump**. This avoids guessing the role and subrole needed by a precise inclusion rule.
+
 ## Structural admission
 
 Rules do not turn every macOS surface into a window OmniWM owns. Structural admission runs first: help tags,

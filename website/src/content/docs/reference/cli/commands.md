@@ -30,6 +30,10 @@ omniwmctl <command> [arguments...] [--format json|ndjson|table|tsv|text] [--json
 
 Remote commands require IPC to be enabled. Local commands work even when the IPC server is disabled.
 
+:::note[Unreleased]
+Nushell completion (`nu`) is available on current `main`, not in v0.6.10. That release supports `zsh`, `bash`, and `fish`.
+:::
+
 For Nushell 0.108 or newer, `omniwmctl completion nu` emits a module that adds Tab suggestions for commands, options, and fixed argument values. Save it as `omniwmctl-completions.nu` and import its `omniwmctl` definition from `config.nu`; see [shell completion setup](/reference/cli/overview/#nushell) for the commands. Regenerate the file after upgrading OmniWM.
 
 `omniwmctl version --json` returns `protocolVersion` and the available `appVersion`, `gitHash`, `buildConfiguration`, and `executableSHA256` fields in `result.payload`. Optional fields are omitted when unavailable; the fingerprint identifies the running app build and executable.
@@ -104,7 +108,7 @@ In Dwindle, `focus left/right` remains spatial. `focus up/down` traverses a grou
 
 | Command | Arguments | Layout | Description |
 |---------|-----------|--------|-------------|
-| `command switch-workspace` | `<number>` | shared | Switch to a workspace by numeric workspace ID on the current monitor |
+| `command switch-workspace` | `<number>` | shared | Switch to a workspace by numeric workspace ID on its assigned monitor |
 | `command switch-workspace next` | — | shared | Switch to the next workspace |
 | `command switch-workspace prev` | — | shared | Switch to the previous workspace |
 | `command switch-workspace back-and-forth` | — | shared | Switch to the previously active workspace |
@@ -239,20 +243,17 @@ Only one capture can be active. `capture stop` stops whichever profile is record
 
 A trace capture writes an atomic partial immediately, refreshes it periodically, and replaces it with the final trace on stop or automatic finalization. A performance capture writes only its final artifact. Both profiles automatically finalize after 10 minutes and keep their existing size and retention limits.
 
-`capture status` returns `phase`, the active `profile` and `startedAt` when present, and the coordinator's nullable `lastArtifact`. Timestamps are RFC 3339 strings. Artifact paths are absolute. A write failure returns `internal_error` with a UTF-8-safe, 4 KiB-bounded `failureReason`.
+`capture status` always returns `phase`. The active `profile`, `startedAt`, coordinator's `lastArtifact`, and `failureReason` are optional and omitted when unavailable; absent values are not encoded as `null`. Timestamps are RFC 3339 strings. Artifact paths are absolute. A write failure returns `internal_error` with a UTF-8-safe, 4 KiB-bounded `failureReason`.
 
 ```json
 {
   "phase": "idle",
-  "profile": null,
-  "startedAt": null,
   "lastArtifact": {
     "profile": "trace",
     "path": "/Users/example/.local/state/omniwm/diagnostics/omniwm-trace-....log",
     "startedAt": "2026-08-25T21:00:00Z",
     "endedAt": "2026-08-25T21:01:00Z"
-  },
-  "failureReason": null
+  }
 }
 ```
 

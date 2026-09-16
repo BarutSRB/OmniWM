@@ -138,7 +138,7 @@ extension IPCAutomationManifest {
         ),
         .init(
             name: .workspace(.switchTo),
-            summary: "Switch to a workspace on the interaction monitor by workspace ID.",
+            summary: "Switch to a workspace by workspace ID on its assigned monitor.",
             arguments: [.workspaceNumber]
         ),
         .init(

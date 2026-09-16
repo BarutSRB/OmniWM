@@ -77,6 +77,7 @@ After either installation, finish with the [first-launch setup](#first-launch-se
 2. Log out of macOS and log back in for that change to take effect, unless you had it on already.
 3. Launch OmniWM and grant **Accessibility** and **Input Monitoring** when prompted. Both are required at launch.
 4. Optionally grant **Screen Recording** for capture-derived visuals: Overview thumbnails, drag previews, and captured Hidden Bar glyphs.
+5. Return to OmniWM’s permissions window and click **Start OmniWM** or **Continue Without Screen Recording**. If a required permission still appears missing, click **Check Again**.
 
 :::note
 An optional **System Hyper Trigger** (acting as the `Hyper` chord while a key or mouse button is held) also needs the Input Monitoring permission. See [Keyboard Shortcuts](/guides/keyboard-shortcuts/).

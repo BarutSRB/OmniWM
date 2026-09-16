@@ -11,8 +11,10 @@ A scratchpad is a slot that holds any number of floating windows and overlays th
 
 Both hotkey families start unassigned — bind them in Settings under Hotkeys (see [keyboard shortcuts](/guides/keyboard-shortcuts/)):
 
-- **Assign Focused Window to Scratchpad N** moves the focused window into slot N, floating it if it was tiled and parking it off-screen. Pressing the same shortcut again on a window already in slot N returns it to the layout.
-- **Toggle Scratchpad N** reveals every window in slot N on the monitor you are interacting with, or parks them again if they are already there. Revealing a slot parks whichever slot was showing, so at most one scratchpad is on screen at a time.
+- **Assign Focused Window to Scratchpad N** moves the focused window into slot N, floating it if it was tiled. The window stays visible when slot N is already revealed; otherwise it is parked off-screen. Pressing the same shortcut again on a window already in slot N returns it to the layout.
+- **Toggle Scratchpad N** reveals eligible windows in slot N on the monitor you are interacting with, or parks them again if they are already there. Revealing a slot parks whichever slot was showing, so at most one scratchpad is on screen at a time.
+
+Hotkey and CLI toggles leave macOS-hidden apps hidden and skip windows suspended in native fullscreen. To reveal a hidden app from a scratchpad, click its workspace-bar pill while the slot is hidden; that activation path can unhide the app. Exit native fullscreen before revealing a suspended window.
 
 A revealed scratchpad follows you across workspace switches and stays up until you toggle it off. If it is showing on another monitor, its shortcut summons it to the one you are on. Parked windows slide off the screen edge, leaving a 1-pixel sliver on-screen.
 

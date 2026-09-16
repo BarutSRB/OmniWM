@@ -17,6 +17,14 @@ On monitors using horizontal orientation, windows form vertical columns that scr
 
 A binary space partition layout that recursively divides screen space. Each new window splits the space in half, and a tile can group multiple windows as tabs. Best for traditional tiling with predictable layouts.
 
+## Tabbed windows
+
+Both layouts show a tab rail beside grouped windows. Click a tab to reveal and focus that window without changing the group order. On current `main`, hovering a tab also shows its window title, app, and position in the group.
+
+:::note[Unreleased]
+The identity hover cards and optional app icons are available on current `main`, not in v0.6.10. Enable **Settings → General → Appearance → Show app icons in tab rails** to replace compact markers with icons; crowded icon rails scroll vertically. See the [appearance reference](/config/settings-reference/#appearance).
+:::
+
 ## Floating windows
 
 Windows can also float above the tiled layout in either engine:

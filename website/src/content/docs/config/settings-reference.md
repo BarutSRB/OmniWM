@@ -5,6 +5,8 @@ sidebar:
   order: 2
 ---
 
+This reference follows current `main`; additions not included in v0.6.10 are marked **Unreleased**.
+
 Complete reference for `settings.toml`, in the file's canonical order. The authoritative schema is [`CanonicalTOMLConfig.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/CanonicalTOMLConfig.swift); defaults come from [`SettingsExport.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/SettingsExport.swift) and [`BuiltInSettingsDefaults.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/BuiltInSettingsDefaults.swift).
 
 :::caution
@@ -46,6 +48,10 @@ Global switches: hotkeys, Hyper key, default layout, sleep, updates, IPC, animat
 | `updateChecksEnabled` | boolean | `true` | Automatic update checks. |
 | `ipcEnabled` | boolean | `false` | Enables the IPC server used by `omniwmctl`. |
 | `animationsEnabled` | boolean | `true` | Animates window layout changes and other OmniWM-authored motion. macOS Reduce Motion turns them off regardless of this key. |
+
+:::note[Unreleased]
+Global macOS Reduce Motion handling is available on current `main`, not in v0.6.10. The app’s `animationsEnabled` switch is already available in that release.
+:::
 
 ## focus
 
@@ -110,6 +116,10 @@ For no saved arrangements, use `arrangements = []` inside `[routing]` and omit t
 
 ## monitors
 
+:::note[Unreleased]
+Configurable monitor ranking is available on current `main`, not in v0.6.10. The existing Main, Secondary, and Tertiary roles remain available without a ranking.
+:::
+
 Optional table that ranks displays for OmniWM's monitor roles. Omit it to keep the default roles: **Main** is the display with the macOS menu bar, and **Secondary** and **Tertiary** are the next displays in arrangement order.
 
 | Key | Type | Default | Description |
@@ -143,7 +153,7 @@ Gaps between tiled windows and screen edges (points).
 | `outer.top` | float | `0.0` | Outer gap measured from the physical top edge of each display. The menu bar height is subtracted first and the result is clamped at 0, so a display without a menu bar needs a smaller value than the main display for the same visual gap below the menu bar. |
 | `outer.bottom` | float | `0.0` | Outer gap at the bottom screen edge. |
 
-Per-display values come from [`[[monitorGapOverrides]]`](#per-monitor-overrides). An override row is matched to a connected display by its display UUID first and otherwise by display id plus name, so a hand-edited row whose id or name no longer matches any display is silently ignored and the global values apply.
+Per-display values come from [`[[monitorGapOverrides]]`](#per-monitor-overrides). An override row must match the connected display’s UUID, or both display ID and name if that display has no UUID. An unmatched row is ignored and the global values apply; the override row’s own `id` does not identify the display.
 
 ## niri
 
@@ -175,6 +185,10 @@ Options for the Dwindle (BSP) layout.
 ## borders
 
 Border drawn around the focused window.
+
+:::note[Unreleased]
+Gradient borders, glow, and light/dark color overrides are available on current `main`, not in v0.6.10. That release supports `enabled`, `width`, and a single `color`.
+:::
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -215,6 +229,10 @@ Zoom and colors for the Overview.
 
 The per-monitor workspace bar. Per-monitor exceptions live in [`monitorBarOverrides`](#per-monitor-overrides).
 
+:::note[Unreleased]
+The five optional appearance controls below (`inactiveIconOpacity`, `transparentBackground`, `solidBlackBackground`, `showItemBackgrounds`, and `showAccentHighlights`) and the `fillLeftOfNotch` mode are available on current `main`, not in v0.6.10.
+:::
+
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Shows the workspace bar. |
@@ -222,7 +240,7 @@ The per-monitor workspace bar. Per-monitor exceptions live in [`monitorBarOverri
 | `showFloatingWindows` | boolean | `false` | Includes floating windows' icons in workspace pills. |
 | `windowLevel` | string | `"popup"` | Bar window level: `normal`, `floating`, `status`, `popup`, `screensaver`. |
 | `position` | string | `"overlappingMenuBar"` | `overlappingMenuBar` or `belowMenuBar`. |
-| `notchMode` | string | `"moveBelowMenuBar"` | Behavior on notched displays: `off`, `moveBelowMenuBar`, `splitActiveLeft`, `splitActiveRight`. |
+| `notchMode` | string | `"moveBelowMenuBar"` | Notch handling: `off`, `moveBelowMenuBar`, `splitActiveLeft`, `splitActiveRight`, or `fillLeftOfNotch`. The last fills the menu-bar area left of the notch and covers app menus; without a notch it uses the left half of the menu bar. |
 | `notchActiveZoneWidth` | float | `180.0` | Width in points of the active zone around the notch. |
 | `systemStatsButton` | boolean | `false` | Adds a system stats button to the bar. |
 | `deduplicateAppIcons` | boolean | `false` | Collapses repeated icons of the same app within a pill. |
@@ -232,9 +250,14 @@ The per-monitor workspace bar. Per-monitor exceptions live in [`monitorBarOverri
 | `reserveLayoutSpace` | boolean | `false` | Reserves tiled layout space using the configured bar height. |
 | `revealModifier` | string | `"off"` | Reveal the bar by holding a modifier. Any value other than `off` makes the bar overlay-only: it reserves no layout space at all while the modifier is configured, not just while it is held. Values: `off`, `option`, `control`, `command`, `shift`, `controlOption`, `optionCommand`, `optionShift`, `controlCommand`, `controlShift`, `commandShift`, `controlOptionCommand`, `controlOptionShift`, `optionCommandShift`, `controlCommandShift`, `controlOptionCommandShift`. |
 | `revealHoldMilliseconds` | float | `200.0` | How long the modifier must be held before the bar reveals. |
-| `hideInNativeFullscreen` | boolean | `false` | Hides the bar while a native-fullscreen space is active. |
+| `hideInNativeFullscreen` | boolean | `false` | Hides the bar while a native-fullscreen space is active. `fillLeftOfNotch` always hides there, regardless of this setting. |
 | `height` | float | `24.0` | Bar height in points. |
 | `backgroundOpacity` | float | `0.1` | Bar background opacity (`0.0`–`1.0`). |
+| `inactiveIconOpacity` *(optional)* | float | unset | Opacity of unfocused app icons; finite values clamp to `0.0`–`1.0`. Omit to use the built-in appearance; Reset to System Default clears the override. |
+| `transparentBackground` *(optional)* | boolean | `false` | Hides the bar material, tint, and border while keeping its contents interactive. Takes precedence over `solidBlackBackground`. |
+| `solidBlackBackground` *(optional)* | boolean | `false` | Uses a solid black bar background when `transparentBackground` is false. |
+| `showItemBackgrounds` *(optional)* | boolean | `true` | Shows backgrounds behind workspace groups, floating windows, scratchpads, and stats. |
+| `showAccentHighlights` *(optional)* | boolean | `true` | Shows the focused-workspace outline and focused-icon glow. |
 | `xOffset` | float | `0.0` | Horizontal offset in points. |
 | `yOffset` | float | `0.0` | Vertical offset in points; positive values move the bar up, negative values move it down. |
 | `accentColor` *(optional)* | color table | unset | Accent color override; unset uses the built-in accent. |
@@ -252,6 +275,10 @@ The per-monitor workspace bar. Per-monitor exceptions live in [`monitorBarOverri
 
 Mouse and trackpad gestures.
 
+:::note[Unreleased]
+Overview swipes, trackpad window move/resize, and the **Set Up…** conflict-resolution flow are available on current `main`, not in v0.6.10. The seven optional `overviewGesture…` and `window…` keys below configure the new gestures.
+:::
+
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `scrollEnabled` | boolean | `true` | Modifier + mouse scroll wheel scrolls along the Niri primary axis. |
@@ -265,17 +292,17 @@ Mouse and trackpad gestures.
 | `workspaceSwipeEnabled` | boolean | `false` | Trackpad swipe switches to the next/previous workspace. |
 | `workspaceSwipeFingerCount` | integer | `3` | Workspace-swipe finger count: `2`, `3`, or `4`. |
 | `workspaceSwipeAxis` | string | `"vertical"` | Workspace-swipe axis: `horizontal` or `vertical`. |
-| `overviewGestureEnabled` | boolean | `false` | Enable the trackpad gesture that opens Overview with an upward swipe and closes it with a downward swipe. |
-| `overviewGestureFingerCount` | integer | `4` | Overview gesture finger count: `3` or `4`. |
-| `windowMoveEnabled` | boolean | `false` | Drag without clicking to swap the tiled window under the cursor in either layout. |
-| `windowMoveFingerCount` | integer | `4` | Window-move finger count: `2`, `3`, or `4`. |
-| `windowResizeEnabled` | boolean | `false` | Drag without clicking to resize the tiled window under the cursor in either layout. |
-| `windowResizeFingerCount` | integer | `3` | Window-resize finger count: `2`, `3`, or `4`. |
-| `windowGestureSensitivity` | number | `1.0` | Move/resize sensitivity, clamped to `0.1…5.0`; non-finite values use `1.0`. |
+| `overviewGestureEnabled` *(optional)* | boolean | `false` | Enable the trackpad gesture that opens Overview with an upward swipe and closes it with a downward swipe. |
+| `overviewGestureFingerCount` *(optional)* | integer | `4` | Overview gesture finger count: `3` or `4`. |
+| `windowMoveEnabled` *(optional)* | boolean | `false` | Drag without clicking to swap the tiled window under the cursor in either layout. |
+| `windowMoveFingerCount` *(optional)* | integer | `4` | Window-move finger count: `2`, `3`, or `4`. |
+| `windowResizeEnabled` *(optional)* | boolean | `false` | Drag without clicking to resize the tiled window under the cursor in either layout. |
+| `windowResizeFingerCount` *(optional)* | integer | `3` | Window-resize finger count: `2`, `3`, or `4`. |
+| `windowGestureSensitivity` *(optional)* | number | `1.0` | Move/resize sensitivity, clamped to `0.1…5.0`; non-finite values use `1.0`. |
 
-Window move and resize gestures use all directions, so their finger counts must differ from every other enabled gesture. Settings and config loading reject overlaps with each other, column scrolling, workspace switching, or Overview. Disable or reassign a conflicting gesture before enabling a window gesture. Moving stays on the starting monitor; resizing can continue beyond its bounds. Lift all fingers to finish, and turn off matching macOS gestures under System Settings → Trackpad → More Gestures. These gestures are inactive while Overview is open and do not use `invertDirection`.
+Window move and resize gestures use all directions, so their finger counts must differ from every other enabled gesture. Configuration loading rejects overlaps with each other, column scrolling, workspace switching, or Overview. In Settings, **Set Up…** previews the conflicting assignments and lets you choose which gestures to turn off before applying the change. When editing TOML, disable or reassign conflicting gestures in the same edit. Moving stays on the starting monitor; resizing can continue beyond its bounds. Lift all fingers to finish, and turn off matching macOS gestures under System Settings → Trackpad → More Gestures. These gestures are inactive while Overview is open and do not use `invertDirection`.
 
-Overview follows your fingers like Mission Control. Swipe up with the configured finger count and the thumbnails fly out as you move; release past the halfway point, or flick upward, to finish opening, and release earlier to cancel without disturbing the app you were in. Swipe down while Overview is open to close it the same way. Closing matches Escape: it activates the highlighted window, or restores the previously active app when there is no selection. Touching the trackpad while Overview is animating catches it in place. With `animationsEnabled` off or macOS Reduce Motion on, the swipe triggers immediately after a short travel instead of tracking. Direction is independent of `invertDirection`. Lift all fingers between gestures. Settings reject enabled gestures that share the same fingers and upward movement; horizontal swipes may share fingers with Overview. Validation accounts for connected monitors' column orientations and workspace swipes running perpendicular to column scrolling when their finger counts match. Without column scrolling, workspace swipes use their configured axis. If a display change creates an overlap, ambiguous upward swipes are ignored until the assignments are corrected. Disable the matching macOS Mission Control gesture to avoid interception.
+Overview follows your fingers like Mission Control. Swipe up with the configured finger count and the thumbnails fly out as you move; release past the halfway point, or flick upward, to finish opening, and release earlier to cancel without disturbing the app you were in. Swipe down while Overview is open to close it the same way. Closing matches Escape: it activates the highlighted window, or restores the previously active app when there is no selection. Touching the trackpad while Overview is animating catches it in place. With `animationsEnabled` off or macOS Reduce Motion on, the swipe triggers immediately after a short travel instead of tracking. Direction is independent of `invertDirection`. Lift all fingers between gestures. Configuration validation rejects enabled gestures that share the same fingers and upward movement; the Settings **Set Up…** flow helps resolve those conflicts. Horizontal swipes may share fingers with Overview. Validation accounts for connected monitors' column orientations and workspace swipes running perpendicular to column scrolling when their finger counts match. Without column scrolling, workspace swipes use their configured axis. If a display change creates an overlap, ambiguous upward swipes are ignored until the assignments are corrected. Disable the matching macOS Mission Control gesture to avoid interception.
 
 ## statusBar
 
@@ -343,10 +370,14 @@ Optional labels for the ten scratchpad slots. A label replaces the slot number i
 
 Appearance of OmniWM's own UI.
 
+:::note[Unreleased]
+Optional tab-rail app icons are available on current `main`, not in v0.6.10.
+:::
+
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `mode` | string | `"dark"` | `automatic`, `light`, or `dark`. |
-| `tabRailAppIcons` | boolean | `false` | Replaces compact tab markers with app icons in Niri and Dwindle. Each tab group reserves a 28-point rail instead of 10 points; crowded rails scroll vertically. |
+| `tabRailAppIcons` *(optional)* | boolean | `false` | Replaces compact tab markers with app icons in Niri and Dwindle. Each tab group reserves a 28-point rail instead of 10 points; crowded rails scroll vertically. |
 
 The **Show app icons in tab rails** toggle in **Settings → General → Appearance** controls the same option. Changes apply live without restarting.
 
@@ -434,11 +465,11 @@ minWidth = 574.0
 
 ## Per-monitor overrides
 
-Five arrays hold per-monitor exceptions to the global tables. Every entry identifies its monitor with `monitorName` (required) plus optional `monitorDisplayUUID` and `monitorDisplayId`; all entries except orientation also carry an `id` UUID. Override keys are all optional — an omitted key falls back to the corresponding global setting. All five arrays default to empty. Custom routing grids live separately in [`routing.arrangements`](#routing).
+Five arrays hold per-monitor exceptions to the global tables. Every entry requires `monitorName`. Use the display’s `monitorDisplayUUID`; for a display without a UUID, supply both `monitorDisplayId` and `monitorName`. A name alone does not match a display. All entries except orientation also carry an `id` UUID identifying the override row, not the display. Override keys are all optional — an omitted key falls back to the corresponding global setting. All five arrays default to empty. Custom routing grids live separately in [`routing.arrangements`](#routing).
 
 | Array | Overridable keys |
 | --- | --- |
-| `monitorBarOverrides` | `enabled`, `showLabels`, `showFloatingWindows`, `deduplicateAppIcons`, `hideEmptyWorkspaces`, `reserveLayoutSpace`, `notchMode`, `notchActiveZoneWidth`, `position`, `windowLevel`, `height`, `backgroundOpacity`, `xOffset`, `yOffset` — see [`workspaceBar`](#workspacebar) |
+| `monitorBarOverrides` | `enabled`, `showLabels`, `showFloatingWindows`, `deduplicateAppIcons`, `hideEmptyWorkspaces`, `reserveLayoutSpace`, `notchMode`, `notchActiveZoneWidth`, `position`, `windowLevel`, `height`, `backgroundOpacity`, `inactiveIconOpacity`, `transparentBackground`, `solidBlackBackground`, `showItemBackgrounds`, `showAccentHighlights`, `xOffset`, `yOffset` — see [`workspaceBar`](#workspacebar) |
 | `monitorOrientationOverrides` | `orientation`: `horizontal` or `vertical` layout orientation for that monitor |
 | `monitorNiriOverrides` | `visibleContainerCount`, `centerFocusedColumn`, `alwaysCenterSingleColumn`, `singleWindowFit`, `infiniteLoop` — see [`niri`](#niri) |
 | `monitorDwindleOverrides` | `smartSplit`, `defaultSplitRatio`, `splitWidthMultiplier`, `singleWindowFit`, `useGlobalGaps`, `innerGap` — see [`dwindle`](#dwindle) |
@@ -448,8 +479,9 @@ Five arrays hold per-monitor exceptions to the global tables. Every entry identi
 [[monitorGapOverrides]]
 id = "0B54A3C1-6E1B-4D5B-9A64-2F0D8A11C001"
 innerGap = 8.0
+monitorDisplayUUID = "3EFD184C-D5D3-40EF-AF27-14C4222A467B"
 monitorName = "DELL U2720Q"
 outerGapTop = 4.0
 ```
 
-These are most easily managed from **Settings > Monitors** and the per-layout tabs, which record the display's UUID automatically so the override survives display reconnects.
+The example UUID is illustrative; replace it with the identity recorded for your display. These overrides are most easily managed from **Settings > Monitors** and the per-layout tabs, which record the display's UUID automatically so the override survives display reconnects.

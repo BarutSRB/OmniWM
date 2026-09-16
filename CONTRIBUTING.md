@@ -8,7 +8,7 @@ Documentation-only contributions do not require building the app. For website ch
 
 ### 1. Install Xcode
 
-Building OmniWM requires an **Apple Silicon Mac and Xcode 27 with Swift 6.4**. Xcode 26.6 includes Swift 6.3 and cannot build this checkout. The current Xcode 27 RC requires **macOS 26.6 or later**, even though the released OmniWM app supports macOS 26.0 or later. Check [Apple's Xcode requirements](https://developer.apple.com/xcode/system-requirements) before downloading Xcode.
+Building OmniWM requires an **Apple Silicon Mac and Xcode 27 with Swift 6.4**. Xcode 26.6 includes Swift 6.3 and cannot build this checkout. Xcode 27 requires **macOS 26.6 or later**, even though the released OmniWM app supports macOS 26.0 or later. Check [Apple's Xcode requirements](https://developer.apple.com/xcode/system-requirements) before downloading Xcode.
 
 Install Xcode from [Apple Developer Downloads](https://developer.apple.com/download/all/), open it, and finish its first-launch setup. In **Xcode → Settings → Locations → Command Line Tools**, select Xcode 27. Confirm the compiler in Terminal:
 
@@ -56,7 +56,7 @@ make run
 
 This builds your checked-out code, packages and signs **OmniWM Dev.app**, installs it at `~/Applications/OmniWM Dev.app`, and opens it. It builds before quitting the running OmniWM copy; if that copy cannot quit, installation stops with an error. Your normal OmniWM app remains installed. Only one copy runs at a time.
 
-On first launch, grant **Accessibility** and **Input Monitoring** to **OmniWM Dev** in the permissions window. **Screen Recording** is optional for capture-derived visuals such as Overview thumbnails. Dev has its own permissions, separate from your normal app. Follow any restart prompt after granting permissions.
+On first launch, grant **Accessibility** and **Input Monitoring** to **OmniWM Dev** in the permissions window. **Screen Recording** is optional for capture-derived visuals such as Overview thumbnails. Dev has its own permissions, separate from your normal app. Follow any restart prompt after granting permissions, then return to the permissions window and click **Start OmniWM** or **Continue Without Screen Recording**.
 
 Edit code in your preferred editor, then run `make run` again to rebuild. You can also launch the installed Dev app from Finder.
 
