@@ -209,6 +209,10 @@ final class WMController {
     private let clipboardHistoryDirectory: URL
     let windowFocusOperations: WindowFocusOperations
     weak var statusBarController: StatusBarController?
+    @ObservationIgnored
+    var effectiveAppearanceObserver: NSKeyValueObservation?
+    @ObservationIgnored
+    var borderUsesDarkAppearance = false
 
     init(
         settings: SettingsStore,
@@ -244,6 +248,7 @@ final class WMController {
         configureSurfaceCallbacks()
         configureWorldCallbacks()
         configureFocusAndMenuCallbacks()
+        installEffectiveAppearanceObserver()
     }
 }
 
@@ -311,10 +316,6 @@ extension WMController {
         } else {
             surfaceReconciler.noteBorderChanged()
         }
-    }
-
-    var isHiddenBarHidingAvailable: Bool {
-        hiddenBarController.isHidingAvailable
     }
 
     @discardableResult

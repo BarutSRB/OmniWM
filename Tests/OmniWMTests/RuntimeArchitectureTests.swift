@@ -2493,7 +2493,7 @@ final class RuntimeArchitectureTests: XCTestCase {
         let previous = DesiredBorderSurface(
             token: token,
             frame: CGRect(x: 20, y: 30, width: 400, height: 300),
-            config: BorderConfig.from(settings: controller.settings)
+            config: BorderConfig.from(settings: controller.settings, isDark: controller.borderUsesDarkAppearance)
         )
         var boundsQueryCount = 0
         let world = WorldView(controller: controller, liveBoundsProvider: { _ in

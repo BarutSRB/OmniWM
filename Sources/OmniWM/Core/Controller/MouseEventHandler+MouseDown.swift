@@ -167,7 +167,7 @@ extension MouseEventHandler {
         }
         let geometry = appliedBorder.config.resolvedGeometry(for: appliedBorder.frame, scale: scale)
         guard geometry.width > 0,
-              geometry.surfaceFrame.contains(location),
+              geometry.targetFrame.insetBy(dx: -geometry.width, dy: -geometry.width).contains(location),
               !geometry.targetFrame.contains(location)
         else {
             return nil

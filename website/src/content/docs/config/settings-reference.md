@@ -180,7 +180,24 @@ Border drawn around the focused window.
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Draws the focused-window border. |
 | `width` | float | `5.0` | Exterior border width in points; configured values are clamped to 1–12 points when applied. Managed layout frames use its physical-pixel ceiling as the minimum runtime inner and outer clearance while borders are enabled; stored gap values are unchanged. |
-| `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Border color (default is a cyan accent). |
+| `color` | color table | red ≈ `0.0846`, green `1.0`, blue ≈ `0.9793`, alpha `1.0` | Border color (default is a cyan accent) used in light appearance. |
+| `darkColor` | optional color table | absent | Border color used when macOS is in dark appearance. Falls back to `color` when absent. The glow also inherits it unless `glow.color` or `glow.darkColor` is set. |
+| `gradient` | optional table | absent | Enables a two-color linear gradient border when `enabled = true`. |
+| `gradient.enabled` | boolean | `false` | Uses the gradient instead of the solid border color. |
+| `gradient.direction` | string | `"topLeftToBottomRight"` | Either `topLeftToBottomRight` or `topRightToBottomLeft`, in the border surface's local coordinates. |
+| `gradient.start` / `gradient.end` | color tables | — | Complete endpoint colors. A present gradient table must include both colors. |
+| `gradient.dark` | optional table | absent | Dark-appearance endpoint colors. |
+| `gradient.dark.start` / `gradient.dark.end` | color tables | — | Endpoint colors used in dark appearance. Each stop falls back to the matching `gradient.start` / `gradient.end` value when absent. |
+| `glow` | optional table | absent | Adds a visual-only glow around the border. It never changes layout gaps or resize hit-testing. |
+| `glow.enabled` | boolean | `false` | Draws the glow before the border. |
+| `glow.radius` | float | `8.0` | Glow radius in points, accepted from `0` through `32`. The overlay surface expands to contain it. |
+| `glow.opacity` | float | `0.6` | Glow opacity from `0` through `1`. |
+| `glow.color` | optional color table | absent | Overrides the glow color in light appearance. When absent, the glow inherits the border's solid color or gradient endpoints. |
+| `glow.darkColor` | optional color table | absent | Glow color used in dark appearance. Falls back to `glow.color`, then to the border colors. |
+
+Gradient and glow are composable. A missing table preserves solid rendering. Non-finite or structurally invalid values preserve the previous valid appearance; finite gradient color components are clamped to `0...1`, while glow radius and opacity must remain within their documented ranges. Glow reuses the border's solid color or gradient endpoints unless `glow.color` or `glow.darkColor` overrides it, so a gradient border produces a spatially matching gradient glow by default.
+
+Border and gradient colors resolve per macOS appearance: dark values apply when the system (or OmniWM's own Appearance setting, when not Automatic) uses the dark appearance, and update live as the appearance switches — no restart needed. Unset dark values keep the base colors, so existing configs render exactly as before. In Settings, inherited colors are labeled explicitly; Customize creates an override and Reset restores inheritance. Editing one dark gradient endpoint leaves the other inherited until customized. The glow inherits the resolved border color or gradient endpoints, so it adapts with them.
 
 ## overview
 

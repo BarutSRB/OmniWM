@@ -728,6 +728,75 @@ final class BorderSurfaceTests: XCTestCase {
     }
 
     @MainActor
+    func testGradientAndGlowFractionalTranslationsReuseAlignedPaths() throws {
+        let config = BorderConfig(
+            enabled: true, width: 4.5, color: configRed.color,
+            gradient: BorderGradient(
+                enabled: true, start: configRed.color, end: configRed.color, direction: .topLeftToBottomRight
+            ),
+            glow: BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        )
+        let recorder = BorderOperationsRecorder()
+        recorder.backingScale = 2
+        let window = BorderWindow(config: config, operations: recorder.operations())
+        defer { window.destroy() }
+        let target = CGRect(x: 10, y: 20, width: 100.5, height: 80.5)
+        XCTAssertTrue(window.update(frame: target, targetToken: token()))
+        let panel = try XCTUnwrap(recorder.layerPanels.first)
+        let gradientPath = try XCTUnwrap(panel.gradientRingMaskLayer.path)
+        let bands = try XCTUnwrap(panel.glowMaskLayer.sublayers)
+        let bandPaths = try bands.map { try XCTUnwrap(($0 as? CAShapeLayer)?.path) }
+        let redraws = panel.borderUpdateCount
+        let orders = recorder.orderCalls.count
+        let levels = recorder.windowInfoQueryCount
+        let scales = recorder.backingScaleQueryCount
+        for offset: CGFloat in [0, 0.5, -0.5, 13.5, 14] {
+            let translated = target.offsetBy(dx: offset, dy: -offset)
+            let geometry = config.resolvedGeometry(for: translated, scale: 2)
+            XCTAssertTrue(window.update(frame: translated, targetToken: token()))
+            for layer in [panel.gradientStrokeLayer, panel.glowColorLayer] {
+                let localTarget = layer.convert(geometry.localized().targetFrame, to: nil)
+                XCTAssertEqual(localTarget.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY), geometry.targetFrame)
+            }
+            XCTAssertTrue(panel.gradientRingMaskLayer.path === gradientPath)
+            for (index, band) in bands.enumerated() {
+                XCTAssertTrue(panel.glowMaskLayer.sublayers?[index] === band)
+                XCTAssertTrue((band as? CAShapeLayer)?.path === bandPaths[index])
+            }
+            XCTAssertEqual(panel.borderUpdateCount, redraws)
+        }
+        XCTAssertEqual(recorder.layerPanels.count, 1)
+        XCTAssertEqual(recorder.orderCalls.count, orders)
+        XCTAssertEqual(recorder.windowInfoQueryCount, levels)
+        XCTAssertEqual(recorder.backingScaleQueryCount, scales)
+    }
+
+    @MainActor
+    func testControllerCachesBorderAppearanceAndRefreshesAfterModeChanges() {
+        let app = NSApplication.shared
+        let originalAppearance = app.appearance
+        defer { app.appearance = originalAppearance }
+        app.appearance = NSAppearance(named: .aqua)
+        let controller = WindowAdmissionTestSupport.controller(prefix: "BorderAppearanceCache")
+        XCTAssertFalse(controller.borderUsesDarkAppearance)
+        let lightColor = controller.settings.borders.color
+        let darkColor = SettingsColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 1)
+        controller.settings.borders.darkColor = darkColor
+        app.appearance = NSAppearance(named: .darkAqua)
+        XCTAssertEqual(WorldView(controller: controller).borderConfig.color, lightColor)
+        controller.refreshBorderAppearance()
+        XCTAssertEqual(WorldView(controller: controller).borderConfig.color, darkColor)
+        controller.settings.appearanceMode = .light
+        controller.applyCurrentAppearanceMode()
+        XCTAssertFalse(controller.borderUsesDarkAppearance)
+        XCTAssertEqual(WorldView(controller: controller).borderConfig.color, lightColor)
+        controller.settings.appearanceMode = .dark
+        controller.applyCurrentAppearanceMode()
+        XCTAssertTrue(controller.borderUsesDarkAppearance)
+        XCTAssertEqual(WorldView(controller: controller).borderConfig.color, darkColor)
+    }
+
+    @MainActor
     func testExteriorBorderExpandsSurfaceAndLeavesFillTransparent() throws {
         let recorder = BorderOperationsRecorder()
         recorder.backingScale = 1
@@ -821,6 +890,53 @@ final class BorderSurfaceTests: XCTestCase {
             )
         }
         XCTAssertEqual(recorder.layerPanels.count, 1)
+    }
+
+    @MainActor
+    func testGradientAndGlowOnlyConfigChangesRedrawWithoutResize() throws {
+        let baseConfig = BorderConfig(
+            enabled: true,
+            width: 4,
+            color: configRed.color,
+            glow: BorderGlow(enabled: true, radius: 8, opacity: 0)
+        )
+        let recorder = BorderOperationsRecorder()
+        let window = BorderWindow(config: baseConfig, operations: recorder.operations())
+        defer { window.destroy() }
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        let panel = try XCTUnwrap(recorder.layerPanels.first)
+        XCTAssertTrue(panel.gradientStrokeLayer.isHidden)
+        XCTAssertTrue(panel.glowColorLayer.isHidden)
+        XCTAssertEqual(panel.borderUpdateCount, 1)
+
+        var gradientConfig = baseConfig
+        gradientConfig.gradient = BorderGradient(
+            enabled: true,
+            start: configRed.color,
+            end: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1),
+            direction: .topLeftToBottomRight
+        )
+        window.updateConfig(gradientConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertFalse(panel.gradientStrokeLayer.isHidden)
+        XCTAssertEqual(panel.borderUpdateCount, 2)
+
+        var glowConfig = gradientConfig
+        glowConfig.glow = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        window.updateConfig(glowConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertFalse(panel.glowColorLayer.isHidden)
+        XCTAssertEqual(panel.borderUpdateCount, 3)
+
+        var glowColorConfig = glowConfig
+        glowColorConfig.glow?.color = SettingsColor(red: 1, green: 0.5, blue: 0, alpha: 1)
+        window.updateConfig(glowColorConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertEqual(panel.borderUpdateCount, 4)
+
+        window.updateConfig(glowColorConfig)
+        XCTAssertTrue(window.update(frame: frame, targetToken: token()))
+        XCTAssertEqual(panel.borderUpdateCount, 4)
     }
 
     @MainActor
@@ -1660,7 +1776,10 @@ final class WindowCornerRadiiTests: XCTestCase {
         let previous = DesiredBorderSurface(
             token: fixture.entry.token,
             frame: cached,
-            config: BorderConfig.from(settings: fixture.controller.settings)
+            config: BorderConfig.from(
+                settings: fixture.controller.settings,
+                isDark: fixture.controller.borderUsesDarkAppearance
+            )
         )
 
         XCTAssertEqual(SurfaceDerivation.deriveAnimationBorder(world: world, previous: previous)?.frame, cached)

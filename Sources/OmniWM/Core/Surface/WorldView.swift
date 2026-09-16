@@ -59,7 +59,7 @@ struct WorldView {
     }
 
     var borderConfig: BorderConfig {
-        BorderConfig.from(settings: controller.settings)
+        BorderConfig.from(settings: controller.settings, isDark: controller.borderUsesDarkAppearance)
     }
 
     func entry(for token: WindowToken) -> WindowState? {

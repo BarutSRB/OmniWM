@@ -222,6 +222,24 @@ final class MouseMoveModifierTests: NiriInteractionTestCase {
     }
 
     @MainActor
+    func testGlowDoesNotExpandFocusedExteriorBorderResizeZone() throws {
+        let fixture = try makeFixture(pid: 1_109)
+        var config = borderConfig(width: 5)
+        config.glow = BorderGlow(enabled: true, radius: 8, opacity: 0.6)
+        let border = DesiredBorderSurface(token: fixture.token, frame: fixture.windowFrame, config: config)
+        let haloPoint = CGPoint(x: fixture.windowFrame.maxX + 6, y: fixture.windowFrame.midY)
+        XCTAssertTrue(config.resolvedGeometry(for: border.frame, scale: 1).surfaceFrame.contains(haloPoint))
+        XCTAssertNil(fixture.engine.hitTestTiled(point: haloPoint, in: fixture.workspaceId))
+        XCTAssertNil(fixture.handler.focusedBorderResizeToken(
+            at: haloPoint, in: fixture.workspaceId, scale: 1, appliedBorder: border
+        ))
+        XCTAssertEqual(fixture.handler.focusedBorderResizeToken(
+            at: CGPoint(x: fixture.windowFrame.maxX + 4, y: fixture.windowFrame.midY),
+            in: fixture.workspaceId, scale: 1, appliedBorder: border
+        ), fixture.token)
+    }
+
+    @MainActor
     func testDwindleLeftDragWithMoveModifierSwapsTilesOnRelease() throws {
         let fixture = try makeDwindleFixture(pid: 1_201)
         let manager = fixture.controller.workspaceManager

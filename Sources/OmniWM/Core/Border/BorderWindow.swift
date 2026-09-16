@@ -61,7 +61,6 @@ final class BorderWindow {
     private(set) var appliedTargetLevel: Int32 = 0
 
     private let defaultCornerRadii = WindowCornerRadii(uniform: 9.0)
-    private static let borderColorSpace = CGColorSpaceCreateDeviceRGB()
 
     init(config: BorderConfig, operations: Operations = .live) {
         self.config = config
@@ -305,7 +304,9 @@ final class BorderWindow {
 
     func updateConfig(_ newConfig: BorderConfig) {
         guard config != newConfig else { return }
-        if config.color != newConfig.color || config.width != newConfig.width {
+        if config.color != newConfig.color || config.width != newConfig.width
+            || config.gradient != newConfig.gradient || config.glow != newConfig.glow
+        {
             needsRedraw = true
         }
         config = newConfig
@@ -344,28 +345,16 @@ extension BorderWindow {
 
     private func draw(geometry: BorderConfig.ResolvedGeometry) {
         guard let layerPanel else { return }
+        let color = BorderLayerPanel.cgColor(config.color)
         layerPanel.updateBorder(
             geometry: geometry, cornerRadii: currentCornerRadii,
-            color: Self.cgColor(config.color), scale: lastConfiguredScale
+            color: color, scale: lastConfiguredScale
+        )
+        layerPanel.updateEffects(
+            geometry: geometry, cornerRadii: currentCornerRadii,
+            config: config, baseColor: color, scale: lastConfiguredScale
         )
         needsRedraw = false
         BorderOpMetricsRecorder.shared.noteRedraw()
-    }
-
-    private static func cgColor(_ color: SettingsColor) -> CGColor {
-        CGColor(
-            colorSpace: borderColorSpace,
-            components: [
-                component(color.red),
-                component(color.green),
-                component(color.blue),
-                component(color.alpha)
-            ]
-        )!
-    }
-
-    private static func component(_ value: Double) -> CGFloat {
-        guard value.isFinite else { return 0 }
-        return CGFloat(min(max(value, 0), 1))
     }
 }
