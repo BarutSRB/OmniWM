@@ -172,7 +172,7 @@ install_framework() {
     verify_framework || fail "Existing GhosttyKit does not match this checkout; it was preserved. Move it aside explicitly before make setup."
     return
   fi
-  archive="$(download "https://github.com/BarutSRB/OmniWM/releases/download/v$OMNIWM_GHOSTTY_DOWNLOAD_VERSION/GhosttyKit.xcframework-v$OMNIWM_GHOSTTY_DOWNLOAD_VERSION.zip" "$OMNIWM_GHOSTTY_ZIP_SHA256")"
+  archive="$(download "$OMNIWM_GHOSTTY_DOWNLOAD_URL" "$OMNIWM_GHOSTTY_ZIP_SHA256")"
   mkdir -p "$staging/Frameworks" "$staging/Scripts"
   ditto -x -k "$archive" "$staging/Frameworks"
   [ -f "$staging/Frameworks/GhosttyKit.xcframework/Info.plist" ] || fail "GhosttyKit download did not contain the complete xcframework."
