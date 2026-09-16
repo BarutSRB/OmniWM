@@ -14,7 +14,7 @@ extension NiriLayoutHandler {
         let engine = NiriLayoutEngine()
         engine.centerFocusedColumn = centerFocusedColumn
         engine.alwaysCenterSingleColumn = alwaysCenterSingleColumn
-        engine.renderStyle.tabIndicatorWidth = TabRailManager.tabIndicatorWidth
+        engine.renderStyle.tabIndicatorWidth = controller.tabRailStyle.reservedWidth
         engine.animationClock = controller.animationClock
         controller.niriEngine = engine
 

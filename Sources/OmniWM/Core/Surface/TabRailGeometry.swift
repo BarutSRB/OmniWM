@@ -68,7 +68,7 @@ struct TabRailLayout: Equatable {
     let barRect: CGRect
     let items: [Item]
 
-    private init(railRect: CGRect, barRect: CGRect, items: [Item]) {
+    init(railRect: CGRect, barRect: CGRect, items: [Item]) {
         self.railRect = railRect
         self.barRect = barRect
         self.items = items

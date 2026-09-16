@@ -78,6 +78,12 @@ struct GeneralSettingsTab: View {
 
                 SettingsCaption("Controls the appearance of menus and workspace bar")
 
+                Toggle("Show app icons in tab rails", isOn: Binding(
+                    get: { settings.tabRailAppIcons },
+                    set: { controller.setTabRailAppIcons($0) }
+                ))
+                SettingsCaption("Replaces compact markers with app icons. Applies to Niri and Dwindle.")
+
                 Toggle("Enable Animations", isOn: animationsEnabled)
                     .disabled(controller.motionPolicy.systemReducesMotion)
                 SettingsCaption(

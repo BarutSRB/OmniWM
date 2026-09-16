@@ -6,6 +6,10 @@ import AppKit
 final class TabRailView: NSView {
     private var tabs: [TabRailTabInfo] = []
     private let trackView: TabRailTrackView
+    private let motionPolicy: MotionPolicy
+    private let appInfoCache: AppInfoCache
+    private var iconView: TabRailIconView?
+    private var style: TabRailStyle = .compact
     private var railLayout = TabRailLayout.empty
 
     private var isHovered = false {
@@ -38,7 +42,9 @@ final class TabRailView: NSView {
     var onSelect: ((Int) -> Void)?
     var onHoverChange: ((TabRailTabInfo?, CGRect?) -> Void)?
 
-    init(frame frameRect: NSRect, motionPolicy: MotionPolicy) {
+    init(frame frameRect: NSRect, motionPolicy: MotionPolicy, appInfoCache: AppInfoCache = AppInfoCache()) {
+        self.motionPolicy = motionPolicy
+        self.appInfoCache = appInfoCache
         trackView = TabRailTrackView(frame: .zero, motionPolicy: motionPolicy)
         super.init(frame: frameRect)
         addSubview(trackView)
@@ -49,16 +55,25 @@ final class TabRailView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func update(tabs: [TabRailTabInfo], activeVisualIndex: Int) {
+    func update(tabs: [TabRailTabInfo], activeVisualIndex: Int, style: TabRailStyle = .compact) {
+        let styleChanged = self.style != style
+        if styleChanged {
+            invalidateHover()
+            self.style = style
+            configureStyle()
+        }
         let metadataChanged = !Self.hasSameAccessibilityMetadata(self.tabs, tabs)
         let tabsChanged = self.tabs != tabs
         let activeChanged = self.activeVisualIndex != activeVisualIndex
         let countChanged = self.tabs.count != tabs.count
         self.tabs = tabs
         self.activeVisualIndex = activeVisualIndex
-        updateTrackView(rebuildLayout: countChanged || activeChanged)
+        if style == .appIcons {
+            iconView?.update(tabs: tabs, activeVisualIndex: activeVisualIndex)
+        }
+        updateTrackView(rebuildLayout: countChanged || activeChanged || styleChanged)
 
-        if metadataChanged {
+        if metadataChanged || styleChanged {
             refreshAccessibilityElements()
         } else if activeChanged {
             refreshAccessibilityFrames()
@@ -75,6 +90,7 @@ final class TabRailView: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        iconView?.frame = bounds
         updateTrackView(rebuildLayout: true)
         if !suppressAccessibilityGeometryUpdates {
             refreshAccessibilityElements()
@@ -89,6 +105,7 @@ final class TabRailView: NSView {
 
     func refreshAppearance() {
         trackView.refreshAppearance()
+        iconView?.refreshAppearance()
         updateTrackView()
     }
 
@@ -153,7 +170,18 @@ final class TabRailView: NSView {
         onSelect?(item.visualIndex)
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        if style == .appIcons {
+            iconView?.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+
     func item(at point: CGPoint) -> TabRailLayout.Item? {
+        if style == .appIcons {
+            return currentLayout().items.first { !$0.hitRect.isEmpty && $0.hitRect.contains(point) }
+        }
         guard railLayout.railRect.contains(point) else { return nil }
         let markerRects = trackView.presentedMarkerRects()
         let hitRects = TabRailSegmentGeometry.hitRects(markerRects: markerRects, railRect: railLayout.railRect)
@@ -190,7 +218,7 @@ final class TabRailView: NSView {
     }
 
     override func accessibilityHelp() -> String? {
-        "Click a segment to select that tab."
+        style == .appIcons ? "Click an app icon to select its window. Scroll to see more tabs." : "Click a segment to select that tab."
     }
 
     private func updateHoveredVisualIndex(with event: NSEvent) {
@@ -205,6 +233,10 @@ final class TabRailView: NSView {
     }
 
     private func updateTrackView(rebuildLayout: Bool = false) {
+        guard style == .compact else {
+            iconView?.updateHover(hoveredVisualIndex)
+            return
+        }
         if rebuildLayout {
             railLayout = TabRailLayout(
                 tabCount: tabCount,
@@ -235,9 +267,29 @@ final class TabRailView: NSView {
     }
 
     private func currentLayout() -> TabRailLayout {
-        railLayout
+        style == .appIcons ? (iconView?.railLayout(in: self) ?? .empty) : railLayout
     }
 
+    private func configureStyle() {
+        trackView.isHidden = style != .compact
+        if style == .appIcons {
+            let icons = TabRailIconView(motionPolicy: motionPolicy, appInfoCache: appInfoCache)
+            icons.frame = bounds
+            icons.onWillScroll = { [weak self] in self?.invalidateHover() }
+            icons.onDidScroll = { [weak self] in
+                guard let self, !suppressAccessibilityGeometryUpdates else { return }
+                refreshAccessibilityFrames()
+            }
+            iconView = icons
+            addSubview(icons)
+        } else {
+            iconView?.removeFromSuperview()
+            iconView = nil
+        }
+    }
+}
+
+extension TabRailView {
     private func refreshAccessibilityElements() {
         let layout = currentLayout()
         let tabsByVisualIndex = Dictionary(tabs.map { ($0.visualIndex, $0) }, uniquingKeysWith: { first, _ in first })
@@ -260,6 +312,9 @@ final class TabRailView: NSView {
                 screenFrame: screenFrame,
                 pressAction: { [weak self] visualIndex in
                     _ = self?.performAccessibilitySelection(visualIndex)
+                },
+                revealAction: { [weak self] visualIndex in
+                    self?.iconView?.reveal(visualIndex)
                 }
             )
             return element
@@ -275,12 +330,13 @@ final class TabRailView: NSView {
 
     private func performAccessibilitySelection(_ visualIndex: Int) -> Bool {
         guard tabs.contains(where: { $0.visualIndex == visualIndex }) else { return false }
+        iconView?.reveal(visualIndex)
         onSelect?(visualIndex)
         return true
     }
 
     private func screenFrame(for rect: CGRect) -> CGRect {
-        guard let window else { return .zero }
+        guard let window, !rect.isEmpty else { return .zero }
         let windowRect = convert(rect, to: nil)
         return window.convertToScreen(windowRect)
     }

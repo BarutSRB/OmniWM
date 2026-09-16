@@ -18,7 +18,7 @@ extension DwindleLayoutHandler {
             fullscreenLayoutFrame: monitor.fullscreenLayoutFrame,
             scale: monitor.scale,
             settings: settings,
-            tabRailWidth: TabRailManager.tabIndicatorWidth
+            tabRailWidth: (controller?.tabRailStyle ?? .compact).reservedWidth
         )
     }
 
@@ -42,7 +42,7 @@ extension DwindleLayoutHandler {
         engine.settings.splitWidthMultiplier = settings.splitWidthMultiplier
         engine.settings.singleWindowFit = settings.singleWindowFit
         engine.settings.innerGap = settings.innerGap
-        engine.tabRailWidth = TabRailManager.tabIndicatorWidth
+        engine.tabRailWidth = (controller?.tabRailStyle ?? .compact).reservedWidth
     }
 
     func calculationSettings(

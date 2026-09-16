@@ -7,19 +7,21 @@ import AppKit
 final class TabRailManager {
     typealias SelectionHandler = (TabRailInfo, Int, WindowToken?) -> Void
 
-    static let tabIndicatorWidth: CGFloat = TabRailMetrics.totalWidth
-
     var onSelect: SelectionHandler?
 
     private var railWindows: [TabRailKey: TabRailWindow] = [:]
     private var railInfos: [TabRailKey: TabRailInfo] = [:]
     private let motionPolicy: MotionPolicy
+    private let appInfoCache: AppInfoCache
+    private var style: TabRailStyle = .compact
 
-    init(motionPolicy: MotionPolicy = MotionPolicy()) {
+    init(motionPolicy: MotionPolicy = MotionPolicy(), appInfoCache: AppInfoCache = AppInfoCache()) {
         self.motionPolicy = motionPolicy
+        self.appInfoCache = appInfoCache
     }
 
-    func updateRails(_ infos: [TabRailInfo], forceOrdering: Bool = false) {
+    func updateRails(_ infos: [TabRailInfo], forceOrdering: Bool = false, style: TabRailStyle = .compact) {
+        self.style = style
         var desiredKeys = Set<TabRailKey>()
         desiredKeys.reserveCapacity(infos.count)
         for info in infos where info.tabCount > 0 {
@@ -80,14 +82,16 @@ final class TabRailManager {
     private func updateRail(_ info: TabRailInfo, forceOrdering: Bool) {
         let key = info.key
         let window = railWindows[key] ?? {
-            let window = TabRailWindow(owner: info.owner, workspaceId: info.workspaceId, motionPolicy: motionPolicy)
+            let window = TabRailWindow(
+                owner: info.owner, workspaceId: info.workspaceId, motionPolicy: motionPolicy, appInfoCache: appInfoCache
+            )
             window.onSelect = { [weak self] info, visualIndex, token in
                 self?.onSelect?(info, visualIndex, token)
             }
             railWindows[key] = window
             return window
         }()
-        window.update(info: info, forceOrdering: forceOrdering)
+        window.update(info: info, forceOrdering: forceOrdering, style: style)
     }
 
     func removeAll() {

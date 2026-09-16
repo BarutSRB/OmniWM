@@ -7,6 +7,36 @@ import Foundation
 import XCTest
 
 final class SettingsTOMLCodecTests: XCTestCase {
+    func testTabRailAppIconsDefaultsAndRoundTrips() throws {
+        var export = SettingsExport.defaults()
+        XCTAssertFalse(export.tabRailAppIcons)
+
+        for enabled in [false, true] {
+            export.tabRailAppIcons = enabled
+            let data = try SettingsTOMLCodec.encode(export)
+            let text = String(decoding: data, as: UTF8.self)
+            let appearanceSection = try XCTUnwrap(text.components(separatedBy: "[appearance]\n").last)
+                .components(separatedBy: "\n[").first
+
+            XCTAssertTrue(try XCTUnwrap(appearanceSection).contains("tabRailAppIcons = \(enabled)"))
+            XCTAssertEqual(try SettingsTOMLCodec.decode(data), export)
+            XCTAssertFalse(SettingsTOMLCodec.unknownKeyPaths(in: data).contains("appearance.tabRailAppIcons"))
+        }
+    }
+
+    func testMissingTabRailAppIconsDefaultsToCompactWithoutMigration() throws {
+        let withoutKey = try canonicalDefaultLines { lines in
+            let index = try XCTUnwrap(lines.firstIndex(of: "tabRailAppIcons = false"))
+            lines.remove(at: index)
+        }
+
+        let result = try SettingsTOMLCodec.decodeForLoad(withoutKey)
+
+        XCTAssertFalse(result.export.tabRailAppIcons)
+        XCTAssertNil(result.migration)
+        XCTAssertNil(result.migratedData)
+    }
+
     func testDefaultTOMLOmitsUnassignableHotkeyActions() throws {
         let toml = String(
             decoding: try SettingsTOMLCodec.encode(.defaults()),

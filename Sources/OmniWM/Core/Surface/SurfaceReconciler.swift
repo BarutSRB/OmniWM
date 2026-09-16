@@ -37,7 +37,9 @@ final class SurfaceReconciler {
         controller: WMController,
         borderApplier: BorderSurfaceApplier = BorderSurfaceApplier(),
         applyTabRails: @escaping TabRailApply = { controller, infos, forceOrdering in
-            controller.tabRailManager.updateRails(infos, forceOrdering: forceOrdering)
+            controller.tabRailManager.updateRails(
+                infos, forceOrdering: forceOrdering, style: controller.tabRailStyle
+            )
         },
         applyNativeFullscreenPlaceholders: @escaping NativeFullscreenPlaceholderApply = {
             controller,
@@ -308,7 +310,9 @@ final class SurfaceReconciler {
             forceOrdering: forceOrdering,
             refreshCornerRadii: refreshCornerRadii
         )
-        if desired.tabRails != appliedScene.tabRails || forceOrdering {
+        if desired.tabRails != appliedScene.tabRails || desired.tabRailStyle != appliedScene
+            .tabRailStyle || forceOrdering
+        {
             applyTabRails(controller, desired.tabRails, forceOrdering)
         }
         if desired.placeholders != appliedScene.placeholders || forceOrdering {

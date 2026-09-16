@@ -16,6 +16,7 @@ extension WMController {
         setGapSize(settings.gaps.size, publishChange: false)
 
         applyPersistedLayoutSettings(settings)
+        setTabRailAppIcons(settings.tabRailAppIcons, persist: false)
 
         updateWorkspaceConfig()
         updateMonitorOrientations()
@@ -56,6 +57,24 @@ extension WMController {
         guard motionPolicy.userAnimationsEnabled != enabled else { return }
 
         motionPolicy.userAnimationsEnabled = enabled
+    }
+
+    var tabRailStyle: TabRailStyle {
+        TabRailStyle(appIcons: settings.tabRailAppIcons)
+    }
+
+    func setTabRailAppIcons(_ enabled: Bool, persist: Bool = true) {
+        if persist, settings.tabRailAppIcons != enabled {
+            settings.tabRailAppIcons = enabled
+        }
+
+        let width = TabRailStyle(appIcons: enabled).reservedWidth
+        workspaceManager.withEngineMutationScope {
+            niriEngine?.updateTabIndicatorWidth(width, motion: motionPolicy.snapshot())
+            dwindleEngine?.tabRailWidth = width
+        }
+        workspaceManager.invalidateAllLayouts()
+        layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)
     }
 
     func applyCurrentAppearanceMode() {

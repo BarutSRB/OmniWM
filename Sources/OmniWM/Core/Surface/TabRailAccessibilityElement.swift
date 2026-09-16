@@ -8,6 +8,7 @@ final class TabRailAccessibilityElement: NSAccessibilityElement {
     private var tab: TabRailTabInfo
     private var screenFrame: CGRect
     private let pressAction: (Int) -> Void
+    private let revealAction: (Int) -> Void
     private(set) var isSelected: Bool
 
     var visualIndex: Int {
@@ -18,12 +19,14 @@ final class TabRailAccessibilityElement: NSAccessibilityElement {
         parent: AnyObject,
         tab: TabRailTabInfo,
         screenFrame: CGRect,
-        pressAction: @escaping (Int) -> Void
+        pressAction: @escaping (Int) -> Void,
+        revealAction: @escaping (Int) -> Void = { _ in }
     ) {
         parentElement = parent
         self.tab = tab
         self.screenFrame = screenFrame
         self.pressAction = pressAction
+        self.revealAction = revealAction
         isSelected = tab.isActive
         super.init()
     }
@@ -59,6 +62,11 @@ final class TabRailAccessibilityElement: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool {
         pressAction(tab.visualIndex)
         return true
+    }
+
+    override func setAccessibilityFocused(_ focused: Bool) {
+        if focused { revealAction(tab.visualIndex) }
+        super.setAccessibilityFocused(focused)
     }
 
     func update(tab: TabRailTabInfo, screenFrame: CGRect) {

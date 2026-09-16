@@ -9,6 +9,31 @@ import XCTest
 
 @MainActor
 final class SettingsExportApplicationTests: XCTestCase {
+    func testTabRailAppIconsPersistsAndImportsBothStyles() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(directory: directory, startWatching: false, deferSaves: false),
+            runtimeState: RuntimeStateStore(directory: directory, deferSaves: false)
+        )
+        XCTAssertFalse(settings.tabRailAppIcons)
+
+        settings.tabRailAppIcons = true
+
+        let saved = try SettingsTOMLCodec.decode(Data(contentsOf: settings.settingsFileURL))
+        XCTAssertTrue(saved.tabRailAppIcons)
+        XCTAssertTrue(settings.toExport().tabRailAppIcons)
+
+        for enabled in [false, true] {
+            var values = saved
+            values.tabRailAppIcons = enabled
+            settings.applyExport(values)
+
+            XCTAssertEqual(settings.tabRailAppIcons, enabled)
+            XCTAssertEqual(settings.toExport().tabRailAppIcons, enabled)
+        }
+    }
+
     func testCallbacksObserveTheirExistingApplicationPhases() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

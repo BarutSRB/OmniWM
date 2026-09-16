@@ -67,6 +67,7 @@ extension DwindleLayoutHandler {
     func enableDwindleLayout() {
         guard let controller else { return }
         let engine = DwindleLayoutEngine()
+        engine.tabRailWidth = controller.tabRailStyle.reservedWidth
         engine.animationClock = controller.animationClock
         controller.dwindleEngine = engine
         controller.layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)

@@ -38,6 +38,7 @@ struct DesiredParkingEdgeMask: Equatable {
 struct DesiredSurfaceScene: Equatable {
     var border: DesiredBorderSurface?
     var tabRails: [TabRailInfo] = []
+    var tabRailStyle: TabRailStyle = .compact
     var placeholders: [NativeFullscreenPlaceholderUpdate] = []
     var bars: [DesiredBarSurface] = []
     var parkingEdgeMasks: [DesiredParkingEdgeMask] = []

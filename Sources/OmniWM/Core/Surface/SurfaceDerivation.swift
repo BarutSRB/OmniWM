@@ -16,6 +16,7 @@ enum SurfaceDerivation {
         return DesiredSurfaceScene(
             border: deriveBorder(world: world),
             tabRails: world.tabRailInfos(),
+            tabRailStyle: world.tabRailStyle,
             placeholders: world.nativeFullscreenPlaceholders(),
             bars: world.barSurfaces(),
             parkingEdgeMasks: deriveParkingEdgeMasks(monitors: world.monitors)

@@ -5,6 +5,34 @@ import AppKit
 import Foundation
 
 extension NiriLayoutEngine {
+    func updateTabIndicatorWidth(_ width: CGFloat, motion: MotionSnapshot) {
+        assertSanctionedMutation()
+        guard renderStyle.tabIndicatorWidth != width else { return }
+        renderStyle.tabIndicatorWidth = width
+
+        for (workspaceId, state) in states {
+            for column in state.root.columns where column.isTabbed {
+                cancelResizeForDisplayChange(column)
+                let previousWidth = column.cachedWidth
+                if previousWidth > 0 {
+                    column.cachedWidth = column.clampedToWidthBounds(previousWidth, contentInset: width)
+                }
+                if let target = column.targetWidth {
+                    let clampedTarget = column.clampedToWidthBounds(target, contentInset: width)
+                    if clampedTarget != target || column.cachedWidth != previousWidth {
+                        column.animateWidthTo(
+                            newWidth: clampedTarget,
+                            clock: animationClock,
+                            config: windowMovementAnimationConfig,
+                            displayRefreshRate: displayRefreshRate(in: workspaceId),
+                            animated: motion.animationsEnabled
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     @discardableResult
     func toggleColumnTabbed(
         in workspaceId: WorkspaceDescriptor.ID,

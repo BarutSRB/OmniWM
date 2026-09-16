@@ -59,6 +59,7 @@ struct SettingsExport: Equatable {
     var quakeTerminal: QuakeTerminal
 
     var appearanceMode: AppearanceMode
+    var tabRailAppIcons: Bool
 
     struct Focus: Codable, Equatable {
         var followsMouse: Bool
@@ -220,7 +221,8 @@ extension SettingsExport {
             animationsEnabled: true,
             clipboard: Clipboard.defaults(),
             quakeTerminal: QuakeTerminal.defaults(),
-            appearanceMode: .dark
+            appearanceMode: .dark,
+            tabRailAppIcons: false
         )
     }
 }

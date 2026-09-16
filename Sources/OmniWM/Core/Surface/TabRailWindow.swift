@@ -12,15 +12,19 @@ final class TabRailWindow: NSPanel {
     private var lastFrame: CGRect?
     private var lastActiveWindowId: Int?
     private var currentInfo: TabRailInfo?
+    private var style: TabRailStyle = .compact
     private var animationGeometryNeedsAccessibilityRefresh = false
     private var registeredSurfaceWindowNumber: Int?
     private var accessibilityDisplayObserver: NSObjectProtocol?
 
     var onSelect: ((TabRailInfo, Int, WindowToken?) -> Void)?
 
-    init(owner: TabRailOwner, workspaceId: WorkspaceDescriptor.ID, motionPolicy: MotionPolicy) {
+    init(
+        owner: TabRailOwner, workspaceId: WorkspaceDescriptor.ID, motionPolicy: MotionPolicy,
+        appInfoCache: AppInfoCache = AppInfoCache()
+    ) {
         surfaceID = Self.surfaceID(workspaceId: workspaceId, owner: owner)
-        railView = TabRailView(frame: .zero, motionPolicy: motionPolicy)
+        railView = TabRailView(frame: .zero, motionPolicy: motionPolicy, appInfoCache: appInfoCache)
         hoverCard = TabRailHoverCardWindow()
 
         super.init(
@@ -84,16 +88,16 @@ final class TabRailWindow: NSPanel {
         false
     }
 
-    func update(info: TabRailInfo, forceOrdering: Bool) {
-        let frame = Self.railFrame(for: info.visibleTileFrame, tabCount: info.tabCount)
-        if frame != lastFrame || frame != self.frame || !isVisible {
+    func update(info: TabRailInfo, forceOrdering: Bool, style: TabRailStyle = .compact) {
+        let frame = Self.railFrame(for: info.visibleTileFrame, tabCount: info.tabCount, style: style)
+        if self.style != style || frame != lastFrame || frame != self.frame || !isVisible {
             dismissHover()
         }
+        self.style = style
         currentInfo = info
         let clampedActiveVisualIndex = min(max(0, info.activeVisualIndex), max(0, info.tabCount - 1))
-        railView.update(tabs: info.normalizedTabs, activeVisualIndex: clampedActiveVisualIndex)
-
         guard frame.width > 1, frame.height > 1 else {
+            railView.update(tabs: info.normalizedTabs, activeVisualIndex: clampedActiveVisualIndex, style: style)
             dismissHover()
             orderOut(nil)
             lastFrame = nil
@@ -108,6 +112,7 @@ final class TabRailWindow: NSPanel {
             railView.frame = CGRect(origin: .zero, size: frame.size)
             lastFrame = frame
         }
+        railView.update(tabs: info.normalizedTabs, activeVisualIndex: clampedActiveVisualIndex, style: style)
 
         if accessibilityGeometryChanged {
             railView.refreshAccessibilityFrames()
@@ -129,7 +134,7 @@ final class TabRailWindow: NSPanel {
 
     func updateAnimationGeometry(_ command: TabRailGeometryCommand) {
         guard let currentInfo, currentInfo.key == command.key else { return }
-        let frame = Self.railFrame(for: command.visibleTileFrame, tabCount: currentInfo.tabCount)
+        let frame = Self.railFrame(for: command.visibleTileFrame, tabCount: currentInfo.tabCount, style: style)
         guard frame.width > 1, frame.height > 1 else {
             dismissHover()
             if isVisible {
@@ -195,16 +200,16 @@ final class TabRailWindow: NSPanel {
         hoverCard.show(tab: tab, tabCount: currentInfo.tabCount, frame: cardFrame)
     }
 
-    private static func railFrame(for visibleTileFrame: CGRect, tabCount: Int) -> CGRect {
+    private static func railFrame(for visibleTileFrame: CGRect, tabCount: Int, style: TabRailStyle) -> CGRect {
         guard tabCount > 0,
               TabRailManager.isRenderable(visibleTileFrame: visibleTileFrame)
         else {
             return .zero
         }
-        let width = max(TabRailMetrics.hitWidth, TabRailMetrics.totalWidth)
-        let height = TabRailLayout.fittedHeight(tabCount: tabCount, availableHeight: visibleTileFrame.height)
+        let width = style.hitWidth
+        let height = style.fittedHeight(tabCount: tabCount, availableHeight: visibleTileFrame.height)
         guard height > 1 else { return .zero }
-        let x = visibleTileFrame.minX - (width - TabRailMetrics.totalWidth)
+        let x = visibleTileFrame.minX - (width - style.reservedWidth)
         let y = visibleTileFrame.minY + (visibleTileFrame.height - height) / 2
         return CGRect(x: x, y: y, width: width, height: height)
     }

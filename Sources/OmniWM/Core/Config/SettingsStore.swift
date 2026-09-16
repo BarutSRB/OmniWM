@@ -167,6 +167,10 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var tabRailAppIcons = SettingsStore.defaultExport.tabRailAppIcons {
+        didSet { scheduleSave() }
+    }
+
     func loadPersistedWindowRestoreCatalog() -> PersistedWindowRestoreCatalog {
         runtimeState.windowRestoreCatalog ?? .empty
     }
@@ -344,7 +348,8 @@ extension SettingsStore {
             animationsEnabled: animationsEnabled,
             clipboard: clipboard.export(),
             quakeTerminal: quakeTerminal.export(),
-            appearanceMode: appearanceMode
+            appearanceMode: appearanceMode,
+            tabRailAppIcons: tabRailAppIcons
         )
     }
 
@@ -407,6 +412,7 @@ extension SettingsStore {
         quakeTerminal.apply(export.quakeTerminal, baseline: baseline.quakeTerminal)
 
         appearanceMode = export.appearanceMode
+        tabRailAppIcons = export.tabRailAppIcons
     }
 }
 
