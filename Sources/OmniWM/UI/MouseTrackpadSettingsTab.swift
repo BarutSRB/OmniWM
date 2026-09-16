@@ -8,7 +8,6 @@ struct MouseTrackpadSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
     @State private var missionControlGestureProbe: MissionControlGestureProbe
-    @State private var rejectedGestureConflict: TrackpadGestureConflict?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
 
     init(
@@ -23,17 +22,8 @@ struct MouseTrackpadSettingsTab: View {
 
     var body: some View {
         Form {
-            if let conflict = gestureConflict {
-                Section {
-                    Label(conflict.localizedDescription, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
-            }
-            niriColumnScrollingSection
-            workspaceSwipeSection
-            overviewGestureSection
-            trackpadWindowGesturesSection
-            trackpadDirectionSection
+            TrackpadGesturesSettingsPanel(settings: settings, monitors: connectedMonitors)
+            macOSGestureSection
             mouseMoveAndResizeSection
             focusFollowsMouseSection
         }
@@ -46,187 +36,24 @@ struct MouseTrackpadSettingsTab: View {
             .publisher(for: NSApplication.didChangeScreenParametersNotification))
         { _ in
             connectedMonitors = Monitor.current()
-            rejectedGestureConflict = nil
         }
     }
 
-    private var niriColumnScrollingSection: some View {
-        Section("Niri Column Scrolling") {
-            Toggle("Enable Column Scrolling", isOn: gestureBinding(\.scrollEnabled) { $0.scrollEnabled = $1 })
-
-            SettingsSliderRow(
-                label: "Scroll Sensitivity",
-                value: Bindable(settings.gestures).scrollSensitivity,
-                range: 0.1 ... 100.0,
-                step: 0.1,
-                valueText: String(format: "%.1f", settings.gestures.scrollSensitivity) + "x"
-            )
-            .disabled(!settings.gestures.scrollEnabled)
-
-            Picker("Trackpad Gesture Fingers", selection: gestureBinding(\.fingerCount) { $0.fingerCount = $1 }) {
-                ForEach(GestureFingerCount.allCases, id: \.self) { count in
-                    Text(count.displayName).tag(count)
-                }
-            }
-            .disabled(!settings.gestures.scrollEnabled)
-
-            Picker("Trackpad Scroll Style", selection: Bindable(settings.gestures).trackpadScrollStyle) {
-                ForEach(TrackpadScrollStyle.allCases) { style in
-                    Text(style.displayName).tag(style)
-                }
-            }
-            .disabled(!settings.gestures.scrollEnabled)
-
-            SettingsCaption(settings.gestures.trackpadScrollStyle == .momentum
-                ? "Free inertial scrolling with rubber-band edges"
-                : "Scroll snaps to the nearest column")
-
-            Picker("Mouse Scroll Modifier", selection: Bindable(settings.gestures).scrollModifierKey) {
-                ForEach(ScrollModifierKey.allCases, id: \.self) { key in
-                    Text(key.displayName).tag(key)
-                }
-            }
-            .disabled(!settings.gestures.scrollEnabled)
-
-            SettingsCaption("Hold this key + scroll wheel to scroll through columns")
-        }
-    }
-
-    private var workspaceSwipeSection: some View {
-        Section("Workspace Swipe") {
-            Toggle(
-                "Enable Workspace Swipe",
-                isOn: gestureBinding(\.workspaceSwipeEnabled) { $0.workspaceSwipeEnabled = $1 }
-            )
-
-            SettingsCaption("Swipe to switch workspaces on the monitor under the cursor")
-
-            Picker(
-                "Swipe Fingers",
-                selection: gestureBinding(\.workspaceSwipeFingerCount) { $0.workspaceSwipeFingerCount = $1 }
-            ) {
-                ForEach(GestureFingerCount.allCases, id: \.self) { count in
-                    Text(count.displayName).tag(count)
-                }
-            }
-            .disabled(!settings.gestures.workspaceSwipeEnabled)
-            .accessibilityHint(workspaceSwipeFingerPickerHint)
-
-            if showTwoFingerWorkspaceSwipeWarning {
-                SettingsCaption(twoFingerWorkspaceSwipeWarning)
-            }
-
-            Picker("Swipe Axis", selection: workspaceSwipeAxisSelection) {
-                ForEach(WorkspaceSwipeAxis.allCases) { axis in
-                    Text(axis.displayName).tag(axis)
-                }
-            }
-            .disabled(!settings.gestures.workspaceSwipeEnabled)
-
-            SettingsCaption(workspaceSwipeCaption)
-
-            if missionControlGestureProbe.shouldWarn(
-                axis: settings.gestures.effectiveWorkspaceSwipeAxis,
-                fingerCount: settings.gestures.workspaceSwipeFingerCount
-            ) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label {
-                        Text("Mission Control gesture conflict")
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    }
-
-                    Text(
-                        "Mission Control’s three- or four-finger upward swipe can intercept vertical workspace swipes. Turn off Mission Control in  → System Settings → Trackpad → More Gestures before enabling vertical workspace swipes."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                    Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
-                        .controlSize(.small)
-                        .accessibilityHint(
-                            "Opens System Settings. Select More Gestures, then turn off Mission Control."
-                        )
-                }
-            }
-        }
-    }
-
-    private var overviewGestureSection: some View {
-        Section("Overview Gesture") {
-            Toggle(
-                "Enable Overview Gesture",
-                isOn: gestureBinding(\.overviewGestureEnabled) { $0.overviewGestureEnabled = $1 }
-            )
-            Picker(
-                "Gesture Fingers",
-                selection: gestureBinding(\.overviewGestureFingerCount) { $0.overviewGestureFingerCount = $1 }
-            ) {
-                Text("3 Fingers").tag(OverviewGestureFingerCount.three)
-                Text("4 Fingers").tag(OverviewGestureFingerCount.four)
-            }
-            .disabled(!settings.gestures.overviewGestureEnabled)
+    private var macOSGestureSection: some View {
+        Section("macOS Gestures") {
             SettingsCaption(
-                "Swipe up to open Overview and down to close it; the thumbnails follow your fingers and commit past halfway or on a flick. Lift all fingers between gestures. Use a finger count not already assigned to another vertical gesture."
+                "macOS can also respond to the same fingers. Turn off matching gestures in System Settings → Trackpad → More Gestures if both actions fire."
             )
-            if settings.gestures.overviewGestureEnabled, missionControlGestureProbe.status == .enabled {
-                SettingsCaption("Disable the matching Mission Control gesture in macOS Trackpad settings.")
-                Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
+            if missionControlGestureProbe.status == .enabled {
+                Label(
+                    "Mission Control is enabled and may intercept matching upward swipes.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private var trackpadWindowGesturesSection: some View {
-        Section("Trackpad Window Move & Resize") {
-            SettingsCaption(
-                "Drag without clicking to move or resize the tiled window under the cursor. Lift your fingers to drop."
-            )
-            Toggle("Enable Move Gesture", isOn: gestureBinding(\.windowMoveEnabled) { $0.windowMoveEnabled = $1 })
-            Picker(
-                "Move Fingers",
-                selection: gestureBinding(\.windowMoveFingerCount) { $0.windowMoveFingerCount = $1 }
-            ) {
-                ForEach(GestureFingerCount.allCases, id: \.self) { count in
-                    Text(count.displayName).tag(count)
-                }
-            }
-            .disabled(!settings.gestures.windowMoveEnabled)
-            Toggle("Enable Resize Gesture", isOn: gestureBinding(\.windowResizeEnabled) { $0.windowResizeEnabled = $1 })
-            Picker(
-                "Resize Fingers",
-                selection: gestureBinding(\.windowResizeFingerCount) { $0.windowResizeFingerCount = $1 }
-            ) {
-                ForEach(GestureFingerCount.allCases, id: \.self) { count in
-                    Text(count.displayName).tag(count)
-                }
-            }
-            .disabled(!settings.gestures.windowResizeEnabled)
-            SettingsCaption("Resize pulls the nearest movable window edges. Choose fingers unused by other gestures.")
-            SettingsSliderRow(
-                label: "Gesture Sensitivity",
-                value: Bindable(settings.gestures).windowGestureSensitivity,
-                range: GestureSettings.windowGestureSensitivityRange,
-                step: 0.1,
-                valueText: String(format: "%.1f", settings.gestures.windowGestureSensitivity) + "x"
-            )
-            .disabled(!settings.gestures.windowMoveEnabled && !settings.gestures.windowResizeEnabled)
-            SettingsCaption("At 1.0x, sweeping the whole trackpad travels across the whole screen.")
-            SettingsCaption(
-                "Turn off matching macOS gestures in System Settings → Trackpad → More Gestures to prevent them firing alongside window gestures."
-            )
             Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
-        }
-    }
-
-    private var trackpadDirectionSection: some View {
-        Section("Trackpad Direction") {
-            Toggle("Invert Direction (Natural)", isOn: Bindable(settings.gestures).invertDirection)
-                .disabled(!settings.gestures.scrollEnabled && !settings.gestures.workspaceSwipeEnabled)
-
-            SettingsCaption(settings.gestures.invertDirection
-                ? "Affects both Niri column scrolling and workspace swipes. Swipe right = scroll right."
-                : "Affects both Niri column scrolling and workspace swipes. Swipe right = scroll left.")
+                .accessibilityHint("Opens macOS Trackpad settings. Select More Gestures to review system gestures.")
         }
     }
 
@@ -272,61 +99,5 @@ struct MouseTrackpadSettingsTab: View {
 
             SettingsCaption("Hold this modifier to move the cursor over other windows without changing focus.")
         }
-    }
-
-    private var workspaceSwipeAxisSelection: Binding<WorkspaceSwipeAxis> {
-        gestureBinding(\.workspaceSwipeAxis) { $0.workspaceSwipeAxis = $1 }
-    }
-
-    private var gestureConflict: TrackpadGestureConflict? {
-        rejectedGestureConflict ?? GestureSettingsValidation.conflict(
-            gestures: settings.gestures.export(),
-            orientationOverrides: settings.monitors.orientationOverrides,
-            monitors: connectedMonitors
-        )
-    }
-
-    private func gestureBinding<Value>(
-        _ keyPath: KeyPath<GestureSettings, Value>,
-        update: @escaping (inout SettingsExport.Gestures, Value) -> Void
-    ) -> Binding<Value> {
-        Binding(
-            get: { settings.gestures[keyPath: keyPath] },
-            set: { value in
-                var candidate = settings.gestures.export()
-                update(&candidate, value)
-                rejectedGestureConflict = settings.updateGestureSettings(
-                    candidate,
-                    monitors: connectedMonitors
-                )
-            }
-        )
-    }
-
-    private var workspaceSwipeCaption: String {
-        let natural = settings.gestures.invertDirection
-        let hint = switch settings.gestures.workspaceSwipeAxis {
-        case .horizontal:
-            natural ? "Swipe left = next workspace, right = previous" : "Swipe right = next workspace, left = previous"
-        case .vertical:
-            natural ? "Swipe up = next workspace, down = previous" : "Swipe down = next workspace, up = previous"
-        }
-        let lockHint = settings.gestures.workspaceSwipeAxisLockedToVertical
-            ? " In Niri, matching column-scrolling fingers use the perpendicular direction instead. "
-            + "The selected axis applies without column scrolling."
-            : ""
-        return hint + "." + lockHint + " Pick a combination not already used by macOS trackpad gestures."
-    }
-
-    private var showTwoFingerWorkspaceSwipeWarning: Bool {
-        settings.gestures.workspaceSwipeEnabled && settings.gestures.workspaceSwipeFingerCount == .two
-    }
-
-    private var workspaceSwipeFingerPickerHint: String {
-        showTwoFingerWorkspaceSwipeWarning ? twoFingerWorkspaceSwipeWarning : ""
-    }
-
-    private var twoFingerWorkspaceSwipeWarning: String {
-        "Two-finger workspace swipes can intercept normal scrolling in apps."
     }
 }

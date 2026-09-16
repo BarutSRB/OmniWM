@@ -923,7 +923,7 @@ Conceal selected menu-bar icons and reach them from a panel:
 ## Configuration
 
 Access settings by clicking OmniWM's status bar icon and selecting **Settings** or **App Rules**.
-Mouse and gesture settings live in Settings under **Mouse & Trackpad**.
+Mouse and gesture settings live in Settings under **Mouse & Trackpad**. The **Trackpad Gestures** panel shows all five assignments together. Finger selectors work while a gesture is off; **Set Up…** explains conflicts and offers explicit reassignment choices before turning anything off. Expand a gesture row for its additional controls.
 
 **Settings > General** also carries a **System-wide Window Corners** control (macOS 26.4+). It writes the system-wide
 preference, so it changes standard Mac app windows everywhere — including windows OmniWM does not manage — and apps

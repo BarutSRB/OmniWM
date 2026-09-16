@@ -29,14 +29,16 @@ Hold `Option + Shift + Mouse Scroll Wheel` (default, configurable) to scroll alo
 
 Use 2/3/4-finger gestures (configurable) along the active Niri primary axis; direction can be inverted (local hardware validation is limited).
 
-The **Trackpad Scroll Style** picker in **Settings → Mouse & Trackpad** chooses how the strip responds:
+The **Trackpad scroll style** picker under **Settings → Mouse & Trackpad → Trackpad Gestures → Scroll columns** chooses how the strip responds:
 
 - **Snap to Columns** (default) — the scroll snaps to the nearest column.
 - **Momentum** — free inertial scrolling with rubber-band edges.
 
+All five gesture assignments appear together in **Trackpad Gestures**. You can select fingers while a gesture is off. If an assignment conflicts, **Set Up…** shows exactly which gestures would turn off and lets you choose before applying. Turning off **Scroll columns** also turns off modifier + mouse-wheel column scrolling.
+
 ## Move and resize with the trackpad (opt-in)
 
-Enable **Trackpad Window Move & Resize** in **Settings → Mouse & Trackpad** to drag without clicking. The gesture targets the tiled window under the cursor in either layout; lift all fingers to finish. Move swaps with the window under the drop position and stays on the starting monitor. Resize adjusts the nearest movable edges. The pointer itself stays in place.
+Enable **Move windows** or **Resize windows** in **Settings → Mouse & Trackpad → Trackpad Gestures** to drag without clicking. The gesture targets the tiled window under the cursor in either layout; lift all fingers to finish. Move swaps with the window under the drop position and stays on the starting monitor. Resize adjusts the nearest movable edges. The pointer itself stays in place.
 
 Choose two, three, or four fingers for each action. Defaults are four fingers to move and three to resize, with both actions disabled. A window gesture needs a finger count unused by other enabled OmniWM gestures, including column scrolling, workspace switching, and Overview. Settings reject conflicting assignments; disable or reassign the other gesture first. At **1.0x** sensitivity, a full trackpad sweep travels across the starting screen.
 
