@@ -115,7 +115,7 @@ install_dev() {
   seed_settings
   mkdir -p "$INSTALL_DIR"
   rm -rf "$DEV_APP"
-  ditto "$ROOT_DIR/dist/$DEV_APP_NAME.app" "$DEV_APP"
+  mv "$ROOT_DIR/dist/$DEV_APP_NAME.app" "$DEV_APP"
   echo "omniwm-dev: installed $DEV_APP"
   open_copy "$DEV_APP"
 }

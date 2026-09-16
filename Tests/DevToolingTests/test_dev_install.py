@@ -78,14 +78,33 @@ class DevInstallTests(unittest.TestCase):
         result = self.install()
 
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.dev_app / "new-build").read_text(), "built")
+        self.assertFalse((self.root / "dist" / self.dev_app.name).exists())
         dev_settings = self.dev_config / "settings.toml"
         self.assertFalse(dev_settings.is_symlink())
         self.assertEqual(dev_settings.read_text(), original.read_text())
         dev_settings.write_text("development = true\n")
+        previous_build = self.dev_app / "previous-build"
+        previous_build.write_text("obsolete")
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.dev_app / "new-build").read_text(), "built")
+        self.assertFalse((self.root / "dist" / self.dev_app.name).exists())
+        self.assertFalse(previous_build.exists())
         self.assertEqual(dev_settings.read_text(), "development = true\n")
         self.assertEqual(original.read_text(), "release = true\n")
+
+    def test_move_failure_stops_before_success_message_and_launch(self):
+        self.write_command(self.root / "tools" / "mv", "exit 1\n")
+
+        result = self.install()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("omniwm-dev: installed", result.stdout)
+        self.assertFalse((self.root / "opened").exists())
+        self.assertEqual(
+            (self.root / "dist" / self.dev_app.name / "new-build").read_text(), "built"
+        )
 
     def test_no_release_settings_leaves_dev_to_use_defaults(self):
         result = self.install()
