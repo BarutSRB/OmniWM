@@ -27,6 +27,11 @@ final class GhosttyAppCallbackContext {
         runtimeConfig.action_cb = { app, target, action in
             guard let app, let userdata = ghostty_app_userdata(app) else { return false }
             switch action.tag {
+            case GHOSTTY_ACTION_OPEN_URL:
+                guard target.tag == GHOSTTY_TARGET_SURFACE else { return false }
+                return MainActor.assumeIsolated {
+                    QuakeTerminalURLHandler.handle(action.action.open_url)
+                }
             case GHOSTTY_ACTION_CONFIG_CHANGE:
                 guard target.tag == GHOSTTY_TARGET_APP,
                       let config = action.action.config_change.config else { return false }
