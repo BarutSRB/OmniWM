@@ -610,7 +610,7 @@ OmniWM checks for updates by default.
 
 ## Documentation
 
-The canonical documentation hub lives at [omniwm.app](https://omniwm.app). This README and the guides follow current `main`; additions not included in the current v0.6.10 release are marked **Unreleased**.
+The canonical documentation hub lives at [omniwm.app](https://omniwm.app). This README and the guides follow current `main`; features newer than the latest release are marked **Unreleased**.
 
 - [Documentation Home](https://omniwm.app/guides/quick-start/)
 - [Layout Modes](https://omniwm.app/guides/layouts/)
@@ -661,8 +661,6 @@ The setup assistant opens automatically when OmniWM first sees multiple displays
 Custom arrangements are remembered for each set of connected displays, so home and work can keep different positions for the same laptop display. Reconnecting a saved set restores its arrangement automatically. If there is no exact match, OmniWM inherits the smallest saved arrangement containing every connected display; an uncovered set or an invalid grid follows macOS. Editing, resetting, or finishing setup saves only the connected set, leaving any larger arrangement unchanged. Simply connecting displays or opening Settings does not save an arrangement. Workspace assignments and other per-monitor settings remain separate.
 
 **Move Window Across Monitor at Edge** sends a window beyond a workspace edge to the adjacent routed display and always follows it. Dedicated monitor-move actions work independently of this setting and use **Follow Window to Monitor**, which also controls focus after ordinary window or column transfers to another workspace.
-
-> **Unreleased:** Configurable monitor ranking is available on current `main`, not in v0.6.10. The existing Main, Secondary, and Tertiary roles use the default order in that release.
 
 Workspace homes can be **Main**, **Secondary**, **Tertiary**, or a specific display. By default Main is the display with the macOS menu bar and Secondary and Tertiary are the next displays in arrangement order. The **Monitor Roles** list in **Settings > Monitors** lets you rank displays instead: the highest-ranked connected display is Main, then Secondary, then Tertiary, and disconnected entries are skipped, so two external displays can hold fixed roles at your desk while the built-in display takes over when you unplug. The Quake terminal's **Main Monitor** option follows the same ranking.
 
@@ -874,7 +872,7 @@ Open the frontmost app's menus at your cursor with a global shortcut. Menu Anywh
 
 #### Overview Mode
 
-> **Unreleased:** Modifier-free thumbnail dragging is available on current `main`, not in v0.6.10, where dragging requires `Option`. Current `main` also adds [trackpad opening and closing](https://omniwm.app/features/overview/), with finger tracking when animations are enabled.
+Overview supports [trackpad opening and closing](https://omniwm.app/features/overview/), with finger tracking when animations are enabled.
 
 See all windows at once with thumbnails:
 - Open it from the global shortcut shown in `Keyboard Shortcuts`
@@ -904,8 +902,6 @@ A visual indicator showing your workspaces:
 - Optionally show a System Stats button that opens a CPU, memory, GPU, disk, and uptime popup. `Toggle System Stats` and `omniwmctl command toggle-system-stats` drive the same popup, and both do nothing unless a monitor currently shows that workspace-bar button
 - Optionally hide the bar on a monitor while that monitor shows a macOS native fullscreen window, and bring it back on exit (`Hide in Native Fullscreen`); reserved tiled layout space is left untouched so windows do not shuffle around the fullscreen session
 - Exclude individual apps or choose alternate app icons across all monitors in Settings
-
-> **Unreleased:** The appearance controls and **Fill Left of Notch** mode below are available on current `main`, not in v0.6.10.
 
 Workspace-bar appearance controls are optional and also support per-monitor overrides:
 
@@ -950,8 +946,6 @@ Conceal selected menu-bar icons and reach them from a panel:
 
 ### Tips
 
-> **Unreleased:** Modifier-free Overview dragging, trackpad window move/resize, and the **Set Up…** conflict-resolution flow are available on current `main`, not in v0.6.10.
-
 - **Workspaces** - Create named workspaces in Settings to organize by project or context (You can use emojis 🥳)
 - **App Rules** - Exclude problematic apps from tiling or assign them to specific workspaces
 - **Mouse** - Hold the configured mouse-move modifier and drag to swap tiled windows. Niri swaps individual windows; add `Shift` to insert into a column. Dwindle swaps whole tiles, including their tab groups. The modifier defaults to `Option` and can be changed or disabled in **Settings → Mouse & Trackpad**. In Overview, dragging a thumbnail needs no modifier and targets a workspace, window position, or Niri column gap
@@ -964,7 +958,7 @@ Conceal selected menu-bar icons and reach them from a panel:
 ## Configuration
 
 Access settings by clicking OmniWM's status bar icon and selecting **Settings** or **App Rules**.
-Mouse and gesture settings live in Settings under **Mouse & Trackpad**. On current `main` (**Unreleased**, not in v0.6.10), the **Trackpad Gestures** panel shows all five assignments together. Finger selectors work while a gesture is off; **Set Up…** explains conflicts and offers explicit reassignment choices before turning anything off. Expand a gesture row for its additional controls.
+Mouse and gesture settings live in Settings under **Mouse & Trackpad**. The **Trackpad Gestures** panel shows all five assignments together. Finger selectors work while a gesture is off; **Set Up…** explains conflicts and offers explicit reassignment choices before turning anything off. Expand a gesture row for its additional controls.
 
 **Settings > General** also carries a **System-wide Window Corners** control (macOS 26.4+). It writes the system-wide
 preference, so it changes standard Mac app windows everywhere — including windows OmniWM does not manage — and apps

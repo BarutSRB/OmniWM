@@ -40,10 +40,6 @@ Three settings shape how focus and windows travel between displays:
 
 ## Monitor roles
 
-:::note[Unreleased]
-Configurable monitor ranking is available on current `main`, not in v0.6.10. Main, Secondary, and Tertiary roles already exist in that release and use the default ordering described below.
-:::
-
 A workspace's home can be **Main**, **Secondary**, **Tertiary**, or a specific display. By default Main is the display with the macOS menu bar and Secondary and Tertiary are the next displays in arrangement order, which leaves you no say over which of two external displays plays which role.
 
 The **Monitor Roles** list in **Settings > Monitors** fixes that. Add displays with **Add Monitor** and reorder them with the arrows: the highest-ranked connected display becomes Main, the next becomes Secondary, the third becomes Tertiary, and unranked displays follow after them. Disconnected entries stay in the list and are skipped, so ranking `DELL, LG, Built-in` gives the two externals the Main and Secondary roles at your desk and hands Main back to the built-in display when you unplug. The Quake terminal's **Main Monitor** option follows the same Main. Leave the list empty to keep the default behavior. See [`monitors` in the Settings Reference](/config/settings-reference/#monitors) for the configuration format.

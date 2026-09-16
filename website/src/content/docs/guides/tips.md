@@ -17,10 +17,6 @@ Use [App Rules](/features/app-rules/) to exclude problematic apps from tiling or
 
 Hold the configured mouse-move modifier and drag a tiled window onto another to swap them; this works in both layouts. On Niri, add `Shift` to insert into a column instead. In Dwindle the drag swaps whole tiles, so a tab group moves with all of its members, the drop target is outlined while you hover it, releasing anywhere else changes nothing, and `Shift` has no effect. The modifier defaults to `Option` and can be changed or disabled in **Settings → Mouse & Trackpad**. In [Overview](/features/overview/), dragging a thumbnail needs no modifier and targets a workspace, window position, or Niri column gap.
 
-:::note[Unreleased]
-Modifier-free thumbnail dragging in Overview is available on current `main`, not in v0.6.10. Hold `Option` to drag Overview thumbnails in that release.
-:::
-
 ## Resize with a right-drag
 
 Hold the configured right-mouse resize modifier (`Option` by default) and right-drag a tiled window to resize it in either layout.
@@ -37,10 +33,6 @@ The **Trackpad scroll style** picker under **Settings → Mouse & Trackpad → T
 
 - **Snap to Columns** (default) — the scroll snaps to the nearest column.
 - **Momentum** — free inertial scrolling with rubber-band edges.
-
-:::note[Unreleased]
-Overview swipes, trackpad window move/resize, and the **Set Up…** conflict-resolution flow are available on current `main`, not in v0.6.10.
-:::
 
 All five gesture assignments appear together in **Trackpad Gestures**. You can select fingers while a gesture is off. If an assignment conflicts, **Set Up…** shows exactly which gestures would turn off and lets you choose before applying. Turning off **Scroll columns** also turns off modifier + mouse-wheel column scrolling.
 

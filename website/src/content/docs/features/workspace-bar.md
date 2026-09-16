@@ -33,10 +33,6 @@ Configure position, height, and appearance in Settings:
 
 ### Additional appearance controls
 
-:::note[Unreleased]
-The controls in this section are available on current `main`, not in v0.6.10.
-:::
-
 - **Fill Left of Notch** — an additional notch mode that fills the menu-bar area left of the notch, covering application menus. Without a notch it uses the left half of the menu bar. This mode always hides in native fullscreen, regardless of **Hide in Native Fullscreen**.
 - **Inactive Icon Opacity** — adjust unfocused app icons from 0–100%; **Reset to System Default** clears the override.
 - **Transparent Background** — hide the bar material, tint, and border while keeping its contents interactive.

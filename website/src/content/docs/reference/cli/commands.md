@@ -30,10 +30,6 @@ omniwmctl <command> [arguments...] [--format json|ndjson|table|tsv|text] [--json
 
 Remote commands require IPC to be enabled. Local commands work even when the IPC server is disabled.
 
-:::note[Unreleased]
-Nushell completion (`nu`) is available on current `main`, not in v0.6.10. That release supports `zsh`, `bash`, and `fish`.
-:::
-
 For Nushell 0.108 or newer, `omniwmctl completion nu` emits a module that adds Tab suggestions for commands, options, and fixed argument values. Save it as `omniwmctl-completions.nu` and import its `omniwmctl` definition from `config.nu`; see [shell completion setup](/reference/cli/overview/#nushell) for the commands. Regenerate the file after upgrading OmniWM.
 
 `omniwmctl version --json` returns `protocolVersion` and the available `appVersion`, `gitHash`, `buildConfiguration`, and `executableSHA256` fields in `result.payload`. Optional fields are omitted when unavailable; the fingerprint identifies the running app build and executable.

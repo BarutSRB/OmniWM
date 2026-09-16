@@ -7,10 +7,6 @@ sidebar:
 
 Press `Option + Shift + O` and all of your workspaces' windows fly into a scrollable overview of thumbnails. Workspaces with no windows are hidden. Configure the 50–150% baseline zoom plus backdrop and window-border colors in **Settings → Overview**.
 
-:::note[Unreleased]
-Trackpad opening/closing, finger-tracked transitions, and modifier-free thumbnail dragging are available on current `main`, not in v0.6.10. That release opens Overview with the shortcut and requires `Option` while dragging thumbnails.
-:::
-
 ## Finding and focusing windows
 
 - Type to filter windows live; `Backspace` deletes search text.

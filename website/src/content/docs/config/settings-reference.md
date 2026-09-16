@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-This reference follows current `main`; additions not included in v0.6.10 are marked **Unreleased**.
+This reference follows current `main`; features newer than the latest release are marked **Unreleased**.
 
 Complete reference for `settings.toml`, in the file's canonical order. The authoritative schema is [`CanonicalTOMLConfig.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/CanonicalTOMLConfig.swift); defaults come from [`SettingsExport.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/SettingsExport.swift) and [`BuiltInSettingsDefaults.swift`](https://github.com/BarutSRB/OmniWM/blob/main/Sources/OmniWM/Core/Config/BuiltInSettingsDefaults.swift).
 
@@ -48,10 +48,6 @@ Global switches: hotkeys, Hyper key, default layout, sleep, updates, IPC, animat
 | `updateChecksEnabled` | boolean | `true` | Automatic update checks. |
 | `ipcEnabled` | boolean | `false` | Enables the IPC server used by `omniwmctl`. |
 | `animationsEnabled` | boolean | `true` | Animates window layout changes and other OmniWM-authored motion. macOS Reduce Motion turns them off regardless of this key. |
-
-:::note[Unreleased]
-Global macOS Reduce Motion handling is available on current `main`, not in v0.6.10. The app’s `animationsEnabled` switch is already available in that release.
-:::
 
 ## focus
 
@@ -115,10 +111,6 @@ monitorName = "DELL U2720Q"
 For no saved arrangements, use `arrangements = []` inside `[routing]` and omit the array-of-table entries. The example UUIDs above are illustrative; use the identities recorded for your displays by **Settings > Monitors**.
 
 ## monitors
-
-:::note[Unreleased]
-Configurable monitor ranking is available on current `main`, not in v0.6.10. The existing Main, Secondary, and Tertiary roles remain available without a ranking.
-:::
 
 Optional table that ranks displays for OmniWM's monitor roles. Omit it to keep the default roles: **Main** is the display with the macOS menu bar, and **Secondary** and **Tertiary** are the next displays in arrangement order.
 
@@ -186,10 +178,6 @@ Options for the Dwindle (BSP) layout.
 
 Border drawn around the focused window.
 
-:::note[Unreleased]
-Gradient borders, glow, and light/dark color overrides are available on current `main`, not in v0.6.10. That release supports `enabled`, `width`, and a single `color`.
-:::
-
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Draws the focused-window border. |
@@ -228,10 +216,6 @@ Zoom and colors for the Overview.
 ## workspaceBar
 
 The per-monitor workspace bar. Per-monitor exceptions live in [`monitorBarOverrides`](#per-monitor-overrides).
-
-:::note[Unreleased]
-The five optional appearance controls below (`inactiveIconOpacity`, `transparentBackground`, `solidBlackBackground`, `showItemBackgrounds`, and `showAccentHighlights`) and the `fillLeftOfNotch` mode are available on current `main`, not in v0.6.10.
-:::
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -275,9 +259,7 @@ The five optional appearance controls below (`inactiveIconOpacity`, `transparent
 
 Mouse and trackpad gestures.
 
-:::note[Unreleased]
-Overview swipes, trackpad window move/resize, and the **Set Up…** conflict-resolution flow are available on current `main`, not in v0.6.10. The seven optional `overviewGesture…` and `window…` keys below configure the new gestures.
-:::
+The seven optional `overviewGesture…` and `window…` keys below configure Overview swipes and trackpad window move/resize.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -369,10 +351,6 @@ Optional labels for the ten scratchpad slots. A label replaces the slot number i
 ## appearance
 
 Appearance of OmniWM's own UI.
-
-:::note[Unreleased]
-Optional tab-rail app icons are available on current `main`, not in v0.6.10.
-:::
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
