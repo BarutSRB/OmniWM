@@ -144,6 +144,11 @@ extension CanonicalTOMLConfig {
         var gestures = gestures
         gestures.overviewGestureEnabled = gestures.overviewGestureEnabled ?? false
         gestures.overviewGestureFingerCount = gestures.overviewGestureFingerCount ?? .four
+        gestures.windowMoveEnabled = gestures.windowMoveEnabled ?? false
+        gestures.windowMoveFingerCount = gestures.windowMoveFingerCount ?? .four
+        gestures.windowResizeEnabled = gestures.windowResizeEnabled ?? false
+        gestures.windowResizeFingerCount = gestures.windowResizeFingerCount ?? .three
+        gestures.windowGestureSensitivity = gestures.windowGestureSensitivity ?? 1.0
         return SettingsExport(
             hotkeysEnabled: general.hotkeysEnabled,
             focus: focus,

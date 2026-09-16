@@ -41,7 +41,7 @@ extension MouseEventHandler {
                required: controller.settings.gestures.mouseMoveModifierKey.cgEventFlags
            )
         {
-            beginNiriMove(at: location, mode: moveMode, engine: engine, workspaceId: wsId, button: button)
+            beginNiriMouseMove(at: location, mode: moveMode, engine: engine, workspaceId: wsId, button: button)
             return false
         }
 
@@ -52,7 +52,39 @@ extension MouseEventHandler {
               )
         else { return false }
 
-        return beginNiriResize(at: location, engine: engine, workspaceId: wsId, button: button)
+        return beginNiriMouseResize(at: location, engine: engine, workspaceId: wsId, button: button)
+    }
+
+    private func beginNiriMouseMove(
+        at location: CGPoint, mode: MouseMoveMode, engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID, button: MouseButton
+    ) {
+        guard let window = engine.hitTestTiled(point: location, in: workspaceId) else { return }
+        _ = beginNiriMove(
+            window: window,
+            engine: engine,
+            wsId: workspaceId,
+            at: location,
+            isInsertMode: mode == .insert,
+            source: .mouse(button)
+        )
+    }
+
+    private func beginNiriMouseResize(
+        at location: CGPoint, engine: NiriLayoutEngine, workspaceId wsId: WorkspaceDescriptor.ID, button: MouseButton
+    ) -> Bool {
+        guard let controller else { return false }
+        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
+        let window = engine.hitTestTiled(point: location, in: wsId)
+            ?? focusedBorderResizeToken(
+                at: location,
+                in: wsId,
+                scale: controller.backingScaleFactor(for: monitor),
+                appliedBorder: controller.surfaceReconciler.appliedScene.border
+            )
+            .flatMap { engine.findNode(for: $0, in: wsId) }
+        guard let window else { return false }
+        return beginNiriResize(window: window, engine: engine, wsId: wsId, at: location, source: .mouse(button))
     }
 
     private func recordPointerFocusIntent(
@@ -78,111 +110,6 @@ extension MouseEventHandler {
         }
     }
 
-    private func beginNiriMove(
-        at location: CGPoint, mode moveMode: MouseMoveMode, engine: NiriLayoutEngine,
-        workspaceId wsId: WorkspaceDescriptor.ID, button: MouseButton
-    ) {
-        guard let controller,
-              let tiledWindow = engine.hitTestTiled(point: location, in: wsId),
-              let monitor = controller.workspaceManager.monitor(for: wsId)
-        else { return }
-        let geometry = controller.niriInteractionGeometry(for: monitor)
-        let orientation = resolvedNiriOrientation(
-            engine: engine,
-            workspaceId: wsId,
-            monitor: monitor
-        )
-
-        let isInsertMode = moveMode == .insert
-        var moveStarted = false
-        controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
-            if engine.interactiveMoveBegin(
-                windowId: tiledWindow.id,
-                windowToken: tiledWindow.token,
-                startLocation: location,
-                isInsertMode: isInsertMode,
-                context: .init(
-                    workspaceId: wsId,
-                    motion: controller.motionPolicy.snapshot(),
-                    workingFrame: geometry.workingFrame,
-                    gaps: geometry.innerGap,
-                    orientation: orientation
-                ),
-                state: &vstate
-            ) {
-                moveStarted = true
-            }
-        }
-        if moveStarted {
-            state.isMoving = true
-            state.moveLayout = .niri
-            state.activeInteractionButton = button
-            state.capturedInteractionButton = button
-            NSCursor.closedHand.set()
-
-            showNiriDragGhost(for: tiledWindow.token, at: location)
-            return
-        }
-    }
-
-    private func showNiriDragGhost(for token: WindowToken, at location: CGPoint) {
-        guard let controller else { return }
-        if let entry = controller.workspaceManager.entry(for: token),
-           let frame = AXWindowService.framePreferFast(entry.axRef)
-        {
-            if state.dragGhostController == nil {
-                state.dragGhostController = DragGhostController()
-            }
-            state.dragGhostController?.beginDrag(
-                windowId: entry.windowId,
-                originalFrame: frame,
-                cursorLocation: location
-            )
-        }
-    }
-
-    private func beginNiriResize(
-        at location: CGPoint, engine: NiriLayoutEngine, workspaceId wsId: WorkspaceDescriptor.ID, button: MouseButton
-    ) -> Bool {
-        guard let controller else { return false }
-        guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
-        let tiledWindow = engine.hitTestTiled(point: location, in: wsId)
-            ?? focusedBorderResizeToken(
-                at: location,
-                in: wsId,
-                scale: controller.backingScaleFactor(for: monitor),
-                appliedBorder: controller.surfaceReconciler.appliedScene.border
-            ).flatMap { engine.findNode(for: $0, in: wsId) }
-        guard let tiledWindow,
-              let frame = tiledWindow.renderedFrame ?? tiledWindow.frame
-        else { return false }
-
-        let edges = resizeEdges(for: location, in: frame)
-        let currentViewOffset = controller.workspaceManager.niriViewportState(for: wsId).viewOffset
-        let orientation = resolvedNiriOrientation(
-            engine: engine,
-            workspaceId: wsId,
-            monitor: monitor
-        )
-        if engine.interactiveResizeBegin(
-            windowId: tiledWindow.id,
-            edges: edges,
-            startLocation: location,
-            in: wsId,
-            orientation: orientation,
-            viewOffset: currentViewOffset
-        ) {
-            state.isResizing = true
-            state.activeInteractionButton = button
-            state.capturedInteractionButton = button
-            state.currentHoveredEdges = edges
-            controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
-            edges.cursor.set()
-            return true
-        }
-        return false
-    }
-
     private func handleDwindleMouseDown(
         at location: CGPoint,
         modifiers: CGEventFlags,
@@ -191,7 +118,18 @@ extension MouseEventHandler {
     ) -> Bool {
         guard let controller, let engine = controller.dwindleEngine else { return false }
         if button == .left {
-            return beginDwindleMove(at: location, modifiers: modifiers, engine: engine, wsId: wsId)
+            guard Self.mouseMoveMode(
+                modifiers: modifiers,
+                required: controller.settings.gestures.mouseMoveModifierKey.cgEventFlags
+            ) == .swap,
+                let token = engine.hitTestFocusableWindow(
+                    point: location,
+                    in: wsId,
+                    at: controller.animationClock.now()
+                )
+            else { return false }
+            _ = beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location, source: .mouse(button))
+            return false
         }
         guard button == .right,
               Self.modifierFlagsMatch(
@@ -201,70 +139,15 @@ extension MouseEventHandler {
         else { return false }
 
         guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
-        let now = controller.animationClock.now()
-        let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: now)
+        let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: controller.animationClock.now())
             ?? focusedBorderResizeToken(
                 at: location,
                 in: wsId,
                 scale: controller.backingScaleFactor(for: monitor),
                 appliedBorder: controller.surfaceReconciler.appliedScene.border
             )
-        guard let token,
-              let node = engine.findNode(for: token, in: wsId),
-              let frame = node.presentedFrame(at: now)
-        else { return false }
-
-        let edges = resizeEdges(for: location, in: frame)
-        controller.dwindleLayoutHandler.refreshEngineConstraints(workspaceId: wsId, monitor: monitor)
-        let innerGap = controller.resolvedDwindleSettings(for: monitor).innerGap
-        guard engine.interactiveResizeBegin(
-            token: token,
-            edges: edges,
-            startLocation: location,
-            in: wsId,
-            innerGap: innerGap
-        ) else {
-            return false
-        }
-
-        controller.layoutRefreshController.stopDwindleAnimation(for: monitor.displayId)
-        engine.cancelAnimations(in: wsId)
-        state.isResizing = true
-        state.activeInteractionButton = button
-        state.capturedInteractionButton = button
-        state.currentHoveredEdges = edges
-        state.resizeLayout = .dwindle
-        edges.cursor.set()
-        return true
-    }
-
-    private func beginDwindleMove(
-        at location: CGPoint,
-        modifiers: CGEventFlags,
-        engine: DwindleLayoutEngine,
-        wsId: WorkspaceDescriptor.ID
-    ) -> Bool {
-        guard let controller else { return false }
-        let now = controller.animationClock.now()
-        guard Self.mouseMoveMode(
-            modifiers: modifiers,
-            required: controller.settings.gestures.mouseMoveModifierKey.cgEventFlags
-        ) == .swap,
-            let token = engine.hitTestFocusableWindow(point: location, in: wsId, at: now),
-            let frame = engine.presentedFrame(for: token, in: wsId, at: now),
-            engine.interactiveMoveBegin(token: token, startLocation: location, in: wsId)
-        else { return false }
-
-        state.isMoving = true
-        state.moveLayout = .dwindle
-        state.activeInteractionButton = .left
-        state.capturedInteractionButton = .left
-        NSCursor.closedHand.set()
-        if state.dragGhostController == nil {
-            state.dragGhostController = DragGhostController()
-        }
-        state.dragGhostController?.beginDrag(windowId: token.windowId, originalFrame: frame, cursorLocation: location)
-        return false
+        guard let token else { return false }
+        return beginDwindleResize(token: token, engine: engine, wsId: wsId, at: location, source: .mouse(button))
     }
 
     func focusedBorderResizeToken(
@@ -292,14 +175,14 @@ extension MouseEventHandler {
         return appliedBorder.token
     }
 
-    private func resizeEdges(for location: CGPoint, in frame: CGRect) -> ResizeEdge {
+    func resizeEdges(for location: CGPoint, in frame: CGRect) -> ResizeEdge {
         var edges: ResizeEdge = location.x < frame.midX ? [.left] : [.right]
         edges.insert(location.y < frame.midY ? .bottom : .top)
         return edges
     }
 
     func shouldAcceptInteractionButton(_ button: MouseButton) -> Bool {
-        state.activeInteractionButton == nil || state.activeInteractionButton == button
+        state.activeInteractionSource == nil || state.activeInteractionSource == .mouse(button)
     }
 
     func isCapturedInteraction(_ button: MouseButton) -> Bool {

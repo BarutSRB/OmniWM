@@ -22,7 +22,8 @@ extension MouseEventHandler {
             fingerCount: lockedContext.fingerCount,
             cumulativeTranslation: CGVector(dx: metrics.cumulativeX, dy: metrics.cumulativeY),
             columnScrollAxis: lockedContext.columnScrollAxis,
-            columnContextAvailable: lockedContext.columnScrollCandidate && controller.niriEngine != nil
+            columnContextAvailable: lockedContext.columnScrollCandidate && controller.niriEngine != nil,
+            windowContextAvailable: lockedContext.windowGestureTarget != nil
         ) else {
             state.suppressGestureStartUntilAllTouchesLift = true
             resetGestureState()
@@ -35,6 +36,12 @@ extension MouseEventHandler {
             resetGestureState()
             return false
         }
+        if mode.isWindowInteraction, !beginGestureWindowInteraction(mode, lockedContext: lockedContext) {
+            state.suppressGestureStartUntilAllTouchesLift = true
+            resetGestureState()
+            return false
+        }
+        MouseTrace.record("gesture: committed \(mode) with \(lockedContext.fingerCount) fingers")
         state.activeGestureMode = mode
         state.gesturePhase = .committed
         return true
@@ -79,6 +86,18 @@ extension MouseEventHandler {
                 cumulative: axis == .horizontal ? metrics.cumulativeX : metrics.cumulativeY,
                 monitorId: lockedContext.monitorId
             )
+        case .windowMove:
+            guard state.gestureOwnsWindowInteraction, state.isMoving else {
+                abortActiveGestureIfNeeded()
+                return
+            }
+            updateActiveMove(at: gestureWindowLocation(for: lockedContext))
+        case .windowResize:
+            guard state.gestureOwnsWindowInteraction, state.isResizing else {
+                abortActiveGestureIfNeeded()
+                return
+            }
+            updateManagedResize(at: gestureWindowLocation(for: lockedContext))
         case nil:
             abortActiveGestureIfNeeded()
         }
@@ -150,6 +169,13 @@ extension MouseEventHandler {
                 allowFlick: allowFlick,
                 timestamp: timestamp
             )
+        case .windowMove,
+             .windowResize:
+            if allowFlick {
+                commitGestureWindowInteraction(lockedContext: lockedContext)
+            } else {
+                cancelGestureWindowInteraction()
+            }
         default:
             if let engine = controller?.niriEngine {
                 finalizeOrCancelCommittedGesture(
@@ -296,6 +322,8 @@ extension MouseEventHandler {
                 state.suppressTrackpadMomentumScroll = true
             } else if case .workspaceSwitch = state.activeGestureMode {
                 state.suppressTrackpadMomentumScroll = true
+            } else if state.activeGestureMode?.isWindowInteraction == true {
+                cancelGestureWindowInteraction()
             } else if let lockedContext = state.lockedGestureContext {
                 if let engine = controller?.niriEngine {
                     finalizeOrCancelCommittedGesture(
@@ -316,6 +344,7 @@ extension MouseEventHandler {
     }
 
     func resetGestureState(settleViewportGesture: Bool = true) {
+        cancelGestureWindowInteraction()
         if state.lockedGestureContext?.overviewAction != nil {
             controller?.windowActionHandler.endOverviewGesture(timestamp: nil)
         }
@@ -332,6 +361,7 @@ extension MouseEventHandler {
         state.gestureLastAverageY = 0.0
         state.lockedGestureContext = nil
         state.activeGestureMode = nil
+        state.gestureFingerCountMismatchSince = nil
         state.viewportGestureSessionID = nil
         state.workspaceSwipeFired = false
     }

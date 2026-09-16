@@ -81,6 +81,7 @@ extension MouseEventHandler {
     ) {
         guard let controller else { return }
         guard canHandleManagedMouseInteraction(controller: controller) else { return }
+        guard !state.gestureOwnsWindowInteraction else { return }
         if requirePressedButtonCheck {
             guard pressedMouseButtonsProvider() & button.pressedMask != 0 else {
                 cancelActiveMouseInteraction()
@@ -90,11 +91,7 @@ extension MouseEventHandler {
 
         if state.isMoving {
             guard shouldAcceptInteractionButton(button) else { return }
-            if state.moveLayout == .dwindle {
-                handleDwindleMoveDrag(at: location)
-                return
-            }
-            updateNiriMove(at: location)
+            updateActiveMove(at: location)
             return
         }
 
@@ -115,6 +112,14 @@ extension MouseEventHandler {
         }
 
         return true
+    }
+
+    func updateActiveMove(at location: CGPoint) {
+        if state.moveLayout == .dwindle {
+            handleDwindleMoveDrag(at: location)
+        } else {
+            updateNiriMove(at: location)
+        }
     }
 
     private func updateNiriMove(at location: CGPoint) {
@@ -156,7 +161,7 @@ extension MouseEventHandler {
         }
     }
 
-    private func updateManagedResize(at location: CGPoint) {
+    func updateManagedResize(at location: CGPoint) {
         guard let controller else { return }
         if state.resizeLayout == .dwindle {
             guard let engine = controller.dwindleEngine,

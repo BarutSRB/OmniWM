@@ -32,6 +32,7 @@ struct MouseTrackpadSettingsTab: View {
             niriColumnScrollingSection
             workspaceSwipeSection
             overviewGestureSection
+            trackpadWindowGesturesSection
             trackpadDirectionSection
             mouseMoveAndResizeSection
             focusFollowsMouseSection
@@ -173,6 +174,48 @@ struct MouseTrackpadSettingsTab: View {
                 SettingsCaption("Disable the matching Mission Control gesture in macOS Trackpad settings.")
                 Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
             }
+        }
+    }
+
+    private var trackpadWindowGesturesSection: some View {
+        Section("Trackpad Window Move & Resize") {
+            SettingsCaption(
+                "Drag without clicking to move or resize the tiled window under the cursor. Lift your fingers to drop."
+            )
+            Toggle("Enable Move Gesture", isOn: gestureBinding(\.windowMoveEnabled) { $0.windowMoveEnabled = $1 })
+            Picker(
+                "Move Fingers",
+                selection: gestureBinding(\.windowMoveFingerCount) { $0.windowMoveFingerCount = $1 }
+            ) {
+                ForEach(GestureFingerCount.allCases, id: \.self) { count in
+                    Text(count.displayName).tag(count)
+                }
+            }
+            .disabled(!settings.gestures.windowMoveEnabled)
+            Toggle("Enable Resize Gesture", isOn: gestureBinding(\.windowResizeEnabled) { $0.windowResizeEnabled = $1 })
+            Picker(
+                "Resize Fingers",
+                selection: gestureBinding(\.windowResizeFingerCount) { $0.windowResizeFingerCount = $1 }
+            ) {
+                ForEach(GestureFingerCount.allCases, id: \.self) { count in
+                    Text(count.displayName).tag(count)
+                }
+            }
+            .disabled(!settings.gestures.windowResizeEnabled)
+            SettingsCaption("Resize pulls the nearest movable window edges. Choose fingers unused by other gestures.")
+            SettingsSliderRow(
+                label: "Gesture Sensitivity",
+                value: Bindable(settings.gestures).windowGestureSensitivity,
+                range: GestureSettings.windowGestureSensitivityRange,
+                step: 0.1,
+                valueText: String(format: "%.1f", settings.gestures.windowGestureSensitivity) + "x"
+            )
+            .disabled(!settings.gestures.windowMoveEnabled && !settings.gestures.windowResizeEnabled)
+            SettingsCaption("At 1.0x, sweeping the whole trackpad travels across the whole screen.")
+            SettingsCaption(
+                "Turn off matching macOS gestures in System Settings → Trackpad → More Gestures to prevent them firing alongside window gestures."
+            )
+            Button("Open Trackpad Settings", action: missionControlGestureProbe.openTrackpadSettings)
         }
     }
 

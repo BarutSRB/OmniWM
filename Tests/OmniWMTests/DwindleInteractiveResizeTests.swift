@@ -214,4 +214,98 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         XCTAssertEqual(collapsedRoot?.splitRatio ?? 0, 1.0, accuracy: 1e-6)
         XCTAssertNotNil(engine.findNode(for: leaf1, in: ws))
     }
+
+    func testNearestMovableFallsBackAtEachScreenEdge() {
+        for vertical in [false, true] {
+            let (engine, workspace) = makeEngine()
+            let first = WindowToken(pid: 1, windowId: 1)
+            let second = WindowToken(pid: 2, windowId: 2)
+            _ = engine.addWindow(token: first, to: workspace, activeWindowFrame: nil)
+            if vertical { engine.setPreselection(.up, in: workspace) }
+            _ = engine.addWindow(token: second, to: workspace, activeWindowFrame: nil)
+            _ = engine.calculateLayout(for: workspace, screen: screen)
+            let firstEdge: ResizeEdge = vertical ? .top : .right
+            let secondEdge: ResizeEdge = vertical ? .bottom : .left
+            for (token, requested, effective) in [(first, secondEdge, firstEdge), (second, firstEdge, secondEdge)] {
+                XCTAssertFalse(engine.interactiveResizeBegin(
+                    token: token, edges: requested, startLocation: start, in: workspace,
+                    innerGap: engine.settings.innerGap
+                ))
+                XCTAssertTrue(engine.interactiveResizeBegin(
+                    token: token, edges: requested, startLocation: start, in: workspace,
+                    innerGap: engine.settings.innerGap, edgePolicy: .nearestMovable
+                ))
+                XCTAssertEqual(engine.interactiveResize?.edges, effective)
+                let originalRatio = engine.root(for: workspace)?.splitRatio ?? 0
+                let location = CGPoint(x: start.x + (vertical ? 0 : 100), y: start.y + (vertical ? 80 : 0))
+                XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: location))
+                XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, originalRatio + 0.2, accuracy: 1e-6)
+                XCTAssertTrue(engine.interactiveResizeEnd())
+            }
+        }
+    }
+
+    func testNearestMovableFallsBackOnBothAxesAtCorner() {
+        let (engine, workspace) = makeEngine()
+        let target = WindowToken(pid: 1, windowId: 1)
+        let right = WindowToken(pid: 2, windowId: 2)
+        let top = WindowToken(pid: 3, windowId: 3)
+        _ = engine.addWindow(token: target, to: workspace, activeWindowFrame: nil)
+        _ = engine.addWindow(token: right, to: workspace, activeWindowFrame: nil)
+        engine.setSelectedNode(engine.findNode(for: target, in: workspace), in: workspace)
+        engine.setPreselection(.up, in: workspace)
+        _ = engine.addWindow(token: top, to: workspace, activeWindowFrame: nil)
+        _ = engine.calculateLayout(for: workspace, screen: screen)
+        XCTAssertTrue(engine.interactiveResizeBegin(
+            token: target, edges: [.left, .bottom], startLocation: start, in: workspace,
+            innerGap: engine.settings.innerGap, edgePolicy: .nearestMovable
+        ))
+        XCTAssertEqual(engine.interactiveResize?.edges, [.right, .top])
+        XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y + 80)))
+        XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
+        XCTAssertEqual(engine.findNode(for: target, in: workspace)?.parent?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
+    }
+
+    func testNearestMovableKeepsRequestedEdgeWhenItCanMove() {
+        let (engine, workspace) = makeEngine()
+        let target = WindowToken(pid: 1, windowId: 1)
+        _ = engine.addWindow(token: target, to: workspace, activeWindowFrame: nil)
+        _ = engine.addWindow(token: WindowToken(pid: 2, windowId: 2), to: workspace, activeWindowFrame: nil)
+        _ = engine.calculateLayout(for: workspace, screen: screen)
+        XCTAssertTrue(engine.interactiveResizeBegin(
+            token: target, edges: [.right], startLocation: start, in: workspace,
+            innerGap: engine.settings.innerGap, edgePolicy: .nearestMovable
+        ))
+        XCTAssertEqual(engine.interactiveResize?.edges, [.right])
+        XCTAssertNil(engine.interactiveResize?.vertical)
+    }
+
+    func testNearestMovableRejectsWindowWithoutControllingSplits() {
+        let (engine, workspace) = makeEngine()
+        let target = WindowToken(pid: 1, windowId: 1)
+        _ = engine.addWindow(token: target, to: workspace, activeWindowFrame: nil)
+        _ = engine.calculateLayout(for: workspace, screen: screen)
+        XCTAssertFalse(engine.interactiveResizeBegin(
+            token: target, edges: [.left, .bottom], startLocation: start, in: workspace,
+            innerGap: engine.settings.innerGap, edgePolicy: .nearestMovable
+        ))
+        XCTAssertNil(engine.interactiveResize)
+    }
+
+    func testExactPolicyPreservesRequestedCornerWithoutAddingUnavailableAxis() {
+        let (engine, workspace) = makeEngine()
+        let target = WindowToken(pid: 1, windowId: 1)
+        _ = engine.addWindow(token: target, to: workspace, activeWindowFrame: nil)
+        _ = engine.addWindow(token: WindowToken(pid: 2, windowId: 2), to: workspace, activeWindowFrame: nil)
+        _ = engine.calculateLayout(for: workspace, screen: screen)
+        XCTAssertTrue(engine.interactiveResizeBegin(
+            token: target, edges: [.right, .top], startLocation: start, in: workspace,
+            innerGap: engine.settings.innerGap
+        ))
+        XCTAssertEqual(engine.interactiveResize?.edges, [.right, .top])
+        XCTAssertNotNil(engine.interactiveResize?.horizontal)
+        XCTAssertNil(engine.interactiveResize?.vertical)
+        XCTAssertFalse(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x, y: start.y + 80)))
+        XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, 1.0, accuracy: 1e-6)
+    }
 }

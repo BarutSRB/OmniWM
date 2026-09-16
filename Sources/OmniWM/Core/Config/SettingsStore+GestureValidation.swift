@@ -12,6 +12,10 @@ extension SettingsStore {
             .workspaceSwipeEnabled
         disabledCandidate.overviewGestureEnabled =
             (disabledCandidate.overviewGestureEnabled ?? false) && (candidate.overviewGestureEnabled ?? false)
+        disabledCandidate.windowMoveEnabled =
+            (disabledCandidate.windowMoveEnabled ?? false) && (candidate.windowMoveEnabled ?? false)
+        disabledCandidate.windowResizeEnabled =
+            (disabledCandidate.windowResizeEnabled ?? false) && (candidate.windowResizeEnabled ?? false)
         if candidate != disabledCandidate,
            let conflict = GestureSettingsValidation.conflict(
                gestures: candidate,

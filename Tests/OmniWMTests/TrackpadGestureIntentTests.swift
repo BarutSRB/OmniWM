@@ -410,4 +410,222 @@ final class TrackpadGestureIntentTests: XCTestCase {
             CGFloat(-900)
         )
     }
+
+    func testDisabledWindowGesturesNeverClaimTheirFingerCount() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.windowMoveFingerCount = 4
+        config.windowResizeFingerCount = 3
+        XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 4))
+        XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 3))
+        XCTAssertFalse(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: 4))
+    }
+
+    func testWindowGestureAllowsStartAndRequiresWindowContext() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.windowMoveEnabled = true
+        config.windowMoveFingerCount = 4
+        XCTAssertTrue(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: 4))
+        XCTAssertFalse(
+            TrackpadGestureIntent.hasCandidateMode(
+                config,
+                fingerCount: 4,
+                columnContextAvailable: true,
+                windowContextAvailable: false
+            )
+        )
+        XCTAssertTrue(
+            TrackpadGestureIntent.hasCandidateMode(
+                config,
+                fingerCount: 4,
+                columnContextAvailable: false,
+                windowContextAvailable: true
+            )
+        )
+    }
+
+    func testWindowGestureLeavesOtherFingerCountsToExistingGestures() {
+        var config = makeConfig(columnFingers: 3, workspaceFingers: 3)
+        config.windowMoveEnabled = true
+        config.windowMoveFingerCount = 4
+        let mode = TrackpadGestureIntent.resolveMode(
+            config,
+            fingerCount: 3,
+            cumulativeTranslation: CGVector(dx: 50, dy: 10),
+            columnScrollAxis: .horizontal,
+            columnContextAvailable: true,
+            windowContextAvailable: true
+        )
+        XCTAssertEqual(mode, .columnScroll)
+    }
+
+    func testWindowGestureLocationScalesTrackpadTravelToMonitorAndClamps() {
+        let monitor = CGRect(x: 100, y: 200, width: 1600, height: 900)
+        let start = CGPoint(x: 500, y: 650)
+
+        let moved = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.2, y: 0.5),
+            currentTouch: CGPoint(x: 0.45, y: 0.4),
+            monitorFrame: monitor,
+            sensitivity: 1
+        )
+        XCTAssertEqual(moved.x, 900, accuracy: 0.001)
+        XCTAssertEqual(moved.y, 560, accuracy: 0.001)
+
+        let scaled = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.2, y: 0.5),
+            currentTouch: CGPoint(x: 0.3, y: 0.5),
+            monitorFrame: monitor,
+            sensitivity: 2
+        )
+        XCTAssertEqual(scaled.x, 820, accuracy: 0.001)
+
+        let clamped = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.9, y: 0.9),
+            currentTouch: CGPoint(x: 0.0, y: 0.0),
+            monitorFrame: monitor,
+            sensitivity: 3
+        )
+        XCTAssertEqual(clamped, CGPoint(x: monitor.minX, y: monitor.minY))
+
+        let unclamped = TrackpadGestureIntent.windowGestureLocation(
+            start: start,
+            startTouch: CGPoint(x: 0.9, y: 0.9),
+            currentTouch: CGPoint(x: 0.0, y: 0.0),
+            monitorFrame: monitor,
+            sensitivity: 3,
+            clampToMonitor: false
+        )
+        XCTAssertEqual(unclamped.x, start.x - 0.9 * 1600 * 3, accuracy: 0.001)
+        XCTAssertEqual(unclamped.y, start.y - 0.9 * 900 * 3, accuracy: 0.001)
+    }
+
+    func testFingerCountGraceOnlyAppliesToWindowGestures() {
+        XCTAssertEqual(TrackpadGestureMode.windowMove.fingerCountGrace, 0.15)
+        XCTAssertEqual(TrackpadGestureMode.windowResize.fingerCountGrace, 0.15)
+        XCTAssertEqual(TrackpadGestureMode.overview(.open).fingerCountGrace, 0)
+        XCTAssertEqual(TrackpadGestureMode.overview(.close).fingerCountGrace, 0)
+        XCTAssertEqual(TrackpadGestureMode.overview(.resume).fingerCountGrace, 0)
+        XCTAssertEqual(TrackpadGestureMode.columnScroll.fingerCountGrace, 0)
+        XCTAssertEqual(TrackpadGestureMode.workspaceSwitch(axis: .horizontal).fingerCountGrace, 0)
+    }
+
+    func testWindowModesReportAsWindowInteractions() {
+        XCTAssertTrue(TrackpadGestureMode.windowMove.isWindowInteraction)
+        XCTAssertTrue(TrackpadGestureMode.windowResize.isWindowInteraction)
+        XCTAssertFalse(TrackpadGestureMode.overview(.open).isWindowInteraction)
+        XCTAssertFalse(TrackpadGestureMode.columnScroll.isWindowInteraction)
+        XCTAssertFalse(TrackpadGestureMode.workspaceSwitch(axis: .vertical).isWindowInteraction)
+    }
+
+    func testWindowGestureUpperBoundsRemainInsideMonitorForDropTargets() {
+        let monitor = CGRect(x: -1600, y: 200, width: 1600, height: 900)
+        let location = TrackpadGestureIntent.windowGestureLocation(
+            start: CGPoint(x: -500, y: 650),
+            startTouch: .zero,
+            currentTouch: CGPoint(x: 1, y: 1),
+            monitorFrame: monitor,
+            sensitivity: 5
+        )
+        XCTAssertEqual(location, CGPoint(x: monitor.maxX - 1, y: monitor.maxY - 1))
+        XCTAssertTrue(monitor.contains(location))
+        let unclamped = TrackpadGestureIntent.windowGestureLocation(
+            start: CGPoint(x: -500, y: 650),
+            startTouch: .zero,
+            currentTouch: CGPoint(x: 1, y: 1),
+            monitorFrame: monitor,
+            sensitivity: 5,
+            clampToMonitor: false
+        )
+        XCTAssertEqual(unclamped, CGPoint(x: 7500, y: 5150))
+    }
+
+    func testDistinctWindowGestureCountsResolveInEitherDirection() {
+        var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+        config.windowMoveEnabled = true
+        config.windowResizeEnabled = true
+        for (fingers, expected) in [(4, TrackpadGestureMode.windowMove), (3, .windowResize)] {
+            XCTAssertEqual(TrackpadGestureIntent.windowGestureMode(config, fingerCount: fingers), expected)
+            for translation in [CGVector(dx: -40, dy: 0), CGVector(dx: 0, dy: 40)] {
+                for context in [false, true] {
+                    XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+                        config,
+                        fingerCount: fingers,
+                        cumulativeTranslation: translation,
+                        columnScrollAxis: .horizontal,
+                        columnContextAvailable: false,
+                        windowContextAvailable: context
+                    ), context ? expected : nil)
+                }
+            }
+        }
+        XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: 2))
+    }
+
+    func testEveryWindowGestureCollisionFailsClosed() {
+        for mode in [TrackpadGestureMode.windowMove, .windowResize] {
+            let other: TrackpadGestureMode = mode == .windowMove ? .windowResize : .windowMove
+            for conflict in [other, .columnScroll, .workspaceSwitch(axis: .vertical), .overview(.open)] {
+                for fingers in [2, 3, 4] {
+                    var config = makeConfig(columnEnabled: false, workspaceEnabled: false)
+                    enable(mode, fingers: fingers, in: &config)
+                    enable(conflict, fingers: fingers, in: &config)
+                    XCTAssertEqual(TrackpadGestureIntent.windowGestureConflict(config, mode: mode), conflict)
+                    XCTAssertNil(TrackpadGestureIntent.windowGestureMode(config, fingerCount: fingers))
+                    XCTAssertFalse(TrackpadGestureIntent.allowsGestureStart(config, fingerCount: fingers))
+                    assertNoCandidate(config, fingers: fingers)
+                }
+            }
+        }
+    }
+
+    func testDisabledWindowAssignmentDoesNotBlockOtherGestures() {
+        let config = makeConfig(columnFingers: 3, workspaceFingers: 3)
+        XCTAssertNil(TrackpadGestureIntent.windowGestureConflict(config, mode: .windowResize))
+        XCTAssertEqual(TrackpadGestureIntent.resolveMode(
+            config, fingerCount: 3, cumulativeTranslation: CGVector(dx: 40, dy: 0),
+            columnScrollAxis: .horizontal, columnContextAvailable: true, windowContextAvailable: true
+        ), .columnScroll)
+    }
+
+    private func assertNoCandidate(_ config: TrackpadGestureIntent.Config, fingers: Int) {
+        for columnContext in [false, true] {
+            for windowContext in [false, true] {
+                XCTAssertFalse(TrackpadGestureIntent.hasCandidateMode(
+                    config, fingerCount: fingers, columnContextAvailable: columnContext,
+                    windowContextAvailable: windowContext
+                ))
+                for translation in [CGVector(dx: 40, dy: 0), CGVector(dx: 0, dy: 40)] {
+                    XCTAssertNil(TrackpadGestureIntent.resolveMode(
+                        config, fingerCount: fingers, cumulativeTranslation: translation,
+                        columnScrollAxis: .horizontal, columnContextAvailable: columnContext,
+                        windowContextAvailable: windowContext
+                    ))
+                }
+            }
+        }
+    }
+
+    private func enable(_ mode: TrackpadGestureMode, fingers: Int, in config: inout TrackpadGestureIntent.Config) {
+        switch mode {
+        case .windowMove:
+            config.windowMoveEnabled = true
+            config.windowMoveFingerCount = fingers
+        case .windowResize:
+            config.windowResizeEnabled = true
+            config.windowResizeFingerCount = fingers
+        case .columnScroll:
+            config.columnScrollEnabled = true
+            config.columnScrollFingerCount = fingers
+        case let .workspaceSwitch(axis):
+            config.workspaceSwipeEnabled = true
+            config.workspaceSwipeFingerCount = fingers
+            config.workspaceSwipeAxis = axis
+        case let .overview(action):
+            config.overviewAction = action
+            config.overviewFingerCount = fingers
+        }
+    }
 }

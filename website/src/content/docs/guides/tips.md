@@ -34,6 +34,14 @@ The **Trackpad Scroll Style** picker in **Settings → Mouse & Trackpad** choose
 - **Snap to Columns** (default) — the scroll snaps to the nearest column.
 - **Momentum** — free inertial scrolling with rubber-band edges.
 
+## Move and resize with the trackpad (opt-in)
+
+Enable **Trackpad Window Move & Resize** in **Settings → Mouse & Trackpad** to drag without clicking. The gesture targets the tiled window under the cursor in either layout; lift all fingers to finish. Move swaps with the window under the drop position and stays on the starting monitor. Resize adjusts the nearest movable edges. The pointer itself stays in place.
+
+Choose two, three, or four fingers for each action. Defaults are four fingers to move and three to resize, with both actions disabled. A window gesture needs a finger count unused by other enabled OmniWM gestures, including column scrolling, workspace switching, and Overview. Settings reject conflicting assignments; disable or reassign the other gesture first. At **1.0x** sensitivity, a full trackpad sweep travels across the starting screen.
+
+Turn off matching macOS gestures in **System Settings → Trackpad → More Gestures** to prevent Mission Control, App Exposé, or full-screen app switching from firing alongside window gestures.
+
 ## Workspace swipe (opt-in)
 
 Opt in under **Settings → Mouse & Trackpad**: swipe with a configurable finger count (2/3/4) and axis (horizontal/vertical) to switch to the next/previous workspace on the monitor under the cursor, one switch per swipe. Sharing the column-scroll finger count locks the axis to vertical.

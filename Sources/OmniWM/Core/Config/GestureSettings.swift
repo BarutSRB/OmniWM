@@ -13,6 +13,8 @@ final class GestureSettings {
 
     @ObservationIgnored var onAvailabilityChanged: ((Bool) -> Void)?
 
+    nonisolated static let windowGestureSensitivityRange = 0.1 ... 5.0
+
     private nonisolated static let scrollSensitivityRange = 0.1 ... 100.0
 
     private nonisolated static func normalizedScrollSensitivity(_ value: Double) -> Double {
@@ -23,7 +25,9 @@ final class GestureSettings {
     var scrollEnabled = GestureSettings.defaults.scrollEnabled {
         didSet {
             guard oldValue != scrollEnabled else { return }
-            if (oldValue || workspaceSwipeEnabled || overviewGestureEnabled) != trackpadGesturesEnabled {
+            if (oldValue || workspaceSwipeEnabled || overviewGestureEnabled || windowMoveEnabled ||
+                windowResizeEnabled) != trackpadGesturesEnabled
+            {
                 onAvailabilityChanged?(trackpadGesturesEnabled)
             }
             onChange?()
@@ -68,7 +72,9 @@ final class GestureSettings {
     var workspaceSwipeEnabled = GestureSettings.defaults.workspaceSwipeEnabled {
         didSet {
             guard oldValue != workspaceSwipeEnabled else { return }
-            if (scrollEnabled || oldValue || overviewGestureEnabled) != trackpadGesturesEnabled {
+            if (scrollEnabled || oldValue || overviewGestureEnabled || windowMoveEnabled || windowResizeEnabled) !=
+                trackpadGesturesEnabled
+            {
                 onAvailabilityChanged?(trackpadGesturesEnabled)
             }
             onChange?()
@@ -86,7 +92,9 @@ final class GestureSettings {
     var overviewGestureEnabled = GestureSettings.defaults.overviewGestureEnabled ?? false {
         didSet {
             guard oldValue != overviewGestureEnabled else { return }
-            if (scrollEnabled || workspaceSwipeEnabled || oldValue) != trackpadGesturesEnabled {
+            if (scrollEnabled || workspaceSwipeEnabled || oldValue || windowMoveEnabled || windowResizeEnabled) !=
+                trackpadGesturesEnabled
+            {
                 onAvailabilityChanged?(trackpadGesturesEnabled)
             }
             onChange?()
@@ -97,8 +105,54 @@ final class GestureSettings {
         didSet { onChange?() }
     }
 
+    var windowMoveEnabled = GestureSettings.defaults.windowMoveEnabled ?? false {
+        didSet {
+            guard oldValue != windowMoveEnabled else { return }
+            if (scrollEnabled || workspaceSwipeEnabled || overviewGestureEnabled || oldValue || windowResizeEnabled)
+                != trackpadGesturesEnabled
+            {
+                onAvailabilityChanged?(trackpadGesturesEnabled)
+            }
+            onChange?()
+        }
+    }
+
+    var windowMoveFingerCount = GestureSettings.defaults.windowMoveFingerCount ?? .four {
+        didSet { onChange?() }
+    }
+
+    var windowResizeEnabled = GestureSettings.defaults.windowResizeEnabled ?? false {
+        didSet {
+            guard oldValue != windowResizeEnabled else { return }
+            if (scrollEnabled || workspaceSwipeEnabled || overviewGestureEnabled || windowMoveEnabled || oldValue)
+                != trackpadGesturesEnabled
+            {
+                onAvailabilityChanged?(trackpadGesturesEnabled)
+            }
+            onChange?()
+        }
+    }
+
+    var windowResizeFingerCount = GestureSettings.defaults.windowResizeFingerCount ?? .three {
+        didSet { onChange?() }
+    }
+
+    var windowGestureSensitivity = GestureSettings.defaults.windowGestureSensitivity ?? 1.0 {
+        didSet {
+            let range = GestureSettings.windowGestureSensitivityRange
+            let normalized = windowGestureSensitivity.isFinite
+                ? min(max(windowGestureSensitivity, range.lowerBound), range.upperBound)
+                : GestureSettings.defaults.windowGestureSensitivity ?? 1.0
+            guard normalized == windowGestureSensitivity else {
+                windowGestureSensitivity = normalized
+                return
+            }
+            onChange?()
+        }
+    }
+
     var trackpadGesturesEnabled: Bool {
-        scrollEnabled || workspaceSwipeEnabled || overviewGestureEnabled
+        scrollEnabled || workspaceSwipeEnabled || overviewGestureEnabled || windowMoveEnabled || windowResizeEnabled
     }
 
     var workspaceSwipeAxisLockedToVertical: Bool {
@@ -123,7 +177,12 @@ final class GestureSettings {
             workspaceSwipeFingerCount: workspaceSwipeFingerCount,
             workspaceSwipeAxis: workspaceSwipeAxis,
             overviewGestureEnabled: overviewGestureEnabled,
-            overviewGestureFingerCount: overviewGestureFingerCount
+            overviewGestureFingerCount: overviewGestureFingerCount,
+            windowMoveEnabled: windowMoveEnabled,
+            windowMoveFingerCount: windowMoveFingerCount,
+            windowResizeEnabled: windowResizeEnabled,
+            windowResizeFingerCount: windowResizeFingerCount,
+            windowGestureSensitivity: windowGestureSensitivity
         )
     }
 
@@ -141,5 +200,10 @@ final class GestureSettings {
         workspaceSwipeAxis = gestures.workspaceSwipeAxis
         overviewGestureEnabled = gestures.overviewGestureEnabled ?? false
         overviewGestureFingerCount = gestures.overviewGestureFingerCount ?? .four
+        windowMoveEnabled = gestures.windowMoveEnabled ?? false
+        windowMoveFingerCount = gestures.windowMoveFingerCount ?? .four
+        windowResizeEnabled = gestures.windowResizeEnabled ?? false
+        windowResizeFingerCount = gestures.windowResizeFingerCount ?? .three
+        windowGestureSensitivity = gestures.windowGestureSensitivity ?? 1.0
     }
 }

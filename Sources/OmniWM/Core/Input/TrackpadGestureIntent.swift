@@ -2,6 +2,7 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
 
 import CoreGraphics
+import Foundation
 
 enum OverviewGestureAction: Equatable {
     case open
@@ -25,6 +26,22 @@ enum TrackpadGestureMode: Equatable {
     case overview(OverviewGestureAction)
     case columnScroll
     case workspaceSwitch(axis: WorkspaceSwipeAxis)
+    case windowMove
+    case windowResize
+
+    var isWindowInteraction: Bool {
+        switch self {
+        case .windowMove,
+             .windowResize: true
+        case .overview,
+             .columnScroll,
+             .workspaceSwitch: false
+        }
+    }
+
+    var fingerCountGrace: TimeInterval {
+        isWindowInteraction ? 0.15 : 0
+    }
 }
 
 enum TrackpadGestureIntent {
@@ -48,6 +65,10 @@ enum TrackpadGestureIntent {
         var workspaceSwipeAxis: WorkspaceSwipeAxis
         var overviewAction: OverviewGestureAction?
         var overviewFingerCount: Int = 4
+        var windowMoveEnabled = false
+        var windowMoveFingerCount = 4
+        var windowResizeEnabled = false
+        var windowResizeFingerCount = 3
     }
 
     static let workspaceSwipeTriggerUnits: CGFloat = 140.0
@@ -83,14 +104,62 @@ enum TrackpadGestureIntent {
         return nil
     }
 
+    static func windowGestureConflict(_ config: Config, mode: TrackpadGestureMode) -> TrackpadGestureMode? {
+        let fingerCount: Int
+        switch mode {
+        case .windowMove:
+            guard config.windowMoveEnabled else { return nil }
+            fingerCount = config.windowMoveFingerCount
+            if config.windowResizeEnabled, config.windowResizeFingerCount == fingerCount { return .windowResize }
+        case .windowResize:
+            guard config.windowResizeEnabled else { return nil }
+            fingerCount = config.windowResizeFingerCount
+            if config.windowMoveEnabled, config.windowMoveFingerCount == fingerCount { return .windowMove }
+        case .overview,
+             .columnScroll,
+             .workspaceSwitch:
+            return nil
+        }
+        if config.columnScrollEnabled, config.columnScrollFingerCount == fingerCount { return .columnScroll }
+        if config.workspaceSwipeEnabled, config.workspaceSwipeFingerCount == fingerCount {
+            return .workspaceSwitch(axis: config.workspaceSwipeAxis)
+        }
+        if let action = config.overviewAction, config.overviewFingerCount == fingerCount { return .overview(action) }
+        return nil
+    }
+
+    private static func requestedWindowGestureMode(_ config: Config, fingerCount: Int) -> TrackpadGestureMode? {
+        if config.windowMoveEnabled, fingerCount == config.windowMoveFingerCount { return .windowMove }
+        if config.windowResizeEnabled, fingerCount == config.windowResizeFingerCount { return .windowResize }
+        return nil
+    }
+
+    static func windowGestureMode(_ config: Config, fingerCount: Int) -> TrackpadGestureMode? {
+        guard let mode = requestedWindowGestureMode(config, fingerCount: fingerCount),
+              windowGestureConflict(config, mode: mode) == nil
+        else { return nil }
+        return mode
+    }
+
     static func allowsGestureStart(_ config: Config, fingerCount: Int) -> Bool {
-        (config.overviewAction != nil && fingerCount == config.overviewFingerCount)
+        if let mode = requestedWindowGestureMode(config, fingerCount: fingerCount) {
+            return windowGestureConflict(config, mode: mode) == nil
+        }
+        return (config.overviewAction != nil && fingerCount == config.overviewFingerCount)
             || (config.columnScrollEnabled && fingerCount == config.columnScrollFingerCount)
             || (config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount)
     }
 
-    static func hasCandidateMode(_ config: Config, fingerCount: Int, columnContextAvailable: Bool) -> Bool {
-        (config.overviewAction != nil && fingerCount == config.overviewFingerCount)
+    static func hasCandidateMode(
+        _ config: Config,
+        fingerCount: Int,
+        columnContextAvailable: Bool,
+        windowContextAvailable: Bool = false
+    ) -> Bool {
+        if let mode = requestedWindowGestureMode(config, fingerCount: fingerCount) {
+            return windowContextAvailable && windowGestureConflict(config, mode: mode) == nil
+        }
+        return (config.overviewAction != nil && fingerCount == config.overviewFingerCount)
             || (config.columnScrollEnabled && fingerCount == config.columnScrollFingerCount && columnContextAvailable)
             || (config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount)
     }
@@ -100,8 +169,12 @@ enum TrackpadGestureIntent {
         fingerCount: Int,
         cumulativeTranslation: CGVector,
         columnScrollAxis: WorkspaceSwipeAxis,
-        columnContextAvailable: Bool
+        columnContextAvailable: Bool,
+        windowContextAvailable: Bool = false
     ) -> TrackpadGestureMode? {
+        if let mode = requestedWindowGestureMode(config, fingerCount: fingerCount) {
+            return windowContextAvailable && windowGestureConflict(config, mode: mode) == nil ? mode : nil
+        }
         let dominantAxis: WorkspaceSwipeAxis = abs(cumulativeTranslation.dx) > abs(cumulativeTranslation.dy) ?
             .horizontal : .vertical
         let columnCandidate = config.columnScrollEnabled
@@ -121,6 +194,23 @@ enum TrackpadGestureIntent {
         }
         guard workspaceCandidate, workspaceAxis == dominantAxis else { return nil }
         return .workspaceSwitch(axis: workspaceAxis)
+    }
+
+    static func windowGestureLocation(
+        start: CGPoint,
+        startTouch: CGPoint,
+        currentTouch: CGPoint,
+        monitorFrame: CGRect,
+        sensitivity: CGFloat,
+        clampToMonitor: Bool = true
+    ) -> CGPoint {
+        let x = start.x + (currentTouch.x - startTouch.x) * monitorFrame.width * sensitivity
+        let y = start.y + (currentTouch.y - startTouch.y) * monitorFrame.height * sensitivity
+        guard clampToMonitor else { return CGPoint(x: x, y: y) }
+        return CGPoint(
+            x: x.clamped(to: monitorFrame.minX ... (monitorFrame.maxX - 1)),
+            y: y.clamped(to: monitorFrame.minY ... (monitorFrame.maxY - 1))
+        )
     }
 
     static func isNextWorkspace(

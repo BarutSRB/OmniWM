@@ -22,7 +22,11 @@ extension MouseEventHandler {
             workspaceSwipeFingerCount: settings.gestures.workspaceSwipeFingerCount.rawValue,
             workspaceSwipeAxis: settings.gestures.workspaceSwipeAxis,
             overviewAction: settings.gestures.overviewGestureEnabled ? overviewState.gestureAction : nil,
-            overviewFingerCount: settings.gestures.overviewGestureFingerCount.rawValue
+            overviewFingerCount: settings.gestures.overviewGestureFingerCount.rawValue,
+            windowMoveEnabled: settings.gestures.windowMoveEnabled && !isOverviewOpen,
+            windowMoveFingerCount: settings.gestures.windowMoveFingerCount.rawValue,
+            windowResizeEnabled: settings.gestures.windowResizeEnabled && !isOverviewOpen,
+            windowResizeFingerCount: settings.gestures.windowResizeFingerCount.rawValue
         )
     }
 
