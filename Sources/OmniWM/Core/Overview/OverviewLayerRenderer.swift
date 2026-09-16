@@ -75,7 +75,9 @@ final class OverviewLayerRenderer {
     func cancelAnimation() {
         activeTransition = nil
         completionLayer.removeAnimation(forKey: "overview.completion")
-        for layer in [backdrop, workspaceChrome, dropTarget, search] { OverviewLayerMotion.remove(from: layer) }
+        for layer in [backdrop, content, workspaceChrome, dropTarget, search] {
+            OverviewLayerMotion.remove(from: layer)
+        }
         for layers in windowLayers.values { layers.cancelAnimation() }
     }
 
@@ -100,14 +102,16 @@ final class OverviewLayerRenderer {
             backdrop.frame = root.bounds
             backdrop.backgroundColor = state.palette.backdrop
             backdrop.opacity = Float(state.progress)
-            content.frame = root.bounds.offsetBy(dx: 0, dy: -layout.scrollOffset)
+            content.frame = root.bounds.offsetBy(dx: 0, dy: -layout.scrollOffset * CGFloat(state.progress))
             workspaceChrome.opacity = Float(state.progress)
             dropTarget.opacity = Float(state.progress)
             search.opacity = Float(state.progress)
             if state.progress < 1 { caret.removeAnimation(forKey: "blink") }
             let visible = OverviewRenderGeometry.visibleContentRect(
                 bounds: state.bounds,
-                scrollOffset: layout.scrollOffset
+                scrollOffset: layout.scrollOffset,
+                progress: state.progress,
+                transitioning: activeTransition != nil
             )
             for section in layout.workspaceSections {
                 chromeSections[section.workspaceId]?.isHidden = activeTransition == nil && !OverviewRenderGeometry
@@ -115,11 +119,14 @@ final class OverviewLayerRenderer {
                         frame: OverviewRenderGeometry.sectionCullingFrame(section, progress: state.progress),
                         visibleContentRect: visible
                     )
+                let anchored = section.workspaceId == layout.anchorWorkspaceId
                 for window in section.windows {
                     let frame = window.interpolatedFrame(progress: state.progress)
                     guard let layers = windowLayers[window.handle] else { continue }
                     layers.root.isHidden = !OverviewRenderGeometry.shouldRender(
-                        frame: activeTransition == nil ? frame : window.originalFrame.union(window.overviewFrame),
+                        frame: activeTransition == nil
+                            ? frame
+                            : (window.restFrame ?? window.originalFrame).union(window.overviewFrame),
                         visibleContentRect: visible
                     )
                     layers.updateGeometry(
@@ -128,7 +135,8 @@ final class OverviewLayerRenderer {
                         state: state,
                         transition: activeTransition,
                         replacing: replacing,
-                        time: time
+                        time: time,
+                        anchored: anchored
                     )
                 }
             }
@@ -148,7 +156,7 @@ final class OverviewLayerRenderer {
     }
 
     private func captureMotion(for transition: OverviewNativeTransition) -> [OverviewLayerMotion] {
-        [OverviewLayerMotion(backdrop)] + [workspaceChrome, dropTarget, search]
+        [OverviewLayerMotion(backdrop), OverviewLayerMotion(content)] + [workspaceChrome, dropTarget, search]
             .map { OverviewLayerMotion($0, response: transition.chromeExitResponse) }
     }
 
@@ -199,7 +207,9 @@ final class OverviewLayerRenderer {
         }
         if cards.sublayers?.elementsEqual(order, by: ===) != true { cards.sublayers = order }
     }
+}
 
+extension OverviewLayerRenderer {
     private func rebuildWorkspaceChrome(_ layout: OverviewLayout) {
         guard workspaceChromeNeedsUpdate(layout) else { return }
         chromeLayout = layout

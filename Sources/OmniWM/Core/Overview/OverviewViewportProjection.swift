@@ -84,6 +84,20 @@ final class OverviewViewportProjection {
 
         restoreSelectedViewportAnchors(anchors)
         revealSelectedWindow(on: activeInteractionMonitorId)
+        settleRestFrames(targetWindow: nil)
+    }
+
+    func settleRestFrames(targetWindow: WindowHandle?) {
+        guard let wmController else { return }
+        let workspaceManager = wmController.workspaceManager
+        let targetWorkspaceId = targetWindow.flatMap { workspaceManager.workspace(for: $0.id) }
+        let targetMonitorId = targetWorkspaceId.flatMap { workspaceManager.monitorForWorkspace($0)?.id }
+        for monitorId in layoutsByMonitor.keys {
+            let anchorWorkspaceId = monitorId == targetMonitorId
+                ? targetWorkspaceId
+                : workspaceManager.activeWorkspace(on: monitorId)?.id
+            mutateLayout(for: monitorId) { $0.settleRestFrames(anchorWorkspaceId: anchorWorkspaceId) }
+        }
     }
 
     private func projectedLayout(

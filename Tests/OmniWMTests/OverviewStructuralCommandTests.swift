@@ -1057,6 +1057,120 @@ final class OverviewStructuralCommandTests: XCTestCase {
         )
     }
 
+    func testOverviewSelectionSettlesOffViewportDestinationBeforeRelayout() async throws {
+        for targetLayout in [LayoutType.niri, .dwindle] {
+            let fixture = try makeFixture(layouts: [.niri, targetLayout])
+            let controller = fixture.controller
+            let manager = controller.workspaceManager
+            let source = fixture.workspaceIds[0]
+            let destination = fixture.workspaceIds[1]
+            _ = try addManagedWindow(pid: 461_050, windowId: 50, to: source, fixture: fixture)
+            var handles: [WindowHandle] = []
+            for index in 0 ..< 4 {
+                handles.append(try addManagedWindow(
+                    pid: 461_051, windowId: 51 + index, to: destination, fixture: fixture
+                ))
+            }
+            let refresh = controller.layoutRefreshController
+            refresh.requestImmediateRelayout(reason: .overviewMutation, affectedWorkspaceIds: Set(fixture.workspaceIds))
+            while let task = refresh.layoutState.activeRefreshTask { await task.value }
+            let target = try XCTUnwrap(handles.last)
+            let parked = CGRect(x: -20000, y: -20000, width: 500, height: 400)
+            var environment = OverviewEnvironment()
+            environment.windowTitle = { _ in "Window" }
+            environment.windowFrame = { _ in parked }
+            environment.activateOmniWM = {}
+            environment.schedulePostCloseHandoff = { _ in }
+            controller.motionPolicy.animationsEnabled = true
+            let overview = OverviewController(
+                wmController: controller,
+                motionPolicy: controller.motionPolicy,
+                environment: environment,
+                animationInstaller: { _, _, _ in true },
+                animationMediaTimeProvider: { 0 }
+            )
+            overview.onPrepareActivation = controller.windowActionHandler.prepareOverviewSelection
+            overview.open()
+            overview.onAnimationComplete(state: .open)
+            let view = try XCTUnwrap(overview.windowSession.primaryOverviewWindow()?.contentView as? OverviewView)
+            if targetLayout == .niri {
+                XCTAssertEqual(view.layout.window(for: target)?.originalFrame, parked)
+            }
+            let watermark = controller.intentLedger.newestFocusIntentId()
+
+            overview.input.selectAndActivateWindow(target)
+
+            guard case .closing = overview.state else { return XCTFail("Expected close before relayout runs") }
+            let request = try XCTUnwrap(refresh.layoutState.activeRefresh ?? refresh.layoutState.pendingRefresh)
+            XCTAssertEqual(request.reason, .overviewMutation)
+            XCTAssertEqual(request.affectedWorkspaceIds, [source, destination])
+            XCTAssertEqual(manager.activeWorkspace(on: fixture.monitor.id)?.id, destination)
+            let restFrame = try XCTUnwrap(view.layout.window(for: target)?.interpolatedFrame(progress: 0))
+            XCTAssertTrue(fixture.monitor.frame.intersects(restFrame))
+            XCTAssertEqual(view.layout.anchorWorkspaceId, destination)
+            XCTAssertFalse(manager.niriViewportState(for: destination).hasPendingOffsetAnimation)
+            XCTAssertFalse(manager.animationDriver.hasMotion(in: destination))
+            XCTAssertEqual(fixture.focusRecorder.callCount, 0)
+
+            while let task = refresh.layoutState.activeRefreshTask { await task.value }
+
+            let frames = targetLayout == .niri
+                ? controller.niriEngine?.captureWindowFrames(in: destination)
+                : controller.dwindleEngine?.calculateLayout(
+                    for: destination,
+                    screen: controller.insetWorkingFrame(for: fixture.monitor)
+                )
+            XCTAssertEqual(restFrame, frames?[target.id])
+            XCTAssertEqual(view.layout.window(for: target)?.interpolatedFrame(progress: 0), restFrame)
+            XCTAssertEqual(controller.intentLedger.newestFocusIntentId(), watermark)
+            XCTAssertEqual(fixture.focusRecorder.callCount, 0)
+            overview.completeCloseTransition(targetWindow: nil)
+        }
+    }
+
+    func testOverviewSelectionSettlesExistingReorderAndViewportMotion() async throws {
+        let fixture = try makeFixture(layouts: [.niri])
+        let controller = fixture.controller
+        let workspaceId = fixture.workspaceIds[0]
+        var handles: [WindowHandle] = []
+        for index in 0 ..< 4 {
+            handles.append(try addManagedWindow(pid: 461_060, windowId: 60 + index, to: workspaceId, fixture: fixture))
+        }
+        let refresh = controller.layoutRefreshController
+        refresh.requestImmediateRelayout(reason: .overviewMutation, affectedWorkspaceIds: [workspaceId])
+        while let task = refresh.layoutState.activeRefreshTask { await task.value }
+        let target = try XCTUnwrap(handles.last)
+        let prepared = try prepareDragOverview(fixture)
+        let overview = prepared.overview
+        controller.motionPolicy.animationsEnabled = true
+        let engine = try XCTUnwrap(controller.niriEngine)
+        overview.onPrepareActivation = controller.windowActionHandler.prepareOverviewSelection
+        refresh.displayLinkActivationForTests = { _ in true }
+
+        XCTAssertTrue(overview.executeStructuralHotkey(.column(.moveToFirst), selectedHandle: target)?
+            .didMutate == true)
+        XCTAssertTrue(engine.hasAnyColumnAnimationsRunning(in: workspaceId))
+        let state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        var previous = state
+        previous.viewOffset -= 200
+        var spring = state
+        spring.springOffset(to: state.viewOffset)
+        controller.workspaceManager.animationDriver.reconcileViewportCommit(
+            workspaceId: workspaceId, previous: previous, next: state, transition: spring.offsetTransition
+        )
+        XCTAssertTrue(controller.workspaceManager.animationDriver.hasMotion(in: workspaceId))
+
+        overview.dismiss(reason: .selection, targetWindow: target, animated: false)
+
+        XCTAssertFalse(engine.hasAnyColumnAnimationsRunning(in: workspaceId))
+        XCTAssertFalse(engine.hasAnyWindowAnimationsRunning(in: workspaceId))
+        XCTAssertFalse(controller.workspaceManager.animationDriver.hasMotion(in: workspaceId))
+        XCTAssertFalse(controller.workspaceManager.niriViewportState(for: workspaceId).hasPendingOffsetAnimation)
+        let settled = try XCTUnwrap(controller.niriLayoutHandler.settledFrames(in: workspaceId)?[target.id])
+        while let task = refresh.layoutState.activeRefreshTask { await task.value }
+        XCTAssertEqual(engine.captureWindowFrames(in: workspaceId)[target.id], settled)
+    }
+
     private func makeFixture(layouts: [LayoutType]) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMOverviewStructuralCommandTests-\(UUID().uuidString)", isDirectory: true)

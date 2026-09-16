@@ -1909,57 +1909,242 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.completeCloseTransition(targetWindow: nil)
     }
 
-    func testDelayedSelectionDismissDoesNotRecloseReversedOverview() async throws {
+    func testImmediateSelectionDismissDoesNotRecloseReversedOverview() async throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
-        fixture.controller.motionPolicy.animationsEnabled = true
-        var environment = fixture.environment
-        environment.selectionDismissDelayNanoseconds = 0
-        let overview = OverviewController(
-            wmController: fixture.controller,
-            motionPolicy: fixture.controller.motionPolicy,
-            environment: environment,
-            animationInstaller: { _, _, _ in true },
-            animationMediaTimeProvider: { 0 }
-        )
+        let harness = InteractiveOverviewHarness(fixture: fixture)
+        let overview = harness.overview
         overview.open()
-        overview.onAnimationComplete(state: .open)
+        harness.clock.time = 10
+        try harness.completeLastTransition()
         let selectedHandle = try XCTUnwrap(overview.selectedWindowHandle)
 
         overview.input.selectAndActivateWindow(selectedHandle)
-        overview.toggle()
+        guard case let .closing(target) = overview.state else {
+            return XCTFail("Expected selection to close synchronously")
+        }
+        XCTAssertTrue(target === selectedHandle)
+        harness.clock.time = 10.03
         overview.toggle()
         await Task.yield()
         await Task.yield()
 
         guard case .opening = overview.state else {
-            return XCTFail("Expected stale selection dismissal to leave reversed overview opening")
+            return XCTFail("Expected reversal to remain opening")
+        }
+        XCTAssertEqual(harness.handoffScheduler.count, 0)
+        XCTAssertEqual(harness.installed.count, 3)
+        try harness.completeLastTransition()
+        guard case .open = overview.state else { return XCTFail("Expected reversal to complete open") }
+        overview.completeCloseTransition(targetWindow: nil)
+    }
+
+    func testImmediateSelectionDismissKeepsPressedHandle() throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
+        let harness = InteractiveOverviewHarness(fixture: fixture)
+        let overview = harness.overview
+        overview.open()
+        harness.clock.time = 10
+        try harness.completeLastTransition()
+        let originalSelection = try XCTUnwrap(overview.selectedWindowHandle)
+        let pressedHandle = try XCTUnwrap(
+            (overview.windowSession.primaryOverviewWindow()?.contentView as? OverviewView)?.layout.allWindows
+                .first { $0.handle !== originalSelection }?.handle
+        )
+        var activatedHandles: [WindowHandle] = []
+        overview.onActivateWindow = { handle, _ in activatedHandles.append(handle) }
+
+        overview.input.selectAndActivateWindow(pressedHandle)
+        overview.input.cycleSelection(forward: true)
+
+        guard case let .closing(target) = overview.state else {
+            return XCTFail("Expected selection to close synchronously")
+        }
+        XCTAssertTrue(target === pressedHandle)
+        XCTAssertTrue(overview.selectedWindowHandle === pressedHandle)
+        XCTAssertTrue(activatedHandles.isEmpty)
+        try harness.completeLastTransition()
+        harness.handoffScheduler.runNext()
+        XCTAssertEqual(activatedHandles, [pressedHandle])
+    }
+
+    func testInactiveWorkspaceSelectionPreparesBeforeCloseAndPreservesHandoff() async throws {
+        for reducedMotion in [false, true] {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 1, secondWorkspaceWindowCount: 1)
+            let manager = fixture.controller.workspaceManager
+            let destination = try XCTUnwrap(fixture.secondWorkspaceId)
+            let monitor = try XCTUnwrap(manager.monitors.first)
+            let harness = InteractiveOverviewHarness(fixture: fixture)
+            fixture.controller.motionPolicy.systemReducesMotion = reducedMotion
+            let overview = harness.overview
+            var preparedHandles: [WindowHandle] = []
+            var activatedHandles: [WindowHandle] = []
+            overview.onPrepareActivation = { [weak overview] handle, workspaceId in
+                XCTAssertFalse(overview?.state.isAnimating ?? true)
+                preparedHandles.append(handle)
+                fixture.controller.windowActionHandler.prepareOverviewSelection(
+                    handle: handle,
+                    workspaceId: workspaceId
+                )
+            }
+            overview.onActivateWindow = { handle, _ in activatedHandles.append(handle) }
+            overview.open()
+            if !reducedMotion {
+                harness.clock.time = 10
+                try harness.completeLastTransition()
+            }
+            let target = try XCTUnwrap((overview.windowSession.primaryOverviewWindow()?.contentView as? OverviewView)?
+                .layout.allWindows.first { $0.workspaceId == destination }?.handle)
+            let watermark = fixture.controller.intentLedger.newestFocusIntentId()
+
+            overview.input.selectAndActivateWindow(target)
+
+            XCTAssertEqual(preparedHandles, [target])
+            XCTAssertEqual(manager.activeWorkspace(on: monitor.id)?.id, destination)
+            XCTAssertEqual(fixture.controller.intentLedger.newestFocusIntentId(), watermark)
+            XCTAssertTrue(activatedHandles.isEmpty)
+            if reducedMotion {
+                guard case .closed = overview.state else { return XCTFail("Expected discrete close") }
+                XCTAssertTrue(harness.installed.isEmpty)
+            } else {
+                guard case .closing = overview.state else { return XCTFail("Expected synchronous close") }
+                XCTAssertEqual(
+                    (overview.windowSession.primaryOverviewWindow()?.contentView as? OverviewView)?.layout
+                        .anchorWorkspaceId,
+                    destination
+                )
+            }
+            let refresh = fixture.controller.layoutRefreshController
+            while let task = refresh.layoutState.activeRefreshTask {
+                await task.value
+            }
+            XCTAssertNil(refresh.layoutState.pendingRefresh)
+            XCTAssertEqual(fixture.controller.intentLedger.newestFocusIntentId(), watermark)
+            XCTAssertTrue(activatedHandles.isEmpty)
+            if !reducedMotion {
+                guard case .closing = overview.state else { return XCTFail("Relayout must preserve close") }
+                try harness.completeLastTransition()
+            }
+            XCTAssertEqual(harness.handoffScheduler.count, 1)
+            harness.handoffScheduler.runNext()
+            XCTAssertEqual(activatedHandles, [target])
         }
     }
 
-    func testDelayedSelectionDismissRequiresCapturedHandleToRemainSelected() async throws {
-        let fixture = try makeRuntimeOverviewFixture(windowCount: 2)
-        var environment = fixture.environment
-        environment.selectionDismissDelayNanoseconds = 0
-        let overview = OverviewController(
-            wmController: fixture.controller,
-            motionPolicy: fixture.controller.motionPolicy,
-            environment: environment
+    func testCrossWorkspaceCloseReversalKeepsPreparedWorkspaceActive() async throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1, secondWorkspaceWindowCount: 1)
+        let harness = InteractiveOverviewHarness(fixture: fixture)
+        let overview = harness.overview
+        let manager = fixture.controller.workspaceManager
+        let monitor = try XCTUnwrap(manager.monitors.first)
+        let destination = try XCTUnwrap(fixture.secondWorkspaceId)
+        overview.onPrepareActivation = fixture.controller.windowActionHandler.prepareOverviewSelection
+        overview.open()
+        harness.clock.time = 10
+        try harness.completeLastTransition()
+        let view = try XCTUnwrap(overview.windowSession.primaryOverviewWindow()?.contentView as? OverviewView)
+        let target = try XCTUnwrap(view.layout.allWindows.first { $0.workspaceId == destination }?.handle)
+
+        overview.input.selectAndActivateWindow(target)
+        harness.clock.time = 10.03
+        overview.toggle()
+
+        guard case .opening = overview.state else { return XCTFail("Expected close reversal") }
+        XCTAssertEqual(manager.activeWorkspace(on: monitor.id)?.id, destination)
+        XCTAssertEqual(view.layout.anchorWorkspaceId, destination)
+        XCTAssertEqual(overview.selectedWindowHandle, target)
+        XCTAssertEqual(harness.handoffScheduler.count, 0)
+        while let task = fixture.controller.layoutRefreshController.layoutState.activeRefreshTask { await task.value }
+        try harness.completeLastTransition()
+        overview.completeCloseTransition(targetWindow: nil)
+    }
+
+    func testCrossWorkspaceGesturePreparesOnlyWhenCloseCommits() async throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1, secondWorkspaceWindowCount: 1)
+        let harness = InteractiveOverviewHarness(fixture: fixture)
+        let overview = harness.overview
+        let manager = fixture.controller.workspaceManager
+        let monitor = try XCTUnwrap(manager.monitors.first)
+        let destination = try XCTUnwrap(fixture.secondWorkspaceId)
+        overview.onPrepareActivation = fixture.controller.windowActionHandler.prepareOverviewSelection
+        overview.open()
+        harness.clock.time = 10
+        try harness.completeLastTransition()
+        let view = try XCTUnwrap(overview.windowSession.primaryOverviewWindow()?.contentView as? OverviewView)
+        let target = try XCTUnwrap(view.layout.allWindows.first { $0.workspaceId == destination }?.handle)
+        if overview.selectedWindowHandle !== target { overview.input.cycleSelection(forward: true) }
+        XCTAssertEqual(overview.selectedWindowHandle, target)
+        XCTAssertTrue(overview.beginInteractiveTransition())
+        overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 10)
+        overview.updateInteractiveTransition(cumulativeUnits: -240, timestamp: 10.1)
+        XCTAssertEqual(manager.activeWorkspace(on: monitor.id)?.id, fixture.workspaceId)
+        XCTAssertEqual(view.layout.anchorWorkspaceId, fixture.workspaceId)
+
+        harness.clock.time = 10.6
+        overview.endInteractiveTransition(timestamp: 10.6)
+
+        guard case let .closing(selected) = overview.state else { return XCTFail("Expected committed gesture close") }
+        XCTAssertEqual(selected, target)
+        XCTAssertEqual(manager.activeWorkspace(on: monitor.id)?.id, destination)
+        XCTAssertEqual(view.layout.anchorWorkspaceId, destination)
+        XCTAssertEqual(harness.installed.last?.from ?? -1, 0.2, accuracy: 0.000000001)
+        XCTAssertEqual(harness.installed.last?.target, 0)
+        while let task = fixture.controller.layoutRefreshController.layoutState.activeRefreshTask { await task.value }
+        try harness.completeLastTransition()
+    }
+
+    func testRestAnchorsFollowEachMonitorsActiveWorkspace() async throws {
+        let fixture = try makeRuntimeOverviewFixture(windowCount: 1, secondWorkspaceWindowCount: 1)
+        let manager = fixture.controller.workspaceManager
+        let firstMonitor = try XCTUnwrap(manager.monitors.first)
+        let otherMonitor = Monitor(
+            id: .init(displayId: 91_002),
+            displayId: 91_002,
+            frame: screenFrame.offsetBy(dx: 1000, dy: 200),
+            visibleFrame: screenFrame.offsetBy(dx: 1000, dy: 200),
+            hasNotch: false,
+            name: "Other Overview"
         )
-        overview.prepareOpenState()
-        overview.onAnimationComplete(state: .open)
-        let originalSelection = try XCTUnwrap(overview.selectedWindowHandle)
+        fixture.controller.settings.workspaces.configurations = [
+            WorkspaceConfiguration(name: "1", monitorAssignment: .main, layoutType: .niri),
+            WorkspaceConfiguration(name: "2", monitorAssignment: .main, layoutType: .niri),
+            WorkspaceConfiguration(
+                name: "3",
+                monitorAssignment: .specificDisplay(OutputId(from: otherMonitor)),
+                layoutType: .niri
+            )
+        ]
+        manager.applyMonitorConfigurationChange([firstMonitor, otherMonitor])
+        manager.applySettings()
+        fixture.controller.syncMonitorsToNiriEngine()
+        let destination = try XCTUnwrap(fixture.secondWorkspaceId)
+        manager.assignWorkspaceToMonitor(fixture.workspaceId, monitorId: firstMonitor.id)
+        manager.assignWorkspaceToMonitor(destination, monitorId: firstMonitor.id)
+        let otherWorkspace = try XCTUnwrap(manager.workspaceId(for: "3", createIfMissing: true))
+        manager.assignWorkspaceToMonitor(otherWorkspace, monitorId: otherMonitor.id)
+        XCTAssertTrue(manager.setActiveWorkspace(fixture.workspaceId, on: firstMonitor.id))
+        XCTAssertTrue(manager.setActiveWorkspace(otherWorkspace, on: otherMonitor.id))
+        let snapshot = OverviewSnapshot(
+            wmController: fixture.controller,
+            facts: OverviewWindowFacts(wmController: fixture.controller, environment: fixture.environment)
+        )
+        snapshot.build()
+        let projection = OverviewViewportProjection(wmController: fixture.controller, snapshot: snapshot, scale: 1)
+        projection.rebuildProjectedLayouts()
+        let target = try XCTUnwrap(snapshot.windows.first { $0.value.workspaceId == destination }?.key)
+        XCTAssertEqual(projection.layoutsByMonitor[firstMonitor.id]?.anchorWorkspaceId, fixture.workspaceId)
+        XCTAssertEqual(projection.layoutsByMonitor[otherMonitor.id]?.anchorWorkspaceId, otherWorkspace)
 
-        overview.input.selectAndActivateWindow(originalSelection)
-        overview.input.cycleSelection(forward: true)
-        let currentSelection = try XCTUnwrap(overview.selectedWindowHandle)
-        XCTAssertFalse(currentSelection === originalSelection)
-        await Task.yield()
-        await Task.yield()
+        fixture.controller.windowActionHandler.prepareOverviewSelection(handle: target, workspaceId: destination)
+        projection.settleRestFrames(targetWindow: target)
 
-        guard case .open = overview.state else {
-            return XCTFail("Expected stale selection dismissal to leave overview open")
-        }
-        XCTAssertTrue(overview.selectedWindowHandle === currentSelection)
+        XCTAssertEqual(projection.layoutsByMonitor[firstMonitor.id]?.anchorWorkspaceId, destination)
+        XCTAssertEqual(projection.layoutsByMonitor[otherMonitor.id]?.anchorWorkspaceId, otherWorkspace)
+        XCTAssertEqual(manager.activeWorkspace(on: firstMonitor.id)?.id, destination)
+        XCTAssertEqual(manager.activeWorkspace(on: otherMonitor.id)?.id, otherWorkspace)
+        projection.settleRestFrames(targetWindow: nil)
+        XCTAssertEqual(projection.layoutsByMonitor[firstMonitor.id]?.anchorWorkspaceId, destination)
+        XCTAssertEqual(projection.layoutsByMonitor[otherMonitor.id]?.anchorWorkspaceId, otherWorkspace)
+        while let task = fixture.controller.layoutRefreshController.layoutState.activeRefreshTask { await task.value }
     }
 
     func testAnimatorExcludesUnavailableDisplaysWhileInstalledAnimationsCompleteNormally() throws {
@@ -2261,6 +2446,7 @@ final class OverviewBehaviorTests: XCTestCase {
         let controller: WMController
         let workspaceId: WorkspaceDescriptor.ID
         let handles: [WindowHandle]
+        let secondWorkspaceId: WorkspaceDescriptor.ID?
         var environment: OverviewEnvironment
     }
 
@@ -2338,7 +2524,10 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertFalse(overview.hasActiveDragSession)
     }
 
-    private func makeRuntimeOverviewFixture(windowCount: Int) throws -> RuntimeOverviewFixture {
+    private func makeRuntimeOverviewFixture(
+        windowCount: Int,
+        secondWorkspaceWindowCount: Int = 0
+    ) throws -> RuntimeOverviewFixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMOverviewBehaviorTests-\(UUID().uuidString)", isDirectory: true)
         let settings = SettingsStore(
@@ -2377,15 +2566,33 @@ final class OverviewBehaviorTests: XCTestCase {
         controller.workspaceManager.assignWorkspaceToMonitor(workspaceId, monitorId: monitor.id)
         XCTAssertTrue(controller.workspaceManager.setActiveWorkspace(workspaceId, on: monitor.id))
 
-        let handles = (0 ..< windowCount).map { index in
+        let secondWorkspaceId = secondWorkspaceWindowCount > 0
+            ? controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
+            : nil
+        if let secondWorkspaceId {
+            controller.workspaceManager.assignWorkspaceToMonitor(secondWorkspaceId, monitorId: monitor.id)
+            controller.niriEngine = NiriLayoutEngine()
+            controller.niriLayoutHandler.syncMonitorsToNiriEngine()
+        }
+        let handles = (0 ..< windowCount + secondWorkspaceWindowCount).map { index in
             let pid = pid_t(91_100 + index)
             let windowId = 91_200 + index
+            let destination = index < windowCount ? workspaceId : (secondWorkspaceId ?? workspaceId)
             let token = controller.workspaceManager.addWindow(
                 AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
                 pid: pid,
                 windowId: windowId,
-                to: workspaceId
+                to: destination
             )
+            if secondWorkspaceId != nil {
+                controller.workspaceManager.withEngineMutationScope {
+                    _ = controller.niriEngine?.addWindow(
+                        token: token,
+                        to: destination,
+                        afterSelection: nil
+                    )
+                }
+            }
             return WindowHandle(id: token)
         }
         var environment = OverviewEnvironment()
@@ -2395,6 +2602,7 @@ final class OverviewBehaviorTests: XCTestCase {
             controller: controller,
             workspaceId: workspaceId,
             handles: handles,
+            secondWorkspaceId: secondWorkspaceId,
             environment: environment
         )
     }

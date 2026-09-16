@@ -151,7 +151,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         }
     }
 
-    func testOverviewCloseOverOwnedSurfacePreservesWorkspaceAndViewport() throws {
+    func testOverviewCloseOverOwnedSurfaceBlocksViewportGestureAndPreparesSelection() throws {
         let fixture = try makeFixture(scrollGestureEnabled: true)
         let controller = fixture.controller
         controller.setAnimationsEnabled(false)
@@ -180,10 +180,14 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         sendFrame(fixture, phase: .changed, fingers: 3, x: 0.4, y: 0.5, at: 100.1)
         sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.2)
         XCTAssertTrue(controller.isOverviewOpen())
+        XCTAssertEqual(controller.workspaceManager.niriViewportState(for: fixture.ws1).viewOffset, offset)
         _ = performVerticalSwipe(fixture, fingers: 4, from: 0.8, totalUnits: -40, startTime: 101)
         XCTAssertFalse(controller.isOverviewOpen())
         XCTAssertEqual(activeWorkspace(fixture), fixture.ws1)
-        XCTAssertEqual(controller.workspaceManager.niriViewportState(for: fixture.ws1).viewOffset, offset)
+        let viewport = controller.workspaceManager.niriViewportState(for: fixture.ws1)
+        XCTAssertEqual(viewport.viewOffset, -controller.innerGap(for: fixture.monitor))
+        XCTAssertFalse(viewport.hasPendingOffsetAnimation)
+        XCTAssertFalse(controller.workspaceManager.animationDriver.hasMotion(in: fixture.ws1))
         XCTAssertFalse(controller.mouseEventHandler.isViewportGestureActive)
     }
 

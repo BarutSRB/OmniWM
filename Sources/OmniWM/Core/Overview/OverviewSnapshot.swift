@@ -36,13 +36,14 @@ final class OverviewSnapshot {
         windows.removeValue(forKey: handle)
     }
 
-    func refresh(affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>) {
+    func refresh(affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>, settledNiriFrames: Bool = false) {
         guard let wmController else { return }
         let workspaceManager = wmController.workspaceManager
         refreshWorkspaces(affectedWorkspaceIds: affectedWorkspaceIds, workspaceManager: workspaceManager)
         let projections = refreshEngineProjections(
             affectedWorkspaceIds: affectedWorkspaceIds,
-            wmController: wmController
+            wmController: wmController,
+            settledNiriFrames: settledNiriFrames
         )
         refreshCachedWindows(engineFrames: projections.frames)
         for workspaceId in projections.niriWorkspaceIds {
@@ -98,7 +99,8 @@ final class OverviewSnapshot {
 
     private func refreshEngineProjections(
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>,
-        wmController: WMController
+        wmController: WMController,
+        settledNiriFrames: Bool
     ) -> EngineProjections {
         let workspaceManager = wmController.workspaceManager
         var engineFrames: [WindowToken: CGRect] = [:]
@@ -108,7 +110,9 @@ final class OverviewSnapshot {
             switch workspaceManager.activeLayoutKind(for: workspaceId) {
             case .niri:
                 niriWorkspaceIds.insert(workspaceId)
-                if let frames = wmController.niriEngine?.captureWindowFrames(in: workspaceId) {
+                let frames = (settledNiriFrames ? wmController.niriLayoutHandler.settledFrames(in: workspaceId) : nil)
+                    ?? wmController.niriEngine?.captureWindowFrames(in: workspaceId)
+                if let frames {
                     engineFrames.merge(frames) { _, new in new }
                 }
                 if let snapshot = wmController.niriEngine?.overviewSnapshot(for: workspaceId),

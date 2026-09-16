@@ -39,7 +39,6 @@ struct OverviewEnvironment {
     }
 
     var notificationCenter: NotificationCenter = .default
-    var selectionDismissDelayNanoseconds: UInt64 = 50_000_000
     var schedulePostCloseHandoff: (@escaping @MainActor () -> Void) -> Void = { handoff in
         Task { @MainActor in
             await Task.yield()

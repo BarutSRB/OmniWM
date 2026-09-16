@@ -66,6 +66,7 @@ struct OverviewWindowItem {
     let overviewFrame: CGRect
     let matchesSearch: Bool
     var groupCount = 1
+    var restFrame: CGRect?
 
     var closeButtonFrame: CGRect {
         let size: CGFloat = 20
@@ -80,11 +81,12 @@ struct OverviewWindowItem {
 
     func interpolatedFrame(progress: Double) -> CGRect {
         let fraction = CGFloat(progress)
+        let from = restFrame ?? originalFrame
         return CGRect(
-            x: originalFrame.origin.x + (overviewFrame.origin.x - originalFrame.origin.x) * fraction,
-            y: originalFrame.origin.y + (overviewFrame.origin.y - originalFrame.origin.y) * fraction,
-            width: originalFrame.width + (overviewFrame.width - originalFrame.width) * fraction,
-            height: originalFrame.height + (overviewFrame.height - originalFrame.height) * fraction
+            x: from.origin.x + (overviewFrame.origin.x - from.origin.x) * fraction,
+            y: from.origin.y + (overviewFrame.origin.y - from.origin.y) * fraction,
+            width: from.width + (overviewFrame.width - from.width) * fraction,
+            height: from.height + (overviewFrame.height - from.height) * fraction
         )
     }
 }
@@ -101,6 +103,7 @@ struct OverviewLayout {
     }
 
     private(set) var workspaceSections: [OverviewWorkspaceSection]
+    private(set) var anchorWorkspaceId: WorkspaceDescriptor.ID?
 
     var searchBarFrame: CGRect
     var totalContentHeight: CGFloat
@@ -130,6 +133,22 @@ struct OverviewLayout {
     mutating func replaceWorkspaceSections(_ sections: [OverviewWorkspaceSection]) {
         workspaceSections = sections
         rebuildWindowIndex()
+    }
+
+    mutating func settleRestFrames(anchorWorkspaceId: WorkspaceDescriptor.ID?) {
+        self.anchorWorkspaceId = anchorWorkspaceId
+        let anchor = workspaceSections
+            .first { $0.workspaceId == anchorWorkspaceId }
+            .flatMap(OverviewRenderGeometry.restAnchor)
+        for sectionIndex in workspaceSections.indices {
+            let isAnchor = workspaceSections[sectionIndex].workspaceId == anchorWorkspaceId
+            for windowIndex in workspaceSections[sectionIndex].windows.indices {
+                let overviewFrame = workspaceSections[sectionIndex].windows[windowIndex].overviewFrame
+                workspaceSections[sectionIndex].windows[windowIndex].restFrame = isAnchor
+                    ? nil
+                    : anchor.map { OverviewRenderGeometry.restFrame(for: overviewFrame, anchor: $0) }
+            }
+        }
     }
 
     mutating func updateGroupCounts(_ groupCountByHandle: [WindowHandle: Int]) {

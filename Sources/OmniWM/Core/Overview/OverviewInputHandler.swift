@@ -39,7 +39,6 @@ final class OverviewInputHandler {
     private weak var controller: OverviewController?
     private let projection: OverviewViewportProjection
     private let windowSession: OverviewWindowSession
-    private let focusSession: OverviewFocusSession
     private let overviewSnapshot: OverviewSnapshot
     private var state: OverviewState {
         controller?.state ?? .closed
@@ -50,12 +49,10 @@ final class OverviewInputHandler {
     init(
         projection: OverviewViewportProjection,
         windowSession: OverviewWindowSession,
-        focusSession: OverviewFocusSession,
         snapshot: OverviewSnapshot
     ) {
         self.projection = projection
         self.windowSession = windowSession
-        self.focusSession = focusSession
         overviewSnapshot = snapshot
     }
 
@@ -261,9 +258,7 @@ extension OverviewInputHandler {
     func selectAndActivateWindow(_ handle: WindowHandle) {
         guard case .open = state else { return }
         projection.setSelectedWindowHandle(handle)
-        updateWindowDisplays()
-
-        focusSession.scheduleSelectionDismissal(handle)
+        controller?.dismiss(reason: .selection, targetWindow: handle, animated: true)
     }
 
     func updateSearchQuery(_ query: String) {

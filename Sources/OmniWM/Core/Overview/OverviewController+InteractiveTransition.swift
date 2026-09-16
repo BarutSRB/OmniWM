@@ -25,6 +25,15 @@ extension OverviewController {
         }
     }
 
+    func invalidateDeferredActionsForServiceStop() {
+        focusSession.advancePostCloseHandoffGeneration()
+        focusSession.pendingDismissReason = .externalDeactivation
+        focusSession.pendingFocusTargetWindow = nil
+        focusSession.pendingPostCloseHandoffValidity = nil
+        guard state.isOpen else { return }
+        completeCloseTransition(targetWindow: nil)
+    }
+
     var isInteractiveTransitionActive: Bool {
         animator?.isTracking == true
     }

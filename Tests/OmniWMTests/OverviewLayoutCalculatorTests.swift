@@ -74,6 +74,83 @@ final class OverviewLayoutCalculatorTests: XCTestCase {
         )
     }
 
+    func testGenericRestAnchorInvertsProjectedFrames() throws {
+        let (layout, _) = makeMixedLayout()
+        let section = try XCTUnwrap(layout.workspaceSections.first)
+        let anchor = try XCTUnwrap(OverviewRenderGeometry.restAnchor(for: section))
+
+        for window in section.windows {
+            XCTAssertEqual(
+                OverviewRenderGeometry.restFrame(for: window.overviewFrame, anchor: anchor),
+                window.originalFrame
+            )
+        }
+    }
+
+    func testNiriRestAnchorPreservesRealFramesAndProjectsOtherSections() throws {
+        var (layout, _) = makeMixedLayout()
+        let section = try XCTUnwrap(layout.workspaceSections.last)
+        let anchor = try XCTUnwrap(OverviewRenderGeometry.restAnchor(for: section))
+
+        layout.settleRestFrames(anchorWorkspaceId: section.workspaceId)
+
+        XCTAssertEqual(layout.anchorWorkspaceId, section.workspaceId)
+        for window in layout.allWindows {
+            let expected = window.workspaceId == section.workspaceId
+                ? window.originalFrame
+                : OverviewRenderGeometry.restFrame(for: window.overviewFrame, anchor: anchor)
+            XCTAssertEqual(window.interpolatedFrame(progress: 0), expected)
+            XCTAssertEqual(window.interpolatedFrame(progress: 1), window.overviewFrame)
+            XCTAssertEqual(
+                window.interpolatedFrame(progress: 0.5).midY,
+                (expected.midY + window.overviewFrame.midY) / 2
+            )
+            if window.workspaceId == section.workspaceId {
+                XCTAssertNil(window.restFrame)
+            } else {
+                XCTAssertNotEqual(window.restFrame, window.originalFrame)
+            }
+        }
+    }
+
+    func testMissingAndEmptyRestAnchorsClearPreviousProjection() throws {
+        var (layout, _) = makeMixedLayout()
+        let workspaceId = try XCTUnwrap(layout.workspaceSections.first?.workspaceId)
+        layout.settleRestFrames(anchorWorkspaceId: workspaceId)
+        XCTAssertTrue(layout.allWindows.contains { $0.restFrame != nil })
+
+        for anchorId in [nil, WorkspaceDescriptor.ID()] {
+            layout.settleRestFrames(anchorWorkspaceId: anchorId)
+            XCTAssertTrue(layout.allWindows.allSatisfy { $0.restFrame == nil })
+            XCTAssertTrue(layout.allWindows.allSatisfy { $0.interpolatedFrame(progress: 0) == $0.originalFrame })
+        }
+        var empty = try XCTUnwrap(layout.workspaceSections.first)
+        empty.windows = []
+        XCTAssertNil(OverviewRenderGeometry.restAnchor(for: empty))
+    }
+
+    func testDegenerateRestAnchorUsesOriginalFrames() throws {
+        var (layout, _) = makeMixedLayout()
+        var section = try XCTUnwrap(layout.workspaceSections.first)
+        let window = try XCTUnwrap(section.windows.first)
+        section.windows = [OverviewWindowItem(
+            handle: window.handle,
+            windowId: window.windowId,
+            workspaceId: window.workspaceId,
+            title: window.title,
+            appName: window.appName,
+            appIcon: nil,
+            originalFrame: .zero,
+            overviewFrame: window.overviewFrame,
+            matchesSearch: true
+        )]
+        layout.replaceWorkspaceSections([section] + layout.workspaceSections.dropFirst())
+        layout.settleRestFrames(anchorWorkspaceId: section.workspaceId)
+
+        XCTAssertNil(OverviewRenderGeometry.restAnchor(for: section))
+        XCTAssertTrue(layout.allWindows.allSatisfy { $0.restFrame == nil })
+    }
+
     private func makeMixedLayout() -> (OverviewLayout, [WindowHandle]) {
         let generic = WorkspaceDescriptor.ID()
         let niri = WorkspaceDescriptor.ID()

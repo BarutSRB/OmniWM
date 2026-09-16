@@ -92,7 +92,7 @@ final class OverviewView: NSView {
 
     @discardableResult
     func installAnimation(_ transition: OverviewNativeTransition, completion: OverviewAnimationCompletion) -> Bool {
-        updateLayer()
+        if layerRenderer.root.bounds.isEmpty { updateLayer() }
         presentationProgress = transition.target
         needsDisplay = false
         guard window != nil, transition.duration > 0 else {

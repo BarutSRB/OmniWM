@@ -7,8 +7,43 @@ import CoreText
 import Foundation
 
 enum OverviewRenderGeometry {
-    static func visibleContentRect(bounds: CGRect, scrollOffset: CGFloat) -> CGRect {
-        return bounds.offsetBy(dx: 0, dy: scrollOffset)
+    struct RestAnchor: Equatable {
+        let overviewBounds: CGRect
+        let restBounds: CGRect
+    }
+
+    static func restAnchor(for section: OverviewWorkspaceSection) -> RestAnchor? {
+        let overviewBounds = section.windows.reduce(CGRect.null) { $0.union($1.overviewFrame) }
+        let restBounds = section.windows.reduce(CGRect.null) { $0.union($1.originalFrame) }
+        guard overviewBounds.width > 0, overviewBounds.height > 0,
+              restBounds.width > 0, restBounds.height > 0,
+              overviewBounds.width.isFinite, overviewBounds.height.isFinite,
+              restBounds.width.isFinite, restBounds.height.isFinite
+        else {
+            return nil
+        }
+        return RestAnchor(overviewBounds: overviewBounds, restBounds: restBounds)
+    }
+
+    static func restFrame(for overviewFrame: CGRect, anchor: RestAnchor) -> CGRect {
+        let scaleX = anchor.restBounds.width / anchor.overviewBounds.width
+        let scaleY = anchor.restBounds.height / anchor.overviewBounds.height
+        return CGRect(
+            x: anchor.restBounds.minX + (overviewFrame.minX - anchor.overviewBounds.minX) * scaleX,
+            y: anchor.restBounds.minY + (overviewFrame.minY - anchor.overviewBounds.minY) * scaleY,
+            width: overviewFrame.width * scaleX,
+            height: overviewFrame.height * scaleY
+        )
+    }
+
+    static func visibleContentRect(
+        bounds: CGRect,
+        scrollOffset: CGFloat,
+        progress: Double = 1,
+        transitioning: Bool = false
+    ) -> CGRect {
+        let visible = bounds.offsetBy(dx: 0, dy: scrollOffset * (transitioning ? 1 : CGFloat(progress)))
+        return transitioning ? bounds.union(visible) : visible
     }
 
     static func shouldRender(frame: CGRect, visibleContentRect: CGRect) -> Bool {

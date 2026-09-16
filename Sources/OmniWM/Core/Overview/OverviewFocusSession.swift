@@ -35,8 +35,6 @@ final class OverviewFocusSession {
     var pendingFocusTargetWindow: WindowHandle?
     var pendingPostCloseHandoffValidity: PostCloseHandoffValidity?
     private var postCloseHandoffGeneration: UInt64 = 0
-    private var selectionDismissTask: Task<Void, Never>?
-    private var selectionDismissGeneration: UInt64 = 0
 
     init(
         wmController: WMController,
@@ -52,34 +50,6 @@ final class OverviewFocusSession {
 
     func connect(overview: OverviewController) {
         self.overview = overview
-    }
-
-    func scheduleSelectionDismissal(_ handle: WindowHandle) {
-        invalidateSelectionDismissal()
-        let generation = selectionDismissGeneration
-        let delayNanoseconds = environment.selectionDismissDelayNanoseconds
-        selectionDismissTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: delayNanoseconds)
-            } catch {
-                return
-            }
-            guard let self,
-                  let overview = self.overview,
-                  self.selectionDismissGeneration == generation
-            else {
-                return
-            }
-            self.selectionDismissTask = nil
-            guard case .open = self.state,
-                  self.projection.selectedWindowHandle === handle,
-                  self.wmController?.workspaceManager.handle(for: handle.id) === handle,
-                  self.overviewSnapshot.windows[handle] != nil
-            else {
-                return
-            }
-            overview.dismiss(reason: .selection, targetWindow: handle, animated: true)
-        }
     }
 
     func completeCloseTransition(targetWindow: WindowHandle?, close: () -> Void) {
@@ -157,12 +127,6 @@ final class OverviewFocusSession {
                 overview.focusTargetWindow(handle)
             }
         }
-    }
-
-    func invalidateSelectionDismissal() {
-        selectionDismissGeneration &+= 1
-        selectionDismissTask?.cancel()
-        selectionDismissTask = nil
     }
 
     func capturePreviousFrontmostApplication() {

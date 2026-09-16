@@ -38,6 +38,7 @@ final class OverviewController {
         !mutationSession.isTransferring
     }
 
+    var onPrepareActivation: ((WindowHandle, WorkspaceDescriptor.ID) -> Void)?
     var onActivateWindow: ((WindowHandle, WorkspaceDescriptor.ID) -> Void)?
     var onCloseWindow: ((WindowHandle) -> Bool)?
     var isOpen: Bool {
@@ -93,7 +94,6 @@ final class OverviewController {
         input = OverviewInputHandler(
             projection: projection,
             windowSession: windowSession,
-            focusSession: focusSession,
             snapshot: overviewSnapshot
         )
         self.wmController = wmController
@@ -181,7 +181,6 @@ extension OverviewController {
     func beginOpening() -> Bool {
         guard case .closed = state, wmController != nil else { return false }
 
-        focusSession.invalidateSelectionDismissal()
         focusSession.advancePostCloseHandoffGeneration()
         focusSession.pendingPostCloseHandoffValidity = nil
 
@@ -206,12 +205,12 @@ extension OverviewController {
     }
 
     func resumeOpening() {
-        focusSession.invalidateSelectionDismissal()
         focusSession.advancePostCloseHandoffGeneration()
         focusSession.pendingDismissReason = .cancel
         focusSession.pendingFocusTargetWindow = nil
         focusSession.pendingPostCloseHandoffValidity = nil
         state = motionPolicy.animationsEnabled ? .opening : .open
+        projection.settleRestFrames(targetWindow: nil)
         updateWindowDisplays()
     }
 
@@ -273,16 +272,19 @@ extension OverviewController {
             break
         }
 
-        focusSession.invalidateSelectionDismissal()
         if hasActiveDragSession {
             drag.cancelDrag()
         }
 
         let resolvedTargetWindow = reason == .selection ? targetWindow : nil
+        if let resolvedTargetWindow {
+            prepareActivation(resolvedTargetWindow)
+        }
         focusSession.pendingDismissReason = reason
         focusSession.pendingFocusTargetWindow = resolvedTargetWindow
         focusSession.pendingPostCloseHandoffValidity = focusSession.currentPostCloseHandoffValidity()
 
+        projection.settleRestFrames(targetWindow: resolvedTargetWindow)
         state = .closing(targetWindow: resolvedTargetWindow)
         updateWindowDisplays()
 
@@ -298,14 +300,15 @@ extension OverviewController {
 
     func refreshCachedOverviewProjection(
         affectedWorkspaceIds: Set<WorkspaceDescriptor.ID>,
-        selectedHandle: WindowHandle? = nil
+        selectedHandle: WindowHandle? = nil,
+        settledNiriFrames: Bool = false
     ) {
         guard state.isOpen, let wmController else { return }
         environment.onCachedProjectionRefreshed(affectedWorkspaceIds)
         let anchors = projection.captureSelectedViewportAnchors()
         let workspaceManager = wmController.workspaceManager
 
-        overviewSnapshot.refresh(affectedWorkspaceIds: affectedWorkspaceIds)
+        overviewSnapshot.refresh(affectedWorkspaceIds: affectedWorkspaceIds, settledNiriFrames: settledNiriFrames)
 
         if let selectedHandle,
            overviewSnapshot.windows[selectedHandle] != nil,
@@ -381,24 +384,28 @@ extension OverviewController {
     }
 
     func focusTargetWindow(_ handle: WindowHandle) {
-        guard let wmController else { return }
-        guard wmController.workspaceManager.handle(for: handle.id) === handle,
-              let entry = wmController.workspaceManager.entry(for: handle)
-        else {
-            return
-        }
-
-        onActivateWindow?(handle, entry.workspaceId)
+        guard let workspaceId = activationWorkspaceId(for: handle) else { return }
+        onActivateWindow?(handle, workspaceId)
     }
 
-    func invalidateDeferredActionsForServiceStop() {
-        focusSession.invalidateSelectionDismissal()
-        focusSession.advancePostCloseHandoffGeneration()
-        focusSession.pendingDismissReason = .externalDeactivation
-        focusSession.pendingFocusTargetWindow = nil
-        focusSession.pendingPostCloseHandoffValidity = nil
-        guard state.isOpen else { return }
-        completeCloseTransition(targetWindow: nil)
+    private func prepareActivation(_ handle: WindowHandle) {
+        guard let wmController, let workspaceId = activationWorkspaceId(for: handle) else { return }
+        let workspaceManager = wmController.workspaceManager
+        let previousWorkspaceId = workspaceManager.monitorForWorkspace(workspaceId)
+            .flatMap { workspaceManager.activeWorkspace(on: $0.id)?.id }
+        onPrepareActivation?(handle, workspaceId)
+        refreshCachedOverviewProjection(
+            affectedWorkspaceIds: Set([previousWorkspaceId, workspaceId].compactMap { $0 }),
+            selectedHandle: handle,
+            settledNiriFrames: true
+        )
+    }
+
+    private func activationWorkspaceId(for handle: WindowHandle) -> WorkspaceDescriptor.ID? {
+        guard let wmController,
+              wmController.workspaceManager.handle(for: handle.id) === handle
+        else { return nil }
+        return wmController.workspaceManager.entry(for: handle)?.workspaceId
     }
 
     @discardableResult
@@ -460,7 +467,6 @@ extension OverviewController {
     }
 
     private func cleanup() {
-        focusSession.invalidateSelectionDismissal()
         thumbnailCapture.clear()
         input.reset()
         projection.searchQuery = ""

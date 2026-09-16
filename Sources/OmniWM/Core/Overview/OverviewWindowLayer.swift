@@ -94,12 +94,14 @@ final class OverviewWindowLayer {
         state: OverviewRenderState,
         transition: OverviewNativeTransition? = nil,
         replacing: Bool = false,
-        time: CFTimeInterval = CACurrentMediaTime()
+        time: CFTimeInterval = CACurrentMediaTime(),
+        anchored: Bool = false
     ) {
         let motion = transition.map { _ in motionLayers.map { OverviewLayerMotion($0) } } ?? []
         activeTransition = transition
         root.frame = frame
-        root.opacity = Float(state.progress * (window.matchesSearch ? 1 : 0.3))
+        let coverage = anchored && preview != nil ? 1 : state.progress
+        root.opacity = Float(coverage * (window.matchesSearch ? 1 : 0.3))
         thumbnailClip.frame = root.bounds.insetBy(dx: Metrics.thumbnailInset, dy: Metrics.thumbnailInset)
         updateThumbnailGeometry()
         dimming.frame = root.bounds

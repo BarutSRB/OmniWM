@@ -549,6 +549,132 @@ final class OverviewRendererTests: XCTestCase {
     }
 
     @MainActor
+    func testStripAnchorPreviewStaysOpaqueAndPlaceholdersFade() throws {
+        var (layout, item) = makeLayerLayout()
+        layout.settleRestFrames(anchorWorkspaceId: item.workspaceId)
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+        view.presentProgress(0.4)
+        view.updateLayer()
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+        XCTAssertEqual(card.root.opacity, 0.4, accuracy: 0.000001)
+
+        view.updatePreview(try makeOverviewPreviewFrame(), for: item.handle)
+        view.updateLayer()
+        XCTAssertEqual(card.root.opacity, 1)
+
+        layout.settleRestFrames(anchorWorkspaceId: nil)
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+        view.updateLayer()
+        XCTAssertEqual(card.root.opacity, 0.4, accuracy: 0.000001)
+    }
+
+    @MainActor
+    func testStripAnchorPreviewStillDimsForSearch() throws {
+        var (layout, item) = makeLayerLayout(matchesSearch: false)
+        layout.settleRestFrames(anchorWorkspaceId: item.workspaceId)
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        view.updateLayout(layout, state: .opening, searchQuery: "missing", selectedWindowHandle: nil)
+        view.updatePreview(try makeOverviewPreviewFrame(), for: item.handle)
+        view.presentProgress(0.4)
+        view.updateLayer()
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+        XCTAssertEqual(card.root.opacity, 0.3, accuracy: 0.000001)
+    }
+
+    @MainActor
+    func testScrolledStripUsesProgressForContentOffsetAndCulling() throws {
+        var (layout, item) = makeLayerLayout()
+        layout.scrollOffset = -1000
+        layout.settleRestFrames(anchorWorkspaceId: item.workspaceId)
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+        let content = try XCTUnwrap(card.root.superlayer?.superlayer)
+
+        for progress in [1.0, 0.4, 0.0] {
+            view.presentProgress(progress)
+            view.updateLayer()
+            XCTAssertEqual(content.frame.minY, -layout.scrollOffset * progress)
+        }
+        XCTAssertFalse(card.root.isHidden)
+        XCTAssertEqual(card.root.frame, item.originalFrame)
+    }
+
+    @MainActor
+    func testStripTransitionKeepsMovingCardsAndContentSpringUntilCancelled() throws {
+        var (layout, item) = makeLayerLayout(overviewFrame: CGRect(x: 100, y: -1000, width: 200, height: 140))
+        var section = try XCTUnwrap(layout.workspaceSections.first)
+        section.windows[0].restFrame = CGRect(x: 50, y: -2000, width: 600, height: 400)
+        layout.replaceWorkspaceSections([section])
+        layout.scrollOffset = -1000
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let panel = attach(view)
+        defer { panel.close() }
+        let fixture = makeAnimationFixture()
+        view.updateLayout(layout, state: .open, searchQuery: "", selectedWindowHandle: nil)
+        view.updateLayer()
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+        let content = try XCTUnwrap(card.root.superlayer?.superlayer)
+        let transition = OverviewNativeTransition(generation: 1, startTime: CACurrentMediaTime(), from: 1, to: 0)
+
+        XCTAssertTrue(view.installAnimation(transition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 1, generation: 1
+        )))
+
+        XCTAssertFalse(card.root.isHidden)
+        XCTAssertEqual(card.root.frame, section.windows[0].restFrame)
+        XCTAssertEqual(content.frame.minY, 0)
+        let animation = try XCTUnwrap(content.animation(forKey: "overview.position") as? CASpringAnimation)
+        XCTAssertEqual(animation.stiffness, transition.makeAnimation(keyPath: "position").stiffness)
+        XCTAssertEqual(animation.damping, transition.makeAnimation(keyPath: "position").damping)
+        view.cancelAnimation()
+        XCTAssertNil(content.animation(forKey: "overview.position"))
+    }
+
+    @MainActor
+    func testGestureReleaseReanchorsFromDisplayedCardGeometry() throws {
+        var (layout, item) = makeLayerLayout()
+        var section = try XCTUnwrap(layout.workspaceSections.first)
+        section.windows[0].restFrame = CGRect(x: 50, y: -1400, width: 600, height: 400)
+        layout.replaceWorkspaceSections([section])
+        layout.scrollOffset = -200
+        let view = OverviewView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let panel = attach(view)
+        defer { panel.close() }
+        let fixture = makeAnimationFixture()
+        view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
+        view.presentProgress(0.4)
+        view.updateLayer()
+        let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
+        let content = try XCTUnwrap(card.root.superlayer?.superlayer)
+        let displayedPosition = card.root.position
+        let displayedBounds = card.root.bounds
+        let displayedContentPosition = content.position
+
+        layout.settleRestFrames(anchorWorkspaceId: item.workspaceId)
+        layout.scrollOffset = -100
+        view.updateLayout(
+            layout,
+            state: .closing(targetWindow: item.handle),
+            searchQuery: "",
+            selectedWindowHandle: item.handle
+        )
+        let transition = OverviewNativeTransition(generation: 1, startTime: CACurrentMediaTime(), from: 0.4, to: 0)
+        XCTAssertTrue(view.installAnimation(transition, completion: OverviewAnimationCompletion(
+            animator: fixture.animator, displayId: 1, generation: 1
+        )))
+
+        let position = try XCTUnwrap(card.root.animation(forKey: "overview.position") as? CASpringAnimation)
+        let bounds = try XCTUnwrap(card.root.animation(forKey: "overview.bounds") as? CASpringAnimation)
+        let contentMotion = try XCTUnwrap(content.animation(forKey: "overview.position") as? CASpringAnimation)
+        XCTAssertEqual((position.fromValue as? NSValue)?.pointValue, displayedPosition)
+        XCTAssertEqual((bounds.fromValue as? NSValue)?.rectValue, displayedBounds)
+        XCTAssertEqual((contentMotion.fromValue as? NSValue)?.pointValue, displayedContentPosition)
+        XCTAssertEqual(card.root.frame, item.originalFrame)
+    }
+
+    @MainActor
     private func attach(_ view: OverviewView) -> NSPanel {
         let panel = NSPanel(
             contentRect: view.frame,
@@ -593,7 +719,8 @@ final class OverviewRendererTests: XCTestCase {
     }
 
     private func makeLayerLayout(
-        overviewFrame: CGRect = CGRect(x: 100, y: 100, width: 200, height: 140)
+        overviewFrame: CGRect = CGRect(x: 100, y: 100, width: 200, height: 140),
+        matchesSearch: Bool = true
     ) -> (OverviewLayout, OverviewWindowItem) {
         let workspaceId = UUID()
         let token = WindowToken(pid: 1, windowId: 1)
@@ -606,7 +733,7 @@ final class OverviewRendererTests: XCTestCase {
             appIcon: nil,
             originalFrame: CGRect(x: 50, y: 50, width: 600, height: 400),
             overviewFrame: overviewFrame,
-            matchesSearch: true
+            matchesSearch: matchesSearch
         )
         let section = OverviewWorkspaceSection(
             workspaceId: workspaceId,
