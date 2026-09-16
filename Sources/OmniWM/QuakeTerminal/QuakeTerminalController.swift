@@ -335,12 +335,13 @@ final class QuakeTerminalController: NSObject {
 
     func targetScreen(
         screens: [NSScreen] = NSScreen.screens,
-        mainScreen: NSScreen? = NSScreen.main
+        mainScreen: NSScreen? = NSScreen.main,
+        monitors: @autoclosure () -> [Monitor] = Monitor.current()
     ) -> NSScreen {
         switch settings.quakeTerminal.monitorMode {
         case .mouseCursor:
             let mouseLocation = NSEvent.mouseLocation
-            if let monitor = mouseLocation.monitorApproximation(in: Monitor.current()),
+            if let monitor = mouseLocation.monitorApproximation(in: monitors()),
                let screen = screens.first(where: { $0.displayId == monitor.displayId })
             {
                 return screen
@@ -350,11 +351,21 @@ final class QuakeTerminalController: NSObject {
             if let screen = focusedWindowScreenProvider() {
                 return screen
             }
-            if let screen = QuakeFocusedWindowScreen.find(monitors: Monitor.current(), screens: screens) {
+            if let screen = QuakeFocusedWindowScreen.find(monitors: monitors(), screens: screens) {
                 return screen
             }
 
         case .mainMonitor:
+            if !settings.monitors.ranking.isEmpty,
+               let monitor = MonitorRanking.roleOrder(
+                   ranking: settings.monitors.ranking,
+                   sortedMonitors: Monitor.sortedByPosition(monitors())
+               ).first,
+               let screen = screens.first(where: { $0.frame == monitor.frame })
+               ?? screens.first(where: { $0.displayId == monitor.displayId })
+            {
+                return screen
+            }
             return screens.first ?? mainScreen!
         }
 

@@ -19,6 +19,17 @@ final class MonitorConfigurationSettings {
         didSet { onChange?() }
     }
 
+    var ranking: [OutputId] = [] {
+        didSet {
+            let normalized = MonitorRanking.normalized(ranking)
+            if normalized != ranking {
+                ranking = normalized
+                return
+            }
+            onChange?()
+        }
+    }
+
     var orientationOverrides: [MonitorOrientationSettings] = [] {
         didSet { onChange?() }
     }

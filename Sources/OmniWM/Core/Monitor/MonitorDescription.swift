@@ -6,22 +6,25 @@ import Foundation
 enum MonitorDescription: Equatable {
     case main
     case secondary
+    case tertiary
     case output(OutputId)
 
-    func resolveMonitor(sortedMonitors: [Monitor]) -> Monitor? {
+    func resolveMonitor(sortedMonitors: [Monitor], ranking: [OutputId] = []) -> Monitor? {
         switch self {
         case .main:
-            return sortedMonitors.first(where: { $0.isMain }) ?? sortedMonitors.first
+            return rankedMonitor(0, sortedMonitors: sortedMonitors, ranking: ranking)
         case .secondary:
-            guard sortedMonitors.count >= 2 else { return nil }
-            if let main = sortedMonitors.first(where: { $0.isMain }),
-               let secondary = sortedMonitors.first(where: { $0.id != main.id })
-            {
-                return secondary
-            }
-            return sortedMonitors.dropFirst().first
+            return rankedMonitor(1, sortedMonitors: sortedMonitors, ranking: ranking)
+        case .tertiary:
+            return rankedMonitor(2, sortedMonitors: sortedMonitors, ranking: ranking)
         case let .output(output):
             return output.resolveMonitor(in: sortedMonitors)
         }
+    }
+
+    private func rankedMonitor(_ rank: Int, sortedMonitors: [Monitor], ranking: [OutputId]) -> Monitor? {
+        let order = MonitorRanking.roleOrder(ranking: ranking, sortedMonitors: sortedMonitors)
+        guard order.indices.contains(rank) else { return nil }
+        return order[rank]
     }
 }

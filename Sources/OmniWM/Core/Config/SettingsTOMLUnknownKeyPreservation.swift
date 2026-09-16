@@ -169,6 +169,9 @@ extension TOMLNode {
         if isMonitorIdentityArray(arrayPath), hasMonitorIdentity(schemaKnown) {
             return classified(monitorMatchingIndices(for: schemaKnown, in: nodes), empty: .deleted)
         }
+        if arrayPath == "monitors.ranking" {
+            return classified(rankingMatchingIndices(for: schemaKnown, in: nodes), empty: .deleted)
+        }
         let matches = matchingIndices(in: nodes) { candidate in
             schemaContent(candidate) == schemaContent(schemaKnown)
         }
@@ -220,6 +223,23 @@ extension TOMLNode {
     private static func monitorUUID(in table: [String: TOMLNode]) -> String? {
         guard case let .string(value) = table["monitorDisplayUUID"] else { return nil }
         return DisplayUUID.canonical(value)
+    }
+
+    private static func rankingMatchingIndices(
+        for source: [String: TOMLNode],
+        in nodes: [TOMLNode]
+    ) -> [Int] {
+        if let displayUUID = source["displayUUID"] {
+            return matchingIndices(in: nodes) { $0["displayUUID"] == displayUUID }
+        }
+        guard case let .string(name) = source["name"] else { return [] }
+        return matchingIndices(in: nodes) { candidate in
+            guard candidate["displayUUID"] == nil,
+                  candidate["displayId"] == source["displayId"],
+                  case let .string(candidateName) = candidate["name"]
+            else { return false }
+            return Monitor.namesMatch(name, candidateName)
+        }
     }
 
     private static func matchingIndices(

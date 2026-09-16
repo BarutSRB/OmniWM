@@ -321,6 +321,7 @@ extension SettingsStore {
             focus: focus.export(),
             mouseWarp: pointer.export(),
             routing: monitors.export(),
+            monitorRanking: monitors.ranking,
             gaps: gaps.export(),
             niri: niri.export(),
             workspaceConfigurations: workspaces.configurations,
@@ -372,6 +373,7 @@ extension SettingsStore {
         pointer.constrainToArrangement = export.mouseWarp.constrainToArrangement
         monitors.routingMode = export.routing.mode
         monitors.arrangements = export.routing.arrangements
+        monitors.ranking = MonitorRanking.normalized(export.monitorRanking)
         gaps.apply(export.gaps)
 
         niri.apply(export.niri, baseline: baseline.niri)

@@ -18,6 +18,7 @@ struct SettingsExport: Equatable {
     var focus: Focus
     var mouseWarp: MouseWarp
     var routing: Routing
+    var monitorRanking: [OutputId]
     var gaps: Gaps
 
     var niri: Niri
@@ -194,6 +195,7 @@ extension SettingsExport {
             focus: Focus.defaults(),
             mouseWarp: MouseWarp.defaults(),
             routing: Routing.defaults(),
+            monitorRanking: [],
             gaps: Gaps.defaults(),
             niri: Niri.defaults(),
             workspaceConfigurations: BuiltInSettingsDefaults.workspaceConfigurations,

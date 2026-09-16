@@ -12,7 +12,8 @@ extension WorkspaceManager {
             sortedMonitors: sortedMonitors(),
             topologyProfile: currentTopologyProfile(),
             configuredWorkspaceNames: configuredWorkspaceNameSet(),
-            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName()
+            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName(),
+            monitorRanking: settings.monitors.ranking
         )
     }
 
@@ -26,7 +27,8 @@ extension WorkspaceManager {
             sortedMonitors: sortedMonitors,
             topologyProfile: TopologyProfile(sortedMonitors: sortedMonitors),
             configuredWorkspaceNames: configuredWorkspaceNameSet(),
-            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName()
+            monitorDescriptionByWorkspaceName: monitorDescriptionByWorkspaceName(),
+            monitorRanking: settings.monitors.ranking
         )
     }
 }
