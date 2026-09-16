@@ -308,6 +308,23 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <sub>@holmns</sub>
     </td>
     <td align="center" valign="top">
+      <a href="https://github.com/olincollege">
+        <img src="https://avatars.githubusercontent.com/u/68605531?v=4" width="72" alt="Olin College of Engineering">
+      </a>
+      <br>
+      <a href="https://github.com/olincollege"><strong>Olin College of Engineering</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/cypressf" title="Cypress Frankenfeld">
+        <img src="https://github.com/cypressf.png?size=96" width="72" alt="Cypress Frankenfeld">
+      </a>
+      <br>
+      <a href="https://github.com/cypressf"><strong>Cypress Frankenfeld</strong></a>
+      <br>
+      <sub>@cypressf</sub>
+    </td>
+    <td align="center" valign="top">
       <a href="https://www.sustech.edu.cn/en/">
         <img src="https://www.google.com/s2/favicons?domain=www.sustech.edu.cn&sz=96" width="72" alt="SUSTech">
       </a>
@@ -348,6 +365,9 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/Cy6erBr4in" title="Alexander Dergachev">
         <img src="https://github.com/Cy6erBr4in.png?size=96" width="72" alt="Alexander Dergachev">
       </a>
+      <a href="https://github.com/minchik" title="Aliaksandr">
+        <img src="https://github.com/minchik.png?size=96" width="72" alt="Aliaksandr">
+      </a>
       <a href="https://github.com/gloomy-breaker" title="Ayaan Sandhu">
         <img src="https://github.com/gloomy-breaker.png?size=96" width="72" alt="Ayaan Sandhu">
       </a>
@@ -363,8 +383,14 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/crbelaus" title="Cristian Álvarez Belaustegui">
         <img src="https://github.com/crbelaus.png?size=96" width="72" alt="Cristian Álvarez Belaustegui">
       </a>
+      <a href="https://github.com/cypressf" title="Cypress Frankenfeld">
+        <img src="https://github.com/cypressf.png?size=96" width="72" alt="Cypress Frankenfeld">
+      </a>
       <a href="https://github.com/nekonora" title="Filippo Zaffoni">
         <img src="https://github.com/nekonora.png?size=96" width="72" alt="Filippo Zaffoni">
+      </a>
+      <a href="https://github.com/Fletcher-Alderton" title="Fletcher Alderton">
+        <img src="https://github.com/Fletcher-Alderton.png?size=96" width="72" alt="Fletcher Alderton">
       </a>
       <a href="https://github.com/henrikhestnes" title="Henrik Larsson Hestnes">
         <img src="https://github.com/henrikhestnes.png?size=96" width="72" alt="Henrik Larsson Hestnes">
@@ -386,6 +412,9 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       </a>
       <a href="https://github.com/zucram" title="Marcus Harlid Davin">
         <img src="https://github.com/zucram.png?size=96" width="72" alt="Marcus Harlid Davin">
+      </a>
+      <a href="https://github.com/MateuszJuszczyk" title="Mateusz Juszczyk">
+        <img src="https://github.com/MateuszJuszczyk.png?size=96" width="72" alt="Mateusz Juszczyk">
       </a>
       <a href="https://github.com/wicksipedia" title="Matt Wicks">
         <img src="https://github.com/wicksipedia.png?size=96" width="72" alt="Matt Wicks">
@@ -431,6 +460,9 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       </a>
       <a href="https://github.com/Yang-Yiming" title="Yang-Yiming">
         <img src="https://github.com/Yang-Yiming.png?size=96" width="72" alt="Yang-Yiming">
+      </a>
+      <a href="https://github.com/YeungKC" title="YeungKC">
+        <img src="https://github.com/YeungKC.png?size=96" width="72" alt="YeungKC">
       </a>
       <a href="https://github.com/YuriNachos" title="Yuri Chukhlib">
         <img src="https://github.com/YuriNachos.png?size=96" width="72" alt="Yuri Chukhlib">
