@@ -23,11 +23,43 @@ enum WorkspaceBarHiddenIndicatorStyle: Equatable {
     case partiallyHidden
 }
 
+enum WorkspaceBarIconOpacity {
+    static func standard(
+        isFocused: Bool,
+        isInFocusedWorkspace: Bool,
+        configured: Double?
+    ) -> Double {
+        if isFocused { return 1 }
+        if let configured { return configured }
+        return isInFocusedWorkspace ? 0.4 : 0.5
+    }
+
+    static func scratchpad(isFocused: Bool, configured: Double?) -> Double {
+        if isFocused { return 1 }
+        return configured ?? 0.82
+    }
+}
+
 struct WorkspaceBarWindowPresentation {
     let window: WorkspaceBarWindowItem
     let context: WorkspaceBarWindowContext
     let isFocused: Bool
     let isInFocusedWorkspace: Bool
+    let inactiveIconOpacity: Double?
+
+    init(
+        window: WorkspaceBarWindowItem,
+        context: WorkspaceBarWindowContext,
+        isFocused: Bool,
+        isInFocusedWorkspace: Bool,
+        inactiveIconOpacity: Double? = nil
+    ) {
+        self.window = window
+        self.context = context
+        self.isFocused = isFocused
+        self.isInFocusedWorkspace = isInFocusedWorkspace
+        self.inactiveIconOpacity = inactiveIconOpacity
+    }
 
     var hiddenIndicatorStyle: WorkspaceBarHiddenIndicatorStyle? {
         if window.isAppHidden {
@@ -47,13 +79,11 @@ struct WorkspaceBarWindowPresentation {
         if window.isAppHidden {
             return 0.9
         }
-        if isFocused {
-            return 1.0
-        }
-        if isInFocusedWorkspace {
-            return 0.4
-        }
-        return 0.5
+        return WorkspaceBarIconOpacity.standard(
+            isFocused: isFocused,
+            isInFocusedWorkspace: isInFocusedWorkspace,
+            configured: inactiveIconOpacity
+        )
     }
 
     var accessibilityLabel: String {
@@ -136,6 +166,8 @@ struct WindowIconView: View {
     let isInFocusedWorkspace: Bool
     let context: WorkspaceBarWindowContext
     let animationsEnabled: Bool
+    let showAccentHighlights: Bool
+    let inactiveIconOpacity: Double?
     let accentColor: Color?
     let textColor: Color?
     let onFocusWindow: (WindowHandle) -> Void
@@ -152,7 +184,8 @@ struct WindowIconView: View {
             window: window,
             context: context,
             isFocused: isFocused,
-            isInFocusedWorkspace: isInFocusedWorkspace
+            isInFocusedWorkspace: isInFocusedWorkspace,
+            inactiveIconOpacity: inactiveIconOpacity
         )
         Button {
             if window.windowCount > 1 {
@@ -224,11 +257,11 @@ struct WindowIconView: View {
     }
 
     private var glowRadius: CGFloat {
-        isFocused ? 4 : 0
+        isFocused && showAccentHighlights ? 4 : 0
     }
 
     private var glowOpacity: Double {
-        isFocused ? 0.5 : 0
+        isFocused && showAccentHighlights ? 0.5 : 0
     }
 }
 

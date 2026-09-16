@@ -127,9 +127,42 @@ struct WorkspaceBarSnapshot: Equatable {
     let showLabels: Bool
     let showSystemStatsButton: Bool
     let backgroundOpacity: Double
+    let inactiveIconOpacity: Double?
+    let transparentBackground: Bool
+    let solidBlackBackground: Bool
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
     let barHeight: CGFloat
     let accentColor: SettingsColor?
     let textColor: SettingsColor?
+
+    init(
+        projection: WorkspaceBarProjection,
+        showLabels: Bool,
+        showSystemStatsButton: Bool,
+        backgroundOpacity: Double,
+        inactiveIconOpacity: Double? = nil,
+        transparentBackground: Bool = false,
+        solidBlackBackground: Bool = false,
+        showItemBackgrounds: Bool = true,
+        showAccentHighlights: Bool = true,
+        barHeight: CGFloat,
+        accentColor: SettingsColor?,
+        textColor: SettingsColor?
+    ) {
+        self.projection = projection
+        self.showLabels = showLabels
+        self.showSystemStatsButton = showSystemStatsButton
+        self.backgroundOpacity = backgroundOpacity
+        self.inactiveIconOpacity = inactiveIconOpacity
+        self.transparentBackground = transparentBackground
+        self.solidBlackBackground = solidBlackBackground
+        self.showItemBackgrounds = showItemBackgrounds
+        self.showAccentHighlights = showAccentHighlights
+        self.barHeight = barHeight
+        self.accentColor = accentColor
+        self.textColor = textColor
+    }
 
     var items: [WorkspaceBarItem] {
         projection.items
@@ -139,12 +172,33 @@ struct WorkspaceBarSnapshot: Equatable {
         projection.scratchpads
     }
 
+    enum BackgroundStyle: Equatable {
+        case transparent
+        case solidBlack
+        case material
+    }
+
+    var backgroundStyle: BackgroundStyle {
+        if transparentBackground { return .transparent }
+        if solidBlackBackground { return .solidBlack }
+        return .material
+    }
+
+    var showsBackground: Bool {
+        backgroundStyle != .transparent
+    }
+
     func replacingScratchpads(_ scratchpads: [WorkspaceBarScratchpadItem]) -> Self {
         Self(
             projection: WorkspaceBarProjection(items: items, scratchpads: scratchpads),
             showLabels: showLabels,
             showSystemStatsButton: showSystemStatsButton,
             backgroundOpacity: backgroundOpacity,
+            inactiveIconOpacity: inactiveIconOpacity,
+            transparentBackground: transparentBackground,
+            solidBlackBackground: solidBlackBackground,
+            showItemBackgrounds: showItemBackgrounds,
+            showAccentHighlights: showAccentHighlights,
             barHeight: barHeight,
             accentColor: accentColor,
             textColor: textColor

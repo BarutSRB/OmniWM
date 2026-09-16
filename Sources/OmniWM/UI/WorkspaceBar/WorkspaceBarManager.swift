@@ -57,6 +57,7 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
     case moveBelowMenuBar
     case splitActiveLeft
     case splitActiveRight
+    case fillLeftOfNotch
 
     var id: String {
         rawValue
@@ -72,6 +73,7 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
         case .moveBelowMenuBar: "Move Below Menu Bar"
         case .splitActiveLeft: "Split — Active Left"
         case .splitActiveRight: "Split — Active Right"
+        case .fillLeftOfNotch: "Fill Left of Notch"
         }
     }
 }

@@ -87,6 +87,33 @@ final class WorkspaceBarSettings {
         didSet { onChange?() }
     }
 
+    var inactiveIconOpacity = WorkspaceBarSettings.defaults.inactiveIconOpacity {
+        didSet {
+            let normalized = Self.normalizedInactiveIconOpacity(inactiveIconOpacity)
+            guard normalized == inactiveIconOpacity else {
+                inactiveIconOpacity = normalized
+                return
+            }
+            onChange?()
+        }
+    }
+
+    var transparentBackground = WorkspaceBarSettings.defaults.transparentBackground {
+        didSet { onChange?() }
+    }
+
+    var solidBlackBackground = WorkspaceBarSettings.defaults.solidBlackBackground {
+        didSet { onChange?() }
+    }
+
+    var showItemBackgrounds = WorkspaceBarSettings.defaults.showItemBackgrounds {
+        didSet { onChange?() }
+    }
+
+    var showAccentHighlights = WorkspaceBarSettings.defaults.showAccentHighlights {
+        didSet { onChange?() }
+    }
+
     var xOffset = WorkspaceBarSettings.defaults.xOffset {
         didSet { onChange?() }
     }
@@ -104,7 +131,22 @@ final class WorkspaceBarSettings {
     }
 
     var monitorOverrides: [MonitorBarSettings] = [] {
-        didSet { onChange?() }
+        didSet {
+            var normalized = monitorOverrides
+            var changed = false
+            for index in normalized.indices {
+                let opacity = Self.normalizedInactiveIconOpacity(normalized[index].inactiveIconOpacity)
+                if normalized[index].inactiveIconOpacity != opacity {
+                    normalized[index].inactiveIconOpacity = opacity
+                    changed = true
+                }
+            }
+            if changed {
+                monitorOverrides = normalized
+                return
+            }
+            onChange?()
+        }
     }
 
     func export() -> SettingsExport.WorkspaceBar {
@@ -129,6 +171,11 @@ final class WorkspaceBarSettings {
             hideInNativeFullscreen: hideInNativeFullscreen,
             height: height,
             backgroundOpacity: backgroundOpacity,
+            inactiveIconOpacity: inactiveIconOpacity,
+            transparentBackground: transparentBackground,
+            solidBlackBackground: solidBlackBackground,
+            showItemBackgrounds: showItemBackgrounds,
+            showAccentHighlights: showAccentHighlights,
             xOffset: xOffset,
             yOffset: yOffset,
             accentColor: accentColor,
@@ -164,6 +211,11 @@ final class WorkspaceBarSettings {
         hideInNativeFullscreen = bar.hideInNativeFullscreen
         height = bar.height
         backgroundOpacity = bar.backgroundOpacity
+        inactiveIconOpacity = bar.inactiveIconOpacity
+        transparentBackground = bar.transparentBackground
+        solidBlackBackground = bar.solidBlackBackground
+        showItemBackgrounds = bar.showItemBackgrounds
+        showAccentHighlights = bar.showAccentHighlights
         xOffset = bar.xOffset
         yOffset = bar.yOffset
         accentColor = bar.accentColor
@@ -203,6 +255,11 @@ final class WorkspaceBarSettings {
             windowLevel: override?.windowLevel ?? windowLevel,
             height: override?.height ?? height,
             backgroundOpacity: override?.backgroundOpacity ?? backgroundOpacity,
+            inactiveIconOpacity: override?.inactiveIconOpacity ?? inactiveIconOpacity,
+            transparentBackground: override?.transparentBackground ?? transparentBackground,
+            solidBlackBackground: override?.solidBlackBackground ?? solidBlackBackground,
+            showItemBackgrounds: override?.showItemBackgrounds ?? showItemBackgrounds,
+            showAccentHighlights: override?.showAccentHighlights ?? showAccentHighlights,
             xOffset: override?.xOffset ?? xOffset,
             yOffset: override?.yOffset ?? yOffset,
             accentColor: accentColor,
@@ -279,5 +336,10 @@ final class WorkspaceBarSettings {
     static func validatedRevealHoldMilliseconds(_ value: Double) -> Double {
         guard value.isFinite else { return defaults.revealHoldMilliseconds }
         return min(max(value, 0), 1000)
+    }
+
+    private static func normalizedInactiveIconOpacity(_ value: Double?) -> Double? {
+        guard let value, value.isFinite else { return nil }
+        return min(max(value, 0), 1)
     }
 }

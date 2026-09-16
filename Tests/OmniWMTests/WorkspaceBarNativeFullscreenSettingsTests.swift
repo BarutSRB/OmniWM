@@ -71,6 +71,32 @@ final class WorkspaceBarNativeFullscreenSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testFillModeHidesOnlyTheFullscreenDisplayWithGlobalHideDisabled() {
+        let settings = makeSettingsStore()
+        settings.workspaceBar.enabled = true
+        settings.workspaceBar.notchMode = .fillLeftOfNotch
+        XCTAssertFalse(settings.workspaceBar.hideInNativeFullscreen)
+        let controller = WMController(settings: settings)
+        let builtIn = makeMonitor(displayId: 71_006, uuid: Self.builtInUUID, name: "Built-in", originX: 0)
+        let external = makeMonitor(displayId: 71_007, uuid: Self.externalUUID, name: "External", originX: 1_440)
+        controller.workspaceManager.applyMonitorConfigurationChange([builtIn, external])
+
+        commitTopology(on: controller, fullscreenDisplayUUID: Self.builtInUUID)
+        XCTAssertFalse(controller.isWorkspaceBarVisible(on: builtIn))
+        XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
+
+        settings.workspaceBar.monitorOverrides = [
+            MonitorBarSettings(monitorName: builtIn.name, monitorDisplayUUID: Self.builtInUUID, notchMode: .off)
+        ]
+        XCTAssertTrue(controller.isWorkspaceBarVisible(on: builtIn))
+
+        settings.workspaceBar.monitorOverrides = []
+        commitTopology(on: controller, fullscreenDisplayUUID: nil)
+        XCTAssertTrue(controller.isWorkspaceBarVisible(on: builtIn))
+        XCTAssertTrue(controller.isWorkspaceBarVisible(on: external))
+    }
+
+    @MainActor
     func testAutoHideDoesNotReleaseReservedLayoutSpace() {
         let settings = makeSettingsStore()
         settings.workspaceBar.enabled = true

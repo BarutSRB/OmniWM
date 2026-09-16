@@ -35,6 +35,123 @@ private struct NarrowWidthLayout: Layout {
 
 @MainActor
 final class WorkspaceBarViewLayoutTests: XCTestCase {
+    func testConfiguredAndDefaultInactiveIconOpacity() {
+        let window = makeWindowItem(appName: "Notes", windowCount: 1, hiddenWindowCount: 0)
+
+        XCTAssertEqual(
+            WorkspaceBarWindowPresentation(
+                window: window,
+                context: .tiled,
+                isFocused: false,
+                isInFocusedWorkspace: true,
+                inactiveIconOpacity: 0.27
+            ).iconOpacity,
+            0.27
+        )
+        XCTAssertEqual(
+            WorkspaceBarIconOpacity.standard(isFocused: false, isInFocusedWorkspace: true, configured: nil),
+            0.4
+        )
+        XCTAssertEqual(
+            WorkspaceBarIconOpacity.standard(isFocused: false, isInFocusedWorkspace: false, configured: nil),
+            0.5
+        )
+        XCTAssertEqual(
+            WorkspaceBarIconOpacity.standard(isFocused: true, isInFocusedWorkspace: false, configured: 0.27),
+            1
+        )
+    }
+
+    func testScratchpadIconOpacityDefaultsOverridesAndFocus() {
+        XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: false, configured: nil), 0.82)
+        XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: false, configured: 0.31), 0.31)
+        XCTAssertEqual(WorkspaceBarIconOpacity.scratchpad(isFocused: true, configured: 0.31), 1)
+    }
+
+    func testConfiguredInactiveOpacityPreservesHiddenAppStatus() {
+        let window = makeWindowItem(appName: "Mail", windowCount: 2, hiddenWindowCount: 2)
+        let presentation = WorkspaceBarWindowPresentation(
+            window: window,
+            context: .floating,
+            isFocused: false,
+            isInFocusedWorkspace: false,
+            inactiveIconOpacity: 0.2
+        )
+
+        XCTAssertEqual(presentation.iconOpacity, 0.9)
+        XCTAssertEqual(presentation.hiddenIndicatorStyle, .appHidden)
+        XCTAssertTrue(presentation.appliesHiddenTint)
+    }
+
+    func testFocusedScratchpadRendersAccentOutlineWithoutItemBackground() throws {
+        let window = makeWindowItem(appName: "Notes", windowCount: 1, hiddenWindowCount: 0, isFocused: true)
+        for presentation in [WorkspaceBarScratchpadPresentation.expanded, .compact] {
+            let scratchpad = WorkspaceBarScratchpadItem(
+                index: 1,
+                label: "Notes",
+                windows: [window],
+                isVisible: true,
+                presentation: presentation
+            )
+            for showAccentHighlights in [false, true] {
+                let snapshot = WorkspaceBarSnapshot(
+                    projection: WorkspaceBarProjection(items: [], scratchpads: [scratchpad]),
+                    showLabels: true,
+                    showSystemStatsButton: false,
+                    backgroundOpacity: 0,
+                    transparentBackground: true,
+                    showItemBackgrounds: false,
+                    showAccentHighlights: showAccentHighlights,
+                    barHeight: 24,
+                    accentColor: SettingsColor(red: 1, green: 0, blue: 0, alpha: 1),
+                    textColor: SettingsColor(red: 1, green: 1, blue: 1, alpha: 1)
+                )
+                let renderer = ImageRenderer(content: WorkspaceBarMeasurementView(snapshot: snapshot).padding(4))
+                renderer.scale = 2
+                let image = try XCTUnwrap(renderer.cgImage)
+                let bitmap = NSBitmapImageRep(cgImage: image)
+                let hasAccentInTopMargin = (0 ..< bitmap.pixelsHigh / 4).contains { y in
+                    (0 ..< bitmap.pixelsWide).contains { x in
+                        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                            return false
+                        }
+                        return color.alphaComponent > 0.5
+                            && color.redComponent > 0.8
+                            && color.greenComponent < 0.2
+                            && color.blueComponent < 0.2
+                    }
+                }
+
+                XCTAssertEqual(hasAccentInTopMargin, showAccentHighlights, "\(presentation)")
+            }
+        }
+    }
+
+    func testSnapshotClonePreservesAppearanceAndTransparentPrecedence() {
+        let snapshot = WorkspaceBarSnapshot(
+            projection: WorkspaceBarProjection(items: [], scratchpads: []),
+            showLabels: true,
+            showSystemStatsButton: false,
+            backgroundOpacity: 0.6,
+            inactiveIconOpacity: 0.33,
+            transparentBackground: true,
+            solidBlackBackground: true,
+            showItemBackgrounds: false,
+            showAccentHighlights: false,
+            barHeight: 24,
+            accentColor: nil,
+            textColor: nil
+        )
+
+        let clone = snapshot.replacingScratchpads([])
+        XCTAssertEqual(clone.inactiveIconOpacity, 0.33)
+        XCTAssertFalse(clone.showItemBackgrounds)
+        XCTAssertFalse(clone.showAccentHighlights)
+        XCTAssertEqual(clone, snapshot)
+        XCTAssertEqual(clone.backgroundStyle, .transparent)
+        XCTAssertFalse(clone.showsBackground)
+    }
+
     func testWindowPresentationDistinguishesAppHiddenAndPartialGroups() {
         let hiddenWindow = makeWindowItem(
             appName: "Mail",
@@ -480,6 +597,11 @@ final class WorkspaceBarViewLayoutTests: XCTestCase {
             windowLevel: .popup,
             height: 24,
             backgroundOpacity: 0.1,
+            inactiveIconOpacity: nil,
+            transparentBackground: false,
+            solidBlackBackground: false,
+            showItemBackgrounds: true,
+            showAccentHighlights: true,
             xOffset: 0,
             yOffset: 0,
             accentColor: nil,

@@ -91,13 +91,100 @@ final class WorkspaceBarInstanceTests: XCTestCase {
         XCTAssertEqual(island.lastAppliedFrame, retargeted)
     }
 
-    private func makeFixture(screenDisplayId: CGDirectDisplayID? = nil) -> Fixture {
+    func testFillModeCompactsAgainstPanelWidthAndRecalculatesAfterModeAndMonitorChanges() {
+        let fixture = makeFixture(barHeight: 28)
+        let instance = fixture.instance
+        defer { instance.primary.panel.close() }
+        let monitor = makeMonitor(width: 1512, notchRange: 656 ... 856)
+        let resolved = makeResolved(notchMode: .fillLeftOfNotch)
+        let snapshot = instance.model.snapshot.replacingScratchpads((1 ... 5).map {
+            WorkspaceBarScratchpadItem(index: $0, label: "Scratchpad number \($0)", windows: [], isVisible: false)
+        })
+        let frame = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
+            .frame(fittingWidth: 0, monitor: monitor, resolved: resolved)
+        let expandedWidth = 120 + WorkspaceBarScratchpadLayout.estimatedWidth(
+            of: snapshot.scratchpads,
+            barHeight: snapshot.barHeight
+        )
+        XCTAssertGreaterThan(expandedWidth, frame.width)
+        XCTAssertLessThan(expandedWidth, monitor.frame.width)
+
+        let compacted = instance.scratchpadCompactedSnapshot(snapshot, monitor: monitor, resolved: resolved)
+        XCTAssertTrue(compacted.scratchpads.allSatisfy { $0.presentation == .compact })
+        let view = NSHostingView(rootView: WorkspaceBarMeasurementView(snapshot: compacted))
+        view.layoutSubtreeIfNeeded()
+        XCTAssertLessThanOrEqual(view.fittingSize.width, frame.width)
+
+        let ordinary = instance.scratchpadCompactedSnapshot(snapshot, monitor: monitor, resolved: makeResolved())
+        XCTAssertTrue(ordinary.scratchpads.allSatisfy { $0.presentation == .expanded })
+        XCTAssertEqual(instance.scratchpadCompactedSnapshot(snapshot, monitor: monitor, resolved: resolved), compacted)
+
+        let widerMonitor = makeMonitor(width: 3000, origin: CGPoint(x: 500, y: 100))
+        let widened = instance.scratchpadCompactedSnapshot(snapshot, monitor: widerMonitor, resolved: resolved)
+        XCTAssertTrue(widened.scratchpads.allSatisfy { $0.presentation == .expanded })
+    }
+
+    func testPanelSettingsApplyToBothExistingIslands() {
+        let primary = makeFixture()
+        let secondary = makeFixture()
+        let instance = primary.instance
+        instance.secondary = secondary.instance.primary
+        defer {
+            instance.primary.panel.close()
+            instance.secondary?.panel.close()
+        }
+
+        instance.applyPanelSettings(resolved: makeResolved(notchMode: .fillLeftOfNotch))
+        for panel in [instance.primary.panel, secondary.instance.primary.panel] {
+            XCTAssertEqual(panel.level.rawValue, NSWindow.Level.statusBar.rawValue + 1)
+            XCTAssertFalse(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        }
+
+        instance.applyPanelSettings(resolved: makeResolved())
+        for panel in [instance.primary.panel, secondary.instance.primary.panel] {
+            XCTAssertEqual(panel.level, .popUpMenu)
+            XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        }
+    }
+
+    func testAppearanceRefreshPreservesConfiguredAppearanceControls() {
+        let fixture = makeFixture()
+        let instance = fixture.instance
+        defer { instance.primary.panel.close() }
+        let snapshot = WorkspaceBarSnapshot(
+            projection: instance.model.snapshot.projection,
+            showLabels: true,
+            showSystemStatsButton: false,
+            backgroundOpacity: 0.1,
+            inactiveIconOpacity: 0.7,
+            transparentBackground: true,
+            solidBlackBackground: true,
+            showItemBackgrounds: false,
+            showAccentHighlights: false,
+            barHeight: 24,
+            accentColor: nil,
+            textColor: nil
+        )
+        instance.updateSnapshot(snapshot)
+        let accentColor = SettingsColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 1)
+
+        instance.refreshAppearance(resolved: makeResolved(accentColor: accentColor))
+
+        XCTAssertEqual(instance.model.snapshot.accentColor, accentColor)
+        XCTAssertEqual(instance.model.snapshot.inactiveIconOpacity, 0.7)
+        XCTAssertTrue(instance.model.snapshot.transparentBackground)
+        XCTAssertTrue(instance.model.snapshot.solidBlackBackground)
+        XCTAssertFalse(instance.model.snapshot.showItemBackgrounds)
+        XCTAssertFalse(instance.model.snapshot.showAccentHighlights)
+    }
+
+    private func makeFixture(screenDisplayId: CGDirectDisplayID? = nil, barHeight: CGFloat = 24) -> Fixture {
         let snapshot = WorkspaceBarSnapshot(
             projection: WorkspaceBarProjection(items: [], scratchpads: []),
             showLabels: true,
             showSystemStatsButton: false,
             backgroundOpacity: 0.1,
-            barHeight: 24,
+            barHeight: barHeight,
             accentColor: nil,
             textColor: nil
         )
@@ -126,18 +213,26 @@ final class WorkspaceBarInstanceTests: XCTestCase {
         )
     }
 
-    private func makeMonitor(width: CGFloat = 1200) -> Monitor {
+    private func makeMonitor(
+        width: CGFloat = 1200,
+        origin: CGPoint = .zero,
+        notchRange: ClosedRange<CGFloat>? = nil
+    ) -> Monitor {
         Monitor(
             id: Monitor.ID(displayId: 1),
             displayId: 1,
-            frame: CGRect(x: 0, y: 0, width: width, height: 800),
-            visibleFrame: CGRect(x: 0, y: 0, width: width, height: 772),
-            hasNotch: false,
+            frame: CGRect(origin: origin, size: CGSize(width: width, height: 800)),
+            visibleFrame: CGRect(origin: origin, size: CGSize(width: width, height: 772)),
+            hasNotch: notchRange != nil,
+            notchRange: notchRange,
             name: "Test"
         )
     }
 
-    private func makeResolved() -> ResolvedBarSettings {
+    private func makeResolved(
+        notchMode: WorkspaceBarNotchMode = .off,
+        accentColor: SettingsColor? = nil
+    ) -> ResolvedBarSettings {
         ResolvedBarSettings(
             enabled: true,
             showLabels: true,
@@ -146,16 +241,21 @@ final class WorkspaceBarInstanceTests: XCTestCase {
             hideEmptyWorkspaces: false,
             excludedBundleIDs: [],
             reserveLayoutSpace: false,
-            notchMode: .off,
+            notchMode: notchMode,
             notchActiveZoneWidth: 180,
             systemStatsButton: false,
             position: .overlappingMenuBar,
             windowLevel: .popup,
             height: 24,
             backgroundOpacity: 0.1,
+            inactiveIconOpacity: nil,
+            transparentBackground: false,
+            solidBlackBackground: false,
+            showItemBackgrounds: true,
+            showAccentHighlights: true,
             xOffset: 0,
             yOffset: 0,
-            accentColor: nil,
+            accentColor: accentColor,
             textColor: nil
         )
     }

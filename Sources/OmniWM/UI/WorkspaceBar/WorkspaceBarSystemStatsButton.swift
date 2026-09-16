@@ -7,6 +7,8 @@ import SwiftUI
 @MainActor
 struct SystemStatsButtonView: View {
     let itemHeight: CGFloat
+    let showItemBackgrounds: Bool
+    let showAccentHighlights: Bool
     let accentColor: Color?
     let textColor: Color?
     let onToggle: () -> Void
@@ -19,7 +21,7 @@ struct SystemStatsButtonView: View {
     }
 
     private var iconColor: Color {
-        if isHovered {
+        if isHovered, showAccentHighlights {
             return accentColor ?? .accentColor
         }
         return textColor ?? .secondary
@@ -36,11 +38,16 @@ struct SystemStatsButtonView: View {
                 .foregroundStyle(iconColor)
                 .frame(width: buttonSize, height: buttonSize)
                 .background {
-                    buttonShape
-                        .fill(isHovered ? .regularMaterial : .thinMaterial)
-                        .overlay {
-                            buttonShape.strokeBorder(Color.secondary.opacity(isHovered ? 0.3 : 0.18), lineWidth: 0.75)
-                        }
+                    if showItemBackgrounds {
+                        buttonShape
+                            .fill(isHovered ? .regularMaterial : .thinMaterial)
+                            .overlay {
+                                buttonShape.strokeBorder(
+                                    Color.secondary.opacity(isHovered ? 0.3 : 0.18),
+                                    lineWidth: 0.75
+                                )
+                            }
+                    }
                 }
                 .contentShape(buttonShape)
                 .background(WorkspaceBarAnchorReporter(onChange: onAnchorChange))

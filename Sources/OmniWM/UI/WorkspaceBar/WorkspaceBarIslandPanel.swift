@@ -19,12 +19,22 @@ struct WorkspaceBarIslandPanel {
         let appearance = NSApplication.shared.appearance
         panel.appearance = appearance
         hostingView.appearance = appearance
-        panel.level = resolved.windowLevel.nsWindowLevel
         self.panel = panel
         self.hostingView = hostingView
         slice = rootView.slice
         showsSystemStatsButton = rootView.showsSystemStatsButton
         lastAppliedFrame = nil
+        applySettings(resolved: resolved)
+    }
+
+    func applySettings(resolved: ResolvedBarSettings) {
+        let fillsMenuBar = resolved.notchMode == .fillLeftOfNotch
+        panel.collectionBehavior = fillsMenuBar
+            ? [.canJoinAllSpaces, .stationary]
+            : [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.level = fillsMenuBar
+            ? NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+            : resolved.windowLevel.nsWindowLevel
     }
 
     mutating func applyFrame(

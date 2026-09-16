@@ -132,6 +132,8 @@ final class WorkspaceBarInstance {
         let slice: WorkspaceBarIslandSlice = usesSplitLayout ? .secondary : .all
         let availableWidth = if usesSplitLayout {
             splitAvailableWidths?.secondary ?? monitor.frame.width
+        } else if resolved.notchMode == .fillLeftOfNotch {
+            geometry.frame(fittingWidth: 0, monitor: monitor, resolved: resolved).width
         } else {
             monitor.frame.width
         }
@@ -203,6 +205,11 @@ final class WorkspaceBarInstance {
             showLabels: current.showLabels,
             showSystemStatsButton: current.showSystemStatsButton,
             backgroundOpacity: current.backgroundOpacity,
+            inactiveIconOpacity: current.inactiveIconOpacity,
+            transparentBackground: current.transparentBackground,
+            solidBlackBackground: current.solidBlackBackground,
+            showItemBackgrounds: current.showItemBackgrounds,
+            showAccentHighlights: current.showAccentHighlights,
             barHeight: current.barHeight,
             accentColor: resolved.accentColor,
             textColor: resolved.textColor
@@ -235,10 +242,8 @@ final class WorkspaceBarInstance {
     }
 
     func applyPanelSettings(resolved: ResolvedBarSettings) {
-        primary.panel.level = resolved.windowLevel.nsWindowLevel
-        if let secondary {
-            secondary.panel.level = resolved.windowLevel.nsWindowLevel
-        }
+        primary.applySettings(resolved: resolved)
+        secondary?.applySettings(resolved: resolved)
     }
 
     func surfaceId() -> String {

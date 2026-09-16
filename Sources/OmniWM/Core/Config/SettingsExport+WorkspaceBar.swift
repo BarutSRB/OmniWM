@@ -23,6 +23,11 @@ extension SettingsExport {
         var hideInNativeFullscreen: Bool
         var height: Double
         var backgroundOpacity: Double
+        var inactiveIconOpacity: Double?
+        var transparentBackground: Bool
+        var solidBlackBackground: Bool
+        var showItemBackgrounds: Bool
+        var showAccentHighlights: Bool
         var xOffset: Double
         var yOffset: Double
         var accentColor: SettingsColor?
@@ -31,6 +36,42 @@ extension SettingsExport {
 }
 
 extension SettingsExport.WorkspaceBar {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = Self.defaults()
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        showLabels = try container.decode(Bool.self, forKey: .showLabels)
+        showFloatingWindows = try container.decode(Bool.self, forKey: .showFloatingWindows)
+        windowLevel = try container.decode(WorkspaceBarWindowLevel.self, forKey: .windowLevel)
+        position = try container.decode(WorkspaceBarPosition.self, forKey: .position)
+        notchMode = try container.decode(WorkspaceBarNotchMode.self, forKey: .notchMode)
+        notchActiveZoneWidth = try container.decode(Double.self, forKey: .notchActiveZoneWidth)
+        systemStatsButton = try container.decode(Bool.self, forKey: .systemStatsButton)
+        deduplicateAppIcons = try container.decode(Bool.self, forKey: .deduplicateAppIcons)
+        hideEmptyWorkspaces = try container.decode(Bool.self, forKey: .hideEmptyWorkspaces)
+        excludedBundleIDs = try container.decode([String].self, forKey: .excludedBundleIDs)
+        iconOverrides = try container.decode([String: String].self, forKey: .iconOverrides)
+        reserveLayoutSpace = try container.decode(Bool.self, forKey: .reserveLayoutSpace)
+        revealModifier = try container.decode(WorkspaceBarRevealModifier.self, forKey: .revealModifier)
+        revealHoldMilliseconds = try container.decode(Double.self, forKey: .revealHoldMilliseconds)
+        hideInNativeFullscreen = try container.decode(Bool.self, forKey: .hideInNativeFullscreen)
+        height = try container.decode(Double.self, forKey: .height)
+        backgroundOpacity = try container.decode(Double.self, forKey: .backgroundOpacity)
+        inactiveIconOpacity = try container.decodeIfPresent(Double.self, forKey: .inactiveIconOpacity)
+        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
+            ?? defaults.transparentBackground
+        solidBlackBackground = try container.decodeIfPresent(Bool.self, forKey: .solidBlackBackground)
+            ?? defaults.solidBlackBackground
+        showItemBackgrounds = try container.decodeIfPresent(Bool.self, forKey: .showItemBackgrounds)
+            ?? defaults.showItemBackgrounds
+        showAccentHighlights = try container.decodeIfPresent(Bool.self, forKey: .showAccentHighlights)
+            ?? defaults.showAccentHighlights
+        xOffset = try container.decode(Double.self, forKey: .xOffset)
+        yOffset = try container.decode(Double.self, forKey: .yOffset)
+        accentColor = try container.decodeIfPresent(SettingsColor.self, forKey: .accentColor)
+        textColor = try container.decodeIfPresent(SettingsColor.self, forKey: .textColor)
+    }
+
     static func defaults() -> Self {
         Self(
             enabled: true,
@@ -51,6 +92,11 @@ extension SettingsExport.WorkspaceBar {
             hideInNativeFullscreen: false,
             height: 24.0,
             backgroundOpacity: 0.1,
+            inactiveIconOpacity: nil,
+            transparentBackground: false,
+            solidBlackBackground: false,
+            showItemBackgrounds: true,
+            showAccentHighlights: true,
             xOffset: 0.0,
             yOffset: 0.0,
             accentColor: nil,
