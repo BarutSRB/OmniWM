@@ -32,6 +32,8 @@ Blur only shows through a translucent terminal — lower the opacity to see it.
 
 ## Behavior
 
+Command-click a web or email hyperlink printed by a terminal application to open it in the default browser or mail app. OSC 8 hyperlinks support `http`, `https`, and `mailto`; file links and custom application schemes remain blocked. Plain URL detection continues to follow Ghostty's `link-url` setting.
+
 - **Animation Duration** — 0 to 1 second, default 0.2s. Ignored while global animations are disabled.
 - **Auto-hide on Focus Loss** — optionally hide the terminal whenever it loses focus.
 
