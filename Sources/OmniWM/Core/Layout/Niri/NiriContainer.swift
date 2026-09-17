@@ -60,25 +60,65 @@ class NiriContainer: NiriNode {
         axisSolveRevision &+= 1
     }
 
-    private func resolveSpan(
-        spec: ProportionalSize,
-        isFull: Bool,
+    func resolvedPrimarySpan(
+        _ spec: ProportionalSize,
+        orientation: Monitor.Orientation,
         availableSpace: CGFloat,
         gaps: CGFloat,
-        bounds: (min: CGFloat, max: CGFloat?)
+        contentInset: CGFloat = 0
     ) -> CGFloat {
-        var result: CGFloat
-        let effectiveSpec = isFull ? ProportionalSize.proportion(1.0) : spec
-        switch effectiveSpec {
+        let bounds = orientation == .horizontal ? widthBounds(contentInset: contentInset) : heightBounds()
+        var result: CGFloat = switch spec {
         case let .proportion(proportion):
-            result = (availableSpace - gaps) * proportion - gaps
+            (availableSpace - gaps) * proportion - gaps
         case let .fixed(size):
-            result = size
+            size
         }
         let effectiveMaxConstraint = bounds.max.map { max($0, bounds.min) }
         if result < bounds.min { result = bounds.min }
+        result = packedPrimarySpan(
+            result,
+            orientation: orientation,
+            limit: availableSpace - gaps * 2,
+            contentInset: contentInset
+        )
         if let effectiveMaxConstraint, result > effectiveMaxConstraint { result = effectiveMaxConstraint }
         return result
+    }
+
+    func packedPrimarySpan(
+        _ span: CGFloat,
+        orientation: Monitor.Orientation,
+        limit: CGFloat,
+        contentInset: CGFloat = 0
+    ) -> CGFloat {
+        Self.packedPrimarySpan(
+            span,
+            windows: windowNodes,
+            orientation: orientation,
+            limit: limit,
+            contentInset: contentInset
+        )
+    }
+
+    static func packedPrimarySpan(
+        _ span: CGFloat,
+        windows: [NiriWindow],
+        orientation: Monitor.Orientation,
+        limit: CGFloat,
+        contentInset: CGFloat
+    ) -> CGFloat {
+        windows.reduce(span) { packed, window in
+            guard let hint = window.packingHints.primary(for: orientation) else { return packed }
+            return max(packed, hint.packed(span - contentInset, limit: limit - contentInset) + contentInset)
+        }
+    }
+
+    func invalidateCachedPrimarySpans() {
+        if targetWidth == nil {
+            cachedWidth = 0
+        }
+        cachedHeight = 0
     }
 
     func widthBounds(contentInset: CGFloat = 0) -> (min: CGFloat, max: CGFloat?) {
@@ -135,24 +175,19 @@ class NiriContainer: NiriNode {
         gaps: CGFloat,
         contentInset: CGFloat = 0
     ) {
-        let bounds = widthBounds(contentInset: contentInset)
-        cachedWidth = resolveSpan(
-            spec: width,
-            isFull: isFullWidth,
-            availableSpace: workingAreaWidth,
+        cachedWidth = resolvedWidthPixels(
+            isFullWidth ? .proportion(1) : width,
+            availableSpan: workingAreaWidth,
             gaps: gaps,
-            bounds: bounds
+            contentInset: contentInset
         )
     }
 
     func resolveAndCacheHeight(workingAreaHeight: CGFloat, gaps: CGFloat) {
-        let bounds = heightBounds()
-        cachedHeight = resolveSpan(
-            spec: height,
-            isFull: isFullHeight,
-            availableSpace: workingAreaHeight,
-            gaps: gaps,
-            bounds: bounds
+        cachedHeight = resolvedHeightPixels(
+            isFullHeight ? .proportion(1) : height,
+            availableSpan: workingAreaHeight,
+            gaps: gaps
         )
     }
 

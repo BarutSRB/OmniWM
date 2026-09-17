@@ -18,14 +18,20 @@ extension WMController {
             return
         }
         let target = result.targetFrame.size
-        let existing = workspaceManager.observedMinSize(for: entry.token) ?? CGSize(width: 1, height: 1)
-        let observedMin = CGSize(
-            width: observed.width > target.width + FrameTolerance.frameWrite
-                ? max(existing.width, observed.width) : existing.width,
-            height: observed.height > target.height + FrameTolerance.frameWrite
-                ? max(existing.height, observed.height) : existing.height
+        var evidence = workspaceManager.observedSizeEvidence(for: entry.token) ?? ObservedSizeEvidence()
+        Self.learnStableGrowth(
+            minimum: &evidence.minSize.width,
+            hint: &evidence.hints.width,
+            requested: target.width,
+            observed: observed.width
         )
-        adoptObservedMinimum(observedMin, for: entry)
+        Self.learnStableGrowth(
+            minimum: &evidence.minSize.height,
+            hint: &evidence.hints.height,
+            requested: target.height,
+            observed: observed.height
+        )
+        adoptObservedSizeEvidence(evidence, for: entry)
     }
 
     func adoptObservedMinimumAfterTerminalSizeWriteFailure(_ refusal: AXFrameTerminalRefusal) {
@@ -36,34 +42,83 @@ extension WMController {
         else {
             return
         }
-        let token = entry.token
-
         let target = refusal.targetFrame.size
         let observed = refusal.observedFrame.size
-        let existing = workspaceManager.observedMinSize(for: token) ?? CGSize(width: 1, height: 1)
+        var evidence = workspaceManager.observedSizeEvidence(for: entry.token) ?? ObservedSizeEvidence()
         let observedMin = CGSize(
             width: Self.updatedObservedMinimumAxis(
-                existing: existing.width,
+                existing: evidence.minSize.width,
                 target: target.width,
                 observed: observed.width
             ),
             height: Self.updatedObservedMinimumAxis(
-                existing: existing.height,
+                existing: evidence.minSize.height,
                 target: target.height,
                 observed: observed.height
             )
         )
         guard observedMin.width > 1 || observedMin.height > 1 else { return }
-        adoptObservedMinimum(observedMin, for: entry)
+        evidence.minSize = observedMin
+        adoptObservedSizeEvidence(evidence, for: entry)
     }
 
-    private func adoptObservedMinimum(_ observedMin: CGSize, for entry: WindowState) {
-        guard workspaceManager.setObservedMinSize(observedMin, for: entry.token) else { return }
+    func relaxObservedSizeEvidence(afterVerifiedWrite result: AXFrameApplyResult) {
+        guard result.writeResult.components == .all,
+              result.writeResult.observedFrame != nil,
+              let accepted = result.confirmedFrame?.size,
+              let entry = workspaceManager.entry(forPid: result.pid, windowId: result.windowId),
+              sameAXWindowIdentity(entry.axRef, result.expectedWindow),
+              var evidence = workspaceManager.observedSizeEvidence(for: entry.token)
+        else {
+            return
+        }
+        Self.relaxContradictedAxis(
+            minimum: &evidence.minSize.width,
+            hint: &evidence.hints.width,
+            accepted: accepted.width
+        )
+        Self.relaxContradictedAxis(
+            minimum: &evidence.minSize.height,
+            hint: &evidence.hints.height,
+            accepted: accepted.height
+        )
+        adoptObservedSizeEvidence(evidence, for: entry)
+    }
+
+    private func adoptObservedSizeEvidence(_ evidence: ObservedSizeEvidence, for entry: WindowState) {
+        guard workspaceManager.setObservedSizeEvidence(evidence, for: entry.token) else { return }
         workspaceManager.invalidateLayout(for: [entry.workspaceId])
         layoutRefreshController.requestRelayout(
             reason: .observedConstraintsChanged,
             affectedWorkspaceIds: [entry.workspaceId]
         )
+    }
+
+    private static func learnStableGrowth(
+        minimum: inout CGFloat,
+        hint: inout ObservedAxisHint?,
+        requested: CGFloat,
+        observed: CGFloat
+    ) {
+        guard observed > requested + FrameTolerance.frameWrite else { return }
+        if observed - requested <= AXRecentFrameWriteFailure.maxAcceptedSizeSnap {
+            hint = ObservedAxisHint(requested: requested, observed: observed)
+        } else {
+            minimum = max(minimum, observed)
+        }
+    }
+
+    private static func relaxContradictedAxis(
+        minimum: inout CGFloat,
+        hint: inout ObservedAxisHint?,
+        accepted: CGFloat
+    ) {
+        if accepted < minimum - FrameTolerance.frameWrite {
+            minimum = 1
+        }
+        if let observed = hint?.observed, accepted < observed - FrameTolerance.frameWrite {
+            hint = nil
+        }
     }
 
     private static func updatedObservedMinimumAxis(

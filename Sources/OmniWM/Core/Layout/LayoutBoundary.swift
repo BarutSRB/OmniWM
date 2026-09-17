@@ -7,6 +7,7 @@ import Foundation
 struct LayoutWindowSnapshot {
     let token: WindowToken
     let constraints: WindowSizeConstraints
+    let packingHints: ObservedPackingHints
     let hiddenState: HiddenState?
     let layoutReason: LayoutReason
     let nativeFullscreenOriginalToken: WindowToken?
@@ -14,12 +15,14 @@ struct LayoutWindowSnapshot {
     init(
         token: WindowToken,
         constraints: WindowSizeConstraints,
+        packingHints: ObservedPackingHints = .none,
         hiddenState: HiddenState?,
         layoutReason: LayoutReason,
         nativeFullscreenOriginalToken: WindowToken? = nil
     ) {
         self.token = token
         self.constraints = constraints
+        self.packingHints = packingHints
         self.hiddenState = hiddenState
         self.layoutReason = layoutReason
         self.nativeFullscreenOriginalToken = nativeFullscreenOriginalToken

@@ -6,6 +6,7 @@ import Foundation
 enum NiriLayoutTrace {
     enum Kind: String, Sendable {
         case insertion
+        case move
         case resize
         case viewport
     }

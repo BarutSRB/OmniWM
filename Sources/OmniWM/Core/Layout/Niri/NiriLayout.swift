@@ -286,11 +286,17 @@ extension NiriLayoutEngine {
             let inputs = windows.map { window in
                 axisSolverInput(for: window, axis: axis)
             }
-            outputs = NiriAxisSolver.solve(
+            let hardOutputs = NiriAxisSolver.solve(
                 windows: inputs,
                 availableSpace: axis.availableSpace,
                 gapSize: axis.gap,
                 isTabbed: axis.isTabbed
+            )
+            outputs = packedSecondarySpans(
+                windows: windows,
+                inputs: inputs,
+                hardOutputs: hardOutputs,
+                axis: axis
             )
             if axisSolveCache.count >= 256 {
                 axisSolveCache.removeAll(keepingCapacity: true)
@@ -308,6 +314,47 @@ extension NiriLayoutEngine {
         }
 
         return outputs
+    }
+
+    private func packedSecondarySpans(
+        windows: [NiriWindow],
+        inputs: [NiriAxisSolver.Input],
+        hardOutputs: [NiriAxisSolver.Output],
+        axis: NiriAxisLayout
+    ) -> [NiriAxisSolver.Output] {
+        let gapCount = axis.isTabbed ? 2 : windows.count + 1
+        let usableSpace = max(0, axis.availableSpace - axis.gap * CGFloat(gapCount))
+        var packedInputs = inputs
+        var floorSum: CGFloat = 0
+        var packed = false
+        for index in windows.indices {
+            let input = inputs[index]
+            var floor = max(NiriAxisSolver.minimumRenderableSpan, input.minConstraint)
+            if let hinted = windows[index].packingHints.secondary(for: axis.orientation)?
+                .floor(for: hardOutputs[index].value, limit: usableSpace),
+                hinted > floor
+            {
+                floor = hinted
+                packed = true
+                packedInputs[index] = NiriAxisSolver.Input(
+                    weight: input.weight,
+                    minConstraint: hinted,
+                    maxConstraint: input.maxConstraint,
+                    hasMaxConstraint: input.hasMaxConstraint,
+                    isConstraintFixed: input.isConstraintFixed,
+                    hasFixedValue: input.hasFixedValue,
+                    fixedValue: input.fixedValue
+                )
+            }
+            floorSum += axis.isTabbed ? 0 : floor
+        }
+        guard packed, floorSum <= usableSpace + 0.001 else { return hardOutputs }
+        return NiriAxisSolver.solve(
+            windows: packedInputs,
+            availableSpace: axis.availableSpace,
+            gapSize: axis.gap,
+            isTabbed: axis.isTabbed
+        )
     }
 
     private func axisSolverInput(

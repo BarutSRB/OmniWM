@@ -36,6 +36,14 @@ class NiriWindow: NiriNode {
         }
     }
 
+    var packingHints: ObservedPackingHints = .none {
+        didSet {
+            if oldValue != packingHints {
+                invalidateAxisSolveInputs()
+            }
+        }
+    }
+
     var resolvedHeight: CGFloat?
 
     var resolvedWidth: CGFloat?

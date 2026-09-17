@@ -128,8 +128,8 @@ extension WindowModel {
             model.cachedConstraints(for: token, maxAge: maxAge)
         }
 
-        func observedMinSize(for token: WindowToken) -> CGSize? {
-            model.observedMinSize(for: token)
+        func observedSizeEvidence(for token: WindowToken) -> ObservedSizeEvidence? {
+            model.observedSizeEvidence(for: token)
         }
     }
 }

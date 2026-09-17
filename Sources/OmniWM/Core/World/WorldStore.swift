@@ -475,7 +475,7 @@ extension WorldStore {
     }
 
     @discardableResult
-    func setObservedMinSize(_ size: CGSize, for token: WindowToken) -> Bool {
-        model.setObservedMinSize(size, for: token)
+    func setObservedSizeEvidence(_ evidence: ObservedSizeEvidence, for token: WindowToken) -> Bool {
+        model.setObservedSizeEvidence(evidence, for: token)
     }
 }

@@ -49,8 +49,9 @@ extension LayoutRefreshController {
             }
 
             var mergedConstraints = constraints
+            var packingHints = ObservedPackingHints.none
             if resolveConstraints {
-                mergeObservedAndRuleConstraints(&mergedConstraints, entry: entry, controller: controller)
+                packingHints = mergeObservedAndRuleConstraints(&mergedConstraints, entry: entry, controller: controller)
             }
 
             let hiddenState = controller.workspaceManager.hiddenState(for: entry.token)
@@ -73,6 +74,7 @@ extension LayoutRefreshController {
                         workArea: workArea,
                         cappedAxes: neighborAxes
                     ),
+                    packingHints: packingHints,
                     hiddenState: hiddenState,
                     layoutReason: layoutReason,
                     nativeFullscreenOriginalToken: nativeFullscreenOriginalToken
@@ -165,17 +167,19 @@ extension LayoutRefreshController {
         _ mergedConstraints: inout WindowSizeConstraints,
         entry: WindowState,
         controller: WMController
-    ) {
+    ) -> ObservedPackingHints {
         if let minW = entry.ruleEffects.minWidth {
             mergedConstraints.minSize.width = max(mergedConstraints.minSize.width, minW)
         }
         if let minH = entry.ruleEffects.minHeight {
             mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, minH)
         }
-        if let observedMin = controller.workspaceManager.observedMinSize(for: entry.token) {
+        let evidence = controller.workspaceManager.observedSizeEvidence(for: entry.token)
+        if let observedMin = evidence?.minSize {
             mergedConstraints.minSize.width = max(mergedConstraints.minSize.width, observedMin.width)
             mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, observedMin.height)
         }
         mergedConstraints = mergedConstraints.normalized()
+        return evidence?.hints ?? .none
     }
 }

@@ -11,7 +11,10 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
     func testStableClampGrowsOnlyRefusedAxesAndDoesNotInvalidateDuplicates() throws {
         let fixture = try makeFixture()
         let manager = fixture.controller.workspaceManager
-        XCTAssertTrue(manager.setObservedMinSize(CGSize(width: 500, height: 620), for: fixture.token))
+        XCTAssertTrue(manager.setObservedSizeEvidence(
+            ObservedSizeEvidence(minSize: CGSize(width: 500, height: 620)),
+            for: fixture.token
+        ))
         var invalidatedWorkspaces: [WorkspaceDescriptor.ID?] = []
         manager.onRuntimeInvalidation = { workspaceId, domains, _ in
             if domains.contains(.layout) {
@@ -27,7 +30,7 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
 
         fixture.controller.adoptObservedMinimumAfterStableSizeClamp(result)
 
-        XCTAssertEqual(manager.observedMinSize(for: fixture.token), CGSize(width: 520, height: 620))
+        XCTAssertEqual(manager.observedSizeEvidence(for: fixture.token)?.minSize, CGSize(width: 520, height: 620))
         XCTAssertEqual(invalidatedWorkspaces, [fixture.workspaceId])
         let adoptedSeq = manager.worldSeq
 
@@ -36,7 +39,7 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
             clampResult(fixture, target: target, observed: CGRect(x: 20, y: 30, width: 510, height: 300))
         )
 
-        XCTAssertEqual(manager.observedMinSize(for: fixture.token), CGSize(width: 520, height: 620))
+        XCTAssertEqual(manager.observedSizeEvidence(for: fixture.token)?.minSize, CGSize(width: 520, height: 620))
         XCTAssertEqual(invalidatedWorkspaces, [fixture.workspaceId])
         XCTAssertEqual(manager.worldSeq, adoptedSeq)
 
@@ -44,8 +47,45 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
             clampResult(fixture, target: target, observed: CGRect(x: 20, y: target.maxY - 700, width: 400, height: 700))
         )
 
-        XCTAssertEqual(manager.observedMinSize(for: fixture.token), CGSize(width: 520, height: 700))
+        XCTAssertEqual(manager.observedSizeEvidence(for: fixture.token)?.minSize, CGSize(width: 520, height: 700))
         XCTAssertEqual(invalidatedWorkspaces, [fixture.workspaceId, fixture.workspaceId])
+    }
+
+    func testStableClampClassifiesEachAxisByConvergenceBound() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.controller.workspaceManager
+        let target = CGRect(x: 20, y: 30, width: 400, height: 300)
+
+        fixture.controller.adoptObservedMinimumAfterStableSizeClamp(
+            clampResult(fixture, target: target, observed: CGRect(x: 20, y: 24, width: 520, height: 306))
+        )
+
+        XCTAssertEqual(
+            manager.observedSizeEvidence(for: fixture.token),
+            ObservedSizeEvidence(
+                minSize: CGSize(width: 520, height: 1),
+                hints: ObservedPackingHints(height: ObservedAxisHint(requested: 300, observed: 306))
+            )
+        )
+
+        let taller = CGRect(x: 20, y: 30, width: 400, height: 400)
+        fixture.controller.adoptObservedMinimumAfterStableSizeClamp(
+            clampResult(fixture, target: taller, observed: CGRect(x: 20, y: 24, width: 400, height: 406))
+        )
+        let replacedSeq = manager.worldSeq
+
+        XCTAssertEqual(
+            manager.observedSizeEvidence(for: fixture.token),
+            ObservedSizeEvidence(
+                minSize: CGSize(width: 520, height: 1),
+                hints: ObservedPackingHints(height: ObservedAxisHint(requested: 400, observed: 406))
+            )
+        )
+
+        fixture.controller.adoptObservedMinimumAfterStableSizeClamp(
+            clampResult(fixture, target: taller, observed: CGRect(x: 20, y: 24, width: 400, height: 406))
+        )
+        XCTAssertEqual(manager.worldSeq, replacedSeq)
     }
 
     func testStableClampRejectsWrongProcessAndReplacedAXIdentity() throws {
@@ -58,7 +98,7 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
         fixture.controller.adoptObservedMinimumAfterStableSizeClamp(
             clampResult(fixture, target: target, observed: observed, pid: fixture.token.pid + 1)
         )
-        XCTAssertNil(manager.observedMinSize(for: fixture.token))
+        XCTAssertNil(manager.observedSizeEvidence(for: fixture.token)?.minSize)
 
         XCTAssertNotNil(manager.removeWindow(pid: fixture.token.pid, windowId: fixture.token.windowId))
         let replacement = AXWindowRef(
@@ -75,13 +115,13 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
 
         fixture.controller.adoptObservedMinimumAfterStableSizeClamp(originalResult)
 
-        XCTAssertNil(manager.observedMinSize(for: replacementToken))
+        XCTAssertNil(manager.observedSizeEvidence(for: replacementToken)?.minSize)
         XCTAssertTrue(sameAXWindowIdentity(try XCTUnwrap(manager.entry(for: replacementToken)).axRef, replacement))
 
         fixture.controller.adoptObservedMinimumAfterStableSizeClamp(
             clampResult(fixture, target: target, observed: observed, window: replacement)
         )
-        XCTAssertEqual(manager.observedMinSize(for: replacementToken), CGSize(width: 520, height: 1))
+        XCTAssertEqual(manager.observedSizeEvidence(for: replacementToken)?.minSize, CGSize(width: 520, height: 1))
     }
 
     func testStableClampDoesNotLearnFromFloatingFullscreenOrHiddenWindows() throws {
@@ -111,7 +151,7 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
                 )
             )
 
-            XCTAssertNil(manager.observedMinSize(for: fixture.token), state)
+            XCTAssertNil(manager.observedSizeEvidence(for: fixture.token)?.minSize, state)
             XCTAssertEqual(manager.worldSeq, initialSeq, state)
         }
     }
@@ -160,7 +200,10 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
         controller.axManager.invalidateAppliedFrame(for: fixture.token.windowId)
 
         XCTAssertNil(controller.axManager.lastAppliedFrame(for: fixture.token.windowId))
-        XCTAssertEqual(manager.observedMinSize(for: fixture.token), CGSize(width: accepted.width, height: 1))
+        XCTAssertEqual(
+            manager.observedSizeEvidence(for: fixture.token)?.minSize,
+            CGSize(width: accepted.width, height: 1)
+        )
         let plan = try XCTUnwrap(manager.withEngineMutationScope {
             controller.niriLayoutHandler.layoutWithNiriEngine(activeWorkspaces: [fixture.workspaceId]).first
         })

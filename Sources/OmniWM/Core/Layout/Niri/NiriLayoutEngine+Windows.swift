@@ -8,15 +8,21 @@ extension NiriLayoutEngine {
     func updateWindowConstraints(
         for token: WindowToken,
         constraints: WindowSizeConstraints,
+        packingHints: ObservedPackingHints = .none,
         in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot
     ) {
         assertSanctionedMutation()
         guard let node = states[workspaceId]?.nodesByToken[token] else { return }
         let normalized = constraints.normalized()
+        let column = node.parent as? NiriContainer
+        if node.packingHints != packingHints {
+            node.packingHints = packingHints
+            column?.invalidateCachedPrimarySpans()
+        }
         guard node.constraints != normalized else { return }
         node.constraints = normalized
-        guard let column = node.parent as? NiriContainer else { return }
+        guard let column else { return }
         if column.cachedHeight > 0 {
             column.cachedHeight = column.clampedToHeightBounds(column.cachedHeight)
         }

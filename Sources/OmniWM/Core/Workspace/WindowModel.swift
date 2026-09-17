@@ -57,7 +57,7 @@ final class WindowModel {
     private var windowIdToToken: [Int: WindowToken] = [:]
     private var handleByToken: [WindowToken: WindowHandle] = [:]
     private var constraintsCacheByToken: [WindowToken: ConstraintsCacheRecord] = [:]
-    private var observedMinSizeByToken: [WindowToken: CGSize] = [:]
+    private var observedSizeEvidenceByToken: [WindowToken: ObservedSizeEvidence] = [:]
     private var workspaceIndex = WindowTokenIndex<WorkspaceDescriptor.ID>()
     private var workspaceModeIndex = WindowTokenIndex<WorkspaceModeKey>()
     private var pidIndex = WindowTokenIndex<pid_t>()
@@ -211,8 +211,8 @@ final class WindowModel {
         entry.axRef = newAXRef
         constraintsCacheByToken.removeValue(forKey: oldToken)
         let preservesAXIncarnation = CFEqual(entry.axRef.element, newAXRef.element)
-        if let minSize = observedMinSizeByToken.removeValue(forKey: oldToken), preservesAXIncarnation {
-            observedMinSizeByToken[newToken] = minSize
+        if let evidence = observedSizeEvidenceByToken.removeValue(forKey: oldToken), preservesAXIncarnation {
+            observedSizeEvidenceByToken[newToken] = evidence
         }
         if let handle = handleByToken.removeValue(forKey: oldToken) {
             handle.id = newToken
@@ -457,7 +457,7 @@ extension WindowModel {
     func removeWindow(key: WindowKey) -> WindowState? {
         handleByToken.removeValue(forKey: key)
         constraintsCacheByToken.removeValue(forKey: key)
-        observedMinSizeByToken.removeValue(forKey: key)
+        observedSizeEvidenceByToken.removeValue(forKey: key)
         guard let entry = entries[key] else { return nil }
         removeIndexes(for: entry, token: key, windowId: key.windowId)
         entries.removeValue(forKey: key)
@@ -481,18 +481,17 @@ extension WindowModel {
         )
     }
 
-    func observedMinSize(for token: WindowToken) -> CGSize? {
-        observedMinSizeByToken[token]
+    func observedSizeEvidence(for token: WindowToken) -> ObservedSizeEvidence? {
+        observedSizeEvidenceByToken[token]
     }
 
-    func setObservedMinSize(_ size: CGSize, for token: WindowToken) -> Bool {
+    func setObservedSizeEvidence(_ evidence: ObservedSizeEvidence, for token: WindowToken) -> Bool {
         guard entries[token] != nil else { return false }
-        if let existing = observedMinSizeByToken[token],
-           existing.isWithinFrameTolerance(of: size)
-        {
-            return false
+        if evidence.isEmpty {
+            return observedSizeEvidenceByToken.removeValue(forKey: token) != nil
         }
-        observedMinSizeByToken[token] = size
+        guard observedSizeEvidenceByToken[token]?.isWithinFrameTolerance(of: evidence) != true else { return false }
+        observedSizeEvidenceByToken[token] = evidence
         return true
     }
 }

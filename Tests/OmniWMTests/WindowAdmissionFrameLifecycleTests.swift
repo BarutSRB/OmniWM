@@ -1152,7 +1152,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
 
         XCTAssertNotNil(controller.workspaceManager.entry(for: token))
         XCTAssertEqual(
-            controller.workspaceManager.observedMinSize(for: token),
+            controller.workspaceManager.observedSizeEvidence(for: token)?.minSize,
             CGSize(width: 648, height: 488)
         )
         XCTAssertFalse(controller.axEventHandler.isAdmissionQuarantined(windowId: windowId, axRef: axRef))
@@ -1183,7 +1183,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         controller.axEventHandler.handleTerminalFrameRefusal(refusal)
 
         XCTAssertNotNil(controller.workspaceManager.entry(for: token))
-        XCTAssertNil(controller.workspaceManager.observedMinSize(for: token))
+        XCTAssertNil(controller.workspaceManager.observedSizeEvidence(for: token))
         XCTAssertFalse(controller.axEventHandler.isAdmissionQuarantined(windowId: windowId, axRef: axRef))
     }
 
@@ -1212,7 +1212,7 @@ final class WindowAdmissionFrameLifecycleTests: XCTestCase {
         controller.axEventHandler.handleTerminalFrameRefusal(refusal)
 
         XCTAssertNotNil(controller.workspaceManager.entry(for: token))
-        XCTAssertNil(controller.workspaceManager.observedMinSize(for: token))
+        XCTAssertNil(controller.workspaceManager.observedSizeEvidence(for: token))
         XCTAssertFalse(controller.axEventHandler.isAdmissionQuarantined(windowId: windowId, axRef: axRef))
     }
 

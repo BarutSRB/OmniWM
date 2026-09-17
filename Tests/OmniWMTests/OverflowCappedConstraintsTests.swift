@@ -177,7 +177,10 @@ final class ObservedMinSizeCapTests: XCTestCase {
             windowId: 811_101,
             to: workspaceId
         )
-        XCTAssertTrue(controller.workspaceManager.setObservedMinSize(CGSize(width: 5000, height: 500), for: token))
+        XCTAssertTrue(controller.workspaceManager.setObservedSizeEvidence(
+            ObservedSizeEvidence(minSize: CGSize(width: 5000, height: 500)),
+            for: token
+        ))
 
         let input = try XCTUnwrap(
             controller.layoutRefreshController.buildRefreshInput(
@@ -191,5 +194,22 @@ final class ObservedMinSizeCapTests: XCTestCase {
 
         XCTAssertEqual(snapshot.constraints.minSize.width, input.monitor.workingFrame.width, accuracy: 0.5)
         XCTAssertEqual(snapshot.constraints.minSize.height, 500, accuracy: 0.5)
+
+        controller.workspaceManager.setCachedConstraints(.unconstrained, for: token)
+        let hints = ObservedPackingHints(height: ObservedAxisHint(requested: 300, observed: 306))
+        XCTAssertTrue(controller.workspaceManager.setObservedSizeEvidence(
+            ObservedSizeEvidence(hints: hints),
+            for: token
+        ))
+        let hinted = try XCTUnwrap(
+            controller.layoutRefreshController.buildRefreshInput(
+                workspaceId: workspaceId,
+                monitor: primary,
+                resolveConstraints: true,
+                isActiveWorkspace: true
+            )?.windows.first { $0.token == token }
+        )
+        XCTAssertEqual(hinted.constraints, .unconstrained)
+        XCTAssertEqual(hinted.packingHints, hints)
     }
 }

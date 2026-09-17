@@ -28,6 +28,7 @@ enum RuntimeDiagnosticsReport {
             section("Reconcile Trace", controller.workspaceManager.reconcileTraceDump(limit: traceLimit)),
             section("Invariant Violations", controller.workspaceManager.invariantViolationCountsDump()),
             section("AX Frame State", controller.axManager.frameStateDump()),
+            section("Observed Sizing", observedSizingSection(controller)),
             section("macOS App Visibility State", appVisibilitySection(controller)),
             section("Hidden Window Physical State", hiddenWindowPhysicalSection(controller)),
             section("Recent AX Notifications", RawAXNotificationTrace.shared.recentDump()),
@@ -139,6 +140,18 @@ enum RuntimeDiagnosticsReport {
         case let .state(excludedCount, missingCount, unexpectedCount):
             "excluded:\(excludedCount),missing:\(missingCount),unexpected:\(unexpectedCount),match:\(missingCount == 0 && unexpectedCount == 0)"
         }
+    }
+
+    private static func observedSizingSection(_ controller: WMController) -> String {
+        let lines = controller.workspaceManager.allEntries()
+            .sorted { $0.windowId < $1.windowId }
+            .compactMap { entry -> String? in
+                guard let evidence = controller.workspaceManager.observedSizeEvidence(for: entry.token) else {
+                    return nil
+                }
+                return "win=\(entry.windowId) \(evidence.traceDescription)"
+            }
+        return lines.isEmpty ? "none" : lines.joined(separator: "\n")
     }
 
     private static func hiddenWindowPhysicalSection(_ controller: WMController) -> String {

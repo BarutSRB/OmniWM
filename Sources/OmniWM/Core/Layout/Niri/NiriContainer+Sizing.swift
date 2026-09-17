@@ -26,6 +26,7 @@ extension NiriContainer {
         let widthLeft = max(1, availableSpan - gaps - minWidthTaken - gaps)
         windowWidth = min(widthLeft, windowWidth)
         windowWidth = window.constraints.clampWidth(windowWidth)
+        windowWidth = window.packingHints.width?.packed(windowWidth, limit: widthLeft) ?? windowWidth
         window.windowWidth = .fixed(windowWidth.clamped(to: 1 ... NiriSizeChange.maxPixels))
         if window.sizingMode == .maximized {
             window.sizingMode = .normal
@@ -54,6 +55,7 @@ extension NiriContainer {
         let heightLeft = max(1, availableSpan - gaps - minHeightTaken - gaps)
         windowHeight = min(heightLeft, windowHeight)
         windowHeight = window.constraints.clampHeight(windowHeight)
+        windowHeight = window.packingHints.height?.packed(windowHeight, limit: heightLeft) ?? windowHeight
         window.height = .fixed(windowHeight.clamped(to: 1 ... NiriSizeChange.maxPixels))
         window.savedHeight = nil
         if window.sizingMode == .maximized {
@@ -113,15 +115,11 @@ extension NiriContainer {
         gaps: CGFloat,
         contentInset: CGFloat
     ) -> CGFloat {
-        let rawWidth: CGFloat = switch width {
-        case let .proportion(proportion):
-            (availableSpan - gaps) * proportion - gaps
-        case let .fixed(fixed):
-            fixed
-        }
-
-        return clampedToWidthBounds(
-            rawWidth,
+        resolvedPrimarySpan(
+            width,
+            orientation: .horizontal,
+            availableSpace: availableSpan,
+            gaps: gaps,
             contentInset: contentInset
         )
     }
@@ -131,14 +129,7 @@ extension NiriContainer {
         availableSpan: CGFloat,
         gaps: CGFloat
     ) -> CGFloat {
-        let rawHeight: CGFloat = switch height {
-        case let .proportion(proportion):
-            (availableSpan - gaps) * proportion - gaps
-        case let .fixed(fixed):
-            fixed
-        }
-
-        return clampedToHeightBounds(rawHeight)
+        resolvedPrimarySpan(height, orientation: .vertical, availableSpace: availableSpan, gaps: gaps)
     }
 
     func nextHeightPresetIndex(

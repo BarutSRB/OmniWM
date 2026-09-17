@@ -388,8 +388,8 @@ extension WorkspaceManager {
     }
 
     @discardableResult
-    func setObservedMinSize(_ size: CGSize, for token: WindowToken) -> Bool {
-        world.setObservedMinSize(size, for: token)
+    func setObservedSizeEvidence(_ evidence: ObservedSizeEvidence, for token: WindowToken) -> Bool {
+        world.setObservedSizeEvidence(evidence, for: token)
     }
 
     func applyWorkspaceMonitorRelocation(

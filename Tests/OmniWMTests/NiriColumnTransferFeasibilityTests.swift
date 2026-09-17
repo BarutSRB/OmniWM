@@ -64,6 +64,17 @@ final class NiriColumnTransferFeasibilityTests: XCTestCase {
         XCTAssertEqual(fixture.engine.columns(in: fixture.workspaceId).count, 2)
     }
 
+    func testPackingHintsDoNotAffectTransferFeasibility() {
+        var fixture = makeFixture(minHeights: [100, 100])
+        for window in fixture.windows {
+            window.packingHints = ObservedPackingHints(height: ObservedAxisHint(requested: 780, observed: 790))
+        }
+        let targetColumn = fixture.engine.columns(in: fixture.workspaceId)[0]
+
+        XCTAssertTrue(consume(&fixture, window: fixture.windows[1], into: targetColumn))
+        XCTAssertEqual(targetColumn.windowNodes.count, 2)
+    }
+
     func testConsumeAllowedWhenMinHeightsFit() {
         var fixture = makeFixture(minHeights: [300, 400])
         let targetColumn = fixture.engine.columns(in: fixture.workspaceId)[0]

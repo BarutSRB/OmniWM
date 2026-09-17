@@ -249,6 +249,22 @@ extension NiriLayoutEngine {
         }
 
         let contentInset = orientation == .horizontal && windows.count > 1 ? tabContentInset(for: column) : 0
+        let bounds = projectedPrimaryBounds(of: windows, orientation: orientation, contentInset: contentInset)
+        let clamped = NiriContainer.packedPrimarySpan(
+            max(rawSpan, bounds.min),
+            windows: windows,
+            orientation: orientation,
+            limit: availableSpace - gap * 2,
+            contentInset: contentInset
+        )
+        return bounds.max.map { min(clamped, $0) } ?? clamped
+    }
+
+    private func projectedPrimaryBounds(
+        of windows: [NiriWindow],
+        orientation: Monitor.Orientation,
+        contentInset: CGFloat
+    ) -> (min: CGFloat, max: CGFloat?) {
         var minimum: CGFloat = 1
         var maximum: CGFloat?
         for window in windows {
@@ -266,11 +282,7 @@ extension NiriLayoutEngine {
                 }
             }
         }
-        minimum += contentInset
-        maximum = maximum.map { max($0, minimum - contentInset) + contentInset }
-
-        let clamped = max(rawSpan, minimum)
-        return maximum.map { min(clamped, $0) } ?? clamped
+        return (minimum + contentInset, maximum.map { max($0, minimum) + contentInset })
     }
 
     func ensureProjectedSelectionVisible(

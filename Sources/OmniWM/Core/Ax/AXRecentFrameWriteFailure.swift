@@ -13,7 +13,7 @@ struct AXRecentFrameWriteFailure {
     let settersSucceeded: Bool
     let components: AXFrameComponents
     var isTerminalRefusal = false
-    private static let maxAcceptedSizeSnap: CGFloat = 16
+    static let maxAcceptedSizeSnap: CGFloat = 16
 
     private static func isAXTopLeftAnchoredSizeClamp(target: CGRect, observed: CGRect) -> Bool {
         guard !target.isNull,

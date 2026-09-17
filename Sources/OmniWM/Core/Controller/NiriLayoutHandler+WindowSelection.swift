@@ -23,6 +23,7 @@ extension NiriLayoutHandler {
             pass.engine.updateWindowConstraints(
                 for: window.token,
                 constraints: window.constraints,
+                packingHints: window.packingHints,
                 in: pass.wsId,
                 motion: controller?.motionPolicy.snapshot() ?? .enabled
             )

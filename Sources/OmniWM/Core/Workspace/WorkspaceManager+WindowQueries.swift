@@ -110,7 +110,7 @@ extension WorkspaceManager {
         windowQueries.cachedConstraints(for: token, maxAge: maxAge)
     }
 
-    func observedMinSize(for token: WindowToken) -> CGSize? {
-        windowQueries.observedMinSize(for: token)
+    func observedSizeEvidence(for token: WindowToken) -> ObservedSizeEvidence? {
+        windowQueries.observedSizeEvidence(for: token)
     }
 }
