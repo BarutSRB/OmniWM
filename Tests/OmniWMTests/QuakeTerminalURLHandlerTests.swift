@@ -10,7 +10,7 @@ import XCTest
 final class QuakeTerminalURLHandlerTests: XCTestCase {
     func testOpensWebAndEmailHyperlinks() {
         for string in [
-            "https://github.com/BarutSRB/OmniWM/issues?state=open#results",
+            "https://github.com/OmniNull/OmniWM/issues?state=open#results",
             "http://localhost:3000/path",
             "HTTPS://example.com/path",
             "mailto:hello@example.com?subject=Hello%20there"

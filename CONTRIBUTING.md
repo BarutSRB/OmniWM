@@ -20,12 +20,12 @@ The result must report Swift 6.4. The standalone Command Line Tools package is n
 
 ### 2. Fork, Clone, and Create a Branch
 
-Click **Fork** on [the OmniWM repository](https://github.com/BarutSRB/OmniWM), then clone your fork. Replace `YOUR-USERNAME` with your GitHub username:
+Click **Fork** on [the OmniWM repository](https://github.com/OmniNull/OmniWM), then clone your fork. Replace `YOUR-USERNAME` with your GitHub username:
 
 ```bash
 git clone https://github.com/YOUR-USERNAME/OmniWM.git
 cd OmniWM
-git remote add upstream https://github.com/BarutSRB/OmniWM.git
+git remote add upstream https://github.com/OmniNull/OmniWM.git
 git fetch upstream
 git switch -c my-change upstream/main
 ```
@@ -71,7 +71,7 @@ swift test
 
 `make verify` checks formatting, lint, and the build. **It does not run tests.** See [verification](#verification) for runtime changes and website checks.
 
-Commit your change, push your branch to your fork, and open a pull request targeting **`BarutSRB/OmniWM:main`**. A draft PR is welcome when you want early feedback. Explain the problem, the resulting behavior, and what you verified; say what you could not check and why.
+Commit your change, push your branch to your fork, and open a pull request targeting **`OmniNull/OmniWM:main`**. A draft PR is welcome when you want early feedback. Explain the problem, the resulting behavior, and what you verified; say what you could not check and why.
 
 ## Everyday Commands
 

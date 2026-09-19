@@ -58,7 +58,7 @@ or later. Core window management supports macOS 26.
 ## Release integrity
 
 Official GitHub release builds are Developer ID signed and Apple-notarized. Downloads and release notes are published
-through the [OmniWM GitHub releases page](https://github.com/BarutSRB/OmniWM/releases/latest). OmniWM is free and open
+through the [OmniWM GitHub releases page](https://github.com/OmniNull/OmniWM/releases/latest). OmniWM is free and open
 source under the [GPL-2.0-only license](https://spdx.org/licenses/GPL-2.0-only.html).
 
 :::note

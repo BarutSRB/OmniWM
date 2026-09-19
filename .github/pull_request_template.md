@@ -8,6 +8,6 @@ What changes for someone using OmniWM? Mention configuration, CLI, or workflow c
 
 ## Verification
 
-Describe the checks you ran and their results. Include any checks not run and why. See the [contributor guide](https://github.com/BarutSRB/OmniWM/blob/main/CONTRIBUTING.md#verification).
+Describe the checks you ran and their results. Include any checks not run and why. See the [contributor guide](https://github.com/OmniNull/OmniWM/blob/main/CONTRIBUTING.md#verification).
 
 Add screenshots, recordings, or CLI examples if they help demonstrate the change.

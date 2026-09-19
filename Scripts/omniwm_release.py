@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 DEFAULT_MAIN_REPO = Path("/Users/barut/OmniWM/OmniWM")
-DEFAULT_GITHUB_REPO = "BarutSRB/OmniWM"
+DEFAULT_GITHUB_REPO = "OmniNull/OmniWM"
 SIGNING_IDENTITY = "Developer ID Application: Oliver Nikolic (VF8LDJRGFM)"
 NOTARIZE_PROFILE = "OmniWM-Notarize"
 MANIFEST_SCHEMA = 3

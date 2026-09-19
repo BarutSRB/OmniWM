@@ -37,8 +37,8 @@ The best way to report a bug is from inside OmniWM: open the status-bar menu and
 Review the `.log` before attaching it to a public issue: it can include settings, app and window titles, and title-based rule matchers.
 :::
 
-Prefer the web? The [GitHub issue form](https://github.com/BarutSRB/OmniWM/issues/new/choose) works too; please include your OmniWM and macOS versions there.
+Prefer the web? The [GitHub issue form](https://github.com/OmniNull/OmniWM/issues/new/choose) works too; please include your OmniWM and macOS versions there.
 
 ## Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM). Start with [the contributor guide](/developers/contributing/) for the project guidelines, expectations, and preferred direction.
+Issues and pull requests are welcome on [GitHub](https://github.com/OmniNull/OmniWM). Start with [the contributor guide](/developers/contributing/) for the project guidelines, expectations, and preferred direction.

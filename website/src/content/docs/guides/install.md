@@ -67,7 +67,7 @@ After either installation, finish with the [first-launch setup](#first-launch-se
 
 ## GitHub Releases
 
-1. Download the latest `OmniWM-v<version>.zip` app archive from [Releases](https://github.com/BarutSRB/OmniWM/releases).
+1. Download the latest `OmniWM-v<version>.zip` app archive from [Releases](https://github.com/OmniNull/OmniWM/releases).
 2. Extract and move `OmniWM.app` to `/Applications`.
 3. Continue with the first-launch setup.
 

@@ -25,9 +25,9 @@ const applicationSchema = {
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   license: 'https://spdx.org/licenses/GPL-2.0-only.html',
   softwareVersion: version,
-  downloadUrl: 'https://github.com/BarutSRB/OmniWM/releases/latest',
+  downloadUrl: 'https://github.com/OmniNull/OmniWM/releases/latest',
   author: { '@type': 'Person', name: 'BarutSRB', url: 'https://github.com/BarutSRB' },
-  sameAs: ['https://github.com/BarutSRB/OmniWM'],
+  sameAs: ['https://github.com/OmniNull/OmniWM'],
 };
 const additionalSchemas = structuredData ? (Array.isArray(structuredData) ? structuredData : [structuredData]) : [];
 const jsonLd = JSON.stringify({ '@context': 'https://schema.org', '@graph': [applicationSchema, ...additionalSchemas] });
@@ -86,7 +86,7 @@ const jsonLd = JSON.stringify({ '@context': 'https://schema.org', '@graph': [app
           <a href="#features">Features</a>
           <a href="#install">Install</a>
           <a href="/guides/quick-start/">Docs</a>
-          <a href="https://github.com/BarutSRB/OmniWM">GitHub</a>
+          <a href="https://github.com/OmniNull/OmniWM">GitHub</a>
           <button class="theme-toggle" type="button" aria-label="Toggle color theme">
             <span class="tt-sun">☀</span><span class="tt-moon">☾</span>
           </button>

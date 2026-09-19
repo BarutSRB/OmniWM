@@ -335,7 +335,7 @@ struct StatusMenuHelpLinksView: View {
     var body: some View {
         VStack(spacing: 0) {
             MenuActionRow(icon: "link", label: "GitHub", isExternal: true) {
-                open("https://github.com/BarutSRB/OmniWM")
+                open("https://github.com/OmniNull/OmniWM")
             }
             MenuActionRow(icon: "heart", label: "Sponsor on GitHub", isExternal: true) {
                 open("https://github.com/sponsors/BarutSRB")

@@ -481,11 +481,11 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
   <img src="https://custom-icon-badges.demolab.com/badge/OpenAI-Assisted-green?logo=openai&logoColor=white" alt="OpenAI Assisted">
 </p>
 <p align="center">
-  <a href="https://trendshift.io/repositories/16758" target="_blank"><img src="https://trendshift.io/api/badge/repositories/16758" alt="BarutSRB%2FOmniWM | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+  <a href="https://trendshift.io/repositories/16758" target="_blank"><img src="https://trendshift.io/api/badge/repositories/16758" alt="OmniNull%2FOmniWM | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
 <p align="center">
-  <a href="https://trendshift.io/repositories/16758?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-16758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/16758/weekly?language=Swift" alt="BarutSRB%2FOmniWM | Trendshift" width="250" height="55"/></a>
-  <a href="https://trendshift.io/repositories/16758?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-16758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/16758/monthly?language=Swift" alt="BarutSRB%2FOmniWM | Trendshift" width="250" height="55"/></a>
+  <a href="https://trendshift.io/repositories/16758?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-16758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/16758/weekly?language=Swift" alt="OmniNull%2FOmniWM | Trendshift" width="250" height="55"/></a>
+  <a href="https://trendshift.io/repositories/16758?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-16758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/16758/monthly?language=Swift" alt="OmniNull%2FOmniWM | Trendshift" width="250" height="55"/></a>
 </p>
 
 ## Highlights
@@ -591,7 +591,7 @@ After either installation, complete the macOS setup in steps 3-7 below.
 
 ### GitHub Releases
 
-1. Download the latest `OmniWM-v<version>.zip` app archive from [Releases](https://github.com/BarutSRB/OmniWM/releases)
+1. Download the latest `OmniWM-v<version>.zip` app archive from [Releases](https://github.com/OmniNull/OmniWM/releases)
 2. Extract and move `OmniWM.app` to `/Applications`
 3. In System Settings > Desktop & Dock > Mission Control, turn **ON** `Displays have separate Spaces`
 4. Log out of macOS and log back in for that change to take effect unless you had it on already
@@ -1069,11 +1069,11 @@ If you find OmniWM useful, consider supporting development:
 
 The best way to report a bug is from inside OmniWM: open the status-bar menu and choose **Report a Bug…**. That opens the in-app report form, where recording or attaching trace and crash evidence is optional. On submit, OmniWM prepares one fresh diagnostic `.log` (with any evidence you selected appended), reveals it in Finder for you to attach, and opens a pre-filled GitHub issue — OmniWM never sees your GitHub login. Review the `.log` before attaching it to a public issue: it can include settings, app and window titles, and title-based rule matchers.
 
-Prefer the web? The [GitHub issue form](https://github.com/BarutSRB/OmniWM/issues/new/choose) works too; please include your OmniWM and macOS versions there.
+Prefer the web? The [GitHub issue form](https://github.com/OmniNull/OmniWM/issues/new/choose) works too; please include your OmniWM and macOS versions there.
 
 ## Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/BarutSRB/OmniWM).
+Issues and pull requests are welcome on [GitHub](https://github.com/OmniNull/OmniWM).
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the actual project guidelines, expectations, and preferred direction.
 

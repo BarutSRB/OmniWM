@@ -16,7 +16,7 @@ brew install --cask omniwm
 Prefer Nix or a plain zip? The [installation guide](/guides/install/) covers every method plus the full requirements (macOS 26+ Tahoe on Apple Silicon).
 
 :::note[Documentation version]
-These guides follow current `main`. Features newer than the latest [GitHub release](https://github.com/BarutSRB/OmniWM/releases/latest) are marked **Unreleased**.
+These guides follow current `main`. Features newer than the latest [GitHub release](https://github.com/OmniNull/OmniWM/releases/latest) are marked **Unreleased**.
 :::
 
 ## First launch

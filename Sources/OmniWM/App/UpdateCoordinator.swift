@@ -110,7 +110,7 @@ struct GitHubRelease: Equatable {
 }
 
 struct GitHubReleaseService: GitHubReleaseFetching, Sendable {
-    private static let latestReleaseURL = URL(string: "https://api.github.com/repos/BarutSRB/OmniWM/releases/latest")!
+    private static let latestReleaseURL = URL(string: "https://api.github.com/repos/OmniNull/OmniWM/releases/latest")!
 
     var session: URLSession = .shared
     var latestReleaseURL: URL = Self.latestReleaseURL
@@ -151,7 +151,7 @@ final class UpdateCoordinator: AppUpdateCoordinating {
     }
 
     static let homebrewUpdateCommand = "brew upgrade omniwm"
-    static let releasesPageURL = URL(string: "https://github.com/BarutSRB/OmniWM/releases")!
+    static let releasesPageURL = URL(string: "https://github.com/OmniNull/OmniWM/releases")!
 
     private let settings: SettingsStore
     private let runtimeState: RuntimeStateStore
@@ -391,7 +391,7 @@ final class UpdateCoordinator: AppUpdateCoordinating {
         let url = release.releasePageURL
         guard let host = url.host,
               host.caseInsensitiveCompare("github.com") == .orderedSame,
-              url.path.hasPrefix("/BarutSRB/OmniWM/releases")
+              url.path.hasPrefix("/OmniNull/OmniWM/releases")
         else {
             return Self.releasesPageURL
         }

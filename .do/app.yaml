@@ -1,9 +1,10 @@
 name: omniwm-website
+region: tor
 static_sites:
   - name: website
     environment_slug: node-js
     github:
-      repo: BarutSRB/OmniWM
+      repo: OmniNull/OmniWM
       branch: main
       deploy_on_push: true
     source_dir: website

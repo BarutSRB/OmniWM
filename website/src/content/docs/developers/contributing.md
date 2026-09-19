@@ -25,12 +25,12 @@ The result must report Swift 6.4. The standalone Command Line Tools package is n
 
 ### 2. Fork, Clone, and Create a Branch
 
-Click **Fork** on [the OmniWM repository](https://github.com/BarutSRB/OmniWM), then clone your fork. Replace `YOUR-USERNAME` with your GitHub username:
+Click **Fork** on [the OmniWM repository](https://github.com/OmniNull/OmniWM), then clone your fork. Replace `YOUR-USERNAME` with your GitHub username:
 
 ```bash
 git clone https://github.com/YOUR-USERNAME/OmniWM.git
 cd OmniWM
-git remote add upstream https://github.com/BarutSRB/OmniWM.git
+git remote add upstream https://github.com/OmniNull/OmniWM.git
 git fetch upstream
 git switch -c my-change upstream/main
 ```
@@ -45,7 +45,7 @@ make setup
 
 This downloads the pinned, prebuilt GhosttyKit into `Frameworks/GhosttyKit.xcframework` and checks its checksum. **You do not need to compile GhosttyKit.** It also installs the pinned SwiftFormat and SwiftLint tools into the repository's ignored local tool cache; no manual Homebrew installation is required. Valid existing dependencies are reused.
 
-Tool versions and download checksums are recorded in [Scripts/dev-tools.env](https://github.com/BarutSRB/OmniWM/blob/main/Scripts/dev-tools.env); Ghostty's internal archive pin remains in [Scripts/build-metadata.env](https://github.com/BarutSRB/OmniWM/blob/main/Scripts/build-metadata.env). Setup preserves an existing framework that does not match the pin and explains the mismatch instead of overwriting it. Setup does not launch OmniWM or change privacy permissions, login items, or CLI links.
+Tool versions and download checksums are recorded in [Scripts/dev-tools.env](https://github.com/OmniNull/OmniWM/blob/main/Scripts/dev-tools.env); Ghostty's internal archive pin remains in [Scripts/build-metadata.env](https://github.com/OmniNull/OmniWM/blob/main/Scripts/build-metadata.env). Setup preserves an existing framework that does not match the pin and explains the mismatch instead of overwriting it. Setup does not launch OmniWM or change privacy permissions, login items, or CLI links.
 
 ### 4. Optionally Create a Signing Certificate
 
@@ -76,7 +76,7 @@ swift test
 
 `make verify` checks formatting, lint, and the build. **It does not run tests.** See [verification](#verification) for runtime changes and website checks.
 
-Commit your change, push your branch to your fork, and open a pull request targeting **`BarutSRB/OmniWM:main`**. A draft PR is welcome when you want early feedback. Explain the problem, the resulting behavior, and what you verified; say what you could not check and why.
+Commit your change, push your branch to your fork, and open a pull request targeting **`OmniNull/OmniWM:main`**. A draft PR is welcome when you want early feedback. Explain the problem, the resulting behavior, and what you verified; say what you could not check and why.
 
 ## Everyday Commands
 
@@ -198,6 +198,6 @@ With IPC enabled, captures can also be scripted using the CLI: `capture start tr
 
 ## Improving the Issue-Report Prompt
 
-The prompt that rewrites bug reports into GitHub issues lives in plain Markdown. See [docs/issue-report-prompt.md](https://github.com/BarutSRB/OmniWM/blob/main/docs/issue-report-prompt.md) for the files, constraints, and verification steps.
+The prompt that rewrites bug reports into GitHub issues lives in plain Markdown. See [docs/issue-report-prompt.md](https://github.com/OmniNull/OmniWM/blob/main/docs/issue-report-prompt.md) for the files, constraints, and verification steps.
 
 If you are unsure about something, open an issue or ask in your pull request. Questions and early feedback are welcome.
