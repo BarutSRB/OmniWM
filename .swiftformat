@@ -12,7 +12,7 @@
 --commas inline
 --trimwhitespace always
 --semicolons never
---header "// SPDX-License-Identifier: GPL-2.0-only\n// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM"
+--header "// SPDX-License-Identifier: GPL-2.0-only\n// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM"
 
 --disable all
 --enable blankLineAfterImports,blankLinesAroundMark,blankLinesAtEndOfScope,blankLinesAtStartOfScope

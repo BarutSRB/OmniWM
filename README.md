@@ -1087,6 +1087,6 @@ The similarly named files under `docs/` are compatibility stubs that direct old 
 
 ## License
 
-OmniWM is licensed under the [GNU General Public License v2.0-only](LICENSE). Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM.
+OmniWM is licensed under the [GNU General Public License v2.0-only](LICENSE). Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM.
 
 Every source file carries an SPDX license header. Forks and redistributions must retain these notices and the `LICENSE` file, and remain GPL-2.0-only with source available.
